@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!--
+      The private KeshavSingh.* feed needs PACKAGES_READ_TOKEN. When it is absent we swap the
+      PackageReferences for ProjectReferences into the sibling checkouts, so restore can't 401.
+      Because the Exists() probe comes first, a local build uses sibling SOURCE even when the
+      token IS set - pass -p:UseLocalProjectReferences=false to force a real registry restore.
+    -->
+    <UseLocalProjectReferences Condition="'$(UseLocalProjectReferences)' == '' and Exists('..\..\..\KeshavSingh-Packages-Nosql\src\KeshavSingh.Mongo.NoSql\KeshavSingh.Mongo.NoSql.csproj')">true</UseLocalProjectReferences>
+    <SkipPrivatePackages Condition="'$(UseLocalProjectReferences)' == 'true' or '$(PACKAGES_READ_TOKEN)' == ''">true</SkipPrivatePackages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Pinned to match both KeshavSingh.Mongo.NoSql and KeshavSingh.Core, to avoid a diamond. -->
+    <PackageReference Include="MongoDB.Driver" Version="3.10.0" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(SkipPrivatePackages)' != 'true'">
+    <PackageReference Include="KeshavSingh.Mongo.NoSql" Version="0.4.0" />
+    <PackageReference Include="KeshavSingh.Storage" Version="0.3.0" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(SkipPrivatePackages)' == 'true'">
+    <ProjectReference Include="..\..\..\KeshavSingh-Packages-Nosql\src\KeshavSingh.Mongo.NoSql\KeshavSingh.Mongo.NoSql.csproj" />
+    <ProjectReference Include="..\..\..\KeshavSingh-Packages-Files\src\KeshavSingh.Storage\KeshavSingh.Storage.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AnimStudio.Application\AnimStudio.Application.csproj" />
+  </ItemGroup>
+
+</Project>

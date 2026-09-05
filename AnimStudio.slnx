@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/backend/">
+    <Project Path="backend/AnimStudio.Api/AnimStudio.Api.csproj" />
+    <Project Path="backend/AnimStudio.Application/AnimStudio.Application.csproj" />
+    <Project Path="backend/AnimStudio.Domain/AnimStudio.Domain.csproj" />
+    <Project Path="backend/AnimStudio.Infrastructure/AnimStudio.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AnimStudio.Application.Tests/AnimStudio.Application.Tests.csproj" />
+    <Project Path="tests/AnimStudio.Integration.Tests/AnimStudio.Integration.Tests.csproj" />
+  </Folder>
+</Solution>

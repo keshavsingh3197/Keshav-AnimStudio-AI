@@ -1,0 +1,34 @@
+# Build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+*.user
+*.suo
+
+# Node
+node_modules/
+dist/
+.angular/
+
+# Local media + renders: never committed (blueprint §37)
+storage/
+*.mp4
+*.mkv
+*.mp3
+*.wav
+*.ass
+*.srt
+*.vtt
+!tests/**/TestData/**
+
+# Secrets: user-secrets live outside the repo; these must never be committed
+appsettings.Development.json
+appsettings.Local.json
+*.secrets.json
+.env
+
+# Tooling
+.vs/
+.idea/
+*.log

@@ -1,0 +1,307 @@
+<div class="wrap">
+  <h1>AnimStudio AI</h1>
+  <p class="muted">
+    Turn a transcript into an animated video: characters composited over a background,
+    animated with Ken Burns motion, with burned-in subtitles.
+  </p>
+
+  <!-- Renderer availability. Shown first, because nothing else matters if it is missing. -->
+  @if (renderer(); as r) {
+    <div class="card">
+      <div class="row" style="justify-content: space-between">
+        <div>
+          <strong>Renderer</strong>
+          @if (r.available) {
+            <span class="pill ok">ready</span>
+            <span class="muted mono">{{ r.version }}</span>
+          } @else {
+            <span class="pill err">unavailable</span>
+          }
+        </div>
+        @if (r.available) {
+          <div class="muted">
+            subtitles {{ r.burnedSubtitles ? 'yes' : 'no' }} &middot;
+            motion {{ r.kenBurns ? 'yes' : 'no' }} &middot;
+            transitions {{ r.transitions ? 'yes' : 'no' }}
+          </div>
+        }
+      </div>
+      @if (!r.available) {
+        <div class="notice error" style="margin-top: .7rem">
+          {{ r.unavailableReason }}
+        </div>
+      }
+    </div>
+  }
+
+  @if (error(); as message) {
+    <div class="notice error">{{ message }}</div>
+  }
+
+  @if (notices().length > 0) {
+    <div class="card">
+      @for (notice of notices(); track $index) {
+        <div class="notice">{{ notice }}</div>
+      }
+      <button class="secondary" type="button" (click)="dismissNotices()">Dismiss</button>
+    </div>
+  }
+
+  <!-- 1. Project -->
+  <div class="card">
+    <div class="step">
+      <span class="n">1</span>
+      <div style="flex: 1">
+        <h3>Create a project</h3>
+        @if (project(); as p) {
+          <p class="muted">
+            <strong>{{ p.name }}</strong> &middot; {{ p.width }}&times;{{ p.height }} @ {{ p.fps }}fps
+            <span class="mono">{{ p.id }}</span>
+          </p>
+        } @else {
+          <div class="row">
+            <input type="text" [(ngModel)]="projectName" style="flex: 1 1 18rem"
+                   placeholder="Project name" />
+            <button type="button" (click)="createProject()" [disabled]="busy()">Create</button>
+          </div>
+        }
+      </div>
+    </div>
+  </div>
+
+  @if (project()) {
+    <!-- 2. Assets -->
+    <div class="card">
+      <div class="step">
+        <span class="n">2</span>
+        <div style="flex: 1">
+          <h3>Upload a background and character sprites</h3>
+          <p class="muted">
+            Sprites must be PNGs with transparency. Two per character &mdash; mouth closed and
+            mouth open &mdash; gives the talking effect.
+          </p>
+
+          <div class="row">
+            <label style="margin: 0">
+              Background
+              <input type="file" accept="image/*" (change)="upload($event, 'background')" />
+            </label>
+            <label style="margin: 0">
+              Sprite (mouth closed)
+              <input type="file" accept="image/png" (change)="upload($event, 'closed')" />
+            </label>
+            <label style="margin: 0">
+              Sprite (mouth open)
+              <input type="file" accept="image/png" (change)="upload($event, 'open')" />
+            </label>
+          </div>
+
+          @if (assets().length > 0) {
+            <table style="margin-top: .9rem">
+              <thead>
+                <tr><th>Name</th><th>Kind</th><th>Size</th><th>Alpha</th></tr>
+              </thead>
+              <tbody>
+                @for (asset of assets(); track asset.id) {
+                  <tr>
+                    <td>{{ asset.name }}</td>
+                    <td>{{ asset.kind }}</td>
+                    <td class="mono">
+                      @if (asset.width) { {{ asset.width }}&times;{{ asset.height }} }
+                      @else { {{ (asset.fileSizeBytes / 1024) | number: '1.0-0' }} KB }
+                    </td>
+                    <td>
+                      @if (asset.kind === 'Image') {
+                        <span [class]="asset.hasAlpha ? 'pill ok' : 'pill warn'">
+                          {{ asset.hasAlpha ? 'yes' : 'no' }}
+                        </span>
+                      }
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          }
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. Transcript -->
+    <div class="card">
+      <div class="step">
+        <span class="n">3</span>
+        <div style="flex: 1">
+          <h3>Add the transcript</h3>
+
+          <div class="row" style="margin-bottom: .8rem">
+            <button type="button" [class.secondary]="source() !== 'PastedText'"
+                    (click)="source.set('PastedText')">Paste text</button>
+            <button type="button" [class.secondary]="source() !== 'YouTubeCaptions'"
+                    (click)="source.set('YouTubeCaptions')"
+                    [disabled]="!urlSourceAvailable()">YouTube URL</button>
+
+            @if (!urlSourceAvailable() && urlSourceReason(); as reason) {
+              <span class="muted">URL import is off: <span class="mono">{{ reason }}</span></span>
+            }
+          </div>
+
+          @if (source() === 'PastedText') {
+            <label for="transcript">Transcript</label>
+            <textarea id="transcript" [(ngModel)]="transcript"
+                      placeholder="Name: line of dialogue"></textarea>
+            <p class="muted">
+              Prefix lines with a speaker name to have them cast to that character. Pasted text
+              has no real timings, so scene lengths are estimated and there is no audio.
+            </p>
+          } @else {
+            <label for="url">YouTube URL</label>
+            <input id="url" type="url" [(ngModel)]="url"
+                   placeholder="https://www.youtube.com/watch?v=..." />
+
+            <!-- Captions-only, and the attestation is recorded against the import. -->
+            <div class="notice" style="margin-top: .8rem">
+              Only captions are fetched &mdash; no video or audio is downloaded. Import only
+              content you own or are licensed to use; re-publishing someone else's video can
+              breach YouTube's terms and trigger a copyright claim.
+            </div>
+
+            <label style="font-weight: 400">
+              <input type="checkbox" [(ngModel)]="attestOwnRights" />
+              I have the right to use this video
+            </label>
+
+            <label for="basis" style="margin-top: .6rem">On what basis?</label>
+            <select id="basis" [(ngModel)]="basisCode">
+              <option value="IOwnTheContent">I own the content</option>
+              <option value="WrittenPermission">I have written permission</option>
+              <option value="PublicDomain">It is public domain</option>
+              <option value="OpenLicense">It has an open licence</option>
+              <option value="OtherLawfulBasis">Another lawful basis</option>
+            </select>
+          }
+
+          <div class="row" style="margin-top: .9rem">
+            <button type="button" (click)="ingest()"
+                    [disabled]="busy() || (source() === 'YouTubeCaptions' && !attestOwnRights)">
+              Build scenes
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. Scenes -->
+    @if (scenes().length > 0) {
+      <div class="card">
+        <div class="step">
+          <span class="n">4</span>
+          <div style="flex: 1">
+            <h3>Scenes <span class="muted">({{ scenes().length }})</span></h3>
+
+            @if (!scenesReady()) {
+              <div class="notice">
+                Every scene needs a background before rendering.
+                @if (backgrounds().length > 0) {
+                  Pick one to apply to all scenes:
+                }
+              </div>
+
+              @if (backgrounds().length > 0) {
+                <div class="row" style="margin-bottom: .8rem">
+                  @for (asset of backgrounds(); track asset.id) {
+                    <button class="secondary" type="button" (click)="applyBackground(asset.id)">
+                      Use "{{ asset.name }}"
+                    </button>
+                  }
+                </div>
+              }
+            }
+
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th><th>Title</th><th>Length</th>
+                  <th>Lines</th><th>Motion</th><th>Background</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (scene of scenes(); track scene.id) {
+                  <tr>
+                    <td>{{ scene.sceneNumber }}</td>
+                    <td>{{ scene.title }}</td>
+                    <td class="mono">{{ scene.durationSeconds | number: '1.1-1' }}s</td>
+                    <td>{{ scene.dialogueLines }}</td>
+                    <td class="muted">{{ scene.backgroundEffect }}</td>
+                    <td>
+                      <span [class]="scene.backgroundAssetId ? 'pill ok' : 'pill warn'">
+                        {{ scene.backgroundAssetId ? 'set' : 'missing' }}
+                      </span>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- 5. Render -->
+      <div class="card">
+        <div class="step">
+          <span class="n">5</span>
+          <div style="flex: 1">
+            <h3>Render</h3>
+
+            <div class="row">
+              <button type="button" (click)="render()" [disabled]="!canRender()">
+                Render video
+              </button>
+              @if (job() && !job()!.hasOutput && job()!.status === 'Processing') {
+                <button class="secondary" type="button" (click)="cancel()">Cancel</button>
+              }
+            </div>
+
+            @if (job(); as j) {
+              <div style="margin-top: 1rem">
+                <div class="row" style="justify-content: space-between">
+                  <span>
+                    <span [class]="statusClass(j.status)">{{ j.status }}</span>
+                    <span class="muted"> {{ j.message }}</span>
+                  </span>
+                  <span class="mono">{{ j.progress }}%</span>
+                </div>
+
+                <div class="bar" style="margin-top: .5rem">
+                  <i [style.width.%]="j.progress"></i>
+                </div>
+
+                @if (j.errorMessage) {
+                  <div class="notice error" style="margin-top: .7rem">
+                    {{ j.errorMessage }}
+                    <span class="mono muted"> ({{ j.errorCode }})</span>
+                  </div>
+                }
+
+                @if (j.hasOutput) {
+                  <div style="margin-top: 1rem">
+                    <video [src]="previewUrl()" controls preload="metadata"></video>
+                    <div class="row" style="margin-top: .7rem">
+                      <a [href]="downloadUrl()" download>
+                        <button type="button">Download MP4</button>
+                      </a>
+                      @if (j.outputDurationSeconds) {
+                        <span class="muted mono">
+                          {{ j.outputDurationSeconds | number: '1.1-1' }}s
+                        </span>
+                      }
+                    </div>
+                  </div>
+                }
+              </div>
+            }
+          </div>
+        </div>
+      </div>
+    }
+  }
+</div>
