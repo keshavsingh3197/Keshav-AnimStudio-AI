@@ -26,7 +26,7 @@ h1, h2, h3 { line-height: 1.25; margin: 0 0 .5rem; }
 p { margin: 0 0 .75rem; }
 a { color: var(--brand); }
 
-.wrap { max-width: 940px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 1.5rem 1.25rem 4rem; }
 
 .card {
   background: var(--surface);
@@ -101,3 +101,161 @@ th { color: var(--muted); font-weight: 600; }
   background: var(--surface-2); border: 1px solid var(--border);
   display: grid; place-items: center; font-size: .8rem; font-weight: 700;
 }
+
+/* --- shell ---------------------------------------------------------------- */
+
+.topbar {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.topbar-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: .8rem;
+  padding-bottom: .8rem;
+}
+
+.brand { font-weight: 800; letter-spacing: -.02em; text-decoration: none; color: var(--text); }
+.brand > span { color: var(--brand); }
+
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 1.25rem 0 .75rem;
+}
+
+/* Tabs across one project. */
+.tabs {
+  display: flex;
+  gap: .25rem;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1.25rem;
+}
+
+.tabs > a {
+  padding: .5rem .85rem;
+  border-radius: 8px 8px 0 0;
+  text-decoration: none;
+  color: var(--muted);
+  font-weight: 600;
+  border: 1px solid transparent;
+  border-bottom: none;
+  margin-bottom: -1px;
+}
+
+.tabs > a:hover { color: var(--text); }
+
+.tabs > a.active {
+  color: var(--text);
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+/* --- forms ---------------------------------------------------------------- */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: .9rem;
+  margin-bottom: .6rem;
+}
+
+input[type="number"], input[type="color"] {
+  padding: .5rem .6rem;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: inherit;
+}
+
+input[type="number"] { width: 100%; }
+input[type="color"] { width: 4rem; height: 2.4rem; padding: .2rem; }
+input[type="range"] { width: 100%; accent-color: var(--brand); }
+input[type="checkbox"] { accent-color: var(--brand); margin-right: .4rem; }
+input[type="file"] { color: var(--muted); font: inherit; }
+
+/* A form nested inside a listing card: the row being added or edited. */
+.subform {
+  margin-top: 1rem;
+  padding-top: .9rem;
+  border-top: 1px dashed var(--border);
+}
+
+.subform h4 { margin: 0 0 .6rem; font-size: .95rem; }
+
+/* --- buttons -------------------------------------------------------------- */
+
+button.danger {
+  background: transparent;
+  color: var(--err);
+  border-color: color-mix(in oklab, var(--err) 45%, transparent);
+}
+
+button.icon {
+  padding: .3rem .5rem;
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+button.link {
+  background: none;
+  border: none;
+  color: var(--brand);
+  padding: 0 .3rem;
+  text-decoration: underline;
+}
+
+/* --- media ---------------------------------------------------------------- */
+
+.thumb {
+  width: 4.5rem;
+  height: 2.6rem;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  display: block;
+}
+
+.thumb.sprite { object-fit: contain; background: repeating-conic-gradient(
+  var(--surface-2) 0% 25%, var(--surface) 0% 50%) 50% / 12px 12px; }
+
+.tiles { display: flex; flex-wrap: wrap; gap: .7rem; }
+
+.tile {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: .4rem;
+  display: grid;
+  gap: .3rem;
+  width: 9.5rem;
+  cursor: pointer;
+  color: var(--text);
+  font-weight: 400;
+}
+
+.tile > img { width: 100%; height: 5rem; object-fit: cover; border-radius: 6px; }
+.tile.selected { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand); }
+
+.swatch {
+  display: inline-block;
+  width: .9rem;
+  height: .9rem;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  vertical-align: -1px;
+  margin-right: .3rem;
+}
+
+audio { height: 2.2rem; vertical-align: middle; }

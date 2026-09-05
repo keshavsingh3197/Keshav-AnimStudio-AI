@@ -1,4 +1,5 @@
 using AnimStudio.Application.Abstractions.Transcripts;
+using AnimStudio.Application.Common;
 using AnimStudio.Application.Transcripts.Parsing;
 using AnimStudio.Domain.Errors;
 using Microsoft.AspNetCore.Diagnostics;
@@ -54,6 +55,13 @@ public sealed class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logge
                     _ => StatusCodes.Status400BadRequest
                 },
                 ingest.Code, ingest.Message),
+
+            // A rejected edit: the caller can fix it, so it says exactly what is wrong.
+            EditingException editing => (
+                editing.IsConflict
+                    ? StatusCodes.Status409Conflict
+                    : StatusCodes.Status400BadRequest,
+                editing.Code, editing.Message),
 
             SubtitleParseException parse =>
                 (StatusCodes.Status422UnprocessableEntity, parse.Code, parse.Message),

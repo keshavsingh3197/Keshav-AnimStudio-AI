@@ -1,6 +1,294 @@
-@AnimStudio.Api_HostAddress = http://localhost:5172
+@host = http://localhost:5172
 
-GET {{AnimStudio.Api_HostAddress}}/weatherforecast/
-Accept: application/json
+# Fill these in from responses as you go.
+@projectId = 000000000000000000000000
+@sceneId = 000000000000000000000000
+@characterId = 000000000000000000000000
+@assetId = 000000000000000000000000
+@scriptId = 000000000000000000000000
+@subtitleAssetId = 000000000000000000000000
+@jobId = 000000000000000000000000
 
-###
+### health
+GET {{host}}/health
+
+### can this server render, and with which features?
+GET {{host}}/api/system/renderer
+
+### which transcript sources are usable here?
+GET {{host}}/api/ingest/capabilities
+
+
+# --- projects ---------------------------------------------------------------
+
+### list
+GET {{host}}/api/projects
+
+### create
+POST {{host}}/api/projects
+Content-Type: application/json
+
+{
+  "name": "My animation",
+  "width": 1920,
+  "height": 1080,
+  "fps": 30,
+  "distributionIntent": "Personal"
+}
+
+### get
+GET {{host}}/api/projects/{{projectId}}
+
+### update - canvas, frame rate and the music bed. Changing fps rescales every scene.
+PUT {{host}}/api/projects/{{projectId}}
+Content-Type: application/json
+
+{
+  "name": "My animation",
+  "description": null,
+  "width": 1920,
+  "height": 1080,
+  "fps": 30,
+  "distributionIntent": "Personal",
+  "acceptShareAlikeObligation": false,
+  "backgroundMusicAssetId": null,
+  "backgroundMusicVolume": 0.18
+}
+
+### delete - cascades to scenes, characters and uploaded files
+DELETE {{host}}/api/projects/{{projectId}}
+
+
+# --- assets -----------------------------------------------------------------
+
+### list
+GET {{host}}/api/projects/{{projectId}}/assets
+
+### upload (multipart; send from an editor that can attach a file)
+# Images, audio, video - and SRT/WebVTT subtitles, which are stored as import-only material.
+# POST {{host}}/api/projects/{{projectId}}/assets
+
+### the stored bytes, for an <img> or <audio>
+GET {{host}}/api/assets/{{assetId}}/content
+
+### delete - refused with 409 while anything still references it
+DELETE {{host}}/api/assets/{{assetId}}
+
+
+# --- characters -------------------------------------------------------------
+
+### list
+GET {{host}}/api/projects/{{projectId}}/characters
+
+### create
+POST {{host}}/api/projects/{{projectId}}/characters
+Content-Type: application/json
+
+{
+  "name": "Rahul",
+  "aliases": ["Rahul Sharma"],
+  "closedMouthAssetId": null,
+  "openMouthAssetId": null,
+  "subtitleColorHex": "#FFE164",
+  "appearance": {
+    "age": 25,
+    "gender": "male",
+    "hair": "Black, short",
+    "clothes": "Blue shirt",
+    "additionalDetails": "Round glasses"
+  }
+}
+
+### get
+GET {{host}}/api/characters/{{characterId}}
+
+### update
+PUT {{host}}/api/characters/{{characterId}}
+Content-Type: application/json
+
+{
+  "name": "Rahul",
+  "aliases": ["Rahul Sharma"],
+  "subtitleColorHex": "#FFE164"
+}
+
+### delete - lines pass to the narrator, staging is dropped
+DELETE {{host}}/api/characters/{{characterId}}
+
+
+# --- import -----------------------------------------------------------------
+
+### transcript in, script out
+POST {{host}}/api/projects/{{projectId}}/ingests
+Content-Type: application/json
+
+{
+  "source": "PastedText",
+  "text": "Rahul: Hey Priya, look at this park!\nPriya: It's beautiful."
+}
+
+### an uploaded subtitle file in, script out - the only source with real timings that
+### needs no external tool
+POST {{host}}/api/projects/{{projectId}}/ingests
+Content-Type: application/json
+
+{
+  "source": "SubtitleFile",
+  "subtitleAssetId": "{{subtitleAssetId}}"
+}
+
+### captions from a video URL (needs yt-dlp enabled)
+POST {{host}}/api/projects/{{projectId}}/ingests
+Content-Type: application/json
+
+{
+  "source": "YouTubeCaptions",
+  "url": "https://www.youtube.com/watch?v=...",
+  "rightsAttestation": {
+    "isOwnerOrLicensed": true,
+    "basisCode": "IOwnTheContent",
+    "attestedByName": "Local user"
+  }
+}
+
+### script to scenes - works on any script, not just the one just imported
+POST {{host}}/api/scripts/{{scriptId}}/generate-scenes
+
+### every script this project has produced
+GET {{host}}/api/projects/{{projectId}}/scripts
+
+### one script with its segments, to review a cut before turning it into scenes
+GET {{host}}/api/scripts/{{scriptId}}
+
+### import history, including the attempts that failed
+GET {{host}}/api/projects/{{projectId}}/ingests
+
+
+# --- scenes -----------------------------------------------------------------
+
+### list
+GET {{host}}/api/projects/{{projectId}}/scenes
+
+### one scene, with its dialogue and staging
+GET {{host}}/api/scenes/{{sceneId}}
+
+### create by hand - a Manual scene survives a re-import untouched
+POST {{host}}/api/projects/{{projectId}}/scenes
+Content-Type: application/json
+
+{
+  "title": "A quiet shot",
+  "durationSeconds": 5,
+  "afterSceneId": null
+}
+
+### update the scene's own shape. Dialogue and staging are clamped to the new length.
+PUT {{host}}/api/scenes/{{sceneId}}
+Content-Type: application/json
+
+{
+  "title": "A quiet shot",
+  "durationSeconds": 6,
+  "backgroundEffect": "ZoomIn",
+  "intensity": 0.12,
+  "easing": "EaseInOut",
+  "fadeInSeconds": 0.35,
+  "fadeOutSeconds": 0.35,
+  "transition": "Fade",
+  "transitionDurationSeconds": 0.5
+}
+
+### delete
+DELETE {{host}}/api/scenes/{{sceneId}}
+
+### reorder - must name every scene exactly once
+PUT {{host}}/api/projects/{{projectId}}/scenes/order
+Content-Type: application/json
+
+{ "sceneIds": ["{{sceneId}}"] }
+
+### background for one scene
+PUT {{host}}/api/scenes/{{sceneId}}/background
+Content-Type: application/json
+
+{ "assetId": "{{assetId}}" }
+
+### background for every scene
+PUT {{host}}/api/projects/{{projectId}}/scenes/background
+Content-Type: application/json
+
+{ "assetId": "{{assetId}}" }
+
+### audio for one scene - the slice is on the SOURCE clock
+PUT {{host}}/api/scenes/{{sceneId}}/audio
+Content-Type: application/json
+
+{ "assetId": "{{assetId}}", "sliceStartSeconds": 12.0, "sliceEndSeconds": 18.0 }
+
+### point every already-sliced scene at one recording
+PUT {{host}}/api/projects/{{projectId}}/scenes/audio
+Content-Type: application/json
+
+{ "assetId": "{{assetId}}" }
+
+### add a line
+POST {{host}}/api/scenes/{{sceneId}}/dialogue
+Content-Type: application/json
+
+{
+  "speakerCharacterId": "{{characterId}}",
+  "text": "Hey Priya, look at this park!",
+  "startSeconds": 0.5,
+  "endSeconds": 3.0
+}
+
+### edit a line
+PUT {{host}}/api/scenes/{{sceneId}}/dialogue/0
+Content-Type: application/json
+
+{ "text": "Look at this park!", "startSeconds": 0.5, "endSeconds": 3.0 }
+
+### remove a line
+DELETE {{host}}/api/scenes/{{sceneId}}/dialogue/0
+
+### stage a character (also restages one already there)
+PUT {{host}}/api/scenes/{{sceneId}}/characters
+Content-Type: application/json
+
+{
+  "characterId": "{{characterId}}",
+  "anchor": "BottomLeft",
+  "heightFraction": 0.7,
+  "offsetXFraction": 0.06,
+  "offsetYFraction": 0,
+  "flipHorizontal": false,
+  "zOrder": 0,
+  "entrance": "FadeIn",
+  "entranceDurationSeconds": 0.5,
+  "presenceStartSeconds": null,
+  "presenceEndSeconds": null
+}
+
+### unstage
+DELETE {{host}}/api/scenes/{{sceneId}}/characters/{{characterId}}
+
+
+# --- rendering --------------------------------------------------------------
+
+### queue a render
+POST {{host}}/api/projects/{{projectId}}/render
+
+### poll (stop once the status is terminal)
+GET {{host}}/api/render-jobs/{{jobId}}
+
+### this project's renders
+GET {{host}}/api/projects/{{projectId}}/render-jobs
+
+### cancel
+POST {{host}}/api/render-jobs/{{jobId}}/cancel
+
+### play in a page (supports range requests)
+GET {{host}}/api/render-jobs/{{jobId}}/preview
+
+### download
+GET {{host}}/api/render-jobs/{{jobId}}/download

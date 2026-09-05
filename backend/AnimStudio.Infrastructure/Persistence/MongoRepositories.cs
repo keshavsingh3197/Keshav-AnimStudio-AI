@@ -71,6 +71,9 @@ public sealed class MongoSceneRepository(MongoDbService mongo) : ISceneRepositor
             .SortBy(s => s.OrderKey)
             .ToListAsync(ct).ConfigureAwait(false);
 
+    public Task InsertAsync(Scene scene, CancellationToken ct) =>
+        Collection.InsertOneAsync(scene, cancellationToken: ct);
+
     public Task InsertManyAsync(IEnumerable<Scene> scenes, CancellationToken ct)
     {
         var list = scenes.ToList();
@@ -81,6 +84,9 @@ public sealed class MongoSceneRepository(MongoDbService mongo) : ISceneRepositor
 
     public Task ReplaceAsync(Scene scene, CancellationToken ct) =>
         Collection.ReplaceOneAsync(s => s.Id == scene.Id, scene, cancellationToken: ct);
+
+    public Task DeleteAsync(string id, CancellationToken ct) =>
+        Collection.DeleteOneAsync(s => s.Id == id, ct);
 
     public Task DeleteByProjectAsync(string projectId, CancellationToken ct) =>
         Collection.DeleteManyAsync(s => s.ProjectId == projectId, ct);
@@ -114,6 +120,9 @@ public sealed class MongoAssetRepository(MongoDbService mongo) : IAssetRepositor
 
     public Task ReplaceAsync(Asset asset, CancellationToken ct) =>
         Collection.ReplaceOneAsync(a => a.Id == asset.Id, asset, cancellationToken: ct);
+
+    public Task DeleteAsync(string id, CancellationToken ct) =>
+        Collection.DeleteOneAsync(a => a.Id == id, ct);
 }
 
 public sealed class MongoScriptRepository(MongoDbService mongo) : IScriptRepository
@@ -143,6 +152,13 @@ public sealed class MongoIngestRepository(MongoDbService mongo) : IIngestReposit
 
     public async Task<TranscriptIngest?> GetAsync(string id, CancellationToken ct) =>
         await Collection.Find(i => i.Id == id).FirstOrDefaultAsync(ct).ConfigureAwait(false);
+
+    public async Task<IReadOnlyList<TranscriptIngest>> ListByProjectAsync(
+        string projectId, CancellationToken ct) =>
+        await Collection.Find(i => i.ProjectId == projectId)
+            .SortByDescending(i => i.CreatedAt)
+            .Limit(50)
+            .ToListAsync(ct).ConfigureAwait(false);
 
     public async Task<TranscriptIngest?> FindByIdempotencyKeyAsync(
         string projectId, string key, CancellationToken ct) =>

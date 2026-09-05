@@ -1,0 +1,37 @@
+@if (store.project(); as project) {
+  <div class="page-head">
+    <div>
+      <a routerLink="/projects" class="muted">&larr; All projects</a>
+      <h1>{{ project.name }}</h1>
+      <p class="muted mono">
+        {{ project.width }}&times;{{ project.height }} &middot; {{ project.fps }}fps &middot;
+        {{ store.scenes().length }} scenes &middot; {{ store.characters().length }} characters
+      </p>
+      <span [class]="statusClass(project.status)">{{ project.status }}</span>
+    </div>
+
+    <div class="row">
+      @if (store.renderer(); as renderer) {
+        @if (renderer.available) {
+          <span class="pill ok">renderer ready</span>
+        } @else {
+          <span class="pill err" [title]="renderer.unavailableReason ?? ''">renderer unavailable</span>
+        }
+      }
+      <a [routerLink]="['/projects', project.id, 'render']"><button type="button">Render</button></a>
+    </div>
+  </div>
+
+  <nav class="tabs">
+    <a [routerLink]="['/projects', project.id, 'scenes']" routerLinkActive="active">Scenes</a>
+    <a [routerLink]="['/projects', project.id, 'characters']" routerLinkActive="active">Characters</a>
+    <a [routerLink]="['/projects', project.id, 'assets']" routerLinkActive="active">Assets</a>
+    <a [routerLink]="['/projects', project.id, 'import']" routerLinkActive="active">Import</a>
+    <a [routerLink]="['/projects', project.id, 'render']" routerLinkActive="active">Render</a>
+    <a [routerLink]="['/projects', project.id, 'settings']" routerLinkActive="active">Settings</a>
+  </nav>
+
+  <router-outlet />
+} @else {
+  <div class="card muted">Loading project&hellip;</div>
+}

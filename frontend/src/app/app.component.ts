@@ -1,10 +1,10 @@
 import { Component } from '@angular/core';
 
-import { StudioComponent } from './features/studio/studio.component';
+import { AppShellComponent } from './layouts/app-shell.component';
 
 @Component({
   selector: 'app-root',
-  imports: [StudioComponent],
-  template: `<app-studio />`,
+  imports: [AppShellComponent],
+  template: `<app-shell />`,
 })
 export class AppComponent {}

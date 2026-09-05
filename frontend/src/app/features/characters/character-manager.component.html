@@ -1,0 +1,171 @@
+<div class="page-head">
+  <div>
+    <h2>Characters</h2>
+    <p class="muted">
+      Two sprites &mdash; mouth closed and mouth open &mdash; give a character the talking
+      effect. One sprite still renders, just without the flap.
+    </p>
+  </div>
+</div>
+
+<div class="card">
+  @if (store.characters().length === 0) {
+    <p class="muted">No characters yet.</p>
+  } @else {
+    <table>
+      <thead>
+        <tr><th style="width: 5rem">Sprite</th><th>Name</th><th>Answers to</th>
+          <th>Subtitles</th><th></th></tr>
+      </thead>
+      <tbody>
+        @for (character of store.characters(); track character.id) {
+          <tr>
+            <td>
+              @if (character.closedMouthAssetId; as spriteId) {
+                <img class="thumb sprite" [src]="assetUrl(spriteId)" [alt]="character.name" />
+              } @else {
+                <span class="pill">none</span>
+              }
+            </td>
+            <td>
+              <strong>{{ character.name }}</strong>
+              @if (character.isNarrator) { <span class="pill">narrator</span> }
+              @if (character.description) {
+                <div class="muted">{{ character.description }}</div>
+              }
+              @if (appearanceOf(character); as look) {
+                <div class="muted">{{ look }}</div>
+              }
+              @if (isFlatSprite(character.closedMouthAssetId)) {
+                <div class="muted">
+                  That sprite has no transparency, so it will render as a solid rectangle.
+                </div>
+              }
+            </td>
+            <td class="muted">
+              @if (character.aliases.length > 0) {
+                {{ character.aliases.join(', ') }}
+              } @else {
+                &mdash;
+              }
+            </td>
+            <td>
+              @if (character.subtitleColorHex; as colour) {
+                <span class="swatch" [style.background]="colour"></span>
+                <span class="mono">{{ colour }}</span>
+              } @else {
+                <span class="muted">default</span>
+              }
+            </td>
+            <td style="text-align: right; white-space: nowrap">
+              <button class="secondary" type="button" (click)="edit(character)">Edit</button>
+
+              @if (!character.isNarrator) {
+                @if (confirming() === character.id) {
+                  <button class="danger" type="button"
+                          (click)="remove(character.id)">Delete</button>
+                  <button class="secondary" type="button"
+                          (click)="confirming.set(null)">Keep</button>
+                } @else {
+                  <button class="secondary" type="button"
+                          (click)="confirming.set(character.id)">Delete</button>
+                }
+              }
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  }
+</div>
+
+<div class="card">
+  <h3>{{ editing() === null ? 'Add a character' : 'Edit character' }}</h3>
+
+  <div class="grid">
+    <div>
+      <label for="character-name">Name</label>
+      <input id="character-name" type="text" [(ngModel)]="form.name" placeholder="Rahul" />
+    </div>
+
+    <div>
+      <label for="aliases">Also known as</label>
+      <input id="aliases" type="text" [(ngModel)]="form.aliases"
+             placeholder="Rahul Sharma, RAHUL" />
+      <p class="muted">Comma separated. Used to match speaker labels in a transcript.</p>
+    </div>
+
+    <div>
+      <label for="closed">Sprite &mdash; mouth closed</label>
+      <select id="closed" [(ngModel)]="form.closedMouthAssetId">
+        <option value="">None</option>
+        @for (asset of store.images(); track asset.id) {
+          <option [value]="asset.id">{{ asset.name }}</option>
+        }
+      </select>
+    </div>
+
+    <div>
+      <label for="open">Sprite &mdash; mouth open</label>
+      <select id="open" [(ngModel)]="form.openMouthAssetId">
+        <option value="">None</option>
+        @for (asset of store.images(); track asset.id) {
+          <option [value]="asset.id">{{ asset.name }}</option>
+        }
+      </select>
+    </div>
+
+    <div>
+      <label for="colour">Subtitle colour</label>
+      <input id="colour" type="color" [(ngModel)]="form.subtitleColorHex" />
+    </div>
+  </div>
+
+  <label for="character-description">Description</label>
+  <textarea id="character-description" [(ngModel)]="form.description" style="min-height: 4rem"
+            placeholder="A friendly software engineer"></textarea>
+
+  <div class="subform">
+    <h4>Appearance</h4>
+    <p class="muted">
+      Optional. The sprites are what actually render &mdash; this is the design they came
+      from, kept with the character so it is not lost.
+    </p>
+
+    <div class="grid">
+      <div>
+        <label for="age">Age</label>
+        <input id="age" type="number" [(ngModel)]="form.age" min="0" max="200"
+               placeholder="25" />
+      </div>
+
+      <div>
+        <label for="gender">Gender</label>
+        <input id="gender" type="text" [(ngModel)]="form.gender" />
+      </div>
+
+      <div>
+        <label for="hair">Hair</label>
+        <input id="hair" type="text" [(ngModel)]="form.hair" placeholder="Black, short" />
+      </div>
+
+      <div>
+        <label for="clothes">Clothes</label>
+        <input id="clothes" type="text" [(ngModel)]="form.clothes" placeholder="Blue shirt" />
+      </div>
+    </div>
+
+    <label for="details">Anything else</label>
+    <textarea id="details" [(ngModel)]="form.additionalDetails" style="min-height: 3rem"
+              placeholder="Round glasses, always carries a satchel"></textarea>
+  </div>
+
+  <div class="row" style="margin-top: .8rem">
+    <button type="button" (click)="save()" [disabled]="status.busy() || !form.name.trim()">
+      {{ editing() === null ? 'Add character' : 'Save character' }}
+    </button>
+    @if (editing() !== null) {
+      <button class="secondary" type="button" (click)="cancel()">Cancel</button>
+    }
+  </div>
+</div>

@@ -3,6 +3,7 @@ using AnimStudio.Api.Contracts;
 using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Abstractions.Rendering;
 using AnimStudio.Application.Abstractions.Storage;
+using AnimStudio.Application.Projects;
 using AnimStudio.Application.Security;
 using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Rendering;
@@ -17,6 +18,7 @@ public sealed class RenderController(
     ISceneRepository scenes,
     IObjectStore store,
     IRenderCapabilities capabilities,
+    ProjectStatusService status,
     ICurrentUser currentUser,
     TimeProvider clock,
     ILogger<RenderController> logger) : ControllerBase
@@ -58,6 +60,8 @@ public sealed class RenderController(
         };
 
         await jobs.InsertAsync(job, ct);
+        await status.MarkRenderingAsync(projectId, ct);
+
         logger.LogInformation("Queued render job {JobId} for project {ProjectId}.", job.Id, projectId);
 
         return Accepted(ApiResponse<RenderJobResponse>.Ok(Map(job)));

@@ -1,4 +1,5 @@
 using AnimStudio.Application.Abstractions.Persistence;
+using AnimStudio.Application.Projects;
 using AnimStudio.Application.Rendering;
 using AnimStudio.Domain.Jobs;
 using AnimStudio.Infrastructure.Ffmpeg;
@@ -96,6 +97,10 @@ public sealed class RenderJobWorker(
             job.ErrorCode = Domain.Errors.RenderErrorCode.TooManyAttempts.ToString();
             job.ErrorMessage = "Rendering failed repeatedly and was abandoned.";
             await jobs.CompleteAsync(job, ct).ConfigureAwait(false);
+
+            await scope.ServiceProvider.GetRequiredService<ProjectStatusService>()
+                .MarkRenderFinishedAsync(job.ProjectId, false, ct).ConfigureAwait(false);
+
             return true;
         }
 
@@ -111,6 +116,17 @@ public sealed class RenderJobWorker(
             lease);
 
         await orchestrator.ExecuteAsync(job, _instanceId, settings, ct).ConfigureAwait(false);
+
+        // One place to move the project out of Rendering, whichever way the job ended.
+        // Skipped when the lease was lost, because another worker still owns this job.
+        if (job.IsTerminal)
+        {
+            var status = scope.ServiceProvider.GetRequiredService<ProjectStatusService>();
+            await status
+                .MarkRenderFinishedAsync(job.ProjectId, job.OutputStorageKey is not null, ct)
+                .ConfigureAwait(false);
+        }
+
         return true;
     }
 }

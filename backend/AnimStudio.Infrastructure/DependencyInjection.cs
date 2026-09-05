@@ -2,8 +2,11 @@ using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Abstractions.Rendering;
 using AnimStudio.Application.Abstractions.Storage;
 using AnimStudio.Application.Abstractions.Transcripts;
+using AnimStudio.Application.Assets;
+using AnimStudio.Application.Characters;
 using AnimStudio.Application.Ingest;
 using AnimStudio.Application.Options;
+using AnimStudio.Application.Projects;
 using AnimStudio.Application.Rendering;
 using AnimStudio.Application.Scenes;
 using AnimStudio.Application.Scripts;
@@ -81,6 +84,13 @@ public static class DependencyInjection
 
         services.AddScoped<TranscriptIngestService>();
         services.AddScoped<SceneGenerationService>();
+
+        // --- editing
+        services.AddScoped<ProjectStatusService>();
+        services.AddScoped<ProjectEditingService>();
+        services.AddScoped<CharacterEditingService>();
+        services.AddScoped<SceneEditingService>();
+        services.AddScoped<AssetLibraryService>();
 
         // --- rendering
         services.AddSingleton<IFfmpegRunner, FfmpegRunner>();

@@ -1,0 +1,115 @@
+<div class="page-head">
+  <div>
+    <h2>Settings</h2>
+    <p class="muted">Canvas, frame rate, intended use and the music that plays under everything.</p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="grid">
+    <div>
+      <label for="project-name">Name</label>
+      <input id="project-name" type="text" [(ngModel)]="form.name" />
+    </div>
+
+    <div>
+      <label for="preset">Canvas preset</label>
+      <select id="preset" [(ngModel)]="presetIndex" (ngModelChange)="applyPreset($event)">
+        <option [ngValue]="-1">Custom&hellip;</option>
+        @for (preset of presets; track preset.label) {
+          <option [ngValue]="$index">
+            {{ preset.label }} ({{ preset.width }}&times;{{ preset.height }})
+          </option>
+        }
+      </select>
+    </div>
+
+    <div>
+      <label for="width">Width</label>
+      <input id="width" type="number" [(ngModel)]="form.width" min="320" max="3840" step="2" />
+    </div>
+
+    <div>
+      <label for="height">Height</label>
+      <input id="height" type="number" [(ngModel)]="form.height" min="240" max="2160" step="2" />
+    </div>
+
+    <div>
+      <label for="fps">Frame rate</label>
+      <select id="fps" [(ngModel)]="form.fps">
+        <option [ngValue]="24">24 fps</option>
+        <option [ngValue]="25">25 fps</option>
+        <option [ngValue]="30">30 fps</option>
+        <option [ngValue]="60">60 fps</option>
+      </select>
+      <p class="muted">
+        Changing this rescales every scene, so nothing changes length in seconds.
+      </p>
+    </div>
+
+    <div>
+      <label for="intent">Intended use</label>
+      <select id="intent" [(ngModel)]="form.distributionIntent">
+        @for (option of intents; track option) {
+          <option [value]="option">{{ option }}</option>
+        }
+      </select>
+    </div>
+
+    <div>
+      <label for="music">Background music</label>
+      <select id="music" [(ngModel)]="form.backgroundMusicAssetId">
+        <option value="">None</option>
+        @for (asset of store.audioOnly(); track asset.id) {
+          <option [value]="asset.id">{{ asset.name }}</option>
+        }
+      </select>
+    </div>
+
+    @if (form.backgroundMusicAssetId) {
+      <div>
+        <label for="volume">Music volume ({{ form.musicVolumePercent }}%)</label>
+        <input id="volume" type="range" [(ngModel)]="form.musicVolumePercent"
+               min="0" max="100" step="1" />
+        <p class="muted">The bed loops to fill the video and ducks under nothing else.</p>
+      </div>
+    }
+  </div>
+
+  <label for="project-description">Description</label>
+  <textarea id="project-description" [(ngModel)]="form.description"
+            style="min-height: 4rem"></textarea>
+
+  <label style="font-weight: 400; margin-top: .6rem">
+    <input type="checkbox" [(ngModel)]="form.acceptShareAlikeObligation" />
+    Accept share-alike obligations, so share-alike material may be used
+  </label>
+
+  <div class="row" style="margin-top: .9rem">
+    <button type="button" (click)="save()" [disabled]="status.busy() || !form.name.trim()">
+      Save settings
+    </button>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Delete this project</h3>
+  <p class="muted">
+    Removes its scenes, characters and every uploaded file. This cannot be undone.
+  </p>
+
+  @if (confirmingDelete()) {
+    <div class="row">
+      <button class="danger" type="button" (click)="deleteProject()">
+        Yes, delete everything
+      </button>
+      <button class="secondary" type="button" (click)="confirmingDelete.set(false)">
+        Cancel
+      </button>
+    </div>
+  } @else {
+    <button class="secondary" type="button" (click)="confirmingDelete.set(true)">
+      Delete project
+    </button>
+  }
+</div>

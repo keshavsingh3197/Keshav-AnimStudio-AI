@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using AnimStudio.Api.Common;
 using AnimStudio.Infrastructure;
 using KeshavSingh.Core;
@@ -6,7 +7,12 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddAnimStudioInfrastructure(builder.Configuration);
 
-builder.Services.AddControllers();
+// Enums cross the wire as names, not numbers. Responses already map them with ToString(),
+// so without this a client would have to READ "Fade" and WRITE 1 - and a reordered enum
+// would silently change what an old client's number meant.
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddOpenApi();
 
 // One envelope for every failure, and nothing internal in it.

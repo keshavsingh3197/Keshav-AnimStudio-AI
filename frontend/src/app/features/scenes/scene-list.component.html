@@ -1,0 +1,154 @@
+<div class="page-head">
+  <div>
+    <h2>Scenes</h2>
+    <p class="muted">
+      Scenes play in this order. Every scene needs a background image before the project
+      can be rendered.
+    </p>
+  </div>
+</div>
+
+@if (store.scenes().length > 0 && store.scenesMissingBackground().length > 0) {
+  <div class="notice">
+    {{ store.scenesMissingBackground().length }} of {{ store.scenes().length }} scenes have no
+    background yet.
+  </div>
+}
+
+<!-- Bulk actions: the fast path from a fresh import to something renderable. -->
+@if (store.scenes().length > 0) {
+  <div class="card">
+    <h3>Apply to every scene</h3>
+    <div class="grid">
+      <div>
+        <label for="bulk-bg">Background image</label>
+        <div class="row">
+          <select id="bulk-bg" [(ngModel)]="bulkBackgroundId" style="flex: 1 1 12rem">
+            <option value="">Choose an image&hellip;</option>
+            @for (asset of store.images(); track asset.id) {
+              <option [value]="asset.id">{{ asset.name }}</option>
+            }
+          </select>
+          <button class="secondary" type="button"
+                  [disabled]="!bulkBackgroundId || status.busy()"
+                  (click)="applyBackgroundToAll()">Apply</button>
+        </div>
+      </div>
+
+      <div>
+        <label for="bulk-audio">Source audio</label>
+        <div class="row">
+          <select id="bulk-audio" [(ngModel)]="bulkAudioId" style="flex: 1 1 12rem">
+            <option value="">Choose a file&hellip;</option>
+            @for (asset of store.playable(); track asset.id) {
+              <option [value]="asset.id">{{ asset.name }}</option>
+            }
+          </select>
+          <button class="secondary" type="button"
+                  [disabled]="!bulkAudioId || status.busy()"
+                  (click)="applyAudioToAll()">Apply</button>
+        </div>
+        <p class="muted">
+          Cuts each scene's slice from one recording, using the windows the import recorded.
+        </p>
+      </div>
+    </div>
+  </div>
+}
+
+<div class="card">
+  @if (store.scenes().length === 0) {
+    <p class="muted">
+      No scenes yet. Import a transcript to generate them, or add one by hand below.
+    </p>
+  } @else {
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 3rem">#</th>
+          <th style="width: 4.5rem">Shot</th>
+          <th>Title</th>
+          <th>Length</th>
+          <th>Lines</th>
+          <th>Cast</th>
+          <th>Motion</th>
+          <th>Transition</th>
+          <th>Audio</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (scene of store.scenes(); track scene.id) {
+          <tr>
+            <td class="mono">{{ scene.sceneNumber }}</td>
+            <td>
+              @if (thumbnail(scene.backgroundAssetId); as src) {
+                <img class="thumb" [src]="src" alt="" />
+              } @else {
+                <span class="pill warn">none</span>
+              }
+            </td>
+            <td>
+              <a [routerLink]="['../scenes', scene.id]">
+                {{ scene.title || 'Untitled scene' }}
+              </a>
+              @if (scene.origin === 'Manual') { <span class="pill">manual</span> }
+              @else if (scene.isUserEdited) { <span class="pill">edited</span> }
+            </td>
+            <td class="mono">{{ scene.durationSeconds | number: '1.1-1' }}s</td>
+            <td>{{ scene.dialogueLines }}</td>
+            <td>{{ scene.characterCount }}</td>
+            <td class="muted">{{ scene.backgroundEffect }}</td>
+            <td class="muted">
+              {{ scene.transition }}
+              @if (scene.transition !== 'None') {
+                <span class="mono">{{ scene.transitionDurationSeconds | number: '1.1-1' }}s</span>
+              }
+            </td>
+            <td>
+              @if (scene.audioAssetId) {
+                <span class="pill ok">linked</span>
+              } @else if (scene.hasAudioSlice) {
+                <span class="pill warn">no file</span>
+              } @else {
+                <span class="muted">&mdash;</span>
+              }
+            </td>
+            <td style="text-align: right; white-space: nowrap">
+              <button class="icon" type="button" title="Move up"
+                      [disabled]="$first || status.busy()" (click)="move(scene, -1)">&uarr;</button>
+              <button class="icon" type="button" title="Move down"
+                      [disabled]="$last || status.busy()" (click)="move(scene, 1)">&darr;</button>
+
+              @if (confirming() === scene.id) {
+                <button class="danger" type="button" (click)="remove(scene.id)">Delete</button>
+                <button class="secondary" type="button" (click)="confirming.set(null)">Keep</button>
+              } @else {
+                <button class="secondary" type="button"
+                        (click)="confirming.set(scene.id)">Delete</button>
+              }
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  }
+</div>
+
+<div class="card">
+  <h3>Add a scene</h3>
+  <p class="muted">
+    A scene added here is yours: re-importing the transcript will leave it alone.
+  </p>
+
+  <div class="row">
+    <input type="text" [(ngModel)]="newTitle" placeholder="Title (optional)"
+           style="flex: 1 1 16rem" />
+    <label style="margin: 0">
+      Seconds
+      <input type="number" [(ngModel)]="newDuration" min="0.5" max="600" step="0.5"
+             style="width: 6rem" />
+    </label>
+    <button type="button" (click)="add()" [disabled]="status.busy()">Add scene</button>
+  </div>
+</div>

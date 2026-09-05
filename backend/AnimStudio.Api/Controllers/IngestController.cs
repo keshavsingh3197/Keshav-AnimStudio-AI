@@ -42,7 +42,7 @@ public sealed class IngestController(
             Source = kind,
             Url = request.Url,
             Text = request.Text,
-            SubtitleObjectKey = request.SubtitleObjectKey,
+            SubtitleAssetId = request.SubtitleAssetId,
             MediaAssetId = request.MediaAssetId,
             IncludeMedia = request.IncludeMedia,
             IdempotencyKey = request.IdempotencyKey,

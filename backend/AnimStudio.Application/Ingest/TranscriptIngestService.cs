@@ -4,6 +4,7 @@ using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Abstractions.Transcripts;
 using AnimStudio.Application.Options;
 using AnimStudio.Application.Scripts;
+using AnimStudio.Domain.Assets;
 using AnimStudio.Domain.Ingest;
 using AnimStudio.Domain.Scripts;
 using AnimStudio.Domain.Transcripts;
@@ -19,6 +20,7 @@ public sealed class TranscriptIngestService(
     IIngestRepository ingests,
     IScriptRepository scripts,
     IProjectRepository projects,
+    IAssetRepository assets,
     ISegmentationEngine segmentation,
     Func<TranscriptSourceKind, ITranscriptSource> sourceResolver,
     IOptions<IngestOptions> ingestOptions,
@@ -55,6 +57,12 @@ public sealed class TranscriptIngestService(
 
         var now = clock.GetUtcNow().UtcDateTime;
         var attestation = BuildAttestation(command, now);
+
+        // Resolved here, before the ingest record exists, so an unusable reference fails
+        // the request rather than leaving a Failed ingest behind.
+        var subtitleKey = command.Source == TranscriptSourceKind.SubtitleFile
+            ? await ResolveSubtitleKeyAsync(command, ct).ConfigureAwait(false)
+            : null;
 
         Uri? canonicalUrl = null;
         string? urlHash = null;
@@ -119,7 +127,7 @@ public sealed class TranscriptIngestService(
                 ProjectId = command.ProjectId,
                 Kind = command.Source,
                 RawText = command.Text,
-                ArtifactObjectKey = command.SubtitleObjectKey,
+                ArtifactObjectKey = subtitleKey,
                 CanonicalUrl = canonicalUrl,
                 LanguagePreference = _options.PreferredCaptionLanguages,
                 IncludeMedia = command.IncludeMedia
@@ -159,6 +167,32 @@ public sealed class TranscriptIngestService(
             await ingests.ReplaceAsync(ingest, CancellationToken.None).ConfigureAwait(false);
             throw;
         }
+    }
+
+    /// <summary>
+    /// Turns the caller's asset id into a storage key, refusing anything that is not this
+    /// project's own subtitle file.
+    /// </summary>
+    private async Task<string> ResolveSubtitleKeyAsync(
+        CreateIngestCommand command, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(command.SubtitleAssetId))
+            throw new TranscriptIngestException("file-required", "Upload a subtitle file to continue.");
+
+        var asset = await assets.GetAsync(command.SubtitleAssetId, ct).ConfigureAwait(false);
+
+        if (asset is null
+            || !string.Equals(asset.ProjectId, command.ProjectId, StringComparison.Ordinal))
+        {
+            throw new TranscriptIngestException("file-missing",
+                "That subtitle file is not in this project.");
+        }
+
+        if (asset.Kind != AssetKind.Subtitle)
+            throw new TranscriptIngestException("file-not-subtitle",
+                $"'{asset.Name}' is not a subtitle file.");
+
+        return asset.StorageKey;
     }
 
     private RightsAttestation? BuildAttestation(CreateIngestCommand command, DateTime now)

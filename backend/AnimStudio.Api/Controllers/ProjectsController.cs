@@ -1,6 +1,7 @@
 using AnimStudio.Api.Common;
 using AnimStudio.Api.Contracts;
 using AnimStudio.Application.Abstractions.Persistence;
+using AnimStudio.Application.Projects;
 using AnimStudio.Application.Security;
 using AnimStudio.Domain.Projects;
 using Microsoft.AspNetCore.Mvc;
@@ -11,6 +12,7 @@ namespace AnimStudio.Api.Controllers;
 [Route("api/projects")]
 public sealed class ProjectsController(
     IProjectRepository projects,
+    ProjectEditingService editing,
     ICurrentUser currentUser,
     TimeProvider clock) : ControllerBase
 {
@@ -19,14 +21,14 @@ public sealed class ProjectsController(
         CancellationToken ct)
     {
         var list = await projects.ListAsync(currentUser.UserId, ct);
-        return Ok(ApiResponse<IReadOnlyList<ProjectResponse>>.Ok([.. list.Select(Map)]));
+        return Ok(ApiResponse<IReadOnlyList<ProjectResponse>>.Ok([.. list.Select(p => p.ToResponse())]));
     }
 
     [HttpGet("{id}")]
     public async Task<ActionResult<ApiResponse<ProjectResponse>>> Get(string id, CancellationToken ct)
     {
         var project = await LoadOwnedAsync(id, ct);
-        return Ok(ApiResponse<ProjectResponse>.Ok(Map(project)));
+        return Ok(ApiResponse<ProjectResponse>.Ok(project.ToResponse()));
     }
 
     [HttpPost]
@@ -57,14 +59,35 @@ public sealed class ProjectsController(
         await projects.InsertAsync(project, ct);
 
         return CreatedAtAction(nameof(Get), new { id = project.Id },
-            ApiResponse<ProjectResponse>.Ok(Map(project)));
+            ApiResponse<ProjectResponse>.Ok(project.ToResponse()));
+    }
+
+    [HttpPut("{id}")]
+    public async Task<ActionResult<ApiResponse<ProjectResponse>>> Update(
+        string id, [FromBody] UpdateProjectRequest request, CancellationToken ct)
+    {
+        var project = await editing.UpdateAsync(new UpdateProjectCommand
+        {
+            ProjectId = id,
+            UserId = currentUser.UserId,
+            Name = request.Name,
+            Description = request.Description,
+            Width = request.Width,
+            Height = request.Height,
+            Fps = request.Fps,
+            DistributionIntent = request.DistributionIntent,
+            AcceptShareAlikeObligation = request.AcceptShareAlikeObligation,
+            BackgroundMusicAssetId = request.BackgroundMusicAssetId,
+            BackgroundMusicVolume = request.BackgroundMusicVolume
+        }, ct);
+
+        return Ok(ApiResponse<ProjectResponse>.Ok(project.ToResponse()));
     }
 
     [HttpDelete("{id}")]
     public async Task<ActionResult<ApiResponse<EmptyPayload>>> Delete(string id, CancellationToken ct)
     {
-        await LoadOwnedAsync(id, ct);
-        await projects.DeleteAsync(id, ct);
+        await editing.DeleteAsync(id, currentUser.UserId, ct);
         return Ok(ApiResponse<EmptyPayload>.Ok(EmptyPayload.Value));
     }
 
@@ -82,9 +105,4 @@ public sealed class ProjectsController(
 
         return project;
     }
-
-    private static ProjectResponse Map(Project p) => new(
-        p.Id, p.Name, p.Description, p.Status.ToString(),
-        p.Settings.Width, p.Settings.Height, p.Settings.FrameRateNum,
-        p.Settings.DistributionIntent.ToString(), p.CreatedAt, p.UpdatedAt);
 }

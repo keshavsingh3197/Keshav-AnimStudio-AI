@@ -30,8 +30,10 @@ public interface ISceneRepository
 {
     Task<Scene?> GetAsync(string id, CancellationToken ct);
     Task<IReadOnlyList<Scene>> ListByProjectAsync(string projectId, CancellationToken ct);
+    Task InsertAsync(Scene scene, CancellationToken ct);
     Task InsertManyAsync(IEnumerable<Scene> scenes, CancellationToken ct);
     Task ReplaceAsync(Scene scene, CancellationToken ct);
+    Task DeleteAsync(string id, CancellationToken ct);
     Task DeleteByProjectAsync(string projectId, CancellationToken ct);
 }
 
@@ -42,6 +44,7 @@ public interface IAssetRepository
     Task<IReadOnlyList<Asset>> GetManyAsync(IEnumerable<string> ids, CancellationToken ct);
     Task InsertAsync(Asset asset, CancellationToken ct);
     Task ReplaceAsync(Asset asset, CancellationToken ct);
+    Task DeleteAsync(string id, CancellationToken ct);
 }
 
 public interface IScriptRepository
@@ -55,6 +58,7 @@ public interface IScriptRepository
 public interface IIngestRepository
 {
     Task<TranscriptIngest?> GetAsync(string id, CancellationToken ct);
+    Task<IReadOnlyList<TranscriptIngest>> ListByProjectAsync(string projectId, CancellationToken ct);
     Task<TranscriptIngest?> FindByIdempotencyKeyAsync(string projectId, string key, CancellationToken ct);
     Task<TranscriptIngest?> FindBySourceUrlHashAsync(string projectId, string hash, CancellationToken ct);
     Task InsertAsync(TranscriptIngest ingest, CancellationToken ct);

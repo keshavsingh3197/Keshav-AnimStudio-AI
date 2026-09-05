@@ -11,7 +11,13 @@ public sealed record CreateIngestCommand
 
     public string? Url { get; init; }
     public string? Text { get; init; }
-    public string? SubtitleObjectKey { get; init; }
+
+    /// <summary>
+    /// The uploaded subtitle file, named by asset id rather than by storage key: a key
+    /// supplied by a client is an object reference the server has not authorized, and
+    /// resolving an id lets ownership be checked before anything is opened.
+    /// </summary>
+    public string? SubtitleAssetId { get; init; }
     public string? MediaAssetId { get; init; }
 
     public bool IncludeMedia { get; init; }

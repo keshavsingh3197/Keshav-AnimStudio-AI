@@ -1,0 +1,83 @@
+<div class="page-head">
+  <div>
+    <h2>Assets</h2>
+    <p class="muted">
+      PNG, JPEG or WEBP images; WAV, MP3 or M4A audio; MP4 video; SRT or WebVTT subtitles.
+      Up to 25MB each, or 2MB for a subtitle file. Files are checked by their contents, not
+      their name.
+    </p>
+  </div>
+</div>
+
+<div class="card">
+  <label for="upload">Upload files</label>
+  <input id="upload" type="file" multiple
+         accept="image/png,image/jpeg,image/webp,audio/wav,audio/mpeg,audio/mp4,video/mp4,.srt,.vtt"
+         (change)="upload($event)" />
+</div>
+
+@if (store.assets().length === 0) {
+  <div class="card muted">Nothing uploaded yet.</div>
+} @else {
+  <div class="card">
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 6rem">Preview</th><th>Name</th><th>Kind</th>
+          <th>Details</th><th>Size</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (asset of store.assets(); track asset.id) {
+          <tr>
+            <td>
+              @if (isImage(asset)) {
+                <img class="thumb" [src]="assetUrl(asset.id)" [alt]="asset.name" />
+              } @else if (isAudible(asset)) {
+                <audio controls preload="none" [src]="assetUrl(asset.id)"
+                       style="max-width: 12rem"></audio>
+              } @else if (asset.kind === 'Subtitle') {
+                <span class="muted mono">captions</span>
+              }
+            </td>
+            <td>{{ asset.name }}</td>
+            <td>
+              <span class="pill">{{ asset.kind }}</span>
+              @if (asset.kind === 'Subtitle') {
+                <span class="pill" title="Source material for an import, never scene content">
+                  import only
+                </span>
+              }
+              @if (asset.reviewStatus !== 'NotRequired') {
+                <span class="pill warn">{{ asset.reviewStatus }}</span>
+              }
+            </td>
+            <td class="mono muted">
+              @if (asset.width) { {{ asset.width }}&times;{{ asset.height }} }
+              @if (asset.durationSeconds) { {{ asset.durationSeconds | number: '1.1-1' }}s }
+              @if (isImage(asset)) {
+                <span [class]="asset.hasAlpha ? 'pill ok' : 'pill warn'">
+                  {{ asset.hasAlpha ? 'alpha' : 'no alpha' }}
+                </span>
+              }
+            </td>
+            <td class="mono">{{ asset.fileSizeBytes / 1024 | number: '1.0-0' }} KB</td>
+            <td style="text-align: right; white-space: nowrap">
+              @if (confirming() === asset.id) {
+                <button class="danger" type="button" (click)="remove(asset.id)">Delete</button>
+                <button class="secondary" type="button" (click)="confirming.set(null)">Keep</button>
+              } @else {
+                <button class="secondary" type="button"
+                        (click)="confirming.set(asset.id)">Delete</button>
+              }
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+    <p class="muted">
+      A file still used by a scene, a character or the music bed cannot be deleted until it
+      is unused.
+    </p>
+  </div>
+}

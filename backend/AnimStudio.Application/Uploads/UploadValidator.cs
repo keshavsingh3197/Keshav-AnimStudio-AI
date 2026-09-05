@@ -62,6 +62,21 @@ public static class UploadValidator
             [[0x66, 0x74, 0x79, 0x70]])
     ];
 
+    /// <summary>
+    /// Subtitle formats, which are plain text and therefore have no magic bytes to check.
+    /// They get their own table because the whole three-signal rule below does not apply:
+    /// the file is confirmed by decoding it and looking for the structure the format
+    /// requires, which is a stronger check than any prefix would be.
+    /// </summary>
+    private static readonly Allowed[] AllowedTextTypes =
+    [
+        new(AssetKind.Subtitle, "application/x-subrip", ".srt", [".srt"], []),
+        new(AssetKind.Subtitle, "text/vtt", ".vtt", [".vtt"], [])
+    ];
+
+    /// <summary>How much of a text file is decoded to confirm its shape.</summary>
+    private const int TextProbeBytes = 4096;
+
     public static async Task<UploadValidationResult> ValidateAsync(
         string? fileName, string? declaredContentType, Stream content, CancellationToken ct)
     {
@@ -74,16 +89,26 @@ public static class UploadValidator
             .Where(a => Array.Exists(a.Extensions, e => string.Equals(e, extension, StringComparison.Ordinal)))
             .ToList();
 
-        if (candidates.Count == 0)
+        var textCandidate = Array.Find(AllowedTextTypes,
+            a => Array.Exists(a.Extensions, e => string.Equals(e, extension, StringComparison.Ordinal)));
+
+        if (candidates.Count == 0 && textCandidate is null)
             return UploadValidationResult.Invalid("file-type-not-allowed",
                 "That file type is not supported.");
 
-        var header = new byte[16];
-        var read = await content.ReadAtLeastAsync(header, header.Length, throwOnEndOfStream: false, ct)
+        var buffer = new byte[TextProbeBytes];
+        var read = await content.ReadAtLeastAsync(buffer, buffer.Length, throwOnEndOfStream: false, ct)
             .ConfigureAwait(false);
 
         if (read < 4)
             return UploadValidationResult.Invalid("file-unreadable", "That file could not be read.");
+
+        // Sliced to what was actually read, so a short file can never be matched against
+        // the buffer's trailing zeros.
+        var header = buffer[..read];
+
+        if (textCandidate is not null)
+            return ValidateText(header, textCandidate, declaredContentType);
 
         foreach (var candidate in candidates)
         {
@@ -112,6 +137,91 @@ public static class UploadValidator
 
         return UploadValidationResult.Invalid("file-content-mismatch",
             "That file's contents do not match its extension.");
+    }
+
+    /// <summary>
+    /// Confirms a subtitle file by decoding it and requiring the structure its format
+    /// demands: WEBVTT's signature line, or a cue arrow in SubRip. A renamed binary fails
+    /// this, and so does a text file that has nothing to do with subtitles.
+    /// </summary>
+    private static UploadValidationResult ValidateText(
+        byte[] header, Allowed allowed, string? declaredContentType)
+    {
+        // An image or media content type on a .srt is a contradiction worth refusing; an
+        // absent or generic one is normal, because browsers rarely know these formats.
+        if (!string.IsNullOrWhiteSpace(declaredContentType)
+            && (declaredContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase)
+                || declaredContentType.StartsWith("audio/", StringComparison.OrdinalIgnoreCase)
+                || declaredContentType.StartsWith("video/", StringComparison.OrdinalIgnoreCase)))
+        {
+            return UploadValidationResult.Invalid("file-type-mismatch",
+                "That file's contents do not match its type.");
+        }
+
+        string text;
+        try
+        {
+            // Throwing on invalid UTF-8 is the point: it is what rejects binary content.
+            text = new UTF8Encoding(false, throwOnInvalidBytes: true)
+                .GetString(TrimTruncatedRune(header)).TrimStart('\uFEFF');
+        }
+        catch (DecoderFallbackException)
+        {
+            return UploadValidationResult.Invalid("file-content-mismatch",
+                "That file is not readable text.");
+        }
+
+        // NUL and other control bytes do not occur in a subtitle file, but do in nearly
+        // every binary that might be renamed into one.
+        foreach (var ch in text)
+        {
+            if (char.IsControl(ch) && ch is not '\t' and not '\r' and not '\n')
+            {
+                return UploadValidationResult.Invalid("file-content-mismatch",
+                    "That file is not readable text.");
+            }
+        }
+
+        var looksRight = allowed.Extension switch
+        {
+            ".vtt" => text.StartsWith("WEBVTT", StringComparison.Ordinal),
+            _ => text.Contains("-->", StringComparison.Ordinal)
+        };
+
+        if (!looksRight)
+        {
+            return UploadValidationResult.Invalid("file-content-mismatch",
+                allowed.Extension is ".vtt"
+                    ? "A WebVTT file must start with WEBVTT."
+                    : "That file has no subtitle timings in it.");
+        }
+
+        return UploadValidationResult.Valid(allowed.Kind, allowed.Mime, allowed.Extension);
+    }
+
+    /// <summary>
+    /// Drops a multi-byte character the probe window cut in half, so a perfectly valid file
+    /// is not rejected for ending mid-rune. Only a full window can be truncated - a shorter
+    /// read is the whole file.
+    /// </summary>
+    private static byte[] TrimTruncatedRune(byte[] header)
+    {
+        if (header.Length < TextProbeBytes) return header;
+
+        // Walk back over continuation bytes (10xxxxxx) to the lead byte of the last rune.
+        var lead = header.Length - 1;
+        while (lead > 0 && (header[lead] & 0xC0) == 0x80) lead--;
+
+        var expected = header[lead] switch
+        {
+            < 0x80 => 1,
+            >= 0xF0 => 4,
+            >= 0xE0 => 3,
+            >= 0xC0 => 2,
+            _ => 1                      // a stray continuation byte; leave it to the decoder
+        };
+
+        return header.Length - lead >= expected ? header : header[..lead];
     }
 
     private static bool MatchesSignature(byte[] header, Allowed allowed)

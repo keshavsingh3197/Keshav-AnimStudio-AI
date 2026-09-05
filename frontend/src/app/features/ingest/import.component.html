@@ -1,0 +1,226 @@
+<div class="page-head">
+  <div>
+    <h2>Import a transcript</h2>
+    <p class="muted">
+      Scenes are cut from the transcript, cast to your characters, and timed. Scenes you have
+      edited or added yourself are left untouched by a re-import.
+    </p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="row" style="margin-bottom: .8rem">
+    <button type="button" [class.secondary]="source() !== 'PastedText'"
+            (click)="source.set('PastedText')">Paste text</button>
+    <button type="button" [class.secondary]="source() !== 'SubtitleFile'"
+            (click)="source.set('SubtitleFile')">Subtitle file</button>
+    <button type="button" [class.secondary]="source() !== 'YouTubeCaptions'"
+            (click)="source.set('YouTubeCaptions')"
+            [disabled]="!urlSourceAvailable()">YouTube URL</button>
+
+    @if (!urlSourceAvailable() && urlSource(); as info) {
+      <span class="muted">
+        URL import is off: <span class="mono">{{ info.unavailableReason }}</span>
+      </span>
+    }
+  </div>
+
+  @switch (source()) {
+    @case ('PastedText') {
+      <label for="transcript">Transcript</label>
+      <textarea id="transcript" [(ngModel)]="transcript"
+                placeholder="Name: line of dialogue"></textarea>
+      <p class="muted">
+        Prefix lines with a speaker name to have them cast to that character. Pasted text has
+        no real timings, so scene lengths are estimated and there is no audio.
+      </p>
+    }
+
+    @case ('SubtitleFile') {
+      <label for="subtitle-upload">Upload an SRT or WebVTT file</label>
+      <input id="subtitle-upload" type="file" accept=".srt,.vtt,text/vtt,application/x-subrip"
+             (change)="uploadSubtitle($event)" />
+
+      @if (store.subtitles().length > 0) {
+        <label for="subtitle-asset" style="margin-top: .8rem">Or use one already uploaded</label>
+        <select id="subtitle-asset" [(ngModel)]="subtitleAssetId">
+          <option value="">Choose a file&hellip;</option>
+          @for (asset of store.subtitles(); track asset.id) {
+            <option [value]="asset.id">{{ asset.name }}</option>
+          }
+        </select>
+      }
+
+      <p class="muted">
+        A subtitle file carries real timings, so scenes are cut where the captions actually
+        fall. Add the matching audio on the Scenes tab to hear it.
+      </p>
+    }
+
+    @default {
+      <label for="url">YouTube URL</label>
+      <input id="url" type="url" [(ngModel)]="url"
+             placeholder="https://www.youtube.com/watch?v=..." />
+
+      <!-- Captions only, and the attestation is recorded against the import. -->
+      <div class="notice" style="margin-top: .8rem">
+        Only captions are fetched &mdash; no video or audio is downloaded. Import only content
+        you own or are licensed to use; re-publishing someone else's video can breach YouTube's
+        terms and trigger a copyright claim.
+      </div>
+
+      <label style="font-weight: 400">
+        <input type="checkbox" [(ngModel)]="attestOwnRights" />
+        I have the right to use this video
+      </label>
+
+      <label for="basis" style="margin-top: .6rem">On what basis?</label>
+      <select id="basis" [(ngModel)]="basisCode">
+        <option value="IOwnTheContent">I own the content</option>
+        <option value="WrittenPermission">I have written permission</option>
+        <option value="PublicDomain">It is public domain</option>
+        <option value="OpenLicense">It has an open licence</option>
+        <option value="OtherLawfulBasis">Another lawful basis</option>
+      </select>
+    }
+  }
+
+  <div class="row" style="margin-top: .9rem">
+    <button type="button" (click)="ingest()" [disabled]="!canSubmit()">Build scenes</button>
+
+    @if (store.scenes().length > 0) {
+      <span class="muted">
+        This project already has {{ store.scenes().length }} scenes; untouched generated ones
+        will be replaced.
+      </span>
+    }
+  </div>
+</div>
+
+<!-- Everything that has been imported, so a script can be reviewed or re-cut later. -->
+@if (scripts().length > 0) {
+  <div class="card">
+    <h3>Scripts</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Imported</th><th>Version</th><th>Status</th><th>Timing</th>
+          <th>Segments</th><th>Lines</th><th>Length</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (script of scripts(); track script.id) {
+          <tr>
+            <td class="muted">{{ script.createdAt | date: 'short' }}</td>
+            <td class="mono">v{{ script.version }}</td>
+            <td><span class="pill">{{ script.status }}</span></td>
+            <td>
+              <span [class]="script.hasSourceTimings ? 'pill ok' : 'pill warn'">
+                {{ script.hasSourceTimings ? 'real' : 'estimated' }}
+              </span>
+            </td>
+            <td>{{ script.segmentCount }}</td>
+            <td>{{ script.lineCount }}</td>
+            <td class="mono">{{ script.totalSeconds | number: '1.1-1' }}s</td>
+            <td style="text-align: right; white-space: nowrap">
+              <button class="secondary" type="button" (click)="previewScript(script.id)">
+                {{ preview()?.id === script.id ? 'Hide' : 'Preview' }}
+              </button>
+              <button class="secondary" type="button" (click)="generateFrom(script.id)"
+                      [disabled]="status.busy()">Cut scenes</button>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+
+    @if (preview(); as detail) {
+      <div class="subform">
+        <h4>
+          Segments <span class="muted">({{ detail.segments.length }} of
+          {{ detail.segmentCount }})</span>
+        </h4>
+
+        @if (detail.segmentsTruncated) {
+          <div class="notice">
+            This script is longer than the preview shows. Every segment is still used when
+            scenes are cut.
+          </div>
+        }
+
+        <table>
+          <thead>
+            <tr><th>#</th><th>Title</th><th>Speaker</th><th>Starts</th><th>Length</th>
+              <th>Cut because</th><th>Lines</th></tr>
+          </thead>
+          <tbody>
+            @for (segment of detail.segments; track segment.segmentKey) {
+              <tr>
+                <td class="mono">{{ segment.order }}</td>
+                <td>{{ segment.title }}</td>
+                <td class="muted">{{ segment.dominantSpeakerLabel }}</td>
+                <td class="mono">{{ segment.timelineStartSeconds | number: '1.1-1' }}s</td>
+                <td class="mono">
+                  {{ segment.timelineEndSeconds - segment.timelineStartSeconds | number: '1.1-1' }}s
+                </td>
+                <td class="muted">{{ segment.breakReason }}</td>
+                <td>
+                  @for (line of segment.lines; track $index) {
+                    <div>
+                      @if (line.speakerLabel) {
+                        <strong>{{ line.speakerLabel }}:</strong>
+                      }
+                      {{ line.text }}
+                    </div>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+  </div>
+}
+
+@if (ingests().length > 0) {
+  <div class="card">
+    <h3>Import history</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>When</th><th>Source</th><th>Status</th><th>Cues</th>
+          <th>Details</th><th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (item of ingests(); track item.id) {
+          <tr>
+            <td class="muted">{{ item.createdAt | date: 'short' }}</td>
+            <td>{{ item.source }}</td>
+            <td>
+              <span [class]="item.status === 'Completed' ? 'pill ok' : 'pill warn'">
+                {{ item.status }}
+              </span>
+            </td>
+            <td class="mono">{{ item.cueCount }}</td>
+            <td class="muted">
+              @if (item.sourceTitle) { {{ item.sourceTitle }} }
+              @if (item.captionLanguage) { <span class="mono">{{ item.captionLanguage }}</span> }
+              @if (item.captionIsAutoGenerated) { <span class="pill warn">auto captions</span> }
+              @if (item.rightsBasisCode) { <span class="pill">{{ item.rightsBasisCode }}</span> }
+            </td>
+            <td class="muted">
+              @if (item.errorCode) {
+                <span class="mono">{{ item.errorCode }}</span>
+              }
+              @for (warning of item.warnings; track $index) {
+                <div>{{ warning }}</div>
+              }
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+}
