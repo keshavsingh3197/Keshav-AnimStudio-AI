@@ -139,4 +139,46 @@ public sealed class MongoRenderJobRepository(MongoDbService mongo, TimeProvider 
 
         return jobs;
     }
+
+    public async Task<IReadOnlyList<RenderJob>> ListRecentAsync(int limit, CancellationToken ct) =>
+        await Collection.Find(FilterDefinition<RenderJob>.Empty)
+            .SortByDescending(j => j.CreatedAt)
+            .Limit(Math.Clamp(limit, 1, 200))
+            .ToListAsync(ct).ConfigureAwait(false);
+
+    /// <summary>
+    /// Requeues in one conditional update rather than read-then-write. The filter is the
+    /// guard: it matches only a job that actually ended in Failed or Cancelled, so a job
+    /// that a worker claimed in the meantime cannot be yanked out from under it, and a
+    /// completed render can never be requeued into overwriting its own output.
+    /// </summary>
+    public async Task<bool> RequeueAsync(string jobId, CancellationToken ct)
+    {
+        var builder = Builders<RenderJob>.Filter;
+
+        var retryable = builder.And(
+            builder.Eq(j => j.Id, jobId),
+            builder.In(j => j.Status, new[] { RenderJobStatus.Failed, RenderJobStatus.Cancelled }));
+
+        var update = Builders<RenderJob>.Update
+            .Set(j => j.Status, RenderJobStatus.Pending)
+            .Set(j => j.Progress, 0)
+            .Set(j => j.ScenesDone, 0)
+            .Set(j => j.Attempts, 0)
+            .Set(j => j.CurrentStage, RenderStage.None)
+            .Set(j => j.Message, "Queued again")
+            .Set(j => j.CancelRequested, false)
+            .Set(j => j.LeaseOwner, null)
+            .Set(j => j.LeaseExpiresAt, null)
+            .Set(j => j.StartedAt, null)
+            .Set(j => j.CompletedAt, null)
+            .Set(j => j.ErrorCode, null)
+            .Set(j => j.ErrorMessage, null)
+            .Set(j => j.Warnings, new List<string>());
+
+        var result = await Collection.UpdateOneAsync(retryable, update, cancellationToken: ct)
+            .ConfigureAwait(false);
+
+        return result.ModifiedCount > 0;
+    }
 }

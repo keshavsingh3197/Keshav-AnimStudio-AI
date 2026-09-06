@@ -21,6 +21,17 @@
   <ItemGroup>
     <ProjectReference Include="..\..\backend\AnimStudio.Application\AnimStudio.Application.csproj" />
     <ProjectReference Include="..\..\backend\AnimStudio.Infrastructure\AnimStudio.Infrastructure.csproj" />
+    <!--
+      For the admin authorization rule. It is the one piece of security logic that lives in
+      the Api project, and "only a caller on this machine" is exactly the kind of rule that
+      has to be asserted rather than assumed.
+    -->
+    <ProjectReference Include="..\..\backend\AnimStudio.Api\AnimStudio.Api.csproj" />
+  </ItemGroup>
+
+  <!-- Needed to construct an HttpContext for that rule. -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
 </Project>

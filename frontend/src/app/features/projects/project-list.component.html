@@ -1,62 +1,106 @@
-<h1>Projects</h1>
-<p class="muted">
-  A project is one video: its cast, its files, its scenes and every render you have made
-  from them.
-</p>
+<section class="hero">
+  <h1>Make an animated video from what you already have</h1>
+  <p>
+    Bring a transcript, a cast and some pictures &mdash; AnimStudio stages them into scenes,
+    animates the backgrounds, moves the mouths and renders an MP4. AI is optional
+    throughout: a filled-in spreadsheet is a complete production on its own.
+  </p>
+</section>
 
-<div class="card">
-  <h3>New project</h3>
+<div class="card-grid">
+  <button type="button" class="start-card" (click)="start('bundle')">
+    <div class="icon">&#128230;</div>
+    <span class="tag">NO AI NEEDED</span>
+    <h3>I have a file with everything in it</h3>
+    <p>
+      One spreadsheet or zip carrying your characters, scenes, dialogue and artwork. Download
+      the template, fill it in anywhere, upload it back.
+    </p>
+  </button>
 
-  <div class="grid">
-    <div>
-      <label for="name">Name</label>
-      <input id="name" type="text" [(ngModel)]="name" placeholder="My animation" />
-    </div>
+  <button type="button" class="start-card" (click)="start('import')">
+    <div class="icon">&#128172;</div>
+    <span class="tag">NO AI NEEDED</span>
+    <h3>I have a transcript or a video link</h3>
+    <p>
+      Paste text, upload subtitles, or point at a video with captions. It becomes a script,
+      a cast and a set of timed scenes.
+    </p>
+  </button>
 
-    <div>
-      <label for="preset">Canvas</label>
-      <select id="preset" [(ngModel)]="presetIndex">
-        @for (preset of presets; track preset.label) {
-          <option [ngValue]="$index">
-            {{ preset.label }} ({{ preset.width }}&times;{{ preset.height }})
-          </option>
-        }
-      </select>
-    </div>
-
-    <div>
-      <label for="fps">Frame rate</label>
-      <select id="fps" [(ngModel)]="fps">
-        <option [ngValue]="24">24 fps</option>
-        <option [ngValue]="25">25 fps</option>
-        <option [ngValue]="30">30 fps</option>
-        <option [ngValue]="60">60 fps</option>
-      </select>
-    </div>
-
-    <div>
-      <label for="intent">Intended use</label>
-      <select id="intent" [(ngModel)]="intent">
-        @for (option of intents; track option) {
-          <option [ngValue]="option">{{ option }}</option>
-        }
-      </select>
-    </div>
-  </div>
-
-  <div class="row" style="margin-top: .9rem">
-    <button type="button" (click)="create()" [disabled]="status.busy() || !name.trim()">
-      Create project
-    </button>
-    <span class="muted">
-      Intended use decides how strictly licensed material is checked before it can be used.
-    </span>
-  </div>
+  <button type="button" class="start-card" (click)="start('scenes')">
+    <div class="icon">&#127917;</div>
+    <span class="tag">FROM SCRATCH</span>
+    <h3>I want to build it myself</h3>
+    <p>
+      An empty project. Add scenes, cast and artwork by hand, one at a time.
+    </p>
+  </button>
 </div>
 
-@if (projects().length === 0) {
-  <div class="card muted">No projects yet. Create one above to get started.</div>
-} @else {
+@if (starting(); as point) {
+  <div class="card">
+    <div class="section-head">
+      <h3>{{ heading(point) }}</h3>
+      <button class="link" type="button" (click)="cancelStart()">cancel</button>
+    </div>
+
+    <div class="row">
+      <input type="text" style="max-width: 26rem" [(ngModel)]="name"
+             placeholder="What is this video called?" (keyup.enter)="create()" />
+      <button type="button" (click)="create()" [disabled]="status.busy() || !name.trim()">
+        Create and continue
+      </button>
+      <button class="link" type="button" (click)="showDetails.set(!showDetails())">
+        {{ showDetails() ? 'hide' : 'size, frame rate and intended use' }}
+      </button>
+    </div>
+
+    @if (showDetails()) {
+      <div class="grid" style="margin-top: .9rem">
+        <div>
+          <label for="preset">Canvas</label>
+          <select id="preset" [(ngModel)]="presetIndex">
+            @for (preset of presets; track preset.label) {
+              <option [ngValue]="$index">
+                {{ preset.label }} ({{ preset.width }}&times;{{ preset.height }})
+              </option>
+            }
+          </select>
+        </div>
+
+        <div>
+          <label for="fps">Frame rate</label>
+          <select id="fps" [(ngModel)]="fps">
+            <option [ngValue]="24">24 fps</option>
+            <option [ngValue]="25">25 fps</option>
+            <option [ngValue]="30">30 fps</option>
+            <option [ngValue]="60">60 fps</option>
+          </select>
+        </div>
+
+        <div>
+          <label for="intent">Intended use</label>
+          <select id="intent" [(ngModel)]="intent">
+            @for (option of intents; track option) {
+              <option [ngValue]="option">{{ option }}</option>
+            }
+          </select>
+          <p class="hint">
+            Decides how strictly licensed material is checked before it can be used.
+          </p>
+        </div>
+      </div>
+    }
+  </div>
+}
+
+@if (projects().length > 0) {
+  <div class="section-head" style="margin-top: 1.6rem">
+    <h3>Your projects</h3>
+    <span class="muted">{{ projects().length }}</span>
+  </div>
+
   <div class="card">
     <table>
       <thead>

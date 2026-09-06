@@ -259,3 +259,191 @@ button.link {
 }
 
 audio { height: 2.2rem; vertical-align: middle; }
+
+/* --- landing ---------------------------------------------------------------- */
+
+/*
+  The first thing anyone sees. It exists because "what do I do first?" was the honest
+  answer to opening a table of projects, and the three ways in are genuinely different
+  starting points rather than decoration.
+*/
+.hero {
+  background:
+    radial-gradient(80rem 22rem at 15% -6rem, color-mix(in oklab, var(--brand) 22%, transparent), transparent),
+    var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1.6rem 1.4rem;
+  margin-bottom: 1.1rem;
+}
+
+.hero h1 { font-size: 1.7rem; letter-spacing: -.02em; margin-bottom: .35rem; }
+.hero p { max-width: 46rem; color: var(--muted); margin-bottom: 0; }
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  gap: .8rem;
+  margin-bottom: 1rem;
+}
+
+/* A whole card that is one choice. A button, so the keyboard reaches it. */
+.start-card {
+  display: block;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  color: var(--text);
+  font-weight: 400;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.start-card:hover { border-color: color-mix(in oklab, var(--brand) 55%, var(--border)); }
+.start-card .icon { font-size: 1.35rem; line-height: 1; }
+.start-card h3 { margin: .5rem 0 .3rem; font-size: 1rem; }
+.start-card p { color: var(--muted); font-size: .88rem; margin: 0; }
+.start-card .tag { font-size: .72rem; font-weight: 700; color: var(--ok); letter-spacing: .02em; }
+
+/* --- sections --------------------------------------------------------------- */
+
+.section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: .8rem;
+  margin-bottom: .5rem;
+}
+
+.section-head h3 { margin: 0; }
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+  align-items: center;
+  margin-bottom: .9rem;
+}
+
+.empty {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 1.4rem;
+  text-align: center;
+  color: var(--muted);
+}
+
+/* --- admin ------------------------------------------------------------------ */
+
+/* Nav within the console. Pills rather than the project tabs, so the two levels of
+   navigation never look like the same thing. */
+.subtabs { display: flex; flex-wrap: wrap; gap: .35rem; margin-bottom: 1.1rem; }
+
+.subtabs > a {
+  padding: .4rem .8rem;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: .88rem;
+}
+
+.subtabs > a:hover { color: var(--text); }
+.subtabs > a.active { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
+
+/* One provider. The header stays readable when the row wraps on a narrow window. */
+.provider-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .55rem;
+  margin-bottom: .35rem;
+}
+
+.provider-head h3 { margin: 0; font-size: 1.02rem; }
+
+.dot {
+  width: .6rem;
+  height: .6rem;
+  border-radius: 99px;
+  background: var(--muted);
+  flex: 0 0 auto;
+}
+
+.dot.ok { background: var(--ok); }
+.dot.warn { background: var(--warn); }
+.dot.err { background: var(--err); }
+
+/* A switch reads as a switch. The checkbox stays the control, so it keeps its
+   keyboard behaviour and its label association. */
+.switch { display: inline-flex; align-items: center; gap: .5rem; cursor: pointer; font-weight: 600; }
+.switch > input { position: absolute; opacity: 0; width: 0; height: 0; }
+
+.switch > .track {
+  width: 2.4rem;
+  height: 1.35rem;
+  border-radius: 99px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  position: relative;
+  transition: background .15s ease, border-color .15s ease;
+  flex: 0 0 auto;
+}
+
+.switch > .track::after {
+  content: "";
+  position: absolute;
+  top: .17rem;
+  left: .2rem;
+  width: .9rem;
+  height: .9rem;
+  border-radius: 99px;
+  background: var(--muted);
+  transition: transform .15s ease, background .15s ease;
+}
+
+.switch > input:checked + .track { background: color-mix(in oklab, var(--brand) 45%, transparent); border-color: var(--brand); }
+.switch > input:checked + .track::after { transform: translateX(1rem); background: var(--text); }
+.switch > input:focus-visible + .track { outline: 2px solid var(--brand); outline-offset: 2px; }
+.switch > input:disabled + .track { opacity: .45; }
+
+/* Key/value lines, for the read-only facts next to an editable form. */
+.kv { display: grid; grid-template-columns: minmax(7rem, auto) 1fr; gap: .2rem .7rem; font-size: .88rem; }
+.kv > dt { color: var(--muted); }
+.kv > dd { margin: 0; }
+
+/* Fallback order: draggable-looking chips that are actually buttons. */
+.chips { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  padding: .25rem .55rem;
+  border-radius: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: .82rem;
+  font-family: ui-monospace, "Cascadia Code", monospace;
+}
+
+.chip > button {
+  background: none;
+  border: none;
+  color: var(--muted);
+  padding: 0 .1rem;
+  font-size: .9rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.chip > button:hover { color: var(--text); }
+
+.hint { font-size: .84rem; color: var(--muted); margin: .25rem 0 0; }
+
+/* A single small bar for a usage figure, so a table of numbers has a shape. */
+.spark { height: 6px; border-radius: 99px; background: var(--surface-2); overflow: hidden; min-width: 4rem; }
+.spark > i { display: block; height: 100%; background: var(--brand); }

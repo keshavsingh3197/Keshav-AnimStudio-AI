@@ -1,0 +1,39 @@
+<div class="toolbar">
+  <button type="button" class="secondary" (click)="reload()" [disabled]="status.busy()">
+    Refresh
+  </button>
+  <span class="muted">The 50 most recent changes.</span>
+</div>
+
+@if (entries().length === 0) {
+  <div class="empty">Nothing has been changed here yet.</div>
+} @else {
+  <div class="card">
+    <table>
+      <thead>
+        <tr><th>When</th><th>What</th><th>Before</th><th>After</th><th>By</th></tr>
+      </thead>
+      <tbody>
+        @for (entry of entries(); track entry.atUtc + entry.action + entry.target) {
+          <tr>
+            <td class="muted">{{ entry.atUtc | date: 'short' }}</td>
+            <td>
+              {{ describe(entry) }}
+              @if (entry.target) {
+                <div class="mono muted">{{ entry.target }}</div>
+              }
+            </td>
+            <td class="mono muted">{{ entry.before ?? '—' }}</td>
+            <td class="mono">{{ entry.after ?? '—' }}</td>
+            <td class="muted">
+              {{ entry.actorUserId ?? 'unknown' }}
+              @if (entry.remoteAddress) {
+                <div class="mono">{{ entry.remoteAddress }}</div>
+              }
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+}

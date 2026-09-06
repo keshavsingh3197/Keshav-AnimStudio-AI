@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Blocks a commit that stages something shaped like a credential.
+# Opt in with:  git config core.hooksPath .githooks
+# Bypass a false positive with:  git commit --no-verify
+set -uo pipefail
+
+patterns=(
+  'mongodb(\+srv)?://[^:/@[:space:]"]+:[^@[:space:]"]+@'   # connection string with inline password
+  'sk-[A-Za-z0-9_-]{20,}'                                   # OpenAI-style key
+  'AIza[0-9A-Za-z_-]{35}'                                   # Google API key
+  'gsk_[A-Za-z0-9]{20,}'                                    # Groq key
+  'hf_[A-Za-z0-9]{30,}'                                     # Hugging Face token
+  'sk-or-v1-[A-Za-z0-9]{20,}'                               # OpenRouter key
+  'ghp_[A-Za-z0-9]{36}'                                     # GitHub PAT
+  '-----BEGIN [A-Z ]*PRIVATE KEY-----'
+)
+
+found=0
+while IFS= read -r file; do
+  [ -f "$file" ] || continue
+  case "$file" in *.png|*.jpg|*.jpeg|*.webp|*.mp4|*.mp3|*.wav|*.ico|*.pdf) continue ;; esac
+
+  for pattern in "${patterns[@]}"; do
+    if git show ":$file" 2>/dev/null | grep -nEq -- "$pattern"; then
+      echo "pre-commit: possible secret in $file"
+      git show ":$file" | grep -nE -- "$pattern" | sed -E 's/(.{100}).*/\1.../' | head -3
+      found=1
+    fi
+  done
+done < <(git diff --cached --name-only --diff-filter=ACM)
+
+if [ "$found" -ne 0 ]; then
+  cat <<'MSG'
+
+Commit blocked: a staged file looks like it contains a credential.
+
+Secrets belong in user-secrets or environment variables - see SECURITY.md.
+If this is genuinely a false positive, re-run with --no-verify.
+MSG
+  exit 1
+fi
+exit 0

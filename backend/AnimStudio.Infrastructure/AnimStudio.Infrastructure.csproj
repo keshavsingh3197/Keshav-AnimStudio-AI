@@ -22,11 +22,15 @@
   <ItemGroup Condition="'$(SkipPrivatePackages)' != 'true'">
     <PackageReference Include="KeshavSingh.Mongo.NoSql" Version="0.4.0" />
     <PackageReference Include="KeshavSingh.Storage" Version="0.3.0" />
+    <!-- AES-256-GCM at rest for AI provider keys. Referenced explicitly rather than
+         relied on transitively through Core, so the dependency survives a Core refactor. -->
+    <PackageReference Include="KeshavSingh.Security" Version="0.6.0" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(SkipPrivatePackages)' == 'true'">
     <ProjectReference Include="..\..\..\KeshavSingh-Packages-Nosql\src\KeshavSingh.Mongo.NoSql\KeshavSingh.Mongo.NoSql.csproj" />
     <ProjectReference Include="..\..\..\KeshavSingh-Packages-Files\src\KeshavSingh.Storage\KeshavSingh.Storage.csproj" />
+    <ProjectReference Include="..\..\..\shared-security\src\KeshavSingh.Security\KeshavSingh.Security.csproj" />
   </ItemGroup>
 
   <ItemGroup>

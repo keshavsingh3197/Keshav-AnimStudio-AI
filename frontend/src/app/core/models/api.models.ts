@@ -364,3 +364,229 @@ export const CANVAS_PRESETS = [
   { label: 'Vertical 1080x1920', width: 1080, height: 1920 },
   { label: 'Square 1080', width: 1080, height: 1080 },
 ] as const;
+
+// --- bundle import (the no-AI path: one .zip with sheets, images and audio) ---
+
+export type ImportAction = 'Create' | 'Update' | 'Conflict' | 'Unchanged';
+
+export interface ImportRowPlan {
+  sheet: string;
+  rowNumber: number;
+  key: string;
+  action: ImportAction;
+  detail: string;
+}
+
+export interface ImportSheetPlan {
+  sheet: string;
+  create: number;
+  update: number;
+  conflict: number;
+  unchanged: number;
+  rows: ImportRowPlan[];
+}
+
+/** A cell that could not be read, addressed the way the spreadsheet shows it. */
+export interface WorkbookCellError {
+  sheet: string;
+  row: number;
+  column: string | null;
+  code: string;
+  message: string;
+}
+
+export interface BundlePreview {
+  previewToken: string;
+  expiresAtUtc: string;
+  sheets: ImportSheetPlan[];
+  errors: WorkbookCellError[];
+  warnings: string[];
+  mediaFilesUsed: number;
+  mediaFilesUnused: number;
+  hasTranscript: boolean;
+  canApply: boolean;
+}
+
+export interface BundleApplyBody {
+  previewToken: string;
+  overwriteUserEdits: boolean;
+  removeMissingScenes: boolean;
+}
+
+export interface BundleImportResult {
+  charactersCreated: number;
+  charactersUpdated: number;
+  scenesCreated: number;
+  scenesUpdated: number;
+  scenesRemoved: number;
+  assetsCreated: number;
+  dialogueLines: number;
+  projectUpdated: boolean;
+  warnings: string[];
+}
+
+// --- AI provider status, for the admin screen ---
+
+export interface AiCapabilityStatus {
+  capability: string;
+  providerId: string | null;
+  model: string | null;
+  available: boolean;
+  reason: string;
+  dailyRemaining: number | null;
+  chain: string[];
+}
+
+export interface AiCapabilities {
+  capabilities: AiCapabilityStatus[];
+}
+
+// --- running the server -----------------------------------------------------------------
+
+/** Whether this browser may change the server's settings, and why not when it may not. */
+export interface AdminAccess {
+  mode: 'Disabled' | 'LocalOnly' | 'Jwt';
+  canAdminister: boolean;
+  explanation: string;
+}
+
+/**
+ * What the console is allowed to know about an installed key: enough to prove which key is
+ * in place, never enough to use it. There is deliberately no field a key could arrive in.
+ */
+export interface AdminKey {
+  configured: boolean;
+  source: 'None' | 'Database' | 'Configuration';
+  masked: string;
+  fingerprint: string | null;
+  createdAt: string | null;
+  rotatedAt: string | null;
+}
+
+export interface AdminProvider {
+  id: string;
+  displayName: string;
+  capability: string;
+  family: string;
+  runsLocally: boolean;
+  requiresApiKey: boolean;
+  freeTierNote: string;
+  keyUrl: string | null;
+
+  enabled: boolean;
+  model: string | null;
+  baseUrl: string | null;
+  dailyRequestLimit: number | null;
+  monthlyRequestLimit: number | null;
+  timeoutSeconds: number | null;
+  supportsJsonMode: boolean;
+
+  /** True once it has been saved here, at which point these values beat appsettings.json. */
+  managedHere: boolean;
+
+  key: AdminKey;
+  ready: boolean;
+  readyReason: string;
+  dailyRemaining: number | null;
+  chainPosition: number | null;
+
+  /** A provider that is a program on this machine. Its paths are shown, never editable. */
+  needsExecutable: boolean;
+  executableConfigured: boolean;
+  modelFolderConfigured: boolean;
+
+  defaultBaseUrl: string | null;
+  defaultModel: string | null;
+}
+
+export interface AdminChain {
+  capability: string;
+  providerIds: string[];
+  managedHere: boolean;
+  candidates: string[];
+}
+
+export interface AdminProviders {
+  providers: AdminProvider[];
+  chains: AdminChain[];
+  hostAllowlist: string[];
+  encryptionConfigured: boolean;
+}
+
+export interface AdminProviderTest {
+  providerId: string;
+  healthy: boolean;
+  reason: string | null;
+}
+
+export interface AdminProviderBody {
+  enabled: boolean;
+  model: string | null;
+  baseUrl: string | null;
+  dailyRequestLimit: number | null;
+  monthlyRequestLimit: number | null;
+  timeoutSeconds: number | null;
+  supportsJsonMode: boolean | null;
+}
+
+export interface AdminUsageRow {
+  day: string;
+  providerId: string;
+  capability: string;
+  requests: number;
+  units: number;
+  cacheHits: number;
+  failures: number;
+}
+
+export interface AdminUsage {
+  fromDay: string;
+  toDay: string;
+  rows: AdminUsageRow[];
+}
+
+export type HealthState = 'Ok' | 'Degraded' | 'Missing' | 'Failed';
+
+export interface AdminHealthProbe {
+  key: string;
+  displayName: string;
+  state: HealthState;
+  detail: string | null;
+  advice: string | null;
+  required: boolean;
+}
+
+export interface AdminHealth {
+  healthy: boolean;
+  checkedAtUtc: string;
+  probes: AdminHealthProbe[];
+}
+
+export interface AdminJob {
+  id: string;
+  projectId: string;
+  projectName: string | null;
+  status: string;
+  progress: number;
+  message: string | null;
+  stage: string;
+  scenesTotal: number;
+  scenesDone: number;
+  attempts: number;
+  errorCode: string | null;
+  errorMessage: string | null;
+  hasOutput: boolean;
+  isTerminal: boolean;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+export interface AdminAuditEntry {
+  action: string;
+  target: string | null;
+  actorUserId: string | null;
+  remoteAddress: string | null;
+  before: string | null;
+  after: string | null;
+  atUtc: string;
+}

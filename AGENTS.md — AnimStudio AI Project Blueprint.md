@@ -1959,31 +1959,20 @@ When implementing this project:
 
 # 47. CURRENT DEVELOPMENT STATUS
 
-Current Phase:
+This section is no longer the source of truth for status.
 
-```text
-PHASE 1 — PROJECT FOUNDATION
-```
+**See `docs/ROADMAP.md`** for what is done, what is left, and the current action.
 
-Current Goal:
+Phases 1-8 of section 34 are done or substantially done: projects, characters, scenes,
+assets, transcript ingest (paste / subtitle file / YouTube captions), segmentation,
+casting, scene generation, the FFmpeg render pipeline, and the job worker with polling.
 
-```text
-Create the complete local development environment.
+Remaining work is tracked as phases P0 and P3-P12 in `docs/ROADMAP.md`, with a detail
+file per phase under `docs/plans/`.
 
-.NET 10
-+
-Angular
-+
-MongoDB
-+
-FFmpeg
-+
-Basic API
-+
-Basic Frontend
-```
-
-DO NOT IMPLEMENT AI FEATURES YET.
+The rule in section 46 still holds and shapes every one of those phases: **AI stays
+optional.** Every AI stage must degrade to a working non-AI path, and the app must still
+render a video with no provider configured.
 
 ---
 

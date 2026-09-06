@@ -1,3 +1,4 @@
+using AnimStudio.Domain.Ai;
 using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Scenes;
 using KeshavSingh.Mongo.NoSql;
@@ -38,6 +39,32 @@ public sealed class MongoIndexInitializer(
                 new CreateIndexModel<Scene>(Builders<Scene>.IndexKeys
                     .Ascending(s => s.ProjectId)
                     .Ascending(s => s.OrderKey)), cancellationToken: ct).ConfigureAwait(false);
+
+            // Every AI call checks the quota, which counts by provider within a day range,
+            // and the admin dashboard reads the same rows by day.
+            var aiUsage = mongo.GetCollection<AiUsageRecord>(MongoCollections.AiUsage);
+            await aiUsage.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<AiUsageRecord>(Builders<AiUsageRecord>.IndexKeys
+                    .Ascending(r => r.ProviderId)
+                    .Ascending(r => r.DayBucket)
+                    .Ascending(r => r.Outcome)),
+                new CreateIndexModel<AiUsageRecord>(Builders<AiUsageRecord>.IndexKeys
+                    .Ascending(r => r.DayBucket))
+            ], ct).ConfigureAwait(false);
+
+            // Templates are append-only, so every read is "the highest version of this key".
+            var prompts = mongo.GetCollection<PromptTemplate>(MongoCollections.PromptTemplates);
+            await prompts.Indexes.CreateOneAsync(
+                new CreateIndexModel<PromptTemplate>(Builders<PromptTemplate>.IndexKeys
+                    .Ascending(t => t.TemplateKey)
+                    .Descending(t => t.Version)), cancellationToken: ct).ConfigureAwait(false);
+
+            // The audit trail is only ever read newest-first.
+            var auditEntries = mongo.GetCollection<AdminAuditEntry>(MongoCollections.AdminAudit);
+            await auditEntries.Indexes.CreateOneAsync(
+                new CreateIndexModel<AdminAuditEntry>(Builders<AdminAuditEntry>.IndexKeys
+                    .Descending(e => e.AtUtc)), cancellationToken: ct).ConfigureAwait(false);
 
             logger.LogInformation("Mongo indexes verified.");
         }

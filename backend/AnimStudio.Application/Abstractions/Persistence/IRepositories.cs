@@ -93,4 +93,18 @@ public interface IRenderJobRepository
     Task CompleteAsync(RenderJob job, CancellationToken ct);
     Task RequestCancelAsync(string jobId, CancellationToken ct);
     Task<IReadOnlyList<string>> ListActiveJobIdsAsync(CancellationToken ct);
+
+    /// <summary>
+    /// The most recent jobs across every project, for the admin job console. Not scoped to
+    /// an owner, which is precisely why it is only reachable behind the admin policy.
+    /// </summary>
+    Task<IReadOnlyList<RenderJob>> ListRecentAsync(int limit, CancellationToken ct);
+
+    /// <summary>
+    /// Puts a finished-but-unsuccessful job back in the queue: attempts reset, lease and
+    /// error cleared. Returns false when the job is missing or did not end in a state worth
+    /// retrying - a completed render is not requeued, because that would silently discard
+    /// its output.
+    /// </summary>
+    Task<bool> RequeueAsync(string jobId, CancellationToken ct);
 }

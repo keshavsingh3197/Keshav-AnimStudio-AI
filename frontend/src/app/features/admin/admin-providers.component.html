@@ -1,0 +1,293 @@
+@if (data(); as data) {
+  <div class="toolbar">
+    <button type="button" class="secondary" (click)="reload()">Refresh</button>
+    @if (!anyReady()) {
+      <span class="muted">
+        Nothing is switched on. That is a supported way to run AnimStudio.
+      </span>
+    }
+  </div>
+
+  @if (!data.encryptionConfigured) {
+    <div class="notice">
+      This server has no encryption key, so API keys cannot be saved here yet. Set
+      <code>Encryption:DataKey</code> through user-secrets or the
+      <code>Encryption__DataKey</code> environment variable. Local providers &mdash; Ollama,
+      ComfyUI, Piper, whisper.cpp &mdash; need no key at all and work without this.
+    </div>
+  }
+
+  @for (capability of capabilities; track capability) {
+    <div class="section-head" style="margin-top: 1.4rem">
+      <div>
+        <h3>{{ label(capability) }}</h3>
+        <p class="muted" style="margin: 0">{{ describe(capability) }}</p>
+      </div>
+    </div>
+
+    <!-- Fallback order, first, because it is what decides which of the cards below
+         actually gets used. -->
+    @if (chain(capability); as chain) {
+      <div class="card">
+        <div class="section-head">
+          <strong>Tried in this order</strong>
+          @if (chain.managedHere) {
+            <button class="link" type="button" (click)="resetChain(capability)">
+              back to the configuration file
+            </button>
+          }
+        </div>
+
+        @if (chain.providerIds.length === 0) {
+          <p class="muted" style="margin: 0">
+            Nothing is listed, so this capability is off entirely.
+          </p>
+        } @else {
+          <div class="chips">
+            @for (id of chain.providerIds; track id; let i = $index) {
+              <span class="chip">
+                <span class="muted">{{ i + 1 }}</span>
+                {{ id }}
+                <button type="button" title="Earlier" [disabled]="i === 0"
+                        (click)="moveUp(capability, i)">&uarr;</button>
+                <button type="button" title="Later"
+                        [disabled]="i === chain.providerIds.length - 1"
+                        (click)="moveDown(capability, i)">&darr;</button>
+                <button type="button" title="Remove"
+                        (click)="removeFromChain(capability, id)">&times;</button>
+              </span>
+            }
+          </div>
+        }
+
+        @if (spare(capability).length > 0) {
+          <div class="row" style="margin-top: .7rem">
+            <select style="max-width: 18rem" #add
+                    (change)="addToChain(capability, add.value); add.value = ''">
+              <option value="">Add a provider&hellip;</option>
+              @for (id of spare(capability); track id) {
+                <option [value]="id">{{ id }}</option>
+              }
+            </select>
+          </div>
+        }
+
+        <p class="hint">
+          The first one that is switched on, configured and healthy wins. A free tier that
+          has just rate-limited costs one skipped provider rather than a failed render.
+        </p>
+      </div>
+    }
+
+    @for (provider of forCapability(capability); track provider.id) {
+      <div class="card">
+        <div class="provider-head">
+          <span class="dot" [class]="'dot ' + state(provider)"></span>
+          <h3>{{ provider.displayName }}</h3>
+          <span class="mono muted">{{ provider.id }}</span>
+
+          @if (provider.runsLocally) {
+            <span class="pill ok">on this machine</span>
+          }
+          @if (provider.chainPosition !== null) {
+            <span class="pill">#{{ provider.chainPosition + 1 }} in order</span>
+          }
+          @if (provider.managedHere) {
+            <span class="pill" title="Saved here, so these values beat appsettings.json">saved here</span>
+          }
+
+          <span style="flex: 1 1 auto"></span>
+
+          <label class="switch" [title]="provider.enabled ? 'Switch off' : 'Switch on'">
+            <input type="checkbox" [checked]="provider.enabled"
+                   [disabled]="status.busy()" (change)="toggleEnabled(provider)" />
+            <span class="track"></span>
+            <span class="muted">{{ provider.enabled ? 'on' : 'off' }}</span>
+          </label>
+        </div>
+
+        <p class="muted" style="margin-bottom: .5rem">{{ explain(provider) }}</p>
+
+        <div class="row">
+          <button type="button" class="secondary" (click)="toggleOpen(provider)">
+            {{ open() === provider.id ? 'Close' : 'Settings' }}
+          </button>
+          <button type="button" class="secondary" (click)="test(provider)"
+                  [disabled]="status.busy()">
+            Test connection
+          </button>
+          @if (provider.key.configured) {
+            <span class="mono muted">key {{ provider.key.masked }}</span>
+          } @else if (provider.requiresApiKey) {
+            <span class="muted">no key installed</span>
+          }
+          @if (tested()[provider.id]; as result) {
+            <span class="muted">{{ result }}</span>
+          }
+        </div>
+
+        @if (open() === provider.id && draft(); as draft) {
+          <div class="subform">
+            <p class="muted">{{ provider.freeTierNote }}</p>
+
+            <div class="grid">
+              <div>
+                <label [for]="provider.id + '-model'">Model</label>
+                <input [id]="provider.id + '-model'" type="text" [(ngModel)]="draft.model"
+                       [placeholder]="provider.defaultModel ?? 'whatever the server has loaded'" />
+                <p class="hint">Letters, digits and <code>. - _ / : @ +</code>.</p>
+              </div>
+
+              @if (!provider.needsExecutable) {
+                <div>
+                  <label [for]="provider.id + '-url'">Address</label>
+                  <input [id]="provider.id + '-url'" type="url" [(ngModel)]="draft.baseUrl"
+                         [placeholder]="provider.defaultBaseUrl ?? 'https://...'" />
+                  <p class="hint">
+                    @if (provider.runsLocally) {
+                      Somewhere on this machine, such as <code>http://localhost:11434/v1</code>.
+                    } @else {
+                      Must be https, and on the server's outbound allowlist.
+                    }
+                  </p>
+                </div>
+              }
+
+              <div>
+                <label [for]="provider.id + '-daily'">Calls per day</label>
+                <input [id]="provider.id + '-daily'" type="number" min="1"
+                       [(ngModel)]="draft.dailyRequestLimit" placeholder="no limit" />
+                <p class="hint">Empty means no ceiling. Refused before anything is spent.</p>
+              </div>
+
+              <div>
+                <label [for]="provider.id + '-monthly'">Calls per month</label>
+                <input [id]="provider.id + '-monthly'" type="number" min="1"
+                       [(ngModel)]="draft.monthlyRequestLimit" placeholder="no limit" />
+              </div>
+
+              <div>
+                <label [for]="provider.id + '-timeout'">Give up after</label>
+                <input [id]="provider.id + '-timeout'" type="number" min="5" max="1800"
+                       [(ngModel)]="draft.timeoutSeconds" placeholder="seconds" />
+              </div>
+            </div>
+
+            <div class="row" style="margin-top: .6rem">
+              <button type="button" (click)="saveDraft(provider)" [disabled]="status.busy()">
+                Save
+              </button>
+              @if (provider.managedHere) {
+                <button type="button" class="secondary" (click)="reset(provider)">
+                  Back to the configuration file
+                </button>
+              }
+            </div>
+
+            @if (provider.needsExecutable) {
+              <div class="subform">
+                <h4>This one is a program on the server</h4>
+                <dl class="kv">
+                  <dt>Program</dt>
+                  <dd>
+                    @if (provider.executableConfigured) {
+                      <span class="pill ok">configured</span>
+                    } @else {
+                      <span class="pill warn">not set</span>
+                    }
+                  </dd>
+                  <dt>Model folder</dt>
+                  <dd>
+                    @if (provider.modelFolderConfigured) {
+                      <span class="pill ok">configured</span>
+                    } @else {
+                      <span class="pill warn">not set</span>
+                    }
+                  </dd>
+                </dl>
+                <p class="hint">
+                  These are set in the server's <code>appsettings.json</code> under
+                  <code>Ai:Providers:{{ provider.id }}</code>, and deliberately cannot be
+                  changed from a web page: a field that chooses which program the server runs
+                  is a field that can run any program. <strong>This machine</strong> shows
+                  whether they are working.
+                </p>
+              </div>
+            }
+
+            @if (provider.requiresApiKey) {
+              <div class="subform">
+                <h4>API key</h4>
+
+                @if (provider.key.configured) {
+                  <dl class="kv">
+                    <dt>Installed</dt>
+                    <dd class="mono">{{ provider.key.masked }}</dd>
+                    <dt>Fingerprint</dt>
+                    <dd class="mono">{{ provider.key.fingerprint }}</dd>
+                    <dt>Comes from</dt>
+                    <dd>
+                      {{ provider.key.source === 'Configuration'
+                          ? 'an environment variable on the server'
+                          : 'this screen, encrypted in the database' }}
+                    </dd>
+                  </dl>
+                }
+
+                @if (provider.key.source === 'Configuration') {
+                  <p class="hint">
+                    Supplied by the server's environment, so it cannot be changed here.
+                    Anything saved below would take precedence over it.
+                  </p>
+                }
+
+                <div class="row" style="margin-top: .6rem">
+                  <input type="password" autocomplete="off" style="max-width: 24rem"
+                         [(ngModel)]="draft.key"
+                         [placeholder]="provider.key.configured ? 'paste a new key to rotate' : 'paste the key'" />
+                  <button type="button" (click)="saveKey(provider)"
+                          [disabled]="status.busy() || !draft.key.trim()">
+                    {{ provider.key.configured ? 'Rotate' : 'Save key' }}
+                  </button>
+                  @if (provider.key.configured && provider.key.source === 'Database') {
+                    <button type="button" class="danger" (click)="removeKey(provider)">
+                      Remove
+                    </button>
+                  }
+                </div>
+
+                <p class="hint">
+                  Stored encrypted, and never shown again &mdash; not here, not in a log, not
+                  in an error message. Only the last four characters and a fingerprint come
+                  back.
+                  @if (provider.keyUrl) {
+                    <a [href]="provider.keyUrl" target="_blank" rel="noopener noreferrer">
+                      Get a key
+                    </a>
+                  }
+                </p>
+              </div>
+            }
+          </div>
+        }
+      </div>
+    }
+  }
+
+  <div class="card">
+    <h3>Where a request may go</h3>
+    <p class="muted">
+      Outbound AI calls are limited to these hosts. The list is part of the server's
+      configuration and is deliberately not editable here &mdash; a control that could be
+      widened by the thing it constrains is not a control. Without it, an address typed into
+      the field above could make this server fetch anything on someone's behalf.
+    </p>
+    <div class="chips">
+      @for (host of data.hostAllowlist; track host) {
+        <span class="chip">{{ host }}</span>
+      }
+    </div>
+  </div>
+} @else {
+  <div class="card muted">Loading&hellip;</div>
+}

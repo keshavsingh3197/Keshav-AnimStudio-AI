@@ -1,0 +1,38 @@
+<div class="page-head">
+  <div>
+    <h1>Server settings</h1>
+    <p class="muted">
+      Everything about how this copy of AnimStudio runs. None of it is needed to make a
+      video &mdash; the <strong>Bundle</strong> tab on a project works with all of this
+      switched off.
+    </p>
+  </div>
+</div>
+
+@if (access(); as access) {
+  @if (!access.canAdminister) {
+    <div class="notice error">{{ access.explanation }}</div>
+  }
+
+  <nav class="subtabs">
+    <a routerLink="providers" routerLinkActive="active">AI providers</a>
+    <a routerLink="usage" routerLinkActive="active">Usage</a>
+    <a routerLink="health" routerLinkActive="active">This machine</a>
+    <a routerLink="jobs" routerLinkActive="active">Renders</a>
+    <a routerLink="activity" routerLinkActive="active">Activity</a>
+  </nav>
+
+  @if (access.canAdminister) {
+    <router-outlet />
+  } @else {
+    <div class="empty">
+      <p>There is nothing to show here from this browser.</p>
+      <p class="muted">
+        Open AnimStudio on the machine the server is running on, or sign in with an account
+        that has the Admin role.
+      </p>
+    </div>
+  }
+} @else {
+  <div class="card muted">Loading&hellip;</div>
+}

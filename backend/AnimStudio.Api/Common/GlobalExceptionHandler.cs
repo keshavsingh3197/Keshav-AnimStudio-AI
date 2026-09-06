@@ -1,3 +1,4 @@
+using AnimStudio.Application.Abstractions.Ai;
 using AnimStudio.Application.Abstractions.Transcripts;
 using AnimStudio.Application.Common;
 using AnimStudio.Application.Transcripts.Parsing;
@@ -62,6 +63,15 @@ public sealed class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logge
                     ? StatusCodes.Status409Conflict
                     : StatusCodes.Status400BadRequest,
                 editing.Code, editing.Message),
+
+            // An administrator's settings change that was refused. Not a server fault: the
+            // message names the field and is written to be shown.
+            AiSettingsException aiSettings =>
+                (StatusCodes.Status400BadRequest, aiSettings.Code, aiSettings.Message),
+
+            // Never quotes the key, by construction - see AiCredentialStore.
+            AiCredentialException credential =>
+                (StatusCodes.Status400BadRequest, credential.Code, credential.Message),
 
             SubtitleParseException parse =>
                 (StatusCodes.Status422UnprocessableEntity, parse.Code, parse.Message),

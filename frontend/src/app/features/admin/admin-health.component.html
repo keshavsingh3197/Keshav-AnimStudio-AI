@@ -1,0 +1,60 @@
+@if (health(); as health) {
+  <div class="toolbar">
+    <button type="button" class="secondary" (click)="reload()" [disabled]="status.busy()">
+      Check again
+    </button>
+    <span class="muted">Last checked {{ health.checkedAtUtc | date: 'medium' }}</span>
+  </div>
+
+  @if (health.healthy) {
+    <div class="notice" style="border-left-color: var(--ok)">
+      Everything a video needs is present.
+    </div>
+  } @else {
+    <div class="notice error">
+      Something a render depends on is missing. The rows marked <strong>needed</strong> below
+      have to work before a video can be produced.
+    </div>
+  }
+
+  <div class="card">
+    <table>
+      <thead>
+        <tr><th>What</th><th>State</th><th>Detail</th></tr>
+      </thead>
+      <tbody>
+        @for (probe of health.probes; track probe.key) {
+          <tr>
+            <td>
+              <strong>{{ probe.displayName }}</strong>
+              @if (probe.required) {
+                <span class="pill" style="margin-left: .4rem">needed</span>
+              } @else {
+                <span class="muted" style="margin-left: .4rem">optional</span>
+              }
+            </td>
+            <td><span class="pill" [class]="'pill ' + tone(probe)">{{ word(probe) }}</span></td>
+            <td>
+              <div class="mono">{{ probe.detail ?? '—' }}</div>
+              @if (probe.advice) {
+                <div class="muted">{{ probe.advice }}</div>
+              }
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Why so much of this is optional</h3>
+    <p class="muted">
+      A bundle carries its own pictures, sounds and dialogue, so the only things a render
+      truly needs are the renderer, the media inspector, somewhere to keep files and a
+      database. Everything else on this list buys convenience: yt-dlp fetches captions from a
+      link, Piper reads dialogue aloud, whisper.cpp writes a transcript from audio.
+    </p>
+  </div>
+} @else {
+  <div class="card muted">Checking&hellip;</div>
+}

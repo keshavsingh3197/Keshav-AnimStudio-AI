@@ -5,12 +5,24 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>animstudio-ai-local</UserSecretsId>
+    <!--
+      The OpenAPI XML-comment generator emits interceptors, which have to be opted into by
+      namespace. Required as soon as an endpoint carries doc comments the generator picks up.
+    -->
+    <InterceptorsNamespaces>$(InterceptorsNamespaces);Microsoft.AspNetCore.OpenApi.Generated</InterceptorsNamespaces>
     <UseLocalProjectReferences Condition="'$(UseLocalProjectReferences)' == '' and Exists('..\..\..\KeshavSingh-Packages-Core\src\KeshavSingh.Core\KeshavSingh.Core.csproj')">true</UseLocalProjectReferences>
     <SkipPrivatePackages Condition="'$(UseLocalProjectReferences)' == 'true' or '$(PACKAGES_READ_TOKEN)' == ''">true</SkipPrivatePackages>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.11" />
+    <!--
+      Validates the family's HS256 tokens when Admin:Mode is Jwt. Same package and the same
+      validation parameters as ghar-ledger and pratiyogita, so a token minted at the identity
+      provider works here unchanged; the alternative was hand-rolling token validation, which
+      is never the right call.
+    -->
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.11" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(SkipPrivatePackages)' != 'true'">

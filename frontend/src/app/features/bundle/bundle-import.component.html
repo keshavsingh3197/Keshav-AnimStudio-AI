@@ -1,0 +1,172 @@
+<div class="page-head">
+  <div>
+    <h2>Bundle</h2>
+    <p class="muted">
+      Build a whole video from one file. A bundle is a <code>.zip</code> holding the sheets
+      that describe your project and a <code>media/</code> folder with your images and audio.
+      <strong>No AI provider, key or internet connection is needed for any of this.</strong>
+    </p>
+  </div>
+</div>
+
+<div class="card">
+  <h3>1. Start from the template</h3>
+  <p class="muted">
+    The template has one example row per sheet and an empty <code>media/</code> folder.
+    Open the <code>.csv</code> files in Excel, Numbers, LibreOffice or Google Sheets.
+  </p>
+  <div class="row">
+    <a [href]="templateUrl"><button type="button">Download bundle template</button></a>
+    <a [href]="promptPackUrl">
+      <button type="button" class="secondary">Download AI prompt pack</button>
+    </a>
+  </div>
+  <p class="muted">
+    The prompt pack is for filling the sheets in with any free AI chat you already use &mdash;
+    the AI part happens outside this application, so nothing needs configuring here. Anything
+    you paste into an outside tool leaves your machine, so fill the sheets in by hand if the
+    material is private.
+  </p>
+</div>
+
+<div class="card">
+  <h3>2. Upload it back</h3>
+  <p class="muted">
+    Put your images and audio in <code>media/</code>, refer to them from the sheets by their
+    filename, zip the folder, and drop it here. You will see every change before anything is
+    saved.
+  </p>
+  <label for="bundle">Bundle file</label>
+  <input id="bundle" type="file" accept=".zip,application/zip" (change)="choose($event)" />
+
+  @if (fileName(); as name) {
+    <p class="muted mono">{{ name }}</p>
+  }
+</div>
+
+@if (preview(); as plan) {
+  <div class="card">
+    <div class="page-head">
+      <div>
+        <h3>3. Review what would change</h3>
+        <p class="muted">
+          {{ plan.mediaFilesUsed }} media
+          {{ plan.mediaFilesUsed === 1 ? 'file is' : 'files are' }} referenced by your
+          sheets@if (plan.mediaFilesUnused > 0) {<span>, {{ plan.mediaFilesUnused }} unused</span>}.
+          @if (plan.hasTranscript) { <span>A transcript was found in the bundle.</span> }
+        </p>
+      </div>
+      <button type="button" class="secondary" (click)="discard()">Discard</button>
+    </div>
+
+    @if (plan.errors.length > 0) {
+      <div class="notice error">
+        Nothing can be imported until these are fixed in the file.
+      </div>
+
+      <table>
+        <thead>
+          <tr><th>Sheet</th><th>Row</th><th>Column</th><th>Problem</th></tr>
+        </thead>
+        <tbody>
+          @for (error of plan.errors; track $index) {
+            <tr>
+              <td class="mono">{{ error.sheet }}</td>
+              <td class="mono">{{ error.row }}</td>
+              <td class="mono">{{ error.column ?? '—' }}</td>
+              <td>{{ error.message }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    } @else {
+      <table>
+        <thead>
+          <tr><th>Sheet</th><th>New</th><th>Updated</th><th>Kept</th></tr>
+        </thead>
+        <tbody>
+          @for (sheet of plan.sheets; track sheet.sheet) {
+            <tr>
+              <td>{{ sheet.sheet }}</td>
+              <td>{{ sheet.create }}</td>
+              <td>{{ sheet.update }}</td>
+              <td>
+                @if (sheet.conflict > 0) {
+                  <span class="pill err" title="You edited these by hand">
+                    {{ sheet.conflict }} you edited
+                  </span>
+                } @else {
+                  <span class="muted">—</span>
+                }
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+
+      @for (sheet of plan.sheets; track sheet.sheet) {
+        @if (hasChanges(sheet)) {
+          <details>
+            <summary>{{ sheet.sheet }} &mdash; row by row</summary>
+            <table>
+              <thead>
+                <tr><th>Row</th><th></th><th>What</th><th>Detail</th></tr>
+              </thead>
+              <tbody>
+                @for (row of sheet.rows; track $index) {
+                  <tr>
+                    <td class="mono">{{ row.rowNumber }}</td>
+                    <td>
+                      <span class="pill" [class.err]="row.action === 'Conflict'">
+                        {{ row.action }}
+                      </span>
+                    </td>
+                    <td>{{ row.key }}</td>
+                    <td class="muted">{{ row.detail }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </details>
+        }
+      }
+
+      @if (totalConflicts() > 0) {
+        <label>
+          <input type="checkbox" [(ngModel)]="overwriteUserEdits" name="overwriteUserEdits" />
+          Overwrite the {{ totalConflicts() }}
+          {{ totalConflicts() === 1 ? 'scene' : 'scenes' }} I edited by hand
+        </label>
+      }
+
+      <label>
+        <input type="checkbox" [(ngModel)]="removeMissingScenes" name="removeMissingScenes" />
+        Delete scenes this bundle does not mention
+      </label>
+      <p class="muted">
+        Leave that unticked unless the bundle describes the whole video. A sheet with three
+        scenes in it is usually a partial edit, not an instruction to delete the other fifty.
+      </p>
+
+      <button type="button" [disabled]="status.busy()" (click)="apply()">
+        Apply this import
+      </button>
+    }
+  </div>
+}
+
+@if (result(); as done) {
+  <div class="card">
+    <h3>Imported</h3>
+    <p>
+      {{ done.charactersCreated }} characters added,
+      {{ done.charactersUpdated }} updated &middot;
+      {{ done.scenesCreated }} scenes added,
+      {{ done.scenesUpdated }} updated@if (done.scenesRemoved > 0) {<span>,
+      {{ done.scenesRemoved }} removed</span>} &middot;
+      {{ done.assetsCreated }} files stored &middot;
+      {{ done.dialogueLines }} lines of dialogue.
+    </p>
+    <button type="button" (click)="openScenes()">Open the scenes</button>
+  </div>
+}

@@ -1,3 +1,4 @@
+using AnimStudio.Domain.Ai;
 using AnimStudio.Domain.Assets;
 using AnimStudio.Domain.Characters;
 using AnimStudio.Domain.Ingest;
@@ -55,7 +56,31 @@ public static class MongoMappingRegistrar
             MapWithStringId<Script>();
             MapWithStringId<TranscriptIngest>();
             MapWithStringId<RenderJob>();
+            MapWithStringId<AiUsageRecord>();
+            MapWithStringId<AiCredential>();
+            MapWithStringId<PromptTemplate>();
+            MapWithStringId<AdminAuditEntry>();
+
+            // Not an ObjectId: this document's id is the fixed literal "ai-settings", which
+            // is what guarantees there is exactly one of it.
+            MapWithLiteralId<AiSettings>();
         }
+    }
+
+    /// <summary>
+    /// Maps an entity whose <c>Id</c> is a string the application chooses, stored as a
+    /// string. Used for the singleton documents, where a generated id would defeat the
+    /// point of them.
+    /// </summary>
+    private static void MapWithLiteralId<T>() where T : class
+    {
+        if (BsonClassMap.IsClassMapRegistered(typeof(T))) return;
+
+        BsonClassMap.RegisterClassMap<T>(map =>
+        {
+            map.AutoMap();
+            map.SetIdMember(map.GetMemberMap("Id"));
+        });
     }
 
     /// <summary>

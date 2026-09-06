@@ -117,3 +117,25 @@ public sealed record IngestSummaryResponse(
     string? ToolName, string? ToolVersion,
     IReadOnlyList<string> Warnings, string? ErrorCode,
     DateTime CreatedAt, DateTime? CompletedAt);
+
+/// <summary>
+/// What one AI capability can do right now. Deliberately says WHY it is unavailable, so
+/// the UI can grey a button out with an explanation instead of letting a user click
+/// something that will fail. Carries no key material, and no base URL - a base URL is
+/// operator configuration, not something a project screen needs.
+/// </summary>
+public sealed record AiCapabilityResponse(
+    string Capability,
+    string? ProviderId,
+    string? Model,
+    bool Available,
+    string Reason,
+    // Null when the provider has no configured ceiling, which is not the same as zero.
+    long? DailyRemaining,
+    IReadOnlyList<string> Chain);
+
+public sealed record AiCapabilitiesResponse(IReadOnlyList<AiCapabilityResponse> Capabilities)
+{
+    /// <summary>True when nothing at all is configured - the app's supported default state.</summary>
+    public bool AnyAvailable => Capabilities.Any(c => c.Available);
+}

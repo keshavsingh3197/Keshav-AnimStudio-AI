@@ -4,10 +4,12 @@ import { Observable, map } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
 import {
-  ApiResponse, Asset, Character, CharacterBody, CreateProjectBody, CreateSceneBody,
-  DialogueBody, IngestCapabilities, IngestResult, IngestSummary, PlacementBody, Project,
-  RenderJob, RendererStatus, Scene, SceneAudioBody, SceneDetail, SceneGenerationResult,
-  ScriptDetail, ScriptSummary, UpdateProjectBody, UpdateSceneBody,
+  AdminAccess, AdminAuditEntry, AdminHealth, AdminJob, AdminProviderBody, AdminProviders,
+  AdminProviderTest, AdminUsage, AiCapabilities, ApiResponse, Asset, BundleApplyBody,
+  BundleImportResult, BundlePreview, Character, CharacterBody, CreateProjectBody,
+  CreateSceneBody, DialogueBody, IngestCapabilities, IngestResult, IngestSummary,
+  PlacementBody, Project, RenderJob, RendererStatus, Scene, SceneAudioBody, SceneDetail,
+  SceneGenerationResult, ScriptDetail, ScriptSummary, UpdateProjectBody, UpdateSceneBody,
 } from '../models/api.models';
 
 /**
@@ -24,6 +26,12 @@ export class ApiService {
   // --- system
   rendererStatus(): Observable<RendererStatus> {
     return this.unwrap(this.http.get<ApiResponse<RendererStatus>>(`${this.base}/api/system/renderer`));
+  }
+
+  /** Whether to offer an admin link at all, rather than one that leads to a refusal. */
+  adminAccess(): Observable<AdminAccess> {
+    return this.unwrap(
+      this.http.get<ApiResponse<AdminAccess>>(`${this.base}/api/system/admin-access`));
   }
 
   ingestCapabilities(): Observable<IngestCapabilities> {
@@ -243,6 +251,116 @@ export class ApiService {
 
   downloadUrl(jobId: string): string {
     return `${this.base}/api/render-jobs/${jobId}/download`;
+  }
+
+  // --- bundle: the no-AI path. One .zip carrying sheets, images and audio.
+
+  /** Direct links, because a download is a navigation rather than a fetch. */
+  bundleTemplateUrl(): string {
+    return `${this.base}/api/templates/bundle`;
+  }
+
+  aiPromptPackUrl(): string {
+    return `${this.base}/api/templates/ai-prompts`;
+  }
+
+  previewBundle(projectId: string, file: File): Observable<BundlePreview> {
+    const form = new FormData();
+    form.append('file', file, file.name);
+
+    return this.unwrap(this.http.post<ApiResponse<BundlePreview>>(
+      `${this.base}/api/projects/${projectId}/bundle/preview`, form));
+  }
+
+  applyBundle(projectId: string, body: BundleApplyBody): Observable<BundleImportResult> {
+    return this.unwrap(this.http.post<ApiResponse<BundleImportResult>>(
+      `${this.base}/api/projects/${projectId}/bundle/apply`, body));
+  }
+
+  /** The whole project as one zip: sheets plus every picture and sound they refer to. */
+  bundleExportUrl(projectId: string, includeMedia = true): string {
+    return `${this.base}/api/projects/${projectId}/bundle?includeMedia=${includeMedia}`;
+  }
+
+  // --- AI status, available to any signed-in user
+
+  aiCapabilities(): Observable<AiCapabilities> {
+    return this.unwrap(
+      this.http.get<ApiResponse<AiCapabilities>>(`${this.base}/api/ai/capabilities`));
+  }
+
+  // --- running the server. Everything below is behind the admin policy; a browser that is
+  // not admitted gets 403 with the standard envelope, which the interceptor turns into a
+  // message rather than a blank screen.
+
+  private readonly admin = `${this.base}/api/admin`;
+
+  adminProviders(): Observable<AdminProviders> {
+    return this.unwrap(this.http.get<ApiResponse<AdminProviders>>(`${this.admin}/providers`));
+  }
+
+  /**
+   * Every write returns the whole provider list. One round trip, and the screen can never
+   * drift from the server - which matters most for the key mask, where a stale view would
+   * read as "the key did not save".
+   */
+  saveProvider(providerId: string, body: AdminProviderBody): Observable<AdminProviders> {
+    return this.unwrap(this.http.put<ApiResponse<AdminProviders>>(
+      `${this.admin}/providers/${providerId}`, body));
+  }
+
+  resetProvider(providerId: string): Observable<AdminProviders> {
+    return this.unwrap(this.http.post<ApiResponse<AdminProviders>>(
+      `${this.admin}/providers/${providerId}/reset`, {}));
+  }
+
+  setProviderKey(providerId: string, key: string): Observable<AdminProviders> {
+    return this.unwrap(this.http.put<ApiResponse<AdminProviders>>(
+      `${this.admin}/providers/${providerId}/key`, { key }));
+  }
+
+  deleteProviderKey(providerId: string): Observable<AdminProviders> {
+    return this.unwrap(this.http.delete<ApiResponse<AdminProviders>>(
+      `${this.admin}/providers/${providerId}/key`));
+  }
+
+  testProvider(providerId: string): Observable<AdminProviderTest> {
+    return this.unwrap(this.http.post<ApiResponse<AdminProviderTest>>(
+      `${this.admin}/providers/${providerId}/test`, {}));
+  }
+
+  saveChain(capability: string, providerIds: string[]): Observable<AdminProviders> {
+    return this.unwrap(this.http.put<ApiResponse<AdminProviders>>(
+      `${this.admin}/chains/${capability}`, { providerIds }));
+  }
+
+  adminUsage(days = 14): Observable<AdminUsage> {
+    return this.unwrap(
+      this.http.get<ApiResponse<AdminUsage>>(`${this.admin}/usage?days=${days}`));
+  }
+
+  adminHealth(): Observable<AdminHealth> {
+    return this.unwrap(this.http.get<ApiResponse<AdminHealth>>(`${this.admin}/health`));
+  }
+
+  adminJobs(limit = 40): Observable<AdminJob[]> {
+    return this.unwrap(
+      this.http.get<ApiResponse<AdminJob[]>>(`${this.admin}/jobs?limit=${limit}`));
+  }
+
+  cancelAdminJob(jobId: string): Observable<unknown> {
+    return this.unwrap(
+      this.http.post<ApiResponse<unknown>>(`${this.admin}/jobs/${jobId}/cancel`, {}));
+  }
+
+  retryAdminJob(jobId: string): Observable<unknown> {
+    return this.unwrap(
+      this.http.post<ApiResponse<unknown>>(`${this.admin}/jobs/${jobId}/retry`, {}));
+  }
+
+  adminAudit(limit = 50): Observable<AdminAuditEntry[]> {
+    return this.unwrap(
+      this.http.get<ApiResponse<AdminAuditEntry[]>>(`${this.admin}/audit?limit=${limit}`));
   }
 
   private unwrap<T>(source: Observable<ApiResponse<T>>): Observable<T> {

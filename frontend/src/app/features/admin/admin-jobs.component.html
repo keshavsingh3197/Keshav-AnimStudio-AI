@@ -1,0 +1,67 @@
+<div class="toolbar">
+  <button type="button" class="secondary" (click)="reload()" [disabled]="status.busy()">
+    Refresh
+  </button>
+  <span class="muted">The 40 most recent renders, newest first.</span>
+</div>
+
+@if (jobs().length === 0) {
+  <div class="empty">Nothing has been rendered on this server yet.</div>
+} @else {
+  <div class="card">
+    <table>
+      <thead>
+        <tr>
+          <th>Project</th><th>State</th><th>Progress</th>
+          <th>Started</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (job of jobs(); track job.id) {
+          <tr>
+            <td>
+              <a [routerLink]="['/projects', job.projectId, 'render']">
+                <strong>{{ job.projectName ?? 'a deleted project' }}</strong>
+              </a>
+              <div class="mono muted">{{ job.id }}</div>
+            </td>
+            <td>
+              <span class="pill" [class]="'pill ' + tone(job)">{{ job.status }}</span>
+              @if (job.attempts > 1) {
+                <div class="muted">attempt {{ job.attempts }}</div>
+              }
+            </td>
+            <td style="width: 26%">
+              @if (job.isTerminal) {
+                <span class="muted">
+                  {{ job.scenesDone }} of {{ job.scenesTotal }} scenes
+                </span>
+              } @else {
+                <div class="bar"><i [style.width.%]="job.progress"></i></div>
+                <div class="muted">{{ job.stage }} &middot; {{ job.message }}</div>
+              }
+              @if (job.errorMessage) {
+                <div class="muted">{{ job.errorMessage }}</div>
+              }
+            </td>
+            <td class="muted">{{ job.createdAt | date: 'short' }}</td>
+            <td style="text-align: right">
+              @if (!job.isTerminal) {
+                <button type="button" class="secondary" (click)="cancel(job)">Cancel</button>
+              } @else if (canRetry(job)) {
+                <button type="button" class="secondary" (click)="retry(job)">
+                  Queue again
+                </button>
+              }
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+    <p class="hint">
+      Queueing again resets the attempt count and clears the error, and is offered only for
+      a render that failed or was cancelled &mdash; requeuing a finished one would overwrite
+      the video it already produced.
+    </p>
+  </div>
+}

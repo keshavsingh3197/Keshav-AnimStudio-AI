@@ -56,6 +56,13 @@ export const routes: Routes = [
           import('./features/ingest/import.component').then((m) => m.ImportComponent),
       },
       {
+        path: 'bundle',
+        title: 'Bundle - AnimStudio AI',
+        loadComponent: () =>
+          import('./features/bundle/bundle-import.component')
+            .then((m) => m.BundleImportComponent),
+      },
+      {
         path: 'render',
         title: 'Render - AnimStudio AI',
         loadComponent: () =>
@@ -67,6 +74,48 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./features/settings/project-settings.component')
             .then((m) => m.ProjectSettingsComponent),
+      },
+    ],
+  },
+
+  {
+    path: 'admin',
+    title: 'Server settings - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/admin/admin-shell.component').then((m) => m.AdminShellComponent),
+    children: [
+      { path: '', pathMatch: 'full', redirectTo: 'providers' },
+      {
+        path: 'providers',
+        title: 'AI providers - AnimStudio AI',
+        loadComponent: () =>
+          import('./features/admin/admin-providers.component')
+            .then((m) => m.AdminProvidersComponent),
+      },
+      {
+        path: 'usage',
+        title: 'AI usage - AnimStudio AI',
+        loadComponent: () =>
+          import('./features/admin/admin-usage.component').then((m) => m.AdminUsageComponent),
+      },
+      {
+        path: 'health',
+        title: 'This machine - AnimStudio AI',
+        loadComponent: () =>
+          import('./features/admin/admin-health.component').then((m) => m.AdminHealthComponent),
+      },
+      {
+        path: 'jobs',
+        title: 'Renders - AnimStudio AI',
+        loadComponent: () =>
+          import('./features/admin/admin-jobs.component').then((m) => m.AdminJobsComponent),
+      },
+      {
+        path: 'activity',
+        title: 'Activity - AnimStudio AI',
+        loadComponent: () =>
+          import('./features/admin/admin-activity.component')
+            .then((m) => m.AdminActivityComponent),
       },
     ],
   },

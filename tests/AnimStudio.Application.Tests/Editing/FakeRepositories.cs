@@ -143,19 +143,35 @@ public sealed class FakeAssetRepository : IAssetRepository
     }
 }
 
+/// <summary>
+/// An object store that actually holds the bytes, so a test can assert on what came out
+/// as well as on what went in. An unknown key still reads as null, which is what the real
+/// store does and what several callers branch on.
+/// </summary>
 public sealed class FakeObjectStore : IObjectStore
 {
     public List<string> Deleted { get; } = [];
 
-    public Task SaveAsync(string key, Stream content, string contentType, CancellationToken ct = default) =>
-        Task.CompletedTask;
+    public Dictionary<string, byte[]> Contents { get; } = new(StringComparer.Ordinal);
+
+    public async Task SaveAsync(
+        string key, Stream content, string contentType, CancellationToken ct = default)
+    {
+        using var buffer = new MemoryStream();
+        await content.CopyToAsync(buffer, ct);
+        Contents[key] = buffer.ToArray();
+    }
+
+    public void Put(string key, byte[] content) => Contents[key] = content;
 
     public Task<Stream?> OpenAsync(string key, CancellationToken ct = default) =>
-        Task.FromResult<Stream?>(null);
+        Task.FromResult<Stream?>(
+            Contents.TryGetValue(key, out var bytes) ? new MemoryStream(bytes) : null);
 
     public Task DeleteAsync(string key, CancellationToken ct = default)
     {
         Deleted.Add(key);
+        Contents.Remove(key);
         return Task.CompletedTask;
     }
 }

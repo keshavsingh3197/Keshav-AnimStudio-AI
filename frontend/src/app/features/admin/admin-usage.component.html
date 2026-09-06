@@ -1,0 +1,85 @@
+<div class="toolbar">
+  <span class="muted">Showing</span>
+  @for (option of [7, 14, 30, 90]; track option) {
+    <button type="button" [class]="days() === option ? '' : 'secondary'"
+            (click)="setDays(option)">
+      {{ option }} days
+    </button>
+  }
+  <button type="button" class="secondary" (click)="reload()">Refresh</button>
+</div>
+
+@if (nothingYet()) {
+  <div class="empty">
+    <p>No AI calls have been made.</p>
+    <p class="muted">
+      Expected if you are working from bundles &mdash; that path never calls a provider.
+    </p>
+  </div>
+} @else {
+  <div class="card">
+    <h3>By provider</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Provider</th><th>For</th><th>Calls made</th>
+          <th>Served from cache</th><th>Failed</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (total of totals(); track total.providerId) {
+          <tr>
+            <td class="mono">{{ total.providerId }}</td>
+            <td class="muted">{{ total.capability }}</td>
+            <td>{{ total.requests }}</td>
+            <td>
+              {{ total.cacheHits }}
+              @if (total.cacheHits > 0) {
+                <span class="muted">({{ hitRate(total) }}%)</span>
+              }
+            </td>
+            <td>
+              @if (total.failures > 0) {
+                <span class="pill err">{{ total.failures }}</span>
+              } @else {
+                <span class="muted">0</span>
+              }
+            </td>
+            <td style="width: 30%">
+              <div class="spark"><i [style.width]="width(total)"></i></div>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+    <p class="hint">
+      A call served from cache spent nothing: the same prompt, model and seed produce the
+      same result, so it is fetched rather than re-generated. That ratio is what decides
+      whether a free tier survives a long project.
+    </p>
+  </div>
+
+  <div class="card">
+    <h3>Day by day</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Day</th><th>Provider</th><th>Calls</th><th>Units</th>
+          <th>Cache</th><th>Failed</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (row of byDay(); track row.day + row.providerId + row.capability) {
+          <tr>
+            <td class="mono">{{ row.day }}</td>
+            <td class="mono">{{ row.providerId }}</td>
+            <td>{{ row.requests }}</td>
+            <td class="muted">{{ row.units }}</td>
+            <td class="muted">{{ row.cacheHits }}</td>
+            <td class="muted">{{ row.failures }}</td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+}
