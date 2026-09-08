@@ -24,11 +24,22 @@ public sealed class RenderJob
     public string ProjectId { get; set; } = string.Empty;
     public string UserId { get; set; } = string.Empty;
 
+    public RenderJobKind Kind { get; set; } = RenderJobKind.Project;
+
+    /// <summary>
+    /// Set only on a <see cref="RenderJobKind.ClipMerge"/> job. The running order is stored
+    /// ON the job rather than read back from the project when a worker picks it up, so a
+    /// stitch renders the order that was submitted even if the clip list is edited while
+    /// the job sits in the queue.
+    /// </summary>
+    public ClipMergeSpec? ClipMerge { get; set; }
+
     public RenderJobStatus Status { get; set; } = RenderJobStatus.Pending;
     public int Progress { get; set; }
     public string? Message { get; set; }
     public RenderStage CurrentStage { get; set; } = RenderStage.None;
 
+    /// <summary>Renderable items: scenes on a project render, clips on a stitch.</summary>
     public int ScenesTotal { get; set; }
     public int ScenesDone { get; set; }
 

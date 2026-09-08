@@ -61,7 +61,7 @@ public sealed record CharacterPlacementResponse(
 /// client changing.
 /// </summary>
 public sealed record RenderJobResponse(
-    string JobId, string ProjectId, string Status, int Progress, string? Message,
+    string JobId, string ProjectId, string Kind, string Status, int Progress, string? Message,
     string CurrentStage, int ScenesTotal, int ScenesDone,
     string? ErrorCode, string? ErrorMessage, IReadOnlyList<string> Warnings,
     bool HasOutput, double? OutputDurationSeconds,
@@ -139,3 +139,48 @@ public sealed record AiCapabilitiesResponse(IReadOnlyList<AiCapabilityResponse> 
     /// <summary>True when nothing at all is configured - the app's supported default state.</summary>
     public bool AnyAvailable => Capabilities.Any(c => c.Available);
 }
+
+/// <summary>
+/// One video clip in the library, with just enough measured detail to lay out a running
+/// order without playing every file: how long it is, what shape it is, and whether it has
+/// any sound.
+/// </summary>
+public sealed record ClipResponse(
+    string Id, string Name, long FileSizeBytes,
+    double? DurationSeconds, int? Width, int? Height, bool HasAudio);
+
+public sealed record ClipOrderLineResponse(int Number, string Text, string? AssetId, string Match);
+
+/// <summary>
+/// A resolved running order. <c>AssetIds</c> is always a COMPLETE ordering of everything
+/// that was sent, so it can be applied straight to the list; the diagnostics are there to
+/// explain what was guessed, not to gate applying it.
+/// </summary>
+public sealed record ClipOrderResponse(
+    IReadOnlyList<string> AssetIds,
+    IReadOnlyList<ClipOrderLineResponse> Lines,
+    IReadOnlyList<string> AppendedAssetIds,
+    bool IsExact);
+
+/// <summary>
+/// Everything the clip screen needs in one request: the clips, the server's defaults, and
+/// what this machine's renderer can actually do.
+/// <para>
+/// The capability flags exist so an option that would fail is greyed out with a reason
+/// rather than offered and then quietly ignored - the same contract
+/// <see cref="RendererStatusResponse"/> has for the project renderer.
+/// </para>
+/// </summary>
+public sealed record ClipStudioResponse(
+    IReadOnlyList<ClipResponse> Clips,
+    IReadOnlyList<AssetResponse> LogoCandidates,
+    IReadOnlyList<AssetResponse> MusicCandidates,
+    string? DefaultWatermarkText,
+    int MaxClips,
+    long MaxClipUploadBytes,
+    bool RendererAvailable,
+    string? UnavailableReason,
+    bool TextWatermarkAvailable,
+    bool LogoWatermarkAvailable,
+    bool TransitionsAvailable,
+    bool BlurredBackdropAvailable);

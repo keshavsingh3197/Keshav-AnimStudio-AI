@@ -41,17 +41,19 @@ public sealed class SceneRenderTests : IAsyncLifetime
 
         var runner = new FfmpegRunner(ffmpegOptions, NullLogger<FfmpegRunner>.Instance);
 
-        // Everything the installed build actually has; the unit suite covers degraded paths.
+        // Everything the installed build actually has, at the version it actually is; the
+        // unit suite covers the degraded paths.
         var capabilities = new FfmpegCapabilities
         {
             IsAvailable = true, HasLibass = true, HasZoompan = true, HasXfade = true,
             HasAcrossfade = true, HasAlimiter = true, HasLibx264 = true, HasAac = true,
-            HasDrawtext = true, Major = 7
+            HasDrawtext = true, Major = FfmpegLocator.MajorVersion
         };
 
         _service = new FfmpegVideoRenderingService(
             runner,
             new FfmpegFilterGraphBuilder(capabilities),
+            capabilities,
             ffmpegOptions,
             Options.Create(new RenderOptions()),
             NullLogger<FfmpegVideoRenderingService>.Instance);

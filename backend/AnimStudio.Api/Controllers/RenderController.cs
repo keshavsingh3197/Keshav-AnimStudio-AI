@@ -6,7 +6,6 @@ using AnimStudio.Application.Abstractions.Storage;
 using AnimStudio.Application.Projects;
 using AnimStudio.Application.Security;
 using AnimStudio.Domain.Jobs;
-using AnimStudio.Domain.Rendering;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AnimStudio.Api.Controllers;
@@ -64,7 +63,7 @@ public sealed class RenderController(
 
         logger.LogInformation("Queued render job {JobId} for project {ProjectId}.", job.Id, projectId);
 
-        return Accepted(ApiResponse<RenderJobResponse>.Ok(Map(job)));
+        return Accepted(ApiResponse<RenderJobResponse>.Ok(job.ToResponse()));
     }
 
     /// <summary>Poll target. Stop polling once the status is terminal.</summary>
@@ -73,7 +72,7 @@ public sealed class RenderController(
         string jobId, CancellationToken ct)
     {
         var job = await LoadOwnedJobAsync(jobId, ct);
-        return Ok(ApiResponse<RenderJobResponse>.Ok(Map(job)));
+        return Ok(ApiResponse<RenderJobResponse>.Ok(job.ToResponse()));
     }
 
     [HttpGet("api/projects/{projectId}/render-jobs")]
@@ -83,7 +82,7 @@ public sealed class RenderController(
         await EnsureOwnedAsync(projectId, ct);
 
         var list = await jobs.ListByProjectAsync(projectId, ct);
-        return Ok(ApiResponse<IReadOnlyList<RenderJobResponse>>.Ok([.. list.Select(Map)]));
+        return Ok(ApiResponse<IReadOnlyList<RenderJobResponse>>.Ok([.. list.Select(Mappings.ToResponse)]));
     }
 
     [HttpPost("api/render-jobs/{jobId}/cancel")]
@@ -183,14 +182,4 @@ public sealed class RenderController(
 
         return job;
     }
-
-    private static RenderJobResponse Map(RenderJob job) => new(
-        job.Id, job.ProjectId, job.Status.ToString(), job.Progress, job.Message,
-        job.CurrentStage.ToString(), job.ScenesTotal, job.ScenesDone,
-        job.ErrorCode, job.ErrorMessage, job.Warnings,
-        job.OutputStorageKey is not null,
-        job.OutputDurationFrames.HasValue
-            ? new FrameCount(job.OutputDurationFrames.Value).ToSeconds(FrameRate.Fps30)
-            : null,
-        job.CreatedAt, job.CompletedAt);
 }

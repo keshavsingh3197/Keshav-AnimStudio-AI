@@ -1,0 +1,491 @@
+using System.Diagnostics;
+using System.Globalization;
+using AnimStudio.Application.Abstractions.Rendering;
+using AnimStudio.Application.Abstractions.Storage;
+using AnimStudio.Application.Clips;
+using AnimStudio.Application.Rendering.Models;
+using AnimStudio.Domain.Rendering;
+using AnimStudio.Infrastructure.Ffmpeg;
+using AnimStudio.Infrastructure.Ffmpeg.Graph;
+using AnimStudio.Infrastructure.Storage;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+
+namespace AnimStudio.Integration.Tests;
+
+/// <summary>
+/// Runs the real clip pipeline against deliberately mismatched clips.
+/// <para>
+/// This is the test that matters for a stitch, because the failure it guards against is
+/// silent. Clips arrive from phones, screen recorders and other editors agreeing on
+/// nothing - resolution, frame rate, pixel aspect, sample rate, whether there is any audio
+/// at all - and every one of those mismatches produces exit code 0 and a video that plays
+/// the first clip and then stalls, or drifts out of sync by the end. So the fixtures here
+/// are as inconsistent as real footage on purpose, and every assertion is made with
+/// ffprobe rather than by trusting the exit code.
+/// </para>
+/// </summary>
+public sealed class ClipMergeRenderTests : IAsyncLifetime
+{
+    private string _root = string.Empty;
+    private IRenderWorkspace _workspace = null!;
+    private FfmpegVideoRenderingService _service = null!;
+
+    private static readonly Canvas TestCanvas = new(640, 360, FrameRate.Fps30);
+
+    private static readonly CancellationToken Ct = new CancellationTokenSource(
+        TimeSpan.FromMinutes(5)).Token;
+
+    public Task InitializeAsync()
+    {
+        _root = Path.Combine(Path.GetTempPath(), "animstudio-tests", Guid.NewGuid().ToString("n"));
+
+        _service = BuildService();
+
+        _workspace = new LocalRenderWorkspace(
+            "clip-job", _root, new NullObjectStore(),
+            NullLogger<LocalRenderWorkspace>.Instance, keepOnFailure: false);
+
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// A renderer wired to the real ffmpeg on this host.
+    /// <para>
+    /// <paramref name="maxMergeInputs"/> defaults high enough that every existing test takes
+    /// the single-pass join, so batching is exercised only where a test asks for it.
+    /// </para>
+    /// </summary>
+    private static FfmpegVideoRenderingService BuildService(int maxMergeInputs = 64)
+    {
+        var ffmpegOptions = Options.Create(new FfmpegOptions
+        {
+            FfmpegPath = FfmpegLocator.FfmpegPath,
+            FfprobePath = FfmpegLocator.FfprobePath,
+            SceneTimeoutMinutes = 5,
+            MergeTimeoutMinutes = 5,
+            MaxMergeInputs = maxMergeInputs
+        });
+
+        var runner = new FfmpegRunner(ffmpegOptions, NullLogger<FfmpegRunner>.Instance);
+
+        var capabilities = new FfmpegCapabilities
+        {
+            IsAvailable = true, HasLibass = true, HasZoompan = true, HasXfade = true,
+            HasAcrossfade = true, HasAlimiter = true, HasLibx264 = true, HasAac = true,
+            HasDrawtext = true, HasGblur = true, Major = FfmpegLocator.MajorVersion
+        };
+
+        return new FfmpegVideoRenderingService(
+            runner,
+            new FfmpegFilterGraphBuilder(capabilities),
+            capabilities,
+            ffmpegOptions,
+            Options.Create(new RenderOptions()),
+            NullLogger<FfmpegVideoRenderingService>.Instance);
+    }
+
+    public async Task DisposeAsync() => await _workspace.DisposeAsync();
+
+    private string Path_(string relative) => System.IO.Path.Combine(_root, relative);
+
+    // --- fixtures -----------------------------------------------------------
+
+    /// <summary>
+    /// A clip that agrees with nothing. Every parameter here is a real mismatch seen in
+    /// practice, and each one on its own is enough to break a naive concat.
+    /// </summary>
+    private void MakeClip(
+        string relative, double seconds, int width, int height, int fps,
+        bool withAudio, int sampleRate = 44100, int channels = 1, string sar = "1/1")
+    {
+        Directory.CreateDirectory(Path_("in"));
+
+        var video =
+            $"-f lavfi -i testsrc=size={width}x{height}:rate={fps}:duration="
+            + seconds.ToString(CultureInfo.InvariantCulture);
+
+        var audio = withAudio
+            ? $" -f lavfi -i sine=frequency=440:duration={seconds.ToString(CultureInfo.InvariantCulture)}"
+              + $":sample_rate={sampleRate}"
+            : string.Empty;
+
+        var maps = withAudio
+            ? $"-map 0:v -map 1:a -c:a aac -ar {sampleRate} -ac {channels}"
+            : "-map 0:v -an";
+
+        Run($"-y {video}{audio} {maps} -vf setsar={sar} -c:v libx264 -pix_fmt yuv420p "
+          + $"-r {fps} \"{Path_(relative)}\"");
+    }
+
+    private ClipRenderPlan Plan(
+        int index, string source, ClipFit fit = ClipFit.Contain,
+        WatermarkPlan? watermark = null, bool hasAudio = true) =>
+        new()
+        {
+            ClipIndex = index,
+            SourceRelativePath = source,
+            Canvas = TestCanvas,
+            OutputRelativePath = $"clips/clip_{index + 1:D3}.mp4",
+            // Deliberately WRONG, to prove the pipeline measures rather than trusts it.
+            ExpectedFrames = new FrameCount(1),
+            Fit = fit,
+            SourceHasAudio = hasAudio,
+            Watermark = watermark
+        };
+
+    // --- conforming ---------------------------------------------------------
+
+    [FfmpegFact]
+    public async Task Conforms_a_mismatched_clip_to_the_canvas()
+    {
+        // 480x270 at 24fps with an anamorphic SAR and mono 44.1kHz audio: nothing about
+        // this clip matches the project.
+        MakeClip("in/odd.mp4", 2.0, 480, 270, 24, withAudio: true, sar: "4/3");
+
+        var result = await _service.RenderClipAsync(Plan(0, "in/odd.mp4"), _workspace, null, Ct);
+
+        var path = _workspace.Resolve(result.RelativePath);
+
+        Assert.Equal("640", ProbeStream(path, "v:0", "width"));
+        Assert.Equal("360", ProbeStream(path, "v:0", "height"));
+        Assert.Equal("1:1", ProbeStream(path, "v:0", "sample_aspect_ratio"));
+        Assert.Equal("30/1", ProbeStream(path, "v:0", "r_frame_rate"));
+        Assert.Equal("48000", ProbeStream(path, "a:0", "sample_rate"));
+        Assert.Equal("2", ProbeStream(path, "a:0", "channels"));
+    }
+
+    [FfmpegFact]
+    public async Task Measures_a_clips_real_length_instead_of_trusting_the_plan()
+    {
+        // The plan claims one frame. If that were imposed on the output, the clip would be
+        // truncated to a single frame - which is exactly what a container lying about its
+        // duration would cause on real footage.
+        MakeClip("in/two-seconds.mp4", 2.0, 640, 360, 30, withAudio: true);
+
+        var result = await _service.RenderClipAsync(
+            Plan(0, "in/two-seconds.mp4"), _workspace, null, Ct);
+
+        Assert.InRange(result.Frames.Value, 59, 61);
+    }
+
+    [FfmpegFact]
+    public async Task Gives_a_silent_clip_an_audio_track_of_its_own_length()
+    {
+        // A silent clip with no audio stream is the normal way a concat breaks: the joined
+        // file plays up to it and stops. Generated silence has to be there, and has to be
+        // the same length as the picture.
+        MakeClip("in/silent.mp4", 2.0, 640, 360, 30, withAudio: false);
+
+        var result = await _service.RenderClipAsync(
+            Plan(0, "in/silent.mp4", hasAudio: false), _workspace, null, Ct);
+
+        var path = _workspace.Resolve(result.RelativePath);
+
+        Assert.Equal("aac", ProbeStream(path, "a:0", "codec_name"));
+
+        var video = ProbeDuration(path, "v:0");
+        var audio = ProbeDuration(path, "a:0");
+
+        Assert.InRange(video, 1.9, 2.1);
+        Assert.True(Math.Abs(video - audio) < 0.15,
+            $"audio {audio:F3}s and video {video:F3}s must match; a gap here is drift at every join.");
+    }
+
+    [Theory]
+    [InlineData(ClipFit.Contain)]
+    [InlineData(ClipFit.Cover)]
+    [InlineData(ClipFit.BlurredBackdrop)]
+    public async Task Every_fit_mode_fills_the_canvas_exactly(ClipFit fit)
+    {
+        if (!FfmpegLocator.IsAvailable) return;
+
+        // A vertical clip in a wide canvas: the case every fit mode exists to handle.
+        MakeClip("in/vertical.mp4", 1.0, 270, 480, 30, withAudio: true);
+
+        var result = await _service.RenderClipAsync(
+            Plan(0, "in/vertical.mp4", fit), _workspace, null, Ct);
+
+        var path = _workspace.Resolve(result.RelativePath);
+
+        Assert.Equal("640", ProbeStream(path, "v:0", "width"));
+        Assert.Equal("360", ProbeStream(path, "v:0", "height"));
+    }
+
+    // --- watermark ----------------------------------------------------------
+
+    [FfmpegFontFact]
+    public async Task Burns_in_a_text_watermark_read_from_a_file()
+    {
+        // The URL is the point: every character that makes it a URL is syntax to
+        // drawtext's option parser, so if the textfile indirection were wrong this is the
+        // input that would fail.
+        await _workspace.WriteTextAsync("wm/watermark.txt", "https://animstudio.example/x?a=1", Ct);
+
+        // Resolved exactly the way the server resolves it, so this test exercises the real
+        // font lookup rather than a second list that can drift from it. FfmpegFontFact has
+        // already skipped the test if the host has none.
+        var fontFile = WatermarkFontResolver.FindSystemFont();
+
+        var mark = ClipPlanFactory.CreateWatermark(
+            new WatermarkSettings { Kind = WatermarkKind.Text, Text = "https://animstudio.example/x?a=1" },
+            TestCanvas, null, "wm/watermark.txt", fontFile)!;
+
+        MakeClip("in/plain.mp4", 1.0, 640, 360, 30, withAudio: true);
+
+        var result = await _service.RenderClipAsync(
+            Plan(0, "in/plain.mp4", watermark: mark), _workspace, null, Ct);
+
+        // A watermark that failed to draw still exits 0, so the proof is that the top of
+        // the frame changed while the bottom did not.
+        var top = MeanLuma(_workspace.Resolve(result.RelativePath), "crop=640:60:0:0");
+        var bottom = MeanLuma(_workspace.Resolve(result.RelativePath), "crop=640:60:0:300");
+
+        Assert.True(Math.Abs(top - bottom) > 1.0,
+            $"expected the mark to change the top band (top {top:F2} vs bottom {bottom:F2}).");
+    }
+
+    [FfmpegFact]
+    public async Task Keeps_a_logo_watermark_on_screen_for_the_whole_clip()
+    {
+        // Without eof_action=repeat on the overlay, the single-frame logo ends the output
+        // after one frame - a two-second clip becomes a 33ms one.
+        RenderFixtures.MakeSprite(Path_("in/logo.png"), "red", 64);
+
+        var mark = ClipPlanFactory.CreateWatermark(
+            new WatermarkSettings { Kind = WatermarkKind.Logo, LogoAssetId = "logo" },
+            TestCanvas, "in/logo.png", null, null)!;
+
+        MakeClip("in/plain.mp4", 2.0, 640, 360, 30, withAudio: true);
+
+        var result = await _service.RenderClipAsync(
+            Plan(0, "in/plain.mp4", watermark: mark), _workspace, null, Ct);
+
+        Assert.InRange(result.Frames.Value, 59, 61);
+    }
+
+    // --- joining ------------------------------------------------------------
+
+    [FfmpegFact]
+    public async Task Joins_mismatched_clips_into_one_continuous_file()
+    {
+        // Three clips that agree on nothing, joined as hard cuts - which is the stream-copy
+        // path, and therefore the one that is only legal because the conform pass made
+        // every output identical.
+        MakeClip("in/a.mp4", 1.0, 480, 270, 24, withAudio: true, sampleRate: 44100, channels: 1);
+        MakeClip("in/b.mp4", 1.0, 1280, 720, 60, withAudio: false);
+        MakeClip("in/c.mp4", 1.0, 640, 360, 30, withAudio: true, sampleRate: 22050, channels: 2);
+
+        var prepared = new List<SceneRenderResult>
+        {
+            await _service.RenderClipAsync(Plan(0, "in/a.mp4"), _workspace, null, Ct),
+            await _service.RenderClipAsync(Plan(1, "in/b.mp4", hasAudio: false), _workspace, null, Ct),
+            await _service.RenderClipAsync(Plan(2, "in/c.mp4"), _workspace, null, Ct),
+        };
+
+        var merged = await Merge(prepared, FrameCount.Zero);
+
+        var path = _workspace.Resolve(merged.RelativePath);
+
+        // The real test of a copy concat: the whole timeline is present, not just the
+        // first clip. Audio has to be there too, or the third clip plays silent.
+        var video = ProbeDuration(path, "v:0");
+        Assert.InRange(video, 2.8, 3.2);
+        Assert.Equal("aac", ProbeStream(path, "a:0", "codec_name"));
+
+        var audio = ProbeDuration(path, "a:0");
+        Assert.True(Math.Abs(video - audio) < 0.25,
+            $"audio {audio:F3}s and video {video:F3}s drifted apart across the joins.");
+    }
+
+    [FfmpegFact]
+    public async Task Crossfading_shortens_the_timeline_by_each_transition()
+    {
+        // The arithmetic that is easy to get wrong: an xfade consumes its duration from
+        // BOTH sides, so two 1s clips with a 0.5s crossfade make 1.5s, not 2s.
+        MakeClip("in/a.mp4", 1.0, 640, 360, 30, withAudio: true);
+        MakeClip("in/b.mp4", 1.0, 640, 360, 30, withAudio: true);
+
+        var prepared = new List<SceneRenderResult>
+        {
+            await _service.RenderClipAsync(Plan(0, "in/a.mp4"), _workspace, null, Ct),
+            await _service.RenderClipAsync(Plan(1, "in/b.mp4"), _workspace, null, Ct),
+        };
+
+        var merged = await Merge(prepared, new FrameCount(15));
+
+        var duration = ProbeDuration(_workspace.Resolve(merged.RelativePath), "v:0");
+        Assert.True(Math.Abs(duration - 1.5) < 0.12, $"expected 1.5s, got {duration:F3}s");
+    }
+
+    [FfmpegFact]
+    public async Task A_batched_crossfade_join_lands_on_the_same_timeline_as_a_single_pass()
+    {
+        // The reason batching exists is memory: an xfade chain opens every clip at once,
+        // ~96 MB each at 1080p, so a long stitch pages and its runtime becomes a lottery.
+        // The reason it is dangerous is arithmetic: every batch boundary is somewhere a
+        // transition can be applied twice or not at all, and neither shows up as an error -
+        // only as a video a few frames wrong at each seam.
+        //
+        // Five 1s clips with 0.5s crossfades: 5 - 4*0.5 = 3.0s, whether that is done in one
+        // pass or in three. Forcing two inputs per pass makes the cascade three levels deep
+        // over the same five clips, which is the deepest arrangement these fixtures can
+        // produce.
+        for (var i = 0; i < 5; i++)
+            MakeClip($"in/n{i}.mp4", 1.0, 640, 360, 30, withAudio: true);
+
+        var prepared = new List<SceneRenderResult>();
+        for (var i = 0; i < 5; i++)
+        {
+            prepared.Add(await _service.RenderClipAsync(
+                Plan(i, $"in/n{i}.mp4"), _workspace, null, Ct));
+        }
+
+        var single = await Merge(prepared, new FrameCount(15), maxMergeInputs: 64);
+        var batched = await Merge(
+            prepared, new FrameCount(15), maxMergeInputs: 2, output: "out/batched.mp4");
+
+        Assert.Equal(single.Frames.Value, batched.Frames.Value);
+
+        var path = _workspace.Resolve(batched.RelativePath);
+
+        var video = ProbeDuration(path, "v:0");
+        Assert.True(Math.Abs(video - 3.0) < 0.12, $"expected 3.0s, got {video:F3}s");
+
+        // Audio is crossfaded by a parallel chain, so a boundary bug shows up as drift
+        // rather than as a wrong duration.
+        var audio = ProbeDuration(path, "a:0");
+        Assert.True(Math.Abs(video - audio) < 0.25,
+            $"audio {audio:F3}s and video {video:F3}s drifted apart across the batch seams.");
+    }
+
+    [FfmpegFact]
+    public async Task Batching_leaves_a_hard_cut_join_as_a_stream_copy()
+    {
+        // The concat demuxer reads one input at a time, so its memory does not grow with the
+        // list and there is nothing for batching to fix. Splitting it anyway would turn a
+        // lossless copy that takes seconds into a re-encode.
+        for (var i = 0; i < 5; i++)
+            MakeClip($"in/c{i}.mp4", 1.0, 640, 360, 30, withAudio: true);
+
+        var prepared = new List<SceneRenderResult>();
+        for (var i = 0; i < 5; i++)
+        {
+            prepared.Add(await _service.RenderClipAsync(
+                Plan(i, $"in/c{i}.mp4"), _workspace, null, Ct));
+        }
+
+        var merged = await Merge(prepared, FrameCount.Zero, maxMergeInputs: 2);
+
+        var duration = ProbeDuration(_workspace.Resolve(merged.RelativePath), "v:0");
+        Assert.True(Math.Abs(duration - 5.0) < 0.2, $"expected 5.0s, got {duration:F3}s");
+
+        // A copy leaves no intermediate behind; a cascade would have written one.
+        Assert.Empty(Directory.GetFiles(Path_("merge")));
+    }
+
+    /// <summary>
+    /// Joins prepared clips exactly the way the orchestrator does - measured lengths,
+    /// clamped transitions - so the two cannot disagree about the arithmetic.
+    /// </summary>
+    private Task<MergeRenderResult> Merge(
+        List<SceneRenderResult> prepared, FrameCount requestedTransition,
+        int maxMergeInputs = 64, string output = "out/final.mp4")
+    {
+        var lengths = prepared.Select(p => p.Frames).ToList();
+        var transitions = ClipPlanFactory.ClampTransitions(lengths, requestedTransition);
+
+        var joined = prepared.Select((clip, index) => new MergeSceneInput(
+            clip.RelativePath,
+            lengths[index],
+            index < transitions.Count && transitions[index].Value > 0
+                ? new TransitionSettings(SceneTransition.Fade, transitions[index])
+                : TransitionSettings.None)).ToList();
+
+        return BuildService(maxMergeInputs).MergeScenesAsync(
+            new MergePlan
+            {
+                Canvas = TestCanvas,
+                Scenes = joined,
+                OutputRelativePath = output
+            },
+            _workspace, null, Ct);
+    }
+
+    // --- probing ------------------------------------------------------------
+
+    private static string ProbeStream(string path, string stream, string entry) =>
+        FfmpegLocator.Probe(
+            $"-v error -select_streams {stream} -show_entries stream={entry} "
+            + $"-of default=nokey=1:noprint_wrappers=1 \"{path}\"");
+
+    private static double ProbeDuration(string path, string stream)
+    {
+        var text = ProbeStream(path, stream, "duration");
+
+        // A stream-copy concat can leave the per-stream duration unset, in which case the
+        // container's is the answer.
+        if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds))
+        {
+            text = FfmpegLocator.Probe(
+                $"-v error -show_entries format=duration "
+                + $"-of default=nokey=1:noprint_wrappers=1 \"{path}\"");
+            seconds = double.Parse(text, CultureInfo.InvariantCulture);
+        }
+
+        return seconds;
+    }
+
+    /// <summary>
+    /// Average brightness of a region of the first frame. Used to prove a watermark really
+    /// drew, since a drawtext that silently did nothing still exits 0.
+    /// </summary>
+    private static double MeanLuma(string path, string cropFilter)
+    {
+        using var process = Process.Start(new ProcessStartInfo(FfmpegLocator.FfmpegPath)
+        {
+            Arguments = $"-hide_banner -v info -i \"{path}\" -vf {cropFilter},signalstats,"
+                      + "metadata=print:key=lavfi.signalstats.YAVG -frames:v 1 -f null -",
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            UseShellExecute = false
+        })!;
+
+        var output = process.StandardError.ReadToEnd() + process.StandardOutput.ReadToEnd();
+        process.WaitForExit(60_000);
+
+        var marker = "lavfi.signalstats.YAVG=";
+        var index = output.IndexOf(marker, StringComparison.Ordinal);
+        Assert.True(index >= 0, "signalstats produced no YAVG reading.");
+
+        var value = output[(index + marker.Length)..].Split('\n')[0].Trim();
+        return double.Parse(value, CultureInfo.InvariantCulture);
+    }
+
+    private static void Run(string arguments)
+    {
+        using var process = Process.Start(new ProcessStartInfo(FfmpegLocator.FfmpegPath)
+        {
+            Arguments = "-hide_banner -loglevel error " + arguments,
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            UseShellExecute = false
+        })!;
+
+        var stderr = process.StandardError.ReadToEnd();
+        process.WaitForExit(120_000);
+
+        if (process.ExitCode != 0)
+            throw new InvalidOperationException($"Fixture generation failed: {stderr}");
+    }
+
+
+    private sealed class NullObjectStore : IObjectStore
+    {
+        public Task SaveAsync(string key, Stream content, string contentType, CancellationToken ct = default) =>
+            Task.CompletedTask;
+        public Task<Stream?> OpenAsync(string key, CancellationToken ct = default) =>
+            Task.FromResult<Stream?>(null);
+        public Task DeleteAsync(string key, CancellationToken ct = default) => Task.CompletedTask;
+    }
+}

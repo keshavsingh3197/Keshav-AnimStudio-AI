@@ -6,7 +6,8 @@ import { environment } from '../../../environments/environment';
 import {
   AdminAccess, AdminAuditEntry, AdminHealth, AdminJob, AdminProviderBody, AdminProviders,
   AdminProviderTest, AdminUsage, AiCapabilities, ApiResponse, Asset, BundleApplyBody,
-  BundleImportResult, BundlePreview, Character, CharacterBody, CreateProjectBody,
+  BundleImportResult, BundlePreview, Character, CharacterBody, ClipMergeBody, ClipOrder,
+  ClipStudio, CreateProjectBody,
   CreateSceneBody, DialogueBody, IngestCapabilities, IngestResult, IngestSummary,
   PlacementBody, Project, RenderJob, RendererStatus, Scene, SceneAudioBody, SceneDetail,
   SceneGenerationResult, ScriptDetail, ScriptSummary, UpdateProjectBody, UpdateSceneBody,
@@ -251,6 +252,37 @@ export class ApiService {
 
   downloadUrl(jobId: string): string {
     return `${this.base}/api/render-jobs/${jobId}/download`;
+  }
+
+  // --- clips: several finished clips joined into one downloadable file
+
+  /** The clips, what can mark or score them, and what this server's renderer can do. */
+  clipStudio(projectId: string): Observable<ClipStudio> {
+    return this.unwrap(
+      this.http.get<ApiResponse<ClipStudio>>(`${this.base}/api/projects/${projectId}/clips`));
+  }
+
+  /**
+   * Reads a written running order against the current selection.
+   *
+   * A read, not a write: pasting, seeing what matched, fixing a line and pasting again
+   * costs nothing and changes nothing until the result is applied.
+   */
+  clipOrder(projectId: string, assetIds: string[], text: string): Observable<ClipOrder> {
+    return this.unwrap(this.http.post<ApiResponse<ClipOrder>>(
+      `${this.base}/api/projects/${projectId}/clips/order`, { assetIds, text }));
+  }
+
+  /** Queues the stitch. Polled and downloaded through the same job endpoints as a render. */
+  mergeClips(projectId: string, body: ClipMergeBody): Observable<RenderJob> {
+    return this.unwrap(this.http.post<ApiResponse<RenderJob>>(
+      `${this.base}/api/projects/${projectId}/clips/merge`, body));
+  }
+
+  /** Bulk delete, because a bulk import is routinely followed by a bulk mistake. */
+  deleteClips(projectId: string, assetIds: string[]): Observable<number> {
+    return this.unwrap(this.http.post<ApiResponse<number>>(
+      `${this.base}/api/projects/${projectId}/clips/delete`, { assetIds }));
   }
 
   // --- bundle: the no-AI path. One .zip carrying sheets, images and audio.

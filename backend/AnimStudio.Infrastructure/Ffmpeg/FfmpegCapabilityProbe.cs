@@ -61,6 +61,7 @@ public sealed partial class FfmpegCapabilityProbe(
                 HasXfade = HasFilter(filters.StdOut, "xfade"),
                 HasAcrossfade = HasFilter(filters.StdOut, "acrossfade"),
                 HasAlimiter = HasFilter(filters.StdOut, "alimiter"),
+                HasGblur = HasFilter(filters.StdOut, "gblur"),
                 HasLibx264 = HasEncoder(encoders.StdOut, "libx264"),
                 HasAac = HasEncoder(encoders.StdOut, "aac")
             };

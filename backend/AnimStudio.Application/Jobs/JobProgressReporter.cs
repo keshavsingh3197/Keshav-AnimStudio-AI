@@ -69,6 +69,34 @@ public sealed class JobProgressReporter : IProgress<RenderProgress>, IAsyncDispo
     public bool CancelRequested { get; private set; }
     public bool LeaseLost { get; private set; }
 
+    /// <summary>
+    /// How far the job actually got, for the failure record.
+    /// <para>
+    /// These exist because a terminal write REPLACES the job document with the caller's
+    /// in-memory copy, and that copy still holds the values the job was claimed with. So a
+    /// job that failed while merging clip twenty was recorded as "Preparing, 0 of 24" -
+    /// which reads as a failure before anything happened and sends whoever is diagnosing it
+    /// to the wrong end of the pipeline. Reading the live values back from here and copying
+    /// them onto the job first keeps the record honest.
+    /// </para>
+    /// </summary>
+    public RenderStage LastStage
+    {
+        get { lock (_gate) return _lastWrittenStage; }
+    }
+
+    /// <summary>The last percentage written, or 0 if nothing has been written yet.</summary>
+    public int LastPercent
+    {
+        get { lock (_gate) return Math.Max(_lastWrittenPercent, 0); }
+    }
+
+    /// <summary>How many items finished, as last reported by the orchestrator.</summary>
+    public int ItemsDone
+    {
+        get { lock (_gate) return _scenesDone; }
+    }
+
     public void SceneCompleted(int scenesDone)
     {
         lock (_gate) _scenesDone = scenesDone;
@@ -99,10 +127,18 @@ public sealed class JobProgressReporter : IProgress<RenderProgress>, IAsyncDispo
     {
         RenderProgress? snapshot;
         int scenesDone;
+        RenderStage writtenStage;
+        int writtenScene;
+        int writtenPercent;
+        DateTimeOffset writtenAt;
         lock (_gate)
         {
             snapshot = _latest;
             scenesDone = _scenesDone;
+            writtenStage = _lastWrittenStage;
+            writtenScene = _lastWrittenScene;
+            writtenPercent = _lastWrittenPercent;
+            writtenAt = _lastWriteAt;
         }
 
         if (snapshot is null) return;
@@ -112,14 +148,13 @@ public sealed class JobProgressReporter : IProgress<RenderProgress>, IAsyncDispo
 
         // A stage or scene change is always worth writing immediately; otherwise wait for
         // a whole percentage point, or for the silence window to force a heartbeat.
-        var stageChanged = snapshot.Stage != _lastWrittenStage
-                           || snapshot.SceneIndex != _lastWrittenScene;
-        var movedEnough = Math.Abs(percent - _lastWrittenPercent) >= 1;
-        var silentTooLong = now - _lastWriteAt >= MaxSilence;
+        var stageChanged = snapshot.Stage != writtenStage || snapshot.SceneIndex != writtenScene;
+        var movedEnough = Math.Abs(percent - writtenPercent) >= 1;
+        var silentTooLong = now - writtenAt >= MaxSilence;
 
         if (!force && !stageChanged && !movedEnough && !silentTooLong) return;
 
-        var message = RenderProgressAggregator.Message(snapshot.Stage, snapshot.SceneIndex, _sceneCount);
+        var message = _aggregator.Message(snapshot.Stage, snapshot.SceneIndex, _sceneCount);
 
         try
         {
@@ -127,10 +162,15 @@ public sealed class JobProgressReporter : IProgress<RenderProgress>, IAsyncDispo
                 _jobId, _leaseOwner, percent, message, snapshot.Stage, scenesDone,
                 _leaseDuration, ct).ConfigureAwait(false);
 
-            _lastWrittenPercent = percent;
-            _lastWrittenStage = snapshot.Stage;
-            _lastWrittenScene = snapshot.SceneIndex;
-            _lastWriteAt = now;
+            // Under the gate because the failure path reads these from the orchestrator's
+            // thread to write an honest terminal record.
+            lock (_gate)
+            {
+                _lastWrittenPercent = percent;
+                _lastWrittenStage = snapshot.Stage;
+                _lastWrittenScene = snapshot.SceneIndex;
+                _lastWriteAt = now;
+            }
 
             if (!result.LeaseHeld)
             {

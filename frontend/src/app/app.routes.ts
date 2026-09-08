@@ -50,6 +50,12 @@ export const routes: Routes = [
           import('./features/assets/asset-library.component').then((m) => m.AssetLibraryComponent),
       },
       {
+        path: 'clips',
+        title: 'Clips - AnimStudio AI',
+        loadComponent: () =>
+          import('./features/clips/clip-studio.component').then((m) => m.ClipStudioComponent),
+      },
+      {
         path: 'import',
         title: 'Import - AnimStudio AI',
         loadComponent: () =>

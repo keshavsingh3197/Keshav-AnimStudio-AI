@@ -133,6 +133,8 @@ export interface ScriptSegment {
 
 export interface ScriptDetail extends ScriptSummary {
   projectId: string;
+  /** Project or ClipMerge, so a screen can say "clip 2 of 6" rather than "scene 2 of 6". */
+  kind: string;
   segments: ScriptSegment[];
   segmentsTruncated: boolean;
 }
@@ -210,6 +212,8 @@ export interface CharacterPlacement {
 export interface SceneDetail {
   id: string;
   projectId: string;
+  /** Project or ClipMerge, so a screen can say "clip 2 of 6" rather than "scene 2 of 6". */
+  kind: string;
   sceneNumber: number;
   title?: string;
   description?: string;
@@ -284,6 +288,8 @@ export interface SceneAudioBody {
 export interface RenderJob {
   jobId: string;
   projectId: string;
+  /** Project or ClipMerge, so a screen can say "clip 2 of 6" instead of "scene 2 of 6". */
+  kind: string;
   status: string;
   progress: number;
   message?: string;
@@ -334,6 +340,95 @@ export function isTerminal(status: string): boolean {
   return (TERMINAL_JOB_STATUSES as readonly string[]).includes(status);
 }
 
+
+// --- clip studio: several finished clips joined into one file -----------------
+
+export interface Clip {
+  id: string;
+  name: string;
+  fileSizeBytes: number;
+  durationSeconds?: number;
+  width?: number;
+  height?: number;
+  hasAudio: boolean;
+}
+
+/**
+ * How one line of a pasted running order was read. Mirrors the server's ClipOrderMatch,
+ * because the UI colours each line by it.
+ */
+export type ClipOrderMatch = 'Matched' | 'Ambiguous' | 'Unmatched' | 'Duplicate';
+
+export interface ClipOrderLine {
+  number: number;
+  text: string;
+  assetId?: string;
+  match: ClipOrderMatch;
+}
+
+export interface ClipOrder {
+  /** Always a COMPLETE ordering of what was sent, so it can be applied as-is. */
+  assetIds: string[];
+  lines: ClipOrderLine[];
+  /** Clips the text never named. They are kept at the end rather than dropped. */
+  appendedAssetIds: string[];
+  isExact: boolean;
+}
+
+/** The clip screen's data and its server-side limits in one payload. */
+export interface ClipStudio {
+  clips: Clip[];
+  logoCandidates: Asset[];
+  musicCandidates: Asset[];
+  defaultWatermarkText?: string;
+  maxClips: number;
+  maxClipUploadBytes: number;
+  rendererAvailable: boolean;
+  unavailableReason?: string;
+  textWatermarkAvailable: boolean;
+  logoWatermarkAvailable: boolean;
+  transitionsAvailable: boolean;
+  blurredBackdropAvailable: boolean;
+}
+
+export type WatermarkKind = 'None' | 'Text' | 'Logo';
+
+/**
+ * Note what is missing: there is no centre position. A watermark over the middle of the
+ * frame covers what the viewer came to see, so the option does not exist to be chosen.
+ */
+export const WATERMARK_POSITIONS = [
+  'TopRight', 'TopLeft', 'TopCenter', 'BottomRight', 'BottomLeft', 'BottomCenter',
+] as const;
+
+export type WatermarkPosition = (typeof WATERMARK_POSITIONS)[number];
+
+export interface WatermarkBody {
+  kind: WatermarkKind;
+  text?: string | null;
+  logoAssetId?: string | null;
+  position: WatermarkPosition;
+  opacity: number;
+  heightFraction: number;
+  marginFraction: number;
+  colorHex?: string | null;
+  backplateOpacity: number;
+}
+
+export const CLIP_FITS = ['Contain', 'Cover', 'BlurredBackdrop'] as const;
+
+export type ClipFit = (typeof CLIP_FITS)[number];
+
+export interface ClipMergeBody {
+  assetIds: string[];
+  fit: ClipFit;
+  transition: string;
+  transitionSeconds: number;
+  muteClipAudio: boolean;
+  backgroundMusicAssetId?: string | null;
+  backgroundMusicVolume: number;
+  watermark: WatermarkBody;
+}
 // --- option lists, kept beside the models so a select and its API value cannot drift ---
 
 export const BACKGROUND_EFFECTS = [

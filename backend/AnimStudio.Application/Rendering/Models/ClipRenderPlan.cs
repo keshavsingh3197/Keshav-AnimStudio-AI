@@ -1,0 +1,97 @@
+using AnimStudio.Domain.Rendering;
+
+namespace AnimStudio.Application.Rendering.Models;
+
+/// <summary>
+/// A watermark resolved all the way down to pixels and workspace-relative paths.
+/// <para>
+/// The fractions in <see cref="WatermarkSettings"/> are turned into pixels ONCE here,
+/// against the project canvas, so the graph builder stays a pure function over integers
+/// and every position expression it emits can be asserted as a literal string.
+/// </para>
+/// <para>
+/// Note <see cref="TextRelativePath"/> rather than the text itself. drawtext's own option
+/// parser treats <c>:</c>, <c>,</c>, <c>%</c>, <c>\</c> and quotes as syntax, and a
+/// watermark is nearly always a URL - which is to say, a string made almost entirely of
+/// those characters. Handing ffmpeg a file to read instead removes that escaping problem
+/// completely rather than solving it repeatedly.
+/// </para>
+/// </summary>
+public sealed record WatermarkPlan
+{
+    public required WatermarkKind Kind { get; init; }
+    public required WatermarkPosition Position { get; init; }
+
+    /// <summary>A file in the workspace holding exactly the line to draw, no newline.</summary>
+    public string? TextRelativePath { get; init; }
+
+    /// <summary>The logo image, already materialized into the workspace.</summary>
+    public string? LogoRelativePath { get; init; }
+
+    /// <summary>Text cap height / logo height, in pixels.</summary>
+    public required int HeightPixels { get; init; }
+
+    /// <summary>Inset from both nearest edges, in pixels.</summary>
+    public required int MarginPixels { get; init; }
+
+    /// <summary>Widest the logo may be drawn, so a banner-shaped file cannot span the frame.</summary>
+    public required int MaxWidthPixels { get; init; }
+
+    public required double Opacity { get; init; }
+
+    /// <summary>"RRGGBB", already validated as six hex digits. Text only.</summary>
+    public required string ColorRgb { get; init; }
+
+    public required double BackplateOpacity { get; init; }
+
+    /// <summary>
+    /// ABSOLUTE path to the .ttf/.otf the text is drawn with - the only way a font is ever
+    /// named here. There is deliberately no family-name alternative: <c>drawtext</c>'s
+    /// <c>font=</c> resolves through fontconfig, and on a build that has fontconfig but no
+    /// <c>fonts.conf</c> - every stock Windows ffmpeg - the failed lookup crashes the
+    /// process with an access violation rather than reporting a missing font. Null means
+    /// the host has no font file at all, and the mark is then skipped with a warning: an
+    /// undrawn watermark costs a decoration, a crashed renderer costs the whole render.
+    /// </summary>
+    public string? FontFilePath { get; init; }
+}
+
+/// <summary>
+/// One source clip, normalized onto the project canvas and watermarked.
+/// <para>
+/// This is the first of the two passes a stitch takes, and the reason it exists as a
+/// separate pass at all: once every clip has been re-encoded to identical settings - same
+/// codec, resolution, pixel format, frame rate, GOP and audio layout - the join itself
+/// becomes a stream copy that costs seconds instead of minutes. Clips arrive from phones,
+/// screen recorders and other editors, so assuming they already agree on any of that is
+/// how a "merge" produces a video that plays the first clip and then stalls.
+/// </para>
+/// </summary>
+public sealed record ClipRenderPlan
+{
+    public required int ClipIndex { get; init; }
+    public required string SourceRelativePath { get; init; }
+    public required Canvas Canvas { get; init; }
+    public required string OutputRelativePath { get; init; }
+
+    /// <summary>
+    /// The length the upload probe reported, used for the progress bar and for nothing
+    /// else. It is NOT imposed on the output: a container's declared duration and its real
+    /// frame count disagree often enough that forcing it would truncate or freeze clips.
+    /// The true length is measured after this pass runs.
+    /// </summary>
+    public required FrameCount ExpectedFrames { get; init; }
+
+    /// <summary>How a clip shaped differently from the canvas is fitted to it.</summary>
+    public ClipFit Fit { get; init; } = ClipFit.Contain;
+
+    /// <summary>False when the source is silent, in which case silence is generated.</summary>
+    public bool SourceHasAudio { get; init; } = true;
+
+    /// <summary>Discards the clip's own audio, leaving room for a music bed.</summary>
+    public bool MuteAudio { get; init; }
+
+    public WatermarkPlan? Watermark { get; init; }
+
+    public EncoderProfile Encoder { get; init; } = EncoderProfile.Default;
+}

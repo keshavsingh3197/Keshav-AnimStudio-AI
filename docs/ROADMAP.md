@@ -23,6 +23,7 @@ section 47 "Current Phase: PHASE 1" is stale):
 | Script → scenes generation with edit-preserving re-ingest | Done |
 | FFmpeg render: Ken Burns, sprites, mouth flap, ASS subtitles, transitions, merge | Done |
 | Render jobs: Mongo lease/claim worker, progress polling, cancel, download | Done |
+| Clip studio: multi-file drag-drop, drag/typed running order, watermark, one-file export | Done |
 | Rights attestation, licence class, IP-risk advisory on assets | Done |
 | 190 unit tests + FFmpeg-gated integration tests | Passing |
 

@@ -8,7 +8,15 @@ namespace AnimStudio.Infrastructure.Ffmpeg;
 /// </summary>
 internal static class FfmpegArgumentBuilder
 {
-    public static List<string> Build(FilterGraphPlan plan, string? filterScriptRelativePath, int threads)
+    /// <param name="graphFromFileOption">
+    /// True to pass the graph with <c>-/filter_complex</c> (ffmpeg 7.0+), false for the
+    /// older <c>-filter_complex_script</c>. Not a style choice: the old spelling was
+    /// REMOVED in ffmpeg 8, so guessing wrong means every render fails with
+    /// "Unrecognized option".
+    /// </param>
+    public static List<string> Build(
+        FilterGraphPlan plan, string? filterScriptRelativePath, int threads,
+        bool graphFromFileOption = true)
     {
         var arguments = new List<string>
         {
@@ -42,7 +50,7 @@ internal static class FfmpegArgumentBuilder
         // next to the stderr log makes a failed job reproducible by hand.
         if (filterScriptRelativePath is not null && plan.FilterComplex.Length > 0)
         {
-            arguments.Add("-filter_complex_script");
+            arguments.Add(graphFromFileOption ? "-/filter_complex" : "-filter_complex_script");
             arguments.Add(filterScriptRelativePath);
         }
 

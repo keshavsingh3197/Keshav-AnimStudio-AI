@@ -14,5 +14,13 @@ namespace AnimStudio.Application.Abstractions.Rendering;
 public interface IFilterGraphBuilder
 {
     FilterGraphPlan BuildScene(SceneRenderPlan plan);
+
+    /// <summary>
+    /// Conforms one whole video clip to the canvas and burns in the watermark. Its output
+    /// is encoded to exactly the settings <see cref="BuildScene"/> uses, which is what lets
+    /// <see cref="BuildMerge"/> join clips and scenes by the same stream-copy path.
+    /// </summary>
+    FilterGraphPlan BuildClip(ClipRenderPlan plan);
+
     FilterGraphPlan BuildMerge(MergePlan plan);
 }

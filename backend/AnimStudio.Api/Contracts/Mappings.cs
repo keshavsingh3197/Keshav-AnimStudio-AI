@@ -1,5 +1,7 @@
 using AnimStudio.Domain.Assets;
+using AnimStudio.Application.Clips;
 using AnimStudio.Domain.Characters;
+using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Ingest;
 using AnimStudio.Domain.Projects;
 using AnimStudio.Domain.Rendering;
@@ -107,4 +109,36 @@ public static class Mappings
             new FrameCount(c.PresenceStartFrame).ToSeconds(rate),
             new FrameCount(c.PresenceEndFrame).ToSeconds(rate)))],
         s.Origin.ToString(), s.IsUserEdited, s.UpdatedAt);
+
+    /// <summary>
+    /// A render job as the client sees it.
+    /// <para>
+    /// Lives here rather than in a controller because two endpoints hand back jobs - a
+    /// project render and a clip stitch - and a second copy of this mapping is how the two
+    /// screens start disagreeing about what "progress" means.
+    /// </para>
+    /// </summary>
+    public static RenderJobResponse ToResponse(this RenderJob job) => new(
+        job.Id, job.ProjectId, job.Kind.ToString(), job.Status.ToString(),
+        job.Progress, job.Message,
+        job.CurrentStage.ToString(), job.ScenesTotal, job.ScenesDone,
+        job.ErrorCode, job.ErrorMessage, job.Warnings,
+        job.OutputStorageKey is not null,
+        job.OutputDurationFrames.HasValue
+            ? new FrameCount(job.OutputDurationFrames.Value).ToSeconds(FrameRate.Fps30)
+            : null,
+        job.CreatedAt, job.CompletedAt);
+
+    /// <summary>One video clip, with the facts a running order is laid out from.</summary>
+    public static ClipResponse ToClipResponse(this Asset a) => new(
+        a.Id, a.Name, a.FileSizeBytes,
+        a.Probe.DurationSeconds, a.Probe.Width, a.Probe.Height,
+        !string.IsNullOrEmpty(a.Probe.AudioCodec));
+
+    public static ClipOrderResponse ToResponse(this ClipOrderResult result) => new(
+        result.AssetIds,
+        [.. result.Lines.Select(l =>
+            new ClipOrderLineResponse(l.Number, l.Text, l.AssetId, l.Match.ToString()))],
+        result.AppendedAssetIds,
+        result.IsExact);
 }

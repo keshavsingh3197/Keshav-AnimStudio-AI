@@ -24,8 +24,25 @@ public sealed class AssetsController(
     ICurrentUser currentUser,
     TimeProvider clock) : ControllerBase
 {
-    /// <summary>25MB, also enforced by the counting stream during the copy.</summary>
+    /// <summary>25MB. The ceiling for a still image, a voice recording or a music bed.</summary>
     private const long MaxUploadBytes = 25 * 1024 * 1024;
+
+    /// <summary>
+    /// 512MB for video, because 25MB is not a video.
+    /// <para>
+    /// A single 1080p clip off a phone passes 25MB in about fifteen seconds, so the general
+    /// limit would refuse essentially every real clip. Video therefore gets its own, much
+    /// larger ceiling - and because the request-size attributes below have to be compile-time
+    /// constants, THIS is the limit the framework enforces on the request. The tighter
+    /// per-kind limit is applied afterwards, once the file's real type is known from its
+    /// bytes, which is the same order the subtitle limit already uses.
+    /// </para>
+    /// <para>
+    /// Uploads over 64KB are spooled to disk by the form reader rather than held in memory,
+    /// so a large clip costs scratch space and not the server's heap.
+    /// </para>
+    /// </summary>
+    public const long MaxVideoUploadBytes = 512L * 1024 * 1024;
 
     [HttpGet("api/projects/{projectId}/assets")]
     public async Task<ActionResult<ApiResponse<IReadOnlyList<AssetResponse>>>> List(
@@ -39,7 +56,8 @@ public sealed class AssetsController(
     }
 
     [HttpPost("api/projects/{projectId}/assets")]
-    [RequestSizeLimit(MaxUploadBytes)]
+    [RequestSizeLimit(MaxVideoUploadBytes)]
+    [RequestFormLimits(MultipartBodyLengthLimit = MaxVideoUploadBytes)]
     public async Task<ActionResult<ApiResponse<AssetResponse>>> Upload(
         string projectId, IFormFile file, CancellationToken ct)
     {
@@ -49,7 +67,9 @@ public sealed class AssetsController(
             return BadRequest(ApiResponse<AssetResponse>.Fail(
                 "Choose a file to upload.", new ApiError("file-required", "Choose a file to upload.")));
 
-        if (file.Length > MaxUploadBytes)
+        // Checked against the largest ceiling first; the tighter per-kind one is applied
+        // below, once the bytes have said what the file actually is.
+        if (file.Length > MaxVideoUploadBytes)
             return BadRequest(ApiResponse<AssetResponse>.Fail(
                 "That file is too large.", new ApiError("file-too-large", "That file is too large.")));
 
@@ -71,6 +91,17 @@ public sealed class AssetsController(
             return BadRequest(ApiResponse<AssetResponse>.Fail(
                 "That subtitle file is too large.",
                 new ApiError("file-too-large", "That subtitle file is too large.")));
+        }
+
+        // Only video gets the large ceiling. A 300MB "PNG" is not a still image, whatever
+        // the request was allowed to carry.
+        if (validation.Kind != AssetKind.Video
+            && validation.Kind != AssetKind.Subtitle
+            && file.Length > MaxUploadBytes)
+        {
+            return BadRequest(ApiResponse<AssetResponse>.Fail(
+                "Images and audio must be 25MB or smaller.",
+                new ApiError("file-too-large", "Images and audio must be 25MB or smaller.")));
         }
 
         // Server-composed key with a generated filename: the client's name is never used

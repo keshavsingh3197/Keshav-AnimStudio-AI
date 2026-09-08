@@ -1,0 +1,462 @@
+<div class="page-head">
+  <div>
+    <h2>Clip studio</h2>
+    <p class="muted">
+      Drop in finished video clips, put them in order, and get one MP4 back with your
+      watermark on it. Clips of different sizes and frame rates are all conformed to this
+      project's canvas, so a phone recording and a screen capture can sit in the same video.
+    </p>
+  </div>
+</div>
+
+@if (studio(); as studio) {
+  @if (!studio.rendererAvailable) {
+    <div class="notice error">
+      {{ studio.unavailableReason ?? 'Video rendering is not configured on this server.' }}
+    </div>
+  }
+
+  <!-- 1. getting clips in ------------------------------------------------- -->
+
+  <div class="card">
+    <div class="dropzone" [class.active]="dropActive()"
+         (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)"
+         (drop)="onDrop($event)">
+      @if (uploading()) {
+        <strong>Uploading {{ uploadDone() + 1 }} of {{ uploadTotal() }}&hellip;</strong>
+        <div class="bar" style="margin-top: .6rem; max-width: 20rem">
+          <i [style.width.%]="(uploadDone() / uploadTotal()) * 100"></i>
+        </div>
+        <p class="muted">One at a time, so each one finishes quickly and you can see where it is.</p>
+      } @else {
+        <strong>Drop video clips here</strong>
+        <p class="muted">
+          MP4, up to {{ studio.maxClipUploadBytes / 1048576 | number: '1.0-0' }}MB each.
+          Drop as many as you like at once.
+        </p>
+        <label class="link-button">
+          <input type="file" multiple accept="video/mp4,.mp4" (change)="onPick($event)" />
+          <span>or choose files</span>
+        </label>
+      }
+    </div>
+  </div>
+
+  <!-- 2. the running order ----------------------------------------------- -->
+
+  <div class="card">
+    <div class="section-head">
+      <h3>Running order</h3>
+      <span class="muted">
+        {{ included().length }} of {{ rows().length }} clips &middot;
+        {{ totalSeconds() | number: '1.0-1' }}s
+      </span>
+    </div>
+
+    @if (rows().length === 0) {
+      <div class="empty">No video clips in this project yet.</div>
+    } @else {
+      <div class="toolbar">
+        <button class="secondary" type="button" (click)="sortByName()"
+                title="clip2 before clip10, not after it">Sort by name</button>
+        <button class="secondary" type="button" (click)="reverse()">Reverse</button>
+        <button class="secondary" type="button" (click)="selectAll(true)">Tick all</button>
+        <button class="secondary" type="button" (click)="selectAll(false)">Untick all</button>
+
+        <span style="flex: 1 1 auto"></span>
+
+        @if (included().length > 0) {
+          @if (confirmingDelete()) {
+            <span class="muted">
+              Permanently delete {{ included().length }} clip(s) from this project?
+            </span>
+            <button class="danger" type="button" (click)="removeFromLibrary()">Delete</button>
+            <button class="secondary" type="button"
+                    (click)="confirmingDelete.set(false)">Keep</button>
+          } @else {
+            <button class="secondary" type="button" (click)="confirmingDelete.set(true)">
+              Delete {{ included().length }} from project
+            </button>
+          }
+        }
+      </div>
+
+      <ol class="clip-list">
+        @for (row of rows(); track row.clip.id; let i = $index) {
+          <li class="clip-row"
+              [class.excluded]="!row.included"
+              [class.dragging]="dragIndex() === i"
+              [class.drag-over]="dragOverIndex() === i && dragIndex() !== i"
+              draggable="true"
+              (dragstart)="onRowDragStart(i)"
+              (dragover)="onRowDragOver(i, $event)"
+              (drop)="onRowDrop(i, $event)"
+              (dragend)="onRowDragEnd()">
+            <span class="grip" aria-hidden="true" title="Drag to reorder">&#8942;&#8942;</span>
+
+            <label class="clip-pick">
+              <input type="checkbox" [checked]="row.included" (change)="toggle(i)"
+                     [attr.aria-label]="'Include ' + row.clip.name" />
+            </label>
+
+            <!-- Numbered by POSITION IN THE CUT, not position in the list, so the numbers
+                 read as the running order even with clips unticked among them. -->
+            <span class="clip-seq mono">
+              @if (row.included) { {{ cutPosition(i) }} } @else { &mdash; }
+            </span>
+
+            <span class="clip-name">
+              {{ row.clip.name }}
+              <span class="mono muted">
+                @if (row.clip.durationSeconds) {
+                  {{ row.clip.durationSeconds | number: '1.0-1' }}s
+                }
+                @if (row.clip.width) { &middot; {{ row.clip.width }}&times;{{ row.clip.height }} }
+                &middot; {{ row.clip.fileSizeBytes / 1048576 | number: '1.0-1' }}MB
+              </span>
+              @if (!row.clip.hasAudio) {
+                <span class="pill warn" title="Silence is generated so the join stays clean">
+                  no sound
+                </span>
+              }
+            </span>
+
+            <!-- Buttons as well as dragging: a drag is not reachable from a keyboard. -->
+            <span class="clip-move">
+              <button class="icon" type="button" [disabled]="i === 0"
+                      (click)="move(i, -1)" aria-label="Move earlier">&uarr;</button>
+              <button class="icon" type="button" [disabled]="i === rows().length - 1"
+                      (click)="move(i, 1)" aria-label="Move later">&darr;</button>
+            </span>
+          </li>
+        }
+      </ol>
+    }
+
+    <!-- 2b. the order, typed ---------------------------------------------- -->
+
+    @if (rows().length > 1) {
+      <div class="subform">
+        <h4>Already have the order written down?</h4>
+        <p class="muted">
+          Paste it and it will be matched against the clips above. Filenames, a numbered
+          list, bullets, or plain positions all work &mdash; extensions optional.
+        </p>
+
+        <textarea rows="5" [(ngModel)]="orderText"
+                  placeholder="1. intro&#10;2. interview&#10;3. credits"></textarea>
+
+        <div class="row" style="margin-top: .6rem">
+          <button type="button" (click)="applyTextOrder()"
+                  [disabled]="status.busy() || orderText().trim().length === 0">
+            Check and apply this order
+          </button>
+          @if (orderText().length > 0) {
+            <button class="link" type="button" (click)="orderText.set(''); orderResult.set(null)">
+              clear
+            </button>
+          }
+        </div>
+
+        @if (orderResult(); as order) {
+          @if (order.isExact) {
+            <div class="notice" style="border-left-color: var(--ok); margin-top: .8rem">
+              Every line matched a clip, and every clip was named once. Order applied.
+            </div>
+          } @else {
+            <div class="notice" style="margin-top: .8rem">
+              Order applied as far as it could be read.
+              @if (order.appendedAssetIds.length > 0) {
+                {{ order.appendedAssetIds.length }} clip(s) were not in your list and are
+                kept at the end.
+                <button class="link" type="button" (click)="keepOnlyNamed()">
+                  untick those
+                </button>
+              }
+            </div>
+          }
+
+          <table style="margin-top: .5rem">
+            <thead>
+              <tr><th style="width: 3rem">Line</th><th>You wrote</th><th>Matched</th></tr>
+            </thead>
+            <tbody>
+              @for (line of order.lines; track line.number) {
+                <tr>
+                  <td class="mono muted">{{ line.number }}</td>
+                  <td class="mono">{{ line.text }}</td>
+                  <td>
+                    <span [class]="matchClass(line.match)">{{ line.match }}</span>
+                    @if (line.assetId) {
+                      <span class="muted"> {{ clipName(line.assetId) }}</span>
+                    }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        }
+      </div>
+    }
+  </div>
+
+  <!-- 3. the watermark --------------------------------------------------- -->
+
+  <div class="card">
+    <div class="section-head">
+      <h3>Watermark</h3>
+      <span class="muted">Burned into every clip, so it survives re-uploading and clipping.</span>
+    </div>
+
+    <!-- Radios rather than buttons: three exclusive choices, and the keyboard already
+         knows how to move between radios in a named group. -->
+    <div class="seg">
+      @for (option of watermarkKinds; track option.kind) {
+        <label [class.selected]="watermarkKind() === option.kind">
+          <input type="radio" name="wmkind"
+                 [checked]="watermarkKind() === option.kind"
+                 (change)="watermarkKind.set(option.kind)" />
+          {{ option.label }}
+        </label>
+      }
+    </div>
+
+    @if (watermarkKind() !== 'None') {
+      <div class="watermark-grid">
+        <div>
+          @if (watermarkKind() === 'Text') {
+            @if (!studio.textWatermarkAvailable) {
+              <div class="notice error">
+                This server's renderer cannot draw text. Use a logo image instead, or set
+                <span class="mono">Render:WatermarkFontFile</span> on the server.
+              </div>
+            }
+
+            <label for="wmtext">Text</label>
+            <input id="wmtext" type="text" [(ngModel)]="watermarkText"
+                   placeholder="yoursite.example" maxlength="200" />
+            <p class="muted">Shown exactly as typed, on one line.</p>
+
+            <div class="grid">
+              <div>
+                <label for="wmcolor">Colour</label>
+                <input id="wmcolor" type="color" [(ngModel)]="watermarkColor" />
+              </div>
+              <div>
+                <label for="wmplate">
+                  Plate behind it &mdash; {{ watermarkBackplate() * 100 | number: '1.0-0' }}%
+                </label>
+                <input id="wmplate" type="range" min="0" max="0.8" step="0.05"
+                       [(ngModel)]="watermarkBackplate" />
+                <p class="muted">
+                  Without one, white text disappears over a bright frame.
+                </p>
+              </div>
+            </div>
+          } @else {
+            <label for="wmlogo">Image</label>
+            <select id="wmlogo" [(ngModel)]="watermarkLogoId">
+              <option value="">Choose an image&hellip;</option>
+              @for (logo of studio.logoCandidates; track logo.id) {
+                <option [value]="logo.id">
+                  {{ logo.name }}{{ logo.hasAlpha ? '' : ' (no transparency)' }}
+                </option>
+              }
+            </select>
+
+            @if (studio.logoCandidates.length === 0) {
+              <p class="muted">
+                No images in this project yet. Upload a transparent PNG on the Assets tab.
+              </p>
+            }
+          }
+
+          <div class="grid" style="margin-top: .8rem">
+            <div>
+              <label for="wmpos">Position</label>
+              <select id="wmpos" [(ngModel)]="watermarkPosition">
+                @for (position of positions; track position) {
+                  <option [value]="position">{{ position }}</option>
+                }
+              </select>
+              <p class="muted">
+                Top right by default: clear of the picture, and clear of the player's own
+                controls along the bottom. There is no centre option on purpose.
+              </p>
+            </div>
+
+            <div>
+              <label for="wmsize">Size &mdash; {{ watermarkHeight() | number: '1.0-1' }}% of height</label>
+              <input id="wmsize" type="range" min="2" max="20" step="0.5"
+                     [(ngModel)]="watermarkHeight" />
+
+              <label for="wminset">Inset from the edges &mdash; {{ watermarkMargin() | number: '1.0-1' }}%</label>
+              <input id="wminset" type="range" min="0" max="20" step="0.5"
+                     [(ngModel)]="watermarkMargin" />
+
+              <label for="wmop">Opacity &mdash; {{ watermarkOpacity() * 100 | number: '1.0-0' }}%</label>
+              <input id="wmop" type="range" min="0.15" max="1" step="0.05"
+                     [(ngModel)]="watermarkOpacity" />
+            </div>
+          </div>
+        </div>
+
+        <!--
+          The settings above are fractions of the canvas, which nobody can picture. This
+          box is driven by exactly those numbers, so what is shown is what lands.
+        -->
+        <div>
+          <label>Where it lands</label>
+          <div class="wm-preview"
+               [style.width.px]="preview().width" [style.height.px]="preview().height">
+            <div class="wm-mark"
+                 [style.padding.px]="preview().inset"
+                 [style.align-items]="preview().top ? 'flex-start' : 'flex-end'"
+                 [style.justify-content]="preview().align">
+              @if (watermarkKind() === 'Logo') {
+                @if (logoUrl(); as url) {
+                  <img [src]="url" alt="" [style.height.px]="preview().fontSize"
+                       [style.opacity]="watermarkOpacity()" />
+                }
+              } @else {
+                <span class="wm-text"
+                      [style.font-size.px]="preview().fontSize"
+                      [style.color]="watermarkColor()"
+                      [style.opacity]="watermarkOpacity()"
+                      [style.background]="'rgba(0,0,0,' + watermarkBackplate() + ')'">
+                  {{ watermarkText() || 'yoursite.example' }}
+                </span>
+              }
+            </div>
+          </div>
+          <p class="muted">
+            {{ store.project()?.width }}&times;{{ store.project()?.height }}, to scale.
+          </p>
+        </div>
+      </div>
+    }
+  </div>
+
+  <!-- 4. output ---------------------------------------------------------- -->
+
+  <div class="card">
+    <div class="section-head"><h3>Output</h3></div>
+
+    <div class="grid">
+      <div>
+        <label for="fit">Clips that are a different shape</label>
+        <select id="fit" [(ngModel)]="fit">
+          <option value="Contain">Fit whole frame &mdash; black bars</option>
+          <option value="Cover">Fill the frame &mdash; crops the edges</option>
+          <option value="BlurredBackdrop" [disabled]="!studio.blurredBackdropAvailable">
+            Fit whole frame over a blurred copy{{ studio.blurredBackdropAvailable ? '' : ' (unavailable)' }}
+          </option>
+        </select>
+      </div>
+
+      <div>
+        <label for="trans">Between clips</label>
+        <select id="trans" [(ngModel)]="transition"
+                [disabled]="!studio.transitionsAvailable">
+          @for (option of transitions; track option) {
+            <option [value]="option">{{ option === 'None' ? 'Hard cut' : option }}</option>
+          }
+        </select>
+        @if (transition() === 'None') {
+          <p class="muted">
+            Hard cuts let the clips be joined without re-encoding &mdash; seconds instead of
+            minutes, and no quality lost.
+          </p>
+        } @else {
+          <label for="transsecs">Crossfade &mdash; {{ transitionSeconds() | number: '1.1-1' }}s</label>
+          <input id="transsecs" type="range" min="0.1" max="3" step="0.1"
+                 [(ngModel)]="transitionSeconds" />
+        }
+      </div>
+
+      <div>
+        <label for="music">Background music</label>
+        <select id="music" [(ngModel)]="musicAssetId">
+          <option value="">None</option>
+          @for (track of studio.musicCandidates; track track.id) {
+            <option [value]="track.id">{{ track.name }}</option>
+          }
+        </select>
+
+        @if (musicAssetId()) {
+          <label for="vol">Music level &mdash; {{ musicVolume() * 100 | number: '1.0-0' }}%</label>
+          <input id="vol" type="range" min="0" max="1" step="0.02" [(ngModel)]="musicVolume" />
+
+          <label class="muted" style="font-weight: 400">
+            <input type="checkbox" [checked]="muteClipAudio()"
+                   (change)="muteClipAudio.set(!muteClipAudio())" />
+            Drop the clips' own sound and keep only the music
+          </label>
+        }
+      </div>
+    </div>
+
+    <div class="row" style="margin-top: 1rem">
+      <button type="button" (click)="build()"
+              [disabled]="status.busy() || uploading() || running() || blockedReason() !== null">
+        Build one video
+      </button>
+
+      @if (running()) {
+        <button class="secondary" type="button" (click)="cancel()">Cancel</button>
+      }
+
+      @if (blockedReason(); as reason) {
+        <span class="muted">{{ reason }}</span>
+      } @else if (!running()) {
+        <span class="muted">
+          {{ included().length }} clips &middot; about
+          {{ totalSeconds() | number: '1.0-1' }}s
+        </span>
+      }
+    </div>
+
+    @if (job(); as current) {
+      <div style="margin-top: 1rem">
+        <div class="row" style="justify-content: space-between">
+          <span>
+            <span [class]="statusClass(current.status)">{{ current.status }}</span>
+            <span class="muted"> {{ current.message }}</span>
+          </span>
+          <span class="mono">{{ current.progress }}%</span>
+        </div>
+
+        <div class="bar" style="margin-top: .5rem">
+          <i [style.width.%]="current.progress"></i>
+        </div>
+
+        <p class="muted" style="margin-top: .4rem">
+          {{ current.scenesDone }} of {{ current.scenesTotal }} clips prepared
+        </p>
+
+        @if (current.errorMessage) {
+          <div class="notice error">
+            {{ current.errorMessage }}
+            <span class="mono muted"> ({{ current.errorCode }})</span>
+          </div>
+        }
+
+        @if (current.hasOutput) {
+          <video [src]="previewUrl(current.jobId)" controls preload="metadata"></video>
+          <div class="row" style="margin-top: .7rem">
+            <a [href]="downloadUrl(current.jobId)" download>
+              <button type="button">Download MP4</button>
+            </a>
+            @if (current.outputDurationSeconds) {
+              <span class="muted mono">
+                {{ current.outputDurationSeconds | number: '1.1-1' }}s
+              </span>
+            }
+          </div>
+        }
+      </div>
+    }
+  </div>
+} @else {
+  <div class="card muted">Loading clips&hellip;</div>
+}

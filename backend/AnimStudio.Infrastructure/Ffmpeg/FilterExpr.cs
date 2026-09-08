@@ -39,6 +39,19 @@ internal static class FilterExpr
     }
 
     /// <summary>
+    /// Rewrites a filesystem path into the form ffmpeg's filter options accept.
+    /// <para>
+    /// Backslashes are turned into forward slashes even on Windows, where ffmpeg accepts
+    /// them happily. It has to be done because a backslash is the ESCAPE character inside a
+    /// filter argument, so <c>C:\Windows\Fonts\arial.ttf</c> reaches the parser as
+    /// <c>C:WindowsFontsarial.ttf</c> - a path that does not exist, reported as a font that
+    /// cannot be opened. The drive colon still needs escaping, which <see cref="Quote"/>
+    /// does.
+    /// </para>
+    /// </summary>
+    public static string Path(string path) => path.Replace('\\', '/');
+
+    /// <summary>
     /// Linear interpolation from <paramref name="from"/> to <paramref name="to"/> over
     /// the first <paramref name="durationSeconds"/>, clamped afterwards.
     /// </summary>

@@ -1,6 +1,8 @@
 using AnimStudio.Application.Abstractions.Persistence;
+using AnimStudio.Application.Clips;
 using AnimStudio.Application.Projects;
 using AnimStudio.Application.Rendering;
+using AnimStudio.Application.Rendering.Models;
 using AnimStudio.Domain.Jobs;
 using AnimStudio.Infrastructure.Ffmpeg;
 using Microsoft.Extensions.DependencyInjection;
@@ -21,6 +23,7 @@ namespace AnimStudio.Infrastructure.Jobs;
 public sealed class RenderJobWorker(
     IServiceScopeFactory scopeFactory,
     IOptions<RenderOptions> options,
+    WatermarkFontResolver fonts,
     ILogger<RenderJobWorker> logger) : BackgroundService
 {
     private readonly RenderOptions _options = options.Value;
@@ -104,18 +107,38 @@ public sealed class RenderJobWorker(
             return true;
         }
 
-        logger.LogInformation("Claimed job {JobId} (attempt {Attempt}).", job.Id, job.Attempts);
+        logger.LogInformation("Claimed {Kind} job {JobId} (attempt {Attempt}).",
+            job.Kind, job.Id, job.Attempts);
 
-        var orchestrator = scope.ServiceProvider.GetRequiredService<ProjectRenderOrchestrator>();
+        // One queue, two kinds of work. Dispatching here rather than inside a single
+        // orchestrator keeps a clip stitch from carrying the scene pipeline's dependencies
+        // (characters, subtitles, sprite geometry) that it has no use for.
+        if (job.Kind == RenderJobKind.ClipMerge)
+        {
+            var clips = scope.ServiceProvider.GetRequiredService<ClipMergeOrchestrator>();
 
-        var settings = new RenderSettings(
-            _options.KenBurnsSupersample,
-            _options.MouthFlapHz,
-            _options.SubtitleFontName,
-            _options.SubtitleFontSize,
-            lease);
+            // The resolver hands over a path that exists, or null. It is deliberately not
+            // _options.WatermarkFontFile: that setting is empty by default, and the
+            // family-name route that used to cover for it kills ffmpeg on any build whose
+            // fontconfig has no configuration file.
+            var clipSettings = new ClipRenderSettings(
+                fonts.FontFilePath, DeliveryProfile(), _options.IntermediatePreset, lease);
 
-        await orchestrator.ExecuteAsync(job, _instanceId, settings, ct).ConfigureAwait(false);
+            await clips.ExecuteAsync(job, _instanceId, clipSettings, ct).ConfigureAwait(false);
+        }
+        else
+        {
+            var orchestrator = scope.ServiceProvider.GetRequiredService<ProjectRenderOrchestrator>();
+
+            var settings = new RenderSettings(
+                _options.KenBurnsSupersample,
+                _options.MouthFlapHz,
+                _options.SubtitleFontName,
+                _options.SubtitleFontSize,
+                lease);
+
+            await orchestrator.ExecuteAsync(job, _instanceId, settings, ct).ConfigureAwait(false);
+        }
 
         // One place to move the project out of Rendering, whichever way the job ended.
         // Skipped when the lease was lost, because another worker still owns this job.
@@ -128,5 +151,32 @@ public sealed class RenderJobWorker(
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// How the DELIVERED video is encoded, from configuration.
+    /// <para>
+    /// This exists because <c>Render:Preset</c> and <c>Render:Crf</c> were documented,
+    /// bound and then never read: every encode used <see cref="EncoderProfile.Default"/>,
+    /// so an operator who turned the preset down to make renders faster got no change at
+    /// all and no way to tell.
+    /// </para>
+    /// </summary>
+    private EncoderProfile DeliveryProfile()
+    {
+        var profile = EncoderProfile.Default;
+
+        if (!string.IsNullOrWhiteSpace(_options.Preset))
+            profile = profile with { Preset = _options.Preset.Trim() };
+
+        // x264's CRF range. Out-of-range values are a configuration typo, and clamping
+        // beats letting ffmpeg reject the argument on every clip of every job.
+        if (_options.Crf is >= 0 and <= 51)
+            profile = profile with { Crf = _options.Crf };
+        else
+            logger.LogWarning("Render:Crf is {Crf}, outside 0-51; using {Default}.",
+                _options.Crf, profile.Crf);
+
+        return profile;
     }
 }

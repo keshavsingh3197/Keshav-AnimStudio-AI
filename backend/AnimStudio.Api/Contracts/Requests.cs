@@ -1,4 +1,6 @@
 using System.ComponentModel.DataAnnotations;
+using AnimStudio.Application.Clips;
+using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Projects;
 using AnimStudio.Domain.Rendering;
 
@@ -197,4 +199,92 @@ public sealed record SetSceneAudioRequest
 public sealed record AssignAssetRequest
 {
     [Required, StringLength(64)] public string AssetId { get; init; } = string.Empty;
+}
+
+/// <summary>
+/// A watermark, as the client describes it.
+/// <para>
+/// Deliberately carries no <c>[Range]</c> attributes. The domain clamps every one of these
+/// numbers into a range that still produces a legible mark, and clamping is the kinder
+/// answer: a slider that stops at its limit is better than a submit that is refused with a
+/// message about a fraction the user never typed.
+/// </para>
+/// </summary>
+public sealed record WatermarkRequest
+{
+    public WatermarkKind Kind { get; init; } = WatermarkKind.None;
+
+    /// <summary>Reduced to a single printable line server-side before it is stored.</summary>
+    [StringLength(200)] public string? Text { get; init; }
+
+    [StringLength(64)] public string? LogoAssetId { get; init; }
+
+    public WatermarkPosition Position { get; init; } = WatermarkPosition.TopRight;
+
+    public double Opacity { get; init; } = 0.8;
+    public double HeightFraction { get; init; } = WatermarkSettings.DefaultHeightFraction;
+    public double MarginFraction { get; init; } = WatermarkSettings.DefaultMarginFraction;
+
+    [StringLength(7)] public string? ColorHex { get; init; }
+
+    public double BackplateOpacity { get; init; } = 0.3;
+
+    public WatermarkSettings ToSettings() => new()
+    {
+        Kind = Kind,
+        Text = Text,
+        LogoAssetId = LogoAssetId,
+        Position = Position,
+        Opacity = Opacity,
+        HeightFraction = HeightFraction,
+        MarginFraction = MarginFraction,
+        ColorHex = ColorHex ?? "#FFFFFF",
+        BackplateOpacity = BackplateOpacity
+    };
+}
+
+/// <summary>
+/// A running order to check. <c>AssetIds</c> is the current selection, in its current
+/// order; <c>Text</c> is what the user pasted. Sending the selection matters: the point is
+/// to order the clips that were CHOSEN, not to search the whole library.
+/// </summary>
+public sealed record ClipOrderRequest
+{
+    [MaxLength(ClipMergeSpec.MaxClips)]
+    public List<string> AssetIds { get; init; } = [];
+
+    [StringLength(ClipOrderLimits.MaxTextLength)]
+    public string? Text { get; init; }
+}
+
+/// <summary>Just a set of clips, for an action that needs no other parameters.</summary>
+public sealed record ClipIdsRequest
+{
+    [Required, MinLength(1), MaxLength(ClipMergeSpec.MaxClips)]
+    public List<string> AssetIds { get; init; } = [];
+}
+
+/// <summary>
+/// One video built from several clips. The order of <c>AssetIds</c> IS the running order -
+/// there is no separate sequence field that could disagree with it.
+/// </summary>
+public sealed record ClipMergeRequest
+{
+    [Required, MinLength(1)]
+    public List<string> AssetIds { get; init; } = [];
+
+    public ClipFit Fit { get; init; } = ClipFit.Contain;
+
+    public SceneTransition Transition { get; init; } = SceneTransition.None;
+
+    [Range(0, 3)] public double TransitionSeconds { get; init; }
+
+    /// <summary>Drops the clips' own sound. Only sensible with a music bed underneath.</summary>
+    public bool MuteClipAudio { get; init; }
+
+    [StringLength(64)] public string? BackgroundMusicAssetId { get; init; }
+
+    [Range(0, 1)] public double BackgroundMusicVolume { get; init; } = 0.18;
+
+    public WatermarkRequest Watermark { get; init; } = new();
 }

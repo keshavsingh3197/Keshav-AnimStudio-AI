@@ -9,6 +9,7 @@ using AnimStudio.Application.Admin;
 using AnimStudio.Application.Ai;
 using AnimStudio.Application.Assets;
 using AnimStudio.Application.Characters;
+using AnimStudio.Application.Clips;
 using AnimStudio.Application.Ingest;
 using AnimStudio.Application.Options;
 using AnimStudio.Application.Projects;
@@ -167,12 +168,22 @@ public static class DependencyInjection
               .ProbeAsync(CancellationToken.None)
               .GetAwaiter().GetResult());
 
+        // Singleton because the answer is a property of the machine, not of the job: a
+        // per-clip scan of the system font directories would repeat work with a fixed
+        // result.
+        services.AddSingleton<WatermarkFontResolver>();
+
         services.AddSingleton<IFilterGraphBuilder, FfmpegFilterGraphBuilder>();
         services.AddSingleton<ISubtitleWriter, AssSubtitleWriter>();
         services.AddSingleton<IRenderWorkspaceFactory, RenderWorkspaceFactory>();
         services.AddScoped<IVideoRenderingService, FfmpegVideoRenderingService>();
         services.AddScoped<IMediaProbeService, FfprobeMediaProbeService>();
         services.AddScoped<ProjectRenderOrchestrator>();
+
+        // The clip stitch. Shares the queue, the workspace and the merge with the project
+        // render above; only the per-clip conform pass is its own.
+        services.AddScoped<ClipMergeService>();
+        services.AddScoped<ClipMergeOrchestrator>();
 
         // The bundle path: no AI provider, no quota, no network. Staging is a singleton
         // because its token index is process-wide state; the importer is scoped like every

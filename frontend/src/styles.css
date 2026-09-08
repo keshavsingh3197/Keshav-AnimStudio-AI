@@ -447,3 +447,126 @@ audio { height: 2.2rem; vertical-align: middle; }
 /* A single small bar for a usage figure, so a table of numbers has a shape. */
 .spark { height: 6px; border-radius: 99px; background: var(--surface-2); overflow: hidden; min-width: 4rem; }
 .spark > i { display: block; height: 100%; background: var(--brand); }
+
+/* --- clip studio ------------------------------------------------------------ */
+
+/*
+  A drop target has to look like one before anything is dragged over it, or nobody
+  discovers it. Dashed border and centred prompt do that; .active is the drag-over state.
+*/
+.dropzone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 1.6rem 1.2rem;
+  text-align: center;
+  transition: border-color .15s ease, background .15s ease;
+}
+
+.dropzone.active {
+  border-color: var(--brand);
+  background: color-mix(in oklab, var(--brand) 10%, transparent);
+}
+
+.dropzone p { margin: .4rem 0 .6rem; }
+
+/* A file input that reads as a link. The input stays the control so it keeps its
+   keyboard behaviour and its label association. */
+.link-button > input[type="file"] { position: absolute; opacity: 0; width: 0; height: 0; }
+.link-button > span { color: var(--brand); text-decoration: underline; cursor: pointer; }
+
+.clip-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .35rem; }
+
+.clip-row {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  padding: .45rem .6rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+/* Excluded rather than deleted: a clip out of the cut is still in the project, and
+   putting it back must be one click. */
+.clip-row.excluded { opacity: .45; }
+.clip-row.dragging { opacity: .35; }
+
+/* The insertion point during a drag. A top border rather than a glow, because the
+   question being answered is "where will it land", not "is this row special". */
+.clip-row.drag-over { border-top-color: var(--brand); box-shadow: inset 0 2px 0 var(--brand); }
+
+.clip-row > .grip {
+  cursor: grab;
+  color: var(--muted);
+  letter-spacing: -.15em;
+  user-select: none;
+  flex: 0 0 auto;
+}
+
+.clip-pick { margin: 0; flex: 0 0 auto; }
+.clip-seq { flex: 0 0 1.6rem; text-align: right; color: var(--muted); }
+.clip-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.clip-name > .mono { margin-left: .4rem; }
+.clip-move { flex: 0 0 auto; display: flex; gap: .25rem; }
+
+.watermark-grid {
+  display: grid;
+  grid-template-columns: minmax(18rem, 2fr) minmax(14rem, 1fr);
+  gap: 1.2rem;
+  margin-top: 1rem;
+}
+
+@media (max-width: 60rem) {
+  .watermark-grid { grid-template-columns: 1fr; }
+}
+
+/*
+  The preview. Driven by the same fractions the renderer uses, so its whole job is to make
+  "5.5% of the height, 4% in from the edge" into something a person can look at. The
+  chequerboard stands in for the video, so a pale watermark is still visible against it.
+*/
+.wm-preview {
+  position: relative;
+  max-width: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+  background:
+    repeating-conic-gradient(#2b3040 0% 25%, #232733 0% 50%) 50% / 22px 22px;
+}
+
+.wm-mark { position: absolute; inset: 0; display: flex; }
+
+.wm-text {
+  font-weight: 700;
+  line-height: 1;
+  padding: .18em .35em;
+  border-radius: .12em;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+/*
+  A segmented control for a small set of exclusive choices. The radio stays the control -
+  hidden, not replaced - so the group keeps its keyboard behaviour and its labels.
+*/
+.seg { display: inline-flex; flex-wrap: wrap; gap: 0; border-radius: 8px; overflow: hidden;
+       border: 1px solid var(--border); }
+
+.seg > label {
+  margin: 0;
+  padding: .45rem .8rem;
+  font-weight: 600;
+  font-size: .9rem;
+  color: var(--muted);
+  background: var(--surface-2);
+  cursor: pointer;
+  border-right: 1px solid var(--border);
+}
+
+.seg > label:last-child { border-right: none; }
+.seg > label:hover { color: var(--text); }
+.seg > label.selected { background: var(--brand); color: var(--brand-ink); }
+.seg > label > input { position: absolute; opacity: 0; width: 0; height: 0; }
+.seg > label:focus-within { outline: 2px solid var(--brand); outline-offset: -2px; }

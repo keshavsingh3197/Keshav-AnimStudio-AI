@@ -234,6 +234,215 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         ];
     }
 
+    /// <summary>
+    /// Conforms one source clip to the canvas and burns in the watermark.
+    /// <para>
+    /// Everything here exists to make the JOIN cheap. Clips arrive from phones, screen
+    /// recorders and other editors, so they agree on nothing: resolution, frame rate, pixel
+    /// format, sample rate, channel count, even whether there is an audio track. This pass
+    /// forces all of it to one shape - the same shape <see cref="BuildScene"/> produces -
+    /// which is what lets <see cref="BuildMerge"/> stitch the results with a stream copy
+    /// that takes seconds and loses nothing.
+    /// </para>
+    /// <para>
+    /// The single most important line is the audio one. Every clip MUST come out with
+    /// exactly one video and one audio stream of the same length, or the concat demuxer
+    /// produces a file that plays the first clip and then stalls - and a silent clip in the
+    /// middle of the list is the normal way to discover that.
+    /// </para>
+    /// </summary>
+    public FilterGraphPlan BuildClip(ClipRenderPlan plan)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        plan.Canvas.Validate();
+
+        var canvas = plan.Canvas;
+        var rate = canvas.FrameRate;
+        var warnings = new List<string>();
+        var inputs = new List<FfmpegInputSpec> { new([], plan.SourceRelativePath) };
+        var graph = new StringBuilder();
+
+        var fit = plan.Fit;
+        if (fit == ClipFit.BlurredBackdrop && !capabilities.Supports(RenderFeature.BlurBackdrop))
+        {
+            // Degrade rather than fail: black bars are a worse backdrop, not a broken video.
+            warnings.Add("BLUR_BACKDROP_UNAVAILABLE");
+            fit = ClipFit.Contain;
+        }
+
+        // 4:4:4 is carried through the chain ONLY when something is actually composited
+        // onto it: it exists so a mark's edges are not blended in chroma-subsampled space,
+        // which shows as colour fringing on a logo's outline. On a clip with no mark there
+        // is nothing to blend, and paying for it anyway means scaling, padding and framerate
+        // conversion all run at three full-resolution planes instead of one and a half -
+        // measured at roughly a quarter of the conform pass, for a file that is written out
+        // as 4:2:0 regardless.
+        // What will actually be drawn is decided BEFORE the fit chain is emitted, because
+        // that decision picks the working pixel format. Deciding it twice is how the chain
+        // ends up at 4:4:4 for a mark that then turns out to be un-drawable.
+        var mark = plan.Watermark;
+
+        var drawsLogo = mark is { Kind: WatermarkKind.Logo }
+                        && mark.LogoRelativePath is { Length: > 0 };
+
+        var wantsText = mark is { Kind: WatermarkKind.Text }
+                        && mark.TextRelativePath is { Length: > 0 };
+
+        // A font FILE is as much a precondition as the drawtext filter itself. Without one
+        // the only other spelling is font=, which resolves the family through fontconfig -
+        // and on a build with fontconfig but no fonts.conf (every stock Windows ffmpeg)
+        // that lookup crashes the process with an access violation instead of reporting a
+        // missing font. Skipping the mark loses a decoration; emitting the filter loses the
+        // render.
+        var canDrawText = capabilities.Supports(RenderFeature.DrawText)
+                          && mark?.FontFilePath is { Length: > 0 };
+
+        if (wantsText && !canDrawText) warnings.Add("WATERMARK_UNAVAILABLE");
+
+        var drawsText = wantsText && canDrawText;
+        var working = drawsLogo || drawsText ? "yuv444p" : plan.Encoder.PixelFormat;
+
+        graph.Append(FitChain(fit, canvas, rate, working));
+
+        var current = "base";
+        var stage = 0;
+
+        if (drawsLogo)
+        {
+            var logoInput = inputs.Count;
+            // No -loop/-t: the logo is one frame, and overlay's eof_action=repeat holds it
+            // for the whole clip, so we decode it once instead of once per frame.
+            inputs.Add(new FfmpegInputSpec([], mark!.LogoRelativePath!));
+
+            graph.Append(WatermarkFilters.LogoChain(logoInput, "wmk", mark));
+
+            var next = $"w{++stage}";
+            graph.Append(WatermarkFilters.LogoOverlay(current, "wmk", next, mark));
+            current = next;
+        }
+        else if (drawsText)
+        {
+            var next = $"w{++stage}";
+            graph.Append(WatermarkFilters.DrawText(current, next, mark!));
+            current = next;
+        }
+
+        graph.Append($"[{current}]format={plan.Encoder.PixelFormat}[vout];\n");
+
+        // --- audio.
+        if (plan.SourceHasAudio && !plan.MuteAudio)
+        {
+            // apad without a length, plus -shortest below, is what guarantees audio and
+            // video come out the same length whatever the source did. Trimming to a
+            // declared duration instead would truncate any clip whose container lies.
+            graph.Append($"[0:a]{AudioFilters.Format(plan.Encoder)},asetpts=N/SR/TB,apad[aout]");
+        }
+        else
+        {
+            var silence = inputs.Count;
+            inputs.Add(new FfmpegInputSpec(
+                ["-f", "lavfi"],
+                $"anullsrc=channel_layout=stereo:sample_rate={plan.Encoder.AudioSampleRate}")
+            { IsLavfi = true });
+
+            graph.Append($"[{silence}:a]{AudioFilters.Format(plan.Encoder)}[aout]");
+        }
+
+        return new FilterGraphPlan
+        {
+            Inputs = inputs,
+            FilterComplex = graph.ToString(),
+            OutputArguments = ClipOutputArguments(plan),
+            OutputRelativePath = plan.OutputRelativePath,
+            ExpectedFrames = plan.ExpectedFrames,
+            Warnings = warnings
+        };
+    }
+
+    /// <summary>
+    /// Scales the source onto the canvas, producing the label <c>base</c>.
+    /// <para>
+    /// <c>setsar=1</c> is not cosmetic. Phone and camera footage frequently carries a
+    /// non-square pixel aspect ratio, and without normalising it the concat demuxer
+    /// silently keeps the first clip's SAR for the whole output - so one anamorphic clip
+    /// early in the list stretches every clip after it.
+    /// </para>
+    /// </summary>
+    /// <param name="working">
+    /// The pixel format the chain runs in - 4:4:4 when a watermark will be composited onto
+    /// the result, otherwise the delivery format, which is roughly half the plane data to
+    /// scale, pad and blur.
+    /// </param>
+    private static string FitChain(ClipFit fit, Canvas canvas, FrameRate rate, string working)
+    {
+        var size = $"{FilterExpr.N(canvas.Width)}:{FilterExpr.N(canvas.Height)}";
+        var conform = $"setsar=1,fps={rate.ToFfmpegRate()},format={working}";
+
+        return fit switch
+        {
+            // Fill and centre-crop. No bars, at the cost of the edges.
+            ClipFit.Cover =>
+                $"[0:v]scale={size}:force_original_aspect_ratio=increase:flags=lanczos,"
+                + $"crop={size},{conform}[base];\n",
+
+            // Letterbox over a blurred, cropped copy of the same frame. split comes first
+            // so the source is decoded once and used twice.
+            ClipFit.BlurredBackdrop =>
+                "[0:v]split=2[bgsrc][fgsrc];\n"
+                + $"[bgsrc]scale={size}:force_original_aspect_ratio=increase,crop={size},"
+                + $"gblur=sigma={FilterExpr.N(Math.Max(canvas.Height / 40, 4))}:steps=2,"
+                + $"setsar=1,format={working}[bgblur];\n"
+                + $"[fgsrc]scale={size}:force_original_aspect_ratio=decrease:flags=lanczos,"
+                + $"setsar=1,format={working}[fgfit];\n"
+                + "[bgblur][fgfit]overlay=format=auto:x=(main_w-overlay_w)/2"
+                + $":y=(main_h-overlay_h)/2,fps={rate.ToFfmpegRate()}[base];\n",
+
+            // Letterbox on black. Loses nothing.
+            _ =>
+                $"[0:v]scale={size}:force_original_aspect_ratio=decrease:flags=lanczos,"
+                + $"pad={size}:(ow-iw)/2:(oh-ih)/2:color=black,{conform}[base];\n"
+        };
+    }
+
+    /// <summary>
+    /// The clip's output arguments. Identical to a scene's in every respect that decides
+    /// whether a stream-copy concat is legal, with two deliberate differences:
+    /// <c>-frames:v</c> is absent because a clip's true length is not known until it has
+    /// been decoded, and <c>-shortest</c> is present to end the file at the video's last
+    /// frame now that the audio is padded open-endedly.
+    /// </summary>
+    private static List<string> ClipOutputArguments(ClipRenderPlan plan)
+    {
+        var rate = plan.Canvas.FrameRate;
+        return
+        [
+            "-map", "[vout]",
+            "-map", "[aout]",
+            "-shortest",
+            "-c:v", plan.Encoder.VideoCodec,
+            "-preset", plan.Encoder.Preset,
+            "-crf", FilterExpr.N(plan.Encoder.Crf),
+            "-pix_fmt", plan.Encoder.PixelFormat,
+            "-profile:v", "high",
+            "-r", rate.ToFfmpegRate(),
+            "-fps_mode", "cfr",
+            // Fixed 2s GOP with no scene-cut keyframes: this is the precondition for the
+            // -c copy concat that joins the clips afterwards.
+            "-g", FilterExpr.N((int)(rate.AsDouble * 2)),
+            "-keyint_min", FilterExpr.N((int)(rate.AsDouble * 2)),
+            "-sc_threshold", "0",
+            "-colorspace", "bt709",
+            "-color_primaries", "bt709",
+            "-color_trc", "bt709",
+            "-c:a", plan.Encoder.AudioCodec,
+            "-b:a", $"{plan.Encoder.AudioBitrateKbps}k",
+            "-ar", FilterExpr.N(plan.Encoder.AudioSampleRate),
+            "-ac", FilterExpr.N(plan.Encoder.AudioChannels),
+            "-video_track_timescale", FilterExpr.N((int)(rate.AsDouble * 1000)),
+            "-movflags", "+faststart"
+        ];
+    }
+
     public FilterGraphPlan BuildMerge(MergePlan plan)
     {
         ArgumentNullException.ThrowIfNull(plan);
@@ -281,8 +490,17 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         var inputs = new List<FfmpegInputSpec>();
         var warnings = new List<string>();
 
+        // Every clip is opened at once - that is what an xfade chain's input list means -
+        // so each decoder's thread count is multiplied by the clip count in memory. Capping
+        // it per input is the difference between 2 GB and 900 MB on a 24-clip join, at the
+        // same speed, because the output encoder is the bottleneck either way. See
+        // MergePlan.DecoderThreadsPerInput.
+        string[] decoderArguments = plan.DecoderThreadsPerInput > 0
+            ? ["-threads", FilterExpr.N(plan.DecoderThreadsPerInput)]
+            : [];
+
         foreach (var scene in plan.Scenes)
-            inputs.Add(new FfmpegInputSpec([], scene.RelativePath));
+            inputs.Add(new FfmpegInputSpec(decoderArguments, scene.RelativePath));
 
         // Normalize every input. Two constraints, both easy to break by "tidying" this line:
         //
