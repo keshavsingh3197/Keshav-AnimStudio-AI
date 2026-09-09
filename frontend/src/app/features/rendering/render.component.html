@@ -59,6 +59,11 @@
           <a [href]="downloadUrl(current.jobId)" download>
             <button type="button">Download MP4</button>
           </a>
+          @if (subtitlesUrl(); as srtUrl) {
+            <a [href]="srtUrl" download="subtitles.srt">
+              <button class="secondary" type="button">Download subtitles (.srt)</button>
+            </a>
+          }
           @if (current.outputDurationSeconds) {
             <span class="muted mono">
               {{ current.outputDurationSeconds | number: '1.1-1' }}s

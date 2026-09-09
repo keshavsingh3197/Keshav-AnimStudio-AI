@@ -51,6 +51,14 @@ export class ImportComponent {
   attestOwnRights = false;
   basisCode = 'IOwnTheContent';
 
+  // --- "no transcript yet" helper: a prompt to paste into any AI chat, and a place to
+  // paste back what it gives you.
+  aiVideoTitle = '';
+  aiVideoMinutes: number | null = null;
+  aiVideoNotes = '';
+  aiPastedResult = '';
+  readonly showAiHelper = signal(false);
+
   /** The project whose history is already loaded, so a store refresh does not refetch it. */
   private historyLoadedFor: string | null = null;
 
@@ -84,6 +92,76 @@ export class ImportComponent {
     });
 
     input.value = '';
+  }
+
+  // --- "no transcript yet": a prompt for any external AI chat, no key needed here because
+  // the AI part happens outside this application entirely.
+
+  /**
+   * Built fresh on every read rather than cached, so editing the title, length or notes
+   * updates the box immediately - it is meant to be copied right before pasting.
+   */
+  aiPrompt(): string {
+    const title = this.aiVideoTitle.trim();
+    const minutes = this.aiVideoMinutes;
+    const notes = this.aiVideoNotes.trim();
+
+    const about = title ? `titled "${title}"` : 'I am working on';
+    const length = minutes && minutes > 0 ? `, about ${minutes} minute(s) long` : '';
+
+    const source = notes.length > 0
+      ? `Here is what is said in it (my own rough transcript, notes, or script):\n"""\n${notes}\n"""\nClean up wording only where needed for readability - do not invent new dialogue or events.`
+      : 'I will paste what is said in it right after this message - wait for that before answering.';
+
+    return [
+      `I have a video ${about}${length}. Please write accurate subtitles for it in SubRip`,
+      '(.srt) format.',
+      '',
+      source,
+      '',
+      'Rules:',
+      '- Reply with ONLY the .srt file content - no commentary before or after it.',
+      '- Number every cue starting at 1.',
+      '- Timestamps must use the format 00:00:00,000 --> 00:00:00,000.',
+      minutes && minutes > 0
+        ? `- Pace the timestamps evenly across the real ${minutes}-minute length, at a natural`
+        : '- Pace the timestamps at a natural',
+      '  reading speed (roughly 150 words per minute).',
+      '- Keep each cue to one or two short lines, under about 42 characters per line.',
+      '- Do not add speaker names unless I gave them to you above.',
+    ].join('\n');
+  }
+
+  copyAiPrompt(): void {
+    const text = this.aiPrompt();
+    navigator.clipboard?.writeText(text).then(
+      () => this.status.notify(['Prompt copied. Paste it into any AI chat tool.']),
+      () => this.status.notify(['Could not copy automatically - select the text and copy it.']));
+  }
+
+  /**
+   * Turns whatever the AI handed back into an uploaded subtitle file, then switches to the
+   * Subtitle file source with it selected - the same real-timings path a dropped .srt takes,
+   * just typed in from a paste instead of a file picker.
+   */
+  saveAiSubtitles(): void {
+    const projectId = this.store.projectId();
+    const text = this.aiPastedResult.trim();
+    if (!projectId || text.length === 0) return;
+
+    const looksLikeVtt = text.startsWith('WEBVTT');
+    const name = looksLikeVtt ? 'ai-subtitles.vtt' : 'ai-subtitles.srt';
+    const file = new File([text], name, {
+      type: looksLikeVtt ? 'text/vtt' : 'application/x-subrip',
+    });
+
+    this.status.run(this.api.uploadAsset(projectId, file), (asset) => {
+      this.store.refreshAssets();
+      this.source.set('SubtitleFile');
+      this.subtitleAssetId = asset.id;
+      this.aiPastedResult = '';
+      this.status.notify(['Saved. Review it below, then build scenes when you are ready.']);
+    });
   }
 
   ingest(): void {

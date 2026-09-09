@@ -185,6 +185,8 @@ public static class DependencyInjection
         services.AddScoped<ClipMergeService>();
         services.AddScoped<ClipMergeOrchestrator>();
 
+        services.AddScoped<Application.Subtitles.SceneSubtitleExportService>();
+
         // The bundle path: no AI provider, no quota, no network. Staging is a singleton
         // because its token index is process-wide state; the importer is scoped like every
         // other service that writes through the repositories.

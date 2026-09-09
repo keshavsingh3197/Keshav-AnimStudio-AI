@@ -433,6 +433,7 @@ export class ClipStudioComponent implements OnDestroy {
       [next[index], next[target]] = [next[target], next[index]];
       return next;
     });
+    this.saveOrder();
   }
 
   onRowDragStart(index: number): void {
@@ -459,6 +460,7 @@ export class ClipStudioComponent implements OnDestroy {
       next.splice(index, 0, moved);
       return next;
     });
+    this.saveOrder();
   }
 
   onRowDragEnd(): void {
@@ -468,6 +470,7 @@ export class ClipStudioComponent implements OnDestroy {
 
   reverse(): void {
     this.rows.update((rows) => [...rows].reverse());
+    this.saveOrder();
   }
 
   /**
@@ -486,6 +489,7 @@ export class ClipStudioComponent implements OnDestroy {
     this.status.run(this.api.clipOrder(projectId, ids, ''), (order) => {
       this.applyOrder(order.assetIds);
       this.orderResult.set(null);
+      this.saveOrder();
     });
   }
 
@@ -500,6 +504,7 @@ export class ClipStudioComponent implements OnDestroy {
     this.status.run(this.api.clipOrder(projectId, ids, text), (order) => {
       this.applyOrder(order.assetIds);
       this.orderResult.set(order);
+      this.saveOrder();
     });
   }
 
@@ -523,6 +528,16 @@ export class ClipStudioComponent implements OnDestroy {
       [...rows].sort((a, b) =>
         (position.get(a.clip.id) ?? Number.MAX_SAFE_INTEGER)
         - (position.get(b.clip.id) ?? Number.MAX_SAFE_INTEGER)));
+  }
+
+  /** The server owns the saved order; a refresh deliberately reloads from that one source. */
+  private saveOrder(): void {
+    const projectId = this.store.projectId();
+    if (!projectId) return;
+
+    this.api.saveClipOrder(projectId, this.rows().map((row) => row.clip.id)).subscribe({
+      error: () => this.status.notify(['Could not save the video order. Try the move again.']),
+    });
   }
 
   /**

@@ -97,6 +97,18 @@ public sealed class ClipsController(
     }
 
     /// <summary>
+    /// Saves the Video editor's complete running order so a page refresh and the next
+    /// render open the clips exactly where the editor left them.
+    /// </summary>
+    [HttpPut("api/projects/{projectId}/clips/order")]
+    public async Task<ActionResult<ApiResponse<object>>> SaveOrder(
+        string projectId, [FromBody] SaveClipOrderRequest request, CancellationToken ct)
+    {
+        await clips.SaveOrderAsync(projectId, request.AssetIds, ct);
+        return Ok(ApiResponse<object>.Ok(new { }));
+    }
+
+    /// <summary>
     /// Queues the stitch. Long-running, so it returns a job to poll - the same job shape,
     /// and the same poll and download endpoints, as a project render.
     /// </summary>

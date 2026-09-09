@@ -70,25 +70,68 @@ public sealed class ClipMergeService(
     private const double MaxTransitionSeconds = 3.0;
 
     /// <summary>
-    /// The project's video clips, in filename order.
+    /// The project's video clips in the saved Video editor order.
     /// <para>
-    /// Filename order rather than upload order because a multi-file drop arrives in
-    /// whatever sequence the browser hands the files over - which is not the order they
-    /// were selected in, and not the order they are named in. Sorting here means the list
-    /// is usually already correct before anyone touches it.
+    /// Newly uploaded clips are appended in filename order. That makes an untouched batch
+    /// predictable while preserving any explicit drag, reverse, typed, or sort-by-name
+    /// order across a refresh.
     /// </para>
     /// </summary>
     public async Task<IReadOnlyList<Asset>> ListClipsAsync(string projectId, CancellationToken ct)
     {
-        await EnsureOwnedAsync(projectId, ct).ConfigureAwait(false);
+        var project = await EnsureOwnedAsync(projectId, ct).ConfigureAwait(false);
 
         var all = await assets.ListByProjectAsync(projectId, ct).ConfigureAwait(false);
+        var clips = all.Where(a => a.Kind == AssetKind.Video && a.IsUsableInScene).ToList();
+        var savedPosition = project.Settings.ClipOrderAssetIds
+            .Select((id, index) => (id, index))
+            .ToDictionary(entry => entry.id, entry => entry.index, StringComparer.Ordinal);
 
         return
         [
-            .. all.Where(a => a.Kind == AssetKind.Video && a.IsUsableInScene)
-                  .OrderBy(a => a.Name, NaturalNameComparer.Instance)
+            .. clips.OrderBy(c => savedPosition.TryGetValue(c.Id, out var index) ? 0 : 1)
+                     .ThenBy(c => savedPosition.TryGetValue(c.Id, out var index) ? index : int.MaxValue)
+                     .ThenBy(c => c.Name, NaturalNameComparer.Instance)
         ];
+    }
+
+    /// <summary>
+    /// Stores the complete running order from the Video editor. The list includes clips
+    /// outside the current cut too, so ticking one back in later never loses its position.
+    /// </summary>
+    public async Task SaveOrderAsync(
+        string projectId, IReadOnlyList<string> assetIds, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(assetIds);
+
+        var project = await EnsureOwnedAsync(projectId, ct).ConfigureAwait(false);
+        if (assetIds.Count > ClipMergeSpec.MaxClips)
+        {
+            throw EditingException.Invalid("too-many-clips",
+                $"A single video can be built from at most {ClipMergeSpec.MaxClips} clips.");
+        }
+
+        if (assetIds.Distinct(StringComparer.Ordinal).Count() != assetIds.Count)
+        {
+            throw EditingException.Invalid("duplicate-clips",
+                "A saved running order cannot contain the same clip more than once.");
+        }
+
+        var clips = await assets.ListByProjectAsync(projectId, ct).ConfigureAwait(false);
+        var usableIds = clips
+            .Where(a => a.Kind == AssetKind.Video && a.IsUsableInScene)
+            .Select(a => a.Id)
+            .ToHashSet(StringComparer.Ordinal);
+
+        if (assetIds.Any(id => !usableIds.Contains(id)))
+        {
+            throw EditingException.Invalid("clip-not-found",
+                "One of the clips in this order is no longer in this project.");
+        }
+
+        project.Settings.ClipOrderAssetIds = [.. assetIds];
+        project.UpdatedAt = clock.GetUtcNow().UtcDateTime;
+        await projects.ReplaceAsync(project, ct).ConfigureAwait(false);
     }
 
     /// <summary>

@@ -3,6 +3,7 @@ using AnimStudio.Api.Contracts;
 using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Scenes;
 using AnimStudio.Application.Security;
+using AnimStudio.Application.Subtitles;
 using AnimStudio.Domain.Rendering;
 using Microsoft.AspNetCore.Mvc;
 
@@ -15,6 +16,7 @@ namespace AnimStudio.Api.Controllers;
 [ApiController]
 public sealed class ScenesController(
     SceneEditingService editing,
+    SceneSubtitleExportService subtitleExport,
     IProjectRepository projects,
     ICurrentUser currentUser) : ControllerBase
 {
@@ -27,6 +29,18 @@ public sealed class ScenesController(
 
         return Ok(ApiResponse<IReadOnlyList<SceneResponse>>.Ok(
             [.. list.Select(s => s.ToResponse(rate))]));
+    }
+
+    /// <summary>
+    /// The project's dialogue as one .srt file, timed exactly as it would be burned into a
+    /// render - a download for a platform that wants a caption sidecar, or for polishing in
+    /// any subtitle editor before pasting it back in as a transcript.
+    /// </summary>
+    [HttpGet("api/projects/{projectId}/subtitles.srt")]
+    public async Task<IActionResult> ExportSubtitles(string projectId, CancellationToken ct)
+    {
+        var srt = await subtitleExport.ExportAsync(projectId, ct);
+        return File(System.Text.Encoding.UTF8.GetBytes(srt), "application/x-subrip", "subtitles.srt");
     }
 
     [HttpGet("api/scenes/{sceneId}")]

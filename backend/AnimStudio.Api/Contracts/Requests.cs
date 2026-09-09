@@ -257,6 +257,13 @@ public sealed record ClipOrderRequest
     public string? Text { get; init; }
 }
 
+/// <summary>Every video clip in its saved Video editor order.</summary>
+public sealed record SaveClipOrderRequest
+{
+    [Required, MaxLength(ClipMergeSpec.MaxClips)]
+    public List<string> AssetIds { get; init; } = [];
+}
+
 /// <summary>Just a set of clips, for an action that needs no other parameters.</summary>
 public sealed record ClipIdsRequest
 {

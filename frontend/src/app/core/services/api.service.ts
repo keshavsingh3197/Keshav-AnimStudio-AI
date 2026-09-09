@@ -144,6 +144,11 @@ export class ApiService {
       this.http.get<ApiResponse<Scene[]>>(`${this.base}/api/projects/${projectId}/scenes`));
   }
 
+  /** Direct link to a .srt built from the project's dialogue, timed as it renders. */
+  subtitlesUrl(projectId: string): string {
+    return `${this.base}/api/projects/${projectId}/subtitles.srt`;
+  }
+
   getScene(sceneId: string): Observable<SceneDetail> {
     return this.unwrap(
       this.http.get<ApiResponse<SceneDetail>>(`${this.base}/api/scenes/${sceneId}`));
@@ -271,6 +276,12 @@ export class ApiService {
   clipOrder(projectId: string, assetIds: string[], text: string): Observable<ClipOrder> {
     return this.unwrap(this.http.post<ApiResponse<ClipOrder>>(
       `${this.base}/api/projects/${projectId}/clips/order`, { assetIds, text }));
+  }
+
+  /** Saves the complete running order, so it survives reloads and another browser session. */
+  saveClipOrder(projectId: string, assetIds: string[]): Observable<unknown> {
+    return this.unwrap(this.http.put<ApiResponse<unknown>>(
+      `${this.base}/api/projects/${projectId}/clips/order`, { assetIds }));
   }
 
   /** Queues the stitch. Polled and downloaded through the same job endpoints as a render. */

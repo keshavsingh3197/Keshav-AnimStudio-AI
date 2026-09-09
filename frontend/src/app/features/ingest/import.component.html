@@ -9,6 +9,58 @@
 </div>
 
 <div class="card">
+  <div class="section-head">
+    <h3>Don't have a transcript yet?</h3>
+    <button class="secondary" type="button" (click)="showAiHelper.set(!showAiHelper())">
+      {{ showAiHelper() ? 'Hide' : 'Get an AI prompt' }}
+    </button>
+  </div>
+
+  @if (showAiHelper()) {
+    <p class="muted">
+      Nothing here leaves this app, and no key is needed: this just writes a prompt for an
+      AI chat tool you already use (ChatGPT, Claude, Gemini, and so on). Copy it there, paste
+      back whatever it gives you, and it is saved as a real subtitle file with real timings -
+      the same as dropping in a <span class="mono">.srt</span> yourself.
+    </p>
+
+    <div class="grid">
+      <div>
+        <label for="ai-title">Which video &mdash; title (optional)</label>
+        <input id="ai-title" type="text" [(ngModel)]="aiVideoTitle"
+               placeholder="e.g. Our trip to the coast" />
+      </div>
+      <div>
+        <label for="ai-minutes">Roughly how long, in minutes (optional)</label>
+        <input id="ai-minutes" type="number" min="0" step="0.5" [(ngModel)]="aiVideoMinutes" />
+      </div>
+    </div>
+
+    <label for="ai-notes">What's said in it &mdash; rough transcript, notes, or a script</label>
+    <textarea id="ai-notes" rows="5" [(ngModel)]="aiVideoNotes"
+              placeholder="Paste whatever you already have. The AI turns this into properly formatted, timed subtitles - it does not invent new dialogue."></textarea>
+
+    <div class="row" style="margin-top: .6rem">
+      <button type="button" (click)="copyAiPrompt()">Copy prompt</button>
+      <span class="muted">Paste it into any AI chat, then bring back what it replies with.</span>
+    </div>
+
+    <textarea rows="8" readonly style="margin-top: .6rem" class="mono">{{ aiPrompt() }}</textarea>
+
+    <label for="ai-result" style="margin-top: .8rem">Paste the AI's reply here</label>
+    <textarea id="ai-result" rows="8" [(ngModel)]="aiPastedResult"
+              placeholder="1&#10;00:00:00,000 --&gt; 00:00:02,500&#10;Line of dialogue&#10;&hellip;"></textarea>
+
+    <div class="row" style="margin-top: .6rem">
+      <button type="button" [disabled]="status.busy() || aiPastedResult.trim().length === 0"
+              (click)="saveAiSubtitles()">
+        Save as a subtitle file
+      </button>
+    </div>
+  }
+</div>
+
+<div class="card">
   <div class="row" style="margin-bottom: .8rem">
     <button type="button" [class.secondary]="source() !== 'PastedText'"
             (click)="source.set('PastedText')">Paste text</button>

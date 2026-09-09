@@ -85,6 +85,13 @@ export class RenderComponent implements OnDestroy {
     return this.api.downloadUrl(jobId);
   }
 
+  /** The project's dialogue as one .srt, timed exactly as it was burned into this render. */
+  subtitlesUrl(): string | null {
+    const projectId = this.store.projectId();
+    const hasDialogue = this.store.scenes().some((s) => s.dialogueLines > 0);
+    return projectId && hasDialogue ? this.api.subtitlesUrl(projectId) : null;
+  }
+
   statusClass(jobStatus: string): string {
     if (jobStatus === 'Completed' || jobStatus === 'CompletedWithWarnings') return 'pill ok';
     if (jobStatus === 'Failed') return 'pill err';
