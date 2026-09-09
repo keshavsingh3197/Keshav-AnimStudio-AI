@@ -134,6 +134,39 @@ public static class ClipPlanFactory
     }
 
     /// <summary>
+    /// Same clamp, but with its own requested duration per junction rather than one value
+    /// applied to all of them - what a timeline whose transitions were customised one gap
+    /// at a time needs. <paramref name="requestedPerJunction"/> must have one entry per
+    /// gap, i.e. <c>lengths.Count - 1</c>.
+    /// </summary>
+    public static IReadOnlyList<FrameCount> ClampTransitions(
+        IReadOnlyList<FrameCount> lengths, IReadOnlyList<FrameCount> requestedPerJunction)
+    {
+        ArgumentNullException.ThrowIfNull(lengths);
+        ArgumentNullException.ThrowIfNull(requestedPerJunction);
+
+        if (lengths.Count < 2) return [];
+
+        if (requestedPerJunction.Count != lengths.Count - 1)
+        {
+            throw new ArgumentException(
+                "One requested transition is needed per gap between clips.",
+                nameof(requestedPerJunction));
+        }
+
+        var clamped = new List<FrameCount>(lengths.Count - 1);
+
+        for (var k = 0; k < lengths.Count - 1; k++)
+        {
+            var budget = Math.Min(lengths[k].Value, lengths[k + 1].Value) / 2;
+            clamped.Add(new FrameCount(
+                Math.Clamp(requestedPerJunction[k].Value, 0, Math.Max(budget, 0))));
+        }
+
+        return clamped;
+    }
+
+    /// <summary>
     /// Reads "#RRGGBB" (or "RRGGBB") into the bare hex ffmpeg wants. Anything else becomes
     /// white: a watermark drawn in the wrong colour is a cosmetic problem, and failing a
     /// finished render over it would not be.

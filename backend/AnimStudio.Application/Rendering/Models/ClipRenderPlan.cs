@@ -94,4 +94,16 @@ public sealed record ClipRenderPlan
     public WatermarkPlan? Watermark { get; init; }
 
     public EncoderProfile Encoder { get; init; } = EncoderProfile.Default;
+
+    /// <summary>
+    /// Caps the encoder's own thread count, or 0 to let ffmpeg use every core.
+    /// <para>
+    /// Left at 0 when clips are conformed one at a time. When several run at once - see
+    /// <c>ClipMergeOrchestrator</c>'s bounded parallelism - each process defaulting to
+    /// "every core" would have them all fighting over the same cores instead of actually
+    /// overlapping, so the orchestrator divides the machine between however many it is
+    /// running concurrently.
+    /// </para>
+    /// </summary>
+    public int EncoderThreads { get; init; }
 }

@@ -17,6 +17,31 @@ interface ClipRow {
   included: boolean;
 }
 
+/** A transition customised for one specific gap, overriding the timeline's default. */
+interface JunctionSetting {
+  transition: string;
+  seconds: number;
+}
+
+/** One gap between two adjacent clips IN THE CUT, and what plays across it right now. */
+interface JunctionView {
+  key: string;
+  left: Clip;
+  right: Clip;
+  transition: string;
+  seconds: number;
+}
+
+/** One music (or other audio) clip placed at its own point on the timeline. */
+interface MusicTrackRow {
+  key: string;
+  assetId: string;
+  startSeconds: number;
+  volume: number;
+  trimStartSeconds: number | null;
+  trimEndSeconds: number | null;
+}
+
 /**
  * Joins finished video clips into one downloadable file.
  *
@@ -85,6 +110,30 @@ export class ClipStudioComponent implements OnDestroy {
   readonly musicVolume = signal(0.18);
   readonly muteClipAudio = signal(false);
 
+  // --- timeline scale, in pixels per second of finished video
+  readonly pxPerSecond = signal(44);
+
+  // --- per-junction transition overrides, keyed by "leftClipId>rightClipId" so a
+  // customised gap survives reordering and ticking as long as the same two clips are
+  // still next to each other.
+  readonly junctionOverrides = signal<Map<string, JunctionSetting>>(new Map());
+  readonly openJunctionKey = signal<string | null>(null);
+
+  // --- the in-browser transition preview: a style demonstration, not a real render.
+  readonly previewJunction = signal<{
+    key: string; leftClip: Clip; rightClip: Clip; transition: string; seconds: number;
+  } | null>(null);
+  readonly previewPlaying = signal(false);
+  private previewVideoA: HTMLVideoElement | null = null;
+  private previewVideoB: HTMLVideoElement | null = null;
+
+  // --- music track lane: any number of clips, each starting at its own point in time
+  readonly musicTracks = signal<MusicTrackRow[]>([]);
+  readonly addMusicAssetId = signal('');
+  private musicDrag: { key: string; startClientX: number; startSeconds: number } | null = null;
+  private musicTrim:
+    { key: string; edge: 'start' | 'end'; startClientX: number; startValue: number } | null = null;
+
   // --- the job
   readonly job = signal<RenderJob | null>(null);
   private pollHandle: ReturnType<typeof setInterval> | null = null;
@@ -95,16 +144,64 @@ export class ClipStudioComponent implements OnDestroy {
 
   readonly included = computed(() => this.rows().filter((r) => r.included));
 
+  /**
+   * The same rows, but keeping each one's position in the FULL list. The timeline only
+   * draws the clips that are in the cut, but reordering has to move the real row - the one
+   * the checklist below also shows - or the two views would disagree about the order.
+   */
+  readonly includedWithIndex = computed(() =>
+    this.rows()
+      .map((row, index) => ({ row, index }))
+      .filter((entry) => entry.row.included));
+
+  /**
+   * One entry per gap between clips IN THE CUT, in order. A gap that was never customised
+   * reads the timeline's default transition; the moment it is (see setJunctionTransition),
+   * it keeps its own setting even while clips are reordered or ticked in and out around it.
+   */
+  readonly junctions = computed<JunctionView[]>(() => {
+    const clips = this.included().map((r) => r.clip);
+    const overrides = this.junctionOverrides();
+    const list: JunctionView[] = [];
+
+    for (let i = 0; i < clips.length - 1; i++) {
+      const left = clips[i];
+      const right = clips[i + 1];
+      const key = this.junctionKey(left.id, right.id);
+      const override = overrides.get(key);
+
+      list.push({
+        key,
+        left,
+        right,
+        transition: override?.transition ?? this.transition(),
+        seconds: override?.seconds ?? this.transitionSeconds(),
+      });
+    }
+
+    return list;
+  });
+
   readonly totalSeconds = computed(() => {
     const clips = this.included();
     const measured = clips.reduce((sum, r) => sum + (r.clip.durationSeconds ?? 0), 0);
 
     // Every crossfade shortens the timeline by its own length, so the joins have to be
-    // subtracted or the estimate reads long by several seconds on a twenty-clip cut.
-    const joins = Math.max(clips.length - 1, 0);
-    const overlap = this.transition() === 'None' ? 0 : joins * this.transitionSeconds();
+    // subtracted or the estimate reads long by several seconds on a twenty-clip cut. Each
+    // junction now carries its own length, so a stitch with three customised gaps and
+    // seventeen default ones still adds up correctly.
+    const overlap = this.junctions()
+      .reduce((sum, j) => sum + (j.transition === 'None' ? 0 : j.seconds), 0);
 
     return Math.max(measured - overlap, 0);
+  });
+
+  /** The timeline's total width, wide enough for the video AND whatever music overhangs it. */
+  readonly timelineSeconds = computed(() => {
+    const musicEnd = this.musicTracks()
+      .reduce((max, t) => Math.max(max, t.startSeconds + this.musicTrackDurationSeconds(t)), 0);
+
+    return Math.max(this.totalSeconds(), musicEnd, 1);
   });
 
   readonly running = computed(() => {
@@ -134,7 +231,10 @@ export class ClipStudioComponent implements OnDestroy {
     if (this.watermarkKind() === 'Logo' && !this.watermarkLogoId())
       return 'Choose the watermark image, or set the watermark to None.';
 
-    if (this.muteClipAudio() && !this.musicAssetId())
+    if (this.musicTracks().length > studio.maxMusicTracks)
+      return `At most ${studio.maxMusicTracks} music clips can go on the timeline.`;
+
+    if (this.muteClipAudio() && !this.musicAssetId() && this.musicTracks().length === 0)
       return 'Muting the clips with no music would produce a silent video.';
 
     return null;
@@ -444,6 +544,238 @@ export class ClipStudioComponent implements OnDestroy {
     return this.rows().find((r) => r.clip.id === assetId)?.clip.name ?? '';
   }
 
+  /** Direct URL to a clip's or a music file's bytes, for a <video> or <audio> element. */
+  assetUrl(assetId: string): string {
+    return this.api.assetUrl(assetId);
+  }
+
+  // --- timeline geometry -----------------------------------------------------
+
+  secondsToPx(seconds: number): number {
+    return seconds * this.pxPerSecond();
+  }
+
+  blockWidthPx(clip: Clip): number {
+    return Math.max(this.secondsToPx(clip.durationSeconds ?? 3), 34);
+  }
+
+  zoom(delta: number): void {
+    this.pxPerSecond.update((px) => Math.min(160, Math.max(12, px + delta)));
+  }
+
+  /** Evenly spaced marks for the ruler, roughly every 5 seconds of screen space. */
+  rulerTicks(): number[] {
+    const total = this.timelineSeconds();
+    const step = this.pxPerSecond() < 24 ? 10 : this.pxPerSecond() < 60 ? 5 : 2;
+    const ticks: number[] = [];
+    for (let t = 0; t <= total; t += step) ticks.push(t);
+    return ticks;
+  }
+
+  // --- per-junction transitions ----------------------------------------------
+
+  private junctionKey(leftId: string, rightId: string): string {
+    return `${leftId}>${rightId}`;
+  }
+
+  toggleJunctionEditor(key: string): void {
+    this.openJunctionKey.set(this.openJunctionKey() === key ? null : key);
+  }
+
+  setJunctionTransition(junction: JunctionView, value: string): void {
+    this.junctionOverrides.update((map) => {
+      const next = new Map(map);
+      next.set(junction.key, { transition: value, seconds: junction.seconds });
+      return next;
+    });
+  }
+
+  setJunctionSeconds(junction: JunctionView, value: number): void {
+    this.junctionOverrides.update((map) => {
+      const next = new Map(map);
+      next.set(junction.key, { transition: junction.transition, seconds: value });
+      return next;
+    });
+  }
+
+  /** Drops the override, so this gap goes back to following the timeline's default. */
+  resetJunction(key: string): void {
+    this.junctionOverrides.update((map) => {
+      if (!map.has(key)) return map;
+      const next = new Map(map);
+      next.delete(key);
+      return next;
+    });
+  }
+
+  isJunctionCustom(key: string): boolean {
+    return this.junctionOverrides().has(key);
+  }
+
+  // --- the in-browser transition preview --------------------------------------
+
+  openPreview(junction: JunctionView): void {
+    this.previewPlaying.set(false);
+    this.previewVideoA = null;
+    this.previewVideoB = null;
+    this.previewJunction.set({
+      key: junction.key,
+      leftClip: junction.left,
+      rightClip: junction.right,
+      transition: junction.transition,
+      seconds: junction.seconds,
+    });
+  }
+
+  closePreview(): void {
+    this.previewPlaying.set(false);
+    this.previewJunction.set(null);
+    this.previewVideoA = null;
+    this.previewVideoB = null;
+  }
+
+  /** Seeks the tail of the outgoing clip and the head of the incoming one, once loaded. */
+  onPreviewVideoReady(event: Event, which: 'A' | 'B'): void {
+    const video = event.target as HTMLVideoElement;
+
+    if (which === 'A') {
+      this.previewVideoA = video;
+      video.currentTime = Math.max(video.duration - 1.4, 0);
+    } else {
+      this.previewVideoB = video;
+      video.currentTime = 0;
+    }
+  }
+
+  /** (Re)starts the preview animation. A tick between stop and start, or CSS will not replay it. */
+  replayPreview(): void {
+    this.previewPlaying.set(false);
+    this.previewVideoA?.pause();
+    this.previewVideoB?.pause();
+
+    if (this.previewVideoA) this.previewVideoA.currentTime = Math.max(this.previewVideoA.duration - 1.4, 0);
+    if (this.previewVideoB) this.previewVideoB.currentTime = 0;
+
+    setTimeout(() => {
+      this.previewPlaying.set(true);
+      this.previewVideoA?.play().catch(() => undefined);
+      this.previewVideoB?.play().catch(() => undefined);
+    });
+  }
+
+  onPreviewAnimationEnd(): void {
+    this.previewPlaying.set(false);
+    this.previewVideoA?.pause();
+    this.previewVideoB?.pause();
+  }
+
+  /** Which CSS animation demonstrates this transition. The real motion is rendered server-side. */
+  previewClass(): string {
+    const pj = this.previewJunction();
+    if (!pj || pj.transition === 'None') return 'pv-cut';
+
+    switch (pj.transition) {
+      case 'Fade':
+      case 'Dissolve': return 'pv-fade';
+      case 'WipeLeft': return 'pv-wipe-left';
+      case 'WipeRight': return 'pv-wipe-right';
+      case 'SlideLeft': return 'pv-slide-left';
+      case 'SlideRight': return 'pv-slide-right';
+      case 'CircleOpen': return 'pv-circle-open';
+      case 'CircleClose': return 'pv-circle-close';
+      default: return 'pv-fade';
+    }
+  }
+
+  // --- music track lane --------------------------------------------------------
+
+  addMusicTrack(): void {
+    const assetId = this.addMusicAssetId();
+    if (!assetId) return;
+
+    const key = `m${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+    this.musicTracks.update((tracks) => [
+      ...tracks,
+      { key, assetId, startSeconds: 0, volume: 0.5, trimStartSeconds: null, trimEndSeconds: null },
+    ]);
+    this.addMusicAssetId.set('');
+  }
+
+  removeMusicTrack(key: string): void {
+    this.musicTracks.update((tracks) => tracks.filter((t) => t.key !== key));
+  }
+
+  musicTrackAsset(track: MusicTrackRow) {
+    return this.studio()?.musicCandidates.find((a) => a.id === track.assetId);
+  }
+
+  musicTrackName(track: MusicTrackRow): string {
+    return this.musicTrackAsset(track)?.name ?? 'Unknown file';
+  }
+
+  musicTrackDurationSeconds(track: MusicTrackRow): number {
+    const total = this.musicTrackAsset(track)?.durationSeconds ?? 6;
+    const start = track.trimStartSeconds ?? 0;
+    const end = track.trimEndSeconds ?? total;
+    return Math.max(end - start, 0.25);
+  }
+
+  setMusicVolume(key: string, value: number): void {
+    this.musicTracks.update((tracks) =>
+      tracks.map((t) => (t.key === key ? { ...t, volume: value } : t)));
+  }
+
+  onMusicBlockPointerDown(track: MusicTrackRow, event: PointerEvent): void {
+    event.preventDefault();
+    this.musicDrag = { key: track.key, startClientX: event.clientX, startSeconds: track.startSeconds };
+  }
+
+  onMusicTrimPointerDown(track: MusicTrackRow, edge: 'start' | 'end', event: PointerEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const total = this.musicTrackAsset(track)?.durationSeconds ?? this.musicTrackDurationSeconds(track);
+    const startValue = edge === 'start' ? (track.trimStartSeconds ?? 0) : (track.trimEndSeconds ?? total);
+
+    this.musicTrim = { key: track.key, edge, startClientX: event.clientX, startValue };
+  }
+
+  /** Bound to (document:pointermove); only does anything while a block or handle is held. */
+  onTimelinePointerMove(event: PointerEvent): void {
+    const perSecond = this.pxPerSecond();
+
+    if (this.musicDrag) {
+      const drag = this.musicDrag;
+      const next = Math.max(0, drag.startSeconds + (event.clientX - drag.startClientX) / perSecond);
+      this.musicTracks.update((tracks) =>
+        tracks.map((t) => (t.key === drag.key ? { ...t, startSeconds: next } : t)));
+      return;
+    }
+
+    if (this.musicTrim) {
+      const trim = this.musicTrim;
+      const next = Math.max(0, trim.startValue + (event.clientX - trim.startClientX) / perSecond);
+
+      this.musicTracks.update((tracks) => tracks.map((t) => {
+        if (t.key !== trim.key) return t;
+
+        if (trim.edge === 'start') {
+          const end = t.trimEndSeconds;
+          return { ...t, trimStartSeconds: end != null ? Math.min(next, Math.max(end - 0.25, 0)) : next };
+        }
+
+        const start = t.trimStartSeconds ?? 0;
+        return { ...t, trimEndSeconds: Math.max(next, start + 0.25) };
+      }));
+    }
+  }
+
+  /** Bound to (document:pointerup) and (document:pointercancel). */
+  onTimelinePointerUp(): void {
+    this.musicDrag = null;
+    this.musicTrim = null;
+  }
+
   // --- building ------------------------------------------------------------
 
   build(): void {
@@ -456,9 +788,22 @@ export class ClipStudioComponent implements OnDestroy {
         fit: this.fit(),
         transition: this.transition(),
         transitionSeconds: this.transition() === 'None' ? 0 : this.transitionSeconds(),
+        // Always exactly one entry per gap, so it either names every junction or is empty -
+        // never a partial list the server would have to reject.
+        junctions: this.junctions().map((j) => ({
+          transition: j.transition,
+          transitionSeconds: j.transition === 'None' ? 0 : j.seconds,
+        })),
         muteClipAudio: this.muteClipAudio(),
         backgroundMusicAssetId: this.musicAssetId() || null,
         backgroundMusicVolume: this.musicVolume(),
+        musicTracks: this.musicTracks().map((t) => ({
+          assetId: t.assetId,
+          startSeconds: t.startSeconds,
+          volume: t.volume,
+          trimStartSeconds: t.trimStartSeconds,
+          trimEndSeconds: t.trimEndSeconds,
+        })),
         watermark: {
           kind: this.watermarkKind(),
           text: this.watermarkText().trim() || null,

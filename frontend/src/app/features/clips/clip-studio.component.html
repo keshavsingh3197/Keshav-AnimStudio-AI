@@ -1,10 +1,11 @@
 <div class="page-head">
   <div>
-    <h2>Clip studio</h2>
+    <h2>Video editor</h2>
     <p class="muted">
-      Drop in finished video clips, put them in order, and get one MP4 back with your
-      watermark on it. Clips of different sizes and frame rates are all conformed to this
-      project's canvas, so a phone recording and a screen capture can sit in the same video.
+      Drop in finished video clips, drag them into order on the timeline, place music at any
+      point, and pick a transition for each join. Clips of different sizes and frame rates
+      are all conformed to this project's canvas, so a phone recording and a screen capture
+      can sit in the same video.
     </p>
   </div>
 </div>
@@ -41,6 +42,182 @@
       }
     </div>
   </div>
+
+  <!-- 1.5 the timeline: reorder, transitions, music placement --------------- -->
+
+  @if (included().length > 0) {
+    <div class="card"
+         (document:pointermove)="onTimelinePointerMove($event)"
+         (document:pointerup)="onTimelinePointerUp()"
+         (document:pointercancel)="onTimelinePointerUp()">
+      <div class="section-head">
+        <h3>Timeline</h3>
+        <div class="row">
+          <button class="icon" type="button" (click)="zoom(-8)" aria-label="Zoom out">&minus;</button>
+          <span class="mono muted">zoom</span>
+          <button class="icon" type="button" (click)="zoom(8)" aria-label="Zoom in">+</button>
+        </div>
+      </div>
+
+      <p class="muted">
+        Drag a clip to reorder it. Click the join between two clips to choose its transition,
+        and preview it before you build. Add music below, then drag it to any point in time.
+      </p>
+
+      <div class="timeline-scroll">
+        <div class="timeline-inner" [style.width.px]="secondsToPx(timelineSeconds())">
+          <div class="tl-ruler">
+            @for (t of rulerTicks(); track t) {
+              <span class="tl-tick" [style.left.px]="secondsToPx(t)">{{ t }}s</span>
+            }
+          </div>
+
+          <div class="tl-track tl-video">
+            @for (entry of includedWithIndex(); track entry.row.clip.id; let i = $index) {
+              <div class="tl-clip"
+                   [class.dragging]="dragIndex() === entry.index"
+                   [class.drag-over]="dragOverIndex() === entry.index && dragIndex() !== entry.index"
+                   [style.width.px]="blockWidthPx(entry.row.clip)"
+                   draggable="true"
+                   (dragstart)="onRowDragStart(entry.index)"
+                   (dragover)="onRowDragOver(entry.index, $event)"
+                   (drop)="onRowDrop(entry.index, $event)"
+                   (dragend)="onRowDragEnd()"
+                   title="Drag to reorder">
+                <span class="tl-clip-seq">{{ i + 1 }}</span>
+                <span class="tl-clip-name">{{ entry.row.clip.name }}</span>
+                <span class="tl-clip-dur mono">
+                  {{ entry.row.clip.durationSeconds ?? 0 | number: '1.0-1' }}s
+                </span>
+              </div>
+
+              @if (i < junctions().length) {
+                @let junction = junctions()[i];
+                <div class="tl-junction" [class.custom]="isJunctionCustom(junction.key)">
+                  <button class="tl-junction-btn" type="button"
+                          (click)="toggleJunctionEditor(junction.key)"
+                          [title]="junction.transition === 'None' ? 'Hard cut - click to change' : junction.transition + ' - click to change'">
+                    {{ junction.transition === 'None' ? '\u2702' : '\u21c4' }}
+                  </button>
+
+                  @if (openJunctionKey() === junction.key) {
+                    <div class="tl-junction-pop">
+                      <label>Transition</label>
+                      <select [ngModel]="junction.transition"
+                              (ngModelChange)="setJunctionTransition(junction, $event)"
+                              [disabled]="!studio.transitionsAvailable">
+                        @for (option of transitions; track option) {
+                          <option [value]="option">{{ option === 'None' ? 'Hard cut' : option }}</option>
+                        }
+                      </select>
+
+                      @if (junction.transition !== 'None') {
+                        <label>Length &mdash; {{ junction.seconds | number: '1.1-1' }}s</label>
+                        <input type="range" min="0.1" max="3" step="0.1"
+                               [ngModel]="junction.seconds"
+                               (ngModelChange)="setJunctionSeconds(junction, $event)" />
+                      }
+
+                      <div class="row" style="margin-top: .5rem">
+                        <button type="button" (click)="openPreview(junction)">Preview</button>
+                        @if (isJunctionCustom(junction.key)) {
+                          <button class="link" type="button" (click)="resetJunction(junction.key)">
+                            use default
+                          </button>
+                        }
+                      </div>
+                    </div>
+                  }
+                </div>
+              }
+            }
+          </div>
+
+          <div class="tl-track tl-music">
+            @for (track of musicTracks(); track track.key) {
+              <div class="tl-music-clip"
+                   [style.left.px]="secondsToPx(track.startSeconds)"
+                   [style.width.px]="secondsToPx(musicTrackDurationSeconds(track))"
+                   (pointerdown)="onMusicBlockPointerDown(track, $event)"
+                   title="Drag to move in time">
+                <span class="tl-trim-handle left"
+                      (pointerdown)="onMusicTrimPointerDown(track, 'start', $event)"></span>
+                <span class="tl-music-name">{{ musicTrackName(track) }}</span>
+                <button class="tl-music-remove" type="button"
+                        (click)="removeMusicTrack(track.key)" aria-label="Remove music clip">&times;</button>
+                <span class="tl-trim-handle right"
+                      (pointerdown)="onMusicTrimPointerDown(track, 'end', $event)"></span>
+              </div>
+            }
+            @if (musicTracks().length === 0) {
+              <div class="tl-music-empty">No music yet &mdash; add one below and drag it into place.</div>
+            }
+          </div>
+        </div>
+      </div>
+
+      @if (musicTracks().length > 0) {
+        <div class="tl-music-controls">
+          @for (track of musicTracks(); track track.key) {
+            <div class="tl-music-row">
+              <span class="mono">{{ musicTrackName(track) }}</span>
+              <span class="muted mono">at {{ track.startSeconds | number: '1.1-1' }}s</span>
+              <label class="muted" style="font-weight: 400; flex: 1 1 10rem">
+                Level &mdash; {{ track.volume * 100 | number: '1.0-0' }}%
+                <input type="range" min="0" max="1" step="0.02" [ngModel]="track.volume"
+                       (ngModelChange)="setMusicVolume(track.key, $event)" />
+              </label>
+            </div>
+          }
+        </div>
+      }
+
+      <div class="row" style="margin-top: .8rem">
+        <select [(ngModel)]="addMusicAssetId" style="max-width: 18rem">
+          <option value="">Add music to the timeline&hellip;</option>
+          @for (track of studio.musicCandidates; track track.id) {
+            <option [value]="track.id">{{ track.name }}</option>
+          }
+        </select>
+        <button class="secondary" type="button" [disabled]="!addMusicAssetId()" (click)="addMusicTrack()">
+          Add to timeline
+        </button>
+        @if (studio.musicCandidates.length === 0) {
+          <span class="muted">Upload an audio file on the Assets tab first.</span>
+        }
+      </div>
+    </div>
+
+    @if (previewJunction(); as pj) {
+      <div class="card">
+        <div class="section-head">
+          <h3>Transition preview</h3>
+          <button class="link" type="button" (click)="closePreview()">close</button>
+        </div>
+        <p class="muted">
+          A quick style preview drawn in the browser &mdash;
+          {{ pj.transition === 'None' ? 'hard cut' : pj.transition }}. The exact motion is
+          rendered by the server when you build the video.
+        </p>
+
+        <div class="pv-stage" [class.playing]="previewPlaying()"
+             (animationend)="onPreviewAnimationEnd()" (transitionend)="onPreviewAnimationEnd()">
+          <video class="pv-layer pv-back" muted preload="metadata" playsinline
+                 [src]="assetUrl(pj.rightClip.id)"
+                 (loadedmetadata)="onPreviewVideoReady($event, 'B')"></video>
+          <video [class]="'pv-layer pv-front ' + previewClass()" muted preload="metadata" playsinline
+                 [src]="assetUrl(pj.leftClip.id)"
+                 [style.animation-duration.s]="pj.seconds"
+                 (loadedmetadata)="onPreviewVideoReady($event, 'A')"></video>
+        </div>
+
+        <div class="row" style="margin-top: .7rem">
+          <button type="button" (click)="replayPreview()">Play preview</button>
+          <span class="muted">{{ pj.leftClip.name }} &rarr; {{ pj.rightClip.name }}</span>
+        </div>
+      </div>
+    }
+  }
 
   <!-- 2. the running order ----------------------------------------------- -->
 
@@ -355,7 +532,7 @@
       </div>
 
       <div>
-        <label for="trans">Between clips</label>
+        <label for="trans">Default transition between clips</label>
         <select id="trans" [(ngModel)]="transition"
                 [disabled]="!studio.transitionsAvailable">
           @for (option of transitions; track option) {
@@ -365,23 +542,29 @@
         @if (transition() === 'None') {
           <p class="muted">
             Hard cuts let the clips be joined without re-encoding &mdash; seconds instead of
-            minutes, and no quality lost.
+            minutes, and no quality lost. Any single join can still be given its own
+            transition on the timeline above.
           </p>
         } @else {
           <label for="transsecs">Crossfade &mdash; {{ transitionSeconds() | number: '1.1-1' }}s</label>
           <input id="transsecs" type="range" min="0.1" max="3" step="0.1"
                  [(ngModel)]="transitionSeconds" />
+          <p class="muted">Applies to every join that hasn't been customised on the timeline.</p>
         }
       </div>
 
       <div>
-        <label for="music">Background music</label>
+        <label for="music">Background music bed</label>
         <select id="music" [(ngModel)]="musicAssetId">
           <option value="">None</option>
           @for (track of studio.musicCandidates; track track.id) {
             <option [value]="track.id">{{ track.name }}</option>
           }
         </select>
+        <p class="muted">
+          Looped under the whole video. For music that starts at a specific moment instead,
+          add it to the timeline above.
+        </p>
 
         @if (musicAssetId()) {
           <label for="vol">Music level &mdash; {{ musicVolume() * 100 | number: '1.0-0' }}%</label>

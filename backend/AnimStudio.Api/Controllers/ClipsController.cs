@@ -67,6 +67,7 @@ public sealed class ClipsController(
             ],
             string.IsNullOrWhiteSpace(options.WatermarkText) ? null : options.WatermarkText,
             ClipMergeSpec.MaxClips,
+            ClipMergeSpec.MaxMusicTracks,
             AssetsController.MaxVideoUploadBytes,
             capabilities.IsAvailable,
             capabilities.UnavailableReason,
@@ -109,9 +110,16 @@ public sealed class ClipsController(
             Fit = request.Fit,
             Transition = request.Transition,
             TransitionSeconds = request.TransitionSeconds,
+            Junctions = request.Junctions?
+                .Select(j => new ClipJunctionOverride(j.Transition, j.TransitionSeconds))
+                .ToList(),
             MuteClipAudio = request.MuteClipAudio,
             BackgroundMusicAssetId = request.BackgroundMusicAssetId,
             BackgroundMusicVolume = request.BackgroundMusicVolume,
+            MusicTracks = request.MusicTracks
+                .Select(t => new TimedMusicClip(
+                    t.AssetId, t.StartSeconds, t.Volume, t.TrimStartSeconds, t.TrimEndSeconds))
+                .ToList(),
             Watermark = request.Watermark.ToSettings()
         };
 

@@ -10,6 +10,14 @@ using AnimStudio.Domain.Rendering;
 
 namespace AnimStudio.Application.Clips;
 
+/// <summary>One junction override, in seconds - not yet converted to frames.</summary>
+public sealed record ClipJunctionOverride(SceneTransition Transition, double TransitionSeconds);
+
+/// <summary>One music (or other audio) clip placed at its own point on the timeline.</summary>
+public sealed record TimedMusicClip(
+    string AssetId, double StartSeconds, double Volume,
+    double? TrimStartSeconds, double? TrimEndSeconds);
+
 /// <summary>What to stitch, and how. The order of <see cref="AssetIds"/> is the edit.</summary>
 public sealed record ClipMergeCommand
 {
@@ -22,10 +30,20 @@ public sealed record ClipMergeCommand
     /// <summary>Crossfade length. Ignored when the transition is a cut.</summary>
     public double TransitionSeconds { get; init; }
 
+    /// <summary>
+    /// One entry per gap between consecutive clips, overriding the uniform
+    /// <see cref="Transition"/>/<see cref="TransitionSeconds"/> pair for that gap only.
+    /// Null (the common case) means every gap uses the uniform pair.
+    /// </summary>
+    public IReadOnlyList<ClipJunctionOverride>? Junctions { get; init; }
+
     public bool MuteClipAudio { get; init; }
 
     public string? BackgroundMusicAssetId { get; init; }
     public double BackgroundMusicVolume { get; init; } = 0.18;
+
+    /// <summary>Extra music clips, each starting at its own point on the finished timeline.</summary>
+    public IReadOnlyList<TimedMusicClip> MusicTracks { get; init; } = [];
 
     public WatermarkSettings Watermark { get; init; } = new();
 }
@@ -147,6 +165,7 @@ public sealed class ClipMergeService(
         var referenced = clipIds
             .Concat(command.BackgroundMusicAssetId is { Length: > 0 } music ? [music] : [])
             .Concat(command.Watermark.LogoAssetId is { Length: > 0 } logo ? [logo] : [])
+            .Concat(command.MusicTracks.Select(t => t.AssetId))
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
@@ -177,7 +196,9 @@ public sealed class ClipMergeService(
             }
         }
 
-        if (command.MuteClipAudio && string.IsNullOrEmpty(command.BackgroundMusicAssetId))
+        if (command.MuteClipAudio
+            && string.IsNullOrEmpty(command.BackgroundMusicAssetId)
+            && command.MusicTracks.Count == 0)
         {
             throw EditingException.Invalid("silent-output",
                 "Muting the clips with no background music would produce a silent video.");
@@ -195,11 +216,92 @@ public sealed class ClipMergeService(
                 "Music volume must be between 0 and 1.");
         }
 
+        if (command.Junctions is { } junctions && junctions.Count != clipIds.Count - 1)
+        {
+            throw EditingException.Invalid("junction-count-mismatch",
+                "There must be exactly one transition setting for every gap between clips.");
+        }
+
+        if (command.Junctions is not null)
+        {
+            foreach (var junction in command.Junctions)
+            {
+                if (junction.TransitionSeconds is < 0 or > MaxTransitionSeconds)
+                {
+                    throw EditingException.Invalid("transition-out-of-range",
+                        $"A transition must be between 0 and {MaxTransitionSeconds:0.#} seconds.");
+                }
+            }
+        }
+
+        if (command.MusicTracks.Count > ClipMergeSpec.MaxMusicTracks)
+        {
+            throw EditingException.Invalid("too-many-music-tracks",
+                $"At most {ClipMergeSpec.MaxMusicTracks} music clips can be placed on one video.");
+        }
+
+        foreach (var track in command.MusicTracks)
+        {
+            var asset = Require(byId, track.AssetId, projectId, "music");
+
+            if (asset.Kind is not (AssetKind.Audio or AssetKind.Video))
+            {
+                throw EditingException.Invalid("not-audio",
+                    $"'{asset.Name}' has no sound in it.");
+            }
+
+            if (track.Volume is < 0 or > 1)
+            {
+                throw EditingException.Invalid("volume-out-of-range",
+                    "Music volume must be between 0 and 1.");
+            }
+
+            if (track.StartSeconds < 0)
+            {
+                throw EditingException.Invalid("start-out-of-range",
+                    "A music clip cannot start before the beginning of the video.");
+            }
+
+            if (track.TrimStartSeconds is < 0 || track.TrimEndSeconds is < 0)
+            {
+                throw EditingException.Invalid("trim-out-of-range",
+                    "A music clip's trim cannot be negative.");
+            }
+
+            if (track.TrimStartSeconds.HasValue && track.TrimEndSeconds.HasValue
+                && track.TrimEndSeconds.Value <= track.TrimStartSeconds.Value)
+            {
+                throw EditingException.Invalid("trim-out-of-range",
+                    "A music clip's trim end must come after its trim start.");
+            }
+        }
+
         var rate = project.Settings.ToCanvas().FrameRate;
 
         var transitionFrames = command.Transition == SceneTransition.None
             ? 0
             : FrameCount.FromSeconds(command.TransitionSeconds, rate).Value;
+
+        var junctionSpecs = command.Junctions?
+            .Select(j => new ClipJunctionSpec
+            {
+                Transition = j.Transition,
+                TransitionFrames = j.Transition == SceneTransition.None
+                    ? 0
+                    : FrameCount.FromSeconds(j.TransitionSeconds, rate).Value
+            })
+            .ToList() ?? [];
+
+        var musicTrackSpecs = command.MusicTracks
+            .Select(t => new TimedMusicClipSpec
+            {
+                AssetId = t.AssetId,
+                StartSeconds = t.StartSeconds,
+                Volume = t.Volume,
+                TrimStartSeconds = t.TrimStartSeconds,
+                TrimEndSeconds = t.TrimEndSeconds
+            })
+            .ToList();
 
         var job = new RenderJob
         {
@@ -216,9 +318,11 @@ public sealed class ClipMergeService(
                 Fit = command.Fit,
                 Transition = command.Transition,
                 TransitionFrames = transitionFrames,
+                Junctions = junctionSpecs,
                 MuteClipAudio = command.MuteClipAudio,
                 BackgroundMusicAssetId = command.BackgroundMusicAssetId,
                 BackgroundMusicVolume = command.BackgroundMusicVolume,
+                MusicTracks = musicTrackSpecs,
                 Watermark = watermark
             }
         };

@@ -264,6 +264,25 @@ public sealed record ClipIdsRequest
     public List<string> AssetIds { get; init; } = [];
 }
 
+/// <summary>One junction's transition, in seconds. Position in the list IS the gap it names.</summary>
+public sealed record ClipJunctionRequest
+{
+    public SceneTransition Transition { get; init; } = SceneTransition.None;
+
+    [Range(0, 3)] public double TransitionSeconds { get; init; }
+}
+
+/// <summary>One music (or other audio) clip placed at its own point on the timeline.</summary>
+public sealed record TimedMusicClipRequest
+{
+    [Required, StringLength(64)] public string AssetId { get; init; } = string.Empty;
+
+    [Range(0, 86400)] public double StartSeconds { get; init; }
+    [Range(0, 1)] public double Volume { get; init; } = 0.5;
+    [Range(0, 86400)] public double? TrimStartSeconds { get; init; }
+    [Range(0, 86400)] public double? TrimEndSeconds { get; init; }
+}
+
 /// <summary>
 /// One video built from several clips. The order of <c>AssetIds</c> IS the running order -
 /// there is no separate sequence field that could disagree with it.
@@ -279,12 +298,22 @@ public sealed record ClipMergeRequest
 
     [Range(0, 3)] public double TransitionSeconds { get; init; }
 
+    /// <summary>
+    /// One entry per gap between consecutive clips, overriding the transition above for
+    /// that gap only. Null means every gap uses the uniform pair above.
+    /// </summary>
+    public List<ClipJunctionRequest>? Junctions { get; init; }
+
     /// <summary>Drops the clips' own sound. Only sensible with a music bed underneath.</summary>
     public bool MuteClipAudio { get; init; }
 
     [StringLength(64)] public string? BackgroundMusicAssetId { get; init; }
 
     [Range(0, 1)] public double BackgroundMusicVolume { get; init; } = 0.18;
+
+    /// <summary>Extra music clips, each starting at its own point on the finished timeline.</summary>
+    [MaxLength(ClipMergeSpec.MaxMusicTracks)]
+    public List<TimedMusicClipRequest> MusicTracks { get; init; } = [];
 
     public WatermarkRequest Watermark { get; init; } = new();
 }

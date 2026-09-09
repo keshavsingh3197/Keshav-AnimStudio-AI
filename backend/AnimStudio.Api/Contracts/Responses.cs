@@ -177,6 +177,7 @@ public sealed record ClipStudioResponse(
     IReadOnlyList<AssetResponse> MusicCandidates,
     string? DefaultWatermarkText,
     int MaxClips,
+    int MaxMusicTracks,
     long MaxClipUploadBytes,
     bool RendererAvailable,
     string? UnavailableReason,

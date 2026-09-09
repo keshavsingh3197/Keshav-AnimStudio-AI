@@ -570,3 +570,224 @@ audio { height: 2.2rem; vertical-align: middle; }
 .seg > label.selected { background: var(--brand); color: var(--brand-ink); }
 .seg > label > input { position: absolute; opacity: 0; width: 0; height: 0; }
 .seg > label:focus-within { outline: 2px solid var(--brand); outline-offset: -2px; }
+
+/* --- video editor: timeline --------------------------------------------------- */
+
+.timeline-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  padding: .6rem 0;
+}
+
+.timeline-inner { position: relative; min-width: 100%; padding: 0 .6rem; }
+
+.tl-ruler { position: relative; height: 1.1rem; margin-bottom: .3rem; }
+
+.tl-tick {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  font-size: .72rem;
+  color: var(--muted);
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  white-space: nowrap;
+}
+
+.tl-track {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 3rem;
+  border-top: 1px dashed var(--border);
+  padding: .4rem 0;
+}
+
+.tl-track.tl-music { min-height: 2.6rem; }
+
+/* Clip blocks sit in normal flow, left to right - a drag-reorder swap needs no manual
+   left/top math, unlike the freely-positioned music blocks below. */
+.tl-video { gap: 0; }
+
+.tl-clip {
+  flex: 0 0 auto;
+  height: 2.4rem;
+  background: color-mix(in oklab, var(--brand) 22%, var(--surface));
+  border: 1px solid color-mix(in oklab, var(--brand) 45%, var(--border));
+  border-radius: 6px;
+  margin-right: 2px;
+  padding: .25rem .4rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+  cursor: grab;
+  white-space: nowrap;
+}
+
+.tl-clip.dragging { opacity: .4; }
+.tl-clip.drag-over { box-shadow: inset 2px 0 0 var(--brand); }
+
+.tl-clip-seq { font-size: .7rem; font-weight: 700; color: var(--muted); }
+.tl-clip-name { font-size: .78rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.tl-clip-dur { font-size: .68rem; color: var(--muted); }
+
+.tl-junction { position: relative; flex: 0 0 auto; display: flex; align-items: center; z-index: 2; }
+
+.tl-junction-btn {
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  border-radius: 99px;
+  background: var(--surface);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  font-size: .85rem;
+  line-height: 1;
+}
+
+.tl-junction.custom > .tl-junction-btn { color: var(--brand-ink); background: var(--brand); border-color: var(--brand); }
+
+.tl-junction-pop {
+  position: absolute;
+  top: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 13rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: .6rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .4);
+}
+
+.tl-junction-pop label { font-size: .78rem; margin-bottom: .2rem; }
+
+/* Music clips are positioned absolutely by time, unlike the video track's flow layout -
+   that is what lets one be dragged to any point instead of only swapped with a neighbour. */
+.tl-music { position: relative; }
+
+.tl-music-clip {
+  position: absolute;
+  top: .35rem;
+  height: 1.9rem;
+  background: color-mix(in oklab, var(--ok) 20%, var(--surface));
+  border: 1px solid color-mix(in oklab, var(--ok) 45%, var(--border));
+  border-radius: 6px;
+  padding: 0 1.1rem;
+  display: flex;
+  align-items: center;
+  gap: .3rem;
+  cursor: grab;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.tl-music-name { font-size: .76rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.tl-music-remove {
+  position: absolute;
+  top: 50%;
+  right: .15rem;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: .95rem;
+  line-height: 1;
+  padding: .1rem .2rem;
+}
+
+.tl-music-remove:hover { color: var(--err); }
+
+.tl-trim-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: .55rem;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.tl-trim-handle.left { left: 0; border-right: 2px solid color-mix(in oklab, var(--ok) 60%, transparent); }
+.tl-trim-handle.right { right: 0; border-left: 2px solid color-mix(in oklab, var(--ok) 60%, transparent); }
+
+.tl-music-empty { color: var(--muted); font-size: .85rem; padding: .3rem .1rem; }
+
+.tl-music-controls { display: grid; gap: .4rem; margin-top: .8rem; }
+
+.tl-music-row {
+  display: flex;
+  align-items: center;
+  gap: .7rem;
+  font-size: .85rem;
+}
+
+/* --- video editor: transition preview ------------------------------------------ */
+
+.pv-stage {
+  position: relative;
+  width: 100%;
+  max-width: 26rem;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #000;
+  border: 1px solid var(--border);
+}
+
+.pv-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 0;
+}
+
+.pv-back { z-index: 1; }
+.pv-front { z-index: 2; }
+
+/* Nothing animates until .playing is added - which is toggled off then back on so the
+   CSS animation restarts on every "Play preview" click. */
+.pv-stage.playing .pv-fade { animation-name: pvFade; animation-timing-function: linear; animation-fill-mode: forwards; }
+.pv-stage.playing .pv-wipe-left { animation-name: pvWipeLeft; animation-timing-function: linear; animation-fill-mode: forwards; }
+.pv-stage.playing .pv-wipe-right { animation-name: pvWipeRight; animation-timing-function: linear; animation-fill-mode: forwards; }
+.pv-stage.playing .pv-slide-left { animation-name: pvSlideLeft; animation-timing-function: ease-in-out; animation-fill-mode: forwards; }
+.pv-stage.playing .pv-slide-right { animation-name: pvSlideRight; animation-timing-function: ease-in-out; animation-fill-mode: forwards; }
+.pv-stage.playing .pv-circle-open { animation-name: pvCircleOpen; animation-timing-function: ease-in; animation-fill-mode: forwards; }
+.pv-stage.playing .pv-circle-close { animation-name: pvCircleClose; animation-timing-function: ease-in; animation-fill-mode: forwards; }
+.pv-stage.playing .pv-cut { opacity: 0; transition: opacity 0s; }
+
+@keyframes pvFade { from { opacity: 1; } to { opacity: 0; } }
+
+@keyframes pvWipeLeft {
+  from { clip-path: inset(0 0 0 0); }
+  to { clip-path: inset(0 0 0 100%); }
+}
+
+@keyframes pvWipeRight {
+  from { clip-path: inset(0 0 0 0); }
+  to { clip-path: inset(0 100% 0 0); }
+}
+
+@keyframes pvSlideLeft {
+  from { transform: translateX(0); }
+  to { transform: translateX(-100%); }
+}
+
+@keyframes pvSlideRight {
+  from { transform: translateX(0); }
+  to { transform: translateX(100%); }
+}
+
+@keyframes pvCircleOpen {
+  from { clip-path: circle(150% at 50% 50%); }
+  to { clip-path: circle(0% at 50% 50%); }
+}
+
+@keyframes pvCircleClose {
+  from { clip-path: circle(0% at 50% 50%); }
+  to { clip-path: circle(75% at 50% 50%); }
+}

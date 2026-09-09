@@ -382,6 +382,7 @@ export interface ClipStudio {
   musicCandidates: Asset[];
   defaultWatermarkText?: string;
   maxClips: number;
+  maxMusicTracks: number;
   maxClipUploadBytes: number;
   rendererAvailable: boolean;
   unavailableReason?: string;
@@ -419,14 +420,32 @@ export const CLIP_FITS = ['Contain', 'Cover', 'BlurredBackdrop'] as const;
 
 export type ClipFit = (typeof CLIP_FITS)[number];
 
+/** One gap between two consecutive clips, overriding the timeline's default transition. */
+export interface ClipJunctionBody {
+  transition: string;
+  transitionSeconds: number;
+}
+
+/** One music (or other audio) clip, placed at its own point on the timeline. */
+export interface TimedMusicClipBody {
+  assetId: string;
+  startSeconds: number;
+  volume: number;
+  trimStartSeconds?: number | null;
+  trimEndSeconds?: number | null;
+}
+
 export interface ClipMergeBody {
   assetIds: string[];
   fit: ClipFit;
   transition: string;
   transitionSeconds: number;
+  /** One entry per gap between clips; omitted or empty means every gap uses the default. */
+  junctions?: ClipJunctionBody[] | null;
   muteClipAudio: boolean;
   backgroundMusicAssetId?: string | null;
   backgroundMusicVolume: number;
+  musicTracks: TimedMusicClipBody[];
   watermark: WatermarkBody;
 }
 // --- option lists, kept beside the models so a select and its API value cannot drift ---

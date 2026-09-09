@@ -439,7 +439,8 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
             "-ar", FilterExpr.N(plan.Encoder.AudioSampleRate),
             "-ac", FilterExpr.N(plan.Encoder.AudioChannels),
             "-video_track_timescale", FilterExpr.N((int)(rate.AsDouble * 1000)),
-            "-movflags", "+faststart"
+            "-movflags", "+faststart",
+            .. plan.EncoderThreads > 0 ? new[] { "-threads", FilterExpr.N(plan.EncoderThreads) } : []
         ];
     }
 
@@ -453,7 +454,7 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         var durations = plan.TransitionDurations;
         RenderTimeline.Validate(lengths, durations);
 
-        var hasMusic = plan.BackgroundMusicRelativePath is not null;
+        var hasMusic = plan.BackgroundMusicRelativePath is not null || plan.MusicTracks.Count > 0;
         var total = RenderTimeline.TotalLength(lengths, durations);
 
         var canCopy = RenderTimeline.CanStreamCopy(durations, hasMusic)
@@ -564,14 +565,36 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
 
         if (hasMusic)
         {
-            var musicInput = inputs.Count;
-            inputs.Add(new FfmpegInputSpec(["-stream_loop", "-1"], plan.BackgroundMusicRelativePath!));
+            var mixLabels = new List<string> { audioLabel };
 
-            graph.Append($"[{musicInput}:a]")
-                 .Append(AudioFilters.MusicBed(plan.BackgroundMusicVolume, total, rate, plan.Encoder))
-                 .Append("[music];\n")
-                 .Append($"[{audioLabel}][music]")
-                 .Append(AudioFilters.Mix(capabilities.Supports(RenderFeature.AudioLimiter)))
+            if (plan.BackgroundMusicRelativePath is { Length: > 0 } bedPath)
+            {
+                var musicInput = inputs.Count;
+                inputs.Add(new FfmpegInputSpec(["-stream_loop", "-1"], bedPath));
+
+                graph.Append($"[{musicInput}:a]")
+                     .Append(AudioFilters.MusicBed(plan.BackgroundMusicVolume, total, rate, plan.Encoder))
+                     .Append("[music];\n");
+                mixLabels.Add("music");
+            }
+
+            for (var t = 0; t < plan.MusicTracks.Count; t++)
+            {
+                var track = plan.MusicTracks[t];
+                var trackInput = inputs.Count;
+                inputs.Add(new FfmpegInputSpec([], track.RelativePath));
+
+                var label = $"mtrack{t}";
+                graph.Append($"[{trackInput}:a]")
+                     .Append(AudioFilters.TimedTrack(
+                         track.Volume, track.StartSeconds, track.TrimStartSeconds,
+                         track.TrimEndSeconds, plan.Encoder))
+                     .Append($"[{label}];\n");
+                mixLabels.Add(label);
+            }
+
+            graph.Append('[').Append(string.Join("][", mixLabels)).Append(']')
+                 .Append(AudioFilters.Mix(mixLabels.Count, capabilities.Supports(RenderFeature.AudioLimiter)))
                  .Append("[afinal]");
         }
         else

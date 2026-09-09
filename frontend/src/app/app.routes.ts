@@ -51,7 +51,7 @@ export const routes: Routes = [
       },
       {
         path: 'clips',
-        title: 'Clips - AnimStudio AI',
+        title: 'Video editor - AnimStudio AI',
         loadComponent: () =>
           import('./features/clips/clip-studio.component').then((m) => m.ClipStudioComponent),
       },

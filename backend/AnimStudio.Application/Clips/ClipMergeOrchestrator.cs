@@ -9,6 +9,7 @@ using AnimStudio.Domain.Errors;
 using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Rendering;
 using Microsoft.Extensions.Logging;
+using System.Threading;
 
 namespace AnimStudio.Application.Clips;
 
@@ -146,53 +147,102 @@ public sealed class ClipMergeOrchestrator(
                 .ConfigureAwait(false);
 
             // --- pass one: conform every clip to the canvas and burn in the mark.
-            var prepared = new List<SceneRenderResult>(spec.AssetIds.Count);
+            //
+            // Run several at once. Normalizing a clip is almost entirely encoder work and
+            // each one writes to its own output file, so nothing here is shared but the
+            // workspace directory and the progress reporter - which is already lock-guarded.
+            // The degree is capped, and each clip's own encoder threads are divided down to
+            // match, so a run of these does not turn into every process fighting the others
+            // for every core; on a multi-core machine it still finishes the whole batch
+            // sooner than encoding one clip at a time ever could.
+            var concurrency = Math.Clamp(Environment.ProcessorCount / 2, 1, 4);
+            var perClipThreads = concurrency > 1
+                ? Math.Max(1, Environment.ProcessorCount / concurrency)
+                : 0;
 
-            for (var index = 0; index < spec.AssetIds.Count; index++)
+            var prepared = new SceneRenderResult[spec.AssetIds.Count];
+            var completedCount = 0;
+
+            using var throttle = new SemaphoreSlim(concurrency);
+
+            var clipTasks = Enumerable.Range(0, spec.AssetIds.Count).Select(async index =>
             {
-                token.ThrowIfCancellationRequested();
-
-                var asset = assetMap[spec.AssetIds[index]];
-
-                var plan = new ClipRenderPlan
+                await throttle.WaitAsync(token).ConfigureAwait(false);
+                try
                 {
-                    ClipIndex = index,
-                    SourceRelativePath = materialized[asset.Id],
-                    Canvas = canvas,
-                    OutputRelativePath = $"clips/clip_{index + 1:D3}.mp4",
-                    ExpectedFrames = estimates[index],
-                    Fit = spec.Fit,
-                    // A clip with no audio track needs generated silence, or the join
-                    // produces a file that stops at the first silent clip.
-                    SourceHasAudio = !string.IsNullOrEmpty(asset.Probe.AudioCodec),
-                    MuteAudio = spec.MuteClipAudio,
-                    Watermark = watermark,
-                    Encoder = clipEncoder
-                };
+                    token.ThrowIfCancellationRequested();
 
-                var result = await renderer
-                    .RenderClipAsync(plan, workspace, reporter, token).ConfigureAwait(false);
+                    var asset = assetMap[spec.AssetIds[index]];
 
-                prepared.Add(result);
-                reporter.SceneCompleted(index + 1);
-            }
+                    var plan = new ClipRenderPlan
+                    {
+                        ClipIndex = index,
+                        SourceRelativePath = materialized[asset.Id],
+                        Canvas = canvas,
+                        OutputRelativePath = $"clips/clip_{index + 1:D3}.mp4",
+                        ExpectedFrames = estimates[index],
+                        Fit = spec.Fit,
+                        // A clip with no audio track needs generated silence, or the join
+                        // produces a file that stops at the first silent clip.
+                        SourceHasAudio = !string.IsNullOrEmpty(asset.Probe.AudioCodec),
+                        MuteAudio = spec.MuteClipAudio,
+                        Watermark = watermark,
+                        Encoder = clipEncoder,
+                        EncoderThreads = perClipThreads
+                    };
+
+                    var result = await renderer
+                        .RenderClipAsync(plan, workspace, reporter, token).ConfigureAwait(false);
+
+                    prepared[index] = result;
+                    reporter.SceneCompleted(Interlocked.Increment(ref completedCount));
+                }
+                finally
+                {
+                    throttle.Release();
+                }
+            });
+
+            await Task.WhenAll(clipTasks).ConfigureAwait(false);
 
             // --- pass two: join them. Transitions are clamped against the MEASURED
             // lengths, which is the earliest point at which they are known.
             token.ThrowIfCancellationRequested();
 
             var lengths = prepared.Select(p => p.Frames).ToList();
-            var transitions = ClipPlanFactory.ClampTransitions(
-                lengths, new FrameCount(spec.TransitionFrames));
 
-            if (spec.TransitionFrames > 0 && transitions.Any(t => t.Value < spec.TransitionFrames))
-                warnings.Add("TRANSITION_SHORTENED");
+            // Per-junction overrides win when the timeline supplied exactly one per gap;
+            // otherwise every gap falls back to the single Transition/TransitionFrames
+            // pair, which is the entire behaviour this had before junctions existed.
+            var hasJunctionOverrides = spec.Junctions.Count > 0 && spec.Junctions.Count == lengths.Count - 1;
 
-            var joined = new List<MergeSceneInput>(prepared.Count);
-            for (var index = 0; index < prepared.Count; index++)
+            var requestedFrames = hasJunctionOverrides
+                ? spec.Junctions.Select(j => new FrameCount(j.TransitionFrames)).ToList()
+                : Enumerable.Repeat(new FrameCount(spec.TransitionFrames), Math.Max(lengths.Count - 1, 0)).ToList();
+
+            var transitions = lengths.Count < 2
+                ? []
+                : ClipPlanFactory.ClampTransitions(lengths, requestedFrames);
+
+            var requestedByJunction = hasJunctionOverrides
+                ? spec.Junctions.Select(j => j.TransitionFrames).ToList()
+                : requestedFrames.Select(f => f.Value).ToList();
+
+            if (transitions.Select((t, k) => (t, k))
+                    .Any(pair => requestedByJunction[pair.k] > 0 && pair.t.Value < requestedByJunction[pair.k]))
             {
+                warnings.Add("TRANSITION_SHORTENED");
+            }
+
+            var joined = new List<MergeSceneInput>(prepared.Length);
+            for (var index = 0; index < prepared.Length; index++)
+            {
+                var kind = hasJunctionOverrides && index < spec.Junctions.Count
+                    ? spec.Junctions[index].Transition
+                    : spec.Transition;
+
                 var toNext = index < transitions.Count && transitions[index].Value > 0
-                    ? new TransitionSettings(spec.Transition, transitions[index])
+                    ? new TransitionSettings(kind, transitions[index])
                     : TransitionSettings.None;
 
                 joined.Add(new MergeSceneInput(prepared[index].RelativePath, lengths[index], toNext));
@@ -201,7 +251,7 @@ public sealed class ClipMergeOrchestrator(
             var total = RenderTimeline.TotalLength(lengths, transitions);
 
             reporter.Report(new RenderProgress(
-                RenderStage.Merging, prepared.Count, prepared.Count, FrameCount.Zero, total,
+                RenderStage.Merging, prepared.Length, prepared.Length, FrameCount.Zero, total,
                 0, string.Empty, null));
 
             string? musicPath = null;
@@ -211,12 +261,22 @@ public sealed class ClipMergeOrchestrator(
                 musicPath = resolvedMusic;
             }
 
+            // Tracks whose asset was deleted between queueing and running are dropped
+            // silently, the same tolerance the single bed above has always had.
+            var timedTracks = spec.MusicTracks
+                .Where(t => materialized.ContainsKey(t.AssetId))
+                .Select(t => new MergeMusicTrack(
+                    materialized[t.AssetId], t.StartSeconds, t.Volume,
+                    t.TrimStartSeconds, t.TrimEndSeconds))
+                .ToList();
+
             var mergePlan = new MergePlan
             {
                 Canvas = canvas,
                 Scenes = joined,
                 BackgroundMusicRelativePath = musicPath,
                 BackgroundMusicVolume = spec.BackgroundMusicVolume,
+                MusicTracks = timedTracks,
                 OutputRelativePath = "out/final.mp4",
                 // Always the delivery profile: whether this re-encodes or stream-copies,
                 // its output is what the viewer downloads.
@@ -228,7 +288,7 @@ public sealed class ClipMergeOrchestrator(
 
             // --- publish
             reporter.Report(new RenderProgress(
-                RenderStage.Publishing, prepared.Count, prepared.Count, total, total,
+                RenderStage.Publishing, prepared.Length, prepared.Length, total, total,
                 0, string.Empty, null));
 
             var outputKey = $"renders/{job.ProjectId}/{job.Id}/final.mp4";
@@ -244,15 +304,15 @@ public sealed class ClipMergeOrchestrator(
             job.OutputStorageKey = outputKey;
             job.OutputSizeBytes = merged.SizeBytes;
             job.OutputDurationFrames = merged.Frames.Value;
-            job.ScenesDone = prepared.Count;
-            job.ScenesTotal = prepared.Count;
+            job.ScenesDone = prepared.Length;
+            job.ScenesTotal = prepared.Length;
             job.Warnings = [.. warnings];
 
             await jobs.CompleteAsync(job, ct).ConfigureAwait(false);
 
             logger.LogInformation(
                 "Clip merge {JobId} completed: {Clips} clips, {Frames} frames.",
-                job.Id, prepared.Count, merged.Frames.Value);
+                job.Id, prepared.Length, merged.Frames.Value);
         }
         catch (OperationCanceledException) when (reporter.CancelRequested)
         {
@@ -307,6 +367,7 @@ public sealed class ClipMergeOrchestrator(
 
         if (spec.BackgroundMusicAssetId is { Length: > 0 } music) ids.Add(music);
         if (spec.Watermark.LogoAssetId is { Length: > 0 } logo) ids.Add(logo);
+        foreach (var track in spec.MusicTracks) ids.Add(track.AssetId);
 
         var loaded = await assets.GetManyAsync(ids, ct).ConfigureAwait(false);
 

@@ -4,6 +4,14 @@ namespace AnimStudio.Application.Rendering.Models;
 
 public sealed record MergeSceneInput(string RelativePath, FrameCount Length, TransitionSettings TransitionToNext);
 
+/// <summary>
+/// One audio file mixed in at its own point on the merged timeline, instead of looped
+/// under the whole thing.
+/// </summary>
+public sealed record MergeMusicTrack(
+    string RelativePath, double StartSeconds, double Volume,
+    double? TrimStartSeconds, double? TrimEndSeconds);
+
 public sealed record MergePlan
 {
     public required Canvas Canvas { get; init; }
@@ -11,6 +19,13 @@ public sealed record MergePlan
 
     public string? BackgroundMusicRelativePath { get; init; }
     public double BackgroundMusicVolume { get; init; } = 0.18;
+
+    /// <summary>
+    /// Extra tracks mixed in ADDITION to the bed above, each starting at its own offset.
+    /// Empty in the common case, which is exactly the one bed the filter graph has always
+    /// built.
+    /// </summary>
+    public IReadOnlyList<MergeMusicTrack> MusicTracks { get; init; } = [];
 
     public required string OutputRelativePath { get; init; }
 

@@ -84,4 +84,51 @@ internal static class AudioFilters
     /// </summary>
     public static string Mix(bool hasLimiter) =>
         "amix=inputs=2:duration=first:normalize=0" + (hasLimiter ? ",alimiter=limit=0.95" : string.Empty);
+
+    /// <summary>
+    /// Mixes dialogue with however many audio beds and timed tracks are actually present.
+    /// <c>duration=first</c> means the DIALOGUE input still decides the output length, so a
+    /// music clip placed near the end of a long clip cannot stretch the finished video.
+    /// </summary>
+    public static string Mix(int inputCount, bool hasLimiter) =>
+        $"amix=inputs={FilterExpr.N(inputCount)}:duration=first:normalize=0"
+        + (hasLimiter ? ",alimiter=limit=0.95" : string.Empty);
+
+    /// <summary>
+    /// One music clip placed at its own point on the timeline rather than looped under the
+    /// whole thing.
+    /// <para>
+    /// <c>adelay</c> silences the track until its start time instead of shifting the whole
+    /// stream, which is exactly "starts playing at this point" - and because the final mix
+    /// runs with <c>duration=first</c>, a track that starts late or runs past the video's
+    /// own length is simply cut off rather than lengthening the output.
+    /// </para>
+    /// </summary>
+    public static string TimedTrack(
+        double volume, double startSeconds, double? trimStartSeconds, double? trimEndSeconds,
+        EncoderProfile encoder)
+    {
+        var parts = new List<string> { Format(encoder) };
+
+        // A slice of the SOURCE file, not the timeline - "the chorus", not "the first
+        // ten seconds of the finished video".
+        if (trimStartSeconds.HasValue || trimEndSeconds.HasValue)
+        {
+            var start = Math.Max(trimStartSeconds ?? 0, 0);
+            var trim = trimEndSeconds.HasValue
+                ? $"atrim=start={FilterExpr.N(start)}:end={FilterExpr.N(trimEndSeconds.Value)}"
+                : $"atrim=start={FilterExpr.N(start)}";
+            parts.Add(trim);
+            parts.Add("asetpts=N/SR/TB");
+        }
+
+        const double clickGuard = 0.15;
+        parts.Add($"afade=t=in:st=0:d={FilterExpr.N(clickGuard)}");
+        parts.Add($"volume={FilterExpr.N(Math.Clamp(volume, 0, 1))}");
+
+        var delayMs = Math.Max(0, (int)Math.Round(Math.Max(startSeconds, 0) * 1000));
+        if (delayMs > 0) parts.Add($"adelay={FilterExpr.N(delayMs)}:all=1");
+
+        return string.Join(',', parts);
+    }
 }
