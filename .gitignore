@@ -11,6 +11,9 @@ node_modules/
 dist/
 .angular/
 
+# Dev launcher logs (run.bat)
+logs/
+
 # Local media + renders: never committed (blueprint §37)
 storage/
 *.mp4
