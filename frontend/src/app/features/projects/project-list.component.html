@@ -59,7 +59,7 @@
     @if (showDetails()) {
       <div class="grid" style="margin-top: .9rem">
         <div>
-          <label for="preset">Canvas</label>
+          <label for="preset">What are you making?</label>
           <select id="preset" [(ngModel)]="presetIndex">
             @for (preset of presets; track preset.label) {
               <option [ngValue]="$index">
@@ -67,6 +67,25 @@
               </option>
             }
           </select>
+
+          <!-- Says what the choice MEANS before it is made, rather than leaving the shape
+               to be discovered on the first render. -->
+          @let chosen = presets[presetIndex];
+          <p class="muted">
+            <span [class]="formatClass(chosen.width, chosen.height)">
+              {{ format(chosen.width, chosen.height) }}
+            </span>
+            {{ chosen.width }}&times;{{ chosen.height }},
+            {{ aspect(chosen.width, chosen.height) }}.
+            @if (format(chosen.width, chosen.height) === 'Short') {
+              YouTube publishes an upright video of three minutes or less as a Short.
+            } @else if (format(chosen.width, chosen.height) === 'Square') {
+              A square video is accepted as a Short too, but an upright one fills a phone.
+            } @else {
+              The ordinary shape for YouTube, and the wrong one for Shorts.
+            }
+          </p>
+          <p class="muted">Any size can be changed later, on the project's Settings tab.</p>
         </div>
 
         <div>
@@ -105,7 +124,7 @@
     <table>
       <thead>
         <tr>
-          <th>Name</th><th>Canvas</th><th>Status</th><th>Updated</th><th></th>
+          <th>Name</th><th>Kind</th><th>Canvas</th><th>Status</th><th>Updated</th><th></th>
         </tr>
       </thead>
       <tbody>
@@ -117,8 +136,16 @@
                 <div class="muted">{{ project.description }}</div>
               }
             </td>
+            <!-- Its own column, not a note in the canvas cell: "which of these is the
+                 Short" is a question people scan a list for. -->
+            <td>
+              <span [class]="formatClass(project.width, project.height)">
+                {{ format(project.width, project.height) }}
+              </span>
+            </td>
             <td class="mono">
-              {{ project.width }}&times;{{ project.height }} &middot; {{ project.fps }}fps
+              {{ project.width }}&times;{{ project.height }} &middot;
+              {{ aspect(project.width, project.height) }} &middot; {{ project.fps }}fps
             </td>
             <td><span class="pill">{{ project.status }}</span></td>
             <td class="muted">{{ project.updatedAt | date: 'medium' }}</td>

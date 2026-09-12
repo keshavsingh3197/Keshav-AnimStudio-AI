@@ -479,6 +479,8 @@ audio { height: 2.2rem; vertical-align: middle; }
 .clip-row {
   display: flex;
   align-items: center;
+  /* Wraps so a clip's sound panel can occupy a full line under the row's controls. */
+  flex-wrap: wrap;
   gap: .6rem;
   padding: .45rem .6rem;
   background: var(--surface-2);
@@ -508,6 +510,32 @@ audio { height: 2.2rem; vertical-align: middle; }
 .clip-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
 .clip-name > .mono { margin-left: .4rem; }
 .clip-move { flex: 0 0 auto; display: flex; gap: .25rem; }
+.clip-sound { flex: 0 0 auto; }
+
+/* Marks a clip whose sound has been changed, so the row reads as edited with the panel
+   shut - the same job the pill in the name does, for the button that opens it. */
+.clip-sound > button.icon.active { border-color: var(--brand); color: var(--brand); }
+
+/* The panel drops BELOW the row rather than beside it: it is a form, and the row is a
+   flex line of single controls. flex-basis 100% is what makes it wrap onto its own line
+   instead of squeezing the name into nothing. */
+.clip-sound-panel {
+  flex: 1 0 100%;
+  margin-top: .5rem;
+  padding-top: .6rem;
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: .5rem;
+}
+
+.clip-sound-panel .grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 1rem;
+}
+
+.clip-sound-panel label { display: block; margin-top: .4rem; font-size: .85rem; }
+.clip-sound-panel p.muted { font-size: .8rem; margin: .25rem 0 0; }
 
 .watermark-grid {
   display: grid;

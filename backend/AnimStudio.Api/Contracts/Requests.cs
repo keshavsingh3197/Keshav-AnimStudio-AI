@@ -291,6 +291,24 @@ public sealed record TimedMusicClipRequest
 }
 
 /// <summary>
+/// One clip's sound. Position in the list IS the clip it names, so a list either covers
+/// every clip in the running order or is left out entirely.
+/// </summary>
+public sealed record ClipAudioRequest
+{
+    /// <summary>The clip's OWN audio. 1 as recorded, 0 silent, above 1 a boost.</summary>
+    [Range(0, ClipAudioSpec.MaxGain)] public double Volume { get; init; } = 1.0;
+
+    /// <summary>A sound for this clip alone - a voice-over, a sting, a music change.</summary>
+    [StringLength(64)] public string? AudioAssetId { get; init; }
+
+    [Range(0, ClipAudioSpec.MaxGain)] public double AudioVolume { get; init; } = 1.0;
+
+    /// <summary>Plays that sound OVER the clip's own audio rather than instead of it.</summary>
+    public bool KeepOriginalAudio { get; init; }
+}
+
+/// <summary>
 /// One video built from several clips. The order of <c>AssetIds</c> IS the running order -
 /// there is no separate sequence field that could disagree with it.
 /// </summary>
@@ -321,6 +339,13 @@ public sealed record ClipMergeRequest
     /// <summary>Extra music clips, each starting at its own point on the finished timeline.</summary>
     [MaxLength(ClipMergeSpec.MaxMusicTracks)]
     public List<TimedMusicClipRequest> MusicTracks { get; init; } = [];
+
+    /// <summary>
+    /// One entry per clip, setting how loud each clip's own sound is and giving any of
+    /// them a sound of its own. Null means every clip plays as recorded.
+    /// </summary>
+    [MaxLength(ClipMergeSpec.MaxClips)]
+    public List<ClipAudioRequest>? ClipAudio { get; init; }
 
     public WatermarkRequest Watermark { get; init; } = new();
 }

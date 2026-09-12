@@ -18,6 +18,13 @@ public sealed record TimedMusicClip(
     string AssetId, double StartSeconds, double Volume,
     double? TrimStartSeconds, double? TrimEndSeconds);
 
+/// <summary>
+/// One clip's sound: the level of its own audio, and optionally a sound of its own that
+/// either replaces that audio or plays over it. Position in the list IS the clip it names.
+/// </summary>
+public sealed record ClipAudioTrack(
+    double Volume, string? AudioAssetId, double AudioVolume, bool KeepOriginalAudio);
+
 /// <summary>What to stitch, and how. The order of <see cref="AssetIds"/> is the edit.</summary>
 public sealed record ClipMergeCommand
 {
@@ -44,6 +51,13 @@ public sealed record ClipMergeCommand
 
     /// <summary>Extra music clips, each starting at its own point on the finished timeline.</summary>
     public IReadOnlyList<TimedMusicClip> MusicTracks { get; init; } = [];
+
+    /// <summary>
+    /// One entry per clip in <see cref="AssetIds"/>, or null for "every clip as recorded".
+    /// A partial list is refused rather than padded: guessing which clips the missing
+    /// entries belong to is how one clip ends up with another clip's voice-over.
+    /// </summary>
+    public IReadOnlyList<ClipAudioTrack>? ClipAudio { get; init; }
 
     public WatermarkSettings Watermark { get; init; } = new();
 }
@@ -209,6 +223,11 @@ public sealed class ClipMergeService(
             .Concat(command.BackgroundMusicAssetId is { Length: > 0 } music ? [music] : [])
             .Concat(command.Watermark.LogoAssetId is { Length: > 0 } logo ? [logo] : [])
             .Concat(command.MusicTracks.Select(t => t.AssetId))
+            .Concat(command.ClipAudio?
+                        .Select(c => c.AudioAssetId)
+                        .Where(id => id is { Length: > 0 })
+                        .Select(id => id!)
+                    ?? [])
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
@@ -239,9 +258,15 @@ public sealed class ClipMergeService(
             }
         }
 
+        // A clip carrying a sound of its own is sound, so it counts here: muting the
+        // footage of a reel that is entirely voice-over is a perfectly sensible edit.
+        var hasPerClipSound = command.ClipAudio?
+            .Any(c => c.AudioAssetId is { Length: > 0 } && c.AudioVolume > 0) ?? false;
+
         if (command.MuteClipAudio
             && string.IsNullOrEmpty(command.BackgroundMusicAssetId)
-            && command.MusicTracks.Count == 0)
+            && command.MusicTracks.Count == 0
+            && !hasPerClipSound)
         {
             throw EditingException.Invalid("silent-output",
                 "Muting the clips with no background music would produce a silent video.");
@@ -319,6 +344,35 @@ public sealed class ClipMergeService(
             }
         }
 
+        if (command.ClipAudio is { } clipAudio)
+        {
+            if (clipAudio.Count != clipIds.Count)
+            {
+                throw EditingException.Invalid("clip-audio-count-mismatch",
+                    "There must be exactly one sound setting for every clip in the video.");
+            }
+
+            foreach (var entry in clipAudio)
+            {
+                if (entry.Volume is < 0 || entry.Volume > ClipAudioSpec.MaxGain
+                    || entry.AudioVolume is < 0 || entry.AudioVolume > ClipAudioSpec.MaxGain)
+                {
+                    throw EditingException.Invalid("volume-out-of-range",
+                        $"A clip's sound level must be between 0 and {ClipAudioSpec.MaxGain:0.#}.");
+                }
+
+                if (entry.AudioAssetId is not { Length: > 0 } soundId) continue;
+
+                var asset = Require(byId, soundId, projectId, "sound");
+
+                if (asset.Kind is not (AssetKind.Audio or AssetKind.Video))
+                {
+                    throw EditingException.Invalid("not-audio",
+                        $"'{asset.Name}' has no sound in it.");
+                }
+            }
+        }
+
         var rate = project.Settings.ToCanvas().FrameRate;
 
         var transitionFrames = command.Transition == SceneTransition.None
@@ -346,6 +400,22 @@ public sealed class ClipMergeService(
             })
             .ToList();
 
+        // Stored only when it says something: an all-default list would make every job
+        // document carry one entry per clip to express "as recorded".
+        var clipAudioSpecs = command.ClipAudio is { Count: > 0 } tracks
+                             && tracks.Any(t => t.Volume != 1.0
+                                                || t.AudioAssetId is { Length: > 0 })
+            ? tracks
+                .Select(t => new ClipAudioSpec
+                {
+                    Volume = t.Volume,
+                    AudioAssetId = t.AudioAssetId is { Length: > 0 } id ? id : null,
+                    AudioVolume = t.AudioVolume,
+                    KeepOriginalAudio = t.KeepOriginalAudio
+                })
+                .ToList()
+            : [];
+
         var job = new RenderJob
         {
             ProjectId = projectId,
@@ -366,6 +436,7 @@ public sealed class ClipMergeService(
                 BackgroundMusicAssetId = command.BackgroundMusicAssetId,
                 BackgroundMusicVolume = command.BackgroundMusicVolume,
                 MusicTracks = musicTrackSpecs,
+                ClipAudio = clipAudioSpecs,
                 Watermark = watermark
             }
         };

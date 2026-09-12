@@ -6,7 +6,10 @@ using AnimStudio.Application.Abstractions.Storage;
 using AnimStudio.Application.Projects;
 using AnimStudio.Application.Security;
 using AnimStudio.Domain.Jobs;
+using AnimStudio.Domain.Projects;
+using AnimStudio.Domain.Rendering;
 using Microsoft.AspNetCore.Mvc;
+using System.Text;
 
 namespace AnimStudio.Api.Controllers;
 
@@ -105,7 +108,16 @@ public sealed class RenderController(
         return Ok(ApiResponse<EmptyPayload>.Ok(EmptyPayload.Value));
     }
 
-    /// <summary>Downloads the finished file as an attachment.</summary>
+    /// <summary>
+    /// Downloads the finished file as an attachment, named for what it is.
+    /// <para>
+    /// The name carries the project and the format - <c>lion-reel-short-6aa41839.mp4</c> -
+    /// because a downloads folder is where these files are actually sorted, and a folder of
+    /// <c>animstudio-&lt;hex&gt;.mp4</c> is unsortable: the one thing a person needs to know
+    /// before uploading is whether they are holding the Short or the landscape cut. The job
+    /// id stays on the end so two builds of the same project remain distinguishable.
+    /// </para>
+    /// </summary>
     [HttpGet("api/render-jobs/{jobId}/download")]
     public async Task<IActionResult> Download(string jobId, CancellationToken ct)
     {
@@ -117,7 +129,64 @@ public sealed class RenderController(
         var stream = await store.OpenAsync(job.OutputStorageKey, ct)
             ?? throw new KeyNotFoundException();
 
-        return File(stream, "video/mp4", $"animstudio-{jobId}.mp4");
+        // A deleted project costs a plainer filename, not a failed download.
+        var project = await projects.GetAsync(job.ProjectId, ct);
+
+        return File(stream, "video/mp4", DownloadName(project, jobId));
+    }
+
+    /// <summary>
+    /// Builds the attachment filename: project slug, format, and a short job id.
+    /// <para>
+    /// Reduced to lowercase ASCII letters, digits and single hyphens. The framework encodes
+    /// whatever it is given per RFC 6266, so this is about a name that is readable and
+    /// portable across filesystems rather than about escaping.
+    /// </para>
+    /// </summary>
+    private static string DownloadName(Project? project, string jobId)
+    {
+        var format = project is null
+            ? "video"
+            : Canvas.Describe(project.Settings.Width, project.Settings.Height)
+                .ToString()
+                .ToLowerInvariant();
+
+        var slug = Slug(project?.Name);
+        var suffix = jobId.Length > 8 ? jobId[..8] : jobId;
+
+        return $"{slug}-{format}-{suffix}.mp4";
+    }
+
+    private static string Slug(string? name)
+    {
+        const string fallback = "animstudio";
+
+        if (string.IsNullOrWhiteSpace(name)) return fallback;
+
+        var builder = new StringBuilder(name.Length);
+        var lastWasHyphen = false;
+
+        foreach (var ch in name)
+        {
+            if (char.IsAsciiLetterOrDigit(ch))
+            {
+                builder.Append(char.ToLowerInvariant(ch));
+                lastWasHyphen = false;
+            }
+            else if (!lastWasHyphen && builder.Length > 0)
+            {
+                // Anything else - spaces, punctuation, any non-ASCII script - collapses to
+                // one hyphen, so a name in Devanagari yields a short slug rather than a
+                // string of escapes.
+                builder.Append('-');
+                lastWasHyphen = true;
+            }
+        }
+
+        var slug = builder.ToString().Trim('-');
+        if (slug.Length == 0) return fallback;
+
+        return slug.Length <= 60 ? slug : slug[..60].TrimEnd('-');
     }
 
     /// <summary>

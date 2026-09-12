@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 
 import {
-  CANVAS_PRESETS, DISTRIBUTION_INTENTS, Project,
+  CANVAS_PRESETS, DISTRIBUTION_INTENTS, Project, aspectRatioLabel, videoFormat,
 } from '../../core/models/api.models';
 import { ApiService } from '../../core/services/api.service';
 import { StatusService } from '../../core/services/status.service';
@@ -57,6 +57,20 @@ export class ProjectListComponent {
     this.starting.set(point);
 
     if (!this.name.trim()) this.name = this.suggestedName();
+  }
+
+  /** Short / Video / Square, read off the canvas rather than stored against it. */
+  format(width: number, height: number): string {
+    return videoFormat(width, height);
+  }
+
+  aspect(width: number, height: number): string {
+    return aspectRatioLabel(width, height);
+  }
+
+  /** A Short is the one worth picking out of a list at a glance, so it gets the colour. */
+  formatClass(width: number, height: number): string {
+    return videoFormat(width, height) === 'Short' ? 'pill ok' : 'pill';
   }
 
   cancelStart(): void {

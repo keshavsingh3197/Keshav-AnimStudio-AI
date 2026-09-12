@@ -3,6 +3,7 @@ using AnimStudio.Application.Abstractions.Rendering;
 using AnimStudio.Application.Rendering;
 using AnimStudio.Application.Rendering.Models;
 using AnimStudio.Domain.Errors;
+using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Rendering;
 
 namespace AnimStudio.Infrastructure.Ffmpeg.Graph;
@@ -330,23 +331,7 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         graph.Append($"[{current}]format={plan.Encoder.PixelFormat}[vout];\n");
 
         // --- audio.
-        if (plan.SourceHasAudio && !plan.MuteAudio)
-        {
-            // apad without a length, plus -shortest below, is what guarantees audio and
-            // video come out the same length whatever the source did. Trimming to a
-            // declared duration instead would truncate any clip whose container lies.
-            graph.Append($"[0:a]{AudioFilters.Format(plan.Encoder)},asetpts=N/SR/TB,apad[aout]");
-        }
-        else
-        {
-            var silence = inputs.Count;
-            inputs.Add(new FfmpegInputSpec(
-                ["-f", "lavfi"],
-                $"anullsrc=channel_layout=stereo:sample_rate={plan.Encoder.AudioSampleRate}")
-            { IsLavfi = true });
-
-            graph.Append($"[{silence}:a]{AudioFilters.Format(plan.Encoder)}[aout]");
-        }
+        graph.Append(ClipAudio(plan, inputs));
 
         return new FilterGraphPlan
         {
@@ -357,6 +342,77 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
             ExpectedFrames = plan.ExpectedFrames,
             Warnings = warnings
         };
+    }
+
+    /// <summary>
+    /// One clip's audio, ending at <c>[aout]</c> - which every clip MUST produce, even a
+    /// silent one, or the concat demuxer writes a file that plays the first clip and stalls.
+    /// <para>
+    /// Four cases, and they collapse into two questions: is the clip's own sound wanted,
+    /// and is there another file to play over it. A level of zero is treated as "not
+    /// wanted" rather than emitted as <c>volume=0</c>, which saves decoding a stream in
+    /// order to multiply it by nothing.
+    /// </para>
+    /// <para>
+    /// <c>apad</c> with no length, against <c>-shortest</c> on the output, is what keeps
+    /// audio and video the same length however the source behaved - a sound shorter than
+    /// its clip runs into silence, and one longer is cut at the clip's end. Trimming to a
+    /// container's declared duration instead would truncate every clip whose header lies.
+    /// </para>
+    /// </summary>
+    private string ClipAudio(ClipRenderPlan plan, List<FfmpegInputSpec> inputs)
+    {
+        var format = AudioFilters.Format(plan.Encoder);
+
+        var ownVolume = Math.Clamp(plan.AudioVolume, 0, ClipAudioSpec.MaxGain);
+        var usesOwn = plan.SourceHasAudio && !plan.MuteAudio && ownVolume > 0;
+
+        var extraVolume = Math.Clamp(plan.ExtraAudioVolume, 0, ClipAudioSpec.MaxGain);
+        var hasExtra = plan.ExtraAudioRelativePath is { Length: > 0 } && extraVolume > 0;
+
+        if (hasExtra)
+        {
+            var extraIndex = inputs.Count;
+            inputs.Add(new FfmpegInputSpec([], plan.ExtraAudioRelativePath!));
+
+            // Not looped: a ten-second sting on a two-minute clip plays once and stops,
+            // which is what "a sound for this clip" means. Looping is the music bed's job.
+            var extra = $"[{extraIndex}:a]{format},asetpts=N/SR/TB,"
+                        + $"volume={FilterExpr.N(extraVolume)},apad";
+
+            if (!usesOwn || !plan.KeepOwnAudio) return $"{extra}[aout]";
+
+            // normalize=0 inside Mix is what makes the two levels mean what they say;
+            // amix's default would halve both the moment a second input appeared.
+            var own = $"[0:a]{format},asetpts=N/SR/TB,volume={FilterExpr.N(ownVolume)},apad";
+            var limiter = capabilities.Supports(RenderFeature.AudioLimiter);
+
+            return $"{own}[a0];\n{extra}[a1];\n[a0][a1]{AudioFilters.Mix(2, limiter)}[aout]";
+        }
+
+        if (usesOwn)
+        {
+            // A boost can push peaks past full scale, so it is caught by a limiter where
+            // the host has one. Left alone at or below unity, where there is nothing to
+            // catch and the filter would only cost a pass over every sample.
+            var guard = ownVolume > 1 && capabilities.Supports(RenderFeature.AudioLimiter)
+                ? ",alimiter=limit=0.95"
+                : string.Empty;
+
+            var level = ownVolume == 1
+                ? string.Empty
+                : $",volume={FilterExpr.N(ownVolume)}{guard}";
+
+            return $"[0:a]{format},asetpts=N/SR/TB{level},apad[aout]";
+        }
+
+        var silence = inputs.Count;
+        inputs.Add(new FfmpegInputSpec(
+            ["-f", "lavfi"],
+            $"anullsrc=channel_layout=stereo:sample_rate={plan.Encoder.AudioSampleRate}")
+        { IsLavfi = true });
+
+        return $"[{silence}:a]{format}[aout]";
     }
 
     /// <summary>

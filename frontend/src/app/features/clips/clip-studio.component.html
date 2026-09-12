@@ -1,6 +1,10 @@
 <div class="page-head">
   <div>
-    <h2>Video editor</h2>
+    <h2>
+      Video editor
+      <!-- What this build will BE, on the screen that builds it. -->
+      <span [class]="formatClass()">{{ format() }} &middot; {{ aspect() }}</span>
+    </h2>
     <p class="muted">
       Drop in finished video clips, drag them into order on the timeline, place music at any
       point, and pick a transition for each join. Clips of different sizes and frame rates
@@ -182,8 +186,23 @@
         <button class="secondary" type="button" [disabled]="!addMusicAssetId()" (click)="addMusicTrack()">
           Add to timeline
         </button>
+
+        <!-- Same reason as the watermark image: the file is picked here, so it goes in here. -->
+        @if (sideUpload()?.kind === 'music') {
+          <span class="muted">Uploading&hellip;</span>
+        } @else {
+          <label class="link-button">
+            <input type="file" accept="audio/wav,audio/mpeg,audio/mp4,.wav,.mp3,.m4a"
+                   [disabled]="sideUpload() !== null" (change)="onPickMusic($event)" />
+            <span>Upload music</span>
+          </label>
+        }
+
         @if (studio.musicCandidates.length === 0) {
-          <span class="muted">Upload an audio file on the Assets tab first.</span>
+          <span class="muted">
+            No audio in this project yet. WAV, MP3 or M4A, up to
+            {{ studio.maxImageOrAudioUploadBytes / 1048576 | number: '1.0-0' }}MB.
+          </span>
         }
       </div>
     </div>
@@ -296,6 +315,25 @@
                   no sound
                 </span>
               }
+              @if (clipSoundSummary(row.clip.id); as summary) {
+                <span class="pill ok" title="This clip's sound has been changed">
+                  {{ summary }}
+                </span>
+              }
+            </span>
+
+            <!--
+              One clip's sound, opened from its own row. Per clip rather than per video
+              because that is the unit the problem arrives in: one clip recorded too
+              quietly, one clip that needs a voice-over, one clip whose room noise has to
+              go. A single level for the whole stitch cannot express any of those.
+            -->
+            <span class="clip-sound">
+              <button class="icon" type="button"
+                      [class.active]="isClipSoundCustom(row.clip.id)"
+                      (click)="toggleSoundEditor(row.clip.id)"
+                      [attr.aria-expanded]="openSoundClipId() === row.clip.id"
+                      [title]="'Sound for ' + row.clip.name">&#9834;</button>
             </span>
 
             <!-- Buttons as well as dragging: a drag is not reachable from a keyboard. -->
@@ -305,6 +343,95 @@
               <button class="icon" type="button" [disabled]="i === rows().length - 1"
                       (click)="move(i, 1)" aria-label="Move later">&darr;</button>
             </span>
+
+            @if (openSoundClipId() === row.clip.id) {
+              @let sound = clipSound(row.clip.id);
+
+              <div class="clip-sound-panel">
+                <div class="grid">
+                  <div>
+                    <label>
+                      This clip's own sound &mdash;
+                      @if (sound.volume === 0) { off }
+                      @else { {{ sound.volume * 100 | number: '1.0-0' }}% }
+                    </label>
+                    <input type="range" min="0" [max]="maxGain" step="0.05"
+                           [disabled]="!row.clip.hasAudio || muteClipAudio()"
+                           [ngModel]="sound.volume"
+                           (ngModelChange)="setClipVolume(row.clip.id, $event)" />
+                    <p class="muted">
+                      @if (!row.clip.hasAudio) {
+                        This clip has no sound of its own to adjust.
+                      } @else if (muteClipAudio()) {
+                        The clips' own sound is switched off for the whole video, below.
+                      } @else {
+                        100% is the clip as recorded. Above it lifts a clip that was
+                        recorded too quietly; a boost is kept off the ceiling so it gets
+                        louder rather than distorted.
+                      }
+                    </p>
+                  </div>
+
+                  <div>
+                    <label>A different sound for this clip</label>
+                    <select [ngModel]="sound.audioAssetId"
+                            (ngModelChange)="setClipSound(row.clip.id, $event)">
+                      <option value="">None &mdash; use the clip's own sound</option>
+                      @for (candidate of studio.musicCandidates; track candidate.id) {
+                        <option [value]="candidate.id">{{ candidate.name }}</option>
+                      }
+                    </select>
+
+                    <div class="row" style="margin-top: .5rem">
+                      @if (isUploadingFor(row.clip.id)) {
+                        <span class="muted">Uploading&hellip;</span>
+                      } @else {
+                        <label class="link-button">
+                          <input type="file"
+                                 accept="audio/wav,audio/mpeg,audio/mp4,.wav,.mp3,.m4a"
+                                 [disabled]="sideUpload() !== null"
+                                 (change)="onPickClipSound($event, row.clip.id)" />
+                          <span>Upload a sound for this clip</span>
+                        </label>
+                      }
+                    </div>
+
+                    @if (sound.audioAssetId) {
+                      <label>
+                        Its level &mdash; {{ sound.audioVolume * 100 | number: '1.0-0' }}%
+                      </label>
+                      <input type="range" min="0" [max]="maxGain" step="0.05"
+                             [ngModel]="sound.audioVolume"
+                             (ngModelChange)="setClipSoundVolume(row.clip.id, $event)" />
+
+                      <label class="muted" style="font-weight: 400">
+                        <input type="checkbox" [checked]="sound.keepOriginalAudio"
+                               (change)="setClipKeepOriginal(
+                                 row.clip.id, !sound.keepOriginalAudio)" />
+                        Keep the clip's own sound underneath
+                      </label>
+                      <p class="muted">
+                        Unticked, this file replaces the clip's sound. It plays once from
+                        the start of the clip &mdash; a shorter file runs into silence, a
+                        longer one is cut at the clip's end.
+                      </p>
+                    }
+                  </div>
+                </div>
+
+                <div class="row">
+                  @if (isClipSoundCustom(row.clip.id)) {
+                    <button class="link" type="button" (click)="resetClipSound(row.clip.id)">
+                      play this clip as recorded
+                    </button>
+                  }
+                  <span style="flex: 1 1 auto"></span>
+                  <button class="secondary" type="button" (click)="toggleSoundEditor(row.clip.id)">
+                    Close
+                  </button>
+                </div>
+              </div>
+            }
           </li>
         }
       </ol>
@@ -441,11 +568,32 @@
               }
             </select>
 
-            @if (studio.logoCandidates.length === 0) {
-              <p class="muted">
-                No images in this project yet. Upload a transparent PNG on the Assets tab.
-              </p>
-            }
+            <!--
+              The upload lives HERE, next to the picker it fills. A watermark is chosen
+              while looking at the preview, and the image usually is not in the project
+              yet - so having to leave for the Assets tab and come back is the one step
+              worth removing.
+            -->
+            <div class="row" style="margin-top: .5rem">
+              @if (sideUpload()?.kind === 'logo') {
+                <span class="muted">Uploading&hellip;</span>
+              } @else {
+                <label class="link-button">
+                  <input type="file" accept="image/png,image/jpeg,image/webp"
+                         [disabled]="sideUpload() !== null" (change)="onPickLogo($event)" />
+                  <span>Upload an image</span>
+                </label>
+              }
+            </div>
+
+            <p class="muted">
+              @if (studio.logoCandidates.length === 0) {
+                No images in this project yet.
+              }
+              A transparent PNG works best, up to
+              {{ studio.maxImageOrAudioUploadBytes / 1048576 | number: '1.0-0' }}MB. Anything
+              uploaded here is selected straight away and also lands on the Assets tab.
+            </p>
           }
 
           <div class="grid" style="margin-top: .8rem">
@@ -517,7 +665,46 @@
   <!-- 4. output ---------------------------------------------------------- -->
 
   <div class="card">
-    <div class="section-head"><h3>Output</h3></div>
+    <div class="section-head">
+      <h3>Output</h3>
+      <span class="muted">
+        @if (store.project(); as project) {
+          {{ project.width }}&times;{{ project.height }} &middot; {{ project.fps }}fps
+        }
+      </span>
+    </div>
+
+    <!--
+      The shape, first, because it is the one setting that decides where the finished file
+      can go - and the one that is expensive to get wrong, since a landscape build is
+      letterboxed into oblivion on a phone.
+    -->
+    <div class="row" style="margin-bottom: 1rem">
+      <span [class]="formatClass()">{{ format() }}</span>
+      <span class="muted">
+        @if (format() === 'Short') {
+          Upright {{ aspect() }} &mdash; what YouTube Shorts, Reels and TikTok expect.
+        } @else if (format() === 'Square') {
+          Square {{ aspect() }} &mdash; accepted as a Short, though upright fills a phone.
+        } @else {
+          Landscape {{ aspect() }} &mdash; the ordinary YouTube shape, not a Short.
+        }
+      </span>
+      <button class="secondary" type="button" (click)="switchShape()"
+              [disabled]="status.busy() || running() || format() === 'Square'">
+        @if (format() === 'Short') { Make it a landscape Video }
+        @else { Make it a Short }
+      </button>
+    </div>
+
+    @if (overShortsLimit()) {
+      <div class="notice">
+        This cut runs {{ totalSeconds() | number: '1.0-0' }}s. YouTube publishes an upright
+        video as a Short only up to {{ shortsMaxSeconds }}s &mdash; longer than that and it
+        goes out as an ordinary video in an upright frame. It will still render exactly as
+        you see it here.
+      </div>
+    }
 
     <div class="grid">
       <div>
@@ -564,6 +751,9 @@
         <p class="muted">
           Looped under the whole video. For music that starts at a specific moment instead,
           add it to the timeline above.
+          @if (studio.musicCandidates.length === 0) {
+            Upload an audio file from the music lane on the timeline and it appears here too.
+          }
         </p>
 
         @if (musicAssetId()) {
@@ -581,7 +771,8 @@
 
     <div class="row" style="margin-top: 1rem">
       <button type="button" (click)="build()"
-              [disabled]="status.busy() || uploading() || running() || blockedReason() !== null">
+              [disabled]="status.busy() || uploading() || sideUpload() !== null
+                          || running() || blockedReason() !== null">
         Build one video
       </button>
 

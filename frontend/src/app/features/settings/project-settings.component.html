@@ -22,6 +22,25 @@
           </option>
         }
       </select>
+
+      <!-- Reads off the width and height below, so a custom size is described the same
+           way a preset is - the format follows the numbers, not the dropdown. -->
+      <p class="muted">
+        <span [class]="formatClass()">{{ format() }}</span>
+        {{ aspect() }}.
+        @if (format() === 'Short') {
+          Upright, the shape YouTube Shorts, Reels and TikTok expect - published as a
+          Short when it runs three minutes or less.
+        } @else if (format() === 'Square') {
+          Square. YouTube accepts this as a Short as well, but upright fills a phone.
+        } @else {
+          Landscape, the ordinary YouTube shape. Turn it upright for a Short.
+        }
+      </p>
+      <p class="muted">
+        Changing the shape re-fits existing clips to the new canvas on the next render; it
+        does not crop anything that is already there.
+      </p>
     </div>
 
     <div>

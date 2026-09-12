@@ -1,6 +1,7 @@
 import { Component, effect, inject, input } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
+import { aspectRatioLabel, videoFormat } from '../../core/models/api.models';
 import { ProjectStore } from '../../core/services/project-store';
 
 /**
@@ -28,6 +29,19 @@ export class ProjectEditorComponent {
    * Draft until every scene has a background, then Ready; Rendered once a video has come
    * out of it, which stays true even after later edits.
    */
+  /** Short / Video / Square, derived from the canvas so it can never be out of date. */
+  format(width: number, height: number): string {
+    return videoFormat(width, height);
+  }
+
+  formatClass(width: number, height: number): string {
+    return videoFormat(width, height) === 'Short' ? 'pill ok' : 'pill';
+  }
+
+  aspect(width: number, height: number): string {
+    return aspectRatioLabel(width, height);
+  }
+
   statusClass(status: string): string {
     if (status === 'Rendered') return 'pill ok';
     if (status === 'Rendering') return 'pill warn';

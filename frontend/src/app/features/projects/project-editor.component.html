@@ -4,9 +4,15 @@
       <a routerLink="/projects" class="muted">&larr; All projects</a>
       <h1>{{ project.name }}</h1>
       <p class="muted mono">
-        {{ project.width }}&times;{{ project.height }} &middot; {{ project.fps }}fps &middot;
+        {{ project.width }}&times;{{ project.height }} &middot;
+        {{ aspect(project.width, project.height) }} &middot; {{ project.fps }}fps &middot;
         {{ store.scenes().length }} scenes &middot; {{ store.characters().length }} characters
       </p>
+      <!-- The format sits beside the status because it is the same kind of fact: what
+           this project IS, visible on every one of its screens rather than on one. -->
+      <span [class]="formatClass(project.width, project.height)">
+        {{ format(project.width, project.height) }}
+      </span>
       <span [class]="statusClass(project.status)">{{ project.status }}</span>
     </div>
 

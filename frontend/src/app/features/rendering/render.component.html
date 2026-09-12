@@ -1,9 +1,20 @@
 <div class="page-head">
   <div>
-    <h2>Render</h2>
+    <h2>
+      Render
+      <!-- The same tag the project list and the Video editor show, so what comes out of
+           here is identified the same way everywhere. -->
+      @if (store.project(); as project) {
+        <span [class]="formatClass(project.width, project.height)">
+          {{ format(project.width, project.height) }} &middot;
+          {{ aspect(project.width, project.height) }}
+        </span>
+      }
+    </h2>
     <p class="muted">
       Each scene is rendered on its own, then merged with its transitions, music and
-      subtitles into one MP4.
+      subtitles into one MP4. The file is named for what it is, so a Short and a landscape
+      cut of the same project do not arrive as two files called the same thing.
     </p>
   </div>
 </div>

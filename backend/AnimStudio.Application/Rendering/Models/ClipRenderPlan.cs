@@ -91,6 +91,28 @@ public sealed record ClipRenderPlan
     /// <summary>Discards the clip's own audio, leaving room for a music bed.</summary>
     public bool MuteAudio { get; init; }
 
+    /// <summary>
+    /// Gain on the clip's own audio: 1 leaves it alone, 0 silences this clip, above 1
+    /// lifts footage that was recorded too quietly. Applied in pass one, so it is baked
+    /// into the conformed clip and the join stays a stream copy.
+    /// </summary>
+    public double AudioVolume { get; init; } = 1.0;
+
+    /// <summary>
+    /// A sound of this clip's own - a voice-over, a sting, a music change for one segment -
+    /// already materialized into the workspace. Null for the normal case.
+    /// </summary>
+    public string? ExtraAudioRelativePath { get; init; }
+
+    public double ExtraAudioVolume { get; init; } = 1.0;
+
+    /// <summary>
+    /// With <see cref="ExtraAudioRelativePath"/> set: mix it over the clip's own audio
+    /// instead of replacing it. Meaningless on its own, and ignored when the clip is
+    /// silent or muted - there is then nothing to keep.
+    /// </summary>
+    public bool KeepOwnAudio { get; init; }
+
     public WatermarkPlan? Watermark { get; init; }
 
     public EncoderProfile Encoder { get; init; } = EncoderProfile.Default;

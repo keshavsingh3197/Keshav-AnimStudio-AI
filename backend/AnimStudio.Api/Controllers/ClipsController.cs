@@ -69,6 +69,9 @@ public sealed class ClipsController(
             ClipMergeSpec.MaxClips,
             ClipMergeSpec.MaxMusicTracks,
             AssetsController.MaxVideoUploadBytes,
+            // A watermark image or a music file goes in from this screen too, and it is
+            // held to the general ceiling rather than the video one.
+            AssetsController.MaxUploadBytes,
             capabilities.IsAvailable,
             capabilities.UnavailableReason,
             capabilities.Supports(RenderFeature.DrawText),
@@ -131,6 +134,10 @@ public sealed class ClipsController(
             MusicTracks = request.MusicTracks
                 .Select(t => new TimedMusicClip(
                     t.AssetId, t.StartSeconds, t.Volume, t.TrimStartSeconds, t.TrimEndSeconds))
+                .ToList(),
+            ClipAudio = request.ClipAudio?
+                .Select(c => new ClipAudioTrack(
+                    c.Volume, c.AudioAssetId, c.AudioVolume, c.KeepOriginalAudio))
                 .ToList(),
             Watermark = request.Watermark.ToSettings()
         };

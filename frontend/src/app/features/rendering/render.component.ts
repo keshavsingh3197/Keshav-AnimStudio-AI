@@ -2,7 +2,9 @@ import { DatePipe, DecimalPipe } from '@angular/common';
 import { Component, OnDestroy, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import { RenderJob, isTerminal } from '../../core/models/api.models';
+import {
+  RenderJob, aspectRatioLabel, isTerminal, videoFormat,
+} from '../../core/models/api.models';
 import { ApiService } from '../../core/services/api.service';
 import { ProjectStore } from '../../core/services/project-store';
 import { StatusService } from '../../core/services/status.service';
@@ -26,6 +28,19 @@ export class RenderComponent implements OnDestroy {
   readonly job = signal<RenderJob | null>(null);
 
   readonly rendererAvailable = computed(() => this.store.renderer()?.available ?? false);
+
+  /** Short / Video / Square, read off the canvas - the same rule every other screen uses. */
+  format(width: number, height: number): string {
+    return videoFormat(width, height);
+  }
+
+  formatClass(width: number, height: number): string {
+    return videoFormat(width, height) === 'Short' ? 'pill ok' : 'pill';
+  }
+
+  aspect(width: number, height: number): string {
+    return aspectRatioLabel(width, height);
+  }
 
   readonly blockedReason = computed(() => {
     if (!this.rendererAvailable()) {

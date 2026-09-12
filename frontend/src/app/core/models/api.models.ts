@@ -384,6 +384,7 @@ export interface ClipStudio {
   maxClips: number;
   maxMusicTracks: number;
   maxClipUploadBytes: number;
+  maxImageOrAudioUploadBytes: number;
   rendererAvailable: boolean;
   unavailableReason?: string;
   textWatermarkAvailable: boolean;
@@ -435,6 +436,23 @@ export interface TimedMusicClipBody {
   trimEndSeconds?: number | null;
 }
 
+/**
+ * One clip's sound. Position in the list IS the clip it names, so the list either covers
+ * every clip in the cut or is left out entirely.
+ */
+export interface ClipAudioBody {
+  /** The clip's own audio: 1 as recorded, 0 silent, up to MAX_CLIP_GAIN a boost. */
+  volume: number;
+  /** A sound for this clip alone - a voice-over, a sting, a music change. */
+  audioAssetId?: string | null;
+  audioVolume: number;
+  /** Plays that sound over the clip's own audio rather than instead of it. */
+  keepOriginalAudio: boolean;
+}
+
+/** Loudest anything may be lifted. Mirrors ClipAudioSpec.MaxGain on the server. */
+export const MAX_CLIP_GAIN = 2;
+
 export interface ClipMergeBody {
   assetIds: string[];
   fit: ClipFit;
@@ -446,6 +464,8 @@ export interface ClipMergeBody {
   backgroundMusicAssetId?: string | null;
   backgroundMusicVolume: number;
   musicTracks: TimedMusicClipBody[];
+  /** One entry per clip in the cut; omitted means every clip plays as recorded. */
+  clipAudio?: ClipAudioBody[] | null;
   watermark: WatermarkBody;
 }
 // --- option lists, kept beside the models so a select and its API value cannot drift ---
@@ -471,13 +491,71 @@ export const ENTRANCES = [
 
 export const DISTRIBUTION_INTENTS = ['Personal', 'Public', 'Monetized'] as const;
 
-/** Canvas presets, so the common shapes need no arithmetic from the user. */
+/**
+ * Canvas presets, named for where the video is GOING rather than for its arithmetic.
+ *
+ * "1080x1920" is a fact about a canvas; "YouTube Short" is the reason anyone picks it.
+ * The numbers are still shown beside each one, because they are what a phone recording
+ * has to be checked against.
+ */
 export const CANVAS_PRESETS = [
-  { label: 'Landscape 1080p', width: 1920, height: 1080 },
-  { label: 'Landscape 720p', width: 1280, height: 720 },
-  { label: 'Vertical 1080x1920', width: 1080, height: 1920 },
-  { label: 'Square 1080', width: 1080, height: 1080 },
+  { label: 'Video — landscape, for YouTube', width: 1920, height: 1080 },
+  { label: 'Video — landscape, 720p', width: 1280, height: 720 },
+  { label: 'Short — upright, for YouTube Shorts, Reels and TikTok', width: 1080, height: 1920 },
+  { label: 'Square — for a feed post', width: 1080, height: 1080 },
 ] as const;
+
+/**
+ * What a finished video IS, read off its shape.
+ *
+ * Derived, never stored. The shape of the canvas is the only thing that decides which
+ * shelf a video lands on, so a stored label could only ever disagree with it - resize a
+ * project and a stored tag would be a lie, while this cannot be.
+ */
+export type VideoFormat = 'Short' | 'Video' | 'Square';
+
+/**
+ * How long a Short may run.
+ *
+ * YouTube treats an upright or square video of three minutes or less as a Short; past
+ * that it is published as an ordinary video, whatever shape it is. The ceiling was sixty
+ * seconds until YouTube raised it in October 2024.
+ */
+export const SHORTS_MAX_SECONDS = 180;
+
+export function videoFormat(width: number, height: number): VideoFormat {
+  if (height > width) return 'Short';
+  if (height === width) return 'Square';
+  return 'Video';
+}
+
+/**
+ * The shape as a ratio: "16:9", "9:16", "4:5".
+ *
+ * Reduced by the greatest common divisor, so it reports what the canvas actually is
+ * rather than what it was probably meant to be. An awkward size that reduces to nothing
+ * legible falls back to a decimal, because "1001:500" tells a reader less than "2.00:1".
+ */
+export function aspectRatioLabel(width: number, height: number): string {
+  if (width <= 0 || height <= 0) return '';
+
+  const divisor = greatestCommonDivisor(width, height);
+  const w = width / divisor;
+  const h = height / divisor;
+
+  if (w <= 50 && h <= 50) return `${w}:${h}`;
+
+  return `${(width / height).toFixed(2)}:1`;
+}
+
+/** "Short · 9:16" - the tag shown wherever a project or a render is listed. */
+export function videoFormatTag(width: number, height: number): string {
+  return `${videoFormat(width, height)} · ${aspectRatioLabel(width, height)}`;
+}
+
+function greatestCommonDivisor(a: number, b: number): number {
+  return b === 0 ? a : greatestCommonDivisor(b, a % b);
+}
 
 // --- bundle import (the no-AI path: one .zip with sheets, images and audio) ---
 

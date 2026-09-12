@@ -106,6 +106,11 @@ public sealed class ClipMergeOrchestrator(
         var hasMusic = !string.IsNullOrEmpty(spec.BackgroundMusicAssetId);
         var willStreamCopy = spec.TransitionFrames == 0 && !hasMusic;
 
+        // Per-clip sound costs the join nothing: it is mixed in pass one, so every
+        // conformed clip still comes out with the same single audio stream and the join
+        // can still be a stream copy.
+        var perClipAudio = spec.ClipAudio.Count == spec.AssetIds.Count;
+
         // When the join is a stream copy, pass one's output IS the delivered video, so it
         // gets the delivery preset. When the join re-encodes - any transition, or a music
         // bed - pass one is writing a file whose only reader is ffmpeg, one step later, and
@@ -174,6 +179,20 @@ public sealed class ClipMergeOrchestrator(
 
                     var asset = assetMap[spec.AssetIds[index]];
 
+                    // Positional, and only when there is exactly one entry per clip -
+                    // the same tolerance junctions have, so a spec written before
+                    // per-clip sound existed reads as "every clip as recorded".
+                    var audio = perClipAudio ? spec.ClipAudio[index] : null;
+
+                    string? extraAudio = null;
+                    if (audio?.AudioAssetId is { Length: > 0 } extraId)
+                    {
+                        // A sound whose asset was deleted between queueing and running is
+                        // dropped rather than failing the render, the same tolerance the
+                        // timed music tracks below have.
+                        materialized.TryGetValue(extraId, out extraAudio);
+                    }
+
                     var plan = new ClipRenderPlan
                     {
                         ClipIndex = index,
@@ -186,6 +205,10 @@ public sealed class ClipMergeOrchestrator(
                         // produces a file that stops at the first silent clip.
                         SourceHasAudio = !string.IsNullOrEmpty(asset.Probe.AudioCodec),
                         MuteAudio = spec.MuteClipAudio,
+                        AudioVolume = audio?.Volume ?? 1.0,
+                        ExtraAudioRelativePath = extraAudio,
+                        ExtraAudioVolume = audio?.AudioVolume ?? 1.0,
+                        KeepOwnAudio = audio?.KeepOriginalAudio ?? false,
                         Watermark = watermark,
                         Encoder = clipEncoder,
                         EncoderThreads = perClipThreads
@@ -368,6 +391,11 @@ public sealed class ClipMergeOrchestrator(
         if (spec.BackgroundMusicAssetId is { Length: > 0 } music) ids.Add(music);
         if (spec.Watermark.LogoAssetId is { Length: > 0 } logo) ids.Add(logo);
         foreach (var track in spec.MusicTracks) ids.Add(track.AssetId);
+
+        foreach (var clip in spec.ClipAudio)
+        {
+            if (clip.AudioAssetId is { Length: > 0 } clipAudio) ids.Add(clipAudio);
+        }
 
         var loaded = await assets.GetManyAsync(ids, ct).ConfigureAwait(false);
 

@@ -179,6 +179,7 @@ public sealed record ClipStudioResponse(
     int MaxClips,
     int MaxMusicTracks,
     long MaxClipUploadBytes,
+    long MaxImageOrAudioUploadBytes,
     bool RendererAvailable,
     string? UnavailableReason,
     bool TextWatermarkAvailable,

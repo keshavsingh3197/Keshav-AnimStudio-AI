@@ -24,8 +24,14 @@ public sealed class AssetsController(
     ICurrentUser currentUser,
     TimeProvider clock) : ControllerBase
 {
-    /// <summary>25MB. The ceiling for a still image, a voice recording or a music bed.</summary>
-    private const long MaxUploadBytes = 25 * 1024 * 1024;
+    /// <summary>
+    /// 25MB. The ceiling for a still image, a voice recording or a music bed.
+    /// <para>
+    /// Public because the screens that upload one of these quote the limit before sending,
+    /// which is the same reason <see cref="MaxVideoUploadBytes"/> is public.
+    /// </para>
+    /// </summary>
+    public const long MaxUploadBytes = 25 * 1024 * 1024;
 
     /// <summary>
     /// 512MB for video, because 25MB is not a video.

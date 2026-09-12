@@ -2,7 +2,9 @@ import { Component, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 
-import { CANVAS_PRESETS, DISTRIBUTION_INTENTS } from '../../core/models/api.models';
+import {
+  CANVAS_PRESETS, DISTRIBUTION_INTENTS, aspectRatioLabel, videoFormat,
+} from '../../core/models/api.models';
 import { ApiService } from '../../core/services/api.service';
 import { ProjectStore } from '../../core/services/project-store';
 import { StatusService } from '../../core/services/status.service';
@@ -67,6 +69,22 @@ export class ProjectSettingsComponent {
 
     this.form.width = preset.width;
     this.form.height = preset.height;
+  }
+
+  /**
+   * What the size currently in the form makes. Read from the form rather than from the
+   * saved project, so a custom width and height describe themselves as they are typed.
+   */
+  format(): string {
+    return videoFormat(this.form.width, this.form.height);
+  }
+
+  formatClass(): string {
+    return this.format() === 'Short' ? 'pill ok' : 'pill';
+  }
+
+  aspect(): string {
+    return aspectRatioLabel(this.form.width, this.form.height);
   }
 
   /** Shows the preset that matches the saved canvas, or Custom when none does. */

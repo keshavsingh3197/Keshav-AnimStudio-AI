@@ -85,6 +85,56 @@ public sealed class ClipMergeSpec
     /// one-bed path most stitches still use.
     /// </summary>
     public List<TimedMusicClipSpec> MusicTracks { get; set; } = [];
+
+    /// <summary>
+    /// Per-clip sound: one entry per clip, in the same order as <see cref="AssetIds"/>
+    /// (so <c>Count == AssetIds.Count</c> when set). Empty means every clip keeps its own
+    /// audio at its own level, which is what every job written before this existed says.
+    /// <para>
+    /// Positional rather than keyed by asset id, for the same reason
+    /// <see cref="Junctions"/> is: the running order may legitimately use the same clip
+    /// twice, and those two placements are allowed to sound different.
+    /// </para>
+    /// </summary>
+    public List<ClipAudioSpec> ClipAudio { get; set; } = [];
+}
+
+/// <summary>
+/// One clip's sound.
+/// <para>
+/// Two independent things, because they answer different questions. <see cref="Volume"/>
+/// is how loud the footage's OWN audio is - the one control that fixes a clip recorded far
+/// too quietly or a clip full of wind noise. <see cref="AudioAssetId"/> is a different
+/// sound for this clip alone: a voice-over, a sting, a music change for one segment. A
+/// file either replaces the clip's own audio or sits on top of it, which is what
+/// <see cref="KeepOriginalAudio"/> decides.
+/// </para>
+/// </summary>
+public sealed class ClipAudioSpec
+{
+    /// <summary>
+    /// Gain on the clip's own audio. 1 leaves it untouched, 0 silences it, and up to
+    /// <see cref="MaxGain"/> lifts a clip that was recorded too quietly.
+    /// </summary>
+    public double Volume { get; set; } = 1.0;
+
+    /// <summary>An audio (or video) asset whose sound plays over this clip. Null for none.</summary>
+    public string? AudioAssetId { get; set; }
+
+    public double AudioVolume { get; set; } = 1.0;
+
+    /// <summary>
+    /// With a sound of its own attached: mix it UNDER the clip's own audio rather than
+    /// replacing it. Ignored when there is no <see cref="AudioAssetId"/>.
+    /// </summary>
+    public bool KeepOriginalAudio { get; set; }
+
+    /// <summary>
+    /// Loudest anything may be lifted, as a multiplier. +6dB is enough to rescue a quiet
+    /// recording; past that, a clip is not quiet but broken, and boosting it only makes
+    /// the noise floor louder.
+    /// </summary>
+    public const double MaxGain = 2.0;
 }
 
 /// <summary>One gap between two consecutive clips, and what plays across it.</summary>
