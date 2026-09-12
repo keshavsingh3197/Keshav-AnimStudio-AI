@@ -1,0 +1,145 @@
+<div class="card">
+  <div class="row" style="justify-content: space-between; align-items: flex-start; margin-bottom: 1rem">
+    <div>
+      <h2 style="margin: 0">Global Studio Branding & Hallmark</h2>
+      <p class="muted" style="margin: .3rem 0 0; font-size: .9rem">
+        Set a server-wide studio hallmark or logo watermark. All projects and clip renders can inherit this branding automatically, ensuring consistent credits without duplicating settings.
+      </p>
+    </div>
+    <button type="button" class="secondary" (click)="reload()" [disabled]="status.busy()">
+      Reload
+    </button>
+  </div>
+
+  @if (saveSuccess()) {
+    <div class="notice ok" style="margin-bottom: 1rem">
+      Global branding and hallmark updated successfully! New projects will inherit these settings.
+    </div>
+  }
+
+  <div class="grid" style="margin-bottom: 1.5rem">
+    <div>
+      <label for="admin-wm-kind">Hallmark Style</label>
+      <select id="admin-wm-kind" [(ngModel)]="form.kind">
+        @for (k of watermarkKinds; track k.kind) {
+          <option [value]="k.kind">{{ k.label }}</option>
+        }
+      </select>
+    </div>
+
+    @if (form.kind !== 'None') {
+      <div>
+        <label for="admin-wm-pos">Position</label>
+        <select id="admin-wm-pos" [(ngModel)]="form.position">
+          @for (p of watermarkPositions; track p) {
+            <option [value]="p">{{ p }}</option>
+          }
+        </select>
+      </div>
+
+      @if (form.kind === 'Text') {
+        <div>
+          <label for="admin-wm-text">Hallmark text / brand name</label>
+          <input id="admin-wm-text" type="text" [(ngModel)]="form.text"
+                 placeholder="e.g. AnimStudio AI or © 2026 Keshav Studios" maxlength="200" />
+        </div>
+
+        <div>
+          <label for="admin-wm-color">Text color</label>
+          <input id="admin-wm-color" type="color" [(ngModel)]="form.color" />
+        </div>
+
+        <div>
+          <label for="admin-wm-backplate">Backplate shading ({{ (form.backplate * 100) | number: '1.0-0' }}%)</label>
+          <input id="admin-wm-backplate" type="range" min="0" max="0.9" step="0.05"
+                 [(ngModel)]="form.backplate" />
+        </div>
+      }
+
+      @if (form.kind === 'Logo') {
+        <div>
+          <label>Studio Logo Image</label>
+          <div style="display: flex; gap: .75rem; align-items: center; margin-top: .3rem">
+            <label class="button link-button" style="cursor: pointer; margin: 0">
+              <input type="file" accept="image/png,image/jpeg,image/webp" (change)="onUploadLogo($event)" style="display: none" />
+              <span>Upload new logo (PNG / JPG / WEBP)</span>
+            </label>
+            @if (form.logoAssetId) {
+              <button type="button" class="secondary" (click)="clearLogo()" style="padding: .4rem .8rem">
+                Remove Logo
+              </button>
+            }
+          </div>
+          @if (form.logoAssetId) {
+            <p class="muted" style="margin: .4rem 0 0; font-size: .8rem">
+              Logo uploaded and stored in server storage.
+            </p>
+          }
+        </div>
+      }
+
+      <div>
+        <label for="admin-wm-opac">Opacity ({{ (form.opacity * 100) | number: '1.0-0' }}%)</label>
+        <input id="admin-wm-opac" type="range" min="0.15" max="1" step="0.05"
+               [(ngModel)]="form.opacity" />
+      </div>
+
+      <div>
+        <label for="admin-wm-height">Size ({{ form.height }}% of canvas height)</label>
+        <input id="admin-wm-height" type="range" min="2" max="20" step="0.5"
+               [(ngModel)]="form.height" />
+      </div>
+
+      <div>
+        <label for="admin-wm-margin">Margin from edge ({{ form.margin }}%)</label>
+        <input id="admin-wm-margin" type="range" min="1" max="15" step="0.5"
+               [(ngModel)]="form.margin" />
+      </div>
+    }
+  </div>
+
+  @if (form.kind !== 'None') {
+    <div style="margin-top: 1rem; padding: 1.25rem; border-radius: var(--radius); background: var(--surface-2)">
+      <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: .75rem">
+        <strong style="font-size: .85rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted)">
+          Live Hallmark Preview (16:9 Video Simulation)
+        </strong>
+        <span class="pill">{{ form.position }} &bull; {{ (form.opacity * 100) | number: '1.0-0' }}% opacity</span>
+      </div>
+
+      <div style="position: relative; width: 360px; max-width: 100%; height: 202px; background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%); border-radius: 8px; overflow: hidden; display: flex; box-shadow: 0 4px 14px rgba(0,0,0,.4); border: 1px solid rgba(255,255,255,.1);"
+           [style.padding.px]="(form.margin / 100) * 202"
+           [style.align-items]="form.position.startsWith('Top') ? 'flex-start' : 'flex-end'"
+           [style.justify-content]="form.position.endsWith('Left') ? 'flex-start' : form.position.endsWith('Right') ? 'flex-end' : 'center'">
+        @if (form.kind === 'Logo') {
+          @if (logoPreviewUrl(); as url) {
+            <img [src]="url" alt="Hallmark logo" [style.height.px]="(form.height / 100) * 202"
+                 [style.opacity]="form.opacity" style="object-fit: contain; max-width: 60%; display: block;" />
+          } @else {
+            <div style="background: rgba(0,0,0,.6); padding: .5rem .8rem; border-radius: 4px; font-size: .75rem; color: #94a3b8">
+              No logo image uploaded yet
+            </div>
+          }
+        } @else {
+          <span [style.font-size.px]="(form.height / 100) * 202"
+                [style.color]="form.color"
+                [style.opacity]="form.opacity"
+                [style.background]="'rgba(0,0,0,' + form.backplate + ')'"
+                style="padding: 2px 8px; border-radius: 4px; font-weight: 600; line-height: 1.2; letter-spacing: 0.02em;">
+            {{ form.text || 'AnimStudio AI' }}
+          </span>
+        }
+      </div>
+      <p class="muted" style="margin: .6rem 0 0; font-size: .8rem">
+        This watermark will be overlaid seamlessly on your renders.
+      </p>
+    </div>
+  }
+
+  <div class="row" style="margin-top: 1.5rem">
+    <button type="button" (click)="save()" [disabled]="status.busy()">
+      Save Global Hallmark
+    </button>
+  </div>
+</div>
+

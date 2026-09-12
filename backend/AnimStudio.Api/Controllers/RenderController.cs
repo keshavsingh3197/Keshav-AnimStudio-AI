@@ -51,6 +51,11 @@ public sealed class RenderController(
                 new ApiError("NoScenes", "This project has no scenes to render.")));
         }
 
+        var project = await projects.GetAsync(projectId, ct);
+        var jobWidth = project?.Settings.Width ?? 1920;
+        var jobHeight = project?.Settings.Height ?? 1080;
+        var targetFormat = (jobWidth < jobHeight) ? "Short" : (jobWidth == jobHeight ? "Square" : "Video");
+
         var job = new RenderJob
         {
             ProjectId = projectId,
@@ -58,6 +63,9 @@ public sealed class RenderController(
             Status = RenderJobStatus.Pending,
             ScenesTotal = sceneList.Count,
             Message = "Queued",
+            Width = jobWidth,
+            Height = jobHeight,
+            TargetFormat = targetFormat,
             CreatedAt = clock.GetUtcNow().UtcDateTime
         };
 

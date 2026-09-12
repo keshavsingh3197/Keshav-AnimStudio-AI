@@ -9,9 +9,14 @@ using AnimStudio.Application.Ai;
 using AnimStudio.Application.Options;
 using AnimStudio.Application.Security;
 using AnimStudio.Domain.Ai;
+using AnimStudio.Domain.Assets;
+using AnimStudio.Domain.Rendering;
+using AnimStudio.Infrastructure.Persistence.SqlServer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using AppObjectStore = AnimStudio.Application.Abstractions.Storage.IObjectStore;
 
 namespace AnimStudio.Api.Controllers;
 
@@ -50,6 +55,9 @@ public sealed class AdminController(
     ICurrentUser currentUser,
     IOptionsMonitor<AiOptions> aiOptions,
     IConfiguration configuration,
+    IAiSettingsRepository aiSettingsRepo,
+    IAssetRepository assets,
+    AppObjectStore store,
     TimeProvider clock) : ControllerBase
 {
     /// <summary>A fortnight reads well on one screen and covers a free tier's reset cycle.</summary>
@@ -416,6 +424,142 @@ public sealed class AdminController(
         return Ok(ApiResponse<IReadOnlyList<AdminAuditResponse>>.Ok(
             [.. entries.Select(e => new AdminAuditResponse(
                 e.Action, e.Target, e.ActorUserId, e.RemoteAddress, e.Before, e.After, e.AtUtc))]));
+    }
+
+    // --- database migration --------------------------------------------------------------
+
+    [HttpPost("migrate-to-sql")]
+    public async Task<ActionResult<ApiResponse<MigrationReport>>> MigrateToSql(
+        [FromServices] IServiceProvider sp,
+        CancellationToken ct)
+    {
+        var migrator = sp.GetService<MongoToSqlServerMigrator>();
+        if (migrator is null)
+        {
+            return BadRequest(ApiResponse<MigrationReport>.Fail(
+                "Migration is only available when Database:Provider is 'SqlServer' and MongoDb connection is configured."));
+        }
+
+        var report = await migrator.MigrateAllAsync(ct);
+
+        await audit.RecordAsync(
+            "database.migrate_to_sql",
+            "SqlServer",
+            "MongoDB",
+            report.Success ? $"Migrated {report.Details.Sum(d => d.MigratedCount)} records" : "Failed",
+            RemoteAddress(),
+            ct);
+
+        if (!report.Success)
+        {
+            return StatusCode(500, ApiResponse<MigrationReport>.Fail(report.Message));
+        }
+
+        return Ok(ApiResponse<MigrationReport>.Ok(report));
+    }
+
+    // --- branding & hallmark -------------------------------------------------------------
+
+    [HttpGet("branding")]
+    public async Task<ActionResult<ApiResponse<WatermarkResponse?>>> GetBranding(CancellationToken ct)
+    {
+        var stored = await aiSettingsRepo.GetAsync(ct);
+        return Ok(ApiResponse<WatermarkResponse?>.Ok(stored?.DefaultWatermark.ToResponse()));
+    }
+
+    [HttpPut("branding")]
+    public async Task<ActionResult<ApiResponse<WatermarkResponse?>>> UpdateBranding(
+        [FromBody] WatermarkRequest request, CancellationToken ct)
+    {
+        var stored = await aiSettingsRepo.GetAsync(ct) ?? new AiSettings();
+        var before = stored.DefaultWatermark?.Kind.ToString() ?? "None";
+
+        var watermark = request.ToSettings();
+        watermark.Clamp();
+        stored.DefaultWatermark = watermark;
+
+        await aiSettingsRepo.SaveAsync(stored, ct);
+
+        await audit.RecordAsync(
+            "branding.updated",
+            "global-branding",
+            $"Kind: {before}",
+            $"Kind: {watermark.Kind}, Text: {watermark.Text}, Logo: {watermark.LogoAssetId}",
+            RemoteAddress(),
+            ct);
+
+        return Ok(ApiResponse<WatermarkResponse?>.Ok(stored.DefaultWatermark.ToResponse()));
+    }
+
+    [HttpPost("branding/logo")]
+    [RequestSizeLimit(AssetsController.MaxUploadBytes)]
+    [RequestFormLimits(MultipartBodyLengthLimit = AssetsController.MaxUploadBytes)]
+    public async Task<ActionResult<ApiResponse<WatermarkResponse?>>> UploadBrandingLogo(
+        IFormFile file, CancellationToken ct)
+    {
+        if (file is null || file.Length == 0)
+        {
+            return BadRequest(ApiResponse<WatermarkResponse?>.Fail(
+                "Choose an image file to upload.",
+                new ApiError("file-required", "Choose an image file to upload.")));
+        }
+
+        var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+        if (ext is not (".png" or ".jpg" or ".jpeg" or ".webp"))
+        {
+            return BadRequest(ApiResponse<WatermarkResponse?>.Fail(
+                "Logo must be a PNG, JPG, or WEBP image.",
+                new ApiError("invalid-image-type", "Only PNG, JPG, and WEBP images are supported.")));
+        }
+
+        var mimeType = ext switch
+        {
+            ".png" => "image/png",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".webp" => "image/webp",
+            _ => "image/png"
+        };
+
+        var assetId = MongoDB.Bson.ObjectId.GenerateNewId().ToString();
+        var storageKey = $"branding/global-logo-{assetId}{ext}";
+
+        await using (var stream = file.OpenReadStream())
+        {
+            await store.SaveAsync(storageKey, stream, mimeType, ct);
+        }
+
+        var now = clock.GetUtcNow().UtcDateTime;
+        var asset = new Asset
+        {
+            Id = assetId,
+            ProjectId = "global",
+            Name = Path.GetFileName(file.FileName),
+            Kind = AssetKind.Image,
+            StorageKey = storageKey,
+            MimeType = mimeType,
+            FileSizeBytes = file.Length,
+            CreatedAt = now
+        };
+
+        await assets.InsertAsync(asset, ct);
+
+        var stored = await aiSettingsRepo.GetAsync(ct) ?? new AiSettings();
+        stored.DefaultWatermark ??= new WatermarkSettings();
+        stored.DefaultWatermark.Kind = WatermarkKind.Logo;
+        stored.DefaultWatermark.LogoAssetId = assetId;
+        stored.DefaultWatermark.Clamp();
+
+        await aiSettingsRepo.SaveAsync(stored, ct);
+
+        await audit.RecordAsync(
+            "branding.logo-uploaded",
+            "global-branding",
+            "Uploaded global hallmark logo",
+            asset.Name,
+            RemoteAddress(),
+            ct);
+
+        return Ok(ApiResponse<WatermarkResponse?>.Ok(stored.DefaultWatermark.ToResponse()));
     }
 
     // --- helpers -------------------------------------------------------------------------

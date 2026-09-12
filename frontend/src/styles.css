@@ -27,6 +27,21 @@ p { margin: 0 0 .75rem; }
 a { color: var(--brand); }
 
 .wrap { max-width: 1120px; margin: 0 auto; padding: 1.5rem 1.25rem 4rem; }
+.wrap {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 4rem;
+  transition: max-width 0.2s ease;
+}
+
+/* Widescreen pro layout when inside Video Studio or Render Output */
+.wrap:has(.program-monitor-card),
+.wrap:has(.render-output-card),
+.wrap:has(.storyboard-grid),
+.wrap.wrap-wide {
+  max-width: min(96vw, 1720px);
+  padding: 1.25rem 1.5rem 4rem;
+}
 
 .card {
   background: var(--surface);
@@ -472,6 +487,16 @@ audio { height: 2.2rem; vertical-align: middle; }
 /* A file input that reads as a link. The input stays the control so it keeps its
    keyboard behaviour and its label association. */
 .link-button > input[type="file"] { position: absolute; opacity: 0; width: 0; height: 0; }
+.link-button > input[type="file"] { position: fixed !important; top: -9999px !important; left: -9999px !important; opacity: 0 !important; width: 1px !important; height: 1px !important; pointer-events: none !important; }
+.link-button > input[type="file"] {
+  position: absolute;
+  width: 0.1px;
+  height: 0.1px;
+  opacity: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  pointer-events: none;
+}
 .link-button > span { color: var(--brand); text-decoration: underline; cursor: pointer; }
 
 .clip-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .35rem; }
@@ -1195,3 +1220,789 @@ audio { height: 2.2rem; vertical-align: middle; }
   border: 1px solid var(--border);
   font-size: 0.82rem;
 }
+
+/* --- Video Studio Modern Workbench & Monitor --- */
+
+.video-studio-grid {
+  display: grid;
+  grid-template-columns: minmax(420px, 1.35fr) minmax(340px, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+  margin-bottom: 1.25rem;
+}
+
+@media (max-width: 1040px) {
+  .video-studio-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Master Program Monitor */
+.program-monitor-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+}
+
+.monitor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 1rem;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.monitor-screen-container {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.monitor-screen-container.aspect-short {
+  aspect-ratio: 9 / 16;
+  max-height: 480px;
+}
+
+.monitor-screen-container.aspect-square {
+  aspect-ratio: 1 / 1;
+  max-height: 440px;
+}
+
+.pv-monitor-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transition: opacity 0.15s ease;
+}
+
+.pv-monitor-layer.fit-cover {
+  object-fit: cover;
+}
+
+.pv-monitor-layer.fit-stretch {
+  object-fit: fill;
+}
+
+.pv-monitor-layer.layer-back {
+  z-index: 1;
+}
+
+.pv-monitor-layer.layer-front {
+  z-index: 2;
+}
+
+.monitor-empty-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  color: var(--muted);
+  background: repeating-conic-gradient(#14161f 0% 25%, #10121a 0% 50%) 50% / 24px 24px;
+  z-index: 3;
+}
+
+/* Master Monitor Live Watermark Overlay */
+.monitor-watermark-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  pointer-events: none;
+  z-index: 4;
+}
+
+/* Program monitor transition support */
+.program-monitor-card .pv-fade { animation-name: pvFade; animation-timing-function: linear; animation-fill-mode: forwards; }
+.program-monitor-card .pv-wipe-left { animation-name: pvWipeLeft; animation-timing-function: linear; animation-fill-mode: forwards; }
+.program-monitor-card .pv-wipe-right { animation-name: pvWipeRight; animation-timing-function: linear; animation-fill-mode: forwards; }
+.program-monitor-card .pv-slide-left { animation-name: pvSlideLeft; animation-timing-function: ease-in-out; animation-fill-mode: forwards; }
+.program-monitor-card .pv-slide-right { animation-name: pvSlideRight; animation-timing-function: ease-in-out; animation-fill-mode: forwards; }
+.program-monitor-card .pv-circle-open { animation-name: pvCircleOpen; animation-timing-function: ease-in; animation-fill-mode: forwards; }
+.program-monitor-card .pv-circle-close { animation-name: pvCircleClose; animation-timing-function: ease-in; animation-fill-mode: forwards; }
+.program-monitor-card .pv-cut { opacity: 0; transition: opacity 0s; }
+
+@keyframes pvFade {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes pvWipeLeft {
+  from { clip-path: inset(0 0 0 0); }
+  to { clip-path: inset(0 100% 0 0); }
+}
+
+@keyframes pvWipeRight {
+  from { clip-path: inset(0 0 0 0); }
+  to { clip-path: inset(0 0 0 100%); }
+}
+
+@keyframes pvSlideLeft {
+  from { transform: translateX(0); }
+  to { transform: translateX(-100%); }
+}
+
+@keyframes pvSlideRight {
+  from { transform: translateX(0); }
+  to { transform: translateX(100%); }
+}
+
+@keyframes pvCircleOpen {
+  from { clip-path: circle(100% at 50% 50%); }
+  to { clip-path: circle(0% at 50% 50%); }
+}
+
+@keyframes pvCircleClose {
+  from { clip-path: circle(100% at 50% 50%); }
+  to { clip-path: circle(0% at 50% 50%); }
+}
+
+/* Monitor Transport Bar */
+.monitor-transport {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  padding: 0.6rem 1rem;
+  background: var(--surface-2);
+  border-top: 1px solid var(--border);
+}
+
+.transport-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.transport-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.2rem;
+  height: 2.2rem;
+  padding: 0;
+  border-radius: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.transport-btn:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--brand) 15%, var(--surface));
+  border-color: var(--brand);
+}
+
+.transport-btn.primary {
+  width: 2.6rem;
+  height: 2.6rem;
+  background: var(--brand);
+  color: var(--brand-ink);
+  border-color: var(--brand);
+  font-size: 1.25rem;
+}
+
+.transport-btn.active {
+  background: color-mix(in oklab, var(--brand) 25%, var(--surface));
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
+.transport-timecode {
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text);
+  background: var(--surface);
+  padding: 0.3rem 0.65rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.transport-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+}
+
+/* Studio Inspector Tabs */
+.studio-inspector {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+  min-height: 460px;
+}
+
+.inspector-nav {
+  display: flex;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.inspector-tab-btn {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.75rem 0.85rem;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.inspector-tab-btn:hover {
+  color: var(--text);
+  background: color-mix(in oklab, var(--surface) 60%, transparent);
+}
+
+.inspector-tab-btn.active {
+  color: var(--brand);
+  border-bottom-color: var(--brand);
+  background: var(--surface);
+}
+
+.inspector-content {
+  padding: 1.1rem;
+  overflow-y: auto;
+  max-height: 520px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* Timeline Enhancements with Playhead Needle */
+.studio-timeline-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  margin-bottom: 1.25rem;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+}
+
+.timeline-interactive-area {
+  position: relative;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  padding: 0.6rem 0;
+  cursor: pointer;
+  user-select: none;
+}
+
+/* Playhead Red Needle */
+.tl-playhead-needle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #ff3b30;
+  z-index: 10;
+  pointer-events: none;
+  transform: translateX(-50%);
+  box-shadow: 0 0 6px rgba(255, 59, 48, 0.8);
+}
+
+.tl-playhead-head {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 14px;
+  height: 14px;
+  background: #ff3b30;
+  clip-path: polygon(0 0, 100% 0, 100% 55%, 50% 100%, 0 55%);
+  cursor: grab;
+  pointer-events: auto;
+}
+
+.tl-playhead-head:active {
+  cursor: grabbing;
+}
+
+/* Highlight Selected Clip */
+.tl-clip.selected {
+  border-color: var(--brand) !important;
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--brand) 70%, transparent), 0 0 10px rgba(90, 150, 255, 0.4);
+  background: color-mix(in oklab, var(--brand) 38%, var(--surface)) !important;
+}
+
+.tl-clip-thumb {
+  width: 100%;
+  height: 1.4rem;
+  background: #000;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  color: var(--muted);
+  opacity: 0.85;
+}
+
+.tl-clip-thumb > video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+/* Mini clip quick actions toolbar */
+.clip-quick-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  background: var(--surface-2);
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+/* --- Video Studio 2.0: Advanced Controls & Polish --- */
+
+/* Speed & Monitor Toggles in Transport Bar */
+.speed-badge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.speed-badge:hover, .speed-badge.active {
+  background: var(--brand);
+  color: var(--brand-ink);
+  border-color: var(--brand);
+}
+
+/* Track Header Labels */
+.tl-track-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.2rem 0.6rem;
+  background: color-mix(in oklab, var(--surface) 80%, transparent);
+  border-radius: 4px;
+  margin-bottom: 0.25rem;
+  width: fit-content;
+}
+
+/* Lower-Third Title Overlay on Master Monitor */
+.lower-third-overlay {
+  position: absolute;
+  bottom: 2.2rem;
+  left: 2rem;
+  max-width: 75%;
+  padding: 0.5rem 1rem;
+  background: rgba(15, 18, 26, 0.85);
+  border-left: 4px solid var(--brand);
+  border-radius: 0 6px 6px 0;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  z-index: 5;
+  pointer-events: none;
+  animation: ltSlideIn 0.35s ease-out;
+}
+
+.lower-third-title {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #fff;
+  line-height: 1.2;
+}
+
+.lower-third-sub {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: color-mix(in oklab, var(--brand) 60%, #fff);
+  margin-top: 0.15rem;
+}
+
+@keyframes ltSlideIn {
+  from { opacity: 0; transform: translateX(-15px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* Color Grading / Look Filters Grid */
+.filter-presets-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(6.8rem, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+
+.filter-preset-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.5rem 0.3rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.filter-preset-card:hover {
+  border-color: var(--brand);
+  background: color-mix(in oklab, var(--brand) 10%, var(--surface-2));
+}
+
+.filter-preset-card.active {
+  border-color: var(--brand);
+  background: color-mix(in oklab, var(--brand) 25%, var(--surface-2));
+  color: var(--brand);
+  box-shadow: 0 0 0 1px var(--brand);
+}
+
+.filter-swatch {
+  width: 2.2rem;
+  height: 1.3rem;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* Keyboard Shortcuts Modal Overlay */
+.shortcuts-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.shortcuts-modal-dialog {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  width: 100%;
+  max-width: 32rem;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+  animation: popIn 0.18s ease-out;
+}
+
+.shortcuts-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.8rem 1.2rem;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.shortcuts-modal-header h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.shortcuts-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.shortcuts-table td {
+  padding: 0.6rem 1.2rem;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 50%, transparent);
+  font-size: 0.86rem;
+}
+
+.shortcuts-table kbd {
+  display: inline-block;
+  padding: 0.2rem 0.45rem;
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 2px 0 var(--border);
+}
+
+@keyframes popIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* Fullscreen monitor support */
+.monitor-screen-container:fullscreen {
+  width: 100vw !important;
+  height: 100vh !important;
+  max-height: none !important;
+  aspect-ratio: auto !important;
+  background: #000 !important;
+}
+
+/* Aspect Ratio Selector Pills on Master Monitor */
+.aspect-pill-group {
+  display: flex;
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.aspect-pill {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.aspect-pill:hover {
+  color: var(--text);
+}
+
+.aspect-pill.active {
+  background: var(--brand);
+  color: var(--brand-ink);
+}
+
+/* Transport Stepping & Small Buttons */
+.transport-btn.btn-sm {
+  width: 2rem;
+  height: 2rem;
+  font-size: 0.82rem;
+  border-radius: 5px;
+}
+
+/* Volume control in transport */
+.transport-volume {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.transport-volume-slider {
+  width: 4.5rem;
+  height: 5px;
+  accent-color: var(--brand);
+  cursor: pointer;
+}
+
+/* Shorts / TikTok UI Safe Zone Guide */
+.shorts-safe-zone {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 6;
+}
+
+.shorts-safe-inner {
+  position: absolute;
+  top: 10%;
+  bottom: 22%;
+  left: 6%;
+  right: 18%;
+  border: 1.5px dashed rgba(74, 222, 128, 0.75);
+  border-radius: 6px;
+  background: rgba(74, 222, 128, 0.04);
+}
+
+.shorts-safe-label {
+  position: absolute;
+  top: 0.4rem;
+  left: 0.6rem;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: #4ade80;
+  text-transform: uppercase;
+  background: rgba(15, 17, 23, 0.85);
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+}
+
+.shorts-right-actions-zone {
+  position: absolute;
+  top: 35%;
+  bottom: 22%;
+  right: 2%;
+  width: 14%;
+  border: 1px dotted rgba(239, 68, 68, 0.6);
+  border-radius: 4px;
+  background: rgba(239, 68, 68, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(239, 68, 68, 0.7);
+  font-size: 0.6rem;
+  font-weight: 700;
+  writing-mode: vertical-rl;
+  text-transform: uppercase;
+}
+
+/* Broadcast 16:9 Action Safe Guide */
+.broadcast-safe-zone {
+  position: absolute;
+  inset: 5%;
+  border: 1.5px dashed rgba(251, 191, 36, 0.6);
+  pointer-events: none;
+  z-index: 6;
+}
+
+.broadcast-safe-zone::after {
+  content: "16:9 ACTION SAFE";
+  position: absolute;
+  top: 0.3rem;
+  left: 0.5rem;
+  font-size: 0.62rem;
+  font-weight: 800;
+  color: #fbbf24;
+  background: rgba(15, 17, 23, 0.85);
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+}
+
+/* Playhead Needle Bubble Timecode */
+.tl-playhead-bubble {
+  position: absolute;
+  top: -1.7rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #ff3b30;
+  color: #fff;
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  font-size: 0.68rem;
+  font-weight: 800;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+/* Inline Transition Junction Chip on Timeline */
+.tl-junction-chip {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.15rem 0.45rem;
+  border-radius: 99px;
+  z-index: 8;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  transition: all 0.15s ease;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  white-space: nowrap;
+}
+
+.tl-junction-chip:hover {
+  border-color: var(--brand);
+  background: color-mix(in oklab, var(--brand) 20%, var(--surface));
+  color: var(--brand);
+  transform: translate(-50%, -50%) scale(1.08);
+}
+
+.tl-junction-chip.has-trans {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
+/* In/Out Trim Box */
+.trim-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.trim-btn-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+/* Framing & Zoom Control */
+.framing-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+/* Flash Snapshot Effect */
+@keyframes snapshotFlash {
+  0% { opacity: 0.8; }
+  100% { opacity: 0; }
+}
+
+.snapshot-flash {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  pointer-events: none;
+  z-index: 20;
+  animation: snapshotFlash 0.3s ease-out forwards;
+}
+

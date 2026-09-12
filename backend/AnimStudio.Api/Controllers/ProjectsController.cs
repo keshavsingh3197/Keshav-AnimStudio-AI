@@ -4,6 +4,7 @@ using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Projects;
 using AnimStudio.Application.Security;
 using AnimStudio.Domain.Projects;
+using AnimStudio.Domain.Rendering;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AnimStudio.Api.Controllers;
@@ -13,6 +14,7 @@ namespace AnimStudio.Api.Controllers;
 public sealed class ProjectsController(
     IProjectRepository projects,
     ProjectEditingService editing,
+    IAiSettingsRepository aiSettingsRepo,
     ICurrentUser currentUser,
     TimeProvider clock) : ControllerBase
 {
@@ -37,8 +39,27 @@ public sealed class ProjectsController(
     {
         var now = clock.GetUtcNow().UtcDateTime;
 
+        WatermarkSettings? defaultWatermark = null;
+        var globalSettings = await aiSettingsRepo.GetAsync(ct);
+        if (globalSettings?.DefaultWatermark is not null && globalSettings.DefaultWatermark.Kind != WatermarkKind.None)
+        {
+            defaultWatermark = new WatermarkSettings
+            {
+                Kind = globalSettings.DefaultWatermark.Kind,
+                Text = globalSettings.DefaultWatermark.Text,
+                LogoAssetId = globalSettings.DefaultWatermark.LogoAssetId,
+                Position = globalSettings.DefaultWatermark.Position,
+                Opacity = globalSettings.DefaultWatermark.Opacity,
+                HeightFraction = globalSettings.DefaultWatermark.HeightFraction,
+                MarginFraction = globalSettings.DefaultWatermark.MarginFraction,
+                ColorHex = globalSettings.DefaultWatermark.ColorHex,
+                BackplateOpacity = globalSettings.DefaultWatermark.BackplateOpacity
+            };
+        }
+
         var project = new Project
         {
+            Id = MongoDB.Bson.ObjectId.GenerateNewId().ToString(),
             UserId = currentUser.UserId,
             Name = request.Name.Trim(),
             Description = request.Description?.Trim(),
@@ -50,7 +71,8 @@ public sealed class ProjectsController(
                 Height = request.Height % 2 == 0 ? request.Height : request.Height + 1,
                 FrameRateNum = request.Fps,
                 FrameRateDen = 1,
-                DistributionIntent = request.DistributionIntent
+                DistributionIntent = request.DistributionIntent,
+                DefaultWatermark = defaultWatermark ?? new WatermarkSettings()
             },
             CreatedAt = now,
             UpdatedAt = now
@@ -78,7 +100,8 @@ public sealed class ProjectsController(
             DistributionIntent = request.DistributionIntent,
             AcceptShareAlikeObligation = request.AcceptShareAlikeObligation,
             BackgroundMusicAssetId = request.BackgroundMusicAssetId,
-            BackgroundMusicVolume = request.BackgroundMusicVolume
+            BackgroundMusicVolume = request.BackgroundMusicVolume,
+            DefaultWatermark = request.DefaultWatermark?.ToSettings()
         }, ct);
 
         return Ok(ApiResponse<ProjectResponse>.Ok(project.ToResponse()));

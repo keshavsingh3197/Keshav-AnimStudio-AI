@@ -11,6 +11,7 @@ import {
   CreateSceneBody, DialogueBody, IngestCapabilities, IngestResult, IngestSummary,
   PlacementBody, Project, RenderJob, RendererStatus, Scene, SceneAudioBody, SceneDetail,
   SceneGenerationResult, ScriptDetail, ScriptSummary, UpdateProjectBody, UpdateSceneBody,
+  WatermarkBody,
 } from '../models/api.models';
 
 /**
@@ -38,6 +39,15 @@ export class ApiService {
   ingestCapabilities(): Observable<IngestCapabilities> {
     return this.unwrap(
       this.http.get<ApiResponse<IngestCapabilities>>(`${this.base}/api/ingest/capabilities`));
+  }
+
+  getGlobalBranding(): Observable<WatermarkBody | null> {
+    return this.unwrap(
+      this.http.get<ApiResponse<WatermarkBody | null>>(`${this.base}/api/system/branding`));
+  }
+
+  globalLogoUrl(): string {
+    return `${this.base}/api/system/branding/logo`;
   }
 
   // --- projects
@@ -410,6 +420,18 @@ export class ApiService {
   adminAudit(limit = 50): Observable<AdminAuditEntry[]> {
     return this.unwrap(
       this.http.get<ApiResponse<AdminAuditEntry[]>>(`${this.admin}/audit?limit=${limit}`));
+  }
+
+  updateGlobalBranding(body: WatermarkBody): Observable<WatermarkBody | null> {
+    return this.unwrap(
+      this.http.put<ApiResponse<WatermarkBody | null>>(`${this.admin}/branding`, body));
+  }
+
+  uploadGlobalLogo(file: File): Observable<WatermarkBody | null> {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return this.unwrap(
+      this.http.post<ApiResponse<WatermarkBody | null>>(`${this.admin}/branding/logo`, form));
   }
 
   private unwrap<T>(source: Observable<ApiResponse<T>>): Observable<T> {

@@ -57,6 +57,9 @@ public sealed class RenderJob
     public string? LogStorageKey { get; set; }
     public long? OutputSizeBytes { get; set; }
     public int? OutputDurationFrames { get; set; }
+    public int? Width { get; set; }
+    public int? Height { get; set; }
+    public string? TargetFormat { get; set; }
 
     public string? ErrorCode { get; set; }
 

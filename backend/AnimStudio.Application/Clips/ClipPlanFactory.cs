@@ -61,7 +61,15 @@ public static class ClipPlanFactory
         // Height, not width: the same fraction then reads the same on a wide canvas and on
         // a vertical one, instead of a mark that doubles in size when the video is rotated.
         var height = Math.Max(8, (int)Math.Round(canvas.Height * settings.HeightFraction));
-        var margin = Math.Max(0, (int)Math.Round(canvas.Height * settings.MarginFraction));
+        var rawMargin = Math.Max(0, (int)Math.Round(canvas.Height * settings.MarginFraction));
+
+        // For vertical videos (Shorts/TikTok/Reels), apply mobile safe-area padding so the
+        // watermark/logo is never clipped by rounded display edges or hidden under platform overlay UI.
+        var isVertical = canvas.Height > canvas.Width;
+        var minSafeMargin = isVertical
+            ? Math.Max(32, (int)Math.Round(canvas.Width * 0.05))
+            : 0;
+        var margin = Math.Max(rawMargin, minSafeMargin);
 
         // Even, because the logo is scaled with force_original_aspect_ratio and an odd
         // target is where scale quietly rounds in a direction nobody predicted.

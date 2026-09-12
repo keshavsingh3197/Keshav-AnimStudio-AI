@@ -1,7 +1,9 @@
 using AnimStudio.Api.Common;
 using AnimStudio.Api.Contracts;
 using AnimStudio.Api.Security;
+using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Abstractions.Rendering;
+using AnimStudio.Application.Abstractions.Storage;
 using AnimStudio.Application.Abstractions.Transcripts;
 using AnimStudio.Application.Options;
 using AnimStudio.Infrastructure.Ingest;
@@ -16,7 +18,10 @@ public sealed class SystemController(
     IRenderCapabilities capabilities,
     TranscriptSourceSelector sources,
     IOptions<IngestOptions> ingestOptions,
-    IOptionsMonitor<AdminOptions> adminOptions) : ControllerBase
+    IOptionsMonitor<AdminOptions> adminOptions,
+    IAiSettingsRepository aiSettingsRepo,
+    IAssetRepository assets,
+    IObjectStore store) : ControllerBase
 {
     /// <summary>
     /// Whether this caller may administer the server.
@@ -96,5 +101,45 @@ public sealed class SystemController(
             options.DefaultSource,
             options.AllowMediaDownload,
             statuses.OrderBy(s => s.Kind).ToList())));
+    }
+
+    /// <summary>
+    /// Global branding & hallmark watermark configuration.
+    /// Publicly readable so any project or client can inspect or inherit default branding.
+    /// </summary>
+    [HttpGet("branding")]
+    public async Task<ActionResult<ApiResponse<WatermarkResponse?>>> GetBranding(CancellationToken ct)
+    {
+        var settings = await aiSettingsRepo.GetAsync(ct);
+        return Ok(ApiResponse<WatermarkResponse?>.Ok(settings?.DefaultWatermark.ToResponse()));
+    }
+
+    /// <summary>
+    /// Serves the global branding logo image file.
+    /// </summary>
+    [HttpGet("branding/logo")]
+    public async Task<IActionResult> GetBrandingLogo(CancellationToken ct)
+    {
+        var settings = await aiSettingsRepo.GetAsync(ct);
+        var logoId = settings?.DefaultWatermark?.LogoAssetId;
+        if (string.IsNullOrWhiteSpace(logoId))
+            return NotFound();
+
+        string storageKey = logoId;
+        string mimeType = "image/png";
+
+        var asset = await assets.GetAsync(logoId, ct);
+        if (asset is not null)
+        {
+            storageKey = asset.StorageKey;
+            mimeType = asset.MimeType;
+        }
+
+        var stream = await store.OpenAsync(storageKey, ct);
+        if (stream is null)
+            return NotFound();
+
+        Response.Headers.XContentTypeOptions = "nosniff";
+        return File(stream, mimeType);
     }
 }

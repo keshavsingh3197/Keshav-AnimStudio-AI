@@ -1,18 +1,55 @@
 <div class="page-head">
   <div>
     <h2>
-      Video editor
-      <!-- What this build will BE, on the screen that builds it. -->
+      Video Studio
       <span [class]="formatClass()">{{ format() }} &middot; {{ aspect() }}</span>
     </h2>
     <p class="muted">
-      Drop in finished video clips, drag them into order on the timeline, place music at any
-      point, and pick a transition for each join. Clips of different sizes and frame rates
-      are all conformed to this project's canvas, so a phone recording and a screen capture
-      can sit in the same video.
+      Professional studio editor: live playback with transitions, color grading look presets,
+      clip split (blade) tool, watermark overlays, and multi-track audio.
     </p>
   </div>
+  <div class="row" style="gap: .5rem; align-items: center; flex-wrap: wrap">
+    @if (hasUnsavedChanges()) {
+      <span class="pill warn" style="font-size: .8rem">● Unsaved Changes</span>
+    } @else if (lastSavedTime()) {
+      <span class="pill ok" style="font-size: .8rem">✓ Draft Saved {{ lastSavedTime() }}</span>
+    }
+    <button class="secondary" type="button" [disabled]="!hasUnsavedChanges()" (click)="saveDraft()"
+            title="Save your current clip edits, trims, and sequence as a local draft">
+      💾 Save Draft
+    </button>
+    <button class="secondary" type="button" (click)="showShortcutsModal.set(true)" title="Keyboard shortcuts">
+      ⌨ Shortcuts
+    </button>
+    <button class="secondary" type="button" (click)="switchShape()"
+            [disabled]="status.busy() || running() || format() === 'Square'">
+      @if (format() === 'Short') { Make Landscape }
+      @else { Make Short }
+    </button>
+    <button class="secondary" type="button" (click)="buildShort()"
+            [disabled]="status.busy() || uploading() || sideUpload() !== null
+                        || running() || blockedReason() !== null"
+            title="Convert and build cut as a vertical Short (9:16) video">
+      📱 Build as Short (9:16)
+    </button>
+    <button type="button" (click)="build()"
+            [disabled]="status.busy() || uploading() || sideUpload() !== null
+                        || running() || blockedReason() !== null">
+      Build Video
+    </button>
+  </div>
 </div>
+
+@if (restoredDraftTime()) {
+  <div class="notice" style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center">
+    <span>Restored unsaved draft from <strong>{{ restoredDraftTime() }}</strong>.</span>
+    <div class="row" style="gap: .5rem">
+      <button class="secondary" type="button" (click)="discardDraft()">Discard Draft</button>
+      <button type="button" (click)="saveDraft()">Keep Draft</button>
+    </div>
+  </div>
+}
 
 @if (studio(); as studio) {
   @if (!studio.rendererAvailable) {
@@ -21,23 +58,985 @@
     </div>
   }
 
-  <!-- 1. getting clips in ------------------------------------------------- -->
+  <!-- TOP WORKBENCH: Master Monitor (Left) & Studio Inspector (Right) -->
+  <div class="video-studio-grid">
+    <!-- MASTER PROGRAM MONITOR -->
+    <div class="program-monitor-card">
+      <div class="monitor-header">
+        <div class="row" style="gap: .5rem; align-items: center; flex-wrap: wrap">
+          <strong>Master Monitor</strong>
+          @if (currentScheduledClip(); as curr) {
+            <span class="pill ok">
+              Clip {{ curr.index + 1 }} of {{ clipSchedule().length }}: {{ curr.clip.name }}
+            </span>
+          } @else if (included().length > 0) {
+            <span class="pill">Ready</span>
+          }
 
+          <!-- Aspect Ratio Preview Override Switcher -->
+          <div class="aspect-pill-group">
+            <button type="button" class="aspect-pill" [class.active]="previewAspectOverride() === 'auto'"
+                    (click)="setPreviewAspect('auto')" title="Auto aspect based on project canvas">Auto</button>
+            <button type="button" class="aspect-pill" [class.active]="previewAspectOverride() === '16:9'"
+                    (click)="setPreviewAspect('16:9')" title="Preview as 16:9 Landscape">16:9</button>
+            <button type="button" class="aspect-pill" [class.active]="previewAspectOverride() === '9:16'"
+                    (click)="setPreviewAspect('9:16')" title="Preview as 9:16 Vertical Short">9:16</button>
+            <button type="button" class="aspect-pill" [class.active]="previewAspectOverride() === '1:1'"
+                    (click)="setPreviewAspect('1:1')" title="Preview as 1:1 Square">1:1</button>
+            <button type="button" class="aspect-pill" [class.active]="previewAspectOverride() === '4:5'"
+                    (click)="setPreviewAspect('4:5')" title="Preview as 4:5 Feed Portrait">4:5</button>
+          </div>
+        </div>
+
+        <div class="row" style="gap: .4rem; align-items: center">
+          <!-- Safe Zone Guides Toggles -->
+          <button class="transport-btn btn-sm" type="button" [class.active]="showShortsSafeZone()"
+                  (click)="toggleShortsSafeZone()" title="Toggle TikTok/Shorts UI Safe Area overlay">
+            📱 Shorts Safe
+          </button>
+          <button class="transport-btn btn-sm" type="button" [class.active]="showBroadcastSafeZone()"
+                  (click)="toggleBroadcastSafeZone()" title="Toggle 16:9 Broadcast Action Safe overlay">
+            📺 Safe Area
+          </button>
+          <button class="icon" type="button" (click)="toggleFullscreen()" title="Toggle Fullscreen (F)">
+            &#x26F6;
+          </button>
+          <span class="muted mono" style="font-size: .8rem">{{ store.project()?.width }}&times;{{ store.project()?.height }}</span>
+        </div>
+      </div>
+
+      <!-- Monitor Screen with Dual Video Layers, Filters, Watermark & Lower-Third -->
+      <div #monitorContainer class="monitor-screen-container" [class]="monitorScreenAspectClass()">
+        @if (included().length === 0) {
+          <div class="monitor-empty-state">
+            <span style="font-size: 2.2rem">&#127916;</span>
+            <strong>No clips in the cut yet</strong>
+            <p class="muted" style="margin: 0; font-size: .85rem">
+              Drop MP4 clips into the dropzone or tick clips in the library below.
+            </p>
+          </div>
+        } @else {
+          <!-- Camera Snapshot Flash FX -->
+          @if (snapshotFlash()) {
+            <div class="snapshot-flash"></div>
+          }
+
+          <!-- Live Safe Area Overlay Guides -->
+          @if (showShortsSafeZone()) {
+            <div class="shorts-safe-zone">
+              <div class="shorts-safe-inner">
+                <span class="shorts-safe-label">TikTok / Shorts Clean Safe Zone</span>
+              </div>
+              <div class="shorts-right-actions-zone">
+                <span>UI Zone</span>
+              </div>
+            </div>
+          }
+          @if (showBroadcastSafeZone()) {
+            <div class="broadcast-safe-zone"></div>
+          }
+
+          <!-- Dual Video Monitor Layers: Ping-pong buffering with seamless transitions -->
+          <video #videoMonitorA
+                 [class]="'pv-monitor-layer ' + (activeLayer() === 'A' ? 'layer-front' : 'layer-back') + ' ' + monitorFitClass() + (liveTransitionActive() && activeLayer() === 'A' ? ' ' + liveTransitionClass() : '')"
+                 [style.animation-duration.s]="liveTransitionDuration()"
+                 [style.filter]="computedMonitorFilter()"
+                 [style.transform]="activeClipTransform()"
+                 muted playsinline preload="auto"></video>
+
+          <video #videoMonitorB
+                 [class]="'pv-monitor-layer ' + (activeLayer() === 'B' ? 'layer-front' : 'layer-back') + ' ' + monitorFitClass() + (liveTransitionActive() && activeLayer() === 'B' ? ' ' + liveTransitionClass() : '')"
+                 [style.animation-duration.s]="liveTransitionDuration()"
+                 [style.filter]="computedMonitorFilter()"
+                 [style.transform]="activeClipTransform()"
+                 muted playsinline preload="auto"></video>
+
+          <!-- Live Watermark Overlay -->
+          @if (effectiveWatermark().kind !== 'None') {
+            <div class="monitor-watermark-overlay"
+                 [style.padding.px]="preview().inset"
+                 [style.align-items]="preview().top ? 'flex-start' : 'flex-end'"
+                 [style.justify-content]="preview().align">
+              @if (effectiveWatermark().kind === 'Logo') {
+                @if (logoUrl(); as url) {
+                  <img [src]="url" alt="" [style.height.px]="preview().fontSize"
+                       [style.opacity]="effectiveWatermark().opacity" />
+                }
+              } @else {
+                <span class="wm-text"
+                      [style.font-size.px]="preview().fontSize"
+                      [style.color]="effectiveWatermark().colorHex"
+                      [style.opacity]="effectiveWatermark().opacity"
+                      [style.background]="'rgba(0,0,0,' + effectiveWatermark().backplateOpacity + ')'">
+                  {{ effectiveWatermark().text || 'yoursite.example' }}
+                </span>
+              }
+            </div>
+          }
+
+          <!-- Lower-Third Caption Banner Overlay -->
+          @if (lowerThirdEnabled() && lowerThirdTitle()) {
+            <div class="lower-third-overlay">
+              <div class="lower-third-title">{{ lowerThirdTitle() }}</div>
+              @if (lowerThirdSubtitle()) {
+                <div class="lower-third-sub">{{ lowerThirdSubtitle() }}</div>
+              }
+            </div>
+          }
+        }
+
+        <!-- Audio elements for background soundtrack and replacement clip audio -->
+        <audio #bgMusicAudio loop></audio>
+        <audio #clipSoundAudio></audio>
+      </div>
+
+      <!-- Transport Bar with Speed Controls & Audio Mute -->
+      <!-- Transport Bar with Precision Stepping, Volume & Snapshot -->
+      <div class="monitor-transport">
+        <div class="transport-controls">
+          <button class="transport-btn" type="button" (click)="stopPlayback()" title="Stop & return to start (Home)">
+            &#9632;
+          </button>
+          <button class="transport-btn" type="button" (click)="jumpToStart()" title="Jump to start (Home)">
+            &#9198;&#10074;
+          </button>
+          <button class="transport-btn" type="button" (click)="prevClip()" title="Previous clip">
+            &#9198;
+          </button>
+          <button class="transport-btn" type="button" (click)="seekRelative(-1)" title="Seek -1s (&larr;)">
+            -1s
+          </button>
+          <button class="transport-btn btn-sm" type="button" (click)="stepFrame(-1)" title="Step back 1 frame (1/30s)">
+            &lang; 1f
+          </button>
+          <button class="transport-btn primary" type="button" (click)="togglePlay()"
+                  [title]="isPlaying() ? 'Pause (Space)' : 'Play (Space)'">
+            @if (isPlaying()) { &#10074;&#10074; } @else { &#9658; }
+          </button>
+          <button class="transport-btn" type="button" (click)="nextClip()" title="Next clip">
+            &#9197;
+          </button>
+          <button class="transport-btn btn-sm" type="button" (click)="stepFrame(1)" title="Step forward 1 frame (1/30s)">
+            1f &rang;
+          </button>
+          <button class="transport-btn" type="button" (click)="seekRelative(1)" title="Seek +1s (&rarr;)">
+            +1s
+          </button>
+          <button class="transport-btn" type="button" (click)="jumpToEnd()" title="Jump to end (End)">
+            &#10074;&#9197;
+          </button>
+          <button class="transport-btn" type="button" [class.active]="isLooping()"
+                  (click)="toggleLoop()" title="Toggle loop playback">
+            &#8635;
+          </button>
+          <button class="transport-btn" type="button" (click)="captureFrame()" title="Capture current frame as image (Snapshot)">
+            📸
+          </button>
+
+          <!-- Master Monitor Volume -->
+          <div class="transport-volume">
+            <button class="transport-btn btn-sm" type="button" [class.active]="isMonitorMuted()"
+                    (click)="toggleMonitorMute()" [title]="isMonitorMuted() ? 'Unmute monitor (M)' : 'Mute monitor (M)'">
+              {{ isMonitorMuted() ? '🔇' : '🔊' }}
+            </button>
+            <input type="range" min="0" max="1" step="0.05"
+                    [ngModel]="monitorVolume()" (ngModelChange)="setMonitorVolume($event)"
+                    title="Master monitor volume" />
+          </div>
+        </div>
+
+        <div class="transport-timecode mono">
+          {{ formattedPlayheadTime() }} <span class="muted">/ {{ formattedTotalTime() }}</span>
+        </div>
+
+        <!-- Speed Selector Pills -->
+        <div class="row" style="gap: .25rem">
+          @for (speed of [0.25, 0.5, 1, 1.25, 1.5, 2]; track speed) {
+            <button class="speed-badge" type="button"
+                    [class.active]="playbackSpeed() === speed"
+                    (click)="setPlaybackSpeed(speed)">
+              {{ speed }}x
+            </button>
+          }
+        </div>
+      </div>
+    </div>
+
+    <!-- STUDIO INSPECTOR (Tabbed Workbench) -->
+    <div class="studio-inspector">
+      <nav class="inspector-nav">
+        <button class="inspector-tab-btn" type="button"
+                [class.active]="activeInspectorTab() === 'clip'"
+                (click)="activeInspectorTab.set('clip')">
+          &#128392; Clip Adjustments
+        </button>
+        <button class="inspector-tab-btn" type="button"
+                [class.active]="activeInspectorTab() === 'effects'"
+                (click)="activeInspectorTab.set('effects')">
+          &#10024; Looks & Overlays
+        </button>
+        <button class="inspector-tab-btn" type="button"
+                [class.active]="activeInspectorTab() === 'audio'"
+                (click)="activeInspectorTab.set('audio')">
+          &#9835; Audio & Music
+        </button>
+        <button class="inspector-tab-btn" type="button"
+                [class.active]="activeInspectorTab() === 'export'"
+                (click)="activeInspectorTab.set('export')">
+          &#128229; Export & Build
+        </button>
+      </nav>
+
+      <div class="inspector-content">
+        <!-- TAB 1: CLIP ADJUSTMENTS -->
+        @if (activeInspectorTab() === 'clip') {
+          @if (selectedClip(); as clip) {
+            @let sound = clipSound(clip.id);
+            <div class="row" style="justify-content: space-between; align-items: flex-start">
+              <div>
+                <h4 style="margin: 0">{{ clip.name }}</h4>
+                <span class="muted mono" style="font-size: .8rem">
+                  {{ clip.durationSeconds ?? 0 | number: '1.1-1' }}s &middot;
+                  {{ clip.width }}&times;{{ clip.height }} &middot;
+                  {{ clip.fileSizeBytes / 1048576 | number: '1.1-1' }}MB
+                </span>
+              </div>
+              <button class="secondary" type="button" (click)="selectAndSeekClip(clip)">
+                &#9658; Play this clip
+              </button>
+            </div>
+
+            <!-- Clip Blade / Split & Actions Toolbar -->
+            <div class="clip-quick-bar">
+              <button class="secondary" type="button" (click)="splitClipAtPlayhead()"
+                      title="Split clip at playhead needle (Hotkey: S or B)">
+                ✂ Split at playhead
+              </button>
+              <button class="secondary" type="button" (click)="duplicateClip(clip.id)"
+                      title="Duplicate this clip">
+                ⧉ Duplicate
+              </button>
+              <span style="flex: 1 1 auto"></span>
+              <button class="icon" type="button" (click)="move(selectedClipIndexInCut(), -1)"
+                      [disabled]="selectedClipIndexInCut() <= 0" title="Move earlier">&uarr;</button>
+              <button class="icon" type="button" (click)="move(selectedClipIndexInCut(), 1)"
+                      [disabled]="selectedClipIndexInCut() >= rows().length - 1" title="Move later">&darr;</button>
+              <button class="secondary" type="button" style="font-size: .8rem; padding: .25rem .5rem"
+                      (click)="toggle(selectedClipIndexInCut())">
+                Untick
+              </button>
+            </div>
+
+            <!-- In / Out Trimming Control Card -->
+            <div class="trim-card">
+              <div class="row" style="justify-content: space-between; align-items: center">
+                <strong style="font-size: .85rem">✂ Precision In / Out Trimming</strong>
+                @if (clipTrim(clip.id); as trim) {
+                  <button class="link" type="button" style="font-size: .8rem" (click)="resetClipTrim(clip.id)">
+                    Reset Trim
+                  </button>
+                }
+              </div>
+              <p class="muted" style="font-size: .8rem; margin: 0">
+                Set active start and end points using the live playhead needle.
+              </p>
+              <div class="trim-btn-row">
+                <button class="secondary" type="button" style="font-size: .8rem; padding: .35rem .6rem"
+                        (click)="setInPointAtPlayhead(clip.id)" title="Set clip In-point to current playhead time">
+                  [ Set In: {{ (clipTrim(clip.id)?.startSeconds ?? 0) | number: '1.1-1' }}s
+                </button>
+                <button class="secondary" type="button" style="font-size: .8rem; padding: .35rem .6rem"
+                        (click)="setOutPointAtPlayhead(clip.id)" title="Set clip Out-point to current playhead time">
+                  Set Out: {{ (clipTrim(clip.id)?.endSeconds ?? clip.durationSeconds ?? 0) | number: '1.1-1' }}s ]
+                </button>
+              </div>
+            </div>
+
+            <!-- Framing, Pan & Zoom Control Card -->
+            @let framing = clipFramingSetting(clip.id);
+            <div class="framing-card">
+              <div class="row" style="justify-content: space-between; align-items: center">
+                <strong style="font-size: .85rem">📐 Framing & Zoom (Fit to Canvas)</strong>
+                <span class="muted mono" style="font-size: .8rem">{{ framing.zoom }}%</span>
+              </div>
+              <p class="muted" style="font-size: .8rem; margin: 0">
+                Adapt horizontal clips to vertical Shorts without black letterbox bars.
+              </p>
+              <div class="row" style="gap: .4rem">
+                <button class="aspect-pill" type="button" [class.active]="framing.fit === 'Contain'"
+                        (click)="setClipFramingFit(clip.id, 'Contain')" title="Fit whole frame with black letterbox bars">
+                  Contain (Letterbox)
+                </button>
+                <button class="aspect-pill" type="button" [class.active]="framing.fit === 'Cover'"
+                        (click)="setClipFramingFit(clip.id, 'Cover')" title="Fill screen completely (crops edges)">
+                  Cover (Fill & Crop)
+                </button>
+              </div>
+              @if (framing.fit === 'Cover') {
+                <p class="muted" style="margin: .3rem 0 0; font-size: .78rem; color: #fbbf24">
+                  ⚠️ Cover mode crops clip edges. If this clip already has a channel watermark in the corner, use 'Contain' to prevent it from being cut off.
+                </p>
+              }
+              <div class="grid" style="margin-top: .3rem">
+                <div>
+                  <label style="font-size: .8rem">Scale / Zoom &mdash; {{ framing.zoom }}%</label>
+                  <input type="range" min="100" max="250" step="5" [ngModel]="framing.zoom"
+                         (ngModelChange)="setClipFramingZoom(clip.id, $event)" />
+                </div>
+                <div>
+                  <label style="font-size: .8rem">Vertical Focus / Pan</label>
+                  <div class="row" style="gap: .25rem; margin-top: .2rem">
+                    <button class="aspect-pill" type="button" [class.active]="framing.panY === 'top'"
+                            (click)="setClipFramingPan(clip.id, 'top')">Top</button>
+                    <button class="aspect-pill" type="button" [class.active]="framing.panY === 'center'"
+                            (click)="setClipFramingPan(clip.id, 'center')">Center</button>
+                    <button class="aspect-pill" type="button" [class.active]="framing.panY === 'bottom'"
+                            (click)="setClipFramingPan(clip.id, 'bottom')">Bottom</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Clip Sound / Volume -->
+            <div>
+              <label>
+                Clip Volume &mdash;
+                @if (sound.volume === 0) { Muted }
+                @else { {{ sound.volume * 100 | number: '1.0-0' }}% }
+              </label>
+              <input type="range" min="0" [max]="maxGain" step="0.05"
+                     [disabled]="!clip.hasAudio || muteClipAudio()"
+                     [ngModel]="sound.volume"
+                     (ngModelChange)="setClipVolume(clip.id, $event)" />
+              <p class="muted" style="font-size: .8rem">
+
+              <!-- Audio Fade In/Out -->
+              @let fade = clipAudioFadeSetting(clip.id);
+              <div class="row" style="gap: .8rem; margin-top: .4rem">
+                <div style="flex: 1">
+                  <label style="font-size: .8rem">Audio Fade-In</label>
+                  <select [ngModel]="fade.fadeInSeconds"
+                          (ngModelChange)="setClipAudioFade(clip.id, +$event, fade.fadeOutSeconds)">
+                    <option [value]="0">None (Hard start)</option>
+                    <option [value]="0.5">0.5s fade</option>
+                    <option [value]="1">1.0s fade</option>
+                    <option [value]="2">2.0s fade</option>
+                  </select>
+                </div>
+                <div style="flex: 1">
+                  <label style="font-size: .8rem">Audio Fade-Out</label>
+                  <select [ngModel]="fade.fadeOutSeconds"
+                          (ngModelChange)="setClipAudioFade(clip.id, fade.fadeInSeconds, +$event)">
+                    <option [value]="0">None (Hard cut)</option>
+                    <option [value]="0.5">0.5s fade</option>
+                    <option [value]="1">1.0s fade</option>
+                    <option [value]="2">2.0s fade</option>
+                  </select>
+                </div>
+              </div>
+
+              <p class="muted" style="font-size: .8rem; margin-top: .4rem">
+                @if (!clip.hasAudio) {
+                  This clip has no recorded audio track.
+                } @else if (muteClipAudio()) {
+                  Clips' own sound is muted for the whole video in the Audio tab.
+                } @else {
+                  100% is original volume. Drag higher to boost quiet recordings.
+                }
+              </p>
+            </div>
+
+            <!-- Replacement Audio / Voice-over -->
+            <div>
+              <label>Custom Voice-Over / Audio</label>
+              <select [ngModel]="sound.audioAssetId"
+                      (ngModelChange)="setClipSound(clip.id, $event)">
+                <option value="">None &mdash; use clip's original sound</option>
+                @for (candidate of studio.musicCandidates; track candidate.id) {
+                  <option [value]="candidate.id">{{ candidate.name }}</option>
+                }
+              </select>
+
+              <div class="row" style="margin-top: .4rem">
+                @if (isUploadingFor(clip.id)) {
+                  <span class="muted">Uploading&hellip;</span>
+                } @else {
+                  <label class="link-button">
+                    <input type="file" accept="audio/wav,audio/mpeg,audio/mp4,.wav,.mp3,.m4a"
+                           [disabled]="sideUpload() !== null"
+                           (change)="onPickClipSound($event, clip.id)" />
+                    <span>Upload voice-over audio</span>
+                  </label>
+                }
+              </div>
+
+              @if (sound.audioAssetId) {
+                <label style="margin-top: .5rem">
+                  Voice-over level &mdash; {{ sound.audioVolume * 100 | number: '1.0-0' }}%
+                </label>
+                <input type="range" min="0" [max]="maxGain" step="0.05"
+                       [ngModel]="sound.audioVolume"
+                       (ngModelChange)="setClipSoundVolume(clip.id, $event)" />
+
+                <label class="muted" style="font-weight: 400; margin-top: .4rem">
+                  <input type="checkbox" [checked]="sound.keepOriginalAudio"
+                         (change)="setClipKeepOriginal(clip.id, !sound.keepOriginalAudio)" />
+                  Keep original audio playing underneath
+                </label>
+              }
+            </div>
+
+            @if (isClipSoundCustom(clip.id)) {
+              <button class="link" type="button" (click)="resetClipSound(clip.id)">
+                Reset to recorded defaults
+              </button>
+            }
+          } @else {
+            <div class="empty">No clip selected. Click any clip on the timeline below to inspect and adjust it.</div>
+          }
+        }
+
+        <!-- TAB 2: LOOKS, TRANSITIONS & OVERLAYS -->
+        @if (activeInspectorTab() === 'effects') {
+          <!-- Color Grading Look Presets -->
+          <div>
+            <h4 style="margin: 0 0 .3rem">Color Grading & Look Presets</h4>
+            <p class="muted" style="font-size: .8rem; margin: 0 0 .4rem">
+              Instant live styling applied to the Master Monitor.
+            </p>
+            <div class="filter-presets-grid">
+              @for (preset of filterPresets; track preset.id) {
+                <div class="filter-preset-card"
+                     [class.active]="activeFilter() === preset.id"
+                     (click)="activeFilter.set(preset.id)">
+                  <div class="filter-swatch" [style.background]="preset.swatch"></div>
+                  <span>{{ preset.label }}</span>
+                </div>
+              }
+            </div>
+
+            <div class="grid" style="margin-top: .75rem">
+              <div>
+                <label style="font-size: .8rem">Brightness &mdash; {{ filterBrightness() }}%</label>
+                <input type="range" min="70" max="140" step="2" [(ngModel)]="filterBrightness" />
+              </div>
+              <div>
+                <label style="font-size: .8rem">Contrast &mdash; {{ filterContrast() }}%</label>
+                <input type="range" min="70" max="150" step="2" [(ngModel)]="filterContrast" />
+              </div>
+              <div>
+                <label style="font-size: .8rem">Saturation &mdash; {{ filterSaturation() }}%</label>
+                <input type="range" min="0" max="200" step="5" [(ngModel)]="filterSaturation" />
+              </div>
+            </div>
+
+            <div class="grid" style="margin-top: .5rem">
+              <div>
+                <label style="font-size: .8rem">Sepia Tone &mdash; {{ filterSepia() }}%</label>
+                <input type="range" min="0" max="100" step="5" [(ngModel)]="filterSepia" />
+              </div>
+              <div>
+                <label style="font-size: .8rem">Soft Focus / Blur &mdash; {{ filterBlur() }}px</label>
+                <input type="range" min="0" max="10" step="0.5" [(ngModel)]="filterBlur" />
+              </div>
+            </div>
+            <div class="row" style="justify-content: flex-end; margin-top: .4rem">
+              <button class="link" type="button" style="font-size: .8rem" (click)="resetColorGrading()">
+                Reset looks to normal
+              </button>
+            </div>
+          </div>
+
+          <hr style="border: none; border-top: 1px solid var(--border); margin: .6rem 0" />
+
+          <!-- Lower-Third Title Overlay -->
+          <div>
+            <div class="row" style="justify-content: space-between">
+              <h4 style="margin: 0">Lower-Third Title Card</h4>
+              <label class="muted" style="font-size: .85rem; font-weight: 400">
+                <input type="checkbox" [checked]="lowerThirdEnabled()"
+                       (change)="lowerThirdEnabled.set(!lowerThirdEnabled())" />
+                Enable on monitor
+              </label>
+            </div>
+            @if (lowerThirdEnabled()) {
+              <div style="margin-top: .4rem">
+                <label for="ltTitle">Main Title / Speaker</label>
+                <input id="ltTitle" type="text" [(ngModel)]="lowerThirdTitle" placeholder="e.g. Host Name or Chapter 1" />
+
+                <label for="ltSub" style="margin-top: .4rem">Subtitle / Role</label>
+                <input id="ltSub" type="text" [(ngModel)]="lowerThirdSubtitle" placeholder="e.g. Lead Animator" />
+              </div>
+            }
+          </div>
+
+          <hr style="border: none; border-top: 1px solid var(--border); margin: .6rem 0" />
+
+          <!-- Global Transition -->
+          <div>
+            <h4 style="margin: 0 0 .5rem">Global Transition</h4>
+            <label for="globalTrans">Default transition between clips</label>
+            <select id="globalTrans" [(ngModel)]="transition" [disabled]="!studio.transitionsAvailable">
+              @for (option of transitions; track option) {
+                <option [value]="option">{{ option === 'None' ? 'Hard cut' : option }}</option>
+              }
+            </select>
+            @if (transition() !== 'None') {
+              <label style="margin-top: .5rem">
+                Duration &mdash; {{ transitionSeconds() | number: '1.1-1' }}s
+              </label>
+              <input type="range" min="0.1" max="3" step="0.1" [(ngModel)]="transitionSeconds" />
+            }
+          </div>
+
+          <hr style="border: none; border-top: 1px solid var(--border); margin: .6rem 0" />
+
+          <!-- Watermark & Branding -->
+          <!-- Brand Watermark & Hallmark -->
+          <div>
+            <h4 style="margin: 0 0 .5rem">Brand Watermark & Hallmark</h4>
+            <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: .6rem">
+              <h4 style="margin: 0">Brand Hallmark & Watermark</h4>
+              <a routerLink="/admin/branding" style="font-size: .8rem; color: var(--brand); text-decoration: none">
+                ⚙️ Global Server Branding
+              </a>
+            </div>
+
+            <div class="seg" style="margin-bottom: .8rem">
+              <label [class.selected]="watermarkSource() === 'project'">
+                <input type="radio" name="wmsrc" [checked]="watermarkSource() === 'project'"
+                       (change)="watermarkSource.set('project')" />
+                Studio Hallmark
+              </label>
+              <label [class.selected]="watermarkSource() === 'custom'">
+                <input type="radio" name="wmsrc" [checked]="watermarkSource() === 'custom'"
+                       (change)="watermarkSource.set('custom')" />
+                Custom
+                Pick from Library
+              </label>
+              <label [class.selected]="watermarkSource() === 'none'">
+                <input type="radio" name="wmsrc" [checked]="watermarkSource() === 'none'"
+                       (change)="watermarkSource.set('none')" />
+                None
+              </label>
+            </div>
+
+            @if (watermarkSource() === 'project') {
+              <div style="padding: .85rem 1rem; border-radius: 6px; background: var(--surface-2); font-size: .85rem; border: 1px solid var(--border)">
+                @if (store.project()?.defaultWatermark && store.project()?.defaultWatermark?.kind !== 'None') {
+                  <div class="row" style="justify-content: space-between; align-items: center">
+                    <span>
+                      <strong style="color: var(--brand)">Project Brand:</strong>
+                      {{ store.project()?.defaultWatermark?.kind }} ({{ store.project()?.defaultWatermark?.position }})
+                    </span>
+                    <span class="pill ok">Active</span>
+                  </div>
+                  <p class="muted" style="margin: .4rem 0 0; font-size: .8rem">
+                    Inherited from <a routerLink="../settings" style="color: var(--brand)">Project Settings</a> &bull; <a routerLink="/admin/branding" style="color: var(--brand)">Global Hallmark</a>
+                  </p>
+                } @else if (globalWatermark() && globalWatermark()?.kind !== 'None') {
+                  <div class="row" style="justify-content: space-between; align-items: center">
+                    <span>
+                      <strong style="color: var(--brand)">Server Hallmark:</strong>
+                      {{ globalWatermark()?.kind }} ({{ globalWatermark()?.position }})
+                    </span>
+                    <span class="pill ok">Active</span>
+                  </div>
+                  <p class="muted" style="margin: .4rem 0 0; font-size: .8rem">
+                    Inherited from Global Server Settings &bull; <a routerLink="/admin/branding" style="color: var(--brand)">Edit in Server Settings</a>
+                  </p>
+                } @else {
+                  <div style="display: flex; flex-direction: column; gap: .4rem">
+                    <span style="font-weight: 500; color: #f59e0b">No Studio Hallmark configured yet</span>
+                    <p class="muted" style="margin: 0; font-size: .8rem">
+                      Configure your brand hallmark once in Global Settings so all videos inherit it automatically.
+                    </p>
+                    <div class="row" style="gap: .5rem; margin-top: .3rem">
+                      <a routerLink="/admin/branding" class="button secondary" style="font-size: .8rem; padding: .35rem .7rem; text-decoration: none">
+                        ⚙️ Configure Global Hallmark &rarr;
+                      </a>
+                      <a routerLink="../settings" class="button secondary" style="font-size: .8rem; padding: .3rem .6rem; text-decoration: none">
+                        Project Settings
+                      </a>
+                    </div>
+                  </div>
+                }
+              </div>
+            }
+
+            @if (watermarkSource() === 'custom') {
+              <div class="seg" style="margin-bottom: .8rem">
+                @for (option of watermarkKinds; track option.kind) {
+                  <label [class.selected]="watermarkKind() === option.kind">
+                    <input type="radio" name="wmkind"
+                           [checked]="watermarkKind() === option.kind"
+                           (change)="watermarkKind.set(option.kind)" />
+                    {{ option.label }}
+                  </label>
+                }
+              </div>
+
+              @if (watermarkKind() === 'Text') {
+                <label for="wmtextTab">Text</label>
+                <input id="wmtextTab" type="text" [(ngModel)]="watermarkText"
+                       placeholder="yoursite.example" maxlength="200" />
+                <div class="grid" style="margin-top: .5rem">
+                  <div>
+                    <label for="wmcolorTab">Colour</label>
+                    <input id="wmcolorTab" type="color" [(ngModel)]="watermarkColor" />
+                  </div>
+                  <div>
+                    <label for="wmplateTab">Plate &mdash; {{ watermarkBackplate() * 100 | number: '1.0-0' }}%</label>
+                    <input id="wmplateTab" type="range" min="0" max="0.8" step="0.05"
+                           [(ngModel)]="watermarkBackplate" />
+                  </div>
+                </div>
+              } @else if (watermarkKind() === 'Logo') {
+                <label for="wmlogoTab">Logo image</label>
+                <select id="wmlogoTab" [(ngModel)]="watermarkLogoId">
+                  <option value="">Choose an image&hellip;</option>
+                  @if (globalWatermark()?.logoAssetId) {
+                    <option [value]="globalWatermark()!.logoAssetId">Studio Hallmark Logo (Server Default)</option>
+                  }
+                  @for (logo of studio.logoCandidates; track logo.id) {
+                    <option [value]="logo.id">{{ logo.name }}</option>
+                  }
+                </select>
+                <div class="row" style="margin-top: .4rem">
+                  @if (sideUpload()?.kind === 'logo') {
+                    <span class="muted">Uploading&hellip;</span>
+                  } @else {
+                    <label class="link-button">
+                      <input type="file" accept="image/png,image/jpeg,image/webp"
+                             [disabled]="sideUpload() !== null" (change)="onPickLogo($event)" />
+                      <span>Upload logo image</span>
+                    </label>
+                  }
+                </div>
+              }
+
+              @if (watermarkKind() !== 'None') {
+                <div class="grid" style="margin-top: .6rem">
+                  <div>
+                    <label for="wmposTab">Position</label>
+                    <select id="wmposTab" [(ngModel)]="watermarkPosition">
+                      @for (pos of positions; track pos) {
+                        <option [value]="pos">{{ pos }}</option>
+                      }
+                    </select>
+                  </div>
+                  <div>
+                    <label for="wmsizeTab">Size &mdash; {{ watermarkHeight() | number: '1.0-1' }}%</label>
+                    <input id="wmsizeTab" type="range" min="2" max="20" step="0.5" [(ngModel)]="watermarkHeight" />
+                    <label for="wmopTab">Opacity &mdash; {{ watermarkOpacity() * 100 | number: '1.0-0' }}%</label>
+                    <input id="wmopTab" type="range" min="0.15" max="1" step="0.05" [(ngModel)]="watermarkOpacity" />
+                  </div>
+                </div>
+              }
+            }
+          </div>
+        }
+
+        <!-- TAB 3: AUDIO & MUSIC -->
+        @if (activeInspectorTab() === 'audio') {
+          <div>
+            <h4 style="margin: 0 0 .5rem">Background Music Bed</h4>
+            <label for="bgMusicSelect">Audio track</label>
+            <select id="bgMusicSelect" [(ngModel)]="musicAssetId">
+              <option value="">None &mdash; no background music</option>
+              @for (track of studio.musicCandidates; track track.id) {
+                <option [value]="track.id">{{ track.name }}</option>
+              }
+            </select>
+
+            @if (musicAssetId()) {
+              <label style="margin-top: .5rem">Music volume &mdash; {{ musicVolume() * 100 | number: '1.0-0' }}%</label>
+              <input type="range" min="0" max="1" step="0.02" [(ngModel)]="musicVolume" />
+
+              <label class="muted" style="font-weight: 400; margin-top: .4rem">
+                <input type="checkbox" [checked]="muteClipAudio()"
+                       (change)="muteClipAudio.set(!muteClipAudio())" />
+                Mute all clips' own audio (music only)
+              </label>
+            }
+          </div>
+
+          <hr style="border: none; border-top: 1px solid var(--border); margin: .5rem 0" />
+
+          <div>
+            <h4 style="margin: 0 0 .5rem">Timeline Music Tracks</h4>
+            <div class="row" style="margin-bottom: .6rem">
+              <select [(ngModel)]="addMusicAssetId" style="flex: 1 1 auto">
+                <option value="">Choose music to place on timeline&hellip;</option>
+                @for (track of studio.musicCandidates; track track.id) {
+                  <option [value]="track.id">{{ track.name }}</option>
+                }
+              </select>
+              <button class="secondary" type="button" [disabled]="!addMusicAssetId()" (click)="addMusicTrack()">
+                Add
+              </button>
+            </div>
+
+            @for (track of musicTracks(); track track.key) {
+              <div class="tl-music-row" style="margin-bottom: .4rem">
+                <span class="mono" style="font-size: .82rem">{{ musicTrackName(track) }}</span>
+                <span class="muted mono" style="font-size: .78rem">at {{ track.startSeconds | number: '1.1-1' }}s</span>
+                <input type="range" min="0" max="1" step="0.02" style="flex: 1 1 8rem"
+                       [ngModel]="track.volume" (ngModelChange)="setMusicVolume(track.key, $event)" />
+                <button class="icon" type="button" (click)="removeMusicTrack(track.key)" title="Remove">&times;</button>
+              </div>
+            }
+          </div>
+        }
+
+        <!-- TAB 4: EXPORT & BUILD -->
+        @if (activeInspectorTab() === 'export') {
+          <div>
+            <h4 style="margin: 0 0 .5rem">Render Settings</h4>
+            <label for="fitModeSelect">Fitting clips of different sizes</label>
+            <select id="fitModeSelect" [ngModel]="fit()" (ngModelChange)="fit.set($event); markDirty()">
+              <option value="Contain">Fit whole frame (black bars / letterboxed)</option>
+              <option value="Cover">Fill whole frame (crops edges)</option>
+              <option value="BlurredBackdrop" [disabled]="!studio.blurredBackdropAvailable">
+                Fit whole frame over blurred backdrop{{ studio.blurredBackdropAvailable ? '' : ' (unavailable)' }}
+              </option>
+            </select>
+            @if (fit() === 'Cover') {
+              <p class="muted" style="margin: .3rem 0 0; font-size: .78rem; color: #fbbf24">
+                ⚠️ Cover mode crops outer edges of clips. If clips have corner logos, consider using 'Blurred Backdrop' to protect them from being cropped out.
+              </p>
+            }
+          </div>
+
+          <div class="row" style="margin-top: .8rem; gap: .5rem; flex-wrap: wrap">
+            <button type="button" (click)="build()"
+                    [disabled]="status.busy() || uploading() || sideUpload() !== null
+                                || running() || blockedReason() !== null">
+              Build Final Video
+            </button>
+            <button class="secondary" type="button" (click)="buildShort()"
+                    [disabled]="status.busy() || uploading() || sideUpload() !== null
+                                || running() || blockedReason() !== null"
+                    title="Build vertical Short (9:16) video">
+              📱 Build as Short (9:16)
+            </button>
+            @if (running()) {
+              <button class="secondary" type="button" (click)="cancel()">Cancel build</button>
+            }
+          </div>
+
+          @if (blockedReason(); as reason) {
+            <p class="muted" style="font-size: .85rem; color: var(--warn)">{{ reason }}</p>
+          }
+
+          @if (job(); as current) {
+            <div style="margin-top: .8rem">
+              <div class="row" style="justify-content: space-between">
+                <span>
+                  <span [class]="statusClass(current.status)">{{ current.status }}</span>
+                  <span class="muted"> {{ current.message }}</span>
+                </span>
+                <span class="mono">{{ current.progress }}%</span>
+              </div>
+              <div class="bar" style="margin-top: .5rem">
+                <i [style.width.%]="current.progress"></i>
+              </div>
+
+              @if (current.hasOutput) {
+                <div class="row" style="margin-top: .8rem">
+                  <a [href]="downloadUrl(current.jobId)" download>
+                    <button type="button">&#128229; Download MP4</button>
+                  </a>
+                  @if (current.outputDurationSeconds) {
+                    <span class="muted mono">{{ current.outputDurationSeconds | number: '1.1-1' }}s</span>
+                  }
+                </div>
+              }
+            </div>
+          }
+        }
+      </div>
+    </div>
+  </div>
+
+  <!-- BOTTOM TIMELINE -->
+  <div class="studio-timeline-card"
+       (document:pointermove)="onTimelinePointerMove($event)"
+       (document:pointerup)="onTimelinePointerUp()"
+       (document:pointercancel)="onTimelinePointerUp()">
+    <div class="section-head">
+      <div class="row" style="gap: .6rem">
+        <h3 style="margin: 0">Timeline</h3>
+        <span class="muted mono" style="font-size: .85rem">
+          {{ included().length }} clips &middot; {{ totalSeconds() | number: '1.1-1' }}s
+        </span>
+      </div>
+      <div class="row" style="gap: .4rem">
+        <button class="icon" type="button" (click)="splitClipAtPlayhead()" title="Split clip at playhead (S)">✂</button>
+        <button class="secondary" type="button" style="font-size: .78rem; padding: .2rem .5rem"
+                (click)="fitTimelineToScreen()" title="Fit sequence to screen">
+          ⤢ Fit
+        </button>
+        <button class="icon" type="button" (click)="zoom(-8)" aria-label="Zoom out">&minus;</button>
+        <span class="mono muted">zoom</span>
+        <button class="icon" type="button" (click)="zoom(8)" aria-label="Zoom in">+</button>
+      </div>
+    </div>
+
+    <!-- Scrollable Multi-track Timeline -->
+    <div #timelineArea class="timeline-interactive-area"
+         (pointerdown)="onTimelineScrubDown($event)"
+         (pointermove)="onTimelineScrubMove($event)"
+         (pointerup)="onTimelineScrubUp($event)">
+      <div #timelineInner class="timeline-inner" [style.width.px]="secondsToPx(timelineSeconds())">
+        <!-- Playhead Needle -->
+        <div class="tl-playhead-needle" [style.left.px]="secondsToPx(playheadTime())">
+          <div class="tl-playhead-head" title="Drag to seek (Magnetic snapping active)"></div>
+          <div class="tl-playhead-bubble">{{ formattedPlayheadTime() }}</div>
+        </div>
+
+        <!-- Ruler Ticks -->
+        <div class="tl-ruler">
+          @for (t of rulerTicks(); track t) {
+            <span class="tl-tick" [style.left.px]="secondsToPx(t)">{{ t }}s</span>
+          }
+        </div>
+
+        <!-- Video Track Header -->
+        <div class="tl-track-label">
+          <span>🎬 Video Track</span>
+          <span class="mono">({{ included().length }} clips)</span>
+        </div>
+
+        <!-- Video Track -->
+        <div class="tl-track tl-video">
+          @for (entry of includedWithIndex(); track entry.row.clip.id; let i = $index) {
+            <div class="tl-clip"
+                 [class.selected]="selectedClip()?.id === entry.row.clip.id"
+                 [class.dragging]="dragIndex() === entry.index"
+                 [class.drag-over]="dragOverIndex() === entry.index && dragIndex() !== entry.index"
+                 [style.width.px]="blockWidthPx(entry.row.clip)"
+                 draggable="true"
+                 (click)="$event.stopPropagation(); selectClip(entry.row.clip.id)"
+                 (dblclick)="$event.stopPropagation(); selectAndSeekClip(entry.row.clip)"
+                 (dragstart)="onRowDragStart(entry.index)"
+                 (dragover)="onRowDragOver(entry.index, $event)"
+                 (drop)="onRowDrop(entry.index, $event)"
+                 (dragend)="onRowDragEnd()"
+                 [title]="entry.row.clip.name + ' - click to select, dblclick to play, drag to reorder'">
+              <span class="tl-clip-seq">{{ i + 1 }}</span>
+              <span class="tl-clip-name">{{ entry.row.clip.name }}</span>
+              <span class="tl-clip-dur mono">
+                {{ entry.row.clip.durationSeconds ?? 0 | number: '1.0-1' }}s
+              </span>
+            </div>
+
+            <!-- Transition Junction Button -->
+            @if (i < junctions().length) {
+              @let junction = junctions()[i];
+              <div class="tl-junction" [class.custom]="isJunctionCustom(junction.key)">
+                <button class="tl-junction-chip" type="button"
+                        [class.has-trans]="junction.transition !== 'None'"
+                        (click)="$event.stopPropagation(); toggleJunctionEditor(junction.key)"
+                        (dblclick)="$event.stopPropagation(); cycleJunctionTransition(junction)"
+                        [title]="(junction.transition === 'None' ? 'Hard cut' : junction.transition + ' (' + junction.seconds + 's)') + ' - Click to edit, double-click to cycle'">
+                  @if (junction.transition === 'None') {
+                    <span class="j-icon">✂</span>
+                    <span>Cut</span>
+                  } @else {
+                    <span class="j-icon">⚡</span>
+                    <span>{{ junction.transition }} ({{ junction.seconds | number: '1.1-1' }}s)</span>
+                  }
+                </button>
+
+                @if (openJunctionKey() === junction.key) {
+                  <div class="tl-junction-pop" (click)="$event.stopPropagation()">
+                    <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: .4rem">
+                      <strong style="font-size: .85rem">Edit Transition</strong>
+                      <button class="transport-btn btn-sm" type="button" (click)="cycleJunctionTransition(junction)" title="Quick cycle transition style">Cycle ↻</button>
+                    </div>
+                    <label>Transition</label>
+                    <select [ngModel]="junction.transition"
+                            (ngModelChange)="setJunctionTransition(junction, $event)"
+                            [disabled]="!studio.transitionsAvailable">
+                      @for (option of transitions; track option) {
+                        <option [value]="option">{{ option === 'None' ? 'Hard cut' : option }}</option>
+                      }
+                    </select>
+
+                    @if (junction.transition !== 'None') {
+                      <label>Length &mdash; {{ junction.seconds | number: '1.1-1' }}s</label>
+                      <input type="range" min="0.1" max="3" step="0.1"
+                             [ngModel]="junction.seconds"
+                             (ngModelChange)="setJunctionSeconds(junction, $event)" />
+                    }
+
+                    <div class="row" style="margin-top: .5rem; gap: .4rem">
+                      <button type="button" (click)="openPreview(junction)">Preview</button>
+                      @if (isJunctionCustom(junction.key)) {
+                        <button class="link" type="button" (click)="resetJunction(junction.key)">
+                          use default
+                        </button>
+                      }
+                    </div>
+                  </div>
+                }
+              </div>
+            }
+          }
+        </div>
+
+        <!-- Audio Track Header -->
+        <div class="tl-track-label" style="margin-top: .5rem">
+          <span>🎵 Audio Track</span>
+          <span class="mono">({{ musicTracks().length }} cues)</span>
+        </div>
+
+        <!-- Music Track -->
+        <div class="tl-track tl-music">
+          @for (track of musicTracks(); track track.key) {
+            <div class="tl-music-clip"
+                 [style.left.px]="secondsToPx(track.startSeconds)"
+                 [style.width.px]="secondsToPx(musicTrackDurationSeconds(track))"
+                 (pointerdown)="onMusicBlockPointerDown(track, $event)"
+                 title="Drag to move in time">
+              <span class="tl-trim-handle left"
+                    (pointerdown)="onMusicTrimPointerDown(track, 'start', $event)"></span>
+              <span class="tl-music-name">{{ musicTrackName(track) }}</span>
+              <button class="tl-music-remove" type="button"
+                      (click)="$event.stopPropagation(); removeMusicTrack(track.key)" aria-label="Remove music clip">&times;</button>
+              <span class="tl-trim-handle right"
+                    (pointerdown)="onMusicTrimPointerDown(track, 'end', $event)"></span>
+            </div>
+          }
+          @if (musicTracks().length === 0) {
+            <div class="tl-music-empty">No music cues placed on timeline &mdash; add in Audio tab.</div>
+          }
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MEDIA ASSETS & RUNNING ORDER LIST -->
   <div class="card">
+    <div class="section-head">
+      <h3>Clips & Library</h3>
+      <span class="muted">{{ included().length }} of {{ rows().length }} clips ticked</span>
+    </div>
+
+    <!-- Dropzone -->
     <div class="dropzone" [class.active]="dropActive()"
          (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)"
-         (drop)="onDrop($event)">
+         (drop)="onDrop($event)" style="margin-bottom: 1rem">
       @if (uploading()) {
         <strong>Uploading {{ uploadDone() + 1 }} of {{ uploadTotal() }}&hellip;</strong>
         <div class="bar" style="margin-top: .6rem; max-width: 20rem">
           <i [style.width.%]="(uploadDone() / uploadTotal()) * 100"></i>
         </div>
-        <p class="muted">One at a time, so each one finishes quickly and you can see where it is.</p>
       } @else {
         <strong>Drop video clips here</strong>
         <p class="muted">
           MP4, up to {{ studio.maxClipUploadBytes / 1048576 | number: '1.0-0' }}MB each.
-          Drop as many as you like at once.
         </p>
         <label class="link-button">
           <input type="file" multiple accept="video/mp4,.mp4" (change)="onPick($event)" />
@@ -45,792 +1044,121 @@
         </label>
       }
     </div>
-  </div>
 
-  <!-- 1.5 the timeline: reorder, transitions, music placement --------------- -->
-
-  @if (included().length > 0) {
-    <div class="card"
-         (document:pointermove)="onTimelinePointerMove($event)"
-         (document:pointerup)="onTimelinePointerUp()"
-         (document:pointercancel)="onTimelinePointerUp()">
-      <div class="section-head">
-        <h3>Timeline</h3>
-        <div class="row">
-          <button class="icon" type="button" (click)="zoom(-8)" aria-label="Zoom out">&minus;</button>
-          <span class="mono muted">zoom</span>
-          <button class="icon" type="button" (click)="zoom(8)" aria-label="Zoom in">+</button>
-        </div>
-      </div>
-
-      <p class="muted">
-        Drag a clip to reorder it. Click the join between two clips to choose its transition,
-        and preview it before you build. Add music below, then drag it to any point in time.
-      </p>
-
-      <div class="timeline-scroll">
-        <div class="timeline-inner" [style.width.px]="secondsToPx(timelineSeconds())">
-          <div class="tl-ruler">
-            @for (t of rulerTicks(); track t) {
-              <span class="tl-tick" [style.left.px]="secondsToPx(t)">{{ t }}s</span>
-            }
-          </div>
-
-          <div class="tl-track tl-video">
-            @for (entry of includedWithIndex(); track entry.row.clip.id; let i = $index) {
-              <div class="tl-clip"
-                   [class.dragging]="dragIndex() === entry.index"
-                   [class.drag-over]="dragOverIndex() === entry.index && dragIndex() !== entry.index"
-                   [style.width.px]="blockWidthPx(entry.row.clip)"
-                   draggable="true"
-                   (dragstart)="onRowDragStart(entry.index)"
-                   (dragover)="onRowDragOver(entry.index, $event)"
-                   (drop)="onRowDrop(entry.index, $event)"
-                   (dragend)="onRowDragEnd()"
-                   title="Drag to reorder">
-                <span class="tl-clip-seq">{{ i + 1 }}</span>
-                <span class="tl-clip-name">{{ entry.row.clip.name }}</span>
-                <span class="tl-clip-dur mono">
-                  {{ entry.row.clip.durationSeconds ?? 0 | number: '1.0-1' }}s
-                </span>
-              </div>
-
-              @if (i < junctions().length) {
-                @let junction = junctions()[i];
-                <div class="tl-junction" [class.custom]="isJunctionCustom(junction.key)">
-                  <button class="tl-junction-btn" type="button"
-                          (click)="toggleJunctionEditor(junction.key)"
-                          [title]="junction.transition === 'None' ? 'Hard cut - click to change' : junction.transition + ' - click to change'">
-                    {{ junction.transition === 'None' ? '\u2702' : '\u21c4' }}
-                  </button>
-
-                  @if (openJunctionKey() === junction.key) {
-                    <div class="tl-junction-pop">
-                      <label>Transition</label>
-                      <select [ngModel]="junction.transition"
-                              (ngModelChange)="setJunctionTransition(junction, $event)"
-                              [disabled]="!studio.transitionsAvailable">
-                        @for (option of transitions; track option) {
-                          <option [value]="option">{{ option === 'None' ? 'Hard cut' : option }}</option>
-                        }
-                      </select>
-
-                      @if (junction.transition !== 'None') {
-                        <label>Length &mdash; {{ junction.seconds | number: '1.1-1' }}s</label>
-                        <input type="range" min="0.1" max="3" step="0.1"
-                               [ngModel]="junction.seconds"
-                               (ngModelChange)="setJunctionSeconds(junction, $event)" />
-                      }
-
-                      <div class="row" style="margin-top: .5rem">
-                        <button type="button" (click)="openPreview(junction)">Preview</button>
-                        @if (isJunctionCustom(junction.key)) {
-                          <button class="link" type="button" (click)="resetJunction(junction.key)">
-                            use default
-                          </button>
-                        }
-                      </div>
-                    </div>
-                  }
-                </div>
-              }
-            }
-          </div>
-
-          <div class="tl-track tl-music">
-            @for (track of musicTracks(); track track.key) {
-              <div class="tl-music-clip"
-                   [style.left.px]="secondsToPx(track.startSeconds)"
-                   [style.width.px]="secondsToPx(musicTrackDurationSeconds(track))"
-                   (pointerdown)="onMusicBlockPointerDown(track, $event)"
-                   title="Drag to move in time">
-                <span class="tl-trim-handle left"
-                      (pointerdown)="onMusicTrimPointerDown(track, 'start', $event)"></span>
-                <span class="tl-music-name">{{ musicTrackName(track) }}</span>
-                <button class="tl-music-remove" type="button"
-                        (click)="removeMusicTrack(track.key)" aria-label="Remove music clip">&times;</button>
-                <span class="tl-trim-handle right"
-                      (pointerdown)="onMusicTrimPointerDown(track, 'end', $event)"></span>
-              </div>
-            }
-            @if (musicTracks().length === 0) {
-              <div class="tl-music-empty">No music yet &mdash; add one below and drag it into place.</div>
-            }
-          </div>
-        </div>
-      </div>
-
-      @if (musicTracks().length > 0) {
-        <div class="tl-music-controls">
-          @for (track of musicTracks(); track track.key) {
-            <div class="tl-music-row">
-              <span class="mono">{{ musicTrackName(track) }}</span>
-              <span class="muted mono">at {{ track.startSeconds | number: '1.1-1' }}s</span>
-              <label class="muted" style="font-weight: 400; flex: 1 1 10rem">
-                Level &mdash; {{ track.volume * 100 | number: '1.0-0' }}%
-                <input type="range" min="0" max="1" step="0.02" [ngModel]="track.volume"
-                       (ngModelChange)="setMusicVolume(track.key, $event)" />
-              </label>
-            </div>
-          }
-        </div>
-      }
-
-      <div class="row" style="margin-top: .8rem">
-        <select [(ngModel)]="addMusicAssetId" style="max-width: 18rem">
-          <option value="">Add music to the timeline&hellip;</option>
-          @for (track of studio.musicCandidates; track track.id) {
-            <option [value]="track.id">{{ track.name }}</option>
-          }
-        </select>
-        <button class="secondary" type="button" [disabled]="!addMusicAssetId()" (click)="addMusicTrack()">
-          Add to timeline
-        </button>
-
-        <!-- Same reason as the watermark image: the file is picked here, so it goes in here. -->
-        @if (sideUpload()?.kind === 'music') {
-          <span class="muted">Uploading&hellip;</span>
+    <!-- Toolbar -->
+    <div class="toolbar" style="margin-bottom: .75rem; gap: .5rem; flex-wrap: wrap">
+      <button class="secondary" type="button" (click)="sortByName()">Sort by name</button>
+      <button class="secondary" type="button" (click)="reverse()">Reverse</button>
+      <button class="secondary" type="button" (click)="selectAll(true)">Tick all</button>
+      <button class="secondary" type="button" (click)="selectAll(false)">Untick all</button>
+      <button class="secondary" type="button" (click)="buildShort()"
+              [disabled]="included().length === 0 || status.busy() || running()"
+              title="Convert all ticked clips into a vertical 9:16 Short video">
+        📱 Convert Ticked to Short (9:16)
+      </button>
+      <span style="flex: 1 1 auto"></span>
+      @if (included().length > 0) {
+        @if (confirmingDelete()) {
+          <span class="muted">Delete {{ included().length }} clip(s)?</span>
+          <button class="danger" type="button" (click)="removeFromLibrary()">Delete</button>
+          <button class="secondary" type="button" (click)="confirmingDelete.set(false)">Cancel</button>
         } @else {
-          <label class="link-button">
-            <input type="file" accept="audio/wav,audio/mpeg,audio/mp4,.wav,.mp3,.m4a"
-                   [disabled]="sideUpload() !== null" (change)="onPickMusic($event)" />
-            <span>Upload music</span>
-          </label>
-        }
-
-        @if (studio.musicCandidates.length === 0) {
-          <span class="muted">
-            No audio in this project yet. WAV, MP3 or M4A, up to
-            {{ studio.maxImageOrAudioUploadBytes / 1048576 | number: '1.0-0' }}MB.
-          </span>
-        }
-      </div>
-    </div>
-
-    @if (previewJunction(); as pj) {
-      <div class="card">
-        <div class="section-head">
-          <h3>Transition preview</h3>
-          <button class="link" type="button" (click)="closePreview()">close</button>
-        </div>
-        <p class="muted">
-          A quick style preview drawn in the browser &mdash;
-          {{ pj.transition === 'None' ? 'hard cut' : pj.transition }}. The exact motion is
-          rendered by the server when you build the video.
-        </p>
-
-        <div class="pv-stage" [class.playing]="previewPlaying()"
-             (animationend)="onPreviewAnimationEnd()" (transitionend)="onPreviewAnimationEnd()">
-          <video class="pv-layer pv-back" muted preload="metadata" playsinline
-                 [src]="assetUrl(pj.rightClip.id)"
-                 (loadedmetadata)="onPreviewVideoReady($event, 'B')"></video>
-          <video [class]="'pv-layer pv-front ' + previewClass()" muted preload="metadata" playsinline
-                 [src]="assetUrl(pj.leftClip.id)"
-                 [style.animation-duration.s]="pj.seconds"
-                 (loadedmetadata)="onPreviewVideoReady($event, 'A')"></video>
-        </div>
-
-        <div class="row" style="margin-top: .7rem">
-          <button type="button" (click)="replayPreview()">Play preview</button>
-          <span class="muted">{{ pj.leftClip.name }} &rarr; {{ pj.rightClip.name }}</span>
-        </div>
-      </div>
-    }
-  }
-
-  <!-- 2. the running order ----------------------------------------------- -->
-
-  <div class="card">
-    <div class="section-head">
-      <h3>Running order</h3>
-      <span class="muted">
-        {{ included().length }} of {{ rows().length }} clips &middot;
-        {{ totalSeconds() | number: '1.0-1' }}s
-      </span>
-    </div>
-
-    @if (rows().length === 0) {
-      <div class="empty">No video clips in this project yet.</div>
-    } @else {
-      <div class="toolbar">
-        <button class="secondary" type="button" (click)="sortByName()"
-                title="clip2 before clip10, not after it">Sort by name</button>
-        <button class="secondary" type="button" (click)="reverse()">Reverse</button>
-        <button class="secondary" type="button" (click)="selectAll(true)">Tick all</button>
-        <button class="secondary" type="button" (click)="selectAll(false)">Untick all</button>
-
-        <span style="flex: 1 1 auto"></span>
-
-        @if (included().length > 0) {
-          @if (confirmingDelete()) {
-            <span class="muted">
-              Permanently delete {{ included().length }} clip(s) from this project?
-            </span>
-            <button class="danger" type="button" (click)="removeFromLibrary()">Delete</button>
-            <button class="secondary" type="button"
-                    (click)="confirmingDelete.set(false)">Keep</button>
-          } @else {
-            <button class="secondary" type="button" (click)="confirmingDelete.set(true)">
-              Delete {{ included().length }} from project
-            </button>
-          }
-        }
-      </div>
-
-      <ol class="clip-list">
-        @for (row of rows(); track row.clip.id; let i = $index) {
-          <li class="clip-row"
-              [class.excluded]="!row.included"
-              [class.dragging]="dragIndex() === i"
-              [class.drag-over]="dragOverIndex() === i && dragIndex() !== i"
-              draggable="true"
-              (dragstart)="onRowDragStart(i)"
-              (dragover)="onRowDragOver(i, $event)"
-              (drop)="onRowDrop(i, $event)"
-              (dragend)="onRowDragEnd()">
-            <span class="grip" aria-hidden="true" title="Drag to reorder">&#8942;&#8942;</span>
-
-            <label class="clip-pick">
-              <input type="checkbox" [checked]="row.included" (change)="toggle(i)"
-                     [attr.aria-label]="'Include ' + row.clip.name" />
-            </label>
-
-            <!-- Numbered by POSITION IN THE CUT, not position in the list, so the numbers
-                 read as the running order even with clips unticked among them. -->
-            <span class="clip-seq mono">
-              @if (row.included) { {{ cutPosition(i) }} } @else { &mdash; }
-            </span>
-
-            <span class="clip-name">
-              {{ row.clip.name }}
-              <span class="mono muted">
-                @if (row.clip.durationSeconds) {
-                  {{ row.clip.durationSeconds | number: '1.0-1' }}s
-                }
-                @if (row.clip.width) { &middot; {{ row.clip.width }}&times;{{ row.clip.height }} }
-                &middot; {{ row.clip.fileSizeBytes / 1048576 | number: '1.0-1' }}MB
-              </span>
-              @if (!row.clip.hasAudio) {
-                <span class="pill warn" title="Silence is generated so the join stays clean">
-                  no sound
-                </span>
-              }
-              @if (clipSoundSummary(row.clip.id); as summary) {
-                <span class="pill ok" title="This clip's sound has been changed">
-                  {{ summary }}
-                </span>
-              }
-            </span>
-
-            <!--
-              One clip's sound, opened from its own row. Per clip rather than per video
-              because that is the unit the problem arrives in: one clip recorded too
-              quietly, one clip that needs a voice-over, one clip whose room noise has to
-              go. A single level for the whole stitch cannot express any of those.
-            -->
-            <span class="clip-sound">
-              <button class="icon" type="button"
-                      [class.active]="isClipSoundCustom(row.clip.id)"
-                      (click)="toggleSoundEditor(row.clip.id)"
-                      [attr.aria-expanded]="openSoundClipId() === row.clip.id"
-                      [title]="'Sound for ' + row.clip.name">&#9834;</button>
-            </span>
-
-            <!-- Buttons as well as dragging: a drag is not reachable from a keyboard. -->
-            <span class="clip-move">
-              <button class="icon" type="button" [disabled]="i === 0"
-                      (click)="move(i, -1)" aria-label="Move earlier">&uarr;</button>
-              <button class="icon" type="button" [disabled]="i === rows().length - 1"
-                      (click)="move(i, 1)" aria-label="Move later">&darr;</button>
-            </span>
-
-            @if (openSoundClipId() === row.clip.id) {
-              @let sound = clipSound(row.clip.id);
-
-              <div class="clip-sound-panel">
-                <div class="grid">
-                  <div>
-                    <label>
-                      This clip's own sound &mdash;
-                      @if (sound.volume === 0) { off }
-                      @else { {{ sound.volume * 100 | number: '1.0-0' }}% }
-                    </label>
-                    <input type="range" min="0" [max]="maxGain" step="0.05"
-                           [disabled]="!row.clip.hasAudio || muteClipAudio()"
-                           [ngModel]="sound.volume"
-                           (ngModelChange)="setClipVolume(row.clip.id, $event)" />
-                    <p class="muted">
-                      @if (!row.clip.hasAudio) {
-                        This clip has no sound of its own to adjust.
-                      } @else if (muteClipAudio()) {
-                        The clips' own sound is switched off for the whole video, below.
-                      } @else {
-                        100% is the clip as recorded. Above it lifts a clip that was
-                        recorded too quietly; a boost is kept off the ceiling so it gets
-                        louder rather than distorted.
-                      }
-                    </p>
-                  </div>
-
-                  <div>
-                    <label>A different sound for this clip</label>
-                    <select [ngModel]="sound.audioAssetId"
-                            (ngModelChange)="setClipSound(row.clip.id, $event)">
-                      <option value="">None &mdash; use the clip's own sound</option>
-                      @for (candidate of studio.musicCandidates; track candidate.id) {
-                        <option [value]="candidate.id">{{ candidate.name }}</option>
-                      }
-                    </select>
-
-                    <div class="row" style="margin-top: .5rem">
-                      @if (isUploadingFor(row.clip.id)) {
-                        <span class="muted">Uploading&hellip;</span>
-                      } @else {
-                        <label class="link-button">
-                          <input type="file"
-                                 accept="audio/wav,audio/mpeg,audio/mp4,.wav,.mp3,.m4a"
-                                 [disabled]="sideUpload() !== null"
-                                 (change)="onPickClipSound($event, row.clip.id)" />
-                          <span>Upload a sound for this clip</span>
-                        </label>
-                      }
-                    </div>
-
-                    @if (sound.audioAssetId) {
-                      <label>
-                        Its level &mdash; {{ sound.audioVolume * 100 | number: '1.0-0' }}%
-                      </label>
-                      <input type="range" min="0" [max]="maxGain" step="0.05"
-                             [ngModel]="sound.audioVolume"
-                             (ngModelChange)="setClipSoundVolume(row.clip.id, $event)" />
-
-                      <label class="muted" style="font-weight: 400">
-                        <input type="checkbox" [checked]="sound.keepOriginalAudio"
-                               (change)="setClipKeepOriginal(
-                                 row.clip.id, !sound.keepOriginalAudio)" />
-                        Keep the clip's own sound underneath
-                      </label>
-                      <p class="muted">
-                        Unticked, this file replaces the clip's sound. It plays once from
-                        the start of the clip &mdash; a shorter file runs into silence, a
-                        longer one is cut at the clip's end.
-                      </p>
-                    }
-                  </div>
-                </div>
-
-                <div class="row">
-                  @if (isClipSoundCustom(row.clip.id)) {
-                    <button class="link" type="button" (click)="resetClipSound(row.clip.id)">
-                      play this clip as recorded
-                    </button>
-                  }
-                  <span style="flex: 1 1 auto"></span>
-                  <button class="secondary" type="button" (click)="toggleSoundEditor(row.clip.id)">
-                    Close
-                  </button>
-                </div>
-              </div>
-            }
-          </li>
-        }
-      </ol>
-    }
-
-    <!-- 2b. the order, typed ---------------------------------------------- -->
-
-    @if (rows().length > 1) {
-      <div class="subform">
-        <h4>Already have the order written down?</h4>
-        <p class="muted">
-          Paste it and it will be matched against the clips above. Filenames, a numbered
-          list, bullets, or plain positions all work &mdash; extensions optional.
-        </p>
-
-        <textarea rows="5" [(ngModel)]="orderText"
-                  placeholder="1. intro&#10;2. interview&#10;3. credits"></textarea>
-
-        <div class="row" style="margin-top: .6rem">
-          <button type="button" (click)="applyTextOrder()"
-                  [disabled]="status.busy() || orderText().trim().length === 0">
-            Check and apply this order
+          <button class="secondary" type="button" (click)="confirmingDelete.set(true)">
+            Delete {{ included().length }} from library
           </button>
-          @if (orderText().length > 0) {
-            <button class="link" type="button" (click)="orderText.set(''); orderResult.set(null)">
-              clear
-            </button>
-          }
-        </div>
-
-        @if (orderResult(); as order) {
-          @if (order.isExact) {
-            <div class="notice" style="border-left-color: var(--ok); margin-top: .8rem">
-              Every line matched a clip, and every clip was named once. Order applied.
-            </div>
-          } @else {
-            <div class="notice" style="margin-top: .8rem">
-              Order applied as far as it could be read.
-              @if (order.appendedAssetIds.length > 0) {
-                {{ order.appendedAssetIds.length }} clip(s) were not in your list and are
-                kept at the end.
-                <button class="link" type="button" (click)="keepOnlyNamed()">
-                  untick those
-                </button>
-              }
-            </div>
-          }
-
-          <table style="margin-top: .5rem">
-            <thead>
-              <tr><th style="width: 3rem">Line</th><th>You wrote</th><th>Matched</th></tr>
-            </thead>
-            <tbody>
-              @for (line of order.lines; track line.number) {
-                <tr>
-                  <td class="mono muted">{{ line.number }}</td>
-                  <td class="mono">{{ line.text }}</td>
-                  <td>
-                    <span [class]="matchClass(line.match)">{{ line.match }}</span>
-                    @if (line.assetId) {
-                      <span class="muted"> {{ clipName(line.assetId) }}</span>
-                    }
-                  </td>
-                </tr>
-              }
-            </tbody>
-          </table>
         }
-      </div>
-    }
-  </div>
-
-  <!-- 3. the watermark --------------------------------------------------- -->
-
-  <div class="card">
-    <div class="section-head">
-      <h3>Watermark</h3>
-      <span class="muted">Burned into every clip, so it survives re-uploading and clipping.</span>
-    </div>
-
-    <!-- Radios rather than buttons: three exclusive choices, and the keyboard already
-         knows how to move between radios in a named group. -->
-    <div class="seg">
-      @for (option of watermarkKinds; track option.kind) {
-        <label [class.selected]="watermarkKind() === option.kind">
-          <input type="radio" name="wmkind"
-                 [checked]="watermarkKind() === option.kind"
-                 (change)="watermarkKind.set(option.kind)" />
-          {{ option.label }}
-        </label>
       }
     </div>
 
-    @if (watermarkKind() !== 'None') {
-      <div class="watermark-grid">
-        <div>
-          @if (watermarkKind() === 'Text') {
-            @if (!studio.textWatermarkAvailable) {
-              <div class="notice error">
-                This server's renderer cannot draw text. Use a logo image instead, or set
-                <span class="mono">Render:WatermarkFontFile</span> on the server.
-              </div>
-            }
-
-            <label for="wmtext">Text</label>
-            <input id="wmtext" type="text" [(ngModel)]="watermarkText"
-                   placeholder="yoursite.example" maxlength="200" />
-            <p class="muted">Shown exactly as typed, on one line.</p>
-
-            <div class="grid">
-              <div>
-                <label for="wmcolor">Colour</label>
-                <input id="wmcolor" type="color" [(ngModel)]="watermarkColor" />
-              </div>
-              <div>
-                <label for="wmplate">
-                  Plate behind it &mdash; {{ watermarkBackplate() * 100 | number: '1.0-0' }}%
-                </label>
-                <input id="wmplate" type="range" min="0" max="0.8" step="0.05"
-                       [(ngModel)]="watermarkBackplate" />
-                <p class="muted">
-                  Without one, white text disappears over a bright frame.
-                </p>
-              </div>
-            </div>
-          } @else {
-            <label for="wmlogo">Image</label>
-            <select id="wmlogo" [(ngModel)]="watermarkLogoId">
-              <option value="">Choose an image&hellip;</option>
-              @for (logo of studio.logoCandidates; track logo.id) {
-                <option [value]="logo.id">
-                  {{ logo.name }}{{ logo.hasAlpha ? '' : ' (no transparency)' }}
-                </option>
-              }
-            </select>
-
-            <!--
-              The upload lives HERE, next to the picker it fills. A watermark is chosen
-              while looking at the preview, and the image usually is not in the project
-              yet - so having to leave for the Assets tab and come back is the one step
-              worth removing.
-            -->
-            <div class="row" style="margin-top: .5rem">
-              @if (sideUpload()?.kind === 'logo') {
-                <span class="muted">Uploading&hellip;</span>
-              } @else {
-                <label class="link-button">
-                  <input type="file" accept="image/png,image/jpeg,image/webp"
-                         [disabled]="sideUpload() !== null" (change)="onPickLogo($event)" />
-                  <span>Upload an image</span>
-                </label>
-              }
-            </div>
-
-            <p class="muted">
-              @if (studio.logoCandidates.length === 0) {
-                No images in this project yet.
-              }
-              A transparent PNG works best, up to
-              {{ studio.maxImageOrAudioUploadBytes / 1048576 | number: '1.0-0' }}MB. Anything
-              uploaded here is selected straight away and also lands on the Assets tab.
-            </p>
-          }
-
-          <div class="grid" style="margin-top: .8rem">
-            <div>
-              <label for="wmpos">Position</label>
-              <select id="wmpos" [(ngModel)]="watermarkPosition">
-                @for (position of positions; track position) {
-                  <option [value]="position">{{ position }}</option>
-                }
-              </select>
-              <p class="muted">
-                Top right by default: clear of the picture, and clear of the player's own
-                controls along the bottom. There is no centre option on purpose.
-              </p>
-            </div>
-
-            <div>
-              <label for="wmsize">Size &mdash; {{ watermarkHeight() | number: '1.0-1' }}% of height</label>
-              <input id="wmsize" type="range" min="2" max="20" step="0.5"
-                     [(ngModel)]="watermarkHeight" />
-
-              <label for="wminset">Inset from the edges &mdash; {{ watermarkMargin() | number: '1.0-1' }}%</label>
-              <input id="wminset" type="range" min="0" max="20" step="0.5"
-                     [(ngModel)]="watermarkMargin" />
-
-              <label for="wmop">Opacity &mdash; {{ watermarkOpacity() * 100 | number: '1.0-0' }}%</label>
-              <input id="wmop" type="range" min="0.15" max="1" step="0.05"
-                     [(ngModel)]="watermarkOpacity" />
-            </div>
-          </div>
-        </div>
-
-        <!--
-          The settings above are fractions of the canvas, which nobody can picture. This
-          box is driven by exactly those numbers, so what is shown is what lands.
-        -->
-        <div>
-          <label>Where it lands</label>
-          <div class="wm-preview"
-               [style.width.px]="preview().width" [style.height.px]="preview().height">
-            <div class="wm-mark"
-                 [style.padding.px]="preview().inset"
-                 [style.align-items]="preview().top ? 'flex-start' : 'flex-end'"
-                 [style.justify-content]="preview().align">
-              @if (watermarkKind() === 'Logo') {
-                @if (logoUrl(); as url) {
-                  <img [src]="url" alt="" [style.height.px]="preview().fontSize"
-                       [style.opacity]="watermarkOpacity()" />
-                }
-              } @else {
-                <span class="wm-text"
-                      [style.font-size.px]="preview().fontSize"
-                      [style.color]="watermarkColor()"
-                      [style.opacity]="watermarkOpacity()"
-                      [style.background]="'rgba(0,0,0,' + watermarkBackplate() + ')'">
-                  {{ watermarkText() || 'yoursite.example' }}
-                </span>
-              }
-            </div>
-          </div>
-          <p class="muted">
-            {{ store.project()?.width }}&times;{{ store.project()?.height }}, to scale.
-          </p>
-        </div>
-      </div>
-    }
-  </div>
-
-  <!-- 4. output ---------------------------------------------------------- -->
-
-  <div class="card">
-    <div class="section-head">
-      <h3>Output</h3>
-      <span class="muted">
-        @if (store.project(); as project) {
-          {{ project.width }}&times;{{ project.height }} &middot; {{ project.fps }}fps
-        }
-      </span>
-    </div>
-
-    <!--
-      The shape, first, because it is the one setting that decides where the finished file
-      can go - and the one that is expensive to get wrong, since a landscape build is
-      letterboxed into oblivion on a phone.
-    -->
-    <div class="row" style="margin-bottom: 1rem">
-      <span [class]="formatClass()">{{ format() }}</span>
-      <span class="muted">
-        @if (format() === 'Short') {
-          Upright {{ aspect() }} &mdash; what YouTube Shorts, Reels and TikTok expect.
-        } @else if (format() === 'Square') {
-          Square {{ aspect() }} &mdash; accepted as a Short, though upright fills a phone.
-        } @else {
-          Landscape {{ aspect() }} &mdash; the ordinary YouTube shape, not a Short.
-        }
-      </span>
-      <button class="secondary" type="button" (click)="switchShape()"
-              [disabled]="status.busy() || running() || format() === 'Square'">
-        @if (format() === 'Short') { Make it a landscape Video }
-        @else { Make it a Short }
-      </button>
-    </div>
-
-    @if (overShortsLimit()) {
-      <div class="notice">
-        This cut runs {{ totalSeconds() | number: '1.0-0' }}s. YouTube publishes an upright
-        video as a Short only up to {{ shortsMaxSeconds }}s &mdash; longer than that and it
-        goes out as an ordinary video in an upright frame. It will still render exactly as
-        you see it here.
-      </div>
-    }
-
-    <div class="grid">
-      <div>
-        <label for="fit">Clips that are a different shape</label>
-        <select id="fit" [(ngModel)]="fit">
-          <option value="Contain">Fit whole frame &mdash; black bars</option>
-          <option value="Cover">Fill the frame &mdash; crops the edges</option>
-          <option value="BlurredBackdrop" [disabled]="!studio.blurredBackdropAvailable">
-            Fit whole frame over a blurred copy{{ studio.blurredBackdropAvailable ? '' : ' (unavailable)' }}
-          </option>
-        </select>
-      </div>
-
-      <div>
-        <label for="trans">Default transition between clips</label>
-        <select id="trans" [(ngModel)]="transition"
-                [disabled]="!studio.transitionsAvailable">
-          @for (option of transitions; track option) {
-            <option [value]="option">{{ option === 'None' ? 'Hard cut' : option }}</option>
-          }
-        </select>
-        @if (transition() === 'None') {
-          <p class="muted">
-            Hard cuts let the clips be joined without re-encoding &mdash; seconds instead of
-            minutes, and no quality lost. Any single join can still be given its own
-            transition on the timeline above.
-          </p>
-        } @else {
-          <label for="transsecs">Crossfade &mdash; {{ transitionSeconds() | number: '1.1-1' }}s</label>
-          <input id="transsecs" type="range" min="0.1" max="3" step="0.1"
-                 [(ngModel)]="transitionSeconds" />
-          <p class="muted">Applies to every join that hasn't been customised on the timeline.</p>
-        }
-      </div>
-
-      <div>
-        <label for="music">Background music bed</label>
-        <select id="music" [(ngModel)]="musicAssetId">
-          <option value="">None</option>
-          @for (track of studio.musicCandidates; track track.id) {
-            <option [value]="track.id">{{ track.name }}</option>
-          }
-        </select>
-        <p class="muted">
-          Looped under the whole video. For music that starts at a specific moment instead,
-          add it to the timeline above.
-          @if (studio.musicCandidates.length === 0) {
-            Upload an audio file from the music lane on the timeline and it appears here too.
-          }
-        </p>
-
-        @if (musicAssetId()) {
-          <label for="vol">Music level &mdash; {{ musicVolume() * 100 | number: '1.0-0' }}%</label>
-          <input id="vol" type="range" min="0" max="1" step="0.02" [(ngModel)]="musicVolume" />
-
-          <label class="muted" style="font-weight: 400">
-            <input type="checkbox" [checked]="muteClipAudio()"
-                   (change)="muteClipAudio.set(!muteClipAudio())" />
-            Drop the clips' own sound and keep only the music
+    <!-- Clip Checklist -->
+    <ol class="clip-list">
+      @for (row of rows(); track row.clip.id; let i = $index) {
+        <li class="clip-row"
+            [class.excluded]="!row.included"
+            [class.selected]="selectedClip()?.id === row.clip.id"
+            [class.dragging]="dragIndex() === i"
+            [class.drag-over]="dragOverIndex() === i && dragIndex() !== i"
+            draggable="true"
+            (click)="selectClip(row.clip.id)"
+            (dragstart)="onRowDragStart(i)"
+            (dragover)="onRowDragOver(i, $event)"
+            (drop)="onRowDrop(i, $event)"
+            (dragend)="onRowDragEnd()">
+          <span class="grip" aria-hidden="true" title="Drag to reorder">&#8942;&#8942;</span>
+          <label class="clip-pick" (click)="$event.stopPropagation()">
+            <input type="checkbox" [checked]="row.included" (change)="toggle(i)" />
           </label>
-        }
-      </div>
-    </div>
-
-    <div class="row" style="margin-top: 1rem">
-      <button type="button" (click)="build()"
-              [disabled]="status.busy() || uploading() || sideUpload() !== null
-                          || running() || blockedReason() !== null">
-        Build one video
-      </button>
-
-      @if (running()) {
-        <button class="secondary" type="button" (click)="cancel()">Cancel</button>
-      }
-
-      @if (blockedReason(); as reason) {
-        <span class="muted">{{ reason }}</span>
-      } @else if (!running()) {
-        <span class="muted">
-          {{ included().length }} clips &middot; about
-          {{ totalSeconds() | number: '1.0-1' }}s
-        </span>
-      }
-    </div>
-
-    @if (job(); as current) {
-      <div style="margin-top: 1rem">
-        <div class="row" style="justify-content: space-between">
-          <span>
-            <span [class]="statusClass(current.status)">{{ current.status }}</span>
-            <span class="muted"> {{ current.message }}</span>
+          <span class="clip-seq mono">
+            @if (row.included) { {{ cutPosition(i) }} } @else { &mdash; }
           </span>
-          <span class="mono">{{ current.progress }}%</span>
-        </div>
-
-        <div class="bar" style="margin-top: .5rem">
-          <i [style.width.%]="current.progress"></i>
-        </div>
-
-        <p class="muted" style="margin-top: .4rem">
-          {{ current.scenesDone }} of {{ current.scenesTotal }} clips prepared
-        </p>
-
-        @if (current.errorMessage) {
-          <div class="notice error">
-            {{ current.errorMessage }}
-            <span class="mono muted"> ({{ current.errorCode }})</span>
-          </div>
-        }
-
-        @if (current.hasOutput) {
-          <video [src]="previewUrl(current.jobId)" controls preload="metadata"></video>
-          <div class="row" style="margin-top: .7rem">
-            <a [href]="downloadUrl(current.jobId)" download>
-              <button type="button">Download MP4</button>
-            </a>
-            @if (current.outputDurationSeconds) {
-              <span class="muted mono">
-                {{ current.outputDurationSeconds | number: '1.1-1' }}s
-              </span>
-            }
-          </div>
-        }
-      </div>
-    }
+          <span class="clip-name">
+            {{ row.clip.name }}
+            <span class="mono muted">
+              @if (row.clip.durationSeconds) { {{ row.clip.durationSeconds | number: '1.0-1' }}s }
+              &middot; {{ row.clip.fileSizeBytes / 1048576 | number: '1.0-1' }}MB
+            </span>
+          </span>
+          <span class="clip-move" (click)="$event.stopPropagation()">
+            <button class="icon" type="button" (click)="exportClipAsShort(row.clip.id)" title="Convert this clip to vertical Short (9:16)">📱</button>
+            <button class="icon" type="button" (click)="duplicateClip(row.clip.id)" title="Duplicate clip">⧉</button>
+            <button class="icon" type="button" [disabled]="i === 0" (click)="move(i, -1)">&uarr;</button>
+            <button class="icon" type="button" [disabled]="i === rows().length - 1" (click)="move(i, 1)">&darr;</button>
+          </span>
+        </li>
+      }
+    </ol>
   </div>
+
+  <!-- KEYBOARD SHORTCUTS MODAL -->
+  @if (showShortcutsModal()) {
+    <div class="shortcuts-modal-backdrop" (click)="showShortcutsModal.set(false)">
+      <div class="shortcuts-modal-dialog" (click)="$event.stopPropagation()">
+        <div class="shortcuts-modal-header">
+          <h3>Keyboard Shortcuts</h3>
+          <button class="icon" type="button" (click)="showShortcutsModal.set(false)">&times;</button>
+        </div>
+        <table class="shortcuts-table">
+          <tbody>
+            <tr>
+              <td><kbd>Space</kbd></td>
+              <td>Play / Pause playback</td>
+            </tr>
+            <tr>
+              <td><kbd>&larr;</kbd> / <kbd>&rarr;</kbd></td>
+              <td>Seek backward / forward 1 second (Hold <kbd>Shift</kbd> for 5s)</td>
+            </tr>
+            <tr>
+              <td><kbd>Home</kbd> / <kbd>End</kbd></td>
+              <td>Jump to beginning / end of timeline</td>
+            </tr>
+            <tr>
+              <td><kbd>S</kbd> or <kbd>B</kbd></td>
+              <td>Split clip at current playhead (Blade cut)</td>
+            </tr>
+            <tr>
+              <td><kbd>M</kbd></td>
+              <td>Mute / Unmute monitor audio</td>
+            </tr>
+            <tr>
+              <td><kbd>F</kbd></td>
+              <td>Toggle Fullscreen Master Monitor</td>
+            </tr>
+            <tr>
+              <td><kbd>Delete</kbd> / <kbd>Backspace</kbd></td>
+              <td>Untick selected clip from cut</td>
+            </tr>
+            <tr>
+              <td><kbd>?</kbd></td>
+              <td>Toggle this shortcuts dialog</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="row" style="justify-content: flex-end; padding: .8rem 1.2rem; background: var(--surface-2)">
+          <button type="button" (click)="showShortcutsModal.set(false)">Close</button>
+        </div>
+      </div>
+    </div>
+  }
 } @else {
-  <div class="card muted">Loading clips&hellip;</div>
+  <div class="card muted">Loading video studio&hellip;</div>
 }

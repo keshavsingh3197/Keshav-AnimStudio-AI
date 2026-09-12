@@ -7,6 +7,8 @@ using AnimStudio.Application.Ai;
 using AnimStudio.Application.Options;
 using AnimStudio.Infrastructure.Ffmpeg;
 using KeshavSingh.Mongo.NoSql;
+using AnimStudio.Infrastructure.Persistence.SqlServer;
+using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MongoDB.Bson;
@@ -41,10 +43,11 @@ public sealed class SystemHealthService(
     IOptionsMonitor<FfmpegOptions> ffmpeg,
     IOptionsMonitor<IngestOptions> ingest,
     IOptionsMonitor<AiOptions> ai,
-    MongoDbService mongo,
     IObjectStore store,
     TimeProvider clock,
-    ILogger<SystemHealthService> logger) : ISystemHealthService
+    ILogger<SystemHealthService> logger,
+    ISqlConnectionFactory? sqlFactory = null,
+    MongoDbService? mongo = null) : ISystemHealthService
 {
     /// <summary>
     /// Long enough for a cold start on a slow disk, short enough that an admin screen never
@@ -72,7 +75,7 @@ public sealed class SystemHealthService(
             await LocalAiToolAsync(
                 KnownAiProviders.WhisperCppLocal, "Listening (whisper.cpp)", ["--help"],
                 "ModelsPath", ".bin", "model", ct).ConfigureAwait(false),
-            await MongoAsync(ct).ConfigureAwait(false),
+            await DatabaseAsync(ct).ConfigureAwait(false),
             await StorageAsync(ct).ConfigureAwait(false)
         };
 
@@ -171,31 +174,54 @@ public sealed class SystemHealthService(
         }
     }
 
-    private async Task<HealthProbe> MongoAsync(CancellationToken ct)
+    private async Task<HealthProbe> DatabaseAsync(CancellationToken ct)
     {
-        try
+        if (sqlFactory != null)
         {
-            var result = await mongo.Database
-                .RunCommandAsync<BsonDocument>(new BsonDocument("ping", 1), cancellationToken: ct)
-                .ConfigureAwait(false);
-
-            return result.GetValue("ok", 0).ToDouble() >= 1
-                ? new HealthProbe("mongo", "Database", HealthState.Ok, "Responding.", Required: true)
-                : new HealthProbe("mongo", "Database", HealthState.Failed,
-                    "The database answered, but not with an acknowledgement.", Required: true);
+            try
+            {
+                await using var conn = await sqlFactory.OpenConnectionAsync(ct).ConfigureAwait(false);
+                await using var cmd = new SqlCommand("SELECT 1", conn);
+                var res = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
+                return Convert.ToInt32(res) == 1
+                    ? new HealthProbe("sqlserver", "Database (SQL Server)", HealthState.Ok, "Responding on localhost.", Required: true)
+                    : new HealthProbe("sqlserver", "Database (SQL Server)", HealthState.Failed, "Did not return expected probe result.", Required: true);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogError(ex, "SQL Server health probe failed.");
+                return new HealthProbe("sqlserver", "Database (SQL Server)", HealthState.Failed,
+                    "Could not connect to SQL Server on localhost.",
+                    "Ensure SQL Server service is running in SQL Server Configuration Manager or SSMS.",
+                    Required: true);
+            }
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+
+        if (mongo != null)
         {
-            // Never the driver's message: it contains the host, the port and sometimes the
-            // user from the connection string.
-            logger.LogError(ex, "Database health probe failed.");
+            try
+            {
+                var result = await mongo.Database
+                    .RunCommandAsync<BsonDocument>(new BsonDocument("ping", 1), cancellationToken: ct)
+                    .ConfigureAwait(false);
 
-            return new HealthProbe("mongo", "Database", HealthState.Failed,
-                "Could not be reached.",
-                "Check Mongo:ConnectionString - it is supplied through user-secrets or the "
-                + "Mongo__ConnectionString environment variable, never appsettings.json.",
-                Required: true);
+                return result.GetValue("ok", 0).ToDouble() >= 1
+                    ? new HealthProbe("mongo", "Database (MongoDB)", HealthState.Ok, "Responding.", Required: true)
+                    : new HealthProbe("mongo", "Database (MongoDB)", HealthState.Failed,
+                        "The database answered, but not with an acknowledgement.", Required: true);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogError(ex, "Database health probe failed.");
+
+                return new HealthProbe("mongo", "Database (MongoDB)", HealthState.Failed,
+                    "Could not be reached.",
+                    "Check Mongo:ConnectionString.",
+                    Required: true);
+            }
         }
+
+        return new HealthProbe("database", "Database", HealthState.Degraded, "No database provider configured.", Required: true);
     }
 
     /// <summary>

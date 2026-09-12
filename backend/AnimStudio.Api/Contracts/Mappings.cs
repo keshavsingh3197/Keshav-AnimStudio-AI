@@ -27,7 +27,20 @@ public static class Mappings
         p.Settings.Width, p.Settings.Height, p.Settings.FrameRateNum,
         p.Settings.DistributionIntent.ToString(), p.Settings.AcceptShareAlikeObligation,
         p.Settings.BackgroundMusicAssetId, p.Settings.BackgroundMusicVolume,
-        p.CreatedAt, p.UpdatedAt);
+        p.CreatedAt, p.UpdatedAt,
+        p.Settings.DefaultWatermark.ToResponse());
+
+    public static WatermarkResponse? ToResponse(this WatermarkSettings? w) =>
+        w is null ? null : new WatermarkResponse(
+            w.Kind.ToString(),
+            w.Text,
+            w.LogoAssetId,
+            w.Position.ToString(),
+            w.Opacity,
+            w.HeightFraction,
+            w.MarginFraction,
+            w.ColorHex,
+            w.BackplateOpacity);
 
     public static CharacterResponse ToResponse(this Character c) => new(
         c.Id, c.Name, c.Description, c.Aliases,
@@ -127,7 +140,8 @@ public static class Mappings
         job.OutputDurationFrames.HasValue
             ? new FrameCount(job.OutputDurationFrames.Value).ToSeconds(FrameRate.Fps30)
             : null,
-        job.CreatedAt, job.CompletedAt);
+        job.CreatedAt, job.CompletedAt,
+        job.Width, job.Height, job.TargetFormat);
 
     /// <summary>One video clip, with the facts a running order is laid out from.</summary>
     public static ClipResponse ToClipResponse(this Asset a) => new(

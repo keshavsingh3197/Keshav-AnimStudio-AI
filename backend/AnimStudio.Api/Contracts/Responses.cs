@@ -1,11 +1,23 @@
 namespace AnimStudio.Api.Contracts;
 
+public sealed record WatermarkResponse(
+    string Kind,
+    string? Text,
+    string? LogoAssetId,
+    string Position,
+    double Opacity,
+    double HeightFraction,
+    double MarginFraction,
+    string ColorHex,
+    double BackplateOpacity);
+
 public sealed record ProjectResponse(
     string Id, string Name, string? Description, string Status,
     int Width, int Height, int Fps, string DistributionIntent,
     bool AcceptShareAlikeObligation,
     string? BackgroundMusicAssetId, double BackgroundMusicVolume,
-    DateTime CreatedAt, DateTime UpdatedAt);
+    DateTime CreatedAt, DateTime UpdatedAt,
+    WatermarkResponse? DefaultWatermark = null);
 
 public sealed record CharacterResponse(
     string Id, string Name, string? Description, IReadOnlyList<string> Aliases,
@@ -65,7 +77,8 @@ public sealed record RenderJobResponse(
     string CurrentStage, int ScenesTotal, int ScenesDone,
     string? ErrorCode, string? ErrorMessage, IReadOnlyList<string> Warnings,
     bool HasOutput, double? OutputDurationSeconds,
-    DateTime CreatedAt, DateTime? CompletedAt);
+    DateTime CreatedAt, DateTime? CompletedAt,
+    int? Width = null, int? Height = null, string? TargetFormat = null);
 
 public sealed record RendererStatusResponse(
     bool Available, string? Version, string? UnavailableReason,

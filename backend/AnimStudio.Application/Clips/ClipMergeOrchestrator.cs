@@ -84,7 +84,10 @@ public sealed class ClipMergeOrchestrator(
             return;
         }
 
-        var canvas = project.Settings.ToCanvas();
+        var baseCanvas = project.Settings.ToCanvas();
+        var canvas = (spec.OutputWidth.HasValue && spec.OutputHeight.HasValue)
+            ? new Canvas(spec.OutputWidth.Value, spec.OutputHeight.Value, baseCanvas.FrameRate)
+            : baseCanvas;
         canvas.Validate();
 
         var assetMap = await LoadAssetsAsync(spec, job.ProjectId, ct).ConfigureAwait(false);
@@ -400,7 +403,9 @@ public sealed class ClipMergeOrchestrator(
         var loaded = await assets.GetManyAsync(ids, ct).ConfigureAwait(false);
 
         return loaded
-            .Where(a => string.Equals(a.ProjectId, projectId, StringComparison.Ordinal)
+            .Where(a => (string.Equals(a.ProjectId, projectId, StringComparison.Ordinal)
+                         || string.Equals(a.ProjectId, "global", StringComparison.OrdinalIgnoreCase)
+                         || string.Equals(a.ProjectId, "system", StringComparison.OrdinalIgnoreCase))
                         && a.IsUsableInScene)
             .ToDictionary(a => a.Id, StringComparer.Ordinal);
     }

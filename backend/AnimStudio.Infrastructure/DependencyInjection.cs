@@ -28,6 +28,7 @@ using AnimStudio.Infrastructure.Ffmpeg.Graph;
 using AnimStudio.Infrastructure.Ingest;
 using AnimStudio.Infrastructure.Jobs;
 using AnimStudio.Infrastructure.Persistence;
+using AnimStudio.Infrastructure.Persistence.SqlServer;
 using AnimStudio.Infrastructure.Storage;
 using AnimStudio.Infrastructure.Subtitles;
 using AnimStudio.Infrastructure.Diagnostics;
@@ -73,6 +74,7 @@ public static class DependencyInjection
         // rather than being reimplemented here.
         RequireMongoConnectionString(configuration);
         services.AddKeshavMongo(configuration);
+        // --- shared packages: blob storage comes from KeshavSingh.*
         services.AddKeshavStorage(configuration);
 
         MongoMappingRegistrar.Register();
@@ -94,6 +96,64 @@ public static class DependencyInjection
         services.AddScoped<IAiSettingsRepository, MongoAiSettingsRepository>();
         services.AddScoped<IAdminAuditRepository, MongoAdminAuditRepository>();
         services.AddHostedService<MongoIndexInitializer>();
+        // --- persistence: Dual database support (SqlServer on localhost or Mongo)
+        var dbProvider = configuration["Database:Provider"] ?? "SqlServer";
+        var useSqlServer = string.Equals(dbProvider, "SqlServer", StringComparison.OrdinalIgnoreCase);
+
+        var mongoOptions = configuration.GetMongoOptions();
+        var hasMongoConfig = !string.IsNullOrWhiteSpace(mongoOptions.ConnectionString);
+
+        if (hasMongoConfig)
+        {
+            services.AddKeshavMongo(configuration);
+            MongoMappingRegistrar.Register();
+        }
+
+        if (useSqlServer)
+        {
+            services.AddSingleton<ISqlConnectionFactory, SqlConnectionFactory>();
+            services.AddScoped<IProjectRepository, SqlProjectRepository>();
+            services.AddScoped<ICharacterRepository, SqlCharacterRepository>();
+            services.AddScoped<ISceneRepository, SqlSceneRepository>();
+            services.AddScoped<IAssetRepository, SqlAssetRepository>();
+            services.AddScoped<IScriptRepository, SqlScriptRepository>();
+            services.AddScoped<IIngestRepository, SqlIngestRepository>();
+            services.AddScoped<IRenderJobRepository, SqlRenderJobRepository>();
+            services.AddScoped<IAiUsageRepository, SqlAiUsageRepository>();
+            services.AddScoped<IAiCredentialRepository, SqlAiCredentialRepository>();
+            services.AddScoped<IPromptTemplateRepository, SqlPromptTemplateRepository>();
+            services.AddScoped<IAiSettingsRepository, SqlAiSettingsRepository>();
+            services.AddScoped<IAdminAuditRepository, SqlAdminAuditRepository>();
+            services.AddHostedService<SqlDatabaseInitializer>();
+
+            if (hasMongoConfig)
+            {
+                services.AddScoped<MongoToSqlServerMigrator>();
+            }
+        }
+        else
+        {
+            RequireMongoConnectionString(configuration);
+            if (!hasMongoConfig)
+            {
+                services.AddKeshavMongo(configuration);
+                MongoMappingRegistrar.Register();
+            }
+
+            services.AddScoped<IProjectRepository, MongoProjectRepository>();
+            services.AddScoped<ICharacterRepository, MongoCharacterRepository>();
+            services.AddScoped<ISceneRepository, MongoSceneRepository>();
+            services.AddScoped<IAssetRepository, MongoAssetRepository>();
+            services.AddScoped<IScriptRepository, MongoScriptRepository>();
+            services.AddScoped<IIngestRepository, MongoIngestRepository>();
+            services.AddScoped<IRenderJobRepository, MongoRenderJobRepository>();
+            services.AddScoped<IAiUsageRepository, MongoAiUsageRepository>();
+            services.AddScoped<IAiCredentialRepository, MongoAiCredentialRepository>();
+            services.AddScoped<IPromptTemplateRepository, MongoPromptTemplateRepository>();
+            services.AddScoped<IAiSettingsRepository, MongoAiSettingsRepository>();
+            services.AddScoped<IAdminAuditRepository, MongoAdminAuditRepository>();
+            services.AddHostedService<MongoIndexInitializer>();
+        }
 
         // --- identity (local for now; see ICurrentUser)
         services.AddScoped<ICurrentUser, LocalSingleUserProvider>();

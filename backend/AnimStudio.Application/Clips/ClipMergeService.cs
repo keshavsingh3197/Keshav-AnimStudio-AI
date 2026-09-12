@@ -32,6 +32,9 @@ public sealed record ClipMergeCommand
 
     public ClipFit Fit { get; init; } = ClipFit.Contain;
 
+    public int? OutputWidth { get; init; }
+    public int? OutputHeight { get; init; }
+
     public SceneTransition Transition { get; init; } = SceneTransition.None;
 
     /// <summary>Crossfade length. Ignored when the transition is a cut.</summary>
@@ -119,16 +122,11 @@ public sealed class ClipMergeService(
         ArgumentNullException.ThrowIfNull(assetIds);
 
         var project = await EnsureOwnedAsync(projectId, ct).ConfigureAwait(false);
-        if (assetIds.Count > ClipMergeSpec.MaxClips)
+        var distinctIds = assetIds.Distinct(StringComparer.Ordinal).ToList();
+        if (distinctIds.Count > ClipMergeSpec.MaxClips)
         {
             throw EditingException.Invalid("too-many-clips",
                 $"A single video can be built from at most {ClipMergeSpec.MaxClips} clips.");
-        }
-
-        if (assetIds.Distinct(StringComparer.Ordinal).Count() != assetIds.Count)
-        {
-            throw EditingException.Invalid("duplicate-clips",
-                "A saved running order cannot contain the same clip more than once.");
         }
 
         var clips = await assets.ListByProjectAsync(projectId, ct).ConfigureAwait(false);
@@ -137,13 +135,13 @@ public sealed class ClipMergeService(
             .Select(a => a.Id)
             .ToHashSet(StringComparer.Ordinal);
 
-        if (assetIds.Any(id => !usableIds.Contains(id)))
+        if (distinctIds.Any(id => !usableIds.Contains(id)))
         {
             throw EditingException.Invalid("clip-not-found",
                 "One of the clips in this order is no longer in this project.");
         }
 
-        project.Settings.ClipOrderAssetIds = [.. assetIds];
+        project.Settings.ClipOrderAssetIds = distinctIds;
         project.UpdatedAt = clock.GetUtcNow().UtcDateTime;
         await projects.ReplaceAsync(project, ct).ConfigureAwait(false);
     }
@@ -416,6 +414,10 @@ public sealed class ClipMergeService(
                 .ToList()
             : [];
 
+        var jobWidth = command.OutputWidth ?? project.Settings.Width;
+        var jobHeight = command.OutputHeight ?? project.Settings.Height;
+        var targetFormat = (jobWidth < jobHeight) ? "Short" : (jobWidth == jobHeight ? "Square" : "Video");
+
         var job = new RenderJob
         {
             ProjectId = projectId,
@@ -424,11 +426,16 @@ public sealed class ClipMergeService(
             Status = RenderJobStatus.Pending,
             ScenesTotal = clipIds.Count,
             Message = "Queued",
+            Width = jobWidth,
+            Height = jobHeight,
+            TargetFormat = targetFormat,
             CreatedAt = clock.GetUtcNow().UtcDateTime,
             ClipMerge = new ClipMergeSpec
             {
                 AssetIds = [.. clipIds],
                 Fit = command.Fit,
+                OutputWidth = command.OutputWidth,
+                OutputHeight = command.OutputHeight,
                 Transition = command.Transition,
                 TransitionFrames = transitionFrames,
                 Junctions = junctionSpecs,
@@ -518,7 +525,9 @@ public sealed class ClipMergeService(
         Dictionary<string, Asset> byId, string assetId, string projectId, string role)
     {
         if (!byId.TryGetValue(assetId, out var asset)
-            || !string.Equals(asset.ProjectId, projectId, StringComparison.Ordinal))
+            || (!string.Equals(asset.ProjectId, projectId, StringComparison.Ordinal)
+                && !string.Equals(asset.ProjectId, "global", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(asset.ProjectId, "system", StringComparison.OrdinalIgnoreCase)))
         {
             throw EditingException.Invalid($"{role}-not-found",
                 "One of the files you chose is no longer in this project.");

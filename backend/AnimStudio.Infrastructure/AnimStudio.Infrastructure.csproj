@@ -17,6 +17,7 @@
   <ItemGroup>
     <!-- Pinned to match both KeshavSingh.Mongo.NoSql and KeshavSingh.Core, to avoid a diamond. -->
     <PackageReference Include="MongoDB.Driver" Version="3.10.0" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="6.0.3" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(SkipPrivatePackages)' != 'true'">

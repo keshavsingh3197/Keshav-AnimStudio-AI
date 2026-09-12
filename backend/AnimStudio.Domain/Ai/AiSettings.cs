@@ -1,3 +1,6 @@
+using AnimStudio.Domain.Projects;
+using AnimStudio.Domain.Rendering;
+
 namespace AnimStudio.Domain.Ai;
 
 /// <summary>
@@ -69,6 +72,12 @@ public sealed class AiSettings
     public Dictionary<string, List<string>> Chains { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     public List<AiProviderSettings> Providers { get; set; } = [];
+
+    /// <summary>
+    /// Global default studio watermark / hallmark applied to newly created projects and
+    /// available as the server-wide default watermark.
+    /// </summary>
+    public WatermarkSettings? DefaultWatermark { get; set; }
 
     public string? UpdatedByUserId { get; set; }
     public DateTime UpdatedAt { get; set; }

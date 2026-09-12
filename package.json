@@ -1,0 +1,16 @@
+{
+  "name": "animstudio-ai",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AnimStudio AI",
+  "scripts": {
+    "start": "npm --prefix frontend start",
+    "build": "npm --prefix frontend run build",
+    "test": "npm --prefix frontend test",
+    "frontend": "npm --prefix frontend start",
+    "backend": "dotnet run --project backend/AnimStudio.Api/AnimStudio.Api.csproj",
+    "server": "dotnet run --project backend/AnimStudio.Api/AnimStudio.Api.csproj",
+    "api": "dotnet run --project backend/AnimStudio.Api/AnimStudio.Api.csproj"
+  }
+}
+

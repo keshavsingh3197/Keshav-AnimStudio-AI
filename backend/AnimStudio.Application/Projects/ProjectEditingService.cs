@@ -26,6 +26,8 @@ public sealed record UpdateProjectCommand
     /// <summary>Null clears the music bed.</summary>
     public string? BackgroundMusicAssetId { get; init; }
     public double BackgroundMusicVolume { get; init; } = 0.18;
+
+    public WatermarkSettings? DefaultWatermark { get; init; }
 }
 
 /// <summary>
@@ -97,6 +99,11 @@ public sealed class ProjectEditingService(
                 ? null
                 : command.BackgroundMusicAssetId;
         project.Settings.BackgroundMusicVolume = command.BackgroundMusicVolume;
+        if (command.DefaultWatermark is not null)
+        {
+            command.DefaultWatermark.Clamp();
+            project.Settings.DefaultWatermark = command.DefaultWatermark;
+        }
 
         project.UpdatedAt = clock.GetUtcNow().UtcDateTime;
         await projects.ReplaceAsync(project, ct).ConfigureAwait(false);

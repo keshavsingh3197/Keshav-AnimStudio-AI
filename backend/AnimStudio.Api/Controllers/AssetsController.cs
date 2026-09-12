@@ -185,6 +185,12 @@ public sealed class AssetsController(
 
     private async Task EnsureOwnedAsync(string projectId, CancellationToken ct)
     {
+        if (string.Equals(projectId, "global", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(projectId, "system", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
         var project = await projects.GetAsync(projectId, ct) ?? throw new KeyNotFoundException();
 
         if (!string.Equals(project.UserId, currentUser.UserId, StringComparison.Ordinal))

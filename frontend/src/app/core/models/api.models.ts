@@ -26,6 +26,7 @@ export interface Project {
   backgroundMusicVolume: number;
   createdAt: string;
   updatedAt: string;
+  defaultWatermark?: WatermarkBody | null;
 }
 
 export interface CreateProjectBody {
@@ -41,6 +42,7 @@ export interface UpdateProjectBody extends CreateProjectBody {
   acceptShareAlikeObligation: boolean;
   backgroundMusicAssetId?: string | null;
   backgroundMusicVolume: number;
+  defaultWatermark?: WatermarkBody | null;
 }
 
 export interface Asset {
@@ -301,6 +303,9 @@ export interface RenderJob {
   warnings: string[];
   hasOutput: boolean;
   outputDurationSeconds?: number;
+  width?: number;
+  height?: number;
+  targetFormat?: string;
   createdAt: string;
   completedAt?: string;
 }
@@ -456,6 +461,8 @@ export const MAX_CLIP_GAIN = 2;
 export interface ClipMergeBody {
   assetIds: string[];
   fit: ClipFit;
+  outputWidth?: number;
+  outputHeight?: number;
   transition: string;
   transitionSeconds: number;
   /** One entry per gap between clips; omitted or empty means every gap uses the default. */

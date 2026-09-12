@@ -99,6 +99,13 @@ export const routes: Routes = [
             .then((m) => m.AdminProvidersComponent),
       },
       {
+        path: 'branding',
+        title: 'Branding & Hallmark - AnimStudio AI',
+        loadComponent: () =>
+          import('./features/admin/admin-branding.component')
+            .then((m) => m.AdminBrandingComponent),
+      },
+      {
         path: 'usage',
         title: 'AI usage - AnimStudio AI',
         loadComponent: () =>

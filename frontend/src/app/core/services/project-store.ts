@@ -32,6 +32,7 @@ export class ProjectStore {
     this.assets().filter((a) => a.kind === 'Audio' || a.kind === 'Video'));
 
   readonly audioOnly = computed(() => this.assets().filter((a) => a.kind === 'Audio'));
+  readonly imagesOnly = computed(() => this.assets().filter((a) => a.kind === 'Image'));
 
   /** Imported caption files. Reference material for an import, never scene content. */
   readonly subtitles = computed(() => this.assets().filter((a) => a.kind === 'Subtitle'));

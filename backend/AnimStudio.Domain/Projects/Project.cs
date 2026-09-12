@@ -26,6 +26,8 @@ public sealed class ProjectSettings
     public string? BackgroundMusicAssetId { get; set; }
     public double BackgroundMusicVolume { get; set; } = 0.18;
 
+    public WatermarkSettings DefaultWatermark { get; set; } = new();
+
     /// <summary>
     /// Video asset ids in the running order chosen in the Video editor. Assets not listed
     /// here are newly uploaded and are appended in filename order until they are arranged.

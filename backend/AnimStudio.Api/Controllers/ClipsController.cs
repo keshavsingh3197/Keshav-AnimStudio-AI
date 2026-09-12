@@ -123,6 +123,8 @@ public sealed class ClipsController(
         {
             AssetIds = request.AssetIds,
             Fit = request.Fit,
+            OutputWidth = request.OutputWidth,
+            OutputHeight = request.OutputHeight,
             Transition = request.Transition,
             TransitionSeconds = request.TransitionSeconds,
             Junctions = request.Junctions?

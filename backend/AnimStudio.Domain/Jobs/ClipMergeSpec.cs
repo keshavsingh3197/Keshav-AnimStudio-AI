@@ -46,6 +46,10 @@ public sealed class ClipMergeSpec
     /// <summary>How clips shaped differently from the canvas are fitted to it.</summary>
     public ClipFit Fit { get; set; } = ClipFit.Contain;
 
+    /// <summary>Custom output resolution override (e.g. 1080x1920 for Shorts conversion).</summary>
+    public int? OutputWidth { get; set; }
+    public int? OutputHeight { get; set; }
+
     public WatermarkSettings Watermark { get; set; } = new();
 
     /// <summary>None joins the clips as hard cuts, which is also the only stream-copy path.</summary>

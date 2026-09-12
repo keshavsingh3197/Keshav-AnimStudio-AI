@@ -1,5 +1,6 @@
-import { DatePipe, DecimalPipe } from '@angular/common';
+import { DatePipe, DecimalPipe, NgStyle } from '@angular/common';
 import { Component, OnDestroy, computed, inject, signal } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
 import {
@@ -12,7 +13,7 @@ import { StatusService } from '../../core/services/status.service';
 /** Queue a render, watch it, then play or download the result. */
 @Component({
   selector: 'app-render',
-  imports: [DatePipe, DecimalPipe, RouterLink],
+  imports: [DatePipe, DecimalPipe, FormsModule, NgStyle, RouterLink],
   templateUrl: './render.component.html',
 })
 export class RenderComponent implements OnDestroy {
@@ -27,6 +28,10 @@ export class RenderComponent implements OnDestroy {
   readonly jobs = signal<RenderJob[]>([]);
   readonly job = signal<RenderJob | null>(null);
 
+  readonly previewFit = signal<'contain' | 'cover'>('contain');
+  readonly previewZoom = signal<number>(100);
+  readonly hasVideoClips = computed(() => this.store.assets().some((a) => a.kind === 'Video'));
+
   readonly rendererAvailable = computed(() => this.store.renderer()?.available ?? false);
 
   /** Short / Video / Square, read off the canvas - the same rule every other screen uses. */
@@ -40,6 +45,59 @@ export class RenderComponent implements OnDestroy {
 
   aspect(width: number, height: number): string {
     return aspectRatioLabel(width, height);
+  }
+
+  jobFormat(job: RenderJob): string {
+    if (job.targetFormat) return job.targetFormat;
+    if (job.width && job.height) return videoFormat(job.width, job.height);
+    const proj = this.store.project();
+    return proj ? videoFormat(proj.width, proj.height) : 'Video';
+  }
+
+  jobAspect(job: RenderJob): string {
+    if (job.width && job.height) return aspectRatioLabel(job.width, job.height);
+    const proj = this.store.project();
+    return proj ? aspectRatioLabel(proj.width, proj.height) : '16:9';
+  }
+
+  jobResolution(job: RenderJob): string {
+    if (job.width && job.height) return `${job.width}\u00d7${job.height}`;
+    const proj = this.store.project();
+    return proj ? `${proj.width}\u00d7${proj.height}` : '1920\u00d71080';
+  }
+
+  jobFormatClass(job: RenderJob): string {
+    return this.jobFormat(job) === 'Short' ? 'pill ok' : 'pill';
+  }
+
+  renderAsShort(): void {
+    const project = this.store.project();
+    if (!project) return;
+
+    let width = project.width;
+    let height = project.height;
+    if (width > height) {
+      width = project.height;
+      height = project.width;
+    }
+
+    this.status.run(
+      this.api.updateProject(project.id, {
+        name: project.name,
+        description: project.description ?? undefined,
+        width,
+        height,
+        fps: project.fps,
+        distributionIntent: project.distributionIntent,
+        acceptShareAlikeObligation: project.acceptShareAlikeObligation,
+        backgroundMusicAssetId: project.backgroundMusicAssetId ?? null,
+        backgroundMusicVolume: project.backgroundMusicVolume,
+      }),
+      (updated) => {
+        this.store.project.set(updated);
+        this.render();
+      }
+    );
   }
 
   readonly blockedReason = computed(() => {
@@ -105,6 +163,38 @@ export class RenderComponent implements OnDestroy {
     const projectId = this.store.projectId();
     const hasDialogue = this.store.scenes().some((s) => s.dialogueLines > 0);
     return projectId && hasDialogue ? this.api.subtitlesUrl(projectId) : null;
+  }
+
+  setPreviewFit(fit: 'contain' | 'cover'): void {
+    this.previewFit.set(fit);
+  }
+
+  setPreviewZoom(zoom: number): void {
+    this.previewZoom.set(zoom);
+  }
+
+  playerContainerStyle(job: RenderJob): { [key: string]: string } {
+    const isShort = this.jobFormat(job) === 'Short' || Boolean(job.width && job.height && job.height > job.width);
+    if (isShort) {
+      return {
+        'aspect-ratio': '9 / 16',
+        'max-width': '340px',
+        'margin': '0 auto',
+      };
+    }
+    const isSquare = this.jobFormat(job) === 'Square' || Boolean(job.width && job.height && job.height === job.width);
+    if (isSquare) {
+      return {
+        'aspect-ratio': '1 / 1',
+        'max-width': '480px',
+        'margin': '0 auto',
+      };
+    }
+    return {
+      'aspect-ratio': '16 / 9',
+      'max-width': '760px',
+      'margin': '0 auto',
+    };
   }
 
   statusClass(jobStatus: string): string {

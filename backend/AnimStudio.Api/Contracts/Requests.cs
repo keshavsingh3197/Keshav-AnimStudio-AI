@@ -109,6 +109,8 @@ public sealed record UpdateProjectRequest
     [StringLength(64)] public string? BackgroundMusicAssetId { get; init; }
 
     [Range(0, 2)] public double BackgroundMusicVolume { get; init; } = 0.18;
+
+    public WatermarkRequest? DefaultWatermark { get; init; }
 }
 
 public sealed record CreateSceneRequest
@@ -318,6 +320,9 @@ public sealed record ClipMergeRequest
     public List<string> AssetIds { get; init; } = [];
 
     public ClipFit Fit { get; init; } = ClipFit.Contain;
+
+    [Range(360, 3840)] public int? OutputWidth { get; init; }
+    [Range(360, 3840)] public int? OutputHeight { get; init; }
 
     public SceneTransition Transition { get; init; } = SceneTransition.None;
 
