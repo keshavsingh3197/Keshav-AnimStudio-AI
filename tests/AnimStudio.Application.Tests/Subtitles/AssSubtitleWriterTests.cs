@@ -168,7 +168,7 @@ public class AssSubtitleWriterTests
     {
         var ass = Writer.Write(Request([Line(new string('x', 900), 0, 30)]));
 
-        var row = ass.Split('\n').First(l => l.StartsWith("Dialogue:"));
+        var row = ass.Split('\n').First(l => l.StartsWith("Dialogue:")).TrimEnd('\r');
         Assert.True(row.Length < 500, $"line was {row.Length} characters");
         Assert.EndsWith("…", row);
     }

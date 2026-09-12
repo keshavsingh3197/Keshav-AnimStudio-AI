@@ -14,15 +14,22 @@
   } @else {
     <table>
       <thead>
-        <tr><th style="width: 5rem">Sprite</th><th>Name</th><th>Answers to</th>
+        <tr><th style="width: 5.5rem">Sprite</th><th>Name</th><th>Answers to</th>
           <th>Subtitles</th><th></th></tr>
       </thead>
       <tbody>
         @for (character of store.characters(); track character.id) {
           <tr>
             <td>
-              @if (character.closedMouthAssetId; as spriteId) {
-                <img class="thumb sprite" [src]="assetUrl(spriteId)" [alt]="character.name" />
+              @if (getSpriteToDisplay(character); as spriteSrc) {
+                <img class="thumb sprite" [src]="spriteSrc" [alt]="character.name" />
+                @if (character.closedMouthAssetId && character.openMouthAssetId) {
+                  <button type="button" class="secondary icon" style="margin-top: .3rem; font-size: .72rem; width: 100%; white-space: nowrap"
+                          (click)="toggleFlap(character)"
+                          [title]="testingFlapCharacterId() === character.id ? 'Stop mouth flap test' : 'Test mouth flapping animation'">
+                    {{ testingFlapCharacterId() === character.id ? '⏹ Stop' : '👄 Test flap' }}
+                  </button>
+                }
               } @else {
                 <span class="pill">none</span>
               }
@@ -103,6 +110,7 @@
           <option [value]="asset.id">{{ asset.name }}</option>
         }
       </select>
+      <p class="muted">The resting face.</p>
     </div>
 
     <div>
@@ -113,54 +121,56 @@
           <option [value]="asset.id">{{ asset.name }}</option>
         }
       </select>
+      <p class="muted">Shown while speaking. Optional; without it the face stays still.</p>
     </div>
 
     <div>
-      <label for="colour">Subtitle colour</label>
-      <input id="colour" type="color" [(ngModel)]="form.subtitleColorHex" />
+      <label for="subtitle-colour">Subtitle colour</label>
+      <div class="row">
+        <input id="subtitle-colour" type="color" [(ngModel)]="form.subtitleColorHex" />
+        <span class="mono">{{ form.subtitleColorHex }}</span>
+      </div>
+      <p class="muted">Burnt-in subtitles for this character's lines are drawn in this colour.</p>
     </div>
   </div>
 
-  <label for="character-description">Description</label>
-  <textarea id="character-description" [(ngModel)]="form.description" style="min-height: 4rem"
-            placeholder="A friendly software engineer"></textarea>
-
   <div class="subform">
-    <h4>Appearance</h4>
+    <h4>Appearance &mdash; notes for generation</h4>
     <p class="muted">
-      Optional. The sprites are what actually render &mdash; this is the design they came
-      from, kept with the character so it is not lost.
+      The renderer uses the sprites above, not these fields. This is where you record what
+      the character looks like, so an image generator can be given a prompt later.
     </p>
 
     <div class="grid">
       <div>
         <label for="age">Age</label>
-        <input id="age" type="number" [(ngModel)]="form.age" min="0" max="200"
-               placeholder="25" />
+        <input id="age" type="number" [(ngModel)]="form.age" min="0" max="200" placeholder="e.g. 28" />
       </div>
 
       <div>
         <label for="gender">Gender</label>
-        <input id="gender" type="text" [(ngModel)]="form.gender" />
+        <input id="gender" type="text" [(ngModel)]="form.gender" placeholder="e.g. female" />
       </div>
 
       <div>
         <label for="hair">Hair</label>
-        <input id="hair" type="text" [(ngModel)]="form.hair" placeholder="Black, short" />
+        <input id="hair" type="text" [(ngModel)]="form.hair" placeholder="e.g. short black curly" />
       </div>
 
       <div>
         <label for="clothes">Clothes</label>
-        <input id="clothes" type="text" [(ngModel)]="form.clothes" placeholder="Blue shirt" />
+        <input id="clothes" type="text" [(ngModel)]="form.clothes" placeholder="e.g. yellow jacket" />
       </div>
     </div>
 
-    <label for="details">Anything else</label>
-    <textarea id="details" [(ngModel)]="form.additionalDetails" style="min-height: 3rem"
-              placeholder="Round glasses, always carries a satchel"></textarea>
+    <div>
+      <label for="details">Additional details</label>
+      <textarea id="details" [(ngModel)]="form.additionalDetails" style="min-height: 4rem"
+                placeholder="Distinctive features, style, expressions"></textarea>
+    </div>
   </div>
 
-  <div class="row" style="margin-top: .8rem">
+  <div class="row" style="margin-top: .9rem">
     <button type="button" (click)="save()" [disabled]="status.busy() || !form.name.trim()">
       {{ editing() === null ? 'Add character' : 'Save character' }}
     </button>

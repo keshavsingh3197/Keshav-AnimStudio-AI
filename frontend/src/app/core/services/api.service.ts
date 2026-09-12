@@ -170,6 +170,12 @@ export class ApiService {
       this.http.delete<ApiResponse<unknown>>(`${this.base}/api/scenes/${sceneId}`));
   }
 
+  duplicateScene(sceneId: string): Observable<SceneDetail> {
+    return this.unwrap(
+      this.http.post<ApiResponse<SceneDetail>>(
+        `${this.base}/api/scenes/${sceneId}/duplicate`, {}));
+  }
+
   reorderScenes(projectId: string, sceneIds: string[]): Observable<Scene[]> {
     return this.unwrap(
       this.http.put<ApiResponse<Scene[]>>(

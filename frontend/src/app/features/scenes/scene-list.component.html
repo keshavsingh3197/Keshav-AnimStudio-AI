@@ -6,12 +6,68 @@
       can be rendered.
     </p>
   </div>
+
+  <!-- View Mode Switcher -->
+  <div class="seg">
+    <label [class.selected]="viewMode() === 'storyboard'">
+      <input type="radio" name="view" value="storyboard"
+             [checked]="viewMode() === 'storyboard'"
+             (change)="viewMode.set('storyboard')" />
+      Storyboard
+    </label>
+    <label [class.selected]="viewMode() === 'table'">
+      <input type="radio" name="view" value="table"
+             [checked]="viewMode() === 'table'"
+             (change)="viewMode.set('table')" />
+      Table
+    </label>
+  </div>
 </div>
 
 @if (store.scenes().length > 0 && store.scenesMissingBackground().length > 0) {
   <div class="notice">
     {{ store.scenesMissingBackground().length }} of {{ store.scenes().length }} scenes have no
     background yet.
+  </div>
+}
+
+<!-- Search & Filter Controls -->
+@if (store.scenes().length > 0) {
+  <div class="card" style="padding: .85rem 1.1rem; margin-bottom: 1rem">
+    <div class="storyboard-header">
+      <div class="storyboard-filter-group">
+        <input class="storyboard-search" type="text" [(ngModel)]="searchQuery"
+               placeholder="Search scenes or dialogue&hellip;" />
+
+        <button type="button" class="filter-chip"
+                [class.active]="filterType() === 'all'"
+                (click)="filterType.set('all')">
+          All ({{ store.scenes().length }})
+        </button>
+
+        <button type="button" class="filter-chip"
+                [class.active]="filterType() === 'nobg'"
+                (click)="filterType.set('nobg')">
+          Missing Background ({{ store.scenesMissingBackground().length }})
+        </button>
+
+        <button type="button" class="filter-chip"
+                [class.active]="filterType() === 'dialogue'"
+                (click)="filterType.set('dialogue')">
+          With Dialogue
+        </button>
+
+        <button type="button" class="filter-chip"
+                [class.active]="filterType() === 'characters'"
+                (click)="filterType.set('characters')">
+          Staged Cast
+        </button>
+      </div>
+
+      <span class="muted mono" style="font-size: .84rem">
+        Showing {{ filteredScenes().length }} of {{ store.scenes().length }}
+      </span>
+    </div>
   </div>
 }
 
@@ -56,85 +112,171 @@
   </div>
 }
 
-<div class="card">
-  @if (store.scenes().length === 0) {
+<!-- Scenes Presentation -->
+@if (store.scenes().length === 0) {
+  <div class="card empty">
     <p class="muted">
       No scenes yet. Import a transcript to generate them, or add one by hand below.
     </p>
-  } @else {
-    <table>
-      <thead>
-        <tr>
-          <th style="width: 3rem">#</th>
-          <th style="width: 4.5rem">Shot</th>
-          <th>Title</th>
-          <th>Length</th>
-          <th>Lines</th>
-          <th>Cast</th>
-          <th>Motion</th>
-          <th>Transition</th>
-          <th>Audio</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        @for (scene of store.scenes(); track scene.id) {
-          <tr>
-            <td class="mono">{{ scene.sceneNumber }}</td>
-            <td>
-              @if (thumbnail(scene.backgroundAssetId); as src) {
-                <img class="thumb" [src]="src" alt="" />
-              } @else {
-                <span class="pill warn">none</span>
-              }
-            </td>
-            <td>
-              <a [routerLink]="['../scenes', scene.id]">
-                {{ scene.title || 'Untitled scene' }}
-              </a>
+  </div>
+} @else if (filteredScenes().length === 0) {
+  <div class="card empty">
+    <p class="muted">No scenes matched your search query or filter.</p>
+    <button class="secondary" type="button" (click)="searchQuery.set(''); filterType.set('all')">
+      Clear filters
+    </button>
+  </div>
+} @else {
+  <!-- 1. STORYBOARD GRID VIEW -->
+  @if (viewMode() === 'storyboard') {
+    <div class="storyboard-grid">
+      @for (scene of filteredScenes(); track scene.id) {
+        <div class="storyboard-card">
+          <a [routerLink]="['../scenes', scene.id]" class="storyboard-thumb-wrap" title="Open Scene Editor">
+            @if (thumbnail(scene.backgroundAssetId); as src) {
+              <img class="storyboard-thumb-img" [src]="src" [alt]="scene.title || 'Scene ' + scene.sceneNumber" />
+            } @else {
+              <div class="storyboard-thumb-empty">
+                <span>No Background</span>
+              </div>
+            }
+
+            <span class="storyboard-seq-badge">#{{ scene.sceneNumber }}</span>
+            <span class="storyboard-dur-badge">{{ scene.durationSeconds | number: '1.1-1' }}s</span>
+          </a>
+
+          <div class="storyboard-card-body">
+            <a [routerLink]="['../scenes', scene.id]" class="storyboard-card-title">
+              {{ scene.title || 'Untitled scene' }}
+            </a>
+
+            <div class="storyboard-meta-row">
               @if (scene.origin === 'Manual') { <span class="pill">manual</span> }
               @else if (scene.isUserEdited) { <span class="pill">edited</span> }
-            </td>
-            <td class="mono">{{ scene.durationSeconds | number: '1.1-1' }}s</td>
-            <td>{{ scene.dialogueLines }}</td>
-            <td>{{ scene.characterCount }}</td>
-            <td class="muted">{{ scene.backgroundEffect }}</td>
-            <td class="muted">
-              {{ scene.transition }}
-              @if (scene.transition !== 'None') {
-                <span class="mono">{{ scene.transitionDurationSeconds | number: '1.1-1' }}s</span>
+              <span class="pill">{{ scene.dialogueLines }} lines</span>
+              <span class="pill">{{ scene.characterCount }} cast</span>
+              @if (scene.backgroundEffect !== 'None') {
+                <span class="pill">{{ scene.backgroundEffect }}</span>
               }
-            </td>
-            <td>
               @if (scene.audioAssetId) {
-                <span class="pill ok">linked</span>
-              } @else if (scene.hasAudioSlice) {
-                <span class="pill warn">no file</span>
-              } @else {
-                <span class="muted">&mdash;</span>
+                <span class="pill ok">audio linked</span>
               }
-            </td>
-            <td style="text-align: right; white-space: nowrap">
-              <button class="icon" type="button" title="Move up"
-                      [disabled]="$first || status.busy()" (click)="move(scene, -1)">&uarr;</button>
-              <button class="icon" type="button" title="Move down"
-                      [disabled]="$last || status.busy()" (click)="move(scene, 1)">&darr;</button>
+            </div>
+          </div>
+
+          <div class="storyboard-card-actions">
+            <div class="row" style="gap: .3rem">
+              <a [routerLink]="['../scenes', scene.id]">
+                <button type="button" style="padding: .3rem .6rem; font-size: .82rem">Edit</button>
+              </a>
+              <button class="secondary" type="button" style="padding: .3rem .6rem; font-size: .82rem"
+                      (click)="duplicate(scene)" title="Duplicate this scene">
+                Duplicate
+              </button>
+            </div>
+
+            <div class="row" style="gap: .2rem">
+              <button class="icon" type="button" title="Move earlier"
+                      [disabled]="$first || status.busy()" (click)="move(scene, -1)">&larr;</button>
+              <button class="icon" type="button" title="Move later"
+                      [disabled]="$last || status.busy()" (click)="move(scene, 1)">&rarr;</button>
 
               @if (confirming() === scene.id) {
-                <button class="danger" type="button" (click)="remove(scene.id)">Delete</button>
-                <button class="secondary" type="button" (click)="confirming.set(null)">Keep</button>
+                <button class="danger icon" type="button" title="Confirm delete" (click)="remove(scene.id)">&check;</button>
+                <button class="secondary icon" type="button" title="Keep scene" (click)="confirming.set(null)">&times;</button>
               } @else {
-                <button class="secondary" type="button"
-                        (click)="confirming.set(scene.id)">Delete</button>
+                <button class="secondary icon" type="button" title="Delete scene"
+                        (click)="confirming.set(scene.id)">&times;</button>
               }
-            </td>
-          </tr>
-        }
-      </tbody>
-    </table>
+            </div>
+          </div>
+        </div>
+      }
+    </div>
   }
-</div>
 
+  <!-- 2. TABLE VIEW -->
+  @if (viewMode() === 'table') {
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 3rem">#</th>
+            <th style="width: 4.5rem">Shot</th>
+            <th>Title</th>
+            <th>Length</th>
+            <th>Lines</th>
+            <th>Cast</th>
+            <th>Motion</th>
+            <th>Transition</th>
+            <th>Audio</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (scene of filteredScenes(); track scene.id) {
+            <tr>
+              <td class="mono">{{ scene.sceneNumber }}</td>
+              <td>
+                @if (thumbnail(scene.backgroundAssetId); as src) {
+                  <img class="thumb" [src]="src" alt="" />
+                } @else {
+                  <span class="pill warn">none</span>
+                }
+              </td>
+              <td>
+                <a [routerLink]="['../scenes', scene.id]">
+                  {{ scene.title || 'Untitled scene' }}
+                </a>
+                @if (scene.origin === 'Manual') { <span class="pill">manual</span> }
+                @else if (scene.isUserEdited) { <span class="pill">edited</span> }
+              </td>
+              <td class="mono">{{ scene.durationSeconds | number: '1.1-1' }}s</td>
+              <td>{{ scene.dialogueLines }}</td>
+              <td>{{ scene.characterCount }}</td>
+              <td class="muted">{{ scene.backgroundEffect }}</td>
+              <td class="muted">
+                {{ scene.transition }}
+                @if (scene.transition !== 'None') {
+                  <span class="mono">{{ scene.transitionDurationSeconds | number: '1.1-1' }}s</span>
+                }
+              </td>
+              <td>
+                @if (scene.audioAssetId) {
+                  <span class="pill ok">linked</span>
+                } @else if (scene.hasAudioSlice) {
+                  <span class="pill warn">no file</span>
+                } @else {
+                  <span class="muted">&mdash;</span>
+                }
+              </td>
+              <td style="text-align: right; white-space: nowrap">
+                <button class="secondary" type="button" style="padding: .25rem .5rem; font-size: .82rem"
+                        (click)="duplicate(scene)" title="Duplicate scene">
+                  Duplicate
+                </button>
+                <button class="icon" type="button" title="Move up"
+                        [disabled]="$first || status.busy()" (click)="move(scene, -1)">&uarr;</button>
+                <button class="icon" type="button" title="Move down"
+                        [disabled]="$last || status.busy()" (click)="move(scene, 1)">&darr;</button>
+
+                @if (confirming() === scene.id) {
+                  <button class="danger" type="button" (click)="remove(scene.id)">Delete</button>
+                  <button class="secondary" type="button" (click)="confirming.set(null)">Keep</button>
+                } @else {
+                  <button class="secondary" type="button"
+                          (click)="confirming.set(scene.id)">Delete</button>
+                }
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+}
+
+<!-- Add a scene manually -->
 <div class="card">
   <h3>Add a scene</h3>
   <p class="muted">

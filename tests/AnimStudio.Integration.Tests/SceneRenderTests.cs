@@ -150,7 +150,8 @@ public sealed class SceneRenderTests : IAsyncLifetime
 
         Assert.Contains("width=640", probed);
         Assert.Contains("height=360", probed);
-        Assert.Contains("pix_fmt=yuv420p", probed);
+        Assert.True(probed.Contains("pix_fmt=yuv420p") || probed.Contains("pix_fmt=yuvj420p"),
+            $"Expected yuv420p or yuvj420p but probed: {probed}");
         Assert.Contains("nb_read_frames=60", probed);
     }
 

@@ -2,383 +2,504 @@
   <div class="page-head">
     <div>
       <a routerLink="../../scenes" class="muted">&larr; All scenes</a>
-      <h2>Scene {{ detail.sceneNumber }}</h2>
+      <h2>Scene {{ detail.sceneNumber }}: {{ detail.title || 'Untitled scene' }}</h2>
       <p class="muted">
         {{ detail.durationSeconds | number: '1.1-1' }}s &middot;
         {{ detail.dialogue.length }} lines &middot;
         {{ detail.characters.length }} staged
       </p>
     </div>
-  </div>
 
-  <!-- 1. Shape: how long it runs, how it moves, how it leaves. -->
-  <div class="card">
-    <h3>Scene</h3>
-
-    <div class="grid">
-      <div>
-        <label for="title">Title</label>
-        <input id="title" type="text" [(ngModel)]="form.title" placeholder="Untitled scene" />
-      </div>
-
-      <div>
-        <label for="duration">Length (seconds)</label>
-        <input id="duration" type="number" [(ngModel)]="form.durationSeconds"
-               min="0.1" max="3600" step="0.1" />
-      </div>
-
-      <div>
-        <label for="effect">Background motion</label>
-        <select id="effect" [(ngModel)]="form.backgroundEffect">
-          @for (option of effects; track option) {
-            <option [value]="option">{{ option }}</option>
-          }
-        </select>
-      </div>
-
-      <div>
-        <label for="intensity">Motion amount ({{ form.intensityPercent }}%)</label>
-        <input id="intensity" type="range" [(ngModel)]="form.intensityPercent"
-               min="0" max="100" step="1" />
-      </div>
-
-      <div>
-        <label for="easing">Easing</label>
-        <select id="easing" [(ngModel)]="form.easing">
-          @for (option of easings; track option) {
-            <option [value]="option">{{ option }}</option>
-          }
-        </select>
-      </div>
-
-      <div>
-        <label for="fade-in">Fade in (seconds)</label>
-        <input id="fade-in" type="number" [(ngModel)]="form.fadeInSeconds"
-               min="0" max="60" step="0.05" />
-      </div>
-
-      <div>
-        <label for="fade-out">Fade out (seconds)</label>
-        <input id="fade-out" type="number" [(ngModel)]="form.fadeOutSeconds"
-               min="0" max="60" step="0.05" />
-      </div>
-
-      <div>
-        <label for="transition">Transition to next scene</label>
-        <select id="transition" [(ngModel)]="form.transition">
-          @for (option of transitions; track option) {
-            <option [value]="option">{{ option }}</option>
-          }
-        </select>
-      </div>
-
-      @if (form.transition !== 'None') {
-        <div>
-          <label for="transition-seconds">Transition length (seconds)</label>
-          <input id="transition-seconds" type="number" [(ngModel)]="form.transitionDurationSeconds"
-                 min="0" max="60" step="0.05" />
-          <p class="muted">
-            A crossfade eats frames from both scenes, so it is capped at half of the shorter
-            one.
-          </p>
-        </div>
-      }
-    </div>
-
-    <div>
-      <label for="description">Description</label>
-      <textarea id="description" [(ngModel)]="form.description" style="min-height: 4rem"
-                placeholder="Notes for yourself"></textarea>
-    </div>
-
-    <div class="row" style="margin-top: .8rem">
-      <button type="button" (click)="save()" [disabled]="status.busy()">Save scene</button>
+    <div class="row">
+      <button class="secondary" type="button" (click)="duplicateScene()" [disabled]="status.busy()" title="Duplicate this scene">
+        Duplicate scene
+      </button>
+      <button type="button" (click)="save()" [disabled]="status.busy()">
+        Save scene
+      </button>
     </div>
   </div>
 
-  <!-- 2. Background -->
-  <div class="card">
-    <h3>Background</h3>
-
-    @if (store.images().length === 0) {
-      <p class="muted">No images uploaded yet. Add one in the Assets tab.</p>
-    } @else {
-      <div class="tiles">
-        @for (asset of store.images(); track asset.id) {
-          <button class="tile" type="button"
-                  [class.selected]="detail.backgroundAssetId === asset.id"
-                  (click)="setBackground(asset.id)">
-            <img [src]="assetUrl(asset.id)" [alt]="asset.name" />
-            <span class="muted">{{ asset.name }}</span>
-          </button>
-        }
-      </div>
-    }
-  </div>
-
-  <!-- 3. Audio -->
-  <div class="card">
-    <h3>Audio</h3>
-    <p class="muted">
-      The slice is a window on the original recording, not on this scene, so trimming a
-      scene never drifts its sound.
-    </p>
-
-    <div class="grid">
-      <div>
-        <label for="audio-asset">Source file</label>
-        <select id="audio-asset" [(ngModel)]="audio.assetId">
-          <option value="">None</option>
-          @for (asset of store.playable(); track asset.id) {
-            <option [value]="asset.id">{{ asset.name }}</option>
-          }
-        </select>
-      </div>
-
-      @if (audio.assetId) {
-        <div>
-          <label for="slice-start">Slice starts at (seconds)</label>
-          <input id="slice-start" type="number" [(ngModel)]="audio.sliceStartSeconds"
-                 min="0" step="0.1" />
+  <div class="studio-workbench">
+    <!-- LEFT: Visual Stage & Interactive Controls (Sticky on Desktop) -->
+    <div class="stage-sticky-col">
+      <div class="card">
+        <div class="section-head">
+          <h3>Stage Preview</h3>
+          <span class="muted" style="font-size: .8rem">
+            Click &amp; drag characters on canvas to position
+          </span>
         </div>
 
-        <div>
-          <label for="slice-end">Slice ends at (seconds)</label>
-          <input id="slice-end" type="number" [(ngModel)]="audio.sliceEndSeconds"
-                 min="0" step="0.1" />
-        </div>
-      }
-    </div>
-
-    <div class="row" style="margin-top: .8rem">
-      <button type="button" (click)="saveAudio()" [disabled]="status.busy()">Save audio</button>
-      @if (detail.audioAssetId; as audioId) {
-        <button class="secondary" type="button" (click)="clearAudio()">Remove audio</button>
-        <audio controls preload="none" [src]="assetUrl(audioId)"></audio>
-      }
-    </div>
-  </div>
-
-  <!-- 4. Dialogue -->
-  <div class="card">
-    <h3>Dialogue <span class="muted">({{ detail.dialogue.length }})</span></h3>
-    <p class="muted">
-      Lines become burned-in subtitles, and drive the mouth-flap of whoever is speaking.
-    </p>
-
-    @if (detail.dialogue.length > 0) {
-      <table>
-        <thead>
-          <tr><th>Speaker</th><th>Line</th><th>From</th><th>To</th><th></th></tr>
-        </thead>
-        <tbody>
-          @for (item of detail.dialogue; track item.index) {
-            <tr>
-              <td>{{ characterName(item.speakerCharacterId) }}</td>
-              <td>{{ item.text }}</td>
-              <td class="mono">{{ item.startSeconds | number: '1.1-2' }}s</td>
-              <td class="mono">{{ item.endSeconds | number: '1.1-2' }}s</td>
-              <td style="text-align: right; white-space: nowrap">
-                <button class="secondary" type="button" (click)="editLine(item)">Edit</button>
-                <button class="danger" type="button" (click)="removeLine(item.index)">Remove</button>
-              </td>
-            </tr>
-          }
-        </tbody>
-      </table>
-    }
-
-    <div class="subform">
-      <h4>{{ editingLine() === null ? 'Add a line' : 'Edit line ' + (editingLine()! + 1) }}</h4>
-
-      <div class="grid">
-        <div>
-          <label for="speaker">Speaker</label>
-          <select id="speaker" [(ngModel)]="line.speakerCharacterId">
-            <option value="">Unattributed</option>
-            @for (character of store.characters(); track character.id) {
-              <option [value]="character.id">{{ character.name }}</option>
+        <!-- 16:9 Interactive Canvas -->
+        <div #stageEl class="stage-viewport">
+          <div class="stage-canvas">
+            <!-- Background Layer with Real-time Camera Motion Simulation -->
+            @if (detail.backgroundAssetId; as bgId) {
+              <img class="stage-bg" [src]="assetUrl(bgId)" alt="Scene Background"
+                   [style]="getBackgroundMotionStyle()" />
+            } @else {
+              <div class="empty" style="position: absolute; inset: 0; display: grid; place-items: center; border: none; background: rgba(0,0,0,0.5)">
+                <span class="muted">No background selected. Choose one below.</span>
+              </div>
             }
-          </select>
-        </div>
 
-        <div>
-          <label for="line-start">From (seconds)</label>
-          <input id="line-start" type="number" [(ngModel)]="line.startSeconds"
-                 min="0" [attr.max]="duration()" step="0.1" />
-        </div>
-
-        <div>
-          <label for="line-end">To (seconds)</label>
-          <input id="line-end" type="number" [(ngModel)]="line.endSeconds"
-                 min="0" [attr.max]="duration()" step="0.1" />
-        </div>
-      </div>
-
-      <label for="line-text">Text</label>
-      <textarea id="line-text" [(ngModel)]="line.text" style="min-height: 4rem"
-                placeholder="What is said"></textarea>
-
-      <div class="row" style="margin-top: .6rem">
-        <button type="button" (click)="saveLine()"
-                [disabled]="status.busy() || !line.text.trim()">
-          {{ editingLine() === null ? 'Add line' : 'Save line' }}
-        </button>
-        @if (editingLine() !== null) {
-          <button class="secondary" type="button" (click)="cancelLine()">Cancel</button>
-        }
-      </div>
-    </div>
-  </div>
-
-  <!-- 5. Staging -->
-  <div class="card">
-    <h3>Characters on screen <span class="muted">({{ detail.characters.length }})</span></h3>
-
-    @if (stageable().length === 0) {
-      <p class="muted">
-        No characters with sprites yet. Add one in the Characters tab; the narrator has no
-        sprite and appears as subtitles only.
-      </p>
-    } @else {
-      @if (detail.characters.length > 0) {
-        <table>
-          <thead>
-            <tr>
-              <th>Character</th><th>Anchor</th><th>Height</th><th>Offset</th>
-              <th>Entrance</th><th>On screen</th><th></th>
-            </tr>
-          </thead>
-          <tbody>
+            <!-- Staged Characters Layer -->
             @for (placement of detail.characters; track placement.characterId) {
-              <tr>
-                <td>
-                  {{ characterName(placement.characterId) }}
-                  @if (placement.flipHorizontal) { <span class="pill">flipped</span> }
-                </td>
-                <td class="muted">{{ placement.anchor }}</td>
-                <td class="mono">{{ placement.heightFraction * 100 | number: '1.0-0' }}%</td>
-                <td class="mono">
-                  {{ placement.offsetXFraction * 100 | number: '1.0-0' }}%,
-                  {{ placement.offsetYFraction * 100 | number: '1.0-0' }}%
-                </td>
-                <td class="muted">
-                  {{ placement.entrance }}
-                  @if (placement.entrance !== 'None') {
-                    <span class="mono">
-                      {{ placement.entranceDurationSeconds | number: '1.1-1' }}s
-                    </span>
-                  }
-                </td>
-                <td class="mono">
-                  {{ placement.presenceStartSeconds | number: '1.1-1' }}&ndash;{{
-                    placement.presenceEndSeconds | number: '1.1-1' }}s
-                </td>
-                <td style="text-align: right; white-space: nowrap">
-                  <button class="secondary" type="button"
-                          (click)="editPlacement(placement)">Edit</button>
-                  <button class="danger" type="button"
-                          (click)="removePlacement(placement.characterId)">Remove</button>
-                </td>
-              </tr>
-            }
-          </tbody>
-        </table>
-      }
+              @if (isCharacterPresent(placement)) {
+                <div class="stage-char-wrapper"
+                     [class.selected]="editingPlacement() === placement.characterId"
+                     [style]="getCharacterStyle(placement)"
+                     (mousedown)="startCharacterDrag($event, placement, stageEl)"
+                     (touchstart)="startCharacterDrag($event, placement, stageEl)">
 
-      <div class="subform">
-        <h4>{{ editingPlacement() === null ? 'Stage a character' : 'Restage character' }}</h4>
+                  <span class="stage-char-tag" [class.active]="editingPlacement() === placement.characterId">
+                    {{ characterName(placement.characterId) }}
+                  </span>
+
+                  @if (characterSpriteUrl(placement.characterId); as spriteUrl) {
+                    <img class="stage-char-img" [src]="spriteUrl" [alt]="characterName(placement.characterId)" />
+                  } @else {
+                    <div class="empty" style="height: 100%; aspect-ratio: 1/2; background: rgba(255,255,255,0.1); border-radius: 6px; display: grid; place-items: center; font-size: .75rem">
+                      {{ characterName(placement.characterId) }}
+                    </div>
+                  }
+                </div>
+              }
+            }
+
+            <!-- Live Subtitle Overlay -->
+            @if (activeDialogue(); as active) {
+              <div class="stage-subtitle-overlay">
+                <div class="stage-subtitle-box">
+                  <div class="stage-subtitle-speaker" [style.color]="characterSubtitleColor(active.speakerCharacterId)">
+                    {{ characterName(active.speakerCharacterId) }}
+                  </div>
+                  <div class="stage-subtitle-text">
+                    {{ active.text }}
+                  </div>
+                </div>
+              </div>
+            }
+          </div>
+        </div>
+
+        <!-- Stage Playback Transport & Scrubber -->
+        <div class="stage-transport">
+          <div class="stage-transport-row">
+            <button type="button" class="stage-play-btn" (click)="togglePlay()" [title]="isPlaying() ? 'Pause' : 'Play scene preview'">
+              {{ isPlaying() ? '⏸' : '▶' }}
+            </button>
+
+            <input class="stage-scrub-input" type="range"
+                   [ngModel]="currentTime()"
+                   (ngModelChange)="seek($event)"
+                   min="0" [max]="duration()" step="0.05" />
+
+            <span class="mono muted" style="min-width: 6.5rem; text-align: right; font-size: .82rem">
+              {{ currentTime() | number: '1.2-2' }}s / {{ duration() | number: '1.1-1' }}s
+            </span>
+          </div>
+
+          <!-- Staging Presets Bar (Active when a character is selected) -->
+          <div class="stage-presets-bar">
+            <span class="muted" style="font-size: .76rem; font-weight: 600">Presets:</span>
+            <button type="button" class="stage-preset-btn" (click)="applyPreset('left')" [disabled]="editingPlacement() === null" title="Place on left">
+              Left
+            </button>
+            <button type="button" class="stage-preset-btn" (click)="applyPreset('center')" [disabled]="editingPlacement() === null" title="Place at center">
+              Center
+            </button>
+            <button type="button" class="stage-preset-btn" (click)="applyPreset('right')" [disabled]="editingPlacement() === null" title="Place on right">
+              Right
+            </button>
+            <button type="button" class="stage-preset-btn" (click)="applyPreset('closeup')" [disabled]="editingPlacement() === null" title="Close-up framing">
+              Close-up
+            </button>
+            <button type="button" class="stage-preset-btn" (click)="applyPreset('twoshot-l')" [disabled]="editingPlacement() === null" title="Two-shot left position">
+              2-Shot L
+            </button>
+            <button type="button" class="stage-preset-btn" (click)="applyPreset('twoshot-r')" [disabled]="editingPlacement() === null" title="Two-shot right position">
+              2-Shot R
+            </button>
+            @if (editingPlacement() !== null) {
+              <button type="button" class="stage-preset-btn" style="color: var(--ok); border-color: var(--ok)" (click)="savePlacement()">
+                Save position
+              </button>
+            }
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Inspector Configuration Panels -->
+    <div class="studio-inspector-col">
+      <!-- 1. Staging Form -->
+      <div class="card">
+        <h3>Characters on screen <span class="muted">({{ detail.characters.length }})</span></h3>
+
+        @if (stageable().length === 0) {
+          <p class="muted">
+            No characters with sprites yet. Add one in the Characters tab; the narrator has no
+            sprite and appears as subtitles only.
+          </p>
+        } @else {
+          @if (detail.characters.length > 0) {
+            <table>
+              <thead>
+                <tr>
+                  <th>Character</th><th>Anchor</th><th>Height</th><th>Offset</th>
+                  <th>Entrance</th><th>Timing</th><th></th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (placement of detail.characters; track placement.characterId) {
+                  <tr [style.background]="editingPlacement() === placement.characterId ? 'var(--surface-2)' : 'transparent'">
+                    <td>
+                      <strong>{{ characterName(placement.characterId) }}</strong>
+                      @if (placement.flipHorizontal) { <span class="pill">flipped</span> }
+                    </td>
+                    <td class="muted">{{ placement.anchor }}</td>
+                    <td class="mono">{{ placement.heightFraction * 100 | number: '1.0-0' }}%</td>
+                    <td class="mono">
+                      {{ placement.offsetXFraction * 100 | number: '1.0-0' }}%,
+                      {{ placement.offsetYFraction * 100 | number: '1.0-0' }}%
+                    </td>
+                    <td class="muted">
+                      {{ placement.entrance }}
+                      @if (placement.entrance !== 'None') {
+                        <span class="mono">
+                          {{ placement.entranceDurationSeconds | number: '1.1-1' }}s
+                        </span>
+                      }
+                    </td>
+                    <td class="mono">
+                      {{ placement.presenceStartSeconds | number: '1.1-1' }}&ndash;{{
+                        placement.presenceEndSeconds | number: '1.1-1' }}s
+                    </td>
+                    <td style="text-align: right; white-space: nowrap">
+                      <button class="secondary" type="button"
+                              (click)="editPlacement(placement)">Edit</button>
+                      <button class="danger" type="button"
+                              (click)="removePlacement(placement.characterId)">Remove</button>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          }
+
+          <div class="subform">
+            <h4>{{ editingPlacement() === null ? 'Stage a character' : 'Restage: ' + characterName(stage.characterId) }}</h4>
+
+            <div class="grid">
+              <div>
+                <label for="stage-character">Character</label>
+                <select id="stage-character" [(ngModel)]="stage.characterId"
+                        [disabled]="editingPlacement() !== null">
+                  <option value="">Choose&hellip;</option>
+                  @for (character of stageable(); track character.id) {
+                    <option [value]="character.id">{{ character.name }}</option>
+                  }
+                </select>
+              </div>
+
+              <div>
+                <label for="stage-anchor">Anchor</label>
+                <select id="stage-anchor" [(ngModel)]="stage.anchor">
+                  @for (option of anchors; track option) {
+                    <option [value]="option">{{ option }}</option>
+                  }
+                </select>
+              </div>
+
+              <div>
+                <label for="stage-height">Height ({{ stage.heightPercent }}% of canvas)</label>
+                <input id="stage-height" type="range" [(ngModel)]="stage.heightPercent"
+                       min="5" max="150" step="1" />
+              </div>
+
+              <div>
+                <label for="stage-x">Nudge horizontal ({{ stage.offsetXPercent }}%)</label>
+                <input id="stage-x" type="range" [(ngModel)]="stage.offsetXPercent"
+                       min="-50" max="50" step="1" />
+              </div>
+
+              <div>
+                <label for="stage-y">Nudge vertical ({{ stage.offsetYPercent }}%)</label>
+                <input id="stage-y" type="range" [(ngModel)]="stage.offsetYPercent"
+                       min="-50" max="50" step="1" />
+              </div>
+
+              <div>
+                <label for="stage-z">Layer order (Z)</label>
+                <input id="stage-z" type="number" [(ngModel)]="stage.zOrder" min="0" max="20" />
+              </div>
+
+              <div>
+                <label for="stage-entrance">Entrance</label>
+                <select id="stage-entrance" [(ngModel)]="stage.entrance">
+                  @for (option of entrances; track option) {
+                    <option [value]="option">{{ option }}</option>
+                  }
+                </select>
+              </div>
+
+              @if (stage.entrance !== 'None') {
+                <div>
+                  <label for="stage-entrance-seconds">Entrance length (seconds)</label>
+                  <input id="stage-entrance-seconds" type="number"
+                         [(ngModel)]="stage.entranceDurationSeconds" min="0" max="10" step="0.1" />
+                </div>
+              }
+
+              <div>
+                <label for="stage-from">On screen from (seconds)</label>
+                <input id="stage-from" type="number" [(ngModel)]="stage.presenceStartSeconds"
+                       min="0" [attr.max]="duration()" step="0.1" />
+              </div>
+
+              <div>
+                <label for="stage-to">Until (seconds)</label>
+                <input id="stage-to" type="number" [(ngModel)]="stage.presenceEndSeconds"
+                       min="0" [attr.max]="duration()" step="0.1" />
+              </div>
+            </div>
+
+            <label style="font-weight: 400; margin-top: .6rem">
+              <input type="checkbox" [(ngModel)]="stage.flipHorizontal" />
+              Mirror sprite horizontally (face other way)
+            </label>
+
+            <div class="row" style="margin-top: .6rem">
+              <button type="button" (click)="savePlacement()"
+                      [disabled]="status.busy() || !stage.characterId">
+                {{ editingPlacement() === null ? 'Stage character' : 'Save staging' }}
+              </button>
+              @if (editingPlacement() !== null) {
+                <button class="secondary" type="button" (click)="cancelPlacement()">Cancel</button>
+              }
+            </div>
+          </div>
+        }
+      </div>
+
+      <!-- 2. Scene Shape & Motion -->
+      <div class="card">
+        <h3>Scene Timing &amp; Motion</h3>
 
         <div class="grid">
           <div>
-            <label for="stage-character">Character</label>
-            <select id="stage-character" [(ngModel)]="stage.characterId"
-                    [disabled]="editingPlacement() !== null">
-              <option value="">Choose&hellip;</option>
-              @for (character of stageable(); track character.id) {
-                <option [value]="character.id">{{ character.name }}</option>
-              }
-            </select>
+            <label for="title">Title</label>
+            <input id="title" type="text" [(ngModel)]="form.title" placeholder="Untitled scene" />
           </div>
 
           <div>
-            <label for="stage-anchor">Anchor</label>
-            <select id="stage-anchor" [(ngModel)]="stage.anchor">
-              @for (option of anchors; track option) {
+            <label for="duration">Length (seconds)</label>
+            <input id="duration" type="number" [(ngModel)]="form.durationSeconds"
+                   min="0.1" max="3600" step="0.1" />
+          </div>
+
+          <div>
+            <label for="effect">Camera / background motion</label>
+            <select id="effect" [(ngModel)]="form.backgroundEffect">
+              @for (option of effects; track option) {
                 <option [value]="option">{{ option }}</option>
               }
             </select>
           </div>
 
           <div>
-            <label for="stage-height">Height ({{ stage.heightPercent }}% of canvas)</label>
-            <input id="stage-height" type="range" [(ngModel)]="stage.heightPercent"
-                   min="5" max="150" step="1" />
+            <label for="intensity">Motion intensity ({{ form.intensityPercent }}%)</label>
+            <input id="intensity" type="range" [(ngModel)]="form.intensityPercent"
+                   min="0" max="100" step="1" />
           </div>
 
           <div>
-            <label for="stage-x">Nudge across ({{ stage.offsetXPercent }}%)</label>
-            <input id="stage-x" type="range" [(ngModel)]="stage.offsetXPercent"
-                   min="-50" max="50" step="1" />
-          </div>
-
-          <div>
-            <label for="stage-y">Nudge up or down ({{ stage.offsetYPercent }}%)</label>
-            <input id="stage-y" type="range" [(ngModel)]="stage.offsetYPercent"
-                   min="-50" max="50" step="1" />
-          </div>
-
-          <div>
-            <label for="stage-z">Layer</label>
-            <input id="stage-z" type="number" [(ngModel)]="stage.zOrder" min="0" max="20" />
-          </div>
-
-          <div>
-            <label for="stage-entrance">Entrance</label>
-            <select id="stage-entrance" [(ngModel)]="stage.entrance">
-              @for (option of entrances; track option) {
+            <label for="easing">Easing</label>
+            <select id="easing" [(ngModel)]="form.easing">
+              @for (option of easings; track option) {
                 <option [value]="option">{{ option }}</option>
               }
             </select>
           </div>
 
-          @if (stage.entrance !== 'None') {
+          <div>
+            <label for="fade-in">Fade in (seconds)</label>
+            <input id="fade-in" type="number" [(ngModel)]="form.fadeInSeconds"
+                   min="0" max="60" step="0.05" />
+          </div>
+
+          <div>
+            <label for="fade-out">Fade out (seconds)</label>
+            <input id="fade-out" type="number" [(ngModel)]="form.fadeOutSeconds"
+                   min="0" max="60" step="0.05" />
+          </div>
+
+          <div>
+            <label for="transition">Transition to next scene</label>
+            <select id="transition" [(ngModel)]="form.transition">
+              @for (option of transitions; track option) {
+                <option [value]="option">{{ option }}</option>
+              }
+            </select>
+          </div>
+
+          @if (form.transition !== 'None') {
             <div>
-              <label for="stage-entrance-seconds">Entrance length (seconds)</label>
-              <input id="stage-entrance-seconds" type="number"
-                     [(ngModel)]="stage.entranceDurationSeconds" min="0" max="10" step="0.1" />
+              <label for="transition-seconds">Transition length (seconds)</label>
+              <input id="transition-seconds" type="number" [(ngModel)]="form.transitionDurationSeconds"
+                     min="0" max="60" step="0.05" />
             </div>
           }
-
-          <div>
-            <label for="stage-from">On screen from (seconds)</label>
-            <input id="stage-from" type="number" [(ngModel)]="stage.presenceStartSeconds"
-                   min="0" [attr.max]="duration()" step="0.1" />
-          </div>
-
-          <div>
-            <label for="stage-to">until (seconds)</label>
-            <input id="stage-to" type="number" [(ngModel)]="stage.presenceEndSeconds"
-                   min="0" [attr.max]="duration()" step="0.1" />
-          </div>
         </div>
 
-        <label style="font-weight: 400; margin-top: .6rem">
-          <input type="checkbox" [(ngModel)]="stage.flipHorizontal" />
-          Mirror the sprite, so it faces the other way
-        </label>
+        <div>
+          <label for="description">Scene Notes</label>
+          <textarea id="description" [(ngModel)]="form.description" style="min-height: 3.5rem"
+                    placeholder="Director notes or scene context"></textarea>
+        </div>
 
-        <div class="row" style="margin-top: .6rem">
-          <button type="button" (click)="savePlacement()"
-                  [disabled]="status.busy() || !stage.characterId">
-            {{ editingPlacement() === null ? 'Stage character' : 'Save staging' }}
-          </button>
-          @if (editingPlacement() !== null) {
-            <button class="secondary" type="button" (click)="cancelPlacement()">Cancel</button>
+        <div class="row" style="margin-top: .8rem">
+          <button type="button" (click)="save()" [disabled]="status.busy()">Save scene properties</button>
+        </div>
+      </div>
+
+      <!-- 3. Background -->
+      <div class="card">
+        <h3>Background</h3>
+
+        @if (store.images().length === 0) {
+          <p class="muted">No images uploaded yet. Add one in the Assets tab.</p>
+        } @else {
+          <div class="tiles">
+            @for (asset of store.images(); track asset.id) {
+              <button class="tile" type="button"
+                      [class.selected]="detail.backgroundAssetId === asset.id"
+                      (click)="setBackground(asset.id)">
+                <img [src]="assetUrl(asset.id)" [alt]="asset.name" />
+                <span class="muted">{{ asset.name }}</span>
+              </button>
+            }
+          </div>
+        }
+      </div>
+
+      <!-- 4. Dialogue -->
+      <div class="card">
+        <h3>Dialogue Lines <span class="muted">({{ detail.dialogue.length }})</span></h3>
+        <p class="muted">
+          Lines become burned-in subtitles and drive character mouth flapping.
+        </p>
+
+        @if (detail.dialogue.length > 0) {
+          <table>
+            <thead>
+              <tr><th>Speaker</th><th>Line</th><th>From</th><th>To</th><th></th></tr>
+            </thead>
+            <tbody>
+              @for (item of detail.dialogue; track item.index) {
+                <tr [style.background]="currentTime() >= item.startSeconds && currentTime() <= item.endSeconds ? 'color-mix(in oklab, var(--brand) 15%, transparent)' : 'transparent'">
+                  <td>{{ characterName(item.speakerCharacterId) }}</td>
+                  <td>{{ item.text }}</td>
+                  <td class="mono">{{ item.startSeconds | number: '1.1-2' }}s</td>
+                  <td class="mono">{{ item.endSeconds | number: '1.1-2' }}s</td>
+                  <td style="text-align: right; white-space: nowrap">
+                    <button class="secondary" type="button" (click)="editLine(item)">Edit</button>
+                    <button class="danger" type="button" (click)="removeLine(item.index)">Remove</button>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        }
+
+        <div class="subform">
+          <h4>{{ editingLine() === null ? 'Add a line' : 'Edit line ' + (editingLine()! + 1) }}</h4>
+
+          <div class="grid">
+            <div>
+              <label for="speaker">Speaker</label>
+              <select id="speaker" [(ngModel)]="line.speakerCharacterId">
+                <option value="">Unattributed</option>
+                @for (character of store.characters(); track character.id) {
+                  <option [value]="character.id">{{ character.name }}</option>
+                }
+              </select>
+            </div>
+
+            <div>
+              <label for="line-start">From (seconds)</label>
+              <input id="line-start" type="number" [(ngModel)]="line.startSeconds"
+                     min="0" [attr.max]="duration()" step="0.1" />
+            </div>
+
+            <div>
+              <label for="line-end">To (seconds)</label>
+              <input id="line-end" type="number" [(ngModel)]="line.endSeconds"
+                     min="0" [attr.max]="duration()" step="0.1" />
+            </div>
+          </div>
+
+          <label for="line-text">Text</label>
+          <textarea id="line-text" [(ngModel)]="line.text" style="min-height: 4rem"
+                    placeholder="What is said"></textarea>
+
+          <div class="row" style="margin-top: .6rem">
+            <button type="button" (click)="saveLine()"
+                    [disabled]="status.busy() || !line.text.trim()">
+              {{ editingLine() === null ? 'Add line' : 'Save line' }}
+            </button>
+            @if (editingLine() !== null) {
+              <button class="secondary" type="button" (click)="cancelLine()">Cancel</button>
+            }
+          </div>
+        </div>
+      </div>
+
+      <!-- 5. Audio -->
+      <div class="card">
+        <h3>Audio</h3>
+        <p class="muted">
+          The slice is a window on the original recording, not on this scene, so trimming a
+          scene never drifts its sound.
+        </p>
+
+        <div class="grid">
+          <div>
+            <label for="audio-asset">Source file</label>
+            <select id="audio-asset" [(ngModel)]="audio.assetId">
+              <option value="">None</option>
+              @for (asset of store.playable(); track asset.id) {
+                <option [value]="asset.id">{{ asset.name }}</option>
+              }
+            </select>
+          </div>
+
+          @if (audio.assetId) {
+            <div>
+              <label for="slice-start">Slice starts at (seconds)</label>
+              <input id="slice-start" type="number" [(ngModel)]="audio.sliceStartSeconds"
+                     min="0" step="0.1" />
+            </div>
+
+            <div>
+              <label for="slice-end">Slice ends at (seconds)</label>
+              <input id="slice-end" type="number" [(ngModel)]="audio.sliceEndSeconds"
+                     min="0" step="0.1" />
+            </div>
+          }
+        </div>
+
+        <div class="row" style="margin-top: .8rem">
+          <button type="button" (click)="saveAudio()" [disabled]="status.busy()">Save audio</button>
+          @if (detail.audioAssetId; as audioId) {
+            <button class="secondary" type="button" (click)="clearAudio()">Remove audio</button>
+            <audio controls preload="none" [src]="assetUrl(audioId)"></audio>
           }
         </div>
       </div>
-    }
+    </div>
   </div>
 } @else {
   <div class="card muted">Loading scene&hellip;</div>

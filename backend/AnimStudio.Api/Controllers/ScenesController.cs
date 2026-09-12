@@ -70,6 +70,14 @@ public sealed class ScenesController(
         return await DetailAsync(scene.Id, ct);
     }
 
+    [HttpPost("api/scenes/{sceneId}/duplicate")]
+    public async Task<ActionResult<ApiResponse<SceneDetailResponse>>> Duplicate(
+        string sceneId, CancellationToken ct)
+    {
+        var copy = await editing.DuplicateAsync(sceneId, currentUser.UserId, ct);
+        return await DetailAsync(copy.Id, ct);
+    }
+
     [HttpPut("api/scenes/{sceneId}")]
     public async Task<ActionResult<ApiResponse<SceneDetailResponse>>> Update(
         string sceneId, [FromBody] UpdateSceneRequest request, CancellationToken ct)

@@ -88,6 +88,71 @@ public sealed class SceneEditingService(
         return scene;
     }
 
+    public async Task<Scene> DuplicateAsync(string sceneId, string userId, CancellationToken ct)
+    {
+        var (source, project) = await LoadSceneAsync(sceneId, userId, ct).ConfigureAwait(false);
+        var existing = await scenes.ListByProjectAsync(source.ProjectId, ct).ConfigureAwait(false);
+        var orderKey = await NextOrderKeyAsync(existing, source.Id, ct).ConfigureAwait(false);
+        var now = clock.GetUtcNow().UtcDateTime;
+
+        var copy = new Scene
+        {
+            ProjectId = source.ProjectId,
+            OrderKey = orderKey,
+            SceneNumber = source.SceneNumber + 1,
+            Title = source.Title is not null ? $"{source.Title} (Copy)" : "Untitled scene (Copy)",
+            Description = source.Description,
+            DurationFrames = source.DurationFrames,
+            BackgroundAssetId = source.BackgroundAssetId,
+            Animation = source.Animation,
+            TransitionToNext = source.TransitionToNext,
+            TransitionDurationFrames = source.TransitionDurationFrames,
+            Audio = new SceneAudio
+            {
+                AssetId = source.Audio.AssetId,
+                SliceStartSeconds = source.Audio.SliceStartSeconds,
+                SliceEndSeconds = source.Audio.SliceEndSeconds
+            },
+            Dialogue = [.. source.Dialogue.Select(d => new DialogueLine
+            {
+                Index = d.Index,
+                SpeakerLabel = d.SpeakerLabel,
+                SpeakerCharacterId = d.SpeakerCharacterId,
+                Text = d.Text,
+                RelativeStartFrame = d.RelativeStartFrame,
+                RelativeEndFrame = d.RelativeEndFrame,
+                SourceStartSeconds = d.SourceStartSeconds,
+                SourceEndSeconds = d.SourceEndSeconds
+            })],
+            Characters = [.. source.Characters.Select(c => new CharacterPlacement
+            {
+                CharacterId = c.CharacterId,
+                PresenceStartFrame = c.PresenceStartFrame,
+                PresenceEndFrame = c.PresenceEndFrame,
+                Anchor = c.Anchor,
+                HeightFraction = c.HeightFraction,
+                OffsetXFraction = c.OffsetXFraction,
+                OffsetYFraction = c.OffsetYFraction,
+                FlipHorizontal = c.FlipHorizontal,
+                ZOrder = c.ZOrder,
+                Entrance = c.Entrance,
+                EntranceDurationFrames = c.EntranceDurationFrames
+            })],
+            Origin = SceneOrigin.Manual,
+            Status = SceneStatus.Active,
+            UserEditedFields = ["Title", "Duplicate"],
+            CreatedAt = now,
+            UpdatedAt = now,
+            RevisionToken = Guid.NewGuid().ToString("n")
+        };
+
+        await scenes.InsertAsync(copy, ct).ConfigureAwait(false);
+        await RenumberAsync(source.ProjectId, ct).ConfigureAwait(false);
+        await status.RefreshAsync(source.ProjectId, null, ct).ConfigureAwait(false);
+
+        return copy;
+    }
+
     public async Task<Scene> UpdateAsync(UpdateSceneCommand command, CancellationToken ct)
     {
         var (scene, project) = await LoadSceneAsync(command.SceneId, command.UserId, ct)

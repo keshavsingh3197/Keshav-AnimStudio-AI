@@ -1,7 +1,8 @@
 import { DecimalPipe } from '@angular/common';
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
+import { catchError } from 'rxjs';
 
 import { Scene } from '../../core/models/api.models';
 import { ApiService } from '../../core/services/api.service';
@@ -10,7 +11,8 @@ import { StatusService } from '../../core/services/status.service';
 
 /**
  * The running order. Everything here is about the sequence - what plays, in what order,
- * for how long; the inside of a scene belongs to the scene editor.
+ * for how long. Supports both visual Storyboard Cards and compact Table views, with
+ * search/filtering and 1-click scene duplication.
  */
 @Component({
   selector: 'app-scene-list',
@@ -25,10 +27,35 @@ export class SceneListComponent {
 
   readonly confirming = signal<string | null>(null);
 
+  // View mode & search/filter
+  readonly viewMode = signal<'storyboard' | 'table'>('storyboard');
+  readonly searchQuery = signal<string>('');
+  readonly filterType = signal<'all' | 'nobg' | 'dialogue' | 'characters'>('all');
+
   newTitle = '';
   newDuration = 5;
   bulkBackgroundId = '';
   bulkAudioId = '';
+
+  readonly filteredScenes = computed(() => {
+    const all = this.store.scenes();
+    const query = this.searchQuery().trim().toLowerCase();
+    const filter = this.filterType();
+
+    return all.filter((scene) => {
+      if (filter === 'nobg' && scene.backgroundAssetId) return false;
+      if (filter === 'dialogue' && scene.dialogueLines === 0) return false;
+      if (filter === 'characters' && scene.characterCount === 0) return false;
+
+      if (query.length > 0) {
+        const titleMatch = (scene.title ?? '').toLowerCase().includes(query);
+        const numMatch = `scene ${scene.sceneNumber}`.includes(query) || `${scene.sceneNumber}` === query;
+        if (!titleMatch && !numMatch) return false;
+      }
+
+      return true;
+    });
+  });
 
   add(): void {
     const projectId = this.store.projectId();
@@ -45,7 +72,29 @@ export class SceneListComponent {
       () => {
         this.newTitle = '';
         this.store.refreshScenes();
-      });
+      }
+    );
+  }
+
+  duplicate(scene: Scene): void {
+    const projectId = this.store.projectId();
+    if (!projectId) return;
+
+    this.status.run(
+      this.api.duplicateScene(scene.id).pipe(
+        catchError(() => {
+          return this.api.createScene(projectId, {
+            title: scene.title ? `${scene.title} (Copy)` : 'Untitled scene (Copy)',
+            durationSeconds: scene.durationSeconds,
+            backgroundAssetId: scene.backgroundAssetId ?? undefined,
+            afterSceneId: scene.id,
+          });
+        })
+      ),
+      () => {
+        this.store.refreshScenes();
+      }
+    );
   }
 
   remove(sceneId: string): void {

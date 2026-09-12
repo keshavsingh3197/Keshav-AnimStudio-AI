@@ -59,6 +59,34 @@ public class SceneEditingServiceTests
     }
 
     [Fact]
+    public async Task Duplicating_a_scene_copies_content_and_inserts_after_it()
+    {
+        var world = new EditingWorld();
+        var s1 = world.AddScene(1);
+        s1.Title = "Original Shot";
+        s1.BackgroundAssetId = "bg-1";
+        s1.Dialogue.Add(new DialogueLine { Index = 0, Text = "Hello world!" });
+        s1.Characters.Add(new CharacterPlacement { CharacterId = "char-1", HeightFraction = 0.8 });
+        world.AddScene(2);
+
+        var duplicate = await world.SceneEditing.DuplicateAsync("scene-1", EditingWorld.UserId, CancellationToken.None);
+
+        Assert.Equal("Original Shot (Copy)", duplicate.Title);
+        Assert.Equal("bg-1", duplicate.BackgroundAssetId);
+        Assert.Single(duplicate.Dialogue);
+        Assert.Equal("Hello world!", duplicate.Dialogue[0].Text);
+        Assert.Single(duplicate.Characters);
+        Assert.Equal("char-1", duplicate.Characters[0].CharacterId);
+        Assert.Equal(0.8, duplicate.Characters[0].HeightFraction);
+
+        var order = await world.SceneEditing.ListAsync(
+            world.Project.Id, EditingWorld.UserId, CancellationToken.None);
+
+        Assert.Equal(["Original Shot", "Original Shot (Copy)", "Scene 2"], order.Select(s => s.Title));
+        Assert.Equal([1, 2, 3], order.Select(s => s.SceneNumber));
+    }
+
+    [Fact]
     public async Task Deleting_a_scene_closes_the_gap_in_the_numbering()
     {
         var world = new EditingWorld();
