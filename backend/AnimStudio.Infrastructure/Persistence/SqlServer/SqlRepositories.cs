@@ -611,11 +611,9 @@ public sealed class SqlRenderJobRepository(ISqlConnectionFactory factory, TimePr
         const string sql = """
             INSERT INTO RenderJobs (
                 Id, ProjectId, Status, LeaseOwner, LeaseExpiresAt, HeartbeatAt, StartedAt,
-                CreatedAt, Attempts, CurrentStage, Progress, ScenesDone, ScenesTotal, DataJson
                 CreatedAt, Attempts, CurrentStage, Progress, Message, ScenesDone, ScenesTotal, DataJson
             ) VALUES (
                 @Id, @ProjectId, @Status, @LeaseOwner, @LeaseExpiresAt, @HeartbeatAt, @StartedAt,
-                @CreatedAt, @Attempts, @CurrentStage, @Progress, @ScenesDone, @ScenesTotal, @DataJson
                 @CreatedAt, @Attempts, @CurrentStage, @Progress, @Message, @ScenesDone, @ScenesTotal, @DataJson
             )
             """;
