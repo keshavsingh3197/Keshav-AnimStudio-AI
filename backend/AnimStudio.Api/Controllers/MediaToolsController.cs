@@ -192,6 +192,7 @@ public sealed class MediaToolsController(
         [FromForm] bool convertTo916 = false,
         [FromForm] string? projectId = null,
         [FromForm] bool importAsClips = false,
+        [FromForm] string compressionPreset = "original",
         CancellationToken ct = default)
     {
         // Load default chunk duration from settings if not explicitly specified
@@ -244,7 +245,7 @@ public sealed class MediaToolsController(
                     return BadRequest(ApiResponse<VideoChunkResult>.Fail("Invalid video URL.", new ApiError("url-invalid", "Invalid video URL.")));
                 }
 
-                var downloadReq = new MediaDownloadRequest(validation.CanonicalUrl, "mp4", "1080p");
+                var downloadReq = new MediaDownloadRequest(validation.CanonicalUrl, "mp4", "1080p", CompressionPreset: compressionPreset);
                 var downloaded = await ytDlp.DownloadAsync(downloadReq, new Uri(validation.CanonicalUrl), workDir, ct);
                 inputVideoPath = downloaded.FilePath;
                 sourceTitle = downloaded.Title;
@@ -257,7 +258,7 @@ public sealed class MediaToolsController(
             }
 
             var chunkResult = await chunker.ChunkVideoAsync(
-                inputVideoPath, sourceTitle, chunkDuration, accurateCut, convertTo916, jobId, workDir, ct);
+                inputVideoPath, sourceTitle, chunkDuration, accurateCut, convertTo916, jobId, workDir, compressionPreset, ct);
 
             // If requested, import chunks as Project Clips!
             if (importAsClips && !string.IsNullOrWhiteSpace(projectId))

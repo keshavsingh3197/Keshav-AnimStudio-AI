@@ -58,6 +58,7 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
   readonly selectedResolution = signal<string>('1080p');
   readonly selectedAudioFormat = signal<string>('mp3');
   readonly selectedAudioBitrate = signal<string>('320k');
+  readonly selectedCompression = signal<string>('original'); // 'original' | 'balanced' | 'high' | 'ultracompact'
 
   readonly downloading = signal<boolean>(false);
   readonly downloadProgressText = signal<string>('');
@@ -75,6 +76,7 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
   readonly accurateCut = signal<boolean>(false);
   readonly convertTo916 = signal<boolean>(false);
   readonly importAsClips = signal<boolean>(true);
+  readonly chunkCompression = signal<string>('original'); // 'original' | 'balanced' | 'high' | 'ultracompact'
 
   readonly chunking = signal<boolean>(false);
   readonly chunkResult = signal<VideoChunkResult | null>(null);
@@ -103,6 +105,13 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
   readonly audioFormats = ['mp3', 'wav', 'm4a', 'aac', 'flac', 'opus'];
   readonly audioBitrates = ['320k', '192k', '128k'];
 
+  readonly compressionPresets = [
+    { id: 'original', label: 'Original Quality', desc: 'No extra re-encoding / fast' },
+    { id: 'balanced', label: 'Balanced (~35% smaller)', desc: 'CRF 24 - visually lossless' },
+    { id: 'high', label: 'High Compression (~55% smaller)', desc: 'CRF 28 - compact size' },
+    { id: 'ultracompact', label: 'Ultra Compact (~75% smaller)', desc: 'CRF 32 (720p) - minimum size' },
+  ];
+
   readonly durationPresets = [5, 10, 15, 20, 30, 60];
 
   // --- Computed size estimates ---
@@ -110,14 +119,13 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
     const probe = this.probeResult();
     const file = this.selectedFile();
     const chunkDur = this.chunkDurationSeconds();
+    const comp = this.chunkCompression();
 
     let totalSizeBytes: number | null = null;
     let totalDuration: number | null = null;
 
     if (this.chunkSourceType() === 'url' && probe) {
       totalDuration = probe.durationSeconds;
-      // Rough estimate from typical YouTube Shorts bitrate (~4 Mbps for 1080p)
-      // We don't know exact file size until downloaded, so use probe duration × ~0.5 MB/s estimate
       totalSizeBytes = probe.durationSeconds * 500_000; // ~500KB/s heuristic
     } else if (this.chunkSourceType() === 'file' && file) {
       totalSizeBytes = file.size;
@@ -126,22 +134,27 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
 
     if (totalSizeBytes === null || chunkDur <= 0) return null;
 
+    // Apply compression factor to estimate
+    const factor = comp === 'ultracompact' ? 0.25 : comp === 'high' ? 0.45 : comp === 'balanced' ? 0.65 : 1.0;
+    const effectiveTotalBytes = totalSizeBytes * factor;
+
     if (totalDuration && totalDuration > 0) {
       const numChunks = Math.ceil(totalDuration / chunkDur);
-      const chunkSizeBytes = (totalSizeBytes / totalDuration) * chunkDur;
+      const chunkSizeBytes = (effectiveTotalBytes / totalDuration) * chunkDur;
       return {
         numChunks,
         chunkSizeMB: chunkSizeBytes / (1024 * 1024),
-        totalSizeMB: totalSizeBytes / (1024 * 1024),
+        totalSizeMB: effectiveTotalBytes / (1024 * 1024),
         totalDuration,
+        isCompressed: comp !== 'original',
       };
     } else if (this.chunkSourceType() === 'file' && file) {
-      // Duration unknown — just show file size
       return {
         numChunks: null,
         chunkSizeMB: null,
-        totalSizeMB: totalSizeBytes / (1024 * 1024),
+        totalSizeMB: effectiveTotalBytes / (1024 * 1024),
         totalDuration: null,
+        isCompressed: comp !== 'original',
       };
     }
     return null;
@@ -234,6 +247,7 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
       projectId,
       importAsAsset: !andChunk && !!projectId,
       assetName: this.probeResult()?.title,
+      compressionPreset: this.selectedCompression(),
     };
 
     this.mediaTools.downloadMedia(req).subscribe({
@@ -410,6 +424,7 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
     form.append('chunkDurationSeconds', this.chunkDurationSeconds().toString());
     form.append('accurateCut', this.accurateCut().toString());
     form.append('convertTo916', this.convertTo916().toString());
+    form.append('compressionPreset', this.chunkCompression());
 
     const projectId = this.store?.projectId?.();
     if (projectId) {

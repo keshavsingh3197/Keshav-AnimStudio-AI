@@ -130,6 +130,20 @@
               }
             </div>
           </div>
+
+          <div style="margin: 0.8rem 0;">
+            <label style="font-weight: 600; font-size: 0.85rem;">Compression &amp; File Size:</label>
+            <div class="pills-container">
+              @for (preset of compressionPresets; track preset.id) {
+                <button type="button" class="pill-option"
+                        [class.active]="selectedCompression() === preset.id"
+                        (click)="selectedCompression.set(preset.id)"
+                        [title]="preset.desc">
+                  {{ preset.label }}
+                </button>
+              }
+            </div>
+          </div>
         } @else {
           <div style="margin: 0.8rem 0;">
             <label style="font-weight: 600; font-size: 0.85rem;">Audio Format:</label>
@@ -350,6 +364,21 @@
           }
         </div>
       }
+
+      <!-- Compression Level Option -->
+      <div style="margin-top: 1rem;">
+        <label style="font-weight: 600; font-size: 0.85rem;">Compression &amp; File Size (Chunks):</label>
+        <div class="pills-container" style="margin-top: 0.4rem;">
+          @for (preset of compressionPresets; track preset.id) {
+            <button type="button" class="pill-option"
+                    [class.active]="chunkCompression() === preset.id"
+                    (click)="chunkCompression.set(preset.id)"
+                    [title]="preset.desc">
+              {{ preset.label }}
+            </button>
+          }
+        </div>
+      </div>
 
       <!-- Advanced options -->
       <div style="margin-top: 1rem; display: flex; flex-direction: column; gap: 0.5rem;">

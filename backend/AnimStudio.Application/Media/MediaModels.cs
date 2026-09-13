@@ -24,7 +24,8 @@ public sealed record MediaDownloadRequest(
     string AudioBitrate = "192k",
     string? ProjectId = null,
     bool ImportAsAsset = false,
-    string? AssetName = null);
+    string? AssetName = null,
+    string CompressionPreset = "original"); // "original", "balanced", "high", "ultracompact"
 
 public sealed record MediaDownloadResult(
     string Ticket,
@@ -43,7 +44,8 @@ public sealed record VideoChunkRequest(
     bool AccurateCut = false,
     string? ProjectId = null,
     bool ImportAsClips = false,
-    bool ConvertTo916 = false);
+    bool ConvertTo916 = false,
+    string CompressionPreset = "original"); // "original", "balanced", "high", "ultracompact"
 
 public sealed record ChunkItemResponse(
     int Index,

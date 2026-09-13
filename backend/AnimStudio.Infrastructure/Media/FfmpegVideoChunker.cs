@@ -49,7 +49,8 @@ public sealed class FfmpegVideoChunker(
         bool convertTo916,
         string jobId,
         string workDirectory,
-        CancellationToken ct)
+        string compressionPreset = "original",
+        CancellationToken ct = default)
     {
         if (chunkDurationSeconds <= 0) chunkDurationSeconds = 10.0;
 
@@ -65,6 +66,15 @@ public sealed class FfmpegVideoChunker(
 
         var totalChunks = Math.Max(1, (int)Math.Ceiling(totalDuration / chunkDurationSeconds));
         var chunkItems = new List<ChunkItemResponse>();
+
+        bool isCompressed = !string.IsNullOrWhiteSpace(compressionPreset) && !compressionPreset.Equals("original", StringComparison.OrdinalIgnoreCase);
+        var (crf, presetSpeed, audioBitrate) = compressionPreset.ToLowerInvariant() switch
+        {
+            "ultracompact" => ("32", "fast", "96k"),
+            "high" => ("28", "veryfast", "128k"),
+            "balanced" => ("24", "veryfast", "160k"),
+            _ => ("18", "veryfast", "192k")
+        };
 
         for (int i = 0; i < totalChunks; i++)
         {
@@ -95,26 +105,29 @@ public sealed class FfmpegVideoChunker(
 
             if (convertTo916)
             {
+                var scaleFilter = isCompressed && compressionPreset == "ultracompact"
+                    ? "[0:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,boxblur=20:5[bg];[0:v]scale=720:1280:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2[v]"
+                    : "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:5[bg];[0:v]scale=1080:1920:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2[v]";
+
                 arguments.AddRange([
-                    "-filter_complex",
-                    "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:5[bg];[0:v]scale=1080:1920:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2[v]",
+                    "-filter_complex", scaleFilter,
                     "-map", "[v]",
                     "-map", "0:a?",
                     "-c:v", "libx264",
-                    "-preset", "veryfast",
-                    "-crf", "18",
+                    "-preset", presetSpeed,
+                    "-crf", crf,
                     "-c:a", "aac",
-                    "-b:a", "192k"
+                    "-b:a", audioBitrate
                 ]);
             }
-            else if (accurateCut)
+            else if (accurateCut || isCompressed)
             {
                 arguments.AddRange([
                     "-c:v", "libx264",
-                    "-preset", "veryfast",
-                    "-crf", "18",
+                    "-preset", presetSpeed,
+                    "-crf", crf,
                     "-c:a", "aac",
-                    "-b:a", "192k"
+                    "-b:a", audioBitrate
                 ]);
             }
             else

@@ -22,6 +22,7 @@ export interface MediaDownloadRequest {
   projectId?: string;
   importAsAsset?: boolean;
   assetName?: string;
+  compressionPreset?: string;
 }
 
 export interface MediaDownloadResult {

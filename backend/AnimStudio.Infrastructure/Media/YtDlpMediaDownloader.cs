@@ -7,6 +7,8 @@ using AnimStudio.Application.Options;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
+using AnimStudio.Infrastructure.Ffmpeg;
+
 namespace AnimStudio.Infrastructure.Media;
 
 public sealed record DownloadedMediaFile(
@@ -20,6 +22,7 @@ public sealed record DownloadedMediaFile(
 
 public sealed class YtDlpMediaDownloader(
     IOptions<IngestOptions> options,
+    IFfmpegRunner runner,
     ILogger<YtDlpMediaDownloader> logger)
 {
     private readonly IngestOptions _options = options.Value;
@@ -178,6 +181,60 @@ public sealed class YtDlpMediaDownloader(
 
         var (title, duration) = ReadMetadata(targetDirectory);
         title ??= Path.GetFileNameWithoutExtension(downloadedFile);
+
+        if (!isAudio && !string.IsNullOrWhiteSpace(request.CompressionPreset) && !request.CompressionPreset.Equals("original", StringComparison.OrdinalIgnoreCase))
+        {
+            var compressedPath = Path.Combine(targetDirectory, $"{stem}_compressed.{format}");
+            var (crf, preset, scale) = request.CompressionPreset.ToLowerInvariant() switch
+            {
+                "ultracompact" => ("32", "fast", "scale='min(720,iw)':-2"), // Aggressive reduction (~70-80% smaller)
+                "high" => ("28", "veryfast", "scale='min(1080,iw)':-2"),    // High compression (~50-60% smaller)
+                "balanced" or _ => ("24", "veryfast", null)                // Balanced compression (~30-40% smaller)
+            };
+
+            var ffmpegArgs = new List<string>
+            {
+                "-y",
+                "-i", downloadedFile,
+                "-c:v", "libx264",
+                "-preset", preset,
+                "-crf", crf
+            };
+
+            if (scale != null)
+            {
+                ffmpegArgs.AddRange(["-vf", scale]);
+            }
+
+            ffmpegArgs.AddRange([
+                "-c:a", "aac",
+                "-b:a", "128k",
+                compressedPath
+            ]);
+
+            try
+            {
+                var runResult = await runner.RunAsync(new FfmpegInvocation
+                {
+                    Tool = FfmpegTool.Ffmpeg,
+                    WorkingDirectory = targetDirectory,
+                    Arguments = ffmpegArgs,
+                    Timeout = TimeSpan.FromMinutes(10)
+                }, progress: null, ct).ConfigureAwait(false);
+
+                if (File.Exists(compressedPath) && new FileInfo(compressedPath).Length > 1024)
+                {
+                    logger.LogInformation("Compressed downloaded media from {OrigSize} bytes to {CompSize} bytes using preset '{Preset}'",
+                        new FileInfo(downloadedFile).Length, new FileInfo(compressedPath).Length, request.CompressionPreset);
+                    try { File.Delete(downloadedFile); } catch { }
+                    downloadedFile = compressedPath;
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "FFmpeg compression pass failed; falling back to uncompressed downloaded media.");
+            }
+        }
 
         var fileInfo = new FileInfo(downloadedFile);
         var mimeType = isAudio ? GetAudioMimeType(format) : GetVideoMimeType(format);
