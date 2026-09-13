@@ -53,3 +53,4 @@ file sealed class DailyFileLogger(string logDirectory, string prefix, string cat
         }
     }
 }
+

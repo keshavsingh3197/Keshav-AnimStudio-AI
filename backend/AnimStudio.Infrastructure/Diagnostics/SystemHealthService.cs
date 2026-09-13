@@ -240,13 +240,13 @@ public sealed class SystemHealthService(
                 await store.SaveAsync(key, content, "text/plain", ct).ConfigureAwait(false);
             }
 
-            await using var read = await store.OpenAsync(key, ct).ConfigureAwait(false);
-
+            var read = await store.OpenAsync(key, ct).ConfigureAwait(false);
             if (read is null)
             {
                 return new HealthProbe("storage", "File storage", HealthState.Failed,
                     "A file was written and could not be read back.", Required: true);
             }
+            await read.DisposeAsync().ConfigureAwait(false);
 
             await store.DeleteAsync(key, ct).ConfigureAwait(false);
 
