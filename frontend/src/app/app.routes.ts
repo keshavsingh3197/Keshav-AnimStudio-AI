@@ -81,7 +81,22 @@ export const routes: Routes = [
           import('./features/settings/project-settings.component')
             .then((m) => m.ProjectSettingsComponent),
       },
+      {
+        path: 'media-tools',
+        title: 'Media Tools & Chunker - AnimStudio AI',
+        loadComponent: () =>
+          import('./features/media-tools/media-tools.component')
+            .then((m) => m.MediaToolsComponent),
+      },
     ],
+  },
+
+  {
+    path: 'tools',
+    title: 'Media Tools & Chunker - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/media-tools/media-tools.component')
+        .then((m) => m.MediaToolsComponent),
   },
 
   {

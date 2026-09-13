@@ -32,6 +32,7 @@ using AnimStudio.Infrastructure.Persistence.SqlServer;
 using AnimStudio.Infrastructure.Storage;
 using AnimStudio.Infrastructure.Subtitles;
 using AnimStudio.Infrastructure.Diagnostics;
+using AnimStudio.Infrastructure.Media;
 using AnimStudio.Infrastructure.Workbooks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -238,6 +239,8 @@ public static class DependencyInjection
         services.AddSingleton<IRenderWorkspaceFactory, RenderWorkspaceFactory>();
         services.AddScoped<IVideoRenderingService, FfmpegVideoRenderingService>();
         services.AddScoped<IMediaProbeService, FfprobeMediaProbeService>();
+        services.AddSingleton<YtDlpMediaDownloader>();
+        services.AddSingleton<FfmpegVideoChunker>();
         services.AddScoped<ProjectRenderOrchestrator>();
 
         // The clip stitch. Shares the queue, the workspace and the merge with the project

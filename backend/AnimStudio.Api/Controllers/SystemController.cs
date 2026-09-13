@@ -142,4 +142,47 @@ public sealed class SystemController(
         Response.Headers.XContentTypeOptions = "nosniff";
         return File(stream, mimeType);
     }
+
+    /// <summary>
+    /// Returns global media settings such as default chunk duration and availability.
+    /// </summary>
+    [HttpGet("media-settings")]
+    public async Task<ActionResult<ApiResponse<MediaSystemSettingsResponse>>> GetMediaSettings(CancellationToken ct)
+    {
+        var settings = await aiSettingsRepo.GetAsync(ct);
+        var chunkSec = settings?.DefaultChunkDurationSeconds ?? 10.0;
+        var allowDownload = ingestOptions.Value.AllowMediaDownload;
+        var ffmpegReady = capabilities.IsAvailable;
+        return Ok(ApiResponse<MediaSystemSettingsResponse>.Ok(new MediaSystemSettingsResponse(
+            chunkSec, allowDownload, true, ffmpegReady)));
+    }
+
+    /// <summary>
+    /// Updates the global default chunk duration in seconds.
+    /// </summary>
+    [HttpPut("chunk-duration")]
+    public async Task<ActionResult<ApiResponse<double>>> UpdateChunkDuration(
+        [FromBody] UpdateChunkDurationRequest request, CancellationToken ct)
+    {
+        if (request.DefaultChunkDurationSeconds <= 0)
+        {
+            return BadRequest(ApiResponse<double>.Fail("Chunk duration must be positive.", new ApiError("invalid-duration", "Must be positive.")));
+        }
+
+        var settings = await aiSettingsRepo.GetAsync(ct) ?? new AnimStudio.Domain.Ai.AiSettings();
+        settings.DefaultChunkDurationSeconds = request.DefaultChunkDurationSeconds;
+        settings.UpdatedAt = DateTime.UtcNow;
+        await aiSettingsRepo.SaveAsync(settings, ct);
+
+        return Ok(ApiResponse<double>.Ok(settings.DefaultChunkDurationSeconds));
+    }
 }
+
+public sealed record MediaSystemSettingsResponse(
+    double DefaultChunkDurationSeconds,
+    bool AllowMediaDownload,
+    bool YtDlpAvailable,
+    bool FfmpegAvailable);
+
+public sealed record UpdateChunkDurationRequest(double DefaultChunkDurationSeconds);
+

@@ -28,6 +28,8 @@ import { StatusService } from '../core/services/status.service';
           <span class="muted">working&hellip;</span>
         }
 
+        <a routerLink="/tools" routerLinkActive="active" class="muted" style="margin-right: 0.85rem">🎬 Media Studio</a>
+
         @if (access()?.canAdminister) {
           <a routerLink="/admin" routerLinkActive="active" class="muted">Settings</a>
         }

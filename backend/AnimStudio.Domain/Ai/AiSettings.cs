@@ -79,6 +79,16 @@ public sealed class AiSettings
     /// </summary>
     public WatermarkSettings? DefaultWatermark { get; set; }
 
+    /// <summary>
+    /// Global default duration in seconds when chunking or splitting videos (default: 10.0s).
+    /// </summary>
+    public double DefaultChunkDurationSeconds { get; set; } = 10.0;
+
+    /// <summary>
+    /// Whether downloading media from external URLs is enabled.
+    /// </summary>
+    public bool AllowMediaDownload { get; set; } = true;
+
     public string? UpdatedByUserId { get; set; }
     public DateTime UpdatedAt { get; set; }
 

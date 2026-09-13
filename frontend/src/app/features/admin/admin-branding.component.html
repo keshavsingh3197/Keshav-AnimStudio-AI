@@ -143,3 +143,35 @@
   </div>
 </div>
 
+<div class="card" style="margin-top: 1.5rem">
+  <div class="row" style="justify-content: space-between; align-items: flex-start; margin-bottom: 1rem">
+    <div>
+      <h2 style="margin: 0">Global Video Chunking & Splitting</h2>
+      <p class="muted" style="margin: .3rem 0 0; font-size: .9rem">
+        Set the default segment duration when splitting long videos or YouTube Shorts into clips.
+      </p>
+    </div>
+  </div>
+
+  @if (chunkDurationSaved()) {
+    <div class="notice ok" style="margin-bottom: 1rem">
+      Global chunk duration updated successfully to {{ defaultChunkDuration() }} seconds!
+    </div>
+  }
+
+  <div class="row" style="gap: 1rem; align-items: center; margin-bottom: 1rem;">
+    <div>
+      <label for="default-chunk-sec">Default Chunk Duration (Seconds)</label>
+      <input id="default-chunk-sec" type="number" min="1" max="300" step="1" style="max-width: 160px; font-size: 1.1rem; font-weight: 700;"
+             [ngModel]="defaultChunkDuration()" (ngModelChange)="defaultChunkDuration.set($event)" />
+    </div>
+  </div>
+
+  <div class="row">
+    <button type="button" (click)="saveChunkDuration()" [disabled]="status.busy()">
+      Save Default Chunk Duration
+    </button>
+  </div>
+</div>
+
+

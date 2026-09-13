@@ -19,6 +19,11 @@
             title="Save your current clip edits, trims, and sequence as a local draft">
       💾 Save Draft
     </button>
+    <a [routerLink]="['/projects', store.projectId(), 'media-tools']" [queryParams]="{ tab: 'chunker' }" style="text-decoration: none;">
+      <button class="secondary" type="button" title="Download YouTube Shorts/Videos or split any video into clips">
+        ✂️ Download & Chunk Video
+      </button>
+    </a>
     <button class="secondary" type="button" (click)="showShortcutsModal.set(true)" title="Keyboard shortcuts">
       ⌨ Shortcuts
     </button>

@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 
 import { WATERMARK_POSITIONS, WatermarkBody, WatermarkKind, WatermarkPosition } from '../../core/models/api.models';
 import { ApiService } from '../../core/services/api.service';
+import { MediaToolsService } from '../../core/services/media-tools.service';
 import { StatusService } from '../../core/services/status.service';
 
 @Component({
@@ -14,6 +15,7 @@ import { StatusService } from '../../core/services/status.service';
 })
 export class AdminBrandingComponent {
   private readonly api = inject(ApiService);
+  private readonly mediaTools = inject(MediaToolsService);
   readonly status = inject(StatusService);
 
   readonly watermarkPositions = WATERMARK_POSITIONS;
@@ -25,6 +27,8 @@ export class AdminBrandingComponent {
 
   readonly logoPreviewUrl = signal<string | null>(null);
   readonly saveSuccess = signal(false);
+  readonly defaultChunkDuration = signal<number>(10);
+  readonly chunkDurationSaved = signal<boolean>(false);
 
   form = {
     kind: 'None' as WatermarkKind,
@@ -63,6 +67,25 @@ export class AdminBrandingComponent {
           this.logoPreviewUrl.set(null);
         }
       }
+    });
+
+    this.mediaTools.getMediaSettings().subscribe({
+      next: (settings) => {
+        this.defaultChunkDuration.set(settings.defaultChunkDurationSeconds || 10);
+      },
+      error: () => {},
+    });
+  }
+
+  saveChunkDuration(): void {
+    const dur = this.defaultChunkDuration();
+    if (dur <= 0) return;
+
+    this.chunkDurationSaved.set(false);
+    this.status.run(this.mediaTools.updateChunkDuration(dur), (val) => {
+      this.defaultChunkDuration.set(val);
+      this.chunkDurationSaved.set(true);
+      setTimeout(() => this.chunkDurationSaved.set(false), 4000);
     });
   }
 

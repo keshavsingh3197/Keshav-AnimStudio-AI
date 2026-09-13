@@ -3,10 +3,9 @@ namespace AnimStudio.Application.Options;
 public sealed class YtDlpOptions
 {
     /// <summary>
-    /// URL ingest is off until an operator both installs the binary and flips this.
-    /// Nobody ends up with a downloader by accident.
+    /// URL ingest and media downloading via yt-dlp.
     /// </summary>
-    public bool Enabled { get; set; }
+    public bool Enabled { get; set; } = true;
 
     public string ExecutablePath { get; set; } = "yt-dlp";
     public int TimeoutSeconds { get; set; } = 120;
@@ -23,11 +22,9 @@ public sealed class IngestOptions
     public bool AllowUrlIngest { get; set; } = true;
 
     /// <summary>
-    /// Operator-level gate on downloading media. Separate from <see cref="YtDlpOptions.Enabled"/>
-    /// on purpose: captions-only ingest and media download are different decisions with
-    /// different consequences.
+    /// Operator-level gate on downloading media.
     /// </summary>
-    public bool AllowMediaDownload { get; set; }
+    public bool AllowMediaDownload { get; set; } = true;
 
     /// <summary>Applies to every ingest, including captions-only.</summary>
     public bool RequireRightsAttestation { get; set; } = true;

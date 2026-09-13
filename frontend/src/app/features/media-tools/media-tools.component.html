@@ -1,0 +1,550 @@
+<div class="page-head">
+  <div>
+    <h2>🎬 Media Studio &amp; Video Chunker</h2>
+    <p class="muted">
+      Download YouTube Shorts or videos in multiple formats (MP4, WebM, MP3, WAV, etc.), or split any video into clips
+      with customizable duration (default 10s).
+    </p>
+  </div>
+</div>
+
+<div class="tabs-bar">
+  <button type="button" class="tab-btn" [class.active]="activeTab() === 'downloader'" (click)="activeTab.set('downloader')">
+    <span>⬇️</span> Video &amp; Audio Downloader
+  </button>
+  <button type="button" class="tab-btn" [class.active]="activeTab() === 'chunker'" (click)="activeTab.set('chunker')">
+    <span>✂️</span> Smart Video Chunker ({{ chunkDurationSeconds() }}s)
+  </button>
+</div>
+
+<!-- ========================================================================= -->
+<!-- TAB 1: DOWNLOADER                                                         -->
+<!-- ========================================================================= -->
+@if (activeTab() === 'downloader') {
+  <div class="card">
+    <div class="section-head">
+      <h3>Download from YouTube / Web Video</h3>
+      <button type="button" class="secondary" (click)="sampleShortsUrl()">
+        Paste Sample Short
+      </button>
+    </div>
+
+    <p class="muted">
+      Enter any YouTube video or Shorts link (e.g. <span class="mono">https://www.youtube.com/shorts/...</span>).
+    </p>
+
+    <div class="probe-input-group">
+      <input type="text" [ngModel]="url()" (ngModelChange)="url.set($event)"
+             placeholder="https://www.youtube.com/shorts/..."
+             (keyup.enter)="probe()" />
+      <button type="button" (click)="probe()" [disabled]="probing() || !url().trim()">
+        {{ probing() ? 'Inspecting...' : '🔍 Inspect URL' }}
+      </button>
+    </div>
+
+    @if (probeError()) {
+      <div class="callout warning" style="margin-top: 1rem;">
+        <strong>Inspection Error:</strong> {{ probeError() }}
+      </div>
+    }
+
+    <!-- Probed Preview Card -->
+    @if (probeResult(); as meta) {
+      <div class="media-preview-card">
+        <div class="thumb-wrapper">
+          <img [src]="meta.thumbnailUrl" [alt]="meta.title" class="thumb-img" />
+          <span class="aspect-badge">{{ meta.aspectLabel }}</span>
+        </div>
+        <div class="preview-details">
+          <h4 class="video-title">{{ meta.title }}</h4>
+          <div class="channel-meta">
+            👤 {{ meta.channel }} &nbsp;•&nbsp; ⏱️ {{ meta.durationFormatted }} ({{ meta.durationSeconds | number:'1.1-1' }}s)
+            @if (meta.width && meta.height) {
+              &nbsp;•&nbsp; 📐 {{ meta.width }}x{{ meta.height }}
+            }
+          </div>
+
+          <div class="row" style="gap: 0.5rem; margin-top: 0.5rem;">
+            <button type="button" class="secondary" (click)="sendToChunker()">
+              ✂️ Send to Chunker ({{ globalDefaultDuration() }}s)
+            </button>
+            @if (sourceYoutubeEmbedUrl()) {
+              <button type="button" class="secondary" (click)="toggleSourcePlayer()">
+                {{ showSourcePlayer() ? '🙈 Hide Player' : '▶️ Preview Video' }}
+              </button>
+            }
+          </div>
+        </div>
+      </div>
+
+      <!-- Embedded YouTube Player -->
+      @if (showSourcePlayer() && sourceYoutubeEmbedUrl()) {
+        <div class="source-player-wrap">
+          <div class="source-player-header">
+            <span class="badge">📺 Source Preview</span>
+            <button type="button" class="icon-btn" (click)="toggleSourcePlayer()">✕</button>
+          </div>
+          <div [class.vertical-player]="meta.isShort" [class.horizontal-player]="!meta.isShort">
+            <iframe [src]="sourceYoutubeEmbedUrl()" frameborder="0"
+                    allow="autoplay; encrypted-media" allowfullscreen
+                    class="yt-embed"></iframe>
+          </div>
+        </div>
+      }
+
+      <!-- Format & Quality Options -->
+      <div class="card" style="background: rgba(30, 41, 59, 0.4); border: 1px solid #334155; margin-top: 1rem;">
+        <h4>Download Configuration</h4>
+
+        <div style="margin: 0.8rem 0;">
+          <label style="font-weight: 600; font-size: 0.85rem;">Media Type:</label>
+          <div class="pills-container">
+            <button type="button" class="pill-option" [class.active]="downloadType() === 'video'" (click)="downloadType.set('video')">
+              🎥 Video (MP4 / WebM / MOV)
+            </button>
+            <button type="button" class="pill-option" [class.active]="downloadType() === 'audio'" (click)="downloadType.set('audio')">
+              🎵 Audio Only (MP3 / WAV / M4A)
+            </button>
+          </div>
+        </div>
+
+        @if (downloadType() === 'video') {
+          <div style="margin: 0.8rem 0;">
+            <label style="font-weight: 600; font-size: 0.85rem;">Video Format:</label>
+            <div class="pills-container">
+              @for (fmt of videoFormats; track fmt) {
+                <button type="button" class="pill-option" [class.active]="selectedVideoFormat() === fmt" (click)="selectedVideoFormat.set(fmt)">
+                  {{ fmt | uppercase }}
+                </button>
+              }
+            </div>
+          </div>
+
+          <div style="margin: 0.8rem 0;">
+            <label style="font-weight: 600; font-size: 0.85rem;">Max Resolution:</label>
+            <div class="pills-container">
+              @for (res of resolutions; track res) {
+                <button type="button" class="pill-option" [class.active]="selectedResolution() === res" (click)="selectedResolution.set(res)">
+                  {{ res }}
+                </button>
+              }
+            </div>
+          </div>
+        } @else {
+          <div style="margin: 0.8rem 0;">
+            <label style="font-weight: 600; font-size: 0.85rem;">Audio Format:</label>
+            <div class="pills-container">
+              @for (fmt of audioFormats; track fmt) {
+                <button type="button" class="pill-option" [class.active]="selectedAudioFormat() === fmt" (click)="selectedAudioFormat.set(fmt)">
+                  {{ fmt | uppercase }}
+                </button>
+              }
+            </div>
+          </div>
+
+          <div style="margin: 0.8rem 0;">
+            <label style="font-weight: 600; font-size: 0.85rem;">Audio Quality / Bitrate:</label>
+            <div class="pills-container">
+              @for (br of audioBitrates; track br) {
+                <button type="button" class="pill-option" [class.active]="selectedAudioBitrate() === br" (click)="selectedAudioBitrate.set(br)">
+                  {{ br }}
+                </button>
+              }
+            </div>
+          </div>
+        }
+
+        <div class="row" style="gap: 0.75rem; margin-top: 1.25rem;">
+          <button type="button" [disabled]="downloading()" (click)="download(false)">
+            {{ downloading() ? '⬇️ Processing Download...' : '⬇️ Download File to Computer' }}
+          </button>
+          <button type="button" class="secondary" [disabled]="downloading()" (click)="download(true)">
+            ✂️ Download &amp; Split into Chunks ({{ chunkDurationSeconds() }}s)
+          </button>
+        </div>
+
+        @if (downloading()) {
+          <div class="callout" style="margin-top: 1rem;">
+            ⏳ {{ downloadProgressText() }}
+          </div>
+        }
+
+        @if (downloadResult(); as dl) {
+          <div class="callout success" style="margin-top: 1rem;">
+            ✅ <strong>Ready!</strong> {{ dl.fileName }} ({{ dl.fileSizeBytes / (1024 * 1024) | number:'1.1-2' }} MB)
+            <div style="margin-top: 0.5rem;">
+              <a [href]="dl.streamUrl" [download]="dl.fileName" class="pill-option active" style="display: inline-block; text-decoration: none;">
+                ⬇️ Click here if download did not start automatically
+              </a>
+            </div>
+          </div>
+        }
+
+        @if (downloadError()) {
+          <div class="callout warning" style="margin-top: 1rem;">
+            ⚠️ {{ downloadError() }}
+          </div>
+        }
+      </div>
+    }
+  </div>
+}
+
+<!-- ========================================================================= -->
+<!-- TAB 2: CHUNKER                                                            -->
+<!-- ========================================================================= -->
+@if (activeTab() === 'chunker') {
+  <div class="card">
+    <div class="section-head">
+      <h3>Split Video into Clips (Default {{ chunkDurationSeconds() }}s)</h3>
+      <span class="badge">Global Default: {{ globalDefaultDuration() }}s</span>
+    </div>
+
+    <p class="muted">
+      Splits long videos or Shorts into perfectly sized segments. Ready for editing, Reels, TikTok, or multi-scene rendering.
+    </p>
+
+    <!-- Source Selection -->
+    <div style="margin-bottom: 1.25rem;">
+      <label style="font-weight: 600; font-size: 0.85rem;">Video Source:</label>
+      <div class="pills-container">
+        <button type="button" class="pill-option" [class.active]="chunkSourceType() === 'url'" (click)="chunkSourceType.set('url')">
+          🌐 From YouTube / Web URL
+        </button>
+        <button type="button" class="pill-option" [class.active]="chunkSourceType() === 'file'" (click)="chunkSourceType.set('file')">
+          📁 Upload Video File
+        </button>
+        @if (store?.project()) {
+          <button type="button" class="pill-option" [class.active]="chunkSourceType() === 'asset'" (click)="chunkSourceType.set('asset')">
+            🎞️ Select Project Asset
+          </button>
+        }
+      </div>
+    </div>
+
+    @if (chunkSourceType() === 'url') {
+      <div style="margin-bottom: 1rem;">
+        <label for="chunk-url">YouTube or Video URL:</label>
+        <div class="probe-input-group">
+          <input id="chunk-url" type="text" [ngModel]="chunkUrl()" (ngModelChange)="chunkUrl.set($event)"
+                 placeholder="https://www.youtube.com/shorts/..." />
+          @if (probeResult()?.videoId) {
+            <button type="button" class="secondary" (click)="toggleSourcePlayer()">
+              {{ showSourcePlayer() ? '🙈 Hide' : '▶️ Preview' }}
+            </button>
+          }
+        </div>
+      </div>
+
+      <!-- Source video preview for chunker URL -->
+      @if (showSourcePlayer() && sourceYoutubeEmbedUrl() && chunkSourceType() === 'url') {
+        <div class="source-player-wrap" style="margin-bottom: 1rem;">
+          <div class="source-player-header">
+            <span class="badge">📺 Source Preview</span>
+            <button type="button" class="icon-btn" (click)="toggleSourcePlayer()">✕</button>
+          </div>
+          @if (probeResult(); as meta) {
+            <div [class.vertical-player]="meta.isShort" [class.horizontal-player]="!meta.isShort">
+              <iframe [src]="sourceYoutubeEmbedUrl()" frameborder="0"
+                      allow="autoplay; encrypted-media" allowfullscreen
+                      class="yt-embed"></iframe>
+            </div>
+          }
+        </div>
+      }
+    }
+
+    @if (chunkSourceType() === 'file') {
+      <div class="drop-zone" (drop)="onFileDrop($event)" (dragover)="onDragOver($event)" (click)="fileInput.click()">
+        <input #fileInput type="file" accept="video/*" style="display: none;" (change)="onFileChange($event)" />
+        <div style="font-size: 2rem; margin-bottom: 0.5rem;">📹</div>
+        @if (selectedFile(); as f) {
+          <strong style="color: #38bdf8;">{{ f.name }}</strong> ({{ f.size / (1024 * 1024) | number:'1.1-2' }} MB)
+        } @else {
+          <strong>Drop a video file here, or click to browse</strong>
+          <div class="muted" style="font-size: 0.8rem; margin-top: 0.25rem;">Supports MP4, MOV, WebM, MKV up to 512 MB</div>
+        }
+      </div>
+
+      <!-- File source preview player -->
+      @if (selectedFileObjectUrl() && showSourcePlayer()) {
+        <div class="source-player-wrap" style="margin-bottom: 1rem;">
+          <div class="source-player-header">
+            <span class="badge">📺 Source Preview</span>
+            <button type="button" class="icon-btn" (click)="toggleSourcePlayer()">✕</button>
+          </div>
+          <video [src]="selectedFileObjectUrl()!" controls class="source-file-player"></video>
+        </div>
+      }
+      @if (selectedFile() && !showSourcePlayer()) {
+        <button type="button" class="secondary" style="margin-bottom: 0.75rem;" (click)="toggleSourcePlayer()">
+          ▶️ Preview Source Video
+        </button>
+      }
+    }
+
+    @if (chunkSourceType() === 'asset') {
+      <div style="margin-bottom: 1rem;">
+        <label for="chunk-asset">Choose Video Asset:</label>
+        <select id="chunk-asset" [ngModel]="selectedAssetId()" (ngModelChange)="selectedAssetId.set($event)">
+          <option value="">-- Choose a video from project assets --</option>
+          @for (a of store?.videos?.(); track a.id) {
+            <option [value]="a.id">{{ a.name }} ({{ a.durationSeconds | number:'1.1-1' }}s)</option>
+          }
+        </select>
+      </div>
+    }
+
+    <!-- Chunk Duration Setting -->
+    <div class="card" style="background: rgba(30, 41, 59, 0.4); border: 1px solid #334155; margin-top: 1rem;">
+      <div class="section-head">
+        <label style="font-weight: 600;">Chunk Duration (Seconds):</label>
+        <button type="button" class="secondary" [disabled]="savingGlobalDefault()" (click)="saveAsGlobalDefault()">
+          {{ savingGlobalDefault() ? 'Saving...' : '💾 Save ' + chunkDurationSeconds() + 's as Global Default' }}
+        </button>
+      </div>
+
+      <div class="row" style="gap: 1rem; align-items: center;">
+        <input type="number" min="1" max="300" step="1"
+               style="max-width: 130px; font-size: 1.1rem; font-weight: 700;"
+               [ngModel]="chunkDurationSeconds()" (ngModelChange)="chunkDurationSeconds.set($event)" />
+        <span class="muted">seconds per chunk</span>
+      </div>
+
+      <div class="pills-container" style="margin-top: 0.75rem;">
+        @for (sec of durationPresets; track sec) {
+          <button type="button" class="pill-option" [class.active]="chunkDurationSeconds() === sec" (click)="setDuration(sec)">
+            {{ sec }}s {{ sec === globalDefaultDuration() ? ' (Default)' : '' }}
+          </button>
+        }
+      </div>
+
+      <!-- Size Estimate Preview -->
+      @if (sizeEstimate(); as est) {
+        <div class="size-estimate-banner">
+          <div class="size-est-row">
+            <span class="size-est-icon">📊</span>
+            <span class="size-est-label">Estimated split:</span>
+            @if (est.numChunks !== null) {
+              <strong class="size-est-value">{{ est.numChunks }} clips</strong>
+              <span class="size-est-sep">·</span>
+              <strong class="size-est-value">~{{ est.chunkSizeMB! | number:'1.1-2' }} MB/clip</strong>
+              <span class="size-est-sep">·</span>
+              <span class="size-est-label">Total: ~{{ est.totalSizeMB | number:'1.1-2' }} MB</span>
+            } @else {
+              <strong class="size-est-value">Source: ~{{ est.totalSizeMB | number:'1.1-2' }} MB</strong>
+              <span class="size-est-sep">·</span>
+              <span class="size-est-label">Duration unknown (will probe after upload)</span>
+            }
+          </div>
+          @if (est.numChunks !== null && est.totalDuration) {
+            <div class="size-breakdown-bar">
+              @for (i of [].constructor(est.numChunks); track $index) {
+                <div class="breakdown-segment" [style.flex]="1"
+                     [class.breakdown-last]="$index === est.numChunks! - 1"
+                     [title]="'Clip ' + ($index + 1) + ': ~' + (est.chunkSizeMB! | number:'1.1-2') + ' MB'">
+                  <span class="breakdown-label">{{ $index + 1 }}</span>
+                </div>
+              }
+            </div>
+          }
+        </div>
+      }
+
+      <!-- Advanced options -->
+      <div style="margin-top: 1rem; display: flex; flex-direction: column; gap: 0.5rem;">
+        <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+          <input type="checkbox" [ngModel]="accurateCut()" (ngModelChange)="accurateCut.set($event)" />
+          <span><strong>Accurate Cut:</strong> Re-encode clips at exact frame boundaries (instead of fast keyframe stream-copy)</span>
+        </label>
+
+        <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+          <input type="checkbox" [ngModel]="convertTo916()" (ngModelChange)="convertTo916.set($event)" />
+          <span><strong>Convert to 9:16 Shorts:</strong> Auto-format landscape video with blurred backdrop for vertical screens</span>
+        </label>
+
+        @if (store?.project()) {
+          <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+            <input type="checkbox" [ngModel]="importAsClips()" (ngModelChange)="importAsClips.set($event)" />
+            <span><strong>Import as Project Clips:</strong> Add generated chunks directly into Video Studio timeline</span>
+          </label>
+        }
+      </div>
+    </div>
+
+    <div class="row" style="margin-top: 1.5rem; gap: 1rem;">
+      <button type="button" [disabled]="chunking()" (click)="chunkVideo()">
+        {{ chunking() ? '⏳ Processing...' : '✂️ Split Video into ' + chunkDurationSeconds() + 's Chunks' }}
+      </button>
+    </div>
+
+    <!-- Live Progress Bar -->
+    @if (chunking()) {
+      <div class="progress-panel">
+        <div class="progress-steps">
+          <div class="progress-step" [class.active]="chunkProgressStep() >= 1" [class.done]="chunkProgressStep() > 1">
+            <div class="step-dot"></div>
+            <span>Download</span>
+          </div>
+          <div class="progress-connector" [class.active]="chunkProgressStep() >= 2"></div>
+          <div class="progress-step" [class.active]="chunkProgressStep() >= 2" [class.done]="chunkProgressStep() > 2">
+            <div class="step-dot"></div>
+            <span>Split</span>
+          </div>
+          <div class="progress-connector" [class.active]="chunkProgressStep() >= 3"></div>
+          <div class="progress-step" [class.active]="chunkProgressStep() >= 3" [class.done]="false">
+            <div class="step-dot"></div>
+            <span>Package</span>
+          </div>
+        </div>
+
+        <div class="progress-bar-wrap">
+          <div class="progress-bar-track">
+            <div class="progress-bar-fill" [style.width.%]="chunkProgressPct()"></div>
+          </div>
+          <span class="progress-pct">{{ chunkProgressPct() | number:'1.0-0' }}%</span>
+        </div>
+
+        <div class="progress-status-text">{{ chunkProgressText() }}</div>
+      </div>
+    }
+
+    @if (chunkError()) {
+      <div class="callout warning" style="margin-top: 1rem;">
+        ⚠️ {{ chunkError() }}
+      </div>
+    }
+
+    <!-- Chunker Results -->
+    @if (chunkResult(); as result) {
+      <div class="chunk-timeline-wrap">
+        <!-- Summary Stats -->
+        <div class="chunk-stats-bar">
+          <div class="stat-item">
+            <span class="stat-label">Total Clips</span>
+            <strong class="stat-value">{{ result.totalChunks }}</strong>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Duration Each</span>
+            <strong class="stat-value">{{ result.chunkDurationSeconds }}s</strong>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Total Duration</span>
+            <strong class="stat-value">{{ result.totalDurationSeconds | number:'1.1-1' }}s</strong>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Total Size</span>
+            <strong class="stat-value">{{ formatBytes(totalChunkSizeBytes(result.chunks)) }}</strong>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Avg Clip Size</span>
+            <strong class="stat-value">{{ formatBytes(avgChunkSizeBytes(result.chunks)) }}</strong>
+          </div>
+        </div>
+
+        <div class="section-head" style="margin-top: 1rem;">
+          <h4>📋 Generated {{ result.totalChunks }} Chunks</h4>
+          <div class="row" style="gap: 0.5rem;">
+            <button type="button" (click)="downloadAllZip()">
+              📦 Download All (ZIP)
+            </button>
+            @if (store?.project()) {
+              <button type="button" class="secondary" (click)="openInClipStudio()">
+                🎬 Open in Video Editor
+              </button>
+            }
+          </div>
+        </div>
+
+        <!-- Visual Timeline Blocks (clickable) -->
+        <div class="timeline-section">
+          <div class="timeline-label">
+            <span>🕐 Timeline — click any block to jump playback</span>
+          </div>
+          <div class="timeline-blocks">
+            @for (c of result.chunks; track c.index) {
+              <button type="button" class="time-block"
+                      [class.active]="activeChunkIndex() === c.index"
+                      (click)="playFromChunk(c.index)"
+                      [title]="'Part ' + c.index + ': ' + c.startFormatted + ' – ' + c.endFormatted + ' (' + (c.fileSizeBytes / (1024*1024) | number:'1.1-2') + ' MB)'">
+                <div class="block-title">Part {{ c.index }}</div>
+                <div class="block-time">{{ c.startFormatted }}</div>
+                <div class="block-size">{{ c.fileSizeBytes / (1024*1024) | number:'1.1-1' }}MB</div>
+              </button>
+            }
+          </div>
+        </div>
+
+        <!-- Playback Controls -->
+        <div class="playback-controls-bar">
+          <div class="playback-ctrl-row">
+            <button type="button" class="play-all-btn" (click)="playAll()" [disabled]="isPlaying()">
+              ▶️ Play All (auto-advance)
+            </button>
+            <button type="button" class="secondary stop-btn" (click)="stopAll()" [disabled]="!isPlaying()">
+              ⏹ Stop
+            </button>
+            <div class="play-from-picker">
+              <label>▶ Start from clip:</label>
+              <select [ngModel]="playFromChunkIndex()" (ngModelChange)="playFromChunkIndex.set($event); playFromChunk($event)">
+                @for (c of result.chunks; track c.index) {
+                  <option [value]="c.index">Clip {{ c.index }} ({{ c.startFormatted }})</option>
+                }
+              </select>
+            </div>
+          </div>
+
+          @if (isPlaying()) {
+            <div class="now-playing-bar">
+              🎵 Now playing: <strong>Clip {{ activeChunkIndex() + 1 }}</strong>
+              ({{ result.chunks[activeChunkIndex()].startFormatted }} → {{ result.chunks[activeChunkIndex()].endFormatted }})
+            </div>
+          }
+        </div>
+
+        <!-- Chunks Grid with Preview Players -->
+        <div class="chunk-grid">
+          @for (chunk of result.chunks; track chunk.index) {
+            <div class="chunk-card" [class.active-chunk]="activeChunkIndex() === chunk.index">
+              <div class="chunk-card-head">
+                <span class="chunk-idx">
+                  Part {{ chunk.index }}
+                  @if (activeChunkIndex() === chunk.index && isPlaying()) {
+                    <span class="playing-indicator">▶ Playing</span>
+                  }
+                </span>
+                <span class="chunk-dur">{{ chunk.startFormatted }} &rarr; {{ chunk.endFormatted }} ({{ chunk.durationSeconds | number:'1.1-1' }}s)</span>
+              </div>
+
+              <video #chunkPlayer
+                     [src]="chunk.streamUrl"
+                     controls
+                     class="chunk-video-player"
+                     preload="metadata"
+                     (play)="onChunkPlay(chunk.index)"
+                     (pause)="onChunkPause(chunk.index)"
+                     (ended)="onChunkEnded(chunk.index)">
+              </video>
+
+              <div class="chunk-footer">
+                <div class="chunk-size-badge">
+                  <span class="size-icon">💾</span>
+                  <strong>{{ chunk.fileSizeBytes / (1024 * 1024) | number:'1.2-2' }} MB</strong>
+                </div>
+                <div class="chunk-actions">
+                  <button type="button" class="pill-option" (click)="playFromChunk(chunk.index)">
+                    ▶ Play
+                  </button>
+                  <a [href]="chunk.streamUrl" [download]="chunk.fileName"
+                     class="pill-option active" style="text-decoration: none; font-size: 0.75rem; padding: 0.25rem 0.6rem;">
+                    ⬇️ Save
+                  </a>
+                </div>
+              </div>
+            </div>
+          }
+        </div>
+      </div>
+    }
+  </div>
+}
