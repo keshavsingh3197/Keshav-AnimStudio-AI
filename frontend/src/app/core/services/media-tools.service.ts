@@ -26,13 +26,16 @@ export class MediaToolsService {
   downloadMedia(req: MediaDownloadRequest): Observable<MediaDownloadResult> {
     return this.unwrap(
       this.http.post<ApiResponse<MediaDownloadResult>>(`${this.base}/api/media/download`, req)
-    );
+    ).pipe(map((r) => ({
+      ...r,
+      streamUrl: r.streamUrl?.startsWith('/') ? `${this.base}${r.streamUrl}` : r.streamUrl,
+    })));
   }
 
   chunkVideo(formData: FormData): Observable<VideoChunkResult> {
     return this.unwrap(
       this.http.post<ApiResponse<VideoChunkResult>>(`${this.base}/api/media/chunk`, formData)
-    );
+    ).pipe(map((result) => this.rewriteChunkUrls(result)));
   }
 
   getMediaSettings(): Observable<MediaSystemSettings> {
@@ -57,8 +60,23 @@ export class MediaToolsService {
     return `${this.base}/api/media/chunks/${jobId}/${index}`;
   }
 
+  /** Make sure all relative /api/... stream URLs from the backend get the full origin prefix
+   *  so <video src> loads from the correct backend port, not the Angular dev-server port (4200). */
+  private rewriteChunkUrls(result: VideoChunkResult): VideoChunkResult {
+    const base = this.base;
+    return {
+      ...result,
+      zipDownloadUrl: result.zipDownloadUrl?.startsWith('/')
+        ? `${base}${result.zipDownloadUrl}` : result.zipDownloadUrl,
+      chunks: result.chunks.map((c) => ({
+        ...c,
+        streamUrl: c.streamUrl?.startsWith('/')
+          ? `${base}${c.streamUrl}` : c.streamUrl,
+      })),
+    };
+  }
+
   private unwrap<T>(source: Observable<ApiResponse<T>>): Observable<T> {
     return source.pipe(map((response) => response.data as T));
   }
 }
-

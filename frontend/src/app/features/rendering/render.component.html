@@ -1,7 +1,7 @@
 <div class="page-head">
   <div>
     <h2>
-      Render
+      🎬 Render
       @if (store.project(); as project) {
         <span [class]="formatClass(project.width, project.height)">
           {{ format(project.width, project.height) }} &middot;
@@ -21,7 +21,7 @@
   <div class="row" style="gap: .75rem; flex-wrap: wrap; align-items: center">
     <button type="button" (click)="render()"
             [disabled]="status.busy() || running() || blockedReason() !== null">
-      Render Video ({{ aspect(store.project()?.width ?? 1920, store.project()?.height ?? 1080) }})
+      🎬 Render Video ({{ aspect(store.project()?.width ?? 1920, store.project()?.height ?? 1080) }})
     </button>
 
     <button class="secondary" type="button" (click)="renderAsShort()"
@@ -31,7 +31,7 @@
     </button>
 
     @if (running()) {
-      <button class="secondary" type="button" (click)="cancel()">Cancel</button>
+      <button class="secondary" type="button" (click)="cancel()">⏹ Cancel</button>
     }
 
     @if (blockedReason(); as reason) {
@@ -65,34 +65,86 @@
 
   @if (job(); as current) {
     <div style="margin-top: 1.25rem">
-      <div class="row" style="justify-content: space-between; align-items: center">
-        <div class="row" style="gap: .5rem; align-items: center">
-          <span [class]="statusClass(current.status)">{{ current.status }}</span>
-          <span [class]="jobFormatClass(current)">{{ jobFormat(current) }} &middot; {{ jobAspect(current) }}</span>
-          <span class="muted mono" style="font-size: .85rem">{{ jobResolution(current) }}</span>
-          <span class="muted"> {{ current.message }}</span>
+
+      <!-- ====================================================== -->
+      <!-- ATTRACTIVE PROGRESS PANEL (mirrors Media Studio style) -->
+      <!-- ====================================================== -->
+      @if (!current.hasOutput) {
+        <div class="render-progress-panel">
+          <!-- Header row: status badge + format + resolution + % -->
+          <div class="progress-header">
+            <div class="row" style="gap: .5rem; align-items: center; flex-wrap: wrap;">
+              <span [class]="statusClass(current.status)">{{ current.status }}</span>
+              <span [class]="jobFormatClass(current)">{{ jobFormat(current) }} &middot; {{ jobAspect(current) }}</span>
+              <span class="muted mono" style="font-size: .82rem">{{ jobResolution(current) }}</span>
+              @if (current.message) {
+                <span class="muted" style="font-size: .82rem">{{ current.message }}</span>
+              }
+            </div>
+            <span class="progress-pct-label">{{ current.progress }}%</span>
+          </div>
+
+          <!-- Step dots row -->
+          <div class="render-steps">
+            <div class="render-step" [class.active]="current.progress > 0 && current.progress < 85"
+                                     [class.done]="current.progress >= 85">
+              <div class="step-dot"></div>
+              <span>Rendering Scenes</span>
+            </div>
+            <div class="render-connector" [class.active]="current.progress >= 85"></div>
+            <div class="render-step" [class.active]="current.progress >= 85 && current.progress < 98"
+                                     [class.done]="current.progress >= 98">
+              <div class="step-dot"></div>
+              <span>Merging &amp; Mixing</span>
+            </div>
+            <div class="render-connector" [class.active]="current.progress >= 98"></div>
+            <div class="render-step" [class.active]="current.progress >= 98">
+              <div class="step-dot"></div>
+              <span>Finalizing</span>
+            </div>
+          </div>
+
+          <!-- Progress bar with shimmer -->
+          <div class="render-bar-wrap">
+            <div class="render-bar-track">
+              <div class="render-bar-fill" [style.width.%]="current.progress"
+                   [class.fill-failed]="current.status === 'Failed'"
+                   [class.fill-cancelled]="current.status === 'Cancelled'">
+              </div>
+            </div>
+          </div>
+
+          <!-- Stage + scene counter -->
+          <div class="render-stage-row">
+            <span class="render-stage-text">{{ current.currentStage }}</span>
+            <span class="render-scene-counter">
+              Scene {{ current.scenesDone }} / {{ current.scenesTotal }}
+            </span>
+          </div>
         </div>
-        <span class="mono" style="font-weight: 700">{{ current.progress }}%</span>
-      </div>
+      }
 
-      <div class="bar" style="margin-top: .6rem">
-        <i [style.width.%]="current.progress"></i>
-      </div>
-
-      <p class="muted" style="margin-top: .4rem; font-size: .85rem">
-        {{ current.currentStage }} &middot; scene {{ current.scenesDone }} of
-        {{ current.scenesTotal }}
-      </p>
+      <!-- Full success status line (when not yet complete) -->
+      @if (current.hasOutput) {
+        <div class="row" style="justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap;">
+          <div class="row" style="gap: .5rem; align-items: center">
+            <span [class]="statusClass(current.status)">{{ current.status }}</span>
+            <span [class]="jobFormatClass(current)">{{ jobFormat(current) }} &middot; {{ jobAspect(current) }}</span>
+            <span class="muted mono" style="font-size: .85rem">{{ jobResolution(current) }}</span>
+          </div>
+          <span class="pill ok">✅ 100% complete</span>
+        </div>
+      }
 
       @if (current.errorMessage) {
-        <div class="notice error">
+        <div class="notice error" style="margin-top: .75rem;">
           {{ current.errorMessage }}
           <span class="mono muted"> ({{ current.errorCode }})</span>
         </div>
       }
 
       @if (current.hasOutput) {
-        <div class="render-output-card" style="margin-top: 1.25rem; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.2rem; display: flex; flex-direction: column; gap: 1rem">
+        <div class="render-output-card">
           <div class="row" style="justify-content: space-between; align-items: center; flex-wrap: wrap; gap: .5rem">
             <div class="row" style="gap: .5rem; align-items: center">
               <strong>Final Video Preview</strong>
@@ -108,7 +160,7 @@
 
               <div class="aspect-pill-group">
                 <button type="button" class="aspect-pill" [class.active]="previewFit() === 'contain'"
-                        (click)="setPreviewFit('contain')" title="Fit whole frame with black letterbox bars (Entire video & logo 100% visible)">
+                        (click)="setPreviewFit('contain')" title="Fit whole frame with black letterbox bars (Entire video &amp; logo 100% visible)">
                   Fit (Letterbox)
                 </button>
                 <button type="button" class="aspect-pill" [class.active]="previewFit() === 'cover'"
@@ -193,7 +245,18 @@
               <span class="mono muted" style="font-size: .8rem; margin-left: .3rem">({{ jobAspect(item) }})</span>
             </td>
             <td><span [class]="statusClass(item.status)">{{ item.status }}</span></td>
-            <td class="mono">{{ item.progress }}%</td>
+            <td>
+              <!-- Mini progress bar in history table -->
+              <div style="display: flex; align-items: center; gap: .4rem;">
+                <div style="width: 60px; height: 6px; background: #1e293b; border-radius: 3px; overflow: hidden;">
+                  <div [style.width.%]="item.progress"
+                       [style.background]="item.status === 'Completed' || item.status === 'CompletedWithWarnings' ? '#22c55e' : item.status === 'Failed' ? '#ef4444' : '#38bdf8'"
+                       style="height: 100%; border-radius: 3px; transition: width .3s ease;">
+                  </div>
+                </div>
+                <span class="mono" style="font-size: .78rem; color: #94a3b8;">{{ item.progress }}%</span>
+              </div>
+            </td>
             <td style="text-align: right; white-space: nowrap">
               <button class="secondary" type="button" (click)="watch(item)">Show</button>
               @if (item.hasOutput) {
@@ -208,3 +271,165 @@
     </table>
   </div>
 }
+
+<!-- =========================================================== -->
+<!-- Render progress styles (scoped here since no external .css) -->
+<!-- =========================================================== -->
+<style>
+.render-progress-panel {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid #334155;
+  border-radius: 12px;
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+  gap: .5rem;
+}
+
+.progress-pct-label {
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: #38bdf8;
+  font-family: monospace;
+}
+
+/* Step dots */
+.render-steps {
+  display: flex;
+  align-items: center;
+  margin-bottom: .9rem;
+}
+
+.render-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.render-step span {
+  font-size: .72rem;
+  color: #64748b;
+  white-space: nowrap;
+  transition: color .3s;
+}
+.render-step.active span, .render-step.done span { color: #38bdf8; }
+
+.step-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #334155;
+  border: 2px solid #475569;
+  transition: all .3s;
+}
+.render-step.active .step-dot {
+  background: #38bdf8;
+  border-color: #38bdf8;
+  box-shadow: 0 0 8px rgba(56,189,248,.7);
+  animation: pulse-step 1s ease-in-out infinite;
+}
+.render-step.done .step-dot {
+  background: #22c55e;
+  border-color: #22c55e;
+}
+
+@keyframes pulse-step {
+  0%, 100% { box-shadow: 0 0 6px rgba(56,189,248,.5); }
+  50%       { box-shadow: 0 0 14px rgba(56,189,248,.9); }
+}
+
+.render-connector {
+  flex: 1;
+  height: 2px;
+  background: #334155;
+  margin: 0 6px;
+  margin-bottom: 16px;
+  transition: background .4s;
+}
+.render-connector.active { background: linear-gradient(to right, #22c55e, #38bdf8); }
+
+/* Bar */
+.render-bar-wrap { margin-bottom: .75rem; }
+
+.render-bar-track {
+  width: 100%;
+  height: 10px;
+  background: #1e293b;
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.render-bar-fill {
+  height: 100%;
+  background: linear-gradient(to right, #0284c7, #38bdf8);
+  border-radius: 5px;
+  transition: width .6s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.render-bar-fill::after {
+  content: '';
+  position: absolute;
+  top: 0; left: -100%;
+  width: 100%; height: 100%;
+  background: linear-gradient(to right, transparent, rgba(255,255,255,.3), transparent);
+  animation: bar-shimmer 1.6s infinite;
+}
+
+@keyframes bar-shimmer { to { left: 200%; } }
+
+.render-bar-fill.fill-failed    { background: #ef4444; }
+.render-bar-fill.fill-cancelled { background: #f59e0b; }
+
+/* Stage text row */
+.render-stage-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: .8rem;
+}
+.render-stage-text   { color: #94a3b8; font-family: monospace; }
+.render-scene-counter { color: #38bdf8; font-weight: 600; }
+
+/* Output card */
+.render-output-card {
+  margin-top: 1.25rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* Aspect pills */
+.aspect-pill-group {
+  display: flex;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.aspect-pill {
+  padding: .3rem .75rem;
+  font-size: .78rem;
+  font-weight: 500;
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all .15s;
+}
+.aspect-pill + .aspect-pill { border-left: 1px solid #334155; }
+.aspect-pill:hover { background: rgba(56,189,248,.06); color: #e2e8f0; }
+.aspect-pill.active { background: #0284c7; color: #fff; }
+</style>

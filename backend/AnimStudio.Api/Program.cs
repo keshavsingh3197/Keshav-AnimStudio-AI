@@ -5,7 +5,17 @@ using AnimStudio.Application.Security;
 using AnimStudio.Infrastructure;
 using KeshavSingh.Core;
 
+// Ensure AI_STUDIO directories exist on startup
+Directory.CreateDirectory("D:/AI_STUDIO/objects");
+Directory.CreateDirectory("D:/AI_STUDIO/temp");
+Directory.CreateDirectory("D:/AI_STUDIO/downloads");
+Directory.CreateDirectory("D:/AI_STUDIO/chunks");
+Directory.CreateDirectory("D:/AI_STUDIO/logs");
+
 var builder = WebApplication.CreateBuilder(args);
+
+// Write rolling logs to D:/AI_STUDIO/logs/ — one file per day.
+builder.Logging.AddProvider(new DailyFileLoggerProvider("D:/AI_STUDIO/logs", "animstudio"));
 
 builder.Services.AddAnimStudioInfrastructure(builder.Configuration);
 

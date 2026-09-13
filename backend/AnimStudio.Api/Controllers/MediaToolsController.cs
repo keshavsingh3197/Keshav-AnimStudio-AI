@@ -85,7 +85,7 @@ public sealed class MediaToolsController(
                 "Invalid YouTube or video URL.", new ApiError("url-invalid", "That does not look like a valid video URL.")));
         }
 
-        var workDir = Path.Combine(Path.GetTempPath(), "animstudio-downloads", Guid.NewGuid().ToString("n"));
+        var workDir = Path.Combine("D:/AI_STUDIO/downloads", Guid.NewGuid().ToString("n"));
         Directory.CreateDirectory(workDir);
 
         try
@@ -201,7 +201,7 @@ public sealed class MediaToolsController(
             : (settings?.DefaultChunkDurationSeconds ?? 10.0);
 
         var jobId = Guid.NewGuid().ToString("n");
-        var workDir = Path.Combine(Path.GetTempPath(), "animstudio-chunks", jobId);
+        var workDir = Path.Combine("D:/AI_STUDIO/chunks", jobId);
         Directory.CreateDirectory(workDir);
         ChunkWorkspaces[jobId] = workDir;
 
