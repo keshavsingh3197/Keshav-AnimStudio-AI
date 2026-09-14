@@ -160,6 +160,43 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
     return null;
   });
 
+  // --- Download size estimate (for Downloader tab) ---
+  readonly downloadSizeEstimate = computed(() => {
+    const probe = this.probeResult();
+    if (!probe || probe.durationSeconds <= 0) return null;
+
+    const isAudio = this.downloadType() === 'audio';
+    const comp = this.selectedCompression();
+    const res = this.selectedResolution();
+
+    // Base bitrate estimates (bytes/sec) by resolution
+    let baseBytesPerSec: number;
+    if (isAudio) {
+      const br = this.selectedAudioBitrate();
+      baseBytesPerSec = br === '320k' ? 40_000 : br === '128k' ? 16_000 : 24_000;
+    } else {
+      baseBytesPerSec = res === '360p' ? 150_000
+        : res === '480p' ? 250_000
+        : res === '720p' ? 400_000
+        : res === '1080p' ? 600_000
+        : 700_000; // 'best'
+    }
+
+    let totalBytes = probe.durationSeconds * baseBytesPerSec;
+
+    // Apply compression factor
+    if (!isAudio) {
+      const factor = comp === 'ultracompact' ? 0.25 : comp === 'high' ? 0.45 : comp === 'balanced' ? 0.65 : 1.0;
+      totalBytes *= factor;
+    }
+
+    return {
+      sizeMB: totalBytes / (1024 * 1024),
+      durationFormatted: probe.durationFormatted,
+      isCompressed: comp !== 'original',
+    };
+  });
+
   ngOnInit(): void {
     // Load initial settings
     this.mediaTools.getMediaSettings().subscribe({
