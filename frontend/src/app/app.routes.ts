@@ -100,6 +100,13 @@ export const routes: Routes = [
   },
 
   {
+    path: 'logs',
+    title: 'Application Logs - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/logs/app-logs.component').then((m) => m.AppLogsComponent),
+  },
+
+  {
     path: 'admin',
     title: 'Server settings - AnimStudio AI',
     loadComponent: () =>

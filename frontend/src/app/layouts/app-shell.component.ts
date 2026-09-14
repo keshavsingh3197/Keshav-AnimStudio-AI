@@ -29,6 +29,7 @@ import { StatusService } from '../core/services/status.service';
         }
 
         <a routerLink="/tools" routerLinkActive="active" class="muted" style="margin-right: 0.85rem">🎬 Media Studio</a>
+        <a routerLink="/logs" routerLinkActive="active" class="muted" style="margin-right: 0.85rem">📜 Logs ({{status.logEntries().length}})</a>
 
         @if (access()?.canAdminister) {
           <a routerLink="/admin" routerLinkActive="active" class="muted">Settings</a>
@@ -42,7 +43,7 @@ import { StatusService } from '../core/services/status.service';
         exists only while there is something to say - which is what lets the effect below
         notice it appearing.
       -->
-      @if (status.error() !== null || status.notices().length > 0) {
+      @if (status.error() !== null || status.latestNotice() !== null) {
         <div #banner>
           @if (status.error(); as message) {
             <div class="notice error">
@@ -51,13 +52,10 @@ import { StatusService } from '../core/services/status.service';
             </div>
           }
 
-          @if (status.notices().length > 0) {
-            <div class="card">
-              @for (notice of status.notices(); track $index) {
-                <div class="notice">{{ notice }}</div>
-              }
-              <button class="secondary" type="button"
-                      (click)="status.dismissNotices()">Dismiss</button>
+          @if (status.latestNotice(); as notice) {
+            <div class="notice" style="display: flex; justify-content: space-between; align-items: center; border-left: 3px solid #3b82f6;">
+              <span>{{ notice }}</span>
+              <button class="link" type="button" (click)="status.dismissNotice()">Dismiss</button>
             </div>
           }
         </div>
@@ -90,13 +88,13 @@ export class AppShellComponent {
      */
     effect(() => {
       const message = this.status.error();
-      const count = this.status.notices().length;
+      const notice = this.status.latestNotice();
 
       // The query resolves a render after the wrapper appears, so this effect runs again
       // with the element in hand - no manual "wait for the DOM" needed.
       const element = this.banner()?.nativeElement;
 
-      if (element && (message !== null || count > 0)) {
+      if (element && (message !== null || notice !== null)) {
         element.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       }
     });
