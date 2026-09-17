@@ -12,7 +12,6 @@ namespace AnimStudio.Api.Controllers;
 
 [ApiController]
 [Route("api/projects/{projectId}/folders")]
-[Authorize(Policy = "RequireUser")]
 public class AssetFoldersController(IAssetFolderRepository folders) : ControllerBase
 {
     public sealed record CreateFolderRequest

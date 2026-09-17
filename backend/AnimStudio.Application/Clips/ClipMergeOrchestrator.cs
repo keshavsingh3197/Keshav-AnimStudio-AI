@@ -356,8 +356,8 @@ public sealed class ClipMergeOrchestrator(
             {
                 Id = Guid.NewGuid().ToString("N"),
                 ProjectId = job.ProjectId,
-                Name = string.IsNullOrWhiteSpace(job.ClipMerge?.ExportName) ? $"Export - {DateTime.UtcNow:yyyy-MM-dd HH:mm}" : job.ClipMerge?.ExportName,
-                DisplayFileName = string.IsNullOrWhiteSpace(job.ClipMerge?.ExportName) ? $"Export - {DateTime.UtcNow:yyyy-MM-dd HH:mm}.mp4" : job.ClipMerge?.ExportName + ".mp4",
+                Name = string.IsNullOrWhiteSpace(job.ClipMerge?.ExportName) ? $"Export - {DateTime.UtcNow:yyyy-MM-dd HH:mm}" : job.ClipMerge!.ExportName!,
+                DisplayFileName = string.IsNullOrWhiteSpace(job.ClipMerge?.ExportName) ? $"Export - {DateTime.UtcNow:yyyy-MM-dd HH:mm}.mp4" : job.ClipMerge!.ExportName + ".mp4",
                 StorageKey = outputKey,
                 FolderId = exportsFolder.Id,
                 Kind = AssetKind.Video,

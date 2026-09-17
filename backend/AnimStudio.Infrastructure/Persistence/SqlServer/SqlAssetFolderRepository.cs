@@ -6,7 +6,7 @@ using AnimStudio.Domain.Assets;
 
 namespace AnimStudio.Infrastructure.Persistence.SqlServer;
 
-public sealed class SqlAssetFolderRepository(ISqlConnectionFactory sql) : IAssetFolderRepository
+public sealed class SqlAssetFolderRepository : IAssetFolderRepository
 {
     public Task<AssetFolder?> GetAsync(string id, CancellationToken ct) => Task.FromResult<AssetFolder?>(null);
     public Task<IReadOnlyList<AssetFolder>> ListByProjectAsync(string projectId, CancellationToken ct) => Task.FromResult<IReadOnlyList<AssetFolder>>([]);
