@@ -1,0 +1,126 @@
+/* FlowEdit Pro Inspired Layout */
+
+.flowedit-layout {
+  display: grid;
+  grid-template-rows: minmax(400px, 1fr) 280px;
+  grid-template-columns: 70px 320px 1fr 340px;
+  gap: 0.8rem;
+  height: calc(100vh - 120px);
+  min-height: 800px;
+  background: var(--bg);
+  box-sizing: border-box;
+}
+
+/* Make sure panels scroll if needed */
+.fe-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.fe-media-library {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.fe-preview {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.fe-inspector {
+  grid-column: 4;
+  grid-row: 1;
+}
+
+.fe-timeline {
+  grid-column: 1 / 5;
+  grid-row: 2;
+}
+
+/* Sidebar Styling */
+.fe-sidebar {
+  grid-column: 1;
+  grid-row: 1;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 1rem 0;
+  gap: 1.5rem;
+}
+
+.fe-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.75rem;
+  transition: color 0.2s;
+}
+
+.fe-tab:hover, .fe-tab.active {
+  color: var(--primary);
+}
+
+.fe-tab .icon {
+  font-size: 1.4rem;
+}
+
+/* Tweak inner components to fit the new panels */
+.fe-panel > .card, 
+.fe-panel > .program-monitor-card,
+.fe-panel > .studio-timeline-card {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  height: 100%;
+  box-shadow: none;
+  margin: 0;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.fe-media-library .card {
+  padding-right: 0.5rem;
+  overflow-y: auto;
+}
+
+.fe-preview .program-monitor-card {
+  padding: 1rem;
+}
+
+.fe-inspector .card {
+  overflow-y: auto;
+}
+
+.fe-timeline .studio-timeline-card {
+  overflow: hidden;
+  padding: 0;
+}
+
+/* Make timeline take full width of its container nicely */
+.fe-timeline .section-head {
+  padding: 0.8rem 1.2rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* Fix up the timeline area */
+.fe-timeline .timeline-interactive-area {
+  flex-grow: 1;
+  height: auto;
+  border-radius: 0;
+  border: none;
+}

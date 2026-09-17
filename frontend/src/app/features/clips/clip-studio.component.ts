@@ -93,6 +93,7 @@ export interface MusicTrackRow {
   selector: 'app-clip-studio',
   imports: [DecimalPipe, FormsModule, RouterLink],
   templateUrl: './clip-studio.component.html',
+  styleUrls: ['./clip-studio.component.css'],
 })
 export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   private readonly api = inject(ApiService);

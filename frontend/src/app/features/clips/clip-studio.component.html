@@ -64,8 +64,118 @@
   }
 
   <!-- TOP WORKBENCH: Master Monitor (Left) & Studio Inspector (Right) -->
-  <div class="video-studio-grid">
-    <!-- MASTER PROGRAM MONITOR -->
+  
+  <div class="flowedit-layout">
+    <!-- Left Thin Sidebar -->
+    <div class="fe-sidebar">
+      <div class="fe-tab active"><span class="icon">&#128444;</span><span>Media</span></div>
+      <div class="fe-tab"><span class="icon">&#127925;</span><span>Audio</span></div>
+      <div class="fe-tab"><span class="icon">T</span><span>Text</span></div>
+      <div class="fe-tab"><span class="icon">&#10024;</span><span>Effects</span></div>
+      <div class="fe-tab"><span class="icon">&#9889;</span><span>Transition</span></div>
+      <div class="fe-tab"><span class="icon">&#128142;</span><span>Elements</span></div>
+    </div>
+
+    <!-- Media Library Panel -->
+    <div class="fe-panel fe-media-library">
+      <!-- MEDIA ASSETS & RUNNING ORDER LIST -->
+  <div class="card">
+    <div class="section-head">
+      <h3>Clips & Library</h3>
+      <span class="muted">{{ included().length }} of {{ rows().length }} clips ticked</span>
+    </div>
+
+    <!-- Dropzone -->
+    <div class="dropzone" [class.active]="dropActive()"
+         (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)"
+         (drop)="onDrop($event)" style="margin-bottom: 1rem">
+      @if (uploading()) {
+        <strong>Uploading {{ uploadDone() + 1 }} of {{ uploadTotal() }}&hellip;</strong>
+        <div class="bar" style="margin-top: .6rem; max-width: 20rem">
+          <i [style.width.%]="(uploadDone() / uploadTotal()) * 100"></i>
+        </div>
+      } @else {
+        <strong>Drop video clips here</strong>
+        <p class="muted">
+          MP4, up to {{ studio.maxClipUploadBytes / 1048576 | number: '1.0-0' }}MB each.
+        </p>
+        <label class="link-button">
+          <input type="file" multiple accept="video/mp4,.mp4" (change)="onPick($event)" />
+          <span>or choose files</span>
+        </label>
+      }
+    </div>
+
+    <!-- Toolbar -->
+    <div class="toolbar" style="margin-bottom: .75rem; gap: .5rem; flex-wrap: wrap">
+      <button class="secondary" type="button" (click)="sortByName()">Sort by name</button>
+      <button class="secondary" type="button" (click)="reverse()">Reverse</button>
+      <button class="secondary" type="button" (click)="selectAll(true)">Tick all</button>
+      <button class="secondary" type="button" (click)="selectAll(false)">Untick all</button>
+      <button class="secondary" type="button" (click)="buildShort()"
+              [disabled]="included().length === 0 || status.busy() || running()"
+              title="Convert all ticked clips into a vertical 9:16 Short video">
+        📱 Convert Ticked to Short (9:16)
+      </button>
+      <span style="flex: 1 1 auto"></span>
+      @if (included().length > 0) {
+        @if (confirmingDelete()) {
+          <span class="muted">Delete {{ included().length }} clip(s)?</span>
+          <button class="danger" type="button" (click)="removeFromLibrary()">Delete</button>
+          <button class="secondary" type="button" (click)="confirmingDelete.set(false)">Cancel</button>
+        } @else {
+          <button class="secondary" type="button" (click)="confirmingDelete.set(true)">
+            Delete {{ included().length }} from library
+          </button>
+        }
+      }
+    </div>
+
+    <!-- Clip Checklist -->
+    <ol class="clip-list">
+      @for (row of rows(); track row.clip.id; let i = $index) {
+        <li class="clip-row"
+            [class.excluded]="!row.included"
+            [class.selected]="selectedClip()?.id === row.clip.id"
+            [class.dragging]="dragIndex() === i"
+            [class.drag-over]="dragOverIndex() === i && dragIndex() !== i"
+            draggable="true"
+            (click)="selectClip(row.clip.id)"
+            (dragstart)="onRowDragStart(i)"
+            (dragover)="onRowDragOver(i, $event)"
+            (drop)="onRowDrop(i, $event)"
+            (dragend)="onRowDragEnd()">
+          <span class="grip" aria-hidden="true" title="Drag to reorder">&#8942;&#8942;</span>
+          <label class="clip-pick" (click)="$event.stopPropagation()">
+            <input type="checkbox" [checked]="row.included" (change)="toggle(i)" />
+          </label>
+          <span class="clip-seq mono">
+            @if (row.included) { {{ cutPosition(i) }} } @else { &mdash; }
+          </span>
+          <span class="clip-name">
+            {{ row.clip.name }}
+            <span class="mono muted">
+              @if (row.clip.durationSeconds) { {{ row.clip.durationSeconds | number: '1.0-1' }}s }
+              &middot; {{ row.clip.fileSizeBytes / 1048576 | number: '1.0-1' }}MB
+            </span>
+          </span>
+          <span class="clip-move" (click)="$event.stopPropagation()">
+            <button class="icon" type="button" (click)="exportClipAsShort(row.clip.id)" title="Convert this clip to vertical Short (9:16)">📱</button>
+            <button class="icon" type="button" (click)="duplicateClip(row.clip.id)" title="Duplicate clip">⧉</button>
+            <button class="icon" type="button" [disabled]="i === 0" (click)="move(i, -1)">&uarr;</button>
+            <button class="icon" type="button" [disabled]="i === rows().length - 1" (click)="move(i, 1)">&darr;</button>
+          </span>
+        </li>
+      }
+    </ol>
+  </div>
+
+  
+    </div>
+
+    <!-- Center Preview -->
+    <div class="fe-panel fe-preview">
+      <!-- MASTER PROGRAM MONITOR -->
     <div class="program-monitor-card">
       <div class="monitor-header">
         <div class="row" style="gap: .5rem; align-items: center; flex-wrap: wrap">
@@ -267,7 +377,12 @@
       </div>
     </div>
 
-    <!-- STUDIO INSPECTOR (Tabbed Workbench) -->
+    
+    </div>
+
+    <!-- Right Inspector -->
+    <div class="fe-panel fe-inspector">
+      <!-- STUDIO INSPECTOR (Tabbed Workbench) -->
     <div class="studio-inspector">
       <nav class="inspector-nav">
         <button class="inspector-tab-btn" type="button"
@@ -867,7 +982,12 @@
     </div>
   </div>
 
-  <!-- BOTTOM TIMELINE -->
+  
+    
+
+    <!-- Bottom Timeline -->
+    <div class="fe-panel fe-timeline">
+      <!-- BOTTOM TIMELINE -->
   <div class="studio-timeline-card"
        (document:pointermove)="onTimelinePointerMove($event)"
        (document:pointerup)="onTimelinePointerUp()"
@@ -1043,96 +1163,8 @@
     </div>
   </div>
 
-  <!-- MEDIA ASSETS & RUNNING ORDER LIST -->
-  <div class="card">
-    <div class="section-head">
-      <h3>Clips & Library</h3>
-      <span class="muted">{{ included().length }} of {{ rows().length }} clips ticked</span>
+  
     </div>
-
-    <!-- Dropzone -->
-    <div class="dropzone" [class.active]="dropActive()"
-         (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)"
-         (drop)="onDrop($event)" style="margin-bottom: 1rem">
-      @if (uploading()) {
-        <strong>Uploading {{ uploadDone() + 1 }} of {{ uploadTotal() }}&hellip;</strong>
-        <div class="bar" style="margin-top: .6rem; max-width: 20rem">
-          <i [style.width.%]="(uploadDone() / uploadTotal()) * 100"></i>
-        </div>
-      } @else {
-        <strong>Drop video clips here</strong>
-        <p class="muted">
-          MP4, up to {{ studio.maxClipUploadBytes / 1048576 | number: '1.0-0' }}MB each.
-        </p>
-        <label class="link-button">
-          <input type="file" multiple accept="video/mp4,.mp4" (change)="onPick($event)" />
-          <span>or choose files</span>
-        </label>
-      }
-    </div>
-
-    <!-- Toolbar -->
-    <div class="toolbar" style="margin-bottom: .75rem; gap: .5rem; flex-wrap: wrap">
-      <button class="secondary" type="button" (click)="sortByName()">Sort by name</button>
-      <button class="secondary" type="button" (click)="reverse()">Reverse</button>
-      <button class="secondary" type="button" (click)="selectAll(true)">Tick all</button>
-      <button class="secondary" type="button" (click)="selectAll(false)">Untick all</button>
-      <button class="secondary" type="button" (click)="buildShort()"
-              [disabled]="included().length === 0 || status.busy() || running()"
-              title="Convert all ticked clips into a vertical 9:16 Short video">
-        📱 Convert Ticked to Short (9:16)
-      </button>
-      <span style="flex: 1 1 auto"></span>
-      @if (included().length > 0) {
-        @if (confirmingDelete()) {
-          <span class="muted">Delete {{ included().length }} clip(s)?</span>
-          <button class="danger" type="button" (click)="removeFromLibrary()">Delete</button>
-          <button class="secondary" type="button" (click)="confirmingDelete.set(false)">Cancel</button>
-        } @else {
-          <button class="secondary" type="button" (click)="confirmingDelete.set(true)">
-            Delete {{ included().length }} from library
-          </button>
-        }
-      }
-    </div>
-
-    <!-- Clip Checklist -->
-    <ol class="clip-list">
-      @for (row of rows(); track row.clip.id; let i = $index) {
-        <li class="clip-row"
-            [class.excluded]="!row.included"
-            [class.selected]="selectedClip()?.id === row.clip.id"
-            [class.dragging]="dragIndex() === i"
-            [class.drag-over]="dragOverIndex() === i && dragIndex() !== i"
-            draggable="true"
-            (click)="selectClip(row.clip.id)"
-            (dragstart)="onRowDragStart(i)"
-            (dragover)="onRowDragOver(i, $event)"
-            (drop)="onRowDrop(i, $event)"
-            (dragend)="onRowDragEnd()">
-          <span class="grip" aria-hidden="true" title="Drag to reorder">&#8942;&#8942;</span>
-          <label class="clip-pick" (click)="$event.stopPropagation()">
-            <input type="checkbox" [checked]="row.included" (change)="toggle(i)" />
-          </label>
-          <span class="clip-seq mono">
-            @if (row.included) { {{ cutPosition(i) }} } @else { &mdash; }
-          </span>
-          <span class="clip-name">
-            {{ row.clip.name }}
-            <span class="mono muted">
-              @if (row.clip.durationSeconds) { {{ row.clip.durationSeconds | number: '1.0-1' }}s }
-              &middot; {{ row.clip.fileSizeBytes / 1048576 | number: '1.0-1' }}MB
-            </span>
-          </span>
-          <span class="clip-move" (click)="$event.stopPropagation()">
-            <button class="icon" type="button" (click)="exportClipAsShort(row.clip.id)" title="Convert this clip to vertical Short (9:16)">📱</button>
-            <button class="icon" type="button" (click)="duplicateClip(row.clip.id)" title="Duplicate clip">⧉</button>
-            <button class="icon" type="button" [disabled]="i === 0" (click)="move(i, -1)">&uarr;</button>
-            <button class="icon" type="button" [disabled]="i === rows().length - 1" (click)="move(i, 1)">&darr;</button>
-          </span>
-        </li>
-      }
-    </ol>
   </div>
 
   <!-- KEYBOARD SHORTCUTS MODAL -->
@@ -1188,3 +1220,4 @@
 } @else {
   <div class="card muted">Loading video studio&hellip;</div>
 }
+
