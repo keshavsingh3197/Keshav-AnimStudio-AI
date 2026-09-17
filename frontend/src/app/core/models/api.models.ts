@@ -56,6 +56,7 @@ export interface AssetFolder {
 export interface Asset {
   id: string;
   name: string;
+  orderIndex: number;
   kind: string;
   mimeType: string;
   fileSizeBytes: number;

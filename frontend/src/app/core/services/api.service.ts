@@ -97,6 +97,10 @@ export class ApiService {
     return this.unwrap(this.http.delete<ApiResponse<unknown>>(`${this.base}/api/projects/${projectId}/folders/${folderId}`));
   }
 
+  reorderAssets(projectId: string, assetIds: string[]): Observable<unknown> {
+    return this.unwrap(this.http.put<ApiResponse<unknown>>(`${this.base}/api/projects/${projectId}/assets/reorder`, { assetIds }));
+  }
+
   moveAssetToFolder(projectId: string, assetId: string, folderId: string | null): Observable<Asset> {
     return this.unwrap(this.http.put<ApiResponse<Asset>>(`${this.base}/api/projects/${projectId}/assets/${assetId}/folder`, { folderId }));
   }
@@ -461,4 +465,8 @@ export class ApiService {
   private unwrap<T>(source: Observable<ApiResponse<T>>): Observable<T> {
     return source.pipe(map((response) => response.data as T));
   }
+  saveDebugScreenshot(base64Image: string, viewName: string): Observable<unknown> {
+    return this.unwrap(this.http.post<ApiResponse<unknown>>(`${this.base}/api/debug/screenshot`, { base64Image, viewName }));
+  }
+
 }

@@ -10,18 +10,28 @@
 
 <div class="library-layout">
   <div class="sidebar">
-    <h3>Folders</h3>
+    <h3>Library</h3>
     <div class="folder-list">
-      <div class="folder-item"
-           [class.active]="selectedFolderId() === null"
-           [class.drag-over]="dragTargetFolder() === 'root'"
-           (click)="selectFolder(null)"
-           (dragover)="onDragOver($event, 'root')"
-           (dragleave)="onDragLeave($event)"
-           (drop)="onDrop($event, null)">
-        <span class="folder-name">All Assets</span>
+      <div class="folder-item" [class.active]="selectedFolderId() === 'all'"
+           (click)="selectFolder('all')" (dragover)="onDragOver($event, null)" (dragleave)="onDragLeave($event)" (drop)="onDropToFolder($event, null)">
+        <span class="folder-name"><span class="icon">??</span> All Assets</span>
       </div>
-      
+      <div class="folder-item" [class.active]="selectedFolderId() === 'images'" (click)="selectFolder('images')">
+        <span class="folder-name"><span class="icon">???</span> Images</span>
+      </div>
+      <div class="folder-item" [class.active]="selectedFolderId() === 'videos'" (click)="selectFolder('videos')">
+        <span class="folder-name"><span class="icon">??</span> Videos</span>
+      </div>
+      <div class="folder-item" [class.active]="selectedFolderId() === 'audio'" (click)="selectFolder('audio')">
+        <span class="folder-name"><span class="icon">??</span> Audio</span>
+      </div>
+      <div class="folder-item" [class.active]="selectedFolderId() === 'subtitles'" (click)="selectFolder('subtitles')">
+        <span class="folder-name"><span class="icon">??</span> Subtitles</span>
+      </div>
+    </div>
+
+    <h3 style="margin-top: 1rem;">Folders</h3>
+    <div class="folder-list">
       @for (folder of store.folders(); track folder.id) {
         <div class="folder-item"
              [class.active]="selectedFolderId() === folder.id"
@@ -29,11 +39,15 @@
              (click)="selectFolder(folder.id)"
              (dragover)="onDragOver($event, folder.id)"
              (dragleave)="onDragLeave($event)"
-             (drop)="onDrop($event, folder.id)">
-          <span class="folder-name">{{ folder.name }}</span>
+             (drop)="onDropToFolder($event, folder.id)">
+          <span class="folder-name">
+            @if (folder.name === 'Exports') { <span class="icon">??</span> }
+            @else { <span class="icon">??</span> }
+            {{ folder.name }}
+          </span>
           @if (folder.name !== 'Exports') {
             <div class="folder-actions">
-              <button class="danger" (click)="deleteFolder(folder.id); $event.stopPropagation()">X</button>
+              <button class="danger" (click)="deleteFolder(folder.id); $event.stopPropagation()">×</button>
             </div>
           }
         </div>
@@ -54,38 +68,66 @@
   </div>
 
   <div class="main-content">
-    <div class="card" style="margin-bottom: 1rem">
-      <label for="upload">Upload files to {{ selectedFolderId() ? 'this folder' : 'root' }}</label>
-      <input id="upload" type="file" multiple
-             accept="image/png,image/jpeg,image/webp,audio/wav,audio/mpeg,audio/mp4,video/mp4,.srt,.vtt"
-             (change)="upload($event)" />
+    <div class="toolbar card" style="margin-bottom: 1rem; display: flex; gap: 1rem; align-items: center; justify-content: space-between;">
+      <div style="display: flex; gap: 1rem; align-items: center; flex: 1;">
+        <label for="upload" class="primary button" style="cursor: pointer; padding: 6px 12px; display: inline-block;">
+          Upload Files
+        </label>
+        <input id="upload" type="file" multiple style="display: none"
+               accept="image/png,image/jpeg,image/webp,audio/wav,audio/mpeg,audio/mp4,video/mp4,.srt,.vtt"
+               (change)="upload($event)" />
+        <span class="muted" style="font-size: 0.9em;">
+          @if (selectedFolderId() === 'all' || selectedFolderId() === 'images' || selectedFolderId() === 'videos' || selectedFolderId() === 'audio' || selectedFolderId() === 'subtitles') {
+            Uploading to Root
+          } @else {
+            Uploading to Folder
+          }
+        </span>
+      </div>
+      <div style="flex: 1; text-align: right;">
+        <input type="text" [(ngModel)]="searchQuery" placeholder="Search assets..." style="width: 250px;" />
+      </div>
     </div>
 
     @if (filteredAssets().length === 0) {
-      <div class="card muted">No assets here.</div>
+      <div class="card muted" style="text-align: center; padding: 3rem;">
+        No assets found in this view.
+      </div>
     } @else {
-      <div class="card">
-        <table>
+      <div class="card p-0">
+        <table class="data-table">
           <thead>
             <tr>
-              <th style="width: 6rem">Preview</th><th>Name</th><th>Kind</th>
-              <th>Details</th><th>Size</th><th></th>
+              <th style="width: 2rem;"></th>
+              <th style="width: 8rem;">Preview</th>
+              <th>Name</th>
+              <th style="width: 6rem;">Kind</th>
+              <th>Details</th>
+              <th>Size</th>
+              <th style="text-align: right;">Actions</th>
             </tr>
           </thead>
           <tbody>
-            @for (asset of filteredAssets(); track asset.id) {
-              <tr draggable="true" (dragstart)="onDragStart($event, asset)" style="cursor: grab">
+            @for (asset of filteredAssets(); track asset.id; let i = $index) {
+              <tr draggable="true" 
+                  (dragstart)="onDragStart($event, asset, i)" 
+                  (dragover)="onDragOverRow($event, i)"
+                  (dragleave)="onDragLeave($event)"
+                  (drop)="onDropRow($event, i)"
+                  [class.drag-over-row]="dragOverIndex() === i"
+                  style="cursor: grab">
+                <td class="muted" style="cursor: grab; text-align: center;">?</td>
                 <td>
                   @if (isImage(asset)) {
                     <img class="thumb" [src]="assetUrl(asset.id)" [alt]="asset.name" draggable="false" />
                   } @else if (isAudible(asset)) {
                     <audio controls preload="none" [src]="assetUrl(asset.id)"
-                           style="max-width: 12rem"></audio>
+                           style="max-width: 12rem; height: 30px;"></audio>
                   } @else if (asset.kind === 'Subtitle') {
                     <span class="muted mono">captions</span>
                   }
                 </td>
-                <td>{{ asset.name }}</td>
+                <td style="word-break: break-all;">{{ asset.name }}</td>
                 <td>
                   <span class="pill">{{ asset.kind }}</span>
                   @if (asset.reviewStatus !== 'NotRequired') {
