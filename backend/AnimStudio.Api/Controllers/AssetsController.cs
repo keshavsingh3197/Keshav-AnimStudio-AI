@@ -204,7 +204,7 @@ public sealed class AssetsController(
     }
 
     [HttpPut("api/projects/{projectId}/assets/reorder")]
-    public async Task<ActionResult<ApiResponse<object>>> ReorderAssets(
+    public async Task<ActionResult<ApiResponse<EmptyPayload>>> ReorderAssets(
         string projectId, [FromBody] ReorderAssetsRequest req, CancellationToken ct)
     {
         await EnsureOwnedAsync(projectId, ct);
@@ -219,7 +219,7 @@ public sealed class AssetsController(
                 await assets.ReplaceAsync(asset, ct);
             }
         }
-        return Ok(ApiResponse.Ok<object>(null!));
+        return Ok(ApiResponse<EmptyPayload>.Ok(EmptyPayload.Value));
     }
 
     public sealed record MoveAssetRequest
