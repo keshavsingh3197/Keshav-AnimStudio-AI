@@ -54,23 +54,20 @@ export class ProjectEditorComponent {
     return 'pill';
   }
   captureScreenshot(): void {
-    
-    // We capture the body element
+    this.status.notify(['Capturing screenshot...']);
     html2canvas(document.body, { 
       useCORS: true, 
-      allowTaint: true,
       windowWidth: document.body.scrollWidth,
       windowHeight: document.body.scrollHeight
     }).then(canvas => {
-      const base64Image = canvas.toDataURL('image/png');
+      const base64Image = canvas.toDataURL('image/jpeg', 0.8);
       const viewName = window.location.pathname.split('/').pop() || 'screenshot';
       
       this.status.run(this.api.saveDebugScreenshot(base64Image, viewName), () => {
-        this.status.notify([`Screenshot saved to D:\AI_STUDIO`]);
+        this.status.notify(['Screenshot saved to D:\\AI_STUDIO']);
       });
     }).catch(err => {
-      console.error('Screenshot failed:', err);
+      this.status.error.set('Capture failed: ' + err.message);
     });
   }
 }
-

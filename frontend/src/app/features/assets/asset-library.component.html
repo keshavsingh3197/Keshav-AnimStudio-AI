@@ -14,19 +14,19 @@
     <div class="folder-list">
       <div class="folder-item" [class.active]="selectedFolderId() === 'all'"
            (click)="selectFolder('all')" (dragover)="onDragOver($event, null)" (dragleave)="onDragLeave($event)" (drop)="onDropToFolder($event, null)">
-        <span class="folder-name"><span class="icon">??</span> All Assets</span>
+        <span class="folder-name">All Assets</span>
       </div>
       <div class="folder-item" [class.active]="selectedFolderId() === 'images'" (click)="selectFolder('images')">
-        <span class="folder-name"><span class="icon">???</span> Images</span>
+        <span class="folder-name">Images</span>
       </div>
       <div class="folder-item" [class.active]="selectedFolderId() === 'videos'" (click)="selectFolder('videos')">
-        <span class="folder-name"><span class="icon">??</span> Videos</span>
+        <span class="folder-name">Videos</span>
       </div>
       <div class="folder-item" [class.active]="selectedFolderId() === 'audio'" (click)="selectFolder('audio')">
-        <span class="folder-name"><span class="icon">??</span> Audio</span>
+        <span class="folder-name">Audio</span>
       </div>
       <div class="folder-item" [class.active]="selectedFolderId() === 'subtitles'" (click)="selectFolder('subtitles')">
-        <span class="folder-name"><span class="icon">??</span> Subtitles</span>
+        <span class="folder-name">Subtitles</span>
       </div>
     </div>
 
@@ -41,13 +41,13 @@
              (dragleave)="onDragLeave($event)"
              (drop)="onDropToFolder($event, folder.id)">
           <span class="folder-name">
-            @if (folder.name === 'Exports') { <span class="icon">??</span> }
-            @else { <span class="icon">??</span> }
+            @if (folder.name === 'Exports') { }
+            @else { }
             {{ folder.name }}
           </span>
           @if (folder.name !== 'Exports') {
             <div class="folder-actions">
-              <button class="danger" (click)="deleteFolder(folder.id); $event.stopPropagation()">×</button>
+              <button class="danger" (click)="deleteFolder(folder.id); $event.stopPropagation()">Ã—</button>
             </div>
           }
         </div>
@@ -116,7 +116,7 @@
                   (drop)="onDropRow($event, i)"
                   [class.drag-over-row]="dragOverIndex() === i"
                   style="cursor: grab">
-                <td class="muted" style="cursor: grab; text-align: center;">?</td>
+                <td class="muted" style="cursor: grab; text-align: center;">&#9776;</td>
                 <td>
                   @if (isImage(asset)) {
                     <img class="thumb" [src]="assetUrl(asset.id)" [alt]="asset.name" draggable="false" />

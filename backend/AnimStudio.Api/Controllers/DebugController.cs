@@ -16,6 +16,7 @@ public class DebugController : ControllerBase
     }
 
     [HttpPost("screenshot")]
+    [RequestSizeLimit(100_000_000)]
     public async Task<IActionResult> SaveScreenshot([FromBody] ScreenshotRequest req)
     {
         try
