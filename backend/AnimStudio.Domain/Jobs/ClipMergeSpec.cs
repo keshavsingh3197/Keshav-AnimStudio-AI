@@ -127,6 +127,10 @@ public sealed class ClipAudioSpec
 
     public double AudioVolume { get; set; } = 1.0;
 
+    /// <summary>Optional window on the SOURCE file. Null on either end plays from/to the end.</summary>
+    public double? TrimStartSeconds { get; set; }
+    public double? TrimEndSeconds { get; set; }
+
     /// <summary>
     /// With a sound of its own attached: mix it UNDER the clip's own audio rather than
     /// replacing it. Ignored when there is no <see cref="AudioAssetId"/>.

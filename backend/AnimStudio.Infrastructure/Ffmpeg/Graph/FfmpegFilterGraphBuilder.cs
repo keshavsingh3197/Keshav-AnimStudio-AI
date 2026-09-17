@@ -374,6 +374,19 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         {
             var extraIndex = inputs.Count;
             inputs.Add(new FfmpegInputSpec([], plan.ExtraAudioRelativePath!));
+            var extraArgs = new List<string>();
+            if (plan.ExtraAudioTrimStartSeconds is > 0)
+            {
+                extraArgs.Add("-ss");
+                extraArgs.Add(FilterExpr.N(plan.ExtraAudioTrimStartSeconds.Value));
+            }
+            if (plan.ExtraAudioTrimEndSeconds.HasValue)
+            {
+                extraArgs.Add("-to");
+                extraArgs.Add(FilterExpr.N(plan.ExtraAudioTrimEndSeconds.Value));
+            }
+            
+            inputs.Add(new FfmpegInputSpec(extraArgs.ToArray(), plan.ExtraAudioRelativePath!));
 
             // Not looped: a ten-second sting on a two-minute clip plays once and stops,
             // which is what "a sound for this clip" means. Looping is the music bed's job.

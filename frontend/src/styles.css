@@ -44,7 +44,8 @@ a { color: var(--brand); }
 }
 
 .card {
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  backdrop-filter: blur(12px);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 1.25rem;
@@ -121,7 +122,8 @@ th { color: var(--muted); font-weight: 600; }
 
 .topbar {
   border-bottom: 1px solid var(--border);
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  backdrop-filter: blur(12px);
   position: sticky;
   top: 0;
   z-index: 5;
@@ -170,7 +172,8 @@ th { color: var(--muted); font-weight: 600; }
 
 .tabs > a.active {
   color: var(--text);
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  backdrop-filter: blur(12px);
   border-color: var(--border);
 }
 
@@ -306,7 +309,8 @@ audio { height: 2.2rem; vertical-align: middle; }
 .start-card {
   display: block;
   text-align: left;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  backdrop-filter: blur(12px);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 1rem;
@@ -693,7 +697,8 @@ audio { height: 2.2rem; vertical-align: middle; }
   height: 1.6rem;
   padding: 0;
   border-radius: 99px;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  backdrop-filter: blur(12px);
   color: var(--muted);
   border: 1px solid var(--border);
   font-size: .85rem;
@@ -708,7 +713,8 @@ audio { height: 2.2rem; vertical-align: middle; }
   left: 50%;
   transform: translateX(-50%);
   width: 13rem;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  backdrop-filter: blur(12px);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: .6rem;
@@ -997,7 +1003,8 @@ audio { height: 2.2rem; vertical-align: middle; }
 
 /* Stage Transport & Controls */
 .stage-transport {
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  backdrop-filter: blur(12px);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 0.65rem 0.85rem;
@@ -1102,7 +1109,8 @@ audio { height: 2.2rem; vertical-align: middle; }
 }
 
 .storyboard-card {
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  backdrop-filter: blur(12px);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
@@ -1241,7 +1249,8 @@ audio { height: 2.2rem; vertical-align: middle; }
 .program-monitor-card {
   display: flex;
   flex-direction: column;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  backdrop-filter: blur(12px);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
@@ -1396,7 +1405,8 @@ audio { height: 2.2rem; vertical-align: middle; }
   height: 2.2rem;
   padding: 0;
   border-radius: 6px;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  backdrop-filter: blur(12px);
   border: 1px solid var(--border);
   color: var(--text);
   font-size: 1.1rem;
@@ -1429,7 +1439,8 @@ audio { height: 2.2rem; vertical-align: middle; }
   font-size: 0.95rem;
   font-weight: 700;
   color: var(--text);
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  backdrop-filter: blur(12px);
   padding: 0.3rem 0.65rem;
   border-radius: 6px;
   border: 1px solid var(--border);
@@ -1446,7 +1457,8 @@ audio { height: 2.2rem; vertical-align: middle; }
 .studio-inspector {
   display: flex;
   flex-direction: column;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  backdrop-filter: blur(12px);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
@@ -1487,7 +1499,8 @@ audio { height: 2.2rem; vertical-align: middle; }
 .inspector-tab-btn.active {
   color: var(--brand);
   border-bottom-color: var(--brand);
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  backdrop-filter: blur(12px);
 }
 
 .inspector-content {
@@ -1501,7 +1514,8 @@ audio { height: 2.2rem; vertical-align: middle; }
 
 /* Timeline Enhancements with Playhead Needle */
 .studio-timeline-card {
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  backdrop-filter: blur(12px);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 1rem;
@@ -1598,7 +1612,8 @@ audio { height: 2.2rem; vertical-align: middle; }
   font-weight: 700;
   padding: 0.25rem 0.5rem;
   border-radius: 4px;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  backdrop-filter: blur(12px);
   border: 1px solid var(--border);
   color: var(--text);
   cursor: pointer;
@@ -1721,7 +1736,8 @@ audio { height: 2.2rem; vertical-align: middle; }
 }
 
 .shortcuts-modal-dialog {
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  backdrop-filter: blur(12px);
   border: 1px solid var(--border);
   border-radius: 10px;
   width: 100%;
@@ -1787,7 +1803,8 @@ audio { height: 2.2rem; vertical-align: middle; }
 .aspect-pill-group {
   display: flex;
   align-items: center;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  backdrop-filter: blur(12px);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 2px;
@@ -1934,7 +1951,8 @@ audio { height: 2.2rem; vertical-align: middle; }
   position: absolute;
   top: 50%;
   transform: translate(-50%, -50%);
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  backdrop-filter: blur(12px);
   border: 1px solid var(--border);
   color: var(--text);
   font-size: 0.68rem;

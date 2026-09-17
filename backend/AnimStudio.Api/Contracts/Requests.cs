@@ -306,6 +306,10 @@ public sealed record ClipAudioRequest
 
     [Range(0, ClipAudioSpec.MaxGain)] public double AudioVolume { get; init; } = 1.0;
 
+    /// <summary>Optional window on the SOURCE file. Null on either end plays from/to the end.</summary>
+    [Range(0, 86400)] public double? TrimStartSeconds { get; init; }
+    [Range(0, 86400)] public double? TrimEndSeconds { get; init; }
+
     /// <summary>Plays that sound OVER the clip's own audio rather than instead of it.</summary>
     public bool KeepOriginalAudio { get; init; }
 }

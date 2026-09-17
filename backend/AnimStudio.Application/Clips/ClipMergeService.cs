@@ -23,7 +23,7 @@ public sealed record TimedMusicClip(
 /// either replaces that audio or plays over it. Position in the list IS the clip it names.
 /// </summary>
 public sealed record ClipAudioTrack(
-    double Volume, string? AudioAssetId, double AudioVolume, bool KeepOriginalAudio);
+    double Volume, string? AudioAssetId, double AudioVolume, bool KeepOriginalAudio, double? TrimStartSeconds, double? TrimEndSeconds);
 
 /// <summary>What to stitch, and how. The order of <see cref="AssetIds"/> is the edit.</summary>
 public sealed record ClipMergeCommand
@@ -409,7 +409,9 @@ public sealed class ClipMergeService(
                     Volume = t.Volume,
                     AudioAssetId = t.AudioAssetId is { Length: > 0 } id ? id : null,
                     AudioVolume = t.AudioVolume,
-                    KeepOriginalAudio = t.KeepOriginalAudio
+                    KeepOriginalAudio = t.KeepOriginalAudio,
+                    TrimStartSeconds = t.TrimStartSeconds,
+                    TrimEndSeconds = t.TrimEndSeconds
                 })
                 .ToList()
             : [];
@@ -554,3 +556,5 @@ public sealed class ClipMergeService(
         return project;
     }
 }
+
+

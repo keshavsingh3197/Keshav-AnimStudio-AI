@@ -103,6 +103,8 @@ public sealed record ClipRenderPlan
     /// already materialized into the workspace. Null for the normal case.
     /// </summary>
     public string? ExtraAudioRelativePath { get; init; }
+    public double? ExtraAudioTrimStartSeconds { get; init; }
+    public double? ExtraAudioTrimEndSeconds { get; init; }
 
     public double ExtraAudioVolume { get; init; } = 1.0;
 

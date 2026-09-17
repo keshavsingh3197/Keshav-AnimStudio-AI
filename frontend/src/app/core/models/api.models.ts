@@ -453,6 +453,8 @@ export interface ClipAudioBody {
   audioVolume: number;
   /** Plays that sound over the clip's own audio rather than instead of it. */
   keepOriginalAudio: boolean;
+  trimStartSeconds?: number | null;
+  trimEndSeconds?: number | null;
 }
 
 /** Loudest anything may be lifted. Mirrors ClipAudioSpec.MaxGain on the server. */

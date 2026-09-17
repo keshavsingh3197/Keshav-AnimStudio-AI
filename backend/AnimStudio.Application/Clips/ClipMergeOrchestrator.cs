@@ -210,6 +210,8 @@ public sealed class ClipMergeOrchestrator(
                         MuteAudio = spec.MuteClipAudio,
                         AudioVolume = audio?.Volume ?? 1.0,
                         ExtraAudioRelativePath = extraAudio,
+                        ExtraAudioTrimStartSeconds = audio?.TrimStartSeconds,
+                        ExtraAudioTrimEndSeconds = audio?.TrimEndSeconds,
                         ExtraAudioVolume = audio?.AudioVolume ?? 1.0,
                         KeepOwnAudio = audio?.KeepOriginalAudio ?? false,
                         Watermark = watermark,

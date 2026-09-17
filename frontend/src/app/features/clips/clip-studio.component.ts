@@ -41,6 +41,8 @@ export interface ClipAudioSetting {
   audioAssetId: string;
   audioVolume: number;
   keepOriginalAudio: boolean;
+  audioTrimStartSeconds?: number;
+  audioTrimEndSeconds?: number;
 }
 
 export interface MusicTrackRow {
@@ -97,6 +99,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
 
   readonly store = inject(ProjectStore);
   readonly status = inject(StatusService);
+  readonly Math = Math;
 
   readonly transitions = TRANSITIONS;
   readonly positions = WATERMARK_POSITIONS;
@@ -947,6 +950,24 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     this.saveOrder();
   }
 
+  moveToExplicitIndex(currentIndex: number, newDisplayIndex: number): void {
+    if (newDisplayIndex < 1) newDisplayIndex = 1;
+    
+    this.rows.update((rows) => {
+      const maxIndex = rows.length;
+      if (newDisplayIndex > maxIndex) newDisplayIndex = maxIndex;
+      
+      const targetIndex = newDisplayIndex - 1;
+      if (currentIndex === targetIndex) return rows;
+
+      const next = [...rows];
+      const [item] = next.splice(currentIndex, 1);
+      next.splice(targetIndex, 0, item);
+      return next;
+    });
+    this.saveOrder();
+  }
+
   onRowDragStart(index: number): void {
     this.dragIndex.set(index);
   }
@@ -1301,6 +1322,11 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
 
   // --- per-clip sound ----------------------------------------------------------
 
+  clipSoundAsset(clipId: string) {
+    const assetId = this.clipSound(clipId).audioAssetId;
+    return this.studio()?.musicCandidates.find((a) => a.id === assetId);
+  }
+
   clipSound(clipId: string): ClipAudioSetting {
     return this.clipAudio().get(clipId)
       ?? { volume: 1, audioAssetId: '', audioVolume: 1, keepOriginalAudio: false };
@@ -1323,6 +1349,14 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
 
   setClipSound(clipId: string, assetId: string): void {
     this.updateClipSound(clipId, (current) => ({ ...current, audioAssetId: assetId }));
+  }
+
+  setClipSoundTrimStart(clipId: string, seconds: number): void {
+    this.updateClipSound(clipId, (c) => ({ ...c, audioTrimStartSeconds: seconds }));
+  }
+
+  setClipSoundTrimEnd(clipId: string, seconds: number): void {
+    this.updateClipSound(clipId, (c) => ({ ...c, audioTrimEndSeconds: seconds }));
   }
 
   setClipSoundVolume(clipId: string, value: number): void {
@@ -2285,6 +2319,8 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
         audioAssetId: assetId,
         audioVolume: sound.audioVolume,
         keepOriginalAudio: sound.keepOriginalAudio,
+        trimStartSeconds: sound.audioTrimStartSeconds ?? null,
+        trimEndSeconds: sound.audioTrimEndSeconds ?? null,
       };
     });
   }
@@ -2402,3 +2438,8 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     }
   }
 }
+
+
+
+
+
