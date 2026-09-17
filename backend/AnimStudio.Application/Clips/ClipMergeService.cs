@@ -28,6 +28,7 @@ public sealed record ClipAudioTrack(
 /// <summary>What to stitch, and how. The order of <see cref="AssetIds"/> is the edit.</summary>
 public sealed record ClipMergeCommand
 {
+    public string? ExportName { get; init; }
     public IReadOnlyList<string> AssetIds { get; init; } = [];
 
     public ClipFit Fit { get; init; } = ClipFit.Contain;
@@ -434,6 +435,7 @@ public sealed class ClipMergeService(
             CreatedAt = clock.GetUtcNow().UtcDateTime,
             ClipMerge = new ClipMergeSpec
             {
+                ExportName = command.ExportName,
                 AssetIds = [.. clipIds],
                 Fit = command.Fit,
                 OutputWidth = command.OutputWidth,

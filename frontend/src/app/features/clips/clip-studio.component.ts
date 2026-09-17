@@ -163,7 +163,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   readonly transitionSeconds = signal(0.5);
   readonly musicAssetId = signal('');
   readonly musicVolume = signal(0.18);
-  readonly muteClipAudio = signal(false);
+  readonly muteClipAudio = signal<"Never" | "Always" | "Overlap">("Never");
 
   // --- timeline scale, in pixels per second of finished video
   readonly pxPerSecond = signal(44);
@@ -186,6 +186,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   @ViewChild('timelineInner') timelineInnerRef?: ElementRef<HTMLElement>;
   @ViewChild('bgMusicAudio') bgMusicAudioRef?: ElementRef<HTMLAudioElement>;
   @ViewChild('clipSoundAudio') clipSoundAudioRef?: ElementRef<HTMLAudioElement>;
+  private timelineAudioElements: Map<string, HTMLAudioElement> = new Map();
 
   // --- Live Studio Monitor Player state
   readonly isPlaying = signal(false);
@@ -196,6 +197,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   readonly selectedClipId = signal<string | null>(null);
   readonly activeInspectorTab = signal<'clip' | 'effects' | 'audio' | 'export'>('clip');
   readonly isScrubbing = signal(false);
+  readonly exportName = signal<string>('');
   readonly liveTransitionActive = signal(false);
   readonly liveTransitionClass = signal('');
   readonly liveTransitionDuration = signal(0.5);
@@ -348,7 +350,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     if (this.musicTracks().length > studio.maxMusicTracks)
       return `At most ${studio.maxMusicTracks} music clips can go on the timeline.`;
 
-    if (this.muteClipAudio() && !this.musicAssetId() && this.musicTracks().length === 0)
+    if (this.muteClipAudio() === 'Always' && !this.musicAssetId() && this.musicTracks().length === 0)
       return 'Muting the clips with no music would produce a silent video.';
 
     return null;
@@ -1082,7 +1084,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
       musicTracks: this.musicTracks(),
       musicAssetId: this.musicAssetId(),
       musicVolume: this.musicVolume(),
-      muteClipAudio: this.muteClipAudio(),
+      muteClipAudio: this.muteClipAudio() === 'Always',
       fit: this.fit(),
       transition: this.transition(),
       transitionSeconds: this.transitionSeconds(),
@@ -1170,7 +1172,11 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
       }
       if (typeof draft.musicAssetId === 'string') this.musicAssetId.set(draft.musicAssetId);
       if (typeof draft.musicVolume === 'number') this.musicVolume.set(draft.musicVolume);
-      if (typeof draft.muteClipAudio === 'boolean') this.muteClipAudio.set(draft.muteClipAudio);
+      if (typeof draft.muteClipAudio === 'boolean') {
+      this.muteClipAudio.set(draft.muteClipAudio ? 'Always' : 'Never');
+    } else if (typeof draft.muteClipAudio === 'string') {
+      this.muteClipAudio.set(draft.muteClipAudio as any);
+    }
       if (draft.fit) this.fit.set(draft.fit);
       if (draft.transition) this.transition.set(draft.transition);
       if (typeof draft.transitionSeconds === 'number') this.transitionSeconds.set(draft.transitionSeconds);
@@ -1792,7 +1798,20 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     const inTransition = hasTrans && time >= transStart && curr.index < schedule.length - 1;
 
     const sound = this.clipSound(curr.clip.id);
-    const isMuted = this.isMonitorMuted() || this.muteClipAudio();
+    let isOverlap = false;
+    if (this.muteClipAudio() === 'Overlap') {
+      const hasBg = this.musicAssetId() !== '';
+      if (hasBg) {
+        isOverlap = true;
+      } else {
+        isOverlap = this.musicTracks().some(t => {
+          const mStart = t.startSeconds;
+          const mEnd = t.startSeconds + this.musicTrackDurationSeconds(t);
+          return mStart < curr.endSeconds && mEnd > curr.startSeconds;
+        });
+      }
+    }
+    const isMuted = this.isMonitorMuted() || this.muteClipAudio() === 'Always' || isOverlap;
     const clipVol = isMuted ? 0 : Math.min(1, sound.volume);
     const speed = this.playbackSpeed();
 
@@ -1866,20 +1885,28 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
 
     if (clipSoundEl) {
       if (sound.audioAssetId) {
-        if (this.loadedSoundAssetId !== sound.audioAssetId) {
-          this.loadedSoundAssetId = sound.audioAssetId;
-          clipSoundEl.src = this.assetUrl(sound.audioAssetId);
-          clipSoundEl.currentTime = localTime;
-        } else if (!playing || Math.abs(clipSoundEl.currentTime - localTime) > 0.35) {
-          clipSoundEl.currentTime = localTime;
-        }
-        clipSoundEl.volume = this.isMonitorMuted() ? 0 : sound.audioVolume;
-        clipSoundEl.muted = this.isMonitorMuted();
-        clipSoundEl.playbackRate = speed;
-        if (playing) {
-          if (clipSoundEl.paused) clipSoundEl.play().catch(() => undefined);
-        } else {
+        const trimStart = sound.audioTrimStartSeconds ?? 0;
+        const trimEnd = sound.audioTrimEndSeconds ?? 999999;
+        const audioLocalTime = localTime + trimStart;
+        
+        if (audioLocalTime > trimEnd) {
           if (!clipSoundEl.paused) clipSoundEl.pause();
+        } else {
+          if (this.loadedSoundAssetId !== sound.audioAssetId) {
+            this.loadedSoundAssetId = sound.audioAssetId;
+            clipSoundEl.src = this.assetUrl(sound.audioAssetId);
+            clipSoundEl.currentTime = audioLocalTime;
+          } else if (!playing || Math.abs(clipSoundEl.currentTime - audioLocalTime) > 0.35) {
+            clipSoundEl.currentTime = audioLocalTime;
+          }
+          clipSoundEl.volume = this.isMonitorMuted() ? 0 : sound.audioVolume;
+          clipSoundEl.muted = this.isMonitorMuted();
+          clipSoundEl.playbackRate = speed;
+          if (playing) {
+            if (clipSoundEl.paused) clipSoundEl.play().catch(() => undefined);
+          } else {
+            if (!clipSoundEl.paused) clipSoundEl.pause();
+          }
         }
       } else {
         clipSoundEl.pause();
@@ -1889,6 +1916,48 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
           clipSoundEl.removeAttribute('src');
           clipSoundEl.load();
         }
+      }
+    }
+
+    // Sync Timeline Music Tracks
+    const currentTracks = this.musicTracks();
+    const validKeys = new Set(currentTracks.map(t => t.key));
+
+    for (const [key, audio] of this.timelineAudioElements.entries()) {
+      if (!validKeys.has(key)) {
+        audio.pause();
+        audio.removeAttribute('src');
+        audio.load();
+        this.timelineAudioElements.delete(key);
+      }
+    }
+
+    for (const track of currentTracks) {
+      let audio = this.timelineAudioElements.get(track.key);
+      if (!audio) {
+        audio = new Audio();
+        audio.src = this.assetUrl(track.assetId);
+        this.timelineAudioElements.set(track.key, audio);
+      }
+
+      const dur = this.musicTrackDurationSeconds(track);
+      if (time >= track.startSeconds && time < track.startSeconds + dur) {
+        const trackLocalTime = (time - track.startSeconds) + (track.trimStartSeconds ?? 0);
+        
+        if (Math.abs(audio.currentTime - trackLocalTime) > 0.35 || !playing) {
+          audio.currentTime = trackLocalTime;
+        }
+        audio.volume = this.isMonitorMuted() ? 0 : track.volume;
+        audio.muted = this.isMonitorMuted();
+        audio.playbackRate = speed;
+
+        if (playing) {
+          if (audio.paused) audio.play().catch(() => undefined);
+        } else {
+          if (!audio.paused) audio.pause();
+        }
+      } else {
+        if (!audio.paused) audio.pause();
       }
     }
 
@@ -1924,6 +1993,9 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     this.videoMonitorBRef?.nativeElement.pause();
     this.bgMusicAudioRef?.nativeElement.pause();
     this.clipSoundAudioRef?.nativeElement.pause();
+    for (const audio of this.timelineAudioElements.values()) {
+      audio.pause();
+    }
   }
 
   private pvClassForTransition(transition: string): string {
@@ -1994,10 +2066,14 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   }
 
   onTimelineScrubDown(event: PointerEvent): void {
+    const target = event.target as HTMLElement;
+    if (target.closest('.tl-clip') || target.closest('.tl-junction') || target.closest('.tl-music-clip')) {
+      return;
+    }
     event.preventDefault();
     this.isScrubbing.set(true);
     try {
-      (event.target as HTMLElement).setPointerCapture?.(event.pointerId);
+      target.setPointerCapture?.(event.pointerId);
     } catch {}
     this.handleTimelineScrubEvent(event);
   }
@@ -2139,6 +2215,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
 
   onMusicBlockPointerDown(track: MusicTrackRow, event: PointerEvent): void {
     event.preventDefault();
+    event.stopPropagation();
     this.musicDrag = { key: track.key, startClientX: event.clientX, startSeconds: track.startSeconds };
   }
 
@@ -2210,7 +2287,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
           transition: j.transition,
           transitionSeconds: j.transition === 'None' ? 0 : j.seconds,
         })),
-        muteClipAudio: this.muteClipAudio(),
+        muteClipAudio: this.muteClipAudio() === 'Always',
         backgroundMusicAssetId: this.musicAssetId() || null,
         backgroundMusicVolume: this.musicVolume(),
         musicTracks: this.musicTracks().map((t) => ({
@@ -2268,7 +2345,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
           transition: j.transition,
           transitionSeconds: j.transition === 'None' ? 0 : j.seconds,
         })),
-        muteClipAudio: this.muteClipAudio(),
+        muteClipAudio: this.muteClipAudio() === 'Always',
         backgroundMusicAssetId: this.musicAssetId() || null,
         backgroundMusicVolume: this.musicVolume(),
         musicTracks: this.musicTracks().map((t) => ({
@@ -2304,8 +2381,11 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
 
   private clipAudioPayload(): ClipAudioBody[] | null {
     const clips = this.included();
-    if (!clips.some((r) => this.isClipSoundCustom(r.clip.id))) return null;
+    const needsOverlapCheck = this.muteClipAudio() === 'Overlap';
+    if (!needsOverlapCheck && !clips.some((r) => this.isClipSoundCustom(r.clip.id))) return null;
 
+    const schedule = this.clipSchedule();
+    const hasBg = this.musicAssetId() !== '';
     const available = new Set(this.studio()?.musicCandidates.map((a) => a.id) ?? []);
 
     return clips.map((row) => {
@@ -2313,9 +2393,25 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
       const assetId = sound.audioAssetId && available.has(sound.audioAssetId)
         ? sound.audioAssetId
         : null;
+        
+      let vol = sound.volume;
+      if (needsOverlapCheck) {
+        const s = schedule.find(x => x.clip.id === row.clip.id);
+        if (s) {
+           let isOverlap = hasBg;
+           if (!hasBg) {
+             isOverlap = this.musicTracks().some(t => {
+                const mStart = t.startSeconds;
+                const mEnd = t.startSeconds + this.musicTrackDurationSeconds(t);
+                return mStart < s.endSeconds && mEnd > s.startSeconds;
+             });
+           }
+           if (isOverlap) vol = 0;
+        }
+      }
 
       return {
-        volume: sound.volume,
+        volume: vol,
         audioAssetId: assetId,
         audioVolume: sound.audioVolume,
         keepOriginalAudio: sound.keepOriginalAudio,

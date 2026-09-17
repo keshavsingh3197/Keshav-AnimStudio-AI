@@ -80,9 +80,33 @@ export class ApiService {
       this.http.get<ApiResponse<Asset[]>>(`${this.base}/api/projects/${projectId}/assets`));
   }
 
-  uploadAsset(projectId: string, file: File): Observable<Asset> {
+  // --- Folders ---
+  getFolders(projectId: string): Observable<import('../models/api.models').AssetFolder[]> {
+    return this.unwrap(this.http.get<ApiResponse<import('../models/api.models').AssetFolder[]>>(`${this.base}/api/projects/${projectId}/folders`));
+  }
+
+  createFolder(projectId: string, name: string): Observable<import('../models/api.models').AssetFolder> {
+    return this.unwrap(this.http.post<ApiResponse<import('../models/api.models').AssetFolder>>(`${this.base}/api/projects/${projectId}/folders`, { name }));
+  }
+
+  updateFolder(projectId: string, folderId: string, name: string): Observable<import('../models/api.models').AssetFolder> {
+    return this.unwrap(this.http.put<ApiResponse<import('../models/api.models').AssetFolder>>(`${this.base}/api/projects/${projectId}/folders/${folderId}`, { name }));
+  }
+
+  deleteFolder(projectId: string, folderId: string): Observable<unknown> {
+    return this.unwrap(this.http.delete<ApiResponse<unknown>>(`${this.base}/api/projects/${projectId}/folders/${folderId}`));
+  }
+
+  moveAssetToFolder(projectId: string, assetId: string, folderId: string | null): Observable<Asset> {
+    return this.unwrap(this.http.put<ApiResponse<Asset>>(`${this.base}/api/projects/${projectId}/assets/${assetId}/folder`, { folderId }));
+  }
+
+  uploadAsset(projectId: string, file: File, folderId?: string | null): Observable<Asset> {
     const form = new FormData();
     form.append('file', file, file.name);
+    if (folderId) {
+      form.append('folderId', folderId);
+    }
     return this.unwrap(
       this.http.post<ApiResponse<Asset>>(`${this.base}/api/projects/${projectId}/assets`, form));
   }

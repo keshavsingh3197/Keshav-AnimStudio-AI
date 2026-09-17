@@ -41,6 +41,7 @@ public sealed class ClipMergeSpec
     public const int MaxMusicTracks = 12;
 
     /// <summary>Video asset ids in playback order.</summary>
+    public string? ExportName { get; set; }
     public List<string> AssetIds { get; set; } = [];
 
     /// <summary>How clips shaped differently from the canvas are fitted to it.</summary>

@@ -1,0 +1,72 @@
+.library-layout {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+}
+
+.sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.folder-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.folder-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+  cursor: pointer;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  transition: all 0.2s;
+}
+
+.folder-item:hover {
+  border-color: var(--primary);
+}
+
+.folder-item.active {
+  background: var(--primary-light);
+  border-color: var(--primary);
+  color: var(--primary-dark);
+}
+
+.folder-item.drag-over {
+  border: 2px dashed var(--primary);
+  background: var(--primary-light);
+}
+
+.folder-actions button {
+  padding: 2px 6px;
+  font-size: 0.8rem;
+  margin-left: 4px;
+}
+
+.main-content {
+  flex-grow: 1;
+  min-width: 0;
+}
+
+.new-folder-form {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.new-folder-form input {
+  flex-grow: 1;
+}
+
+.folder-name {
+  flex-grow: 1;
+  user-select: none;
+}

@@ -77,6 +77,7 @@ public sealed class Asset
 {
     public string Id { get; set; } = string.Empty;
     public string ProjectId { get; set; } = string.Empty;
+    public string? FolderId { get; set; }
     public string Name { get; set; } = string.Empty;
 
     /// <summary>The original client filename, kept for display only and never used on disk.</summary>

@@ -24,6 +24,7 @@ export class ProjectStore {
   readonly assets = signal<Asset[]>([]);
   readonly characters = signal<Character[]>([]);
   readonly scenes = signal<Scene[]>([]);
+  readonly folders = signal<import('../models/api.models').AssetFolder[]>([]);
 
   readonly images = computed(() => this.assets().filter((a) => a.kind === 'Image'));
 
@@ -52,6 +53,7 @@ export class ProjectStore {
       forkJoin({
         project: this.api.getProject(projectId),
         assets: this.api.listAssets(projectId),
+        folders: this.api.getFolders(projectId),
         characters: this.api.listCharacters(projectId),
         scenes: this.api.listScenes(projectId),
         renderer: this.api.rendererStatus(),
@@ -59,10 +61,16 @@ export class ProjectStore {
       (loaded) => {
         this.project.set(loaded.project);
         this.assets.set(loaded.assets);
+        this.folders.set(loaded.folders);
         this.characters.set(loaded.characters);
         this.scenes.set(loaded.scenes);
         this.renderer.set(loaded.renderer);
       });
+  }
+
+  refreshFolders(): void {
+    const id = this.projectId();
+    if (id) this.status.run(this.api.getFolders(id), (list) => this.folders.set(list));
   }
 
   refreshAssets(): void {

@@ -52,6 +52,7 @@ public static class MongoMappingRegistrar
             MapWithStringId<Project>();
             MapWithStringId<Character>();
             MapWithStringId<Scene>();
+            MapWithStringId<AssetFolder>();
             MapWithStringId<Asset>();
             MapWithStringId<Script>();
             MapWithStringId<TranscriptIngest>();

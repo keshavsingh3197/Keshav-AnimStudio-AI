@@ -121,6 +121,7 @@ public sealed class ClipsController(
     {
         var command = new ClipMergeCommand
         {
+            ExportName = request.ExportName,
             AssetIds = request.AssetIds,
             Fit = request.Fit,
             OutputWidth = request.OutputWidth,

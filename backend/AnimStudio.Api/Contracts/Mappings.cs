@@ -52,7 +52,7 @@ public static class Mappings
     public static AssetResponse ToResponse(this Asset a) => new(
         a.Id, a.Name, a.Kind.ToString(), a.MimeType, a.FileSizeBytes,
         a.Probe.Width, a.Probe.Height, a.Probe.HasAlpha, a.Probe.DurationSeconds,
-        a.ReviewStatus.ToString());
+        a.ReviewStatus.ToString(), a.FolderId);
 
     public static SceneResponse ToResponse(this Scene s, FrameRate rate) => new(
         s.Id, s.SceneNumber, s.Title, s.DurationFrames, s.Duration.ToSeconds(rate),

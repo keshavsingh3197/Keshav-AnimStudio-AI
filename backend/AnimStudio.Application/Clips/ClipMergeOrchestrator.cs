@@ -49,6 +49,7 @@ public sealed record ClipRenderSettings(
 public sealed class ClipMergeOrchestrator(
     IProjectRepository projects,
     IAssetRepository assets,
+    IAssetFolderRepository folders,
     IRenderJobRepository jobs,
     IVideoRenderingService renderer,
     IRenderWorkspaceFactory workspaces,
@@ -335,6 +336,45 @@ public sealed class ClipMergeOrchestrator(
             job.ScenesDone = prepared.Length;
             job.ScenesTotal = prepared.Length;
             job.Warnings = [.. warnings];
+
+            // Auto-create "Exports" folder and save the video as an Asset
+            var projectFolders = await folders.ListByProjectAsync(job.ProjectId, ct);
+            var exportsFolder = projectFolders.FirstOrDefault(f => f.Name == "Exports");
+            if (exportsFolder == null)
+            {
+                exportsFolder = new AssetFolder
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    ProjectId = job.ProjectId,
+                    Name = "Exports",
+                    CreatedAt = clock.GetUtcNow().UtcDateTime
+                };
+                await folders.InsertAsync(exportsFolder, ct);
+            }
+
+            var asset = new Asset
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                ProjectId = job.ProjectId,
+                Name = string.IsNullOrWhiteSpace(job.ClipMerge?.ExportName) ? $"Export - {DateTime.UtcNow:yyyy-MM-dd HH:mm}" : job.ClipMerge?.ExportName,
+                DisplayFileName = string.IsNullOrWhiteSpace(job.ClipMerge?.ExportName) ? $"Export - {DateTime.UtcNow:yyyy-MM-dd HH:mm}.mp4" : job.ClipMerge?.ExportName + ".mp4",
+                StorageKey = outputKey,
+                FolderId = exportsFolder.Id,
+                Kind = AssetKind.Video,
+                MimeType = "video/mp4",
+                FileSizeBytes = merged.SizeBytes,
+                ReviewStatus = AssetReviewStatus.NotRequired,
+                UsageScope = AssetUsageScope.SceneUse,
+                CreatedAt = clock.GetUtcNow().UtcDateTime,
+                Probe = new MediaProbe
+                {
+                    DurationSeconds = merged.Frames.ToSeconds(canvas.FrameRate),
+                    Width = job.Width,
+                    Height = job.Height,
+                    VideoCodec = "h264"
+                }
+            };
+            await assets.InsertAsync(asset, ct);
 
             await jobs.CompleteAsync(job, ct).ConfigureAwait(false);
 

@@ -758,11 +758,12 @@
               <label style="margin-top: .5rem">Music volume &mdash; {{ musicVolume() * 100 | number: '1.0-0' }}%</label>
               <input type="range" min="0" max="1" step="0.02" [(ngModel)]="musicVolume" />
 
-              <label class="muted" style="font-weight: 400; margin-top: .4rem">
-                <input type="checkbox" [checked]="muteClipAudio()"
-                       (change)="muteClipAudio.set(!muteClipAudio())" />
-                Mute all clips' own audio (music only)
-              </label>
+              <label style="font-weight: 600; font-size: 0.85rem; margin-top: 1rem; display: block">Video Audio Muting</label>
+              <select [ngModel]="muteClipAudio()" (ngModelChange)="muteClipAudio.set($event); markDirty()" style="width: 100%; margin-top: 0.4rem">
+                <option value="Never">Keep all clips' original audio</option>
+                <option value="Overlap">Mute only when music plays (Duck)</option>
+                <option value="Always">Mute all clips' original audio</option>
+              </select>
             }
           </div>
 
@@ -798,7 +799,9 @@
         @if (activeInspectorTab() === 'export') {
           <div>
             <h4 style="margin: 0 0 .5rem">Render Settings</h4>
-            <label for="fitModeSelect">Fitting clips of different sizes</label>
+              <label for="exportNameInput">Video Export Name (Optional)</label>
+              <input id="exportNameInput" type="text" [ngModel]="exportName()" (ngModelChange)="exportName.set($event)" placeholder="e.g. Part 1" style="width: 100%; margin-bottom: 1rem; padding: 0.4rem;" />
+              <label for="fitModeSelect">Fitting clips of different sizes</label>
             <select id="fitModeSelect" [ngModel]="fit()" (ngModelChange)="fit.set($event); markDirty()">
               <option value="Contain">Fit whole frame (black bars / letterboxed)</option>
               <option value="Cover">Fill whole frame (crops edges)</option>
@@ -849,7 +852,7 @@
 
               @if (current.hasOutput) {
                 <div class="row" style="margin-top: .8rem">
-                  <a [href]="downloadUrl(current.jobId)" download>
+                  <a [href]="downloadUrl(current.jobId)" [download]="exportName() ? exportName() + '.mp4' : current.jobId + '.mp4'">
                     <button type="button">&#128229; Download MP4</button>
                   </a>
                   @if (current.outputDurationSeconds) {
@@ -1020,7 +1023,12 @@
                  title="Drag to move in time">
               <span class="tl-trim-handle left"
                     (pointerdown)="onMusicTrimPointerDown(track, 'start', $event)"></span>
-              <span class="tl-music-name">{{ musicTrackName(track) }}</span>
+              <span class="tl-music-name" style="display: flex; gap: 0.5rem; align-items: center">
+                  {{ musicTrackName(track) }}
+                  <small style="opacity: 0.8; font-weight: normal; background: rgba(0,0,0,0.3); padding: 0.1rem 0.3rem; border-radius: 4px; font-size: 0.75rem; line-height: 1">
+                    {{ track.trimStartSeconds ?? 0 | number: '1.1-1' }}s &ndash; {{ track.trimEndSeconds ?? (musicTrackAsset(track)?.durationSeconds ?? 0) | number: '1.1-1' }}s
+                  </small>
+                </span>
               <button class="tl-music-remove" type="button"
                       (click)="$event.stopPropagation(); removeMusicTrack(track.key)" aria-label="Remove music clip">&times;</button>
               <span class="tl-trim-handle right"

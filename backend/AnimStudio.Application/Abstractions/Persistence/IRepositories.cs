@@ -37,6 +37,15 @@ public interface ISceneRepository
     Task DeleteByProjectAsync(string projectId, CancellationToken ct);
 }
 
+public interface IAssetFolderRepository
+{
+    Task<AssetFolder?> GetAsync(string id, CancellationToken ct);
+    Task<IReadOnlyList<AssetFolder>> ListByProjectAsync(string projectId, CancellationToken ct);
+    Task InsertAsync(AssetFolder folder, CancellationToken ct);
+    Task ReplaceAsync(AssetFolder folder, CancellationToken ct);
+    Task DeleteAsync(string id, CancellationToken ct);
+}
+
 public interface IAssetRepository
 {
     Task<Asset?> GetAsync(string id, CancellationToken ct);

@@ -320,6 +320,7 @@ public sealed record ClipAudioRequest
 /// </summary>
 public sealed record ClipMergeRequest
 {
+    public string? ExportName { get; init; }
     [Required, MinLength(1)]
     public List<string> AssetIds { get; init; } = [];
 

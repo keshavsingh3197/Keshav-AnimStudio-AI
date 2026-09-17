@@ -45,6 +45,14 @@ export interface UpdateProjectBody extends CreateProjectBody {
   defaultWatermark?: WatermarkBody | null;
 }
 
+export interface AssetFolder {
+  id: string;
+  projectId: string;
+  name: string;
+  parentId?: string;
+  createdAt: string;
+}
+
 export interface Asset {
   id: string;
   name: string;
@@ -56,6 +64,7 @@ export interface Asset {
   hasAlpha: boolean;
   durationSeconds?: number;
   reviewStatus: string;
+  folderId?: string | null;
 }
 
 export interface CharacterAppearance {

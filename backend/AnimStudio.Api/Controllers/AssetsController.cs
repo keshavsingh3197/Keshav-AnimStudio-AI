@@ -65,7 +65,7 @@ public sealed class AssetsController(
     [RequestSizeLimit(MaxVideoUploadBytes)]
     [RequestFormLimits(MultipartBodyLengthLimit = MaxVideoUploadBytes)]
     public async Task<ActionResult<ApiResponse<AssetResponse>>> Upload(
-        string projectId, IFormFile file, CancellationToken ct)
+        string projectId, IFormFile file, [FromForm] string? folderId, CancellationToken ct)
     {
         await EnsureOwnedAsync(projectId, ct);
 
@@ -123,6 +123,7 @@ public sealed class AssetsController(
         var asset = new Asset
         {
             ProjectId = projectId,
+            FolderId = folderId,
             Name = UploadValidator.SanitizeDisplayName(file.FileName),
             DisplayFileName = UploadValidator.SanitizeDisplayName(file.FileName),
             StorageKey = storageKey,
@@ -195,5 +196,26 @@ public sealed class AssetsController(
 
         if (!string.Equals(project.UserId, currentUser.UserId, StringComparison.Ordinal))
             throw new UnauthorizedAccessException();
+    }
+
+    public sealed record MoveAssetRequest
+    {
+        public string? FolderId { get; init; }
+    }
+
+    [HttpPut("api/projects/{projectId}/assets/{assetId}/folder")]
+    public async Task<ActionResult<ApiResponse<AssetResponse>>> MoveAsset(
+        string projectId, string assetId, [FromBody] MoveAssetRequest req, CancellationToken ct)
+    {
+        await EnsureOwnedAsync(projectId, ct);
+
+        var asset = await assets.GetAsync(assetId, ct);
+        if (asset == null || asset.ProjectId != projectId)
+            return NotFound();
+
+        asset.FolderId = req.FolderId;
+        await assets.ReplaceAsync(asset, ct);
+
+        return Ok(ApiResponse<AssetResponse>.Ok(asset.ToResponse()));
     }
 }

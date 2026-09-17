@@ -3,81 +3,114 @@
     <h2>Assets</h2>
     <p class="muted">
       PNG, JPEG or WEBP images; WAV, MP3 or M4A audio; MP4 video; SRT or WebVTT subtitles.
-      Up to 25MB each &mdash; 512MB for video, 2MB for a subtitle file. Files are checked by
-      their contents, not their name.
+      Up to 25MB each &mdash; 512MB for video, 2MB for a subtitle file.
     </p>
   </div>
 </div>
 
-<div class="card">
-  <label for="upload">Upload files</label>
-  <input id="upload" type="file" multiple
-         accept="image/png,image/jpeg,image/webp,audio/wav,audio/mpeg,audio/mp4,video/mp4,.srt,.vtt"
-         (change)="upload($event)" />
-</div>
+<div class="library-layout">
+  <div class="sidebar">
+    <h3>Folders</h3>
+    <div class="folder-list">
+      <div class="folder-item"
+           [class.active]="selectedFolderId() === null"
+           [class.drag-over]="dragTargetFolder() === 'root'"
+           (click)="selectFolder(null)"
+           (dragover)="onDragOver($event, 'root')"
+           (dragleave)="onDragLeave($event)"
+           (drop)="onDrop($event, null)">
+        <span class="folder-name">All Assets</span>
+      </div>
+      
+      @for (folder of store.folders(); track folder.id) {
+        <div class="folder-item"
+             [class.active]="selectedFolderId() === folder.id"
+             [class.drag-over]="dragTargetFolder() === folder.id"
+             (click)="selectFolder(folder.id)"
+             (dragover)="onDragOver($event, folder.id)"
+             (dragleave)="onDragLeave($event)"
+             (drop)="onDrop($event, folder.id)">
+          <span class="folder-name">{{ folder.name }}</span>
+          @if (folder.name !== 'Exports') {
+            <div class="folder-actions">
+              <button class="danger" (click)="deleteFolder(folder.id); $event.stopPropagation()">X</button>
+            </div>
+          }
+        </div>
+      }
+    </div>
 
-@if (store.assets().length === 0) {
-  <div class="card muted">Nothing uploaded yet.</div>
-} @else {
-  <div class="card">
-    <table>
-      <thead>
-        <tr>
-          <th style="width: 6rem">Preview</th><th>Name</th><th>Kind</th>
-          <th>Details</th><th>Size</th><th></th>
-        </tr>
-      </thead>
-      <tbody>
-        @for (asset of store.assets(); track asset.id) {
-          <tr>
-            <td>
-              @if (isImage(asset)) {
-                <img class="thumb" [src]="assetUrl(asset.id)" [alt]="asset.name" />
-              } @else if (isAudible(asset)) {
-                <audio controls preload="none" [src]="assetUrl(asset.id)"
-                       style="max-width: 12rem"></audio>
-              } @else if (asset.kind === 'Subtitle') {
-                <span class="muted mono">captions</span>
-              }
-            </td>
-            <td>{{ asset.name }}</td>
-            <td>
-              <span class="pill">{{ asset.kind }}</span>
-              @if (asset.kind === 'Subtitle') {
-                <span class="pill" title="Source material for an import, never scene content">
-                  import only
-                </span>
-              }
-              @if (asset.reviewStatus !== 'NotRequired') {
-                <span class="pill warn">{{ asset.reviewStatus }}</span>
-              }
-            </td>
-            <td class="mono muted">
-              @if (asset.width) { {{ asset.width }}&times;{{ asset.height }} }
-              @if (asset.durationSeconds) { {{ asset.durationSeconds | number: '1.1-1' }}s }
-              @if (isImage(asset)) {
-                <span [class]="asset.hasAlpha ? 'pill ok' : 'pill warn'">
-                  {{ asset.hasAlpha ? 'alpha' : 'no alpha' }}
-                </span>
-              }
-            </td>
-            <td class="mono">{{ asset.fileSizeBytes / 1024 | number: '1.0-0' }} KB</td>
-            <td style="text-align: right; white-space: nowrap">
-              @if (confirming() === asset.id) {
-                <button class="danger" type="button" (click)="remove(asset.id)">Delete</button>
-                <button class="secondary" type="button" (click)="confirming.set(null)">Keep</button>
-              } @else {
-                <button class="secondary" type="button"
-                        (click)="confirming.set(asset.id)">Delete</button>
-              }
-            </td>
-          </tr>
-        }
-      </tbody>
-    </table>
-    <p class="muted">
-      A file still used by a scene, a character or the music bed cannot be deleted until it
-      is unused.
-    </p>
+    @if (isCreatingFolder()) {
+      <div class="new-folder-form">
+        <input type="text" [(ngModel)]="newFolderName" placeholder="Folder name..." (keyup.enter)="createFolder()" />
+        <button class="primary" (click)="createFolder()">Add</button>
+        <button class="secondary" (click)="isCreatingFolder.set(false)">Cancel</button>
+      </div>
+    } @else {
+      <button class="secondary" (click)="isCreatingFolder.set(true)" style="margin-top: 0.5rem">
+        + New Folder
+      </button>
+    }
   </div>
-}
+
+  <div class="main-content">
+    <div class="card" style="margin-bottom: 1rem">
+      <label for="upload">Upload files to {{ selectedFolderId() ? 'this folder' : 'root' }}</label>
+      <input id="upload" type="file" multiple
+             accept="image/png,image/jpeg,image/webp,audio/wav,audio/mpeg,audio/mp4,video/mp4,.srt,.vtt"
+             (change)="upload($event)" />
+    </div>
+
+    @if (filteredAssets().length === 0) {
+      <div class="card muted">No assets here.</div>
+    } @else {
+      <div class="card">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 6rem">Preview</th><th>Name</th><th>Kind</th>
+              <th>Details</th><th>Size</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (asset of filteredAssets(); track asset.id) {
+              <tr draggable="true" (dragstart)="onDragStart($event, asset)" style="cursor: grab">
+                <td>
+                  @if (isImage(asset)) {
+                    <img class="thumb" [src]="assetUrl(asset.id)" [alt]="asset.name" draggable="false" />
+                  } @else if (isAudible(asset)) {
+                    <audio controls preload="none" [src]="assetUrl(asset.id)"
+                           style="max-width: 12rem"></audio>
+                  } @else if (asset.kind === 'Subtitle') {
+                    <span class="muted mono">captions</span>
+                  }
+                </td>
+                <td>{{ asset.name }}</td>
+                <td>
+                  <span class="pill">{{ asset.kind }}</span>
+                  @if (asset.reviewStatus !== 'NotRequired') {
+                    <span class="pill warn">{{ asset.reviewStatus }}</span>
+                  }
+                </td>
+                <td class="mono muted">
+                  @if (asset.width) { {{ asset.width }}&times;{{ asset.height }} }
+                  @if (asset.durationSeconds) { {{ asset.durationSeconds | number: '1.1-1' }}s }
+                </td>
+                <td class="mono">{{ asset.fileSizeBytes / 1024 | number: '1.0-0' }} KB</td>
+                <td style="text-align: right; white-space: nowrap">
+                  @if (confirming() === asset.id) {
+                    <button class="danger" type="button" (click)="remove(asset.id)">Delete</button>
+                    <button class="secondary" type="button" (click)="confirming.set(null)">Keep</button>
+                  } @else {
+                    <button class="secondary" type="button"
+                            (click)="confirming.set(asset.id)">Delete</button>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+  </div>
+</div>

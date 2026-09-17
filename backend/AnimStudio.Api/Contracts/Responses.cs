@@ -29,7 +29,7 @@ public sealed record CharacterAppearanceResponse(
 
 public sealed record AssetResponse(
     string Id, string Name, string Kind, string MimeType, long FileSizeBytes,
-    int? Width, int? Height, bool HasAlpha, double? DurationSeconds, string ReviewStatus);
+    int? Width, int? Height, bool HasAlpha, double? DurationSeconds, string ReviewStatus, string? FolderId = null);
 
 public sealed record IngestResponse(
     string IngestId, string? ScriptId, int CueCount, int SegmentCount,

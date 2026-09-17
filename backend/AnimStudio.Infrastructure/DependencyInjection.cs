@@ -88,6 +88,7 @@ public static class DependencyInjection
         services.AddScoped<ICharacterRepository, MongoCharacterRepository>();
         services.AddScoped<ISceneRepository, MongoSceneRepository>();
         services.AddScoped<IAssetRepository, MongoAssetRepository>();
+        services.AddScoped<IAssetFolderRepository, MongoAssetFolderRepository>();
         services.AddScoped<IScriptRepository, MongoScriptRepository>();
         services.AddScoped<IIngestRepository, MongoIngestRepository>();
         services.AddScoped<IRenderJobRepository, MongoRenderJobRepository>();
@@ -117,6 +118,7 @@ public static class DependencyInjection
             services.AddScoped<ICharacterRepository, SqlCharacterRepository>();
             services.AddScoped<ISceneRepository, SqlSceneRepository>();
             services.AddScoped<IAssetRepository, SqlAssetRepository>();
+            services.AddScoped<IAssetFolderRepository, SqlAssetFolderRepository>();
             services.AddScoped<IScriptRepository, SqlScriptRepository>();
             services.AddScoped<IIngestRepository, SqlIngestRepository>();
             services.AddScoped<IRenderJobRepository, SqlRenderJobRepository>();
@@ -145,6 +147,7 @@ public static class DependencyInjection
             services.AddScoped<ICharacterRepository, MongoCharacterRepository>();
             services.AddScoped<ISceneRepository, MongoSceneRepository>();
             services.AddScoped<IAssetRepository, MongoAssetRepository>();
+        services.AddScoped<IAssetFolderRepository, MongoAssetFolderRepository>();
             services.AddScoped<IScriptRepository, MongoScriptRepository>();
             services.AddScoped<IIngestRepository, MongoIngestRepository>();
             services.AddScoped<IRenderJobRepository, MongoRenderJobRepository>();
