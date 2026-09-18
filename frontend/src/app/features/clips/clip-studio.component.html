@@ -361,9 +361,6 @@
             <button class="inspector-tab-btn" type="button"
                     [class.active]="activeInspectorTab() === 'effects'"
                     (click)="activeInspectorTab.set('effects')">Color</button>
-            <button class="inspector-tab-btn" type="button"
-                    [class.active]="activeInspectorTab() === 'export'"
-                    (click)="activeInspectorTab.set('export')">Export</button>
           </nav>
 
           <div class="inspector-content">
@@ -371,45 +368,29 @@
         @if (activeInspectorTab() === 'clip') {
           @if (selectedClip(); as clip) {
             @let sound = clipSound(clip.id);
-            <div class="row" style="justify-content: space-between; align-items: flex-start; gap: 0.5rem; flex-wrap: wrap;">
-              <div style="flex: 1 1 0; min-width: 0;">
-                <h4 style="margin: 0; overflow-wrap: anywhere; word-break: break-all;">{{ clip.name }}</h4>
-                <span class="muted mono" style="font-size: .8rem">
-                  {{ clip.durationSeconds ?? 0 | number: '1.1-1' }}s &middot;
-                  {{ clip.width }}&times;{{ clip.height }} &middot;
-                  {{ clip.fileSizeBytes / 1048576 | number: '1.1-1' }}MB
-                </span>
+
+            <div class="clip-info-header" style="margin-bottom: 8px;">
+              <div class="clip-name" [title]="clip.name" style="font-size: .85rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text);">{{ clip.name }}</div>
+              <div class="muted mono" style="font-size: .75rem; margin-top: 2px;">
+                {{ clip.durationSeconds ?? 0 | number: '1.1-1' }}s &middot;
+                {{ clip.width }}&times;{{ clip.height }} &middot;
+                {{ clip.fileSizeBytes / 1048576 | number: '1.1-1' }}MB
               </div>
-              <button class="secondary" type="button" style="flex-shrink: 0;" (click)="selectAndSeekClip(clip)">
-                &#9658; Play this clip
-              </button>
             </div>
 
             <!-- Clip Blade / Split & Actions Toolbar -->
-            <div class="clip-quick-bar">
-              <button class="secondary" type="button" (click)="splitClipAtPlayhead()"
-                      title="Split clip at playhead needle (Hotkey: S or B)">
-                ✂ Split at playhead
-              </button>
-              <button class="secondary" type="button" (click)="duplicateClip(clip.id)"
-                      title="Duplicate this clip">
-                ⧉ Duplicate
-              </button>
+            <div class="clip-quick-bar" style="display: flex; gap: 4px; background: color-mix(in srgb, var(--surface-2) 60%, transparent); padding: 4px 6px; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); margin-bottom: 8px;">
+              <button class="tool-btn" type="button" (click)="splitClipAtPlayhead()" title="Split clip at playhead needle (S)">✂</button>
+              <button class="tool-btn" type="button" (click)="duplicateClip(clip.id)" title="Duplicate clip">⧉</button>
               <span style="flex: 1 1 auto"></span>
-              <button class="icon" type="button" (click)="move(selectedClipIndexInCut(), -1)"
-                      [disabled]="selectedClipIndexInCut() <= 0" title="Move earlier">&uarr;</button>
-              <button class="icon" type="button" (click)="move(selectedClipIndexInCut(), 1)"
-                      [disabled]="selectedClipIndexInCut() >= rows().length - 1" title="Move later">&darr;</button>
-              <button class="secondary" type="button" style="font-size: .8rem; padding: .25rem .5rem"
-                      (click)="toggle(selectedClipIndexInCut())">
-                Untick
-              </button>
+              <button class="tool-btn" type="button" (click)="move(selectedClipIndexInCut(), -1)" [disabled]="selectedClipIndexInCut() <= 0" title="Move earlier">↑</button>
+              <button class="tool-btn" type="button" (click)="move(selectedClipIndexInCut(), 1)" [disabled]="selectedClipIndexInCut() >= rows().length - 1" title="Move later">↓</button>
+              <button class="tool-btn" type="button" style="color: var(--err);" (click)="toggle(selectedClipIndexInCut())" title="Untick / Remove from cut">☒</button>
             </div>
-
             <!-- In / Out Trimming Control Card -->
             <div class="trim-card">
               <div class="row" style="justify-content: space-between; align-items: center">
-                <strong style="font-size: .85rem">✂ Precision In / Out Trimming</strong>
+                <div class="qa-title">✂ Precision In / Out Trimming</div>
                 @if (clipTrim(clip.id); as trim) {
                   <button class="link" type="button" style="font-size: .8rem" (click)="resetClipTrim(clip.id)">
                     Reset Trim
@@ -435,7 +416,7 @@
             @let framing = clipFramingSetting(clip.id);
             <div class="framing-card">
               <div class="row" style="justify-content: space-between; align-items: center">
-                <strong style="font-size: .85rem">📐 Framing & Zoom (Fit to Canvas)</strong>
+                <div class="qa-title">📐 Framing & Zoom (Fit to Canvas)</div>
                 <span class="muted mono" style="font-size: .8rem">{{ framing.zoom }}%</span>
               </div>
               <p class="muted" style="font-size: .8rem; margin: 0">
@@ -579,7 +560,7 @@
         @if (activeInspectorTab() === 'effects') {
           <!-- Color Grading Look Presets -->
           <div>
-            <h4 style="margin: 0 0 .3rem">Color Grading & Look Presets</h4>
+            <div class="qa-title">Color Grading & Look Presets</div>
             <p class="muted" style="font-size: .8rem; margin: 0 0 .4rem">
               Instant live styling applied to the Master Monitor.
             </p>
@@ -631,7 +612,7 @@
           <!-- Lower-Third Title Overlay -->
           <div>
             <div class="row" style="justify-content: space-between">
-              <h4 style="margin: 0">Lower-Third Title Card</h4>
+              <div class="qa-title">Lower-Third Title Card</div>
               <label class="muted" style="font-size: .85rem; font-weight: 400">
                 <input type="checkbox" [checked]="lowerThirdEnabled()"
                        (change)="lowerThirdEnabled.set(!lowerThirdEnabled())" />
@@ -653,7 +634,7 @@
 
           <!-- Global Transition -->
           <div>
-            <h4 style="margin: 0 0 .5rem">Global Transition</h4>
+            <div class="qa-title">Global Transition</div>
             <label for="globalTrans">Default transition between clips</label>
             <select id="globalTrans" [(ngModel)]="transition" [disabled]="!studio.transitionsAvailable">
               @for (option of transitions; track option) {
@@ -673,9 +654,9 @@
           <!-- Watermark & Branding -->
           <!-- Brand Watermark & Hallmark -->
           <div>
-            <h4 style="margin: 0 0 .5rem">Brand Watermark & Hallmark</h4>
             <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: .6rem">
-              <h4 style="margin: 0">Brand Hallmark & Watermark</h4>
+              <div class="qa-title" style="margin: 0">Brand Hallmark & Watermark</div>
+              <div class="qa-title" style="margin: 0">Brand Hallmark & Watermark</div>
               <a routerLink="/admin/branding" style="font-size: .8rem; color: var(--brand); text-decoration: none">
                 ⚙️ Global Server Branding
               </a>
@@ -819,7 +800,7 @@
         <!-- TAB 3: AUDIO & MUSIC -->
         @if (activeInspectorTab() === 'audio') {
           <div>
-            <h4 style="margin: 0 0 .5rem">Background Music Bed</h4>
+            <div class="qa-title">Background Music Bed</div>
             <label for="bgMusicSelect">Audio track</label>
             <select id="bgMusicSelect" [(ngModel)]="musicAssetId">
               <option value="">None &mdash; no background music</option>
@@ -844,7 +825,7 @@
           <hr style="border: none; border-top: 1px solid var(--border); margin: .5rem 0" />
 
           <div>
-            <h4 style="margin: 0 0 .5rem">Timeline Music Tracks</h4>
+            <div class="qa-title">Timeline Music Tracks</div>
             <div class="row" style="margin-bottom: .6rem">
               <select [(ngModel)]="addMusicAssetId" style="flex: 1 1 auto">
                 <option value="">Choose music to place on timeline&hellip;</option>
@@ -869,74 +850,7 @@
           </div>
         }
 
-        <!-- TAB 4: EXPORT & BUILD -->
-        @if (activeInspectorTab() === 'export') {
-          <div>
-            <h4 style="margin: 0 0 .5rem">Render Settings</h4>
-              <label for="exportNameInput">Video Export Name (Optional)</label>
-              <input id="exportNameInput" type="text" [ngModel]="exportName()" (ngModelChange)="exportName.set($event)" placeholder="e.g. Part 1" style="width: 100%; margin-bottom: 1rem; padding: 0.4rem;" />
-              <label for="fitModeSelect">Fitting clips of different sizes</label>
-            <select id="fitModeSelect" [ngModel]="fit()" (ngModelChange)="fit.set($event); markDirty()">
-              <option value="Contain">Fit whole frame (black bars / letterboxed)</option>
-              <option value="Cover">Fill whole frame (crops edges)</option>
-              <option value="BlurredBackdrop" [disabled]="!studio.blurredBackdropAvailable">
-                Fit whole frame over blurred backdrop{{ studio.blurredBackdropAvailable ? '' : ' (unavailable)' }}
-              </option>
-            </select>
-            @if (fit() === 'Cover') {
-              <p class="muted" style="margin: .3rem 0 0; font-size: .78rem; color: #fbbf24">
-                ⚠️ Cover mode crops outer edges of clips. If clips have corner logos, consider using 'Blurred Backdrop' to protect them from being cropped out.
-              </p>
-            }
-          </div>
 
-          <div class="row" style="margin-top: .8rem; gap: .5rem; flex-wrap: wrap">
-            <button type="button" (click)="build()"
-                    [disabled]="status.busy() || uploading() || sideUpload() !== null
-                                || running() || blockedReason() !== null">
-              Build Final Video
-            </button>
-            <button class="secondary" type="button" (click)="buildShort()"
-                    [disabled]="status.busy() || uploading() || sideUpload() !== null
-                                || running() || blockedReason() !== null"
-                    title="Build vertical Short (9:16) video">
-              📱 Build as Short (9:16)
-            </button>
-            @if (running()) {
-              <button class="secondary" type="button" (click)="cancel()">Cancel build</button>
-            }
-          </div>
-
-          @if (blockedReason(); as reason) {
-            <p class="muted" style="font-size: .85rem; color: var(--warn)">{{ reason }}</p>
-          }
-
-          @if (job(); as current) {
-            <div style="margin-top: .8rem">
-              <div class="row" style="justify-content: space-between">
-                <span>
-                  <span [class]="statusClass(current.status)">{{ current.status }}</span>
-                  <span class="muted"> {{ current.message }}</span>
-                </span>
-                <span class="mono">{{ current.progress }}%</span>
-              </div>
-              <div class="bar" style="margin-top: .5rem">
-                <i [style.width.%]="current.progress"></i>
-              </div>
-
-              @if (current.hasOutput) {
-                <div class="row" style="margin-top: .8rem">
-                  <a [href]="downloadUrl(current.jobId)" [download]="exportName() ? exportName() + '.mp4' : current.jobId + '.mp4'">
-                    <button type="button">&#128229; Download MP4</button>
-                  </a>
-                  @if (current.outputDurationSeconds) {
-                    <span class="muted mono">{{ current.outputDurationSeconds | number: '1.1-1' }}s</span>
-                  }
-                </div>
-              }
-            </div>
-          }
-        }
           </div>
         </div>
       </div>

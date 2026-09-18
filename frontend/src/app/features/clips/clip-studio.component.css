@@ -37,8 +37,8 @@
 
 .flowedit-layout {
   display: grid;
-  grid-template-columns: 60px 300px minmax(0, 1fr) 340px;
-  grid-template-rows: minmax(320px, 1fr) 240px;
+  grid-template-columns: 60px 300px minmax(0, 1fr) 320px 210px;
+  grid-template-rows: minmax(320px, 1fr) 260px;
   gap: 6px;
   flex-grow: 1;
   min-height: 0;
@@ -282,7 +282,7 @@
    ---------------------------------------------------------- */
 
 .fe-timeline {
-  grid-column: 1 / 5;
+  grid-column: 1 / 6;
   grid-row: 2;
   display: flex;
   flex-direction: column;
@@ -368,14 +368,30 @@
 }
 
 /* ----------------------------------------------------------
+   Responsive — 1400px breakpoint
+   Hide Quick Actions column, collapse inspector slightly
+   ---------------------------------------------------------- */
+
+@media (max-width: 1400px) {
+  .flowedit-layout {
+    grid-template-columns: 60px 280px minmax(0, 1fr) 300px;
+  }
+
+  /* .fe-quick-actions is hidden via styles.css media query */
+  .fe-timeline { grid-column: 1 / 5; }
+}
+
+/* ----------------------------------------------------------
    Responsive — 1200px breakpoint
-   Narrow col2 (260px) and col4 (290px)
+   Narrow col2 (240px) and col4 (270px)
    ---------------------------------------------------------- */
 
 @media (max-width: 1200px) {
   .flowedit-layout {
-    grid-template-columns: 60px 260px minmax(0, 1fr) 290px;
+    grid-template-columns: 60px 240px minmax(0, 1fr) 270px;
   }
+
+  .fe-timeline { grid-column: 1 / 5; }
 }
 
 /* ----------------------------------------------------------
@@ -389,9 +405,10 @@
     grid-template-rows: minmax(280px, 1fr) 220px;
   }
 
-  /* Hide col2 and col4 panels */
+  /* Hide col2, col4, col5 panels */
   .fe-media-library,
-  .fe-inspector {
+  .fe-inspector,
+  .fe-quick-actions {
     display: none;
   }
 
