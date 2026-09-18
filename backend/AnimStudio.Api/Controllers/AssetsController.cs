@@ -162,6 +162,7 @@ public sealed class AssetsController(
     /// </para>
     /// </summary>
     [HttpGet("api/assets/{id}/content")]
+    [HttpHead("api/assets/{id}/content")]
     public async Task<IActionResult> Content(string id, CancellationToken ct)
     {
         var asset = await assets.GetAsync(id, ct) ?? throw new KeyNotFoundException();
@@ -171,6 +172,7 @@ public sealed class AssetsController(
 
         Response.Headers.XContentTypeOptions = "nosniff";
         return File(stream, asset.MimeType);
+        return File(stream, asset.MimeType, enableRangeProcessing: stream.CanSeek);
     }
 
     /// <summary>

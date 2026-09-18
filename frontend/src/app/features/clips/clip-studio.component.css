@@ -1,164 +1,415 @@
-/* FlowEdit Pro Inspired Layout */
+/* ============================================================
+   Obsidian Studio — Clip Studio Layout
+   AnimStudio AI · NLE-style 4-column workspace
+   ============================================================ */
+
+/* ----------------------------------------------------------
+   Root Workspace
+   ---------------------------------------------------------- */
 
 .editor-workspace {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 120px);
-  min-height: 600px;
-  background: var(--bg);
-}
-
-.editor-workspace.is-fullscreen {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  z-index: 9999;
-  padding: 1rem;
+  height: calc(100vh - 56px); /* subtract topbar height */
+  background: var(--bg, #080a0f);
+  color: var(--text, #e2e8f0);
+  overflow: hidden;
   box-sizing: border-box;
 }
 
-.editor-workspace.is-fullscreen .page-head {
-  padding-top: 0;
-  margin-top: 0;
+/* Fullscreen mode — covers topbar entirely */
+.editor-workspace.is-fullscreen {
+  position: fixed;
+  inset: 0;
+  height: 100vh;
+  z-index: 9999;
 }
+
+/* ----------------------------------------------------------
+   4-Column NLE Grid
+   col1 : 60px   — icon rail (sidebar)
+   col2 : 300px  — media library
+   col3 : 1fr    — program monitor
+   col4 : 340px  — inspector
+   row1 : 1fr    — main workspace (min 320px)
+   row2 : 240px  — timeline
+   ---------------------------------------------------------- */
 
 .flowedit-layout {
   display: grid;
-  grid-template-rows: minmax(300px, 1fr) minmax(200px, 300px);
-  grid-template-columns: 70px 320px minmax(0, 1fr) 340px;
-  gap: 0.8rem;
+  grid-template-columns: 60px 300px minmax(0, 1fr) 340px;
+  grid-template-rows: minmax(320px, 1fr) 240px;
+  gap: 6px;
   flex-grow: 1;
   min-height: 0;
+  padding: 0 6px 6px 6px;
   box-sizing: border-box;
 }
 
-/* Make sure panels scroll if needed */
+/* ----------------------------------------------------------
+   Shared Panel Base — glassmorphism surface
+   ---------------------------------------------------------- */
+
 .fe-panel {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface, #0f1117) 92%, transparent);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border, #1e2433);
+  border-radius: 10px;
+  overflow: hidden;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
   min-height: 0;
 }
+
+/* ----------------------------------------------------------
+   Column 1 — Icon Rail / Sidebar
+   ---------------------------------------------------------- */
+
+.fe-sidebar {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 0;
+  background: var(--surface, #0f1117);
+  border: 1px solid var(--border, #1e2433);
+  border-radius: 10px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border, #1e2433) transparent;
+}
+
+/* Icon tab item */
+.fe-tab {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 0;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease;
+  color: var(--text-muted, #8892a4);
+  user-select: none;
+  box-sizing: border-box;
+}
+
+.fe-tab:hover {
+  background: color-mix(in srgb, var(--surface-2, #161b27) 80%, transparent);
+  color: var(--text, #e2e8f0);
+}
+
+/* Active tab — brand accent */
+.fe-tab.active {
+  background: color-mix(in srgb, var(--brand, #6c8cff) 18%, transparent);
+  border-left: 3px solid var(--brand, #6c8cff);
+  color: var(--brand, #6c8cff);
+}
+
+/* Icon / emoji inside tab */
+.fe-tab .icon {
+  font-size: 18px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+}
+
+/* Small label under icon */
+.fe-tab .label {
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  text-align: center;
+  max-width: 52px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ----------------------------------------------------------
+   Column 2 — Media Library Panel
+   ---------------------------------------------------------- */
 
 .fe-media-library {
   grid-column: 2;
   grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
+
+/* Media library inner card */
+.fe-media-library .card {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+}
+
+/* Scrollable content area inside media library */
+.fe-media-library .card-body,
+.fe-media-library .media-list {
+  flex: 1 1 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border, #1e2433) transparent;
+}
+
+/* ----------------------------------------------------------
+   Column 3 — Program Monitor / Preview
+   ---------------------------------------------------------- */
 
 .fe-preview {
   grid-column: 3;
   grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
+
+/* Inner monitor card fills the panel */
+.fe-preview .program-monitor-card {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+}
+
+/* Video / canvas area inside preview */
+.fe-preview .monitor-viewport {
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  overflow: hidden;
+  border-radius: 6px;
+}
+
+/* ----------------------------------------------------------
+   Column 4 — Inspector Panel
+   ---------------------------------------------------------- */
 
 .fe-inspector {
   grid-column: 4;
   grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
+
+/* Outer inspector wrapper — fills the panel */
+.fe-inspector .studio-inspector {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Inspector tab navigation strip — never shrinks */
+.fe-inspector .inspector-nav {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 10px 0;
+  border-bottom: 1px solid var(--border, #1e2433);
+  background: color-mix(in srgb, var(--surface-2, #161b27) 60%, transparent);
+}
+
+.fe-inspector .inspector-nav .nav-tab {
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted, #8892a4);
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+  user-select: none;
+}
+
+.fe-inspector .inspector-nav .nav-tab:hover {
+  color: var(--text, #e2e8f0);
+}
+
+.fe-inspector .inspector-nav .nav-tab.active {
+  color: var(--brand, #6c8cff);
+  border-bottom-color: var(--brand, #6c8cff);
+}
+
+/* Inspector scrollable content — grows to fill remaining space */
+.fe-inspector .inspector-content {
+  flex-grow: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 10px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border, #1e2433) transparent;
+}
+
+/* ----------------------------------------------------------
+   Row 2 — Timeline Panel (spans all 4 columns)
+   ---------------------------------------------------------- */
 
 .fe-timeline {
   grid-column: 1 / 5;
   grid-row: 2;
-}
-
-/* Sidebar Styling */
-.fe-sidebar {
-  grid-column: 1;
-  grid-row: 1;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 1rem 0;
-  gap: 1.5rem;
-  min-height: 0;
-  overflow-y: auto;
-}
-
-.fe-tab {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.3rem;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 0.75rem;
-  transition: color 0.2s;
-}
-
-.fe-tab:hover, .fe-tab.active {
-  color: var(--primary);
-}
-
-.fe-tab .icon {
-  font-size: 1.4rem;
-}
-
-/* Tweak inner components to fit the new panels */
-.fe-panel > .card, 
-.fe-panel > .program-monitor-card,
-.fe-panel > .studio-timeline-card {
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  height: 100%;
-  box-shadow: none;
-  margin: 0;
-  padding: 1rem;
   display: flex;
   flex-direction: column;
   min-height: 0;
-}
-
-.fe-media-library .card {
-  padding-right: 0.5rem;
-  overflow-y: auto;
-}
-
-.fe-preview .program-monitor-card {
-  padding: 1rem;
-  display: flex;
-  flex-direction: column;
-}
-
-.fe-inspector .card {
-  overflow-y: auto;
-}
-
-.fe-timeline .studio-timeline-card {
   overflow: hidden;
-  padding: 0;
 }
 
-/* Make timeline take full width of its container nicely */
-.fe-timeline .section-head {
-  padding: 0.8rem 1.2rem;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
+/* Timeline inner card fills the panel */
+.fe-timeline .studio-timeline-card {
+  flex: 1 1 0;
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-shrink: 0;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: transparent;
+  border: none;
+  border-radius: 0;
 }
 
-/* Fix up the timeline area */
-.fe-timeline .timeline-interactive-area {
-  flex-grow: 1;
-  height: auto;
-  border-radius: 0;
-  border: none;
-  min-height: 0;
-  overflow: auto;
+/* Timeline section header row (track labels / controls strip) */
+.fe-timeline .section-head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border, #1e2433);
+  background: color-mix(in srgb, var(--surface-2, #161b27) 70%, transparent);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted, #8892a4);
+  user-select: none;
 }
+
+/* Scrollable timeline track area */
+.fe-timeline .timeline-interactive-area {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border, #1e2433) transparent;
+}
+
+/* ----------------------------------------------------------
+   Webkit scrollbar styling (Chrome / Edge / Safari)
+   ---------------------------------------------------------- */
+
+.fe-sidebar::-webkit-scrollbar,
+.fe-media-library .card-body::-webkit-scrollbar,
+.fe-media-library .media-list::-webkit-scrollbar,
+.fe-inspector .inspector-content::-webkit-scrollbar,
+.fe-timeline .timeline-interactive-area::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+.fe-sidebar::-webkit-scrollbar-track,
+.fe-media-library .card-body::-webkit-scrollbar-track,
+.fe-media-library .media-list::-webkit-scrollbar-track,
+.fe-inspector .inspector-content::-webkit-scrollbar-track,
+.fe-timeline .timeline-interactive-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.fe-sidebar::-webkit-scrollbar-thumb,
+.fe-media-library .card-body::-webkit-scrollbar-thumb,
+.fe-media-library .media-list::-webkit-scrollbar-thumb,
+.fe-inspector .inspector-content::-webkit-scrollbar-thumb,
+.fe-timeline .timeline-interactive-area::-webkit-scrollbar-thumb {
+  background: var(--border, #1e2433);
+  border-radius: 4px;
+}
+
+.fe-sidebar::-webkit-scrollbar-thumb:hover,
+.fe-media-library .card-body::-webkit-scrollbar-thumb:hover,
+.fe-media-library .media-list::-webkit-scrollbar-thumb:hover,
+.fe-inspector .inspector-content::-webkit-scrollbar-thumb:hover,
+.fe-timeline .timeline-interactive-area::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--brand, #6c8cff) 50%, var(--border, #1e2433));
+}
+
+/* ----------------------------------------------------------
+   Responsive — 1200px breakpoint
+   Narrow col2 (260px) and col4 (290px)
+   ---------------------------------------------------------- */
 
 @media (max-width: 1200px) {
   .flowedit-layout {
-    grid-template-columns: 60px 250px minmax(0, 1fr) 280px;
+    grid-template-columns: 60px 260px minmax(0, 1fr) 290px;
+  }
+}
+
+/* ----------------------------------------------------------
+   Responsive — 900px breakpoint
+   Hide media library and inspector, stack vertically
+   ---------------------------------------------------------- */
+
+@media (max-width: 900px) {
+  .flowedit-layout {
+    grid-template-columns: 60px minmax(0, 1fr);
+    grid-template-rows: minmax(280px, 1fr) 220px;
+  }
+
+  /* Hide col2 and col4 panels */
+  .fe-media-library,
+  .fe-inspector {
+    display: none;
+  }
+
+  /* Sidebar stays in col1, row1 */
+  .fe-sidebar {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  /* Preview fills col2, row1 */
+  .fe-preview {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  /* Timeline spans remaining 2 columns */
+  .fe-timeline {
+    grid-column: 1 / 3;
+    grid-row: 2;
   }
 }

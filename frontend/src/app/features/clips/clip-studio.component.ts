@@ -1707,6 +1707,10 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   selectClip(clipId: string): void {
     this.selectedClipId.set(clipId);
     this.activeInspectorTab.set('clip');
+    const sched = this.clipSchedule().find((s) => s.clip.id === clipId);
+    if (sched) {
+      this.seekToTime(sched.startSeconds);
+    }
   }
 
   selectAndSeekClip(clip: Clip): void {
@@ -1827,6 +1831,18 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
         currentActiveVideo.src = this.assetUrl(curr.clip.id);
         currentActiveVideo.currentTime = Math.max(0.001, localTime);
         currentActiveVideo.load();
+        const targetSrc = this.assetUrl(curr.clip.id);
+        if (currentActiveVideo.src !== targetSrc) {
+          currentActiveVideo.src = targetSrc;
+        }
+        const seekTarget = Math.max(0.001, localTime);
+        if (currentActiveVideo.readyState >= 1) {
+          currentActiveVideo.currentTime = seekTarget;
+        } else {
+          currentActiveVideo.onloadedmetadata = () => {
+            currentActiveVideo.currentTime = seekTarget;
+          };
+        }
       } else if (!playing || (Math.abs(currentActiveVideo.currentTime - localTime) > 0.4 && !currentActiveVideo.seeking)) {
         currentActiveVideo.currentTime = Math.max(0.001, localTime);
       }
@@ -1851,6 +1867,17 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
         else this.loadedClipIdA = nextSched.clip.id;
         currentStandbyVideo.src = this.assetUrl(nextSched.clip.id);
         currentStandbyVideo.currentTime = nextLocalTime;
+        const targetSrc = this.assetUrl(nextSched.clip.id);
+        if (currentStandbyVideo.src !== targetSrc) {
+          currentStandbyVideo.src = targetSrc;
+        }
+        if (currentStandbyVideo.readyState >= 1) {
+          currentStandbyVideo.currentTime = nextLocalTime;
+        } else {
+          currentStandbyVideo.onloadedmetadata = () => {
+            currentStandbyVideo.currentTime = nextLocalTime;
+          };
+        }
       } else if (!playing || (Math.abs(currentStandbyVideo.currentTime - nextLocalTime) > 0.4 && !currentStandbyVideo.seeking)) {
         currentStandbyVideo.currentTime = nextLocalTime;
       }
@@ -1875,6 +1902,10 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
           if (currentActiveIsA) this.loadedClipIdB = nextSched.clip.id;
           else this.loadedClipIdA = nextSched.clip.id;
           currentStandbyVideo.src = this.assetUrl(nextSched.clip.id);
+          const targetSrc = this.assetUrl(nextSched.clip.id);
+          if (currentStandbyVideo.src !== targetSrc) {
+            currentStandbyVideo.src = targetSrc;
+          }
           currentStandbyVideo.currentTime = 0;
           currentStandbyVideo.load();
         }
@@ -2476,6 +2507,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
         this.loadDraftIfExists(projectId);
         setTimeout(() => {
           this.isInitialized = true;
+          this.syncMediaElements(false);
         }, 200);
       }
 

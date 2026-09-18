@@ -23,6 +23,20 @@ import { StatusService } from '../core/services/status.service';
         <a routerLink="/projects" class="brand">AnimStudio<span>AI</span></a>
 
         <span style="flex: 1 1 auto"></span>
+        <nav class="topbar-nav">
+          <a routerLink="/projects" routerLinkActive="active" class="topbar-navlink">
+            <span class="topbar-navlink-icon">🎬</span> Projects
+          </a>
+          <a routerLink="/tools" routerLinkActive="active" class="topbar-navlink">
+            <span class="topbar-navlink-icon">🎞</span> Media Studio
+          </a>
+          <a routerLink="/logs" routerLinkActive="active" class="topbar-navlink">
+            <span class="topbar-navlink-icon">📜</span> Logs
+            @if (status.logEntries().length > 0) {
+              <span class="topbar-badge">{{ status.logEntries().length }}</span>
+            }
+          </a>
+        </nav>
 
         @if (status.busy()) {
           <span class="muted">working&hellip;</span>
@@ -34,6 +48,19 @@ import { StatusService } from '../core/services/status.service';
         @if (access()?.canAdminister) {
           <a routerLink="/admin" routerLinkActive="active" class="muted">Settings</a>
         }
+        <div class="topbar-end">
+          @if (status.busy()) {
+            <span class="topbar-busy">
+              <span class="topbar-busy-dot"></span>
+              Working…
+            </span>
+          }
+          @if (access()?.canAdminister) {
+            <a routerLink="/admin" routerLinkActive="active" class="topbar-navlink topbar-settings">
+              ⚙ Settings
+            </a>
+          }
+        </div>
       </div>
     </header>
 
@@ -41,19 +68,20 @@ import { StatusService } from '../core/services/status.service';
       <!--
         Both banners share one wrapper so there is a single thing to scroll to, and it
         exists only while there is something to say - which is what lets the effect below
+        exists only while there is something to say — which is what lets the effect below
         notice it appearing.
       -->
       @if (status.error() !== null || status.latestNotice() !== null) {
-        <div #banner>
+        <div #banner class="topbar-banners">
           @if (status.error(); as message) {
             <div class="notice error">
-              {{ message }}
+              <span>{{ message }}</span>
               <button class="link" type="button" (click)="status.clearError()">dismiss</button>
             </div>
           }
 
           @if (status.latestNotice(); as notice) {
-            <div class="notice" style="display: flex; justify-content: space-between; align-items: center; border-left: 3px solid #3b82f6;">
+            <div class="notice notice-info">
               <span>{{ notice }}</span>
               <button class="link" type="button" (click)="status.dismissNotice()">Dismiss</button>
             </div>
@@ -64,7 +92,107 @@ import { StatusService } from '../core/services/status.service';
       <router-outlet />
     </main>
   `,
+  styles: [`
+    .topbar-nav {
+      display: flex;
+      align-items: center;
+      gap: .2rem;
+    }
+
+    .topbar-navlink {
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      padding: .35rem .75rem;
+      border-radius: 99px;
+      text-decoration: none;
+      color: var(--muted);
+      font-size: .875rem;
+      font-weight: 600;
+      transition: color .15s ease, background .15s ease;
+      position: relative;
+    }
+
+    .topbar-navlink:hover {
+      color: var(--text);
+      background: color-mix(in srgb, var(--surface-2) 80%, transparent);
+    }
+
+    .topbar-navlink.active {
+      color: var(--text);
+      background: color-mix(in srgb, var(--brand) 14%, transparent);
+    }
+
+    .topbar-navlink-icon {
+      font-size: .95rem;
+      line-height: 1;
+    }
+
+    .topbar-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 1.15rem;
+      height: 1.15rem;
+      padding: 0 .3rem;
+      border-radius: 99px;
+      background: var(--brand-dim);
+      color: #fff;
+      font-size: .65rem;
+      font-weight: 800;
+      line-height: 1;
+    }
+
+    .topbar-end {
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+    }
+
+    .topbar-busy {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      color: var(--muted);
+      font-size: .82rem;
+    }
+
+    .topbar-busy-dot {
+      width: .55rem;
+      height: .55rem;
+      border-radius: 50%;
+      background: var(--brand);
+      animation: busyPulse 1.2s ease-in-out infinite;
+    }
+
+    @keyframes busyPulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: .4; transform: scale(.75); }
+    }
+
+    .topbar-settings {
+      border-radius: var(--radius-sm);
+      padding: .3rem .65rem;
+      font-size: .82rem;
+    }
+
+    .topbar-banners {
+      margin-bottom: 1rem;
+    }
+
+    .notice {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .notice-info {
+      border-left-color: var(--brand);
+    }
+  `],
 })
+
 export class AppShellComponent {
   private readonly api = inject(ApiService);
 
