@@ -689,7 +689,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
       if (this.isInitialized) {
         this.hasUnsavedChanges.set(true);
       }
-    }, { allowSignalWrites: true });
+    });
   }
 
   ngAfterViewInit(): void {

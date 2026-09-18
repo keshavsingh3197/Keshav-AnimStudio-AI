@@ -120,7 +120,7 @@
           </div>
 
           <ol class="clip-grid">
-            @for (row of rows(); track row.clip.id; let i = $index) {
+            @for (row of rows(); track $index; let i = $index) {
               <li class="clip-card"
                   [class.excluded]="!row.included"
                   [class.selected]="selectedClip()?.id === row.clip.id"
@@ -998,7 +998,7 @@
                 </div>
 
                 <div class="tl-track tl-video">
-                  @for (entry of includedWithIndex(); track entry.row.clip.id; let i = $index) {
+                  @for (entry of includedWithIndex(); track $index; let i = $index) {
                     <div class="tl-clip"
                          [class.selected]="selectedClip()?.id === entry.row.clip.id"
                          [class.dragging]="dragIndex() === entry.index"
