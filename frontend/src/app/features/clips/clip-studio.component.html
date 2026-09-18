@@ -1,47 +1,39 @@
 <div class="editor-workspace" #workspace [class.is-fullscreen]="appFullscreen()">
-<div class="page-head">
-  <div>
-    <h2>
+<div class="page-head" style="margin-bottom: 0.5rem; display: flex; flex-direction: row; justify-content: space-between; align-items: center; padding: 0.5rem 1rem;">
+  <div style="display: flex; align-items: center; gap: 1rem;">
+    <h2 style="margin: 0; font-size: 1.2rem;">
       Video Studio
-      <span [class]="formatClass()">{{ format() }} &middot; {{ aspect() }}</span>
+      <span [class]="formatClass()" style="font-size: 0.8rem; margin-left: 0.5rem;">{{ format() }} &middot; {{ aspect() }}</span>
     </h2>
-
   </div>
-  <div class="row" style="gap: .5rem; align-items: center; flex-wrap: wrap">
-    <button type="button" class="icon" (click)="toggleAppFullscreen()" title="Toggle Fullscreen Editor">&#10064;</button>
+  <div class="row" style="gap: .5rem; align-items: center; flex-wrap: nowrap; overflow-x: auto; flex-shrink: 0;">
+    <button type="button" class="icon" (click)="toggleAppFullscreen()" title="Toggle Fullscreen Editor" style="font-size: 1.2rem;">&#10064;</button>
 
     @if (hasUnsavedChanges()) {
-      <span class="pill warn" style="font-size: .8rem">● Unsaved Changes</span>
+      <span class="pill warn" style="font-size: .8rem">Unsaved</span>
     } @else if (lastSavedTime()) {
-      <span class="pill ok" style="font-size: .8rem">✓ Draft Saved {{ lastSavedTime() }}</span>
+      <span class="pill ok" style="font-size: .8rem">Draft {{ lastSavedTime() }}</span>
     }
-    <button class="secondary" type="button" [disabled]="!hasUnsavedChanges()" (click)="saveDraft()"
-            title="Save your current clip edits, trims, and sequence as a local draft">
-      💾 Save Draft
+    <button class="secondary btn-sm" type="button" [disabled]="!hasUnsavedChanges()" (click)="saveDraft()" title="Save local draft">
+      Save
     </button>
     <a [routerLink]="['/projects', store.projectId(), 'media-tools']" [queryParams]="{ tab: 'chunker' }" style="text-decoration: none;">
-      <button class="secondary" type="button" title="Download YouTube Shorts/Videos or split any video into clips">
-        ✂️ Download & Chunk Video
+      <button class="secondary btn-sm" type="button" title="Download YouTube Shorts/Videos or split any video into clips">
+        Chunk Video
       </button>
     </a>
-    <button class="secondary" type="button" (click)="showShortcutsModal.set(true)" title="Keyboard shortcuts">
-      ⌨ Shortcuts
+    <button class="secondary btn-sm" type="button" (click)="showShortcutsModal.set(true)" title="Keyboard shortcuts">
+      Shortcuts
     </button>
-    <button class="secondary" type="button" (click)="switchShape()"
-            [disabled]="status.busy() || running() || format() === 'Square'">
+    <button class="secondary btn-sm" type="button" (click)="switchShape()" [disabled]="status.busy() || running() || format() === 'Square'">
       @if (format() === 'Short') { Make Landscape }
       @else { Make Short }
     </button>
-    <button class="secondary" type="button" (click)="buildShort()"
-            [disabled]="status.busy() || uploading() || sideUpload() !== null
-                        || running() || blockedReason() !== null"
-            title="Convert and build cut as a vertical Short (9:16) video">
-      📱 Build as Short (9:16)
+    <button class="btn-sm" type="button" (click)="buildShort()" [disabled]="status.busy() || uploading() || sideUpload() !== null || running() || blockedReason() !== null" title="Convert and build cut as a vertical Short (9:16) video">
+      Build Short
     </button>
-    <button type="button" (click)="build()"
-            [disabled]="status.busy() || uploading() || sideUpload() !== null
-                        || running() || blockedReason() !== null">
-      Build Video
+    <button class="btn-sm" type="button" (click)="build()" [disabled]="status.busy() || uploading() || sideUpload() !== null || running() || blockedReason() !== null">
+      Build
     </button>
   </div>
 </div>
@@ -178,7 +170,7 @@
       <!-- MASTER PROGRAM MONITOR -->
     <div class="program-monitor-card">
       <div class="monitor-header">
-        <div class="row" style="gap: .5rem; align-items: center; flex-wrap: wrap">
+        <div class="row" style="gap: .5rem; align-items: center; flex-wrap: nowrap; overflow-x: auto; flex-shrink: 0;">
           <strong>Master Monitor</strong>
           @if (currentScheduledClip(); as curr) {
             <span class="pill ok">
@@ -414,7 +406,7 @@
             @let sound = clipSound(clip.id);
             <div class="row" style="justify-content: space-between; align-items: flex-start">
               <div>
-                <h4 style="margin: 0">{{ clip.name }}</h4>
+                <h4 style="margin: 0; overflow-wrap: anywhere; word-break: break-all;">{{ clip.name }}</h4>
                 <span class="muted mono" style="font-size: .8rem">
                   {{ clip.durationSeconds ?? 0 | number: '1.1-1' }}s &middot;
                   {{ clip.width }}&times;{{ clip.height }} &middot;

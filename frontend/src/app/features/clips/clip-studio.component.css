@@ -26,7 +26,7 @@
 
 .flowedit-layout {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) 280px;
+  grid-template-rows: minmax(300px, 1fr) minmax(200px, 300px);
   grid-template-columns: 70px 320px minmax(0, 1fr) 340px;
   gap: 0.8rem;
   flex-grow: 1;
@@ -123,7 +123,8 @@
 
 .fe-preview .program-monitor-card {
   padding: 1rem;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .fe-inspector .card {
