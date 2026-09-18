@@ -99,6 +99,8 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   private readonly api = inject(ApiService);
 
   readonly store = inject(ProjectStore);
+  readonly appFullscreen = signal(false);
+  @ViewChild('workspace') workspaceRef!: ElementRef<HTMLDivElement>;
   readonly status = inject(StatusService);
   readonly Math = Math;
 
@@ -2534,9 +2536,26 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
         return code;
     }
   }
+
+  toggleAppFullscreen(): void {
+    if (!document.fullscreenElement) {
+      this.workspaceRef.nativeElement.requestFullscreen().then(() => {
+        this.appFullscreen.set(true);
+      }).catch(err => {
+        console.error('Error attempting to enable fullscreen:', err);
+      });
+    } else {
+      document.exitFullscreen().then(() => {
+        this.appFullscreen.set(false);
+      });
+    }
+  }
+
+  @HostListener('document:fullscreenchange')
+  onFullscreenChange(): void {
+    if (!document.fullscreenElement) {
+      this.appFullscreen.set(false);
+    }
+  }
+
 }
-
-
-
-
-

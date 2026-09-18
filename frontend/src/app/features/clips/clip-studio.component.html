@@ -1,15 +1,15 @@
+<div class="editor-workspace" #workspace [class.is-fullscreen]="appFullscreen()">
 <div class="page-head">
   <div>
     <h2>
       Video Studio
       <span [class]="formatClass()">{{ format() }} &middot; {{ aspect() }}</span>
     </h2>
-    <p class="muted">
-      Professional studio editor: live playback with transitions, color grading look presets,
-      clip split (blade) tool, watermark overlays, and multi-track audio.
-    </p>
+
   </div>
   <div class="row" style="gap: .5rem; align-items: center; flex-wrap: wrap">
+    <button type="button" class="icon" (click)="toggleAppFullscreen()" title="Toggle Fullscreen Editor">&#10064;</button>
+
     @if (hasUnsavedChanges()) {
       <span class="pill warn" style="font-size: .8rem">● Unsaved Changes</span>
     } @else if (lastSavedTime()) {
@@ -1221,3 +1221,5 @@
   <div class="card muted">Loading video studio&hellip;</div>
 }
 
+
+</div>

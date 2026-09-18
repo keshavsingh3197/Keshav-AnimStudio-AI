@@ -1,13 +1,36 @@
 /* FlowEdit Pro Inspired Layout */
 
+.editor-workspace {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 120px);
+  min-height: 600px;
+  background: var(--bg);
+}
+
+.editor-workspace.is-fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 9999;
+  padding: 1rem;
+  box-sizing: border-box;
+}
+
+.editor-workspace.is-fullscreen .page-head {
+  padding-top: 0;
+  margin-top: 0;
+}
+
 .flowedit-layout {
   display: grid;
-  grid-template-rows: minmax(400px, 1fr) 280px;
-  grid-template-columns: 70px 320px 1fr 340px;
+  grid-template-rows: minmax(0, 1fr) 280px;
+  grid-template-columns: 70px 320px minmax(0, 1fr) 340px;
   gap: 0.8rem;
-  height: calc(100vh - 120px);
-  min-height: 800px;
-  background: var(--bg);
+  flex-grow: 1;
+  min-height: 0;
   box-sizing: border-box;
 }
 
@@ -19,6 +42,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-height: 0;
 }
 
 .fe-media-library {
@@ -53,6 +77,8 @@
   align-items: center;
   padding: 1rem 0;
   gap: 1.5rem;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .fe-tab {
@@ -87,6 +113,7 @@
   padding: 1rem;
   display: flex;
   flex-direction: column;
+  min-height: 0;
 }
 
 .fe-media-library .card {
@@ -96,6 +123,7 @@
 
 .fe-preview .program-monitor-card {
   padding: 1rem;
+  overflow-y: auto;
 }
 
 .fe-inspector .card {
@@ -115,6 +143,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-shrink: 0;
 }
 
 /* Fix up the timeline area */
@@ -123,4 +152,12 @@
   height: auto;
   border-radius: 0;
   border: none;
+  min-height: 0;
+  overflow: auto;
+}
+
+@media (max-width: 1200px) {
+  .flowedit-layout {
+    grid-template-columns: 60px 250px minmax(0, 1fr) 280px;
+  }
 }
