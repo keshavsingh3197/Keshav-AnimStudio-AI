@@ -7,34 +7,33 @@
   </p>
 </section>
 
-<div class="card-grid">
-  <button type="button" class="start-card" (click)="start('bundle')">
-    <div class="icon">&#128230;</div>
-    <span class="tag">NO AI NEEDED</span>
-    <h3>I have a file with everything in it</h3>
-    <p>
-      One spreadsheet or zip carrying your characters, scenes, dialogue and artwork. Download
-      the template, fill it in anywhere, upload it back.
-    </p>
+<div class="card-grid top-cards">
+  <button type="button" class="start-card" (click)="start('prompt')">
+    <div class="icon">&#10024;</div>
+    <h3>Prompt to Video</h3>
+    <p>AI driven. Type your idea and let AnimStudio generate a script and storyboard.</p>
+    <div class="card-action">Select</div>
   </button>
-
+  
   <button type="button" class="start-card" (click)="start('import')">
     <div class="icon">&#128172;</div>
-    <span class="tag">NO AI NEEDED</span>
-    <h3>I have a transcript or a video link</h3>
-    <p>
-      Paste text, upload subtitles, or point at a video with captions. It becomes a script,
-      a cast and a set of timed scenes.
-    </p>
+    <h3>Script & Voiceover</h3>
+    <p>Paste text or upload audio, and let us generate timed scenes for your cast.</p>
+    <div class="card-action">Upload</div>
   </button>
-
+  
   <button type="button" class="start-card" (click)="start('scenes')">
     <div class="icon">&#127917;</div>
-    <span class="tag">FROM SCRATCH</span>
-    <h3>I want to build it myself</h3>
-    <p>
-      An empty project. Add scenes, cast and artwork by hand, one at a time.
-    </p>
+    <h3>Manual Timeline</h3>
+    <p>From Scratch. Empty project to add scenes, cast, and artwork by hand.</p>
+    <div class="card-action">Select</div>
+  </button>
+  
+  <button type="button" class="start-card" (click)="start('bundle')">
+    <div class="icon">&#128230;</div>
+    <h3>Batch CSV Import</h3>
+    <p>Upload a spreadsheet with scenes, dialogue, and artwork links to build instantly.</p>
+    <div class="card-action">Upload</div>
   </button>
 </div>
 
@@ -68,8 +67,6 @@
             }
           </select>
 
-          <!-- Says what the choice MEANS before it is made, rather than leaving the shape
-               to be discovered on the first render. -->
           @let chosen = presets[presetIndex];
           <p class="muted">
             <span [class]="formatClass(chosen.width, chosen.height)">
@@ -114,30 +111,72 @@
   </div>
 }
 
-@if (projects().length > 0) {
-  <div class="section-head" style="margin-top: 1.6rem">
+<div class="section-head" style="margin-top: 1.6rem; align-items: flex-end;">
+  <div style="display: flex; align-items: baseline; gap: 1rem;">
     <h3>Your projects</h3>
     <span class="muted">{{ projects().length }}</span>
   </div>
+  
+  <div class="filters-row">
+    <input type="search" placeholder="Search projects..." [(ngModel)]="searchTerm" />
+    
+    <select [(ngModel)]="statusFilter">
+      <option value="All">All Statuses</option>
+      <option value="Drafts">Drafts</option>
+      <option value="Rendered">Rendered</option>
+    </select>
 
-  <div class="card">
-    <table>
+    <select [(ngModel)]="aspectFilter">
+      <option value="All">All Formats</option>
+      <option value="9:16 Shorts">9:16 Shorts</option>
+      <option value="16:9 Video">16:9 Video</option>
+    </select>
+  </div>
+</div>
+
+<div class="card list-card">
+  @if (filteredProjects.length === 0) {
+    <div style="padding: 2rem; text-align: center; color: var(--muted);">
+      No projects found.
+    </div>
+  } @else {
+    <table class="project-table">
       <thead>
         <tr>
-          <th>Name</th><th>Kind</th><th>Canvas</th><th>Status</th><th>Updated</th><th></th>
+          <th style="width: 40px"><input type="checkbox" [checked]="isAllSelected()" (change)="toggleAll($event)"></th>
+          <th>Name</th>
+          <th>Kind</th>
+          <th>Canvas</th>
+          <th>Status</th>
+          <th>Updated</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
-        @for (project of projects(); track project.id) {
+        @for (project of filteredProjects; track project.id) {
           <tr>
             <td>
-              <a [routerLink]="['/projects', project.id]"><strong>{{ project.name }}</strong></a>
-              @if (project.description) {
-                <div class="muted">{{ project.description }}</div>
-              }
+              <input type="checkbox" [checked]="selectedProjectIds.has(project.id)" (change)="toggleSelection(project.id)">
             </td>
-            <!-- Its own column, not a note in the canvas cell: "which of these is the
-                 Short" is a question people scan a list for. -->
+            <td>
+              <div class="project-name-cell">
+                                <div class="thumbnail" [class.thumb-short]="format(project.width, project.height) === 'Short'">
+                  @if (project.customThumbnail) {
+                    <img [src]="project.customThumbnail" alt="" />
+                  }
+                  <label class="upload-thumb-btn" title="Upload Thumbnail" (click)="$event.stopPropagation()">
+                    📷
+                    <input type="file" accept="image/*" style="display:none" (change)="onUploadThumbnail($event, project)" />
+                  </label>
+                </div>
+                <div class="project-info">
+                  <a [routerLink]="['/projects', project.id]"><strong>{{ project.name }}</strong></a>
+                  @if (project.description) {
+                    <div class="muted project-desc" [title]="project.description">{{ project.description }}</div>
+                  }
+                </div>
+              </div>
+            </td>
             <td>
               <span [class]="formatClass(project.width, project.height)">
                 {{ format(project.width, project.height) }}
@@ -149,20 +188,31 @@
             </td>
             <td><span class="pill">{{ project.status }}</span></td>
             <td class="muted">{{ project.updatedAt | date: 'medium' }}</td>
-            <td style="text-align: right">
+            <td class="actions-cell">
               @if (confirming() === project.id) {
-                <span class="muted">Delete everything in it?</span>
-                <button class="danger" type="button" (click)="delete(project.id)">Delete</button>
-                <button class="secondary" type="button" (click)="cancelDelete()">Keep</button>
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                  <span class="muted" style="white-space: nowrap">Delete?</span>
+                  <button class="danger btn-sm" type="button" (click)="delete(project.id)">Yes</button>
+                  <button class="secondary btn-sm" type="button" (click)="cancelDelete()">No</button>
+                </div>
               } @else {
-                <button class="secondary" type="button" (click)="confirmDelete(project.id)">
-                  Delete
-                </button>
+                <div class="action-buttons">
+                  <a class="button primary btn-sm" [routerLink]="['/projects', project.id]">Open Editor</a>
+                  <div class="dropdown">
+                    <button class="secondary btn-sm icon-button">&#8942;</button>
+                    <div class="dropdown-menu">
+                      <button type="button">Duplicate</button>
+                      <button type="button">Export</button>
+                      <button type="button">Rename</button>
+                      <button type="button" class="danger" (click)="confirmDelete(project.id)">Delete</button>
+                    </div>
+                  </div>
+                </div>
               }
             </td>
           </tr>
         }
       </tbody>
     </table>
-  </div>
-}
+  }
+</div>

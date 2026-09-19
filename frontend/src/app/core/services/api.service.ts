@@ -1,6 +1,6 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { Observable, map } from 'rxjs';
+import { Observable, map, catchError, of } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
 import {
@@ -22,6 +22,35 @@ import {
  */
 @Injectable({ providedIn: 'root' })
 export class ApiService {
+    public getHubConfig() {
+    return this.http.get<ApiResponse<any>>('/api/system/hub-config').pipe(
+      map(r => r.data),
+      catchError(err => {
+        console.warn('Could not fetch HubConfig from backend. Using static fallbacks.');
+        return of({
+          storageUsedGb: 14.2,
+          storageTotalGb: 50,
+          presets: [
+            { label: '9:16 Shorts', width: 1080, height: 1920 },
+            { label: '16:9 Landscape', width: 1920, height: 1080 },
+            { label: '1:1 Square', width: 1080, height: 1080 },
+            { label: '4:5 Social', width: 1080, height: 1350 }
+          ],
+          templates: [
+            { id: 'Talking Head', name: 'Subtitled Talking Head', wireframeClass: 'talking-head', tags: ['Viral', 'Caption-Ready'] },
+            { id: 'Cinematic Intro', name: 'Cinematic Intro', wireframeClass: 'cinematic', tags: ['Motion', 'Epic'] },
+            { id: 'Split Screen', name: 'Split Screen (Duo)', wireframeClass: 'split-screen', tags: ['Reaction', 'Podcast'] }
+          ],
+          quickStarts: [
+            { id: 'captions', icon: '💬', label: 'Auto-Captions', tooltip: 'Start with Auto-Captions' },
+            { id: 'text2video', icon: '✨', label: 'Text-to-Video', tooltip: 'Start with AI Video Prompt' },
+            { id: 'screenrec', icon: '⏺️', label: 'Screen Record', tooltip: 'Start Screen Recording' }
+          ]
+        });
+      })
+    );
+  }
+
   private readonly http = inject(HttpClient);
   private readonly base = environment.apiUrl;
 

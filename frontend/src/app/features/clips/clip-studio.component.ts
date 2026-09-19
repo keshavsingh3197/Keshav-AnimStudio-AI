@@ -1,4 +1,4 @@
-import { DecimalPipe } from '@angular/common';
+﻿import { DecimalPipe } from '@angular/common';
 import { AfterViewInit, Component, ElementRef, HostListener, OnDestroy, ViewChild, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -96,6 +96,83 @@ export interface MusicTrackRow {
   styleUrls: ['./clip-studio.component.css'],
 })
 export class ClipStudioComponent implements OnDestroy, AfterViewInit {
+  viewMode: 'grid' | 'list' = 'grid';
+  selectAllCheckbox = false;
+  showOrganizeMenu = false;
+  readonly searchQuery = signal<string>('');
+  readonly activeCategory = signal<'all' | 'video' | 'image' | 'audio'>('all');
+  readonly pageSize = signal<number>(12);
+  readonly currentPage = signal<number>(0);
+
+  readonly studio = signal<ClipStudio | null>(null);
+  readonly rows = signal<ClipRow[]>([]);
+
+  readonly selectedCount = computed(() => this.rows().filter(r => r.included).length);
+
+  readonly filteredRows = computed(() => {
+    let list = this.rows();
+    const cat = this.activeCategory();
+    if (cat !== 'all') {
+      list = list.filter(r => this.getClipType(r.clip) === cat);
+    }
+    const q = this.searchQuery().trim().toLowerCase();
+    if (q) {
+      list = list.filter(r => r.clip.name.toLowerCase().includes(q));
+    }
+    return list;
+  });
+
+  readonly totalItems = computed(() => this.filteredRows().length);
+  readonly totalPages = computed(() => Math.max(1, Math.ceil(this.totalItems() / this.pageSize())));
+
+  readonly pagedRows = computed(() => {
+    const r = this.filteredRows();
+    const start = this.currentPage() * this.pageSize();
+    return r.slice(start, start + this.pageSize());
+  });
+
+  readonly startIndex = computed(() => (this.totalItems() === 0 ? 0 : this.currentPage() * this.pageSize() + 1));
+  readonly endIndex = computed(() => Math.min((this.currentPage() + 1) * this.pageSize(), this.totalItems()));
+
+  prevPage() {
+    if (this.currentPage() > 0) this.currentPage.set(this.currentPage() - 1);
+  }
+
+  previousPage() {
+    this.prevPage();
+  }
+
+  nextPage() {
+    if (this.currentPage() < this.totalPages() - 1) this.currentPage.set(this.currentPage() + 1);
+  }
+
+  toggleClip(clipId: string): void {
+    this.rows.update((rows) =>
+      rows.map((row) => (row.clip.id === clipId ? { ...row, included: !row.included } : row)));
+  }
+
+  addSelectedToTimeline(): void {
+    this.rows.update((rows) => rows.map((r) => ({ ...r, included: true })));
+  }
+
+  deleteSelected(): void {
+    if (this.confirmingDelete()) {
+      this.removeFromLibrary();
+    } else {
+      this.confirmingDelete.set(true);
+    }
+  }
+
+  sortMedia(mode: 'name' | 'duration'): void {
+    if (mode === 'name') {
+      this.sortByName();
+    } else if (mode === 'duration') {
+      this.rows.update((rows) =>
+        [...rows].sort((a, b) => (a.clip.durationSeconds ?? 0) - (b.clip.durationSeconds ?? 0)));
+      this.saveOrder();
+    }
+  }
+
   private readonly api = inject(ApiService);
 
   readonly store = inject(ProjectStore);
@@ -125,8 +202,23 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     { id: 'vintage', label: 'Faded 90s', filter: 'sepia(0.3) saturate(0.85) contrast(0.95) brightness(1.08)', swatch: '#b45309' },
   ];
 
-  readonly studio = signal<ClipStudio | null>(null);
-  readonly rows = signal<ClipRow[]>([]);
+
+  videoCount = computed(() => this.studio()?.clips.filter(c => c.hasAudio !== false && !c.name.match(/\.(png|jpg|jpeg|gif|webp)$/i)).length || 0);
+  imageCount = computed(() => this.studio()?.clips.filter(c => c.name.match(/\.(png|jpg|jpeg|gif|webp)$/i)).length || 0);
+  audioCount = computed(() => this.studio()?.clips.filter(c => c.hasAudio && c.name.match(/\.(mp3|wav|ogg)$/i)).length || 0);
+  
+  toggleSelectAll() {
+    this.selectAllCheckbox = !this.selectAllCheckbox;
+    this.selectAll(this.selectAllCheckbox);
+  }
+
+  getClipType(clip: Clip): 'video' | 'audio' | 'image' | 'ai' {
+    const n = clip.name.toLowerCase();
+    if (n.match(/\.(png|jpg|jpeg|gif|webp)$/i)) return 'image';
+    if (n.match(/\.(mp3|wav|ogg)$/i)) return 'audio';
+    if (n.includes('ai_') || n.includes('gen_')) return 'ai';
+    return 'video';
+  }
 
   // --- upload
   readonly dropActive = signal(false);
@@ -209,6 +301,8 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   readonly previewAspectOverride = signal<'auto' | '16:9' | '9:16' | '1:1' | '4:5'>('auto');
   readonly showShortsSafeZone = signal<boolean>(false);
   readonly showBroadcastSafeZone = signal<boolean>(false);
+  readonly showSafeZone = signal<boolean>(false);
+  readonly zoomLevel = signal<'Fit' | '50%' | '100%'>('Fit');
   readonly snapshotFlash = signal<boolean>(false);
   readonly monitorVolume = signal<number>(1);
 
@@ -629,6 +723,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
         this.status.notify([
           `This project is now ${videoFormat(updated.width, updated.height)} `
           + `(${updated.width}×${updated.height}). The clips are re-fitted to the new `
+          + `(${updated.width}Ã—${updated.height}). The clips are re-fitted to the new `
           + 'shape on the next build - nothing already uploaded was changed.',
         ]);
       });
@@ -1413,6 +1508,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     }
 
     return parts.join(' · ');
+    return parts.join(' Â· ');
   }
 
   private updateClipSound(
@@ -1818,7 +1914,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
         });
       }
     }
-    const isMuted = this.isMonitorMuted() || this.muteClipAudio() === 'Always' || isOverlap;
+    const isMuted = this.isMonitorMuted() || this.muteClipAudio() === 'Always';
     const clipVol = isMuted ? 0 : Math.min(1, sound.volume);
     const speed = this.playbackSpeed();
 
@@ -2002,9 +2098,25 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
           this.loadedMusicAssetId = musicId;
           bgAudio.src = this.assetUrl(musicId);
         }
-        bgAudio.volume = this.isMonitorMuted() ? 0 : this.musicVolume();
+
+        // Auto-Ducking: when Overlap mode is active, duck background music volume to 35% when clip has audio
+        let effectiveBgVol = this.musicVolume();
+        if (this.muteClipAudio() === 'Overlap' && clipVol > 0) {
+          effectiveBgVol *= 0.35;
+        }
+
+        bgAudio.volume = this.isMonitorMuted() ? 0 : effectiveBgVol;
         bgAudio.muted = this.isMonitorMuted();
         bgAudio.playbackRate = speed;
+
+        // Sync background music playhead time with timeline playhead
+        if (bgAudio.duration && !isNaN(bgAudio.duration)) {
+          const targetBgTime = this.playheadTime() % bgAudio.duration;
+          if (Math.abs(bgAudio.currentTime - targetBgTime) > 0.35) {
+            bgAudio.currentTime = targetBgTime;
+          }
+        }
+
         if (playing) {
           if (bgAudio.paused) bgAudio.play().catch(() => undefined);
         } else {
@@ -2590,4 +2702,14 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     }
   }
 
+
+  promptTimecode() {
+    const input = prompt("Jump to time (seconds):", this.playheadTime().toFixed(2));
+    if (input !== null) {
+      const sec = parseFloat(input);
+      if (!isNaN(sec)) {
+        this.seekToTime(sec);
+      }
+    }
+  }
 }

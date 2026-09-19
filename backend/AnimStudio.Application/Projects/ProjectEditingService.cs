@@ -28,6 +28,8 @@ public sealed record UpdateProjectCommand
     public double BackgroundMusicVolume { get; init; } = 0.18;
 
     public WatermarkSettings? DefaultWatermark { get; init; }
+    public bool? IsPinned { get; init; }
+    public string? CustomThumbnail { get; init; }
 }
 
 /// <summary>
@@ -99,6 +101,12 @@ public sealed class ProjectEditingService(
                 ? null
                 : command.BackgroundMusicAssetId;
         project.Settings.BackgroundMusicVolume = command.BackgroundMusicVolume;
+        
+        if (command.IsPinned.HasValue)
+            project.IsPinned = command.IsPinned.Value;
+            
+        if (command.CustomThumbnail is not null)
+            project.CustomThumbnail = command.CustomThumbnail;
         if (command.DefaultWatermark is not null)
         {
             command.DefaultWatermark.Clamp();

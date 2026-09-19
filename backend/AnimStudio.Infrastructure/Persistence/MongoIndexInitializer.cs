@@ -1,6 +1,7 @@
 using AnimStudio.Domain.Ai;
 using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Scenes;
+using AnimStudio.Domain.System;
 using KeshavSingh.Mongo.NoSql;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -65,6 +66,36 @@ public sealed class MongoIndexInitializer(
             await auditEntries.Indexes.CreateOneAsync(
                 new CreateIndexModel<AdminAuditEntry>(Builders<AdminAuditEntry>.IndexKeys
                     .Descending(e => e.AtUtc)), cancellationToken: ct).ConfigureAwait(false);
+
+                        // Migration / Seeder for Static Hub Data
+            var hubConfig = mongo.GetCollection<HubConfig>(MongoCollections.HubConfig);
+            var existingConfig = await hubConfig.Find(x => x.Id == "default").FirstOrDefaultAsync(ct).ConfigureAwait(false);
+            if (existingConfig == null)
+            {
+                await hubConfig.InsertOneAsync(new HubConfig
+                {
+                    Id = "default",
+                    StorageUsedGb = 14.2,
+                    StorageTotalGb = 50.0,
+                    Presets = [
+                        new() { Label = "9:16 Shorts / Reels", Width = 1080, Height = 1920 },
+                        new() { Label = "16:9 Landscape", Width = 1920, Height = 1080 },
+                        new() { Label = "1:1 Square", Width = 1080, Height = 1080 },
+                        new() { Label = "4:5 Social Portrait", Width = 1080, Height = 1350 }
+                    ],
+                    Templates = [
+                        new() { Id = "Talking Head", Name = "Subtitled Talking Head", WireframeClass = "talking-head", Tags = ["Viral", "Caption-Ready"] },
+                        new() { Id = "Cinematic Intro", Name = "Cinematic Intro", WireframeClass = "cinematic", Tags = ["Motion", "Epic"] },
+                        new() { Id = "Split Screen", Name = "Split Screen (Duo)", WireframeClass = "split-screen", Tags = ["Reaction", "Podcast"] }
+                    ],
+                    QuickStarts = [
+                        new() { Id = "captions", Icon = "💬", Label = "Auto-Captions", Tooltip = "Start with Auto-Captions" },
+                        new() { Id = "text2video", Icon = "✨", Label = "Text-to-Video", Tooltip = "Start with AI Video Prompt" },
+                        new() { Id = "screenrec", Icon = "⏺️", Label = "Screen Record", Tooltip = "Start Screen Recording" }
+                    ]
+                }, cancellationToken: ct).ConfigureAwait(false);
+                logger.LogInformation("Seeded static HubConfig to database.");
+            }
 
             logger.LogInformation("Mongo indexes verified.");
         }

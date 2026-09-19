@@ -28,6 +28,8 @@ public static class Mappings
         p.Settings.DistributionIntent.ToString(), p.Settings.AcceptShareAlikeObligation,
         p.Settings.BackgroundMusicAssetId, p.Settings.BackgroundMusicVolume,
         p.CreatedAt, p.UpdatedAt,
+        p.IsPinned,
+        p.CustomThumbnail,
         p.Settings.DefaultWatermark.ToResponse());
 
     public static WatermarkResponse? ToResponse(this WatermarkSettings? w) =>

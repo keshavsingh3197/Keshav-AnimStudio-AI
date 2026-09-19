@@ -1,14 +1,9 @@
-using AnimStudio.Domain.Rendering;
+﻿using AnimStudio.Domain.Rendering;
 
 namespace AnimStudio.Domain.Projects;
 
 public enum ProjectStatus { Draft = 0, Ready = 1, Rendering = 2, Rendered = 3, Archived = 4 }
 
-/// <summary>
-/// How the finished video is intended to be used. This is not cosmetic: it drives the
-/// licence gate, because an image that is fine for a private test can be unusable in a
-/// monetized upload.
-/// </summary>
 public enum DistributionIntent { Personal = 0, Public = 1, Monetized = 2 }
 
 public sealed class ProjectSettings
@@ -20,7 +15,6 @@ public sealed class ProjectSettings
 
     public DistributionIntent DistributionIntent { get; set; } = DistributionIntent.Personal;
 
-    /// <summary>Share-alike propagates to the finished video, so it needs explicit opt-in.</summary>
     public bool AcceptShareAlikeObligation { get; set; }
 
     public string? BackgroundMusicAssetId { get; set; }
@@ -28,10 +22,6 @@ public sealed class ProjectSettings
 
     public WatermarkSettings DefaultWatermark { get; set; } = new();
 
-    /// <summary>
-    /// Video asset ids in the running order chosen in the Video editor. Assets not listed
-    /// here are newly uploaded and are appended in filename order until they are arranged.
-    /// </summary>
     public List<string> ClipOrderAssetIds { get; set; } = [];
 
     public Canvas ToCanvas() => new(Width, Height, new FrameRate(FrameRateNum, FrameRateDen));
@@ -45,6 +35,11 @@ public sealed class Project
     public string? Description { get; set; }
     public ProjectStatus Status { get; set; } = ProjectStatus.Draft;
     public ProjectSettings Settings { get; set; } = new();
+    
+    // New dynamic fields
+    public bool IsPinned { get; set; }
+    public string? CustomThumbnail { get; set; }
+
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }

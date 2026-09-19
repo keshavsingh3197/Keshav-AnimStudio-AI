@@ -16,4 +16,5 @@ public static class MongoCollections
     public const string PromptTemplates = "promptTemplates";
     public const string AiSettings = "aiSettings";
     public const string AdminAudit = "adminAudit";
+    public const string HubConfig = "hubConfig";
 }

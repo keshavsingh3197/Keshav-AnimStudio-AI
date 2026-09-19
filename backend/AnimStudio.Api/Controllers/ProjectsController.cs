@@ -101,6 +101,8 @@ public sealed class ProjectsController(
             AcceptShareAlikeObligation = request.AcceptShareAlikeObligation,
             BackgroundMusicAssetId = request.BackgroundMusicAssetId,
             BackgroundMusicVolume = request.BackgroundMusicVolume,
+            IsPinned = request.IsPinned,
+            CustomThumbnail = request.CustomThumbnail,
             DefaultWatermark = request.DefaultWatermark?.ToSettings()
         }, ct);
 

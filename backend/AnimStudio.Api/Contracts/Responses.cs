@@ -17,6 +17,8 @@ public sealed record ProjectResponse(
     bool AcceptShareAlikeObligation,
     string? BackgroundMusicAssetId, double BackgroundMusicVolume,
     DateTime CreatedAt, DateTime UpdatedAt,
+    bool IsPinned = false,
+    string? CustomThumbnail = null,
     WatermarkResponse? DefaultWatermark = null);
 
 public sealed record CharacterResponse(

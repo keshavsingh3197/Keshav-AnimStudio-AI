@@ -15,18 +15,20 @@ export interface ApiError {
 export interface Project {
   id: string;
   name: string;
-  description?: string;
+  description: string | null;
   status: string;
   width: number;
   height: number;
   fps: number;
   distributionIntent: string;
   acceptShareAlikeObligation: boolean;
-  backgroundMusicAssetId?: string;
+  backgroundMusicAssetId: string | null;
   backgroundMusicVolume: number;
   createdAt: string;
   updatedAt: string;
-  defaultWatermark?: WatermarkBody | null;
+  isPinned?: boolean;
+  customThumbnail?: string | null;
+  defaultWatermark?: any;
 }
 
 export interface CreateProjectBody {
@@ -43,6 +45,8 @@ export interface UpdateProjectBody extends CreateProjectBody {
   backgroundMusicAssetId?: string | null;
   backgroundMusicVolume: number;
   defaultWatermark?: WatermarkBody | null;
+  isPinned?: boolean;
+  customThumbnail?: string | null;
 }
 
 export interface AssetFolder {
@@ -800,4 +804,34 @@ export interface AdminAuditEntry {
   before: string | null;
   after: string | null;
   atUtc: string;
+}
+
+
+export interface HubPreset {
+  label: string;
+  width: number;
+  height: number;
+}
+
+export interface HubTemplate {
+  id: string;
+  name: string;
+  wireframeClass: string;
+  tags: string[];
+}
+
+export interface HubQuickStart {
+  id: string;
+  icon: string;
+  label: string;
+  tooltip: string;
+}
+
+export interface HubConfig {
+  id: string;
+  storageUsedGb: number;
+  storageTotalGb: number;
+  presets: HubPreset[];
+  templates: HubTemplate[];
+  quickStarts: HubQuickStart[];
 }
