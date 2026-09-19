@@ -3547,3 +3547,149 @@ audio { height: 2.2rem; vertical-align: middle; }
   border-bottom-color: var(--brand, #6c8cff) !important;
 }
 
+/* Media Library Category Pills */
+.media-category-pills {
+  display: flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  margin-bottom: 8px !important;
+  overflow-x: auto !important;
+  scrollbar-width: none !important;
+  padding: 2px 1px !important;
+  flex-shrink: 0 !important;
+}
+.media-category-pills::-webkit-scrollbar {
+  display: none !important;
+}
+
+.cat-pill {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  white-space: nowrap !important;
+  font-size: 0.73rem !important;
+  font-weight: 500 !important;
+  line-height: 1 !important;
+  padding: 5px 10px !important;
+  border-radius: 9999px !important;
+  background: var(--surface-2, #161b27) !important;
+  background-image: none !important;
+  color: var(--text-dim, #8892a4) !important;
+  border: 1px solid var(--border, #1e2433) !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+  user-select: none !important;
+  box-shadow: none !important;
+}
+
+.cat-pill:hover {
+  background: var(--surface-3, #222a3d) !important;
+  color: #fff !important;
+  border-color: var(--border-bright, #2e384d) !important;
+}
+
+.cat-pill.active {
+  background: var(--brand, #6c8cff) !important;
+  color: #ffffff !important;
+  border-color: var(--brand, #6c8cff) !important;
+  font-weight: 600 !important;
+  box-shadow: 0 0 10px rgba(108, 140, 255, 0.35) !important;
+}
+
+/* Media Library Bulk Selection Action Bar */
+.media-bulk-bar {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 6px 10px !important;
+  background: color-mix(in srgb, var(--brand, #6c8cff) 14%, var(--surface-2, #161b27)) !important;
+  border: 1px solid color-mix(in srgb, var(--brand, #6c8cff) 35%, transparent) !important;
+  border-radius: 6px !important;
+  margin-bottom: 8px !important;
+  flex-shrink: 0 !important;
+  gap: 8px !important;
+}
+
+.media-bulk-count {
+  font-size: 0.78rem !important;
+  font-weight: 600 !important;
+  color: #fff !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  white-space: nowrap !important;
+}
+
+.media-bulk-count .bulk-dot {
+  width: 6px !important;
+  height: 6px !important;
+  border-radius: 50% !important;
+  background: var(--brand, #6c8cff) !important;
+  box-shadow: 0 0 6px var(--brand, #6c8cff) !important;
+  display: inline-block !important;
+}
+
+.media-bulk-actions {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+
+.media-bulk-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 4px !important;
+  height: 26px !important;
+  padding: 0 10px !important;
+  font-size: 0.74rem !important;
+  font-weight: 600 !important;
+  border-radius: 5px !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+  background-image: none !important;
+  border: 1px solid transparent !important;
+  box-shadow: none !important;
+}
+
+.media-bulk-btn.btn-add {
+  background: var(--brand, #6c8cff) !important;
+  color: #fff !important;
+  border-color: var(--brand, #6c8cff) !important;
+}
+
+.media-bulk-btn.btn-add:hover {
+  background: var(--brand-dim, #4f70e8) !important;
+  box-shadow: 0 2px 8px rgba(108, 140, 255, 0.4) !important;
+}
+
+.media-bulk-btn.btn-del {
+  background: rgba(239, 68, 68, 0.15) !important;
+  color: #ef4444 !important;
+  border: 1px solid rgba(239, 68, 68, 0.35) !important;
+  padding: 0 8px !important;
+}
+
+.media-bulk-btn.btn-del:hover {
+  background: #ef4444 !important;
+  color: #fff !important;
+  border-color: #ef4444 !important;
+}
+
+.media-bulk-btn.btn-confirm {
+  background: #ef4444 !important;
+  color: #fff !important;
+  padding: 0 8px !important;
+}
+
+.media-bulk-btn.btn-cancel {
+  background: var(--surface-2, #161b27) !important;
+  color: var(--text-dim, #8892a4) !important;
+  border: 1px solid var(--border, #1e2433) !important;
+  padding: 0 6px !important;
+}
+
+.media-bulk-btn.btn-cancel:hover {
+  color: #fff !important;
+}
+

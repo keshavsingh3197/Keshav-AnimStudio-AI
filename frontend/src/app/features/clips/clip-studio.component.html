@@ -90,8 +90,10 @@
             <input type="file" multiple accept="video/mp4,.mp4,.png,.jpg,.jpeg,.mp3,.wav" (change)="onPick($event)" style="display:none" />
             +
           </label>
-          <span class="input-group-text bg-black border-secondary border-opacity-50 text-secondary" style="padding: 0.2rem 0.4rem;">
-            🔍
+          <span class="input-group-text bg-black border-secondary border-opacity-50 text-secondary d-flex align-items-center" style="padding: 0.2rem 0.5rem;">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+            </svg>
           </span>
           <input type="text" class="form-control bg-black border-secondary border-opacity-50 text-light"
                  placeholder="Search media..." [ngModel]="searchQuery()" (ngModelChange)="searchQuery.set($event); currentPage.set(0)" />
@@ -120,28 +122,24 @@
         </div>
 
         <!-- Category Pills Filter -->
-        <div class="d-flex gap-1 mb-2 overflow-auto pb-1" style="scrollbar-width:none;">
-          <button class="btn btn-sm py-0 px-2 text-nowrap rounded-pill"
-                  [class.btn-primary]="activeCategory() === 'all'"
-                  [class.btn-outline-secondary]="activeCategory() !== 'all'"
+        <div class="media-category-pills">
+          <button type="button" class="cat-pill"
+                  [class.active]="activeCategory() === 'all'"
                   (click)="activeCategory.set('all'); currentPage.set(0)">
             All ({{ rows().length }})
           </button>
-          <button class="btn btn-sm py-0 px-2 text-nowrap rounded-pill"
-                  [class.btn-primary]="activeCategory() === 'video'"
-                  [class.btn-outline-secondary]="activeCategory() !== 'video'"
+          <button type="button" class="cat-pill"
+                  [class.active]="activeCategory() === 'video'"
                   (click)="activeCategory.set('video'); currentPage.set(0)">
             Videos ({{ videoCount() }})
           </button>
-          <button class="btn btn-sm py-0 px-2 text-nowrap rounded-pill"
-                  [class.btn-primary]="activeCategory() === 'image'"
-                  [class.btn-outline-secondary]="activeCategory() !== 'image'"
+          <button type="button" class="cat-pill"
+                  [class.active]="activeCategory() === 'image'"
                   (click)="activeCategory.set('image'); currentPage.set(0)">
             Images ({{ imageCount() }})
           </button>
-          <button class="btn btn-sm py-0 px-2 text-nowrap rounded-pill"
-                  [class.btn-primary]="activeCategory() === 'audio'"
-                  [class.btn-outline-secondary]="activeCategory() !== 'audio'"
+          <button type="button" class="cat-pill"
+                  [class.active]="activeCategory() === 'audio'"
                   (click)="activeCategory.set('audio'); currentPage.set(0)">
             Audio ({{ audioCount() }})
           </button>
@@ -149,22 +147,31 @@
 
         <!-- Dynamic Bulk Action Row (Visible only when selectedCount > 0, sits ABOVE cards) -->
         @if (selectedCount() > 0) {
-          <div class="d-flex align-items-center justify-content-between bg-primary bg-opacity-25 border border-primary rounded px-2 py-1 mb-2 flex-shrink-0">
-            <span class="small fw-semibold text-white">{{ selectedCount() }} selected</span>
-            <div class="btn-group btn-group-sm">
-              <button class="btn btn-primary py-0 px-2" type="button" (click)="addSelectedToTimeline()" title="Add to Timeline">
-                + Add
+          <div class="media-bulk-bar">
+            <div class="media-bulk-count">
+              <span class="bulk-dot"></span>
+              <span>{{ selectedCount() }} selected</span>
+            </div>
+            <div class="media-bulk-actions">
+              <button class="media-bulk-btn btn-add" type="button" (click)="addSelectedToTimeline()" title="Add selected to timeline">
+                <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2z"/>
+                </svg>
+                Add
               </button>
               @if (confirmingDelete()) {
-                <button class="btn btn-danger py-0 px-2" type="button" (click)="removeFromLibrary()" title="Confirm delete from library">
+                <button class="media-bulk-btn btn-confirm" type="button" (click)="removeFromLibrary()" title="Confirm delete from library">
                   Confirm
                 </button>
-                <button class="btn btn-outline-secondary py-0 px-1 text-light" type="button" (click)="confirmingDelete.set(false)">
+                <button class="media-bulk-btn btn-cancel" type="button" (click)="confirmingDelete.set(false)" title="Cancel">
                   ✕
                 </button>
               } @else {
-                <button class="btn btn-outline-danger py-0 px-2" type="button" (click)="deleteSelected()" title="Delete selected">
-                  🗑
+                <button class="media-bulk-btn btn-del" type="button" (click)="deleteSelected()" title="Delete selected from library">
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/>
+                    <path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/>
+                  </svg>
                 </button>
               }
             </div>
