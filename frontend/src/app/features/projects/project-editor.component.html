@@ -1,4 +1,5 @@
 @if (store.project(); as project) {
+  @if (!isVideoEditor) {
   <div class="page-head">
     <div>
       <a routerLink="/projects" class="muted">&larr; All projects</a>
@@ -40,6 +41,7 @@
     <a [routerLink]="['/projects', project.id, 'render']" routerLinkActive="active">Render</a>
     <a [routerLink]="['/projects', project.id, 'settings']" routerLinkActive="active">Settings</a>
   </nav>
+}
 
   <router-outlet />
 } @else {

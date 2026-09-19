@@ -2282,7 +2282,7 @@ audio { height: 2.2rem; vertical-align: middle; }
 
 .trim-btn-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
   gap: 0.5rem;
 }
 
@@ -2577,7 +2577,7 @@ audio { height: 2.2rem; vertical-align: middle; }
   margin: 0;
   padding: 6px 8px;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
   gap: 6px;
   overflow-y: auto;
   flex: 1 1 0;

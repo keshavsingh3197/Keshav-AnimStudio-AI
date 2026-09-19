@@ -1,9 +1,9 @@
 <div class="editor-workspace" #workspace [class.is-fullscreen]="appFullscreen()">
   <div class="studio-header">
     <div class="studio-header-left">
-      <div class="studio-brand">✦ AnimStudio<strong>AI</strong></div>
+      <a routerLink="/projects" class="studio-brand" style="text-decoration: none; color: inherit; cursor: pointer;">✦ AnimStudio<strong>AI</strong></a>
       <div class="studio-breadcrumb">
-        <span class="muted">{{ store.project()?.name ?? 'Project' }}</span>
+        <a [routerLink]="['/projects', store.project()?.id, 'scenes']" class="muted" style="text-decoration: none; cursor: pointer;">{{ store.project()?.name ?? 'Project' }}</a>
         <span class="muted">/</span>
         <span>Video Studio</span>
         <span [class]="formatClass()" style="margin-left: .4rem">{{ format() }} · {{ aspect() }}</span>
@@ -64,7 +64,9 @@
       </div>
 
       <!-- Media Library Panel (col2) -->
-      <div class="fe-panel fe-media-library">
+      <div class="fe-panel fe-media-library"
+         [class.drop-active]="dropActive()"
+         (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)" (drop)="onDrop($event)">
         <!-- Header -->
         <div class="media-lib-header">
           <span class="panel-title">Media Library</span>
@@ -90,18 +92,18 @@
           <button class="icon mf-sort" type="button" title="Sort & filter">⇅</button>
         </div>
 
-        <!-- Dropzone -->
-        <div class="dropzone compact" [class.active]="dropActive()"
-             (dragover)="onDragOver($event)" (dragleave)="onDragLeave($event)"
-             (drop)="onDrop($event)">
-          @if (uploading()) {
-            <strong>Uploading {{ uploadDone() + 1 }} of {{ uploadTotal() }}…</strong>
-            <div class="bar" style="margin-top:.4rem;max-width:100%"><i [style.width.%]="(uploadDone() / uploadTotal()) * 100"></i></div>
-          } @else {
-            <span class="muted" style="font-size:.8rem">Drop MP4 clips here · Max {{ studio.maxClipUploadBytes / 1048576 | number:'1.0-0' }}MB each</span>
-          }
-        </div>
-
+        <!-- Upload Progress -->
+        @if (uploading()) {
+          <div style="padding: 10px 12px; background: color-mix(in srgb, var(--brand) 15%, transparent); border-bottom: 1px solid var(--border);">
+            <div style="display: flex; justify-content: space-between; font-size: .75rem; margin-bottom: 6px;">
+              <strong style="color: var(--brand-glow)">Uploading Media...</strong>
+              <span class="muted">{{ uploadDone() + 1 }} / {{ uploadTotal() }}</span>
+            </div>
+            <div style="width: 100%; height: 4px; background: rgba(0,0,0,0.4); border-radius: 2px; overflow: hidden;">
+              <div [style.width.%]="(uploadDone() / uploadTotal()) * 100" style="height: 100%; background: var(--brand); transition: width 0.3s ease;"></div>
+            </div>
+          </div>
+        }
         <div class="clip-grid-scroll">
           <div class="media-actions-bar">
             <button class="icon" type="button" (click)="sortByName()" title="Sort by name">A→Z</button>

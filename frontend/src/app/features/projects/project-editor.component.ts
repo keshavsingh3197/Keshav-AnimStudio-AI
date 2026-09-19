@@ -2,7 +2,7 @@ import html2canvas from 'html2canvas';
 import { ApiService } from '../../core/services/api.service';
 import { StatusService } from '../../core/services/status.service';
 import { Component, effect, inject, input } from '@angular/core';
-import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
 import { aspectRatioLabel, videoFormat } from '../../core/models/api.models';
 import { ProjectStore } from '../../core/services/project-store';
@@ -23,7 +23,12 @@ export class ProjectEditorComponent {
 
   readonly store = inject(ProjectStore);
   private readonly api = inject(ApiService);
+  private readonly router = inject(Router);
   private readonly status = inject(StatusService);
+
+  get isVideoEditor(): boolean {
+    return this.router.url.includes('/clips');
+  }
 
   constructor() {
     // Re-runs if the route swaps to another project without destroying the component.
