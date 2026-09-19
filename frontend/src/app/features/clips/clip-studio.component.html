@@ -547,59 +547,75 @@
         }
 
         <!-- TAB 2: LOOKS, TRANSITIONS & OVERLAYS -->
-        @if (activeInspectorTab() === 'effects') {
-          <!-- Color Grading Look Presets -->
-          <div>
-            <div class="qa-title">Color Grading & Look Presets</div>
-            <p class="muted" style="font-size: .8rem; margin: 0 0 .4rem">
-              Instant live styling applied to the Master Monitor.
-            </p>
-            <div class="filter-presets-grid">
-              @for (preset of filterPresets; track preset.id) {
-                <div class="filter-preset-card"
-                     [class.active]="activeFilter() === preset.id"
-                     (click)="activeFilter.set(preset.id)">
-                  <div class="filter-swatch" [style.background]="preset.swatch"></div>
-                  <span>{{ preset.label }}</span>
+        
+          @if (activeInspectorTab() === 'color') {
+            <!-- Color Grading & Look Presets -->
+            <div>
+              <div class="qa-title">Color Grading & Look Presets</div>
+              <p class="muted" style="font-size: .8rem; margin: 0 0 .4rem">
+                Instant live styling applied to the Master Monitor.
+              </p>
+              <div class="filter-presets-grid">
+                @for (preset of filterPresets; track preset.id) {
+                  <div class="filter-preset-card"
+                       [class.active]="activeFilter() === preset.id"
+                       (click)="activeFilter.set(preset.id)">
+                    <div class="filter-swatch" [style.background]="preset.swatch"></div>
+                    <span>{{ preset.label }}</span>
+                  </div>
+                }
+              </div>
+  
+              <div class="grid" style="margin-top: .75rem">
+                <div>
+                  <label style="font-size: .8rem">Brightness &mdash; {{ filterBrightness() }}%</label>
+                  <input type="range" min="70" max="140" step="2" [(ngModel)]="filterBrightness" />
                 </div>
-              }
-            </div>
-
-            <div class="grid" style="margin-top: .75rem">
-              <div>
-                <label style="font-size: .8rem">Brightness &mdash; {{ filterBrightness() }}%</label>
-                <input type="range" min="70" max="140" step="2" [(ngModel)]="filterBrightness" />
+                <div>
+                  <label style="font-size: .8rem">Contrast &mdash; {{ filterContrast() }}%</label>
+                  <input type="range" min="70" max="150" step="2" [(ngModel)]="filterContrast" />
+                </div>
+                <div>
+                  <label style="font-size: .8rem">Saturation &mdash; {{ filterSaturation() }}%</label>
+                  <input type="range" min="0" max="200" step="5" [(ngModel)]="filterSaturation" />
+                </div>
               </div>
-              <div>
-                <label style="font-size: .8rem">Contrast &mdash; {{ filterContrast() }}%</label>
-                <input type="range" min="70" max="150" step="2" [(ngModel)]="filterContrast" />
-              </div>
-              <div>
-                <label style="font-size: .8rem">Saturation &mdash; {{ filterSaturation() }}%</label>
-                <input type="range" min="0" max="200" step="5" [(ngModel)]="filterSaturation" />
+              <div class="row" style="justify-content: flex-end; margin-top: .4rem">
+                <button class="link" type="button" style="font-size: .8rem" (click)="resetColorGrading()">
+                  Reset Color
+                </button>
               </div>
             </div>
+          }
 
-            <div class="grid" style="margin-top: .5rem">
-              <div>
-                <label style="font-size: .8rem">Sepia Tone &mdash; {{ filterSepia() }}%</label>
-                <input type="range" min="0" max="100" step="5" [(ngModel)]="filterSepia" />
+          @if (activeInspectorTab() === 'effects') {
+            <!-- Stylized Effects -->
+            <div>
+              <div class="qa-title">Stylized Effects</div>
+              <p class="muted" style="font-size: .8rem; margin: 0 0 .4rem">
+                Apply visual effects and lens filters to the video.
+              </p>
+              <div class="grid" style="margin-top: .75rem">
+                <div>
+                  <label style="font-size: .8rem">Sepia Tone &mdash; {{ filterSepia() }}%</label>
+                  <input type="range" min="0" max="100" step="5" [(ngModel)]="filterSepia" />
+                </div>
+                <div>
+                  <label style="font-size: .8rem">Soft Focus / Blur &mdash; {{ filterBlur() }}px</label>
+                  <input type="range" min="0" max="10" step="0.5" [(ngModel)]="filterBlur" />
+                </div>
               </div>
-              <div>
-                <label style="font-size: .8rem">Soft Focus / Blur &mdash; {{ filterBlur() }}px</label>
-                <input type="range" min="0" max="10" step="0.5" [(ngModel)]="filterBlur" />
+              <div class="row" style="justify-content: flex-end; margin-top: .4rem">
+                <button class="link" type="button" style="font-size: .8rem" (click)="filterSepia.set(0); filterBlur.set(0)">
+                  Clear Effects
+                </button>
               </div>
             </div>
-            <div class="row" style="justify-content: flex-end; margin-top: .4rem">
-              <button class="link" type="button" style="font-size: .8rem" (click)="resetColorGrading()">
-                Reset looks to normal
-              </button>
-            </div>
-          </div>
+          }
 
-          <hr style="border: none; border-top: 1px solid var(--border); margin: .6rem 0" />
 
-          <!-- Lower-Third Title Overlay -->
+          @if (activeInspectorTab() === 'text') {
+            <!-- Lower-Third Title Overlay -->
           <div>
             <div class="row" style="justify-content: space-between">
               <div class="qa-title">Lower-Third Title Card</div>
@@ -620,9 +636,10 @@
             }
           </div>
 
-          <hr style="border: none; border-top: 1px solid var(--border); margin: .6rem 0" />
+          }
 
-          <!-- Global Transition -->
+          @if (activeInspectorTab() === 'transitions') {
+            <!-- Global Transition -->
           <div>
             <div class="qa-title" style="margin-bottom: .8rem">Global Transition</div>
             <label for="globalTrans" style="font-size: .8rem; color: var(--muted)">Default transition between clips</label>
@@ -789,11 +806,11 @@
               <button class="tool-btn" type="button" (click)="splitClipAtPlayhead()" title="Split at playhead (S)">✂ Split</button>
               <button class="tool-btn" type="button" [disabled]="!selectedClip()" (click)="activeInspectorTab.set('clip')" title="Clip trim & framing">⬜ Crop</button>
               <button class="tool-btn" type="button" title="Speed" [disabled]="!selectedClip()">⏱ Speed</button>
-              <button class="tool-btn" type="button" (click)="activeInspectorTab.set('effects')" title="Color grading">🎨 Color</button>
+              <button class="tool-btn" type="button" (click)="activeInspectorTab.set('color')" title="Color grading">🎨 Color</button>
               <button class="tool-btn" type="button" (click)="activeInspectorTab.set('audio')" title="Audio settings">🎵 Audio</button>
-              <button class="tool-btn" type="button" title="Text overlay" (click)="activeInspectorTab.set('effects')">T Text</button>
+              <button class="tool-btn" type="button" title="Text overlay" (click)="activeInspectorTab.set('text')">T Text</button>
               <button class="tool-btn" type="button" (click)="activeInspectorTab.set('effects')" title="Effects">✨ Effects</button>
-              <button class="tool-btn" type="button" (click)="activeInspectorTab.set('effects')" title="Transitions">⚡ Transitions</button>
+              <button class="tool-btn" type="button" (click)="activeInspectorTab.set('transitions')" title="Transitions">⚡ Transitions</button>
             </div>
             <span style="flex:1"></span>
             <div class="tool-group">
