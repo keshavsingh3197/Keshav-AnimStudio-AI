@@ -430,24 +430,46 @@
             </div>
 
             <div class="transport-right">
-              <div class="volume-control-group">
-                <button class="transport-btn btn-sm" type="button" [class.active]="isMonitorMuted()"
+              <!-- Vertical Hover-expanding Volume Popup -->
+              <div class="transport-volume-group" title="Volume & Mute (M)">
+                <!-- Floating Vertical Popover (floats cleanly above, zero horizontal layout shift) -->
+                <div class="volume-vertical-popover shadow-lg">
+                  <span class="volume-percent-badge">{{ (isMonitorMuted() ? 0 : monitorVolume()) * 100 | number:'1.0-0' }}%</span>
+                  <div class="volume-slider-wrapper">
+                    <input type="range" class="volume-vertical-slider" orient="vertical" min="0" max="1" step="0.02"
+                           [ngModel]="isMonitorMuted() ? 0 : monitorVolume()"
+                           (ngModelChange)="setMonitorVolume($event)"
+                           title="Adjust Volume" />
+                  </div>
+                  <button type="button" class="volume-popover-mute-btn"
+                          (click)="toggleMonitorMute()"
+                          [title]="isMonitorMuted() ? 'Unmute' : 'Mute'">
+                    {{ isMonitorMuted() || monitorVolume() === 0 ? '🔇' : '🔊' }}
+                  </button>
+                </div>
+
+                <!-- Main Speaker Button -->
+                <button class="transport-btn btn-sm volume-toggle-btn" type="button" [class.active]="isMonitorMuted()"
                         (click)="toggleMonitorMute()" [title]="isMonitorMuted() ? 'Unmute monitor (M)' : 'Mute monitor (M)'">
-                  {{ isMonitorMuted() ? '🔇' : '🔊' }}
+                  @if (isMonitorMuted() || monitorVolume() === 0) {
+                    🔇
+                  } @else if (monitorVolume() < 0.5) {
+                    🔉
+                  } @else {
+                    🔊
+                  }
                 </button>
-                <input type="range" class="volume-slider-hover" min="0" max="1" step="0.05"
-                       [ngModel]="monitorVolume()" (ngModelChange)="setMonitorVolume($event)"
-                       title="Master monitor volume" />
               </div>
               
               <div class="speed-dropdown">
-                <select [ngModel]="playbackSpeed()" (ngModelChange)="setPlaybackSpeed($event)">
+                <select class="speed-select-btn" [ngModel]="playbackSpeed()" (ngModelChange)="setPlaybackSpeed($event)" title="Playback Speed">
                   <option [ngValue]="0.25">0.25x</option>
                   <option [ngValue]="0.5">0.5x</option>
-                  <option [ngValue]="1">1x</option>
+                  <option [ngValue]="0.75">0.75x</option>
+                  <option [ngValue]="1">1.0x</option>
                   <option [ngValue]="1.25">1.25x</option>
                   <option [ngValue]="1.5">1.5x</option>
-                  <option [ngValue]="2">2x</option>
+                  <option [ngValue]="2">2.0x</option>
                 </select>
               </div>
             </div>
@@ -565,6 +587,28 @@
                   </div>
                 </div>
               </div>
+            </div>
+
+            <!-- Playback Speed Control Card -->
+            <div class="speed-card card bg-black border border-secondary border-opacity-50 p-2 mb-2 rounded" style="background: var(--surface-2) !important;">
+              <div class="d-flex justify-content-between align-items-center mb-1">
+                <div class="qa-title mb-0">⏱ Playback Speed</div>
+                <span class="badge bg-primary font-monospace">{{ playbackSpeed() }}x</span>
+              </div>
+              <p class="muted small mb-2" style="font-size: .75rem;">
+                Adjusts real-time playback and timeline scrubbing rate across all tracks.
+              </p>
+              <div class="d-flex flex-wrap gap-1 mb-2">
+                @for (spd of [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2]; track spd) {
+                  <button type="button" class="speed-preset-btn"
+                          [class.active]="playbackSpeed() === spd"
+                          (click)="setPlaybackSpeed(spd)">
+                    {{ spd }}x
+                  </button>
+                }
+              </div>
+              <input type="range" class="form-range w-100" min="0.25" max="2" step="0.25"
+                     [ngModel]="playbackSpeed()" (ngModelChange)="setPlaybackSpeed($event)" />
             </div>
 
             <!-- Clip Sound / Volume -->
@@ -909,7 +953,6 @@
             <div class="tool-group">
               <button class="tool-btn" type="button" (click)="splitClipAtPlayhead()" title="Split at playhead (S)">✂ Split</button>
               <button class="tool-btn" type="button" [disabled]="!selectedClip()" (click)="activeInspectorTab.set('clip')" title="Clip trim & framing">⬜ Crop</button>
-              <button class="tool-btn" type="button" title="Speed" [disabled]="!selectedClip()">⏱ Speed</button>
               <button class="tool-btn" type="button" (click)="activeInspectorTab.set('color')" title="Color grading">🎨 Color</button>
               <button class="tool-btn" type="button" (click)="activeInspectorTab.set('audio')" title="Audio settings">🎵 Audio</button>
               <button class="tool-btn" type="button" title="Text overlay" (click)="activeInspectorTab.set('text')">T Text</button>

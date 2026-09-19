@@ -1,4 +1,4 @@
-﻿import { DecimalPipe } from '@angular/common';
+import { DecimalPipe } from '@angular/common';
 import { AfterViewInit, Component, ElementRef, HostListener, OnDestroy, ViewChild, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -1601,6 +1601,9 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
 
   setMonitorVolume(vol: number): void {
     this.monitorVolume.set(vol);
+    if (this.isMonitorMuted() && vol > 0) {
+      this.isMonitorMuted.set(false);
+    }
     const video = this.activeLayer() === 'A'
       ? this.videoMonitorARef?.nativeElement
       : this.videoMonitorBRef?.nativeElement;
