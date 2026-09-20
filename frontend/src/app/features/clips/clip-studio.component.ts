@@ -464,6 +464,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   readonly isMonitorMuted = signal<boolean>(false);
   readonly selectedClipId = signal<string | null>(null);
   readonly activeInspectorTab = signal<'clip' | 'effects' | 'audio' | 'export' | 'color' | 'text' | 'transitions'>('clip');
+  readonly activeClipSection = signal<'all' | 'framing' | 'audio'>('all');
   readonly isScrubbing = signal(false);
   readonly exportName = signal<string>('');
   readonly liveTransitionActive = signal(false);
