@@ -260,7 +260,6 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         var canvas = plan.Canvas;
         var rate = canvas.FrameRate;
         var warnings = new List<string>();
-        var inputs = new List<FfmpegInputSpec> { new([], plan.SourceRelativePath) };
         var inputArgs = plan.SourceIsImage
             ? new[] { "-loop", "1", "-t", FilterExpr.N(plan.ImageDurationSeconds) }
             : Array.Empty<string>();

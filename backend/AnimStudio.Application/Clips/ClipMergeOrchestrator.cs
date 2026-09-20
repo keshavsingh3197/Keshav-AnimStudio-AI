@@ -104,7 +104,6 @@ public sealed class ClipMergeOrchestrator(
         // Estimates only, and only to weight the progress bar. Real lengths are measured
         // clip by clip below, because that is the number the join arithmetic needs.
         var estimates = spec.AssetIds
-            .Select(id => ClipPlanFactory.EstimateLength(assetMap[id].Probe, canvas.FrameRate))
             .Select(id =>
             {
                 var a = assetMap[id];
@@ -217,7 +216,6 @@ public sealed class ClipMergeOrchestrator(
                         ImageDurationSeconds = 5.0,
                         // A clip with no audio track needs generated silence, or the join
                         // produces a file that stops at the first silent clip.
-                        SourceHasAudio = !string.IsNullOrEmpty(asset.Probe.AudioCodec),
                         SourceHasAudio = !isImage && !string.IsNullOrEmpty(asset.Probe.AudioCodec),
                         MuteAudio = spec.MuteClipAudio,
                         AudioVolume = audio?.Volume ?? 1.0,

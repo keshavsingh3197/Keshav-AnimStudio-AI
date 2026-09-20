@@ -145,11 +145,9 @@ public static class Mappings
         job.CreatedAt, job.CompletedAt,
         job.Width, job.Height, job.TargetFormat);
 
-    /// <summary>One video clip, with the facts a running order is laid out from.</summary>
     /// <summary>One video or image clip, with the facts a running order is laid out from.</summary>
     public static ClipResponse ToClipResponse(this Asset a) => new(
         a.Id, a.Name, a.FileSizeBytes,
-        a.Probe.DurationSeconds, a.Probe.Width, a.Probe.Height,
         a.Probe.DurationSeconds ?? (a.Kind == AssetKind.Image ? 5.0 : null),
         a.Probe.Width, a.Probe.Height,
         !string.IsNullOrEmpty(a.Probe.AudioCodec));

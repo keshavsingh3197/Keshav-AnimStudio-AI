@@ -108,23 +108,10 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   readonly rows = signal<ClipRow[]>([]);
 
   readonly allMediaRows = computed<ClipRow[]>(() => {
-    const videoRows = this.rows();
     const timelineRows = this.rows();
     const studio = this.studio();
-    if (!studio) return videoRows;
     if (!studio) return timelineRows;
 
-    const imageRows: ClipRow[] = (studio.logoCandidates || []).map((img) => ({
-      clip: {
-        id: img.id,
-        name: img.name,
-        fileSizeBytes: img.fileSizeBytes,
-        width: img.width,
-        height: img.height,
-        hasAudio: false,
-      },
-      included: this.watermarkLogoId() === img.id,
-    }));
     const rowIds = new Set(timelineRows.map((r) => r.clip.id));
     const extraImages: ClipRow[] = (studio.logoCandidates || [])
       .filter((img) => !rowIds.has(img.id))
@@ -152,7 +139,6 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
       included: this.musicAssetId() === aud.id || this.musicTracks().some((t) => t.assetId === aud.id),
     }));
 
-    return [...videoRows, ...imageRows, ...audioRows];
     return [...timelineRows, ...extraImages, ...audioRows];
   });
 
@@ -197,29 +183,12 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
 
   toggleClip(clipId: string): void {
     const studio = this.studio();
-    const isImage = studio?.logoCandidates?.some(l => l.id === clipId);
-    const isAudio = studio?.musicCandidates?.some(m => m.id === clipId);
     const isAudio = studio?.musicCandidates?.some((m) => m.id === clipId);
-
-    if (isImage) {
-      if (this.watermarkLogoId() === clipId) {
-        this.watermarkLogoId.set('');
-        this.watermarkKind.set('None');
-      } else {
-        this.watermarkLogoId.set(clipId);
-        this.watermarkKind.set('Logo');
-        this.watermarkSource.set('custom');
-      }
-      this.hasUnsavedChanges.set(true);
-      return;
-    }
 
     if (isAudio) {
       const tracks = this.musicTracks();
-      const existingIdx = tracks.findIndex(t => t.assetId === clipId);
       const existingIdx = tracks.findIndex((t) => t.assetId === clipId);
       if (existingIdx >= 0) {
-        this.musicTracks.update(list => list.filter(t => t.assetId !== clipId));
         this.musicTracks.update((list) => list.filter((t) => t.assetId !== clipId));
       } else {
         this.addMusicTrackFromAsset(clipId);
@@ -228,8 +197,6 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
       return;
     }
 
-    this.rows.update((rows) =>
-      rows.map((row) => (row.clip.id === clipId ? { ...row, included: !row.included } : row)));
     const inRows = this.rows().some((r) => r.clip.id === clipId);
     if (inRows) {
       this.rows.update((rows) =>
@@ -261,23 +228,14 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   }
 
   addSelectedToTimeline(): void {
-    this.rows.update((rows) => rows.map((r) => ({ ...r, included: true })));
     const cat = this.activeCategory();
     if (cat === 'audio') {
       for (const aud of this.studio()?.musicCandidates || []) {
-        if (!this.musicTracks().some(t => t.assetId === aud.id)) {
         if (!this.musicTracks().some((t) => t.assetId === aud.id)) {
           this.addMusicTrackFromAsset(aud.id);
         }
       }
     } else if (cat === 'image') {
-      const firstImg = this.studio()?.logoCandidates?.[0];
-      if (firstImg) {
-        this.watermarkLogoId.set(firstImg.id);
-        this.watermarkKind.set('Logo');
-        this.watermarkSource.set('custom');
-        this.hasUnsavedChanges.set(true);
-      }
       const studio = this.studio();
       const rowIds = new Set(this.rows().map((r) => r.clip.id));
       const extraImages: ClipRow[] = (studio?.logoCandidates || [])
@@ -352,8 +310,6 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   ];
 
 
-  readonly videoCount = computed(() => this.rows().length);
-  readonly imageCount = computed(() => this.studio()?.logoCandidates?.length ?? 0);
   readonly videoCount = computed(() => this.rows().filter(r => this.getClipType(r.clip) === 'video').length);
   readonly imageCount = computed(() => {
     const inRows = this.rows().filter(r => this.getClipType(r.clip) === 'image').length;
@@ -370,10 +326,6 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     const included = this.selectAllCheckbox;
     const cat = this.activeCategory();
 
-    if (cat === 'video' || cat === 'all') {
-      this.selectAll(included);
-    }
-    if (cat === 'audio' || cat === 'all') {
     if (cat === 'video') {
       this.rows.update((rows) =>
         rows.map((r) => (this.getClipType(r.clip) === 'video' ? { ...r, included } : r)));
@@ -393,18 +345,6 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     } else {
       this.selectAll(included);
     }
-    if (cat === 'image' || cat === 'all') {
-      if (included && !this.watermarkLogoId()) {
-        const first = this.studio()?.logoCandidates?.[0];
-        if (first) {
-          this.watermarkLogoId.set(first.id);
-          this.watermarkKind.set('Logo');
-        }
-      } else if (!included) {
-        this.watermarkLogoId.set('');
-        this.watermarkKind.set('None');
-      }
-    }
     this.hasUnsavedChanges.set(true);
   }
 
@@ -413,8 +353,6 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     if (studio?.logoCandidates?.some(l => l.id === clip.id)) return 'image';
     if (studio?.musicCandidates?.some(m => m.id === clip.id)) return 'audio';
     const n = clip.name.toLowerCase();
-    if (n.match(/\.(png|jpg|jpeg|gif|webp)$/i)) return 'image';
-    if (n.match(/\.(mp3|wav|ogg)$/i)) return 'audio';
     if (n.match(/\.(png|jpg|jpeg|gif|webp|bmp|svg)$/i)) return 'image';
     if (n.match(/\.(mp3|wav|ogg|m4a|aac|flac)$/i)) return 'audio';
     if (n.includes('ai_') || n.includes('gen_')) return 'ai';
@@ -2097,18 +2035,9 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
 
   selectClip(clipId: string): void {
     const studio = this.studio();
-    const isImage = studio?.logoCandidates?.some(l => l.id === clipId);
-    const isAudio = studio?.musicCandidates?.some(m => m.id === clipId);
     const isAudioOnly = studio?.musicCandidates?.some((m) => m.id === clipId) && !this.rows().some((r) => r.clip.id === clipId);
 
-    if (isImage) {
     if (isAudioOnly) {
-      this.selectedClipId.set(clipId);
-      this.activeInspectorTab.set('text');
-      return;
-    }
-
-    if (isAudio) {
       this.selectedClipId.set(clipId);
       this.activeInspectorTab.set('audio');
       return;
@@ -2261,7 +2190,6 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     const speed = this.playbackSpeed();
 
     // 1. Synchronize the active playing video
-    if (currentActiveVideo) {
     const isCurrImage = this.getClipType(curr.clip) === 'image';
     if (isCurrImage) {
       if (currentActiveVideo && !currentActiveVideo.paused) {
@@ -2305,18 +2233,6 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     const isNextImage = nextSched ? this.getClipType(nextSched.clip) === 'image' : false;
 
     if (inTransition && nextSched && currentStandbyVideo) {
-      const nextLocalTime = Math.max(0, time - transStart);
-      const standbyLoadedId = currentActiveIsA ? this.loadedClipIdB : this.loadedClipIdA;
-      if (standbyLoadedId !== nextSched.clip.id) {
-        if (currentActiveIsA) this.loadedClipIdB = nextSched.clip.id;
-        else this.loadedClipIdA = nextSched.clip.id;
-        currentStandbyVideo.src = this.assetUrl(nextSched.clip.id);
-        currentStandbyVideo.currentTime = nextLocalTime;
-        const targetSrc = this.assetUrl(nextSched.clip.id);
-        if (currentStandbyVideo.src !== targetSrc) {
-          currentStandbyVideo.src = targetSrc;
-        }
-        if (currentStandbyVideo.readyState >= 1) {
       if (isNextImage) {
         if (!currentStandbyVideo.paused) currentStandbyVideo.pause();
       } else {
@@ -2327,15 +2243,12 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
           else this.loadedClipIdA = nextSched.clip.id;
           currentStandbyVideo.src = this.assetUrl(nextSched.clip.id);
           currentStandbyVideo.currentTime = nextLocalTime;
-        } else {
-          currentStandbyVideo.onloadedmetadata = () => {
           const targetSrc = this.assetUrl(nextSched.clip.id);
           if (currentStandbyVideo.src !== targetSrc) {
             currentStandbyVideo.src = targetSrc;
           }
           if (currentStandbyVideo.readyState >= 1) {
             currentStandbyVideo.currentTime = nextLocalTime;
-          };
           } else {
             currentStandbyVideo.onloadedmetadata = () => {
               currentStandbyVideo.currentTime = nextLocalTime;
@@ -2344,8 +2257,6 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
         } else if (!playing || (Math.abs(currentStandbyVideo.currentTime - nextLocalTime) > 0.4 && !currentStandbyVideo.seeking)) {
           currentStandbyVideo.currentTime = nextLocalTime;
         }
-      } else if (!playing || (Math.abs(currentStandbyVideo.currentTime - nextLocalTime) > 0.4 && !currentStandbyVideo.seeking)) {
-        currentStandbyVideo.currentTime = nextLocalTime;
         currentStandbyVideo.volume = 0;
         currentStandbyVideo.muted = true;
         currentStandbyVideo.playbackRate = speed;
@@ -2355,14 +2266,6 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
           if (!currentStandbyVideo.paused) currentStandbyVideo.pause();
         }
       }
-      currentStandbyVideo.volume = 0;
-      currentStandbyVideo.muted = true;
-      currentStandbyVideo.playbackRate = speed;
-      if (playing) {
-        if (currentStandbyVideo.paused) currentStandbyVideo.play().catch(() => undefined);
-      } else {
-        if (!currentStandbyVideo.paused) currentStandbyVideo.pause();
-      }
 
       this.liveTransitionActive.set(true);
       this.liveTransitionClass.set(this.pvClassForTransition(curr.junctionTransition));
@@ -2370,7 +2273,6 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     } else {
       this.liveTransitionActive.set(false);
       // Preload next incoming clip onto the standby video layer so transitions start instantly
-      if (nextSched && currentStandbyVideo) {
       if (nextSched && !isNextImage && currentStandbyVideo) {
         const standbyLoadedId = currentActiveIsA ? this.loadedClipIdB : this.loadedClipIdA;
         if (standbyLoadedId !== nextSched.clip.id) {
