@@ -499,6 +499,20 @@
       <!-- Right Inspector Panel (col4) -->
       <div class="fe-panel fe-inspector">
         <div class="studio-inspector">
+          <!-- Inspector Tab Navigation -->
+          <div class="inspector-nav">
+            <button type="button" class="nav-tab" [class.active]="activeInspectorTab() === 'clip'"
+                    (click)="activeInspectorTab.set('clip')" title="Framing & Crop">📐 Framing</button>
+            <button type="button" class="nav-tab" [class.active]="activeInspectorTab() === 'color'"
+                    (click)="activeInspectorTab.set('color')" title="Color Grading">🎨 Color</button>
+            <button type="button" class="nav-tab" [class.active]="activeInspectorTab() === 'audio'"
+                    (click)="activeInspectorTab.set('audio')" title="Audio & Music">🎵 Audio</button>
+            <button type="button" class="nav-tab" [class.active]="activeInspectorTab() === 'text'"
+                    (click)="activeInspectorTab.set('text')" title="Text Overlay">T Text</button>
+            <button type="button" class="nav-tab" [class.active]="activeInspectorTab() === 'effects'"
+                    (click)="activeInspectorTab.set('effects')" title="Effects">✨ FX</button>
+            <button type="button" class="nav-tab" [class.active]="activeInspectorTab() === 'transitions'"
+                    (click)="activeInspectorTab.set('transitions')" title="Transitions">⚡ Trans</button>
           <!-- Modern Inspector Header Bar: Tool Picker + Target Scope Dropdown (Image 2 style) -->
           <div class="inspector-header-bar">
             <!-- Tool Dropdown Selector -->
@@ -656,6 +670,28 @@
           </div>
 
           <div class="inspector-content">
+            <!-- TARGET SCOPE DROPDOWN BAR -->
+            <div class="target-scope-bar" style="margin-bottom: 10px; padding: 6px 8px; background: color-mix(in srgb, var(--surface-2) 90%, transparent); border: 1px solid var(--border); border-radius: 6px;">
+              <div class="d-flex justify-content-between align-items-center mb-1">
+                <span class="text-secondary fw-bold text-uppercase" style="font-size: 0.68rem; letter-spacing: 0.05em;">🎯 Target Scope</span>
+                @if (targetScope() === 'all') {
+                  <span class="badge bg-primary bg-opacity-75 font-monospace" style="font-size: 0.65rem;">{{ included().length }} clips</span>
+                }
+              </div>
+              <select class="form-select form-select-sm" style="font-size: 0.76rem; background: var(--surface); color: var(--text); border-color: var(--border);"
+                      [ngModel]="targetScope()"
+                      (ngModelChange)="setTargetScope($event)">
+                <option value="selected">
+                  🎯 Selected Clip: {{ selectedClip()?.name ?? '(none selected)' }}
+                </option>
+                <option value="current">
+                  ▶️ Playing Clip: {{ currentScheduledClip()?.clip?.name ?? '(at playhead)' }}
+                </option>
+                <option value="all">
+                  🌐 All Timeline Clips (Apply to All {{ included().length }})
+                </option>
+              </select>
+            </div>
 
         <!-- TAB 1: CLIP ADJUSTMENTS & FRAMING/CROP -->
         @if (activeInspectorTab() === 'clip') {
