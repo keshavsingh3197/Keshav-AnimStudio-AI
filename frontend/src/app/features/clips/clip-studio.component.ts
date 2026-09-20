@@ -202,6 +202,15 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
       }
       return next;
     });
+
+    const currentSet = this.selectedLibraryIds();
+    if (currentSet.has(clipId)) {
+      this.selectedClipId.set(clipId);
+    } else if (currentSet.size > 0) {
+      this.selectedClipId.set(Array.from(currentSet)[0]);
+    } else {
+      this.selectedClipId.set(null);
+    }
   }
 
   toggleClip(clipId: string): void {
@@ -337,29 +346,16 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
 
   toggleSelectAll() {
     this.selectAllCheckbox = !this.selectAllCheckbox;
-    const included = this.selectAllCheckbox;
-    const cat = this.activeCategory();
-
-    if (cat === 'video') {
-      this.rows.update((rows) =>
-        rows.map((r) => (this.getClipType(r.clip) === 'video' ? { ...r, included } : r)));
-    } else if (cat === 'image') {
-      this.rows.update((rows) =>
-        rows.map((r) => (this.getClipType(r.clip) === 'image' ? { ...r, included } : r)));
-    } else if (cat === 'audio') {
-      if (included) {
-        for (const aud of this.studio()?.musicCandidates || []) {
-          if (!this.musicTracks().some(t => t.assetId === aud.id)) {
-            this.addMusicTrackFromAsset(aud.id);
-          }
-        }
-      } else {
-        this.musicTracks.set([]);
+    if (this.selectAllCheckbox) {
+      const allIds = this.filteredRows().map((r) => r.clip.id);
+      this.selectedLibraryIds.set(new Set(allIds));
+      if (allIds.length > 0) {
+        this.selectedClipId.set(allIds[0]);
       }
     } else {
-      this.selectAll(included);
+      this.selectedLibraryIds.set(new Set());
+      this.selectedClipId.set(null);
     }
-    this.hasUnsavedChanges.set(true);
   }
 
   getClipType(clip: Clip): 'video' | 'audio' | 'image' | 'ai' {
@@ -791,12 +787,17 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   });
 
   readonly selectedClip = computed<Clip | null>(() => {
+    const selIds = Array.from(this.selectedLibraryIds());
     const id = this.selectedClipId();
-    if (id) {
+    if (id && this.selectedLibraryIds().has(id)) {
       const match = this.rows().find((r) => r.clip.id === id);
       if (match) return match.clip;
     }
-    return this.included()[0]?.clip ?? null;
+    if (selIds.length > 0) {
+      const match = this.rows().find((r) => r.clip.id === selIds[0]);
+      if (match) return match.clip;
+    }
+    return null;
   });
 
   readonly activeTargetClip = computed<Clip | null>(() => {
@@ -804,6 +805,11 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     if (scope === 'current') {
       const current = this.currentScheduledClip();
       if (current) return current.clip;
+      return null;
+    }
+    if (scope === 'all') {
+      const first = this.included()[0];
+      return first ? first.clip : null;
     }
     return this.selectedClip();
   });
@@ -820,7 +826,26 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
 
   readonly scopeDropdownOpen = signal<boolean>(false);
   readonly toolDropdownOpen = signal<boolean>(false);
-  readonly selectedClipsCount = computed(() => (this.selectedClip() ? 1 : 0));
+  readonly selectedClipsCount = computed(() => this.selectedLibraryIds().size);
+
+  getTargetClipIds(fallbackClipId?: string): string[] {
+    const scope = this.targetScope();
+    if (scope === 'all') {
+      return this.included().map((r) => r.clip.id);
+    }
+    if (scope === 'current') {
+      const curr = this.currentScheduledClip();
+      if (curr) return [curr.clip.id];
+      return fallbackClipId ? [fallbackClipId] : [];
+    }
+    const selIds = Array.from(this.selectedLibraryIds());
+    if (selIds.length > 0) {
+      return selIds;
+    }
+    const selId = this.selectedClipId();
+    if (selId) return [selId];
+    return fallbackClipId ? [fallbackClipId] : [];
+  }
 
   readonly activeInspectorTabLabel = computed(() => {
     switch (this.activeInspectorTab()) {
@@ -1749,10 +1774,14 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   }
 
   setClipVolume(clipId: string, value: number): void {
-    this.updateClipSound(clipId, (current) => ({
-      ...current,
-      volume: Math.min(Math.max(value, 0), MAX_CLIP_GAIN),
-    }));
+    const targetIds = this.getTargetClipIds(clipId);
+    const vol = Math.min(Math.max(value, 0), MAX_CLIP_GAIN);
+    for (const id of targetIds) {
+      this.updateClipSound(id, (current) => ({
+        ...current,
+        volume: vol,
+      }));
+    }
   }
 
   setClipSound(clipId: string, assetId: string): void {
@@ -2030,30 +2059,39 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   }
 
   setClipFramingFit(clipId: string, fit: 'Contain' | 'Cover'): void {
+    const targetIds = this.getTargetClipIds(clipId);
     this.clipFraming.update((m) => {
       const next = new Map(m);
-      const current = this.clipFramingSetting(clipId);
-      next.set(clipId, { ...current, fit });
+      for (const id of targetIds) {
+        const current = this.clipFramingSetting(id);
+        next.set(id, { ...current, fit });
+      }
       return next;
     });
     this.markDirty();
   }
 
   setClipFramingZoom(clipId: string, zoom: number): void {
+    const targetIds = this.getTargetClipIds(clipId);
     this.clipFraming.update((m) => {
       const next = new Map(m);
-      const current = this.clipFramingSetting(clipId);
-      next.set(clipId, { ...current, zoom });
+      for (const id of targetIds) {
+        const current = this.clipFramingSetting(id);
+        next.set(id, { ...current, zoom: Number(zoom) });
+      }
       return next;
     });
     this.markDirty();
   }
 
   setClipFramingPan(clipId: string, panY: 'center' | 'top' | 'bottom'): void {
+    const targetIds = this.getTargetClipIds(clipId);
     this.clipFraming.update((m) => {
       const next = new Map(m);
-      const current = this.clipFramingSetting(clipId);
-      next.set(clipId, { ...current, panY });
+      for (const id of targetIds) {
+        const current = this.clipFramingSetting(id);
+        next.set(id, { ...current, panY });
+      }
       return next;
     });
     this.markDirty();
@@ -2065,9 +2103,12 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   }
 
   setClipAudioFade(clipId: string, fadeInSeconds: number, fadeOutSeconds: number): void {
+    const targetIds = this.getTargetClipIds(clipId);
     this.clipAudioFade.update((m) => {
       const next = new Map(m);
-      next.set(clipId, { fadeInSeconds, fadeOutSeconds });
+      for (const id of targetIds) {
+        next.set(id, { fadeInSeconds, fadeOutSeconds });
+      }
       return next;
     });
     this.markDirty();
@@ -2107,18 +2148,54 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     }
   }
 
-  selectClip(clipId: string): void {
+  selectClip(clipId: string, event?: MouseEvent): void {
+    const isMulti = !!(event?.ctrlKey || event?.metaKey || event?.shiftKey);
     const studio = this.studio();
     const isAudioOnly = studio?.musicCandidates?.some((m) => m.id === clipId) && !this.rows().some((r) => r.clip.id === clipId);
 
     if (isAudioOnly) {
-      this.selectedClipId.set(clipId);
-      this.activeInspectorTab.set('audio');
+      if (this.selectedClipId() === clipId && this.selectedLibraryIds().has(clipId)) {
+        this.selectedClipId.set(null);
+        this.selectedLibraryIds.set(new Set());
+      } else {
+        this.selectedClipId.set(clipId);
+        this.selectedLibraryIds.set(new Set([clipId]));
+        this.activeInspectorTab.set('audio');
+      }
       return;
     }
 
-    this.selectedClipId.set(clipId);
-    this.activeInspectorTab.set('clip');
+    if (isMulti) {
+      this.selectedLibraryIds.update((set) => {
+        const next = new Set(set);
+        if (next.has(clipId)) {
+          next.delete(clipId);
+        } else {
+          next.add(clipId);
+        }
+        return next;
+      });
+      const nextSet = this.selectedLibraryIds();
+      if (nextSet.has(clipId)) {
+        this.selectedClipId.set(clipId);
+      } else if (nextSet.size > 0) {
+        this.selectedClipId.set(Array.from(nextSet)[0]);
+      } else {
+        this.selectedClipId.set(null);
+      }
+    } else {
+      if (this.selectedLibraryIds().has(clipId) && this.selectedLibraryIds().size === 1) {
+        this.selectedLibraryIds.set(new Set());
+        this.selectedClipId.set(null);
+      } else {
+        this.selectedClipId.set(clipId);
+        this.selectedLibraryIds.set(new Set([clipId]));
+      }
+    }
+
+    if (this.activeInspectorTab() !== 'audio' && this.activeInspectorTab() !== 'color' && this.activeInspectorTab() !== 'text') {
+      this.activeInspectorTab.set('clip');
+    }
     const sched = this.clipSchedule().find((s) => s.clip.id === clipId);
     if (sched) {
       this.seekToTime(sched.startSeconds);
@@ -2127,13 +2204,11 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
 
   setImageClipDuration(clipId: string, durationSeconds: number): void {
     const dur = Math.max(0.5, Math.min(60, Number(durationSeconds)));
-    const ids = this.targetScope() === 'all'
-      ? new Set(this.included().filter((r) => this.getClipType(r.clip) === 'image').map((r) => r.clip.id))
-      : new Set([clipId]);
+    const targetIds = new Set(this.getTargetClipIds(clipId));
 
     this.rows.update((rows) =>
       rows.map((r) =>
-        ids.has(r.clip.id)
+        targetIds.has(r.clip.id) && this.getClipType(r.clip) === 'image'
           ? { ...r, clip: { ...r.clip, durationSeconds: dur } }
           : r
       )

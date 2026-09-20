@@ -188,12 +188,12 @@
               <div class="clip-card card bg-black border border-secondary border-opacity-50 overflow-hidden position-relative"
                    [class.is-placed]="isClipOnTimeline(row.clip.id)"
                    [class.library-selected]="isLibrarySelected(row.clip.id)"
-                   [class.selected]="selectedClip()?.id === row.clip.id"
+                   [class.selected]="isLibrarySelected(row.clip.id)"
                    [class.dragging]="dragIndex() === i"
                    [class.drag-over]="dragOverIndex() === i && dragIndex() !== i"
                    [attr.data-type]="getClipType(row.clip)"
                    draggable="true"
-                   (click)="selectClip(row.clip.id)"
+                   (click)="selectClip(row.clip.id, $event)"
                    (dragstart)="onRowDragStart(i)"
                    (dragover)="onRowDragOver(i, $event)"
                    (drop)="onRowDrop(i, $event)"
@@ -499,20 +499,6 @@
       <!-- Right Inspector Panel (col4) -->
       <div class="fe-panel fe-inspector">
         <div class="studio-inspector">
-          <!-- Inspector Tab Navigation -->
-          <div class="inspector-nav">
-            <button type="button" class="nav-tab" [class.active]="activeInspectorTab() === 'clip'"
-                    (click)="activeInspectorTab.set('clip')" title="Framing & Crop">📐 Framing</button>
-            <button type="button" class="nav-tab" [class.active]="activeInspectorTab() === 'color'"
-                    (click)="activeInspectorTab.set('color')" title="Color Grading">🎨 Color</button>
-            <button type="button" class="nav-tab" [class.active]="activeInspectorTab() === 'audio'"
-                    (click)="activeInspectorTab.set('audio')" title="Audio & Music">🎵 Audio</button>
-            <button type="button" class="nav-tab" [class.active]="activeInspectorTab() === 'text'"
-                    (click)="activeInspectorTab.set('text')" title="Text Overlay">T Text</button>
-            <button type="button" class="nav-tab" [class.active]="activeInspectorTab() === 'effects'"
-                    (click)="activeInspectorTab.set('effects')" title="Effects">✨ FX</button>
-            <button type="button" class="nav-tab" [class.active]="activeInspectorTab() === 'transitions'"
-                    (click)="activeInspectorTab.set('transitions')" title="Transitions">⚡ Trans</button>
           <!-- Modern Inspector Header Bar: Tool Picker + Target Scope Dropdown (Image 2 style) -->
           <div class="inspector-header-bar">
             <!-- Tool Dropdown Selector -->
@@ -670,38 +656,18 @@
           </div>
 
           <div class="inspector-content">
-            <!-- TARGET SCOPE DROPDOWN BAR -->
-            <div class="target-scope-bar" style="margin-bottom: 10px; padding: 6px 8px; background: color-mix(in srgb, var(--surface-2) 90%, transparent); border: 1px solid var(--border); border-radius: 6px;">
-              <div class="d-flex justify-content-between align-items-center mb-1">
-                <span class="text-secondary fw-bold text-uppercase" style="font-size: 0.68rem; letter-spacing: 0.05em;">🎯 Target Scope</span>
-                @if (targetScope() === 'all') {
-                  <span class="badge bg-primary bg-opacity-75 font-monospace" style="font-size: 0.65rem;">{{ included().length }} clips</span>
-                }
-              </div>
-              <select class="form-select form-select-sm" style="font-size: 0.76rem; background: var(--surface); color: var(--text); border-color: var(--border);"
-                      [ngModel]="targetScope()"
-                      (ngModelChange)="setTargetScope($event)">
-                <option value="selected">
-                  🎯 Selected Clip: {{ selectedClip()?.name ?? '(none selected)' }}
-                </option>
-                <option value="current">
-                  ▶️ Playing Clip: {{ currentScheduledClip()?.clip?.name ?? '(at playhead)' }}
-                </option>
-                <option value="all">
-                  🌐 All Timeline Clips (Apply to All {{ included().length }})
-                </option>
-              </select>
-            </div>
-
-        <!-- TAB 1: CLIP ADJUSTMENTS & FRAMING/CROP -->
+        <!-- TAB 1: CLIP FRAMING & CROP -->
         @if (activeInspectorTab() === 'clip') {
           @if (activeTargetClip(); as clip) {
-            @let sound = clipSound(clip.id);
-
             @if (targetScope() === 'all') {
               <div class="alert alert-info py-1 px-2 mb-2 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: color-mix(in srgb, var(--brand) 15%, transparent); border: 1px solid var(--brand); color: #93c5fd; border-radius: 6px;">
                 <span>🌐</span>
-                <span><strong>Batch Mode:</strong> Adjustments made here apply to all {{ included().length }} clips.</span>
+                <span><strong>Batch Mode:</strong> Framing adjustments apply to all <strong>{{ included().length }} timeline clips</strong>.</span>
+              </div>
+            } @else if (targetScope() === 'selected' && selectedClipsCount() > 1) {
+              <div class="alert alert-primary py-1 px-2 mb-2 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: color-mix(in srgb, var(--brand) 15%, transparent); border: 1px solid var(--brand); color: #93c5fd; border-radius: 6px;">
+                <span>🎯</span>
+                <span><strong>Multi-Clip Edit:</strong> Framing adjustments apply to all <strong>{{ selectedClipsCount() }} selected clips</strong>.</span>
               </div>
             } @else {
               <div class="clip-info-header" style="margin-bottom: 8px;">
@@ -714,224 +680,84 @@
               </div>
             }
 
-            <!-- Sub-category Filter Pills (Media Library Style) -->
-            <div class="media-category-pills" style="margin-bottom: 10px;">
-              <button type="button" class="cat-pill"
-                      [class.active]="activeClipSection() === 'all'"
-                      (click)="activeClipSection.set('all')">
-                All
-              </button>
-              <button type="button" class="cat-pill"
-                      [class.active]="activeClipSection() === 'framing'"
-                      (click)="activeClipSection.set('framing')">
-                📐 Framing & Crop
-              </button>
-              <button type="button" class="cat-pill"
-                      [class.active]="activeClipSection() === 'audio'"
-                      (click)="activeClipSection.set('audio')">
-                🔊 Audio & Voice
-              </button>
+            <!-- Framing, Pan & Zoom Control Card -->
+            @let framing = clipFramingSetting(clip.id);
+            <div class="framing-card" style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 10px;">
+              <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <div class="qa-title mb-0" style="font-size: 0.82rem; font-weight: 700;">📐 Framing, Crop & Zoom</div>
+                <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 font-monospace" style="font-size: 0.72rem;"
+                        (click)="setClipFramingZoom(clip.id, 100)" title="Reset zoom to 100%">
+                  {{ framing.zoom }}%
+                </button>
+              </div>
+              <p class="muted" style="font-size: .75rem; margin: 0 0 8px;">
+                Adapt horizontal clips to vertical Shorts without black letterbox bars.
+              </p>
+              <div class="row" style="gap: .4rem; margin-bottom: 8px;">
+                <button class="aspect-pill" type="button" [class.active]="framing.fit === 'Contain'"
+                        (click)="setClipFramingFit(clip.id, 'Contain')" title="Fit whole frame with black letterbox bars">
+                  Contain (Letterbox)
+                </button>
+                <button class="aspect-pill" type="button" [class.active]="framing.fit === 'Cover'"
+                        (click)="setClipFramingFit(clip.id, 'Cover')" title="Fill screen completely (crops edges)">
+                  Cover (Fill & Crop)
+                </button>
+              </div>
+              @if (framing.fit === 'Cover') {
+                <p class="muted" style="margin: .3rem 0 .5rem; font-size: .74rem; color: #fbbf24">
+                  ⚠️ Cover mode crops clip edges to fill canvas.
+                </p>
+              }
+              <div class="d-flex flex-column gap-2">
+                <div>
+                  <div class="d-flex justify-content-between align-items-center mb-1">
+                    <label style="font-size: .75rem; margin-bottom: 0;">Scale / Zoom</label>
+                    <span class="mono" style="font-size: .72rem; color: var(--text-dim);">{{ framing.zoom }}%</span>
+                  </div>
+                  <input type="range" class="form-range w-100" min="100" max="250" step="5" [ngModel]="framing.zoom"
+                         (ngModelChange)="setClipFramingZoom(clip.id, $event)" />
+                </div>
+                <div>
+                  <label style="font-size: .75rem; margin-bottom: 4px;">Vertical Focus / Pan</label>
+                  <div class="row" style="gap: .25rem">
+                    <button class="aspect-pill" type="button" [class.active]="framing.panY === 'top'"
+                            (click)="setClipFramingPan(clip.id, 'top')">Top</button>
+                    <button class="aspect-pill" type="button" [class.active]="framing.panY === 'center'"
+                            (click)="setClipFramingPan(clip.id, 'center')">Center</button>
+                    <button class="aspect-pill" type="button" [class.active]="framing.panY === 'bottom'"
+                            (click)="setClipFramingPan(clip.id, 'bottom')">Bottom</button>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <!-- SECTION 1: Framing, Crop, Zoom & Image Timing -->
-            @if (activeClipSection() === 'all' || activeClipSection() === 'framing') {
-              <!-- Framing, Pan & Zoom Control Card -->
-              @let framing = clipFramingSetting(clip.id);
-              <div class="framing-card" style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 10px;">
+            <!-- Image Display Duration (for Image Timeline Clips) -->
+            @if (getClipType(clip) === 'image') {
+              <div class="image-duration-card" style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 10px;">
                 <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                  <div class="qa-title mb-0" style="font-size: 0.82rem; font-weight: 700;">📐 Framing, Crop & Zoom</div>
-                  <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 font-monospace" style="font-size: 0.72rem;"
-                          (click)="setClipFramingZoom(clip.id, 100)" title="Reset zoom to 100%">
-                    {{ framing.zoom }}%
-                  </button>
+                  <div class="qa-title mb-0" style="font-size: 0.82rem; font-weight: 700;">⏱ Image Duration</div>
+                  <span class="mono" style="font-size: .78rem; color: var(--brand); font-weight: 600;">{{ clip.durationSeconds ?? 5.0 | number: '1.1-1' }}s</span>
                 </div>
                 <p class="muted" style="font-size: .75rem; margin: 0 0 8px;">
-                  Adapt horizontal clips to vertical Shorts without black letterbox bars.
+                  Set how long this photo or graphic displays on the video timeline.
                 </p>
-                <div class="row" style="gap: .4rem; margin-bottom: 8px;">
-                  <button class="aspect-pill" type="button" [class.active]="framing.fit === 'Contain'"
-                          (click)="setClipFramingFit(clip.id, 'Contain')" title="Fit whole frame with black letterbox bars">
-                    Contain (Letterbox)
-                  </button>
-                  <button class="aspect-pill" type="button" [class.active]="framing.fit === 'Cover'"
-                          (click)="setClipFramingFit(clip.id, 'Cover')" title="Fill screen completely (crops edges)">
-                    Cover (Fill & Crop)
-                  </button>
+                <input type="range" class="form-range w-100" min="1" max="30" step="0.5" [ngModel]="clip.durationSeconds ?? 5.0"
+                       (ngModelChange)="setImageClipDuration(clip.id, $event)" />
+                <div class="d-flex justify-content-between text-secondary mt-1" style="font-size: 0.7rem;">
+                  <span>1s</span>
+                  <span>5s</span>
+                  <span>10s</span>
+                  <span>20s</span>
+                  <span>30s</span>
                 </div>
-                @if (framing.fit === 'Cover') {
-                  <p class="muted" style="margin: .3rem 0 .5rem; font-size: .74rem; color: #fbbf24">
-                    ⚠️ Cover mode crops clip edges to fill canvas.
-                  </p>
-                }
-                <div class="d-flex flex-column gap-2">
-                  <div>
-                    <div class="d-flex justify-content-between align-items-center mb-1">
-                      <label style="font-size: .75rem; margin-bottom: 0;">Scale / Zoom</label>
-                      <span class="mono" style="font-size: .72rem; color: var(--text-dim);">{{ framing.zoom }}%</span>
-                    </div>
-                    <input type="range" class="form-range w-100" min="100" max="250" step="5" [ngModel]="framing.zoom"
-                           (ngModelChange)="setClipFramingZoom(clip.id, $event)" />
-                  </div>
-                  <div>
-                    <label style="font-size: .75rem; margin-bottom: 4px;">Vertical Focus / Pan</label>
-                    <div class="row" style="gap: .25rem">
-                      <button class="aspect-pill" type="button" [class.active]="framing.panY === 'top'"
-                              (click)="setClipFramingPan(clip.id, 'top')">Top</button>
-                      <button class="aspect-pill" type="button" [class.active]="framing.panY === 'center'"
-                              (click)="setClipFramingPan(clip.id, 'center')">Center</button>
-                      <button class="aspect-pill" type="button" [class.active]="framing.panY === 'bottom'"
-                              (click)="setClipFramingPan(clip.id, 'bottom')">Bottom</button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Image Display Duration (for Image Timeline Clips) -->
-              @if (getClipType(clip) === 'image') {
-                <div class="image-duration-card" style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 10px;">
-                  <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                    <div class="qa-title mb-0" style="font-size: 0.82rem; font-weight: 700;">⏱ Image Duration</div>
-                    <span class="mono" style="font-size: .78rem; color: var(--brand); font-weight: 600;">{{ clip.durationSeconds ?? 5.0 | number: '1.1-1' }}s</span>
-                  </div>
-                  <p class="muted" style="font-size: .75rem; margin: 0 0 8px;">
-                    Set how long this photo or graphic displays on the video timeline.
-                  </p>
-                  <input type="range" class="form-range w-100" min="1" max="30" step="0.5" [ngModel]="clip.durationSeconds ?? 5.0"
-                         (ngModelChange)="setImageClipDuration(clip.id, $event)" />
-                  <div class="d-flex justify-content-between text-secondary mt-1" style="font-size: 0.7rem;">
-                    <span>1s</span>
-                    <span>5s</span>
-                    <span>10s</span>
-                    <span>20s</span>
-                    <span>30s</span>
-                  </div>
-                </div>
-              }
-            }
-
-            <!-- SECTION 2: Audio & Voice -->
-            @if (activeClipSection() === 'all' || activeClipSection() === 'audio') {
-              <!-- Clip Sound & Volume Card -->
-              <div class="audio-clip-card" style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 10px;">
-                <div class="d-flex justify-content-between align-items-center mb-1">
-                  <div class="qa-title mb-0" style="font-size: 0.82rem; font-weight: 700;">🔊 Clip Audio Level</div>
-                  <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 font-monospace" style="font-size: 0.72rem;"
-                          (click)="setClipVolume(clip.id, 1)" title="Reset to 100%">
-                    @if (sound.volume === 0) { Muted }
-                    @else { {{ sound.volume * 100 | number: '1.0-0' }}% }
-                  </button>
-                </div>
-
-                <!-- Quick Volume Presets for Clip -->
-                <div class="d-flex flex-wrap gap-1 mb-2">
-                  <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.68rem;"
-                          [class.active]="sound.volume === 0" (click)="setClipVolume(clip.id, 0)">0% Mute</button>
-                  <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.68rem;"
-                          [class.active]="sound.volume === 0.25" (click)="setClipVolume(clip.id, 0.25)">25% Quiet</button>
-                  <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.68rem;"
-                          [class.active]="sound.volume === 0.5" (click)="setClipVolume(clip.id, 0.5)">50% Half</button>
-                  <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.68rem;"
-                          [class.active]="sound.volume === 1" (click)="setClipVolume(clip.id, 1)">100% Normal</button>
-                  <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.68rem;"
-                          [class.active]="sound.volume === 2" (click)="setClipVolume(clip.id, 2)">200% Boost</button>
-                </div>
-
-                <input type="range" class="form-range w-100" min="0" [max]="maxGain" step="0.05"
-                       [disabled]="!clip.hasAudio || muteClipAudio() === 'Always'"
-                       [ngModel]="sound.volume"
-                       (ngModelChange)="setClipVolume(clip.id, $event)" />
-
-                <!-- Audio Fade In/Out -->
-                @let fade = clipAudioFadeSetting(clip.id);
-                <div class="row" style="gap: .6rem; margin-top: .5rem">
-                  <div style="flex: 1">
-                    <label style="font-size: .74rem; color: var(--text-dim); margin-bottom: 2px;">Audio Fade-In</label>
-                    <select class="form-select form-select-sm" style="font-size: 0.78rem;" [ngModel]="fade.fadeInSeconds"
-                            (ngModelChange)="setClipAudioFade(clip.id, +$event, fade.fadeOutSeconds)">
-                      <option [value]="0">None (Hard start)</option>
-                      <option [value]="0.5">0.5s fade</option>
-                      <option [value]="1">1.0s fade</option>
-                      <option [value]="2">2.0s fade</option>
-                    </select>
-                  </div>
-                  <div style="flex: 1">
-                    <label style="font-size: .74rem; color: var(--text-dim); margin-bottom: 2px;">Audio Fade-Out</label>
-                    <select class="form-select form-select-sm" style="font-size: 0.78rem;" [ngModel]="fade.fadeOutSeconds"
-                            (ngModelChange)="setClipAudioFade(clip.id, fade.fadeInSeconds, +$event)">
-                      <option [value]="0">None (Hard cut)</option>
-                      <option [value]="0.5">0.5s fade</option>
-                      <option [value]="1">1.0s fade</option>
-                      <option [value]="2">2.0s fade</option>
-                    </select>
-                  </div>
-                </div>
-
-                <p class="muted" style="font-size: .72rem; margin-top: .5rem; margin-bottom: 0;">
-                  @if (!clip.hasAudio) {
-                    This clip has no recorded audio track.
-                  } @else if (muteClipAudio() === 'Always') {
-                    Video audio is globally muted in the Audio tab.
-                  } @else {
-                    100% is original volume. Multi-track mixing is managed in the 🎵 Audio tab.
-                  }
-                </p>
-              </div>
-
-              <!-- Replacement Audio / Voice-over -->
-              <div class="voiceover-card" style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 10px;">
-                <div class="qa-title mb-1" style="font-size: 0.82rem; font-weight: 700;">🎙️ Custom Voice-Over / Dubbing</div>
-                <p class="muted" style="font-size: .74rem; margin: 0 0 6px;">Attach audio or commentary to this clip.</p>
-                <select class="form-select form-select-sm mb-2" style="font-size: 0.78rem;"
-                        [ngModel]="sound.audioAssetId"
-                        (ngModelChange)="setClipSound(clip.id, $event)">
-                  <option value="">None &mdash; use clip's original sound</option>
-                  @for (candidate of studio.musicCandidates; track candidate.id) {
-                    <option [value]="candidate.id">{{ candidate.name }}</option>
-                  }
-                </select>
-
-                <div class="row" style="margin-top: .4rem">
-                  @if (isUploadingFor(clip.id)) {
-                    <span class="muted" style="font-size: 0.75rem;">Uploading&hellip;</span>
-                  } @else {
-                    <label class="link-button" style="font-size: 0.75rem;">
-                      <input type="file" accept="audio/wav,audio/mpeg,audio/mp4,.wav,.mp3,.m4a"
-                             [disabled]="sideUpload() !== null"
-                             (change)="onPickClipSound($event, clip.id)" />
-                      <span>Upload voice-over audio</span>
-                    </label>
-                  }
-                </div>
-
-                @if (sound.audioAssetId) {
-                  <div style="margin-top: .6rem">
-                    <div class="d-flex justify-content-between align-items-center mb-1">
-                      <label style="font-size: .75rem; margin-bottom: 0;">Voice-over level</label>
-                      <span class="mono" style="font-size: .72rem; color: var(--text-dim);">{{ sound.audioVolume * 100 | number: '1.0-0' }}%</span>
-                    </div>
-                    <input type="range" class="form-range w-100" min="0" [max]="maxGain" step="0.05"
-                           [ngModel]="sound.audioVolume"
-                           (ngModelChange)="setClipSoundVolume(clip.id, $event)" />
-
-                    <label class="muted" style="font-weight: 400; font-size: .75rem; margin-top: .4rem; display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                      <input type="checkbox" class="form-check-input mt-0" [checked]="sound.keepOriginalAudio"
-                             (change)="setClipKeepOriginal(clip.id, !sound.keepOriginalAudio)" />
-                      Keep original audio playing underneath
-                    </label>
-                  </div>
-                }
-
-                @if (isClipSoundCustom(clip.id)) {
-                  <div class="mt-2 text-end">
-                    <button class="link text-muted" type="button" style="font-size: .74rem;" (click)="resetClipSound(clip.id)">
-                      ↺ Reset to recorded defaults
-                    </button>
-                  </div>
-                }
               </div>
             }
           } @else {
-            <div class="empty">No clip selected. Click any clip on the timeline below to inspect and adjust it.</div>
+            <div class="p-4 text-center text-secondary">
+              <div style="font-size: 1.8rem; margin-bottom: 8px;">📐</div>
+              <div style="font-size: 0.85rem; font-weight: 600; color: var(--text);">No Clip Selected</div>
+              <div style="font-size: 0.75rem; margin-top: 4px;">Select clips in the media library or click any clip on the timeline to adjust framing.</div>
+            </div>
           }
         }
 
@@ -1241,10 +1067,143 @@
               🎵 MULTI-TRACK AUDIO HUB
             </div>
 
-            <!-- LAYER 1: VIDEO CLIP NATIVE AUDIO -->
+            <!-- SECTION 1: TARGET CLIP NATIVE AUDIO & VOICE-OVER -->
             <div class="audio-hub-section" style="background: var(--surface-2); padding: 10px; border-radius: 8px; border: 1px solid var(--border);">
               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
-                <span style="font-size: 0.78rem; font-weight: 700; color: var(--text);">1. Video Clips Native Audio</span>
+                <span style="font-size: 0.78rem; font-weight: 700; color: var(--text);">1. Target Clip Audio & Dubbing</span>
+                @if (targetScope() === 'all') {
+                  <span class="badge bg-primary font-monospace" style="font-size: 0.68rem;">All {{ included().length }} clips</span>
+                } @else if (targetScope() === 'selected' && selectedClipsCount() > 1) {
+                  <span class="badge bg-info font-monospace" style="font-size: 0.68rem;">{{ selectedClipsCount() }} selected clips</span>
+                } @else if (activeTargetClip(); as targetClip) {
+                  <span class="badge bg-secondary font-monospace" style="font-size: 0.68rem;">{{ Math.round(clipSound(targetClip.id).volume * 100) }}% vol</span>
+                }
+              </div>
+
+              @if (targetScope() === 'all') {
+                <div class="alert alert-info py-1 px-2 mb-2 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: color-mix(in srgb, var(--brand) 15%, transparent); border: 1px solid var(--brand); color: #93c5fd; border-radius: 6px;">
+                  <span>🌐</span>
+                  <span><strong>Batch Mode:</strong> Audio adjustments apply to all <strong>{{ included().length }} timeline clips</strong>.</span>
+                </div>
+              } @else if (targetScope() === 'selected' && selectedClipsCount() > 1) {
+                <div class="alert alert-primary py-1 px-2 mb-2 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: color-mix(in srgb, var(--brand) 15%, transparent); border: 1px solid var(--brand); color: #93c5fd; border-radius: 6px;">
+                  <span>🎯</span>
+                  <span><strong>Multi-Clip Edit:</strong> Audio adjustments apply to all <strong>{{ selectedClipsCount() }} selected clips</strong>.</span>
+                </div>
+              }
+
+              @if (activeTargetClip(); as clip) {
+                <!-- Active Clip Header -->
+                <div class="clip-info-header mb-2 pb-1 border-bottom border-secondary border-opacity-25">
+                  <div class="clip-name" [title]="clip.name" style="font-size: .8rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text);">{{ clip.name }}</div>
+                  <div class="muted mono" style="font-size: .72rem; margin-top: 2px;">
+                    {{ clip.durationSeconds ?? 0 | number: '1.1-1' }}s &middot; {{ clip.width }}&times;{{ clip.height }}
+                  </div>
+                </div>
+
+                <!-- Clip Volume Level & Presets -->
+                <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; margin-bottom: 8px;">
+                  <div class="d-flex justify-content-between align-items-center mb-1">
+                    <span style="font-size: 0.72rem; color: var(--text-dim);">Clip Audio Volume:</span>
+                    <span class="mono fw-bold" style="font-size: 0.74rem; color: var(--brand);">{{ Math.round(clipSound(clip.id).volume * 100) }}%</span>
+                  </div>
+                  <div class="d-flex gap-1 mb-1">
+                    <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.68rem;"
+                            [class.active]="clipSound(clip.id).volume === 0" (click)="setClipVolume(clip.id, 0)">0% Mute</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.68rem;"
+                            [class.active]="clipSound(clip.id).volume === 0.25" (click)="setClipVolume(clip.id, 0.25)">25%</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.68rem;"
+                            [class.active]="clipSound(clip.id).volume === 0.5" (click)="setClipVolume(clip.id, 0.5)">50%</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.68rem;"
+                            [class.active]="clipSound(clip.id).volume === 1.0" (click)="setClipVolume(clip.id, 1.0)">100%</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.68rem;"
+                            [class.active]="clipSound(clip.id).volume === 2.0" (click)="setClipVolume(clip.id, 2.0)">200%</button>
+                  </div>
+                  <input type="range" class="form-range w-100" min="0" [max]="maxGain" step="0.05"
+                         [ngModel]="clipSound(clip.id).volume" (ngModelChange)="setClipVolume(clip.id, $event)" />
+                </div>
+
+                <!-- Clip Audio Fade In / Fade Out -->
+                <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; margin-bottom: 8px;">
+                  <span style="font-size: 0.72rem; color: var(--text-dim); display: block; margin-bottom: 4px;">Audio Fade Transitions:</span>
+                  <div class="row g-2">
+                    <div class="col-6">
+                      <label style="font-size: 0.68rem; color: var(--text-dim); display: block; margin-bottom: 2px;">Fade-In</label>
+                      <select class="form-select form-select-sm" style="font-size: 0.72rem; padding: 2px 6px;"
+                              [ngModel]="clipAudioFadeSetting(clip.id).fadeInSeconds"
+                              (ngModelChange)="setClipAudioFade(clip.id, +$event, clipAudioFadeSetting(clip.id).fadeOutSeconds)">
+                        <option [value]="0">0s (None)</option>
+                        <option [value]="0.5">0.5s</option>
+                        <option [value]="1.0">1.0s</option>
+                        <option [value]="1.5">1.5s</option>
+                        <option [value]="2.0">2.0s</option>
+                      </select>
+                    </div>
+                    <div class="col-6">
+                      <label style="font-size: 0.68rem; color: var(--text-dim); display: block; margin-bottom: 2px;">Fade-Out</label>
+                      <select class="form-select form-select-sm" style="font-size: 0.72rem; padding: 2px 6px;"
+                              [ngModel]="clipAudioFadeSetting(clip.id).fadeOutSeconds"
+                              (ngModelChange)="setClipAudioFade(clip.id, clipAudioFadeSetting(clip.id).fadeInSeconds, +$event)">
+                        <option [value]="0">0s (None)</option>
+                        <option [value]="0.5">0.5s</option>
+                        <option [value]="1.0">1.0s</option>
+                        <option [value]="1.5">1.5s</option>
+                        <option [value]="2.0">2.0s</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Custom Voice-Over / Dubbing for this Clip -->
+                <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px;">
+                  <div class="d-flex justify-content-between align-items-center mb-1">
+                    <span style="font-size: 0.72rem; color: var(--text-dim);">Custom Voice-Over / Dubbing:</span>
+                    @if (clipSound(clip.id).audioAssetId) {
+                      <button type="button" class="btn btn-outline-danger btn-sm py-0 px-1" style="font-size: 0.65rem;"
+                              (click)="resetClipSound(clip.id)">Remove</button>
+                    }
+                  </div>
+                  <select class="form-select form-select-sm mb-1" style="font-size: 0.72rem;"
+                          [ngModel]="clipSound(clip.id).audioAssetId"
+                          (ngModelChange)="setClipSound(clip.id, $event)">
+                    <option value="">No custom audio track (original sound)</option>
+                    @for (item of studio.musicCandidates; track item.id) {
+                      <option [value]="item.id">{{ item.name }}</option>
+                    }
+                  </select>
+
+                  @if (clipSound(clip.id).audioAssetId) {
+                    <div class="mt-2 pt-2 border-top border-secondary border-opacity-25">
+                      <div class="form-check form-switch mb-1">
+                        <input class="form-check-input" type="checkbox" role="switch" [id]="'keepOrig_' + clip.id"
+                               [checked]="clipSound(clip.id).keepOriginalAudio"
+                               (change)="setClipKeepOriginal(clip.id, $any($event.target).checked)">
+                        <label class="form-check-label" [for]="'keepOrig_' + clip.id" style="font-size: 0.7rem; color: var(--text-dim);">
+                          Mix with original video audio
+                        </label>
+                      </div>
+                      <div class="d-flex justify-content-between align-items-center mb-1">
+                        <span style="font-size: 0.7rem; color: var(--text-dim);">Voice-over volume:</span>
+                        <span class="mono" style="font-size: 0.7rem; color: var(--brand);">{{ Math.round(clipSound(clip.id).audioVolume * 100) }}%</span>
+                      </div>
+                      <input type="range" class="form-range w-100 mb-1" min="0" [max]="maxGain" step="0.05"
+                             [ngModel]="clipSound(clip.id).audioVolume" (ngModelChange)="setClipSoundVolume(clip.id, $event)" />
+                    </div>
+                  }
+                </div>
+              } @else {
+                <div class="text-center py-3 px-2" style="color: var(--muted); background: rgba(255,255,255,0.02); border-radius: 6px; border: 1px dashed var(--border);">
+                  <div style="font-size: 1.4rem; margin-bottom: 4px;">🎵</div>
+                  <div style="font-size: 0.8rem; font-weight: 600; color: var(--text);">No Clip Selected</div>
+                  <div style="font-size: 0.72rem; margin-top: 2px;">Select clips in the library or click any clip on the timeline to adjust clip volume and voice-over.</div>
+                </div>
+              }
+            </div>
+
+            <!-- SECTION 2: GLOBAL VIDEO CLIPS SOUND BEHAVIOR -->
+            <div class="audio-hub-section" style="background: var(--surface-2); padding: 10px; border-radius: 8px; border: 1px solid var(--border);">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
+                <span style="font-size: 0.78rem; font-weight: 700; color: var(--text);">2. Video Clips Global Audio Behavior</span>
                 <span class="badge"
                       [class.bg-success]="muteClipAudio() === 'Never'"
                       [class.bg-primary]="muteClipAudio() === 'Overlap'"
@@ -1335,10 +1294,10 @@
               </p>
             </div>
 
-            <!-- LAYER 2: BACKGROUND MUSIC BED -->
+            <!-- SECTION 3: BACKGROUND MUSIC BED -->
             <div class="audio-hub-section" style="background: var(--surface-2); padding: 10px; border-radius: 8px; border: 1px solid var(--border);">
               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
-                <span style="font-size: 0.78rem; font-weight: 700; color: var(--text);">2. Background Music Bed</span>
+                <span style="font-size: 0.78rem; font-weight: 700; color: var(--text);">3. Background Music Bed</span>
                 @if (musicAssetId()) {
                   <span class="badge bg-primary font-monospace" style="font-size: 0.68rem;">{{ musicVolume() * 100 | number:'1.0-0' }}% vol</span>
                 }
@@ -1377,10 +1336,10 @@
               }
             </div>
 
-            <!-- LAYER 3: TIMELINE SFX & VOICE-OVER OVERLAYS -->
+            <!-- SECTION 4: TIMELINE SFX & VOICE-OVER OVERLAYS -->
             <div class="audio-hub-section" style="background: var(--surface-2); padding: 10px; border-radius: 8px; border: 1px solid var(--border);">
               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
-                <span style="font-size: 0.78rem; font-weight: 700; color: var(--text);">3. SFX & Voice-Over Tracks</span>
+                <span style="font-size: 0.78rem; font-weight: 700; color: var(--text);">4. SFX & Voice-Over Tracks</span>
                 <span class="badge bg-secondary font-monospace" style="font-size: 0.68rem;">{{ musicTracks().length }} cues</span>
               </div>
 
@@ -1537,12 +1496,12 @@
                   @for (entry of includedWithIndex(); track $index; let i = $index) {
                     <div class="tl-clip"
                          [class.has-thumbnail]="timelineThumbnailMode()"
-                         [class.selected]="selectedClip()?.id === entry.row.clip.id"
+                         [class.selected]="isLibrarySelected(entry.row.clip.id)"
                          [class.dragging]="dragIndex() === entry.index"
                          [class.drag-over]="dragOverIndex() === entry.index && dragIndex() !== entry.index"
                          [style.width.px]="blockWidthPx(entry.row.clip)"
                          draggable="true"
-                         (click)="$event.stopPropagation(); selectClip(entry.row.clip.id)"
+                         (click)="$event.stopPropagation(); selectClip(entry.row.clip.id, $event)"
                          (dblclick)="$event.stopPropagation(); selectAndSeekClip(entry.row.clip)"
                          (dragstart)="onRowDragStart(entry.index)"
                          (dragover)="onRowDragOver(entry.index, $event)"
