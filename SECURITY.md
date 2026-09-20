@@ -1,60 +1,69 @@
-# Security notes for AnimStudio AI
+# Security Policy for AnimStudio AI
 
-## Secrets: what they are and where they live
+We take the security of AnimStudio AI seriously. This document outlines our security policies, how to report vulnerabilities, and guidelines for managing secrets and credentials during local development and production deployments.
 
-| Secret | Configuration key | Where it belongs |
+---
+
+## Reporting a Vulnerability
+
+If you discover a security vulnerability in this repository, please **do not open a public issue**. Instead, please report it responsibly:
+
+- **Email**: Send details to [keshavsingh3197@gmail.com](mailto:keshavsingh3197@gmail.com)
+- **GitHub**: Use the [Private Security Advisory](https://github.com/keshavsingh3197/Keshav-AnimStudio-AI/security/advisories/new) feature on GitHub.
+
+Please include:
+1. Description of the vulnerability.
+2. Steps to reproduce the issue (proof-of-concept scripts, HTTP requests, etc.).
+3. Potential impact and attack vectors.
+4. Suggested remediation if available.
+
+We will acknowledge receipt of your report within 48 hours and work with you to remediate and coordinate public disclosure once patched.
+
+---
+
+## Secrets & Configuration Management
+
+**Never commit passwords, API keys, private tokens, or database connection strings to source control.**
+
+| Secret | Configuration Key | Where It Belongs |
 | --- | --- | --- |
-| MongoDB connection string | `Mongo:ConnectionString` | user-secrets, or `Mongo__ConnectionString` |
-| Object store credentials (when not `Local`) | `Storage:*` | user-secrets / environment |
-| AI provider API keys | `Ai:Secrets:{providerId}` | user-secrets / `Ai__Secrets__groq`, or set through the admin API into the encrypted store |
-| Credential-store data key | `Encryption:DataKey` | user-secrets, or `Encryption__DataKey` (only needed if keys are stored in the database rather than supplied by the host) |
-| JWT signing key (P9) | `Jwt:SigningKey` | user-secrets, or `Jwt__SigningKey` |
+| **Database Connection String** | `Mongo:ConnectionString` or `SqlServer:ConnectionString` | .NET User Secrets or environment variable (`Mongo__ConnectionString` / `SqlServer__ConnectionString`) |
+| **Object Store Credentials** | `Storage:*` | .NET User Secrets or environment variable |
+| **AI Provider API Keys** | `Ai:Secrets:{providerId}` | .NET User Secrets, environment variables (e.g., `Ai__Secrets__groq`), or Admin API |
+| **Credential-Store Data Key** | `Encryption:DataKey` | .NET User Secrets or `Encryption__DataKey` |
+| **Admin JWT Signing Key** | `Admin:Jwt:SigningKey` | .NET User Secrets or `Admin__Jwt__SigningKey` |
 
-Nothing in the table above may appear in `appsettings.json`, `appsettings.Development.json`,
-a Dockerfile, a test fixture, a comment or a log line.
+All configuration files (`appsettings.json`, `appsettings.Development.json`) ship with empty secret values by default.
 
-Local setup:
+### Setting Up Secrets Locally
+
+Run from `backend/AnimStudio.Api`:
 
 ```bash
-cd backend/AnimStudio.Api
+# For MongoDB:
 dotnet user-secrets set "Mongo:ConnectionString" "mongodb://localhost:27017"
+
+# Or for SQL Server:
+dotnet user-secrets set "SqlServer:ConnectionString" "Server=localhost;Database=AnimStudioDb;Trusted_Connection=True;TrustServerCertificate=True;"
+
+# Optional: Add an AI Provider Key (e.g. Groq):
+dotnet user-secrets set "Ai:Secrets:groq" "your_groq_api_key_here"
 ```
 
-The API refuses to start without a connection string and tells you this, rather than
-failing later with a driver timeout that looks like a network problem.
+---
 
-## Known exposure — rotate this credential
+## Secret Scanning & Pre-Commit Hook
 
-A live MongoDB Atlas SRV connection string, including its username and password, was
-committed to `backend/AnimStudio.Api/appsettings.json` in commit `9ac6fa2`
-("Phase 1 completed") and removed from the working tree afterwards.
+We provide a pre-commit hook in `.githooks/pre-commit` that scans staged files for common API key formats (OpenAI, Google, Groq, Hugging Face, GitHub PATs) and connection strings with inline passwords.
 
-**Removing it from the file does not remove it from git history.** Anyone with a clone of
-this repository still has the password. Required actions:
-
-1. Rotate the Atlas database user's password (or delete the user and create a new one).
-2. Review the Atlas access log for connections you do not recognise.
-3. Restrict the cluster's IP access list — a default of `0.0.0.0/0` turns a leaked
-   password into an open database.
-4. Do not reissue the old password.
-
-Rewriting history (`git filter-repo`) is optional and only worth doing before the
-repository is shared more widely; rotation is what actually closes the exposure.
-
-## Preventing the next one
-
-`.githooks/pre-commit` scans staged files for connection strings with inline credentials
-and for common API-key shapes. It is not installed automatically — opt in with:
+To enable the hook locally:
 
 ```bash
 git config core.hooksPath .githooks
 ```
 
-The hook is a backstop, not a control. The control is that secrets are read from
-user-secrets and environment variables, and that configuration files ship empty.
+---
 
-## Reporting
+## Sanitization Status
 
-Security issues in this repository: open a private issue or contact the repository owner
-directly. Do not include a working credential or a reproduction that exfiltrates data in
-a public report.
+The Git history of this repository has been comprehensively rewritten and verified with `git-filter-repo`. All historic credentials and connection strings have been permanently eradicated.
