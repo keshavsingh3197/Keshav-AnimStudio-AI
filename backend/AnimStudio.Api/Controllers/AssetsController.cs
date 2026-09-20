@@ -171,7 +171,6 @@ public sealed class AssetsController(
         var stream = await store.OpenAsync(asset.StorageKey, ct) ?? throw new KeyNotFoundException();
 
         Response.Headers.XContentTypeOptions = "nosniff";
-        return File(stream, asset.MimeType);
         return File(stream, asset.MimeType, enableRangeProcessing: stream.CanSeek);
     }
 
