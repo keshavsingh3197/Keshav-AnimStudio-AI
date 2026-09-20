@@ -972,7 +972,28 @@
                         (click)="transition.set('WipeRight')">
                   ▶ Wipe Right
                 </button>
+            <!-- Scope Notification Banner -->
+            @if (targetScope() === 'all') {
+              <div class="alert alert-info py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: color-mix(in srgb, var(--brand) 15%, transparent); border: 1px solid var(--brand); color: #93c5fd; border-radius: 6px;">
+                <span>🌐</span>
+                <span><strong>Batch Mode:</strong> Transitions apply to all <strong>{{ junctions().length }} cuts</strong> across the timeline.</span>
               </div>
+            } @else if (targetScope() === 'selected' && selectedClipsCount() > 1) {
+              <div class="alert alert-primary py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: color-mix(in srgb, var(--brand) 15%, transparent); border: 1px solid var(--brand); color: #93c5fd; border-radius: 6px;">
+                <span>🎯</span>
+                <span><strong>Multi-Clip Edit:</strong> Transitions apply to <strong>{{ targetJunctions().length }} cut(s)</strong> connected to {{ selectedClipsCount() }} selected clips.</span>
+              </div>
+            } @else if (targetScope() === 'selected' && activeTargetClip(); as targetClip) {
+              <div class="alert alert-primary py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: color-mix(in srgb, var(--brand) 15%, transparent); border: 1px solid var(--brand); color: #93c5fd; border-radius: 6px;">
+                <span>🎯</span>
+                <span><strong>Target Clip:</strong> Transitions apply to <strong>{{ targetJunctions().length }} cut(s)</strong> connected to {{ targetClip.name }}.</span>
+              </div>
+            } @else if (targetScope() === 'current' && currentScheduledClip(); as curr) {
+              <div class="alert alert-info py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: color-mix(in srgb, var(--brand) 15%, transparent); border: 1px solid var(--brand); color: #93c5fd; border-radius: 6px;">
+                <span>▶</span>
+                <span><strong>Current Playing Clip:</strong> Transitions for cuts connected to {{ curr.clip.name }}.</span>
+              </div>
+            }
 
               <div class="mb-2">
                 <label for="globalTrans" style="font-size: .75rem; margin-bottom: 2px;">Transition Style</label>
@@ -982,6 +1003,11 @@
                     <option [value]="option">{{ option === 'None' ? 'Hard cut (No blend)' : option }}</option>
                   }
                 </select>
+            @if (targetScope() === 'selected' && selectedClipsCount() === 0) {
+              <div class="text-center py-4 px-3" style="color: var(--muted); background: rgba(255,255,255,0.02); border-radius: 8px; border: 1px dashed var(--border);">
+                <div style="font-size: 1.8rem; margin-bottom: 8px;">⚡</div>
+                <div style="font-size: 0.85rem; font-weight: 600; color: var(--text);">No Clip Selected</div>
+                <div style="font-size: 0.75rem; margin-top: 4px;">Select clips on the timeline or in the media library to configure transitions, or switch target scope to "All clips".</div>
               </div>
 
               @if (transition() !== 'None') {
@@ -989,8 +1015,26 @@
                   <div class="d-flex justify-content-between align-items-center mb-1">
                     <label style="font-size: .75rem; margin-bottom: 0;">Crossfade Duration</label>
                     <span class="mono" style="font-size: .72rem; color: var(--text-dim);">{{ transitionSeconds() | number: '1.1-1' }}s</span>
+            } @else {
+              <!-- Target Scope Transition Configuration Card -->
+              <div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px;">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                  <div class="qa-title mb-0" style="font-size: 0.82rem; font-weight: 700;">
+                    @if (targetScope() === 'all') {
+                      ⚡ All Clips Transition
+                    } @else if (targetScope() === 'current') {
+                      ⚡ Current Clip Transition
+                    } @else {
+                      ⚡ Selected Clip Transition
+                    }
                   </div>
                   <input type="range" class="form-range w-100" min="0.1" max="3" step="0.1" [(ngModel)]="transitionSeconds" />
+                  @if (targetScope() !== 'all' && targetJunctions().length > 0) {
+                    <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.7rem;"
+                            (click)="resetScopeTransitions()" title="Reset target cuts to global default">
+                      ↺ Reset
+                    </button>
+                  }
                 </div>
               }
             </div>
@@ -1000,6 +1044,68 @@
               <div class="d-flex justify-content-between align-items-center mb-1">
                 <div class="qa-title mb-0" style="font-size: 0.82rem; font-weight: 700;">Per-Cut Junctions</div>
                 <span class="badge bg-secondary font-monospace" style="font-size: 0.7rem;">{{ junctions().length }} cuts</span>
+                <p class="muted" style="font-size: .74rem; margin: 0 0 8px;">
+                  @if (targetScope() === 'all') {
+                    Default transition style for all cuts across the timeline.
+                  } @else if (targetScope() === 'current') {
+                    Transition style for cuts before and after current playing clip.
+                  } @else {
+                    Transition style for cuts connected to selected clip(s) ({{ targetJunctions().length }} cuts).
+                  }
+                </p>
+
+                <!-- Quick Pickers -->
+                <div class="d-flex flex-wrap gap-1 mb-2">
+                  <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
+                          [class.active]="activeScopeTransition() === 'None'"
+                          (click)="setScopeTransition('None')">
+                    ✂ Hard Cut
+                  </button>
+                  <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
+                          [class.active]="activeScopeTransition() === 'Dissolve'"
+                          (click)="setScopeTransition('Dissolve')">
+                    ⧉ Dissolve
+                  </button>
+                  <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
+                          [class.active]="activeScopeTransition() === 'Fade'"
+                          (click)="setScopeTransition('Fade')">
+                    ◐ Fade
+                  </button>
+                  <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
+                          [class.active]="activeScopeTransition() === 'WipeLeft'"
+                          (click)="setScopeTransition('WipeLeft')">
+                    ◀ Wipe Left
+                  </button>
+                  <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
+                          [class.active]="activeScopeTransition() === 'WipeRight'"
+                          (click)="setScopeTransition('WipeRight')">
+                    ▶ Wipe Right
+                  </button>
+                </div>
+
+                <div class="mb-2">
+                  <label for="scopeTrans" style="font-size: .75rem; margin-bottom: 2px;">Transition Style</label>
+                  <select id="scopeTrans" class="form-select form-select-sm" style="font-size: .78rem;"
+                          [ngModel]="activeScopeTransition()"
+                          (ngModelChange)="setScopeTransition($event)"
+                          [disabled]="!studio.transitionsAvailable">
+                    @for (option of transitions; track option) {
+                      <option [value]="option">{{ option === 'None' ? 'Hard cut (No blend)' : option }}</option>
+                    }
+                  </select>
+                </div>
+
+                @if (activeScopeTransition() !== 'None') {
+                  <div>
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                      <label style="font-size: .75rem; margin-bottom: 0;">Crossfade Duration</label>
+                      <span class="mono" style="font-size: .72rem; color: var(--text-dim);">{{ activeScopeTransitionSeconds() | number: '1.1-1' }}s</span>
+                    </div>
+                    <input type="range" class="form-range w-100" min="0.1" max="3" step="0.1"
+                           [ngModel]="activeScopeTransitionSeconds()"
+                           (ngModelChange)="setScopeTransitionSeconds($event)" />
+                  </div>
+                }
               </div>
               <p class="muted" style="font-size: .74rem; margin: 0 0 8px;">
                 Override or preview specific cuts between adjacent timeline clips.
@@ -1013,10 +1119,24 @@
                     </span>
                     @if (isJunctionCustom(junction.key)) {
                       <span class="badge bg-warning text-dark" style="font-size: 0.65rem;">Custom</span>
+              <!-- Scope Junctions List -->
+              <div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px;">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                  <div class="qa-title mb-0" style="font-size: 0.82rem; font-weight: 700;">
+                    @if (targetScope() === 'all') {
+                      Timeline Cuts
+                    } @else if (targetScope() === 'current') {
+                      Current Clip Cuts
                     } @else {
                       <span class="badge bg-secondary" style="font-size: 0.65rem;">Default</span>
+                      Selected Clip Cuts
                     }
                   </div>
+                  <span class="badge bg-secondary font-monospace" style="font-size: 0.7rem;">{{ targetJunctions().length }} cuts</span>
+                </div>
+                <p class="muted" style="font-size: .74rem; margin: 0 0 8px;">
+                  Fine-tune individual cut junctions in this scope.
+                </p>
 
                   <div class="d-flex gap-1 align-items-center mb-1">
                     <select class="form-select form-select-sm" style="font-size: 0.75rem; flex: 1;"
@@ -1025,6 +1145,16 @@
                             [disabled]="!studio.transitionsAvailable">
                       @for (option of transitions; track option) {
                         <option [value]="option">{{ option === 'None' ? 'Hard cut' : option }}</option>
+                @for (junction of targetJunctions(); track junction.key) {
+                  <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-bottom: 6px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 0.74rem;">
+                      <span style="font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 75%;">
+                        {{ junction.left.name }} ➔ {{ junction.right.name }}
+                      </span>
+                      @if (isJunctionCustom(junction.key)) {
+                        <span class="badge bg-warning text-dark" style="font-size: 0.65rem;">Custom</span>
+                      } @else {
+                        <span class="badge bg-secondary" style="font-size: 0.65rem;">Default</span>
                       }
                     </select>
                     <button class="btn btn-outline-primary btn-sm py-0 px-2" type="button" style="font-size: 0.75rem;" (click)="openPreview(junction)" title="Preview this transition">
@@ -1045,6 +1175,17 @@
                     <div class="d-flex justify-content-end mt-1">
                       <button class="link text-muted" type="button" style="font-size: 0.7rem;" (click)="resetJunction(junction.key)">
                         ↺ Reset to global default
+                    <div class="d-flex gap-1 align-items-center mb-1">
+                      <select class="form-select form-select-sm" style="font-size: 0.75rem; flex: 1;"
+                              [ngModel]="junction.transition"
+                              (ngModelChange)="setJunctionTransition(junction, $event)"
+                              [disabled]="!studio.transitionsAvailable">
+                        @for (option of transitions; track option) {
+                          <option [value]="option">{{ option === 'None' ? 'Hard cut' : option }}</option>
+                        }
+                      </select>
+                      <button class="btn btn-outline-primary btn-sm py-0 px-2" type="button" style="font-size: 0.75rem;" (click)="openPreview(junction)" title="Preview this transition">
+                        ▶ Preview
                       </button>
                     </div>
                   }
@@ -1057,6 +1198,32 @@
                 </p>
               }
             </div>
+                    @if (junction.transition !== 'None') {
+                      <div class="d-flex align-items-center gap-2 mt-1">
+                        <span style="font-size: 0.7rem; color: var(--text-dim); min-width: 40px;">{{ junction.seconds | number:'1.1-1' }}s</span>
+                        <input type="range" class="form-range flex-grow-1" min="0.1" max="3" step="0.1"
+                               [ngModel]="junction.seconds"
+                               (ngModelChange)="setJunctionSeconds(junction, $event)" />
+                      </div>
+                    }
+
+                    @if (isJunctionCustom(junction.key)) {
+                      <div class="d-flex justify-content-end mt-1">
+                        <button class="link text-muted" type="button" style="font-size: 0.7rem;" (click)="resetJunction(junction.key)">
+                          ↺ Reset to default
+                        </button>
+                      </div>
+                    }
+                  </div>
+                }
+
+                @if (targetJunctions().length === 0) {
+                  <p class="muted text-center py-2" style="font-size: .74rem; margin: 0;">
+                    No cut junctions found for this scope. Add adjacent clips to the timeline to create cuts.
+                  </p>
+                }
+              </div>
+            }
           </div>
         }
 
@@ -1557,6 +1724,7 @@
                     @if (i < junctions().length) {
                       @let junction = junctions()[i];
                       <div class="tl-junction" [class.custom]="isJunctionCustom(junction.key)">
+                      <div class="tl-junction" [class.custom]="isJunctionCustom(junction.key)" [class.in-scope]="targetJunctionKeys().has(junction.key)">
                         <button class="tl-junction-chip" type="button"
                                 style="padding:0; width:18px; height:24px; display:flex; align-items:center; justify-content:center; border-radius:4px; font-size:12px;"
                                 [class.has-trans]="junction.transition !== 'None'"

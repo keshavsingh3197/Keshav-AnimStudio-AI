@@ -650,3 +650,10 @@
     grid-row: 2;
   }
 }
+
+/* In-scope junction chip highlight */
+.tl-junction.in-scope .tl-junction-chip {
+  border-color: var(--brand, #6c8cff) !important;
+  box-shadow: 0 0 8px rgba(108, 140, 255, 0.45);
+}
+

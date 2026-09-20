@@ -586,6 +586,65 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     return list;
   });
 
+  readonly targetJunctions = computed<JunctionView[]>(() => {
+    const scope = this.targetScope();
+    const allJunctions = this.junctions();
+
+    if (scope === 'all') {
+      return allJunctions;
+    }
+
+    if (scope === 'current') {
+      const curr = this.currentScheduledClip();
+      if (!curr) return [];
+      return allJunctions.filter(
+        (j) => j.left.id === curr.clip.id || j.right.id === curr.clip.id
+      );
+    }
+
+    // scope === 'selected'
+    const selIds = new Set(this.selectedLibraryIds());
+    const selClip = this.selectedClip();
+    if (selClip && selIds.size === 0) {
+      selIds.add(selClip.id);
+    }
+    if (selIds.size === 0) {
+      return [];
+    }
+
+    return allJunctions.filter(
+      (j) => selIds.has(j.left.id) || selIds.has(j.right.id)
+    );
+  });
+
+  readonly targetJunctionKeys = computed<Set<string>>(
+    () => new Set(this.targetJunctions().map((j) => j.key))
+  );
+
+  readonly activeScopeTransition = computed<string>(() => {
+    const scope = this.targetScope();
+    if (scope === 'all') {
+      return this.transition();
+    }
+    const tj = this.targetJunctions();
+    if (tj.length === 0) {
+      return this.transition();
+    }
+    return tj[0].transition;
+  });
+
+  readonly activeScopeTransitionSeconds = computed<number>(() => {
+    const scope = this.targetScope();
+    if (scope === 'all') {
+      return this.transitionSeconds();
+    }
+    const tj = this.targetJunctions();
+    if (tj.length === 0) {
+      return this.transitionSeconds();
+    }
+    return tj[0].seconds;
+  });
+
   readonly totalSeconds = computed(() => {
     const clips = this.included();
     const measured = clips.reduce((sum, r) => sum + (r.clip.durationSeconds ?? 0), 0);
@@ -1751,6 +1810,79 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
 
   isJunctionCustom(key: string): boolean {
     return this.junctionOverrides().has(key);
+  }
+
+  setScopeTransition(value: string): void {
+    const scope = this.targetScope();
+    if (scope === 'all') {
+      this.transition.set(value);
+      this.junctionOverrides.update((map) => {
+        const next = new Map(map);
+        for (const j of this.junctions()) {
+          const existing = next.get(j.key);
+          next.set(j.key, { transition: value, seconds: existing?.seconds ?? this.transitionSeconds() });
+        }
+        return next;
+      });
+    } else {
+      const tj = this.targetJunctions();
+      if (tj.length === 0) {
+        this.transition.set(value);
+      } else {
+        this.junctionOverrides.update((map) => {
+          const next = new Map(map);
+          for (const j of tj) {
+            const existing = next.get(j.key);
+            next.set(j.key, { transition: value, seconds: existing?.seconds ?? j.seconds });
+          }
+          return next;
+        });
+      }
+    }
+    this.markDirty();
+  }
+
+  setScopeTransitionSeconds(seconds: number): void {
+    const sec = Math.max(0.1, Math.min(3, Number(seconds)));
+    const scope = this.targetScope();
+    if (scope === 'all') {
+      this.transitionSeconds.set(sec);
+      this.junctionOverrides.update((map) => {
+        const next = new Map(map);
+        for (const j of this.junctions()) {
+          const existing = next.get(j.key);
+          next.set(j.key, { transition: existing?.transition ?? this.transition(), seconds: sec });
+        }
+        return next;
+      });
+    } else {
+      const tj = this.targetJunctions();
+      if (tj.length === 0) {
+        this.transitionSeconds.set(sec);
+      } else {
+        this.junctionOverrides.update((map) => {
+          const next = new Map(map);
+          for (const j of tj) {
+            const existing = next.get(j.key);
+            next.set(j.key, { transition: existing?.transition ?? j.transition, seconds: sec });
+          }
+          return next;
+        });
+      }
+    }
+    this.markDirty();
+  }
+
+  resetScopeTransitions(): void {
+    const tj = this.targetJunctions();
+    this.junctionOverrides.update((map) => {
+      const next = new Map(map);
+      for (const j of tj) {
+        next.delete(j.key);
+      }
+      return next;
+    });
+    this.markDirty();
   }
 
   // --- per-clip sound ----------------------------------------------------------
