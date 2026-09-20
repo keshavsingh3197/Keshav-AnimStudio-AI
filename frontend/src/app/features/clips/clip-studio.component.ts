@@ -142,17 +142,18 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     return [...timelineRows, ...extraImages, ...audioRows];
   });
 
-  readonly selectedCount = computed(() => this.allMediaRows().filter(r => r.included).length);
+  readonly selectedLibraryIds = signal<Set<string>>(new Set<string>());
+  readonly selectedCount = computed(() => this.selectedLibraryIds().size);
 
   readonly filteredRows = computed(() => {
     let list = this.allMediaRows();
     const cat = this.activeCategory();
     if (cat !== 'all') {
-      list = list.filter(r => this.getClipType(r.clip) === cat);
+      list = list.filter((r) => this.getClipType(r.clip) === cat);
     }
     const q = this.searchQuery().trim().toLowerCase();
     if (q) {
-      list = list.filter(r => r.clip.name.toLowerCase().includes(q));
+      list = list.filter((r) => r.clip.name.toLowerCase().includes(q));
     }
     return list;
   });
@@ -181,66 +182,66 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     if (this.currentPage() < this.totalPages() - 1) this.currentPage.set(this.currentPage() + 1);
   }
 
-  toggleClip(clipId: string): void {
-    const studio = this.studio();
-    const isAudio = studio?.musicCandidates?.some((m) => m.id === clipId);
+  isLibrarySelected(clipId: string): boolean {
+    return this.selectedLibraryIds().has(clipId);
+  }
 
-    if (isAudio) {
-      const tracks = this.musicTracks();
-      const existingIdx = tracks.findIndex((t) => t.assetId === clipId);
-      if (existingIdx >= 0) {
-        this.musicTracks.update((list) => list.filter((t) => t.assetId !== clipId));
+  isClipOnTimeline(clipId: string): boolean {
+    const isAudio = this.musicAssetId() === clipId || this.musicTracks().some((t) => t.assetId === clipId);
+    if (isAudio) return true;
+    return this.rows().some((r) => r.clip.id === clipId && r.included);
+  }
+
+  toggleLibrarySelection(clipId: string): void {
+    this.selectedLibraryIds.update((set) => {
+      const next = new Set(set);
+      if (next.has(clipId)) {
+        next.delete(clipId);
       } else {
-        this.addMusicTrackFromAsset(clipId);
+        next.add(clipId);
       }
-      this.hasUnsavedChanges.set(true);
-      return;
-    }
+      return next;
+    });
+  }
 
-    const inRows = this.rows().some((r) => r.clip.id === clipId);
-    if (inRows) {
-      this.rows.update((rows) =>
-        rows.map((row) => (row.clip.id === clipId ? { ...row, included: !row.included } : row)));
-      this.hasUnsavedChanges.set(true);
-      return;
-    }
-
-    const img = studio?.logoCandidates?.find((l) => l.id === clipId);
-    if (img) {
-      this.rows.update((rows) => [
-        ...rows,
-        {
-          clip: {
-            id: img.id,
-            name: img.name,
-            fileSizeBytes: img.fileSizeBytes,
-            durationSeconds: 5.0,
-            width: img.width,
-            height: img.height,
-            hasAudio: false,
-          },
-          included: true,
-        },
-      ]);
-      this.hasUnsavedChanges.set(true);
-      return;
-    }
+  toggleClip(clipId: string): void {
+    this.toggleLibrarySelection(clipId);
   }
 
   addSelectedToTimeline(): void {
-    const cat = this.activeCategory();
-    if (cat === 'audio') {
-      for (const aud of this.studio()?.musicCandidates || []) {
-        if (!this.musicTracks().some((t) => t.assetId === aud.id)) {
-          this.addMusicTrackFromAsset(aud.id);
+    const selectedIds = this.selectedLibraryIds();
+    if (selectedIds.size === 0) return;
+
+    const studio = this.studio();
+    const rows = [...this.rows()];
+    const rowIds = new Set(rows.map((r) => r.clip.id));
+    let hasChanges = false;
+
+    for (const clipId of selectedIds) {
+      // 1. Audio candidate
+      const isAudio = studio?.musicCandidates?.some((m) => m.id === clipId);
+      if (isAudio) {
+        if (!this.musicTracks().some((t) => t.assetId === clipId)) {
+          this.addMusicTrackFromAsset(clipId);
+          hasChanges = true;
         }
+        continue;
       }
-    } else if (cat === 'image') {
-      const studio = this.studio();
-      const rowIds = new Set(this.rows().map((r) => r.clip.id));
-      const extraImages: ClipRow[] = (studio?.logoCandidates || [])
-        .filter((img) => !rowIds.has(img.id))
-        .map((img) => ({
+
+      // 2. Existing clip row
+      const existingRowIdx = rows.findIndex((r) => r.clip.id === clipId);
+      if (existingRowIdx >= 0) {
+        if (!rows[existingRowIdx].included) {
+          rows[existingRowIdx] = { ...rows[existingRowIdx], included: true };
+          hasChanges = true;
+        }
+        continue;
+      }
+
+      // 3. Image candidate
+      const img = studio?.logoCandidates?.find((l) => l.id === clipId);
+      if (img) {
+        rows.push({
           clip: {
             id: img.id,
             name: img.name,
@@ -251,15 +252,28 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
             hasAudio: false,
           },
           included: true,
-        }));
-      this.rows.update((rows) => [
-        ...rows.map((r) => (this.getClipType(r.clip) === 'image' ? { ...r, included: true } : r)),
-        ...extraImages,
-      ]);
-      this.hasUnsavedChanges.set(true);
-    } else {
-      this.rows.update((rows) => rows.map((r) => ({ ...r, included: true })));
+        });
+        hasChanges = true;
+        continue;
+      }
+
+      // 4. Any other candidate in allMediaRows
+      const mediaRow = this.allMediaRows().find((r) => r.clip.id === clipId);
+      if (mediaRow && !rowIds.has(clipId)) {
+        rows.push({ ...mediaRow, included: true });
+        hasChanges = true;
+      }
     }
+
+    if (hasChanges) {
+      this.rows.set(rows);
+      this.hasUnsavedChanges.set(true);
+      this.status.notify([`Added ${selectedIds.size} media item(s) to timeline.`]);
+    }
+
+    // Clear selection after adding
+    this.selectedLibraryIds.set(new Set());
+    this.selectAllCheckbox = false;
   }
 
   deleteSelected(): void {
@@ -465,6 +479,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   readonly selectedClipId = signal<string | null>(null);
   readonly activeInspectorTab = signal<'clip' | 'effects' | 'audio' | 'export' | 'color' | 'text' | 'transitions'>('clip');
   readonly activeClipSection = signal<'all' | 'framing' | 'audio'>('all');
+  readonly targetScope = signal<'selected' | 'current' | 'all'>('selected');
   readonly isScrubbing = signal(false);
   readonly exportName = signal<string>('');
   readonly liveTransitionActive = signal(false);
@@ -783,6 +798,25 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     }
     return this.included()[0]?.clip ?? null;
   });
+
+  readonly activeTargetClip = computed<Clip | null>(() => {
+    const scope = this.targetScope();
+    if (scope === 'current') {
+      const current = this.currentScheduledClip();
+      if (current) return current.clip;
+    }
+    return this.selectedClip();
+  });
+
+  setTargetScope(scope: 'selected' | 'current' | 'all'): void {
+    this.targetScope.set(scope);
+    if (scope === 'current') {
+      const curr = this.currentScheduledClip();
+      if (curr) {
+        this.selectedClipId.set(curr.clip.id);
+      }
+    }
+  }
 
   readonly selectedClipIndexInCut = computed<number>(() => {
     const sel = this.selectedClip();
@@ -2054,9 +2088,13 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
 
   setImageClipDuration(clipId: string, durationSeconds: number): void {
     const dur = Math.max(0.5, Math.min(60, Number(durationSeconds)));
+    const ids = this.targetScope() === 'all'
+      ? new Set(this.included().filter((r) => this.getClipType(r.clip) === 'image').map((r) => r.clip.id))
+      : new Set([clipId]);
+
     this.rows.update((rows) =>
       rows.map((r) =>
-        r.clip.id === clipId
+        ids.has(r.clip.id)
           ? { ...r, clip: { ...r.clip, durationSeconds: dur } }
           : r
       )

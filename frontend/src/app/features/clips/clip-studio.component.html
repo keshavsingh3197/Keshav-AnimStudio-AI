@@ -186,8 +186,8 @@
           <div class="media-card-grid" [class.list-view]="viewMode === 'list'">
             @for (row of pagedRows(); track row.clip.id; let i = $index) {
               <div class="clip-card card bg-black border border-secondary border-opacity-50 overflow-hidden position-relative"
-                   [class.is-placed]="row.included"
-                   [class.excluded]="!row.included"
+                   [class.is-placed]="isClipOnTimeline(row.clip.id)"
+                   [class.library-selected]="isLibrarySelected(row.clip.id)"
                    [class.selected]="selectedClip()?.id === row.clip.id"
                    [class.dragging]="dragIndex() === i"
                    [class.drag-over]="dragOverIndex() === i && dragIndex() !== i"
@@ -218,11 +218,17 @@
                   }
 
                   <!-- Top-Left Checkbox -->
-                  <input type="checkbox" [checked]="row.included" (change)="toggleClip(row.clip.id)" (click)="$event.stopPropagation()"
+                  <input type="checkbox" [checked]="isLibrarySelected(row.clip.id)" (change)="toggleLibrarySelection(row.clip.id)" (click)="$event.stopPropagation()"
                          class="clip-card-check form-check-input position-absolute"
-                         [title]="getClipType(row.clip) === 'video' ? 'Include in Video 1 Track' : (getClipType(row.clip) === 'audio' ? 'Add/Remove from Audio Track' : 'Use as Watermark Logo')"
-                         [title]="getClipType(row.clip) === 'audio' ? 'Add/Remove from Audio Track' : 'Include in Video Timeline'"
+                         title="Select media item"
                          style="top: 4px; left: 4px; z-index: 5; width: 14px; height: 14px; margin: 0;" />
+
+                  <!-- Bottom-Left Timeline Placement Indicator -->
+                  @if (isClipOnTimeline(row.clip.id)) {
+                    <span class="badge bg-success bg-opacity-75 text-white position-absolute font-monospace"
+                          style="bottom: 4px; left: 4px; z-index: 5; font-size: 0.6rem; padding: 1px 4px;"
+                          title="Placed on video timeline">✓ On Timeline</span>
+                  }
 
                   <!-- Type Badge (Top Right) -->
                   @if (getClipType(row.clip) === 'ai') {
@@ -496,7 +502,7 @@
           <!-- Inspector Tab Navigation -->
           <div class="inspector-nav">
             <button type="button" class="nav-tab" [class.active]="activeInspectorTab() === 'clip'"
-                    (click)="activeInspectorTab.set('clip')" title="Clip Adjustments">✂ Clip</button>
+                    (click)="activeInspectorTab.set('clip')" title="Framing & Crop">📐 Framing</button>
             <button type="button" class="nav-tab" [class.active]="activeInspectorTab() === 'color'"
                     (click)="activeInspectorTab.set('color')" title="Color Grading">🎨 Color</button>
             <button type="button" class="nav-tab" [class.active]="activeInspectorTab() === 'audio'"
@@ -509,29 +515,49 @@
                     (click)="activeInspectorTab.set('transitions')" title="Transitions">⚡ Trans</button>
           </div>
           <div class="inspector-content">
+            <!-- TARGET SCOPE DROPDOWN BAR -->
+            <div class="target-scope-bar" style="margin-bottom: 10px; padding: 6px 8px; background: color-mix(in srgb, var(--surface-2) 90%, transparent); border: 1px solid var(--border); border-radius: 6px;">
+              <div class="d-flex justify-content-between align-items-center mb-1">
+                <span class="text-secondary fw-bold text-uppercase" style="font-size: 0.68rem; letter-spacing: 0.05em;">🎯 Target Scope</span>
+                @if (targetScope() === 'all') {
+                  <span class="badge bg-primary bg-opacity-75 font-monospace" style="font-size: 0.65rem;">{{ included().length }} clips</span>
+                }
+              </div>
+              <select class="form-select form-select-sm" style="font-size: 0.76rem; background: var(--surface); color: var(--text); border-color: var(--border);"
+                      [ngModel]="targetScope()"
+                      (ngModelChange)="setTargetScope($event)">
+                <option value="selected">
+                  🎯 Selected Clip: {{ selectedClip()?.name ?? '(none selected)' }}
+                </option>
+                <option value="current">
+                  ▶️ Playing Clip: {{ currentScheduledClip()?.clip?.name ?? '(at playhead)' }}
+                </option>
+                <option value="all">
+                  🌐 All Timeline Clips (Apply to All {{ included().length }})
+                </option>
+              </select>
+            </div>
+
         <!-- TAB 1: CLIP ADJUSTMENTS & FRAMING/CROP -->
         @if (activeInspectorTab() === 'clip') {
-          @if (selectedClip(); as clip) {
+          @if (activeTargetClip(); as clip) {
             @let sound = clipSound(clip.id);
 
-            <div class="clip-info-header" style="margin-bottom: 8px;">
-              <div class="clip-name" [title]="clip.name" style="font-size: .85rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text);">{{ clip.name }}</div>
-              <div class="muted mono" style="font-size: .75rem; margin-top: 2px;">
-                {{ clip.durationSeconds ?? 0 | number: '1.1-1' }}s &middot;
-                {{ clip.width }}&times;{{ clip.height }} &middot;
-                {{ clip.fileSizeBytes / 1048576 | number: '1.1-1' }}MB
+            @if (targetScope() === 'all') {
+              <div class="alert alert-info py-1 px-2 mb-2 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: color-mix(in srgb, var(--brand) 15%, transparent); border: 1px solid var(--brand); color: #93c5fd; border-radius: 6px;">
+                <span>🌐</span>
+                <span><strong>Batch Mode:</strong> Adjustments made here apply to all {{ included().length }} clips.</span>
               </div>
-            </div>
-
-            <!-- Clip Quick Actions Toolbar -->
-            <div class="clip-quick-bar" style="display: flex; gap: 4px; background: color-mix(in srgb, var(--surface-2) 60%, transparent); padding: 4px 6px; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); margin-bottom: 10px;">
-              <button class="tool-btn" type="button" (click)="splitClipAtPlayhead()" title="Split clip at playhead needle (S)">✂ Split</button>
-              <button class="tool-btn" type="button" (click)="duplicateClip(clip.id)" title="Duplicate clip">⧉</button>
-              <span style="flex: 1 1 auto"></span>
-              <button class="tool-btn" type="button" (click)="move(selectedClipIndexInCut(), -1)" [disabled]="selectedClipIndexInCut() <= 0" title="Move earlier">↑</button>
-              <button class="tool-btn" type="button" (click)="move(selectedClipIndexInCut(), 1)" [disabled]="selectedClipIndexInCut() >= rows().length - 1" title="Move later">↓</button>
-              <button class="tool-btn" type="button" style="color: var(--err);" (click)="toggle(selectedClipIndexInCut())" title="Untick / Remove from cut">☒</button>
-            </div>
+            } @else {
+              <div class="clip-info-header" style="margin-bottom: 8px;">
+                <div class="clip-name" [title]="clip.name" style="font-size: .85rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text);">{{ clip.name }}</div>
+                <div class="muted mono" style="font-size: .75rem; margin-top: 2px;">
+                  {{ clip.durationSeconds ?? 0 | number: '1.1-1' }}s &middot;
+                  {{ clip.width }}&times;{{ clip.height }} &middot;
+                  {{ clip.fileSizeBytes / 1048576 | number: '1.1-1' }}MB
+                </div>
+              </div>
+            }
 
             <!-- Sub-category Filter Pills (Media Library Style) -->
             <div class="media-category-pills" style="margin-bottom: 10px;">
