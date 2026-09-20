@@ -375,8 +375,6 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
 
         if (hasExtra)
         {
-            var extraIndex = inputs.Count;
-            inputs.Add(new FfmpegInputSpec([], plan.ExtraAudioRelativePath!));
             var extraArgs = new List<string>();
             if (plan.ExtraAudioTrimStartSeconds is > 0)
             {
@@ -388,7 +386,8 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
                 extraArgs.Add("-to");
                 extraArgs.Add(FilterExpr.N(plan.ExtraAudioTrimEndSeconds.Value));
             }
-            
+
+            var extraIndex = inputs.Count;
             inputs.Add(new FfmpegInputSpec(extraArgs.ToArray(), plan.ExtraAudioRelativePath!));
 
             // Not looped: a ten-second sting on a two-minute clip plays once and stops,

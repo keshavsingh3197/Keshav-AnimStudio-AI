@@ -1729,8 +1729,9 @@
                       @let cSound = clipSound(entry.row.clip.id);
                       @if (cSound.audioAssetId) {
                         @let cAssetDur = clipSoundAsset(entry.row.clip.id)?.durationSeconds ?? entry.row.clip.durationSeconds ?? 1;
-                        @let cStart = cSound.audioTrimStartSeconds ?? 0;
-                        @let cEnd = cSound.audioTrimEndSeconds ?? cAssetDur;
+                        @let offsets = clipSoundRunOffset(entry.row.clip.id);
+                        @let cStart = offsets.startOffset;
+                        @let cEnd = Math.min(offsets.endOffset, cAssetDur);
                         @let cLeft = (cAssetDur > 0 ? (cStart / cAssetDur) * 100 : 0);
                         @let cWidth = (cAssetDur > 0 ? ((cEnd - cStart) / cAssetDur) * 100 : 100);
                         <div style="position:absolute;bottom:0;left:0;right:0;height:4px;background:rgba(0,0,0,0.6);overflow:hidden;z-index:4;" title="Custom Voice-Over active">

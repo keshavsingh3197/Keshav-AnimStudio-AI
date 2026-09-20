@@ -386,6 +386,10 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
       return;
     }
 
+    if (this.isPlaying()) {
+      this.pausePlayback();
+    }
+
     if (this.previewAudioEl) {
       this.previewAudioEl.pause();
     }
@@ -2294,35 +2298,87 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   }
 
   setClipSound(clipId: string, assetId: string): void {
-    this.updateClipSound(clipId, (current) => ({ ...current, audioAssetId: assetId }));
+    const targetIds = this.getTargetClipIds(clipId);
+    for (const id of targetIds) {
+      this.updateClipSound(id, (current) => ({
+        ...current,
+        audioAssetId: assetId,
+        audioTrimStartSeconds: undefined,
+        audioTrimEndSeconds: undefined,
+      }));
+    }
   }
 
   setClipSoundTrimStart(clipId: string, seconds: number): void {
-    this.updateClipSound(clipId, (c) => ({ ...c, audioTrimStartSeconds: seconds }));
+    const targetIds = this.getTargetClipIds(clipId);
+    for (const id of targetIds) {
+      this.updateClipSound(id, (c) => ({ ...c, audioTrimStartSeconds: seconds }));
+    }
   }
 
   setClipSoundTrimEnd(clipId: string, seconds: number): void {
-    this.updateClipSound(clipId, (c) => ({ ...c, audioTrimEndSeconds: seconds }));
+    const targetIds = this.getTargetClipIds(clipId);
+    for (const id of targetIds) {
+      this.updateClipSound(id, (c) => ({ ...c, audioTrimEndSeconds: seconds }));
+    }
   }
 
   setClipSoundVolume(clipId: string, value: number): void {
-    this.updateClipSound(clipId, (current) => ({
-      ...current,
-      audioVolume: Math.min(Math.max(value, 0), MAX_CLIP_GAIN),
-    }));
+    const targetIds = this.getTargetClipIds(clipId);
+    const vol = Math.min(Math.max(value, 0), MAX_CLIP_GAIN);
+    for (const id of targetIds) {
+      this.updateClipSound(id, (current) => ({
+        ...current,
+        audioVolume: vol,
+      }));
+    }
   }
 
   setClipKeepOriginal(clipId: string, keep: boolean): void {
-    this.updateClipSound(clipId, (current) => ({ ...current, keepOriginalAudio: keep }));
+    const targetIds = this.getTargetClipIds(clipId);
+    for (const id of targetIds) {
+      this.updateClipSound(id, (current) => ({ ...current, keepOriginalAudio: keep }));
+    }
   }
 
   resetClipSound(clipId: string): void {
+    const targetIds = this.getTargetClipIds(clipId);
     this.clipAudio.update((map) => {
-      if (!map.has(clipId)) return map;
+      let changed = false;
       const next = new Map(map);
-      next.delete(clipId);
-      return next;
+      for (const id of targetIds) {
+        if (next.has(id)) {
+          next.delete(id);
+          changed = true;
+        }
+      }
+      return changed ? next : map;
     });
+    this.markDirty();
+  }
+
+  clipSoundRunOffset(clipId: string): { startOffset: number; endOffset: number } {
+    const schedule = this.clipSchedule();
+    const curr = schedule.find((s) => s.clip.id === clipId);
+    if (!curr) return { startOffset: 0, endOffset: 0 };
+    const sound = this.clipSound(clipId);
+    if (!sound.audioAssetId) return { startOffset: 0, endOffset: 0 };
+
+    let runStartSeconds = curr.startSeconds;
+    let runTrimStart = sound.audioTrimStartSeconds ?? 0;
+    for (let i = curr.index - 1; i >= 0; i--) {
+      const prev = schedule[i];
+      const prevSound = this.clipSound(prev.clip.id);
+      if (prevSound.audioAssetId === sound.audioAssetId) {
+        runStartSeconds = prev.startSeconds;
+        runTrimStart = prevSound.audioTrimStartSeconds ?? 0;
+      } else {
+        break;
+      }
+    }
+    const startOffset = (curr.startSeconds - runStartSeconds) + runTrimStart;
+    const endOffset = startOffset + curr.durationSeconds;
+    return { startOffset, endOffset };
   }
 
   clipSoundName(clipId: string): string | null {
@@ -2383,6 +2439,10 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
 
   startPlayback(): void {
     if (this.clipSchedule().length === 0) return;
+    if (this.previewAudioEl) {
+      this.previewAudioEl.pause();
+      this.previewingAudioId.set(null);
+    }
     this.isPlaying.set(true);
     this.lastTickMs = performance.now();
     this.syncMediaElements(true);
@@ -2958,9 +3018,21 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
 
     if (clipSoundEl) {
       if (sound.audioAssetId) {
-        const trimStart = sound.audioTrimStartSeconds ?? 0;
+        // Find the start of the contiguous sequence of clips that share this same audioAssetId
+        let runStartSeconds = curr.startSeconds;
+        let runTrimStart = sound.audioTrimStartSeconds ?? 0;
+        for (let i = curr.index - 1; i >= 0; i--) {
+          const prev = schedule[i];
+          const prevSound = this.clipSound(prev.clip.id);
+          if (prevSound.audioAssetId === sound.audioAssetId) {
+            runStartSeconds = prev.startSeconds;
+            runTrimStart = prevSound.audioTrimStartSeconds ?? 0;
+          } else {
+            break;
+          }
+        }
+        const audioLocalTime = (time - runStartSeconds) + runTrimStart;
         const trimEnd = sound.audioTrimEndSeconds ?? 999999;
-        const audioLocalTime = localTime + trimStart;
         
         if (audioLocalTime > trimEnd) {
           if (!clipSoundEl.paused) clipSoundEl.pause();
@@ -2968,7 +3040,13 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
           if (this.loadedSoundAssetId !== sound.audioAssetId) {
             this.loadedSoundAssetId = sound.audioAssetId;
             clipSoundEl.src = this.assetUrl(sound.audioAssetId);
-            clipSoundEl.currentTime = audioLocalTime;
+            if (clipSoundEl.readyState >= 1) {
+              clipSoundEl.currentTime = audioLocalTime;
+            } else {
+              clipSoundEl.onloadedmetadata = () => {
+                clipSoundEl.currentTime = audioLocalTime;
+              };
+            }
           } else if (!playing || Math.abs(clipSoundEl.currentTime - audioLocalTime) > 0.35) {
             clipSoundEl.currentTime = audioLocalTime;
           }
@@ -3084,6 +3162,10 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     this.clipSoundAudioRef?.nativeElement.pause();
     for (const audio of this.timelineAudioElements.values()) {
       audio.pause();
+    }
+    if (this.previewAudioEl) {
+      this.previewAudioEl.pause();
+      this.previewingAudioId.set(null);
     }
   }
 
@@ -3502,13 +3584,37 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
         }
       }
 
+      // Compute continuous trim start if part of a contiguous run of the same audioAssetId
+      let trimStart = sound.audioTrimStartSeconds ?? null;
+      let trimEnd = sound.audioTrimEndSeconds ?? null;
+      const sRef = schedule.find(x => x.clip.id === row.clip.id);
+      if (assetId && sRef) {
+        let runStartSeconds = sRef.startSeconds;
+        let runTrimStart = sound.audioTrimStartSeconds ?? 0;
+        for (let i = sRef.index - 1; i >= 0; i--) {
+          const prev = schedule[i];
+          const prevSound = this.clipSound(prev.clip.id);
+          if (prevSound.audioAssetId === assetId) {
+            runStartSeconds = prev.startSeconds;
+            runTrimStart = prevSound.audioTrimStartSeconds ?? 0;
+          } else {
+            break;
+          }
+        }
+        const offset = (sRef.startSeconds - runStartSeconds) + runTrimStart;
+        trimStart = Math.max(0, offset);
+        if (sound.audioTrimEndSeconds != null) {
+          trimEnd = sound.audioTrimEndSeconds;
+        }
+      }
+
       return {
         volume: vol,
         audioAssetId: assetId,
         audioVolume: sound.audioVolume,
         keepOriginalAudio: sound.keepOriginalAudio,
-        trimStartSeconds: sound.audioTrimStartSeconds ?? null,
-        trimEndSeconds: sound.audioTrimEndSeconds ?? null,
+        trimStartSeconds: trimStart,
+        trimEndSeconds: trimEnd,
       };
     });
   }
