@@ -101,6 +101,7 @@ public sealed class ClipMergeService(
 
         var all = await assets.ListByProjectAsync(projectId, ct).ConfigureAwait(false);
         var clips = all.Where(a => a.Kind == AssetKind.Video && a.IsUsableInScene).ToList();
+        var clips = all.Where(a => (a.Kind == AssetKind.Video || a.Kind == AssetKind.Image) && a.IsUsableInScene).ToList();
         var savedPosition = project.Settings.ClipOrderAssetIds
             .Select((id, index) => (id, index))
             .ToDictionary(entry => entry.id, entry => entry.index, StringComparer.Ordinal);
@@ -133,6 +134,7 @@ public sealed class ClipMergeService(
         var clips = await assets.ListByProjectAsync(projectId, ct).ConfigureAwait(false);
         var usableIds = clips
             .Where(a => a.Kind == AssetKind.Video && a.IsUsableInScene)
+            .Where(a => (a.Kind == AssetKind.Video || a.Kind == AssetKind.Image) && a.IsUsableInScene)
             .Select(a => a.Id)
             .ToHashSet(StringComparer.Ordinal);
 
@@ -238,9 +240,12 @@ public sealed class ClipMergeService(
             var asset = Require(byId, id, projectId, "clip");
 
             if (asset.Kind != AssetKind.Video)
+            if (asset.Kind != AssetKind.Video && asset.Kind != AssetKind.Image)
             {
                 throw EditingException.Invalid("not-a-video",
                     $"'{asset.Name}' is not a video clip.");
+                throw EditingException.Invalid("not-a-video-or-image",
+                    $"'{asset.Name}' is not a video or image clip.");
             }
         }
 
@@ -262,10 +267,14 @@ public sealed class ClipMergeService(
         var hasPerClipSound = command.ClipAudio?
             .Any(c => c.AudioAssetId is { Length: > 0 } && c.AudioVolume > 0) ?? false;
 
+        var hasVideoWithAudio = clipIds.Any(id => byId.TryGetValue(id, out var a) && a.Kind == AssetKind.Video && !string.IsNullOrEmpty(a.Probe.AudioCodec));
+
         if (command.MuteClipAudio
             && string.IsNullOrEmpty(command.BackgroundMusicAssetId)
             && command.MusicTracks.Count == 0
             && !hasPerClipSound)
+            && !hasPerClipSound
+            && hasVideoWithAudio)
         {
             throw EditingException.Invalid("silent-output",
                 "Muting the clips with no background music would produce a silent video.");

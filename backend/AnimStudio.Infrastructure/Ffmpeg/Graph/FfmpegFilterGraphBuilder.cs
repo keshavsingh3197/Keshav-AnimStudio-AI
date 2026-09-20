@@ -261,6 +261,10 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         var rate = canvas.FrameRate;
         var warnings = new List<string>();
         var inputs = new List<FfmpegInputSpec> { new([], plan.SourceRelativePath) };
+        var inputArgs = plan.SourceIsImage
+            ? new[] { "-loop", "1", "-t", FilterExpr.N(plan.ImageDurationSeconds) }
+            : Array.Empty<string>();
+        var inputs = new List<FfmpegInputSpec> { new(inputArgs, plan.SourceRelativePath) };
         var graph = new StringBuilder();
 
         var fit = plan.Fit;
@@ -488,6 +492,7 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
             "-map", "[vout]",
             "-map", "[aout]",
             "-shortest",
+            .. plan.SourceIsImage ? new[] { "-frames:v", FilterExpr.N(plan.ExpectedFrames.Value) } : [],
             "-c:v", plan.Encoder.VideoCodec,
             "-preset", plan.Encoder.Preset,
             "-crf", FilterExpr.N(plan.Encoder.Crf),

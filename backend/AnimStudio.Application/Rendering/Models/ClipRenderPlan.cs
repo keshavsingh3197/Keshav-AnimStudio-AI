@@ -85,6 +85,12 @@ public sealed record ClipRenderPlan
     /// <summary>How a clip shaped differently from the canvas is fitted to it.</summary>
     public ClipFit Fit { get; init; } = ClipFit.Contain;
 
+    /// <summary>True when the source is an image asset requiring looped frame generation.</summary>
+    public bool SourceIsImage { get; init; }
+
+    /// <summary>Duration in seconds for an image clip (default 5.0 seconds).</summary>
+    public double ImageDurationSeconds { get; init; } = 5.0;
+
     /// <summary>False when the source is silent, in which case silence is generated.</summary>
     public bool SourceHasAudio { get; init; } = true;
 

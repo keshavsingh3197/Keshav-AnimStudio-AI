@@ -107,10 +107,59 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   readonly studio = signal<ClipStudio | null>(null);
   readonly rows = signal<ClipRow[]>([]);
 
-  readonly selectedCount = computed(() => this.rows().filter(r => r.included).length);
+  readonly allMediaRows = computed<ClipRow[]>(() => {
+    const videoRows = this.rows();
+    const timelineRows = this.rows();
+    const studio = this.studio();
+    if (!studio) return videoRows;
+    if (!studio) return timelineRows;
+
+    const imageRows: ClipRow[] = (studio.logoCandidates || []).map((img) => ({
+      clip: {
+        id: img.id,
+        name: img.name,
+        fileSizeBytes: img.fileSizeBytes,
+        width: img.width,
+        height: img.height,
+        hasAudio: false,
+      },
+      included: this.watermarkLogoId() === img.id,
+    }));
+    const rowIds = new Set(timelineRows.map((r) => r.clip.id));
+    const extraImages: ClipRow[] = (studio.logoCandidates || [])
+      .filter((img) => !rowIds.has(img.id))
+      .map((img) => ({
+        clip: {
+          id: img.id,
+          name: img.name,
+          fileSizeBytes: img.fileSizeBytes,
+          durationSeconds: 5.0,
+          width: img.width,
+          height: img.height,
+          hasAudio: false,
+        },
+        included: false,
+      }));
+
+    const audioRows: ClipRow[] = (studio.musicCandidates || []).map((aud) => ({
+      clip: {
+        id: aud.id,
+        name: aud.name,
+        fileSizeBytes: aud.fileSizeBytes,
+        durationSeconds: aud.durationSeconds,
+        hasAudio: true,
+      },
+      included: this.musicAssetId() === aud.id || this.musicTracks().some((t) => t.assetId === aud.id),
+    }));
+
+    return [...videoRows, ...imageRows, ...audioRows];
+    return [...timelineRows, ...extraImages, ...audioRows];
+  });
+
+  readonly selectedCount = computed(() => this.allMediaRows().filter(r => r.included).length);
 
   readonly filteredRows = computed(() => {
-    let list = this.rows();
+    let list = this.allMediaRows();
     const cat = this.activeCategory();
     if (cat !== 'all') {
       list = list.filter(r => this.getClipType(r.clip) === cat);
@@ -147,12 +196,112 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   }
 
   toggleClip(clipId: string): void {
+    const studio = this.studio();
+    const isImage = studio?.logoCandidates?.some(l => l.id === clipId);
+    const isAudio = studio?.musicCandidates?.some(m => m.id === clipId);
+    const isAudio = studio?.musicCandidates?.some((m) => m.id === clipId);
+
+    if (isImage) {
+      if (this.watermarkLogoId() === clipId) {
+        this.watermarkLogoId.set('');
+        this.watermarkKind.set('None');
+      } else {
+        this.watermarkLogoId.set(clipId);
+        this.watermarkKind.set('Logo');
+        this.watermarkSource.set('custom');
+      }
+      this.hasUnsavedChanges.set(true);
+      return;
+    }
+
+    if (isAudio) {
+      const tracks = this.musicTracks();
+      const existingIdx = tracks.findIndex(t => t.assetId === clipId);
+      const existingIdx = tracks.findIndex((t) => t.assetId === clipId);
+      if (existingIdx >= 0) {
+        this.musicTracks.update(list => list.filter(t => t.assetId !== clipId));
+        this.musicTracks.update((list) => list.filter((t) => t.assetId !== clipId));
+      } else {
+        this.addMusicTrackFromAsset(clipId);
+      }
+      this.hasUnsavedChanges.set(true);
+      return;
+    }
+
     this.rows.update((rows) =>
       rows.map((row) => (row.clip.id === clipId ? { ...row, included: !row.included } : row)));
+    const inRows = this.rows().some((r) => r.clip.id === clipId);
+    if (inRows) {
+      this.rows.update((rows) =>
+        rows.map((row) => (row.clip.id === clipId ? { ...row, included: !row.included } : row)));
+      this.hasUnsavedChanges.set(true);
+      return;
+    }
+
+    const img = studio?.logoCandidates?.find((l) => l.id === clipId);
+    if (img) {
+      this.rows.update((rows) => [
+        ...rows,
+        {
+          clip: {
+            id: img.id,
+            name: img.name,
+            fileSizeBytes: img.fileSizeBytes,
+            durationSeconds: 5.0,
+            width: img.width,
+            height: img.height,
+            hasAudio: false,
+          },
+          included: true,
+        },
+      ]);
+      this.hasUnsavedChanges.set(true);
+      return;
+    }
   }
 
   addSelectedToTimeline(): void {
     this.rows.update((rows) => rows.map((r) => ({ ...r, included: true })));
+    const cat = this.activeCategory();
+    if (cat === 'audio') {
+      for (const aud of this.studio()?.musicCandidates || []) {
+        if (!this.musicTracks().some(t => t.assetId === aud.id)) {
+        if (!this.musicTracks().some((t) => t.assetId === aud.id)) {
+          this.addMusicTrackFromAsset(aud.id);
+        }
+      }
+    } else if (cat === 'image') {
+      const firstImg = this.studio()?.logoCandidates?.[0];
+      if (firstImg) {
+        this.watermarkLogoId.set(firstImg.id);
+        this.watermarkKind.set('Logo');
+        this.watermarkSource.set('custom');
+        this.hasUnsavedChanges.set(true);
+      }
+      const studio = this.studio();
+      const rowIds = new Set(this.rows().map((r) => r.clip.id));
+      const extraImages: ClipRow[] = (studio?.logoCandidates || [])
+        .filter((img) => !rowIds.has(img.id))
+        .map((img) => ({
+          clip: {
+            id: img.id,
+            name: img.name,
+            fileSizeBytes: img.fileSizeBytes,
+            durationSeconds: 5.0,
+            width: img.width,
+            height: img.height,
+            hasAudio: false,
+          },
+          included: true,
+        }));
+      this.rows.update((rows) => [
+        ...rows.map((r) => (this.getClipType(r.clip) === 'image' ? { ...r, included: true } : r)),
+        ...extraImages,
+      ]);
+      this.hasUnsavedChanges.set(true);
+    } else {
+      this.rows.update((rows) => rows.map((r) => ({ ...r, included: true })));
+    }
   }
 
   deleteSelected(): void {
@@ -203,21 +352,105 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   ];
 
 
-  videoCount = computed(() => this.studio()?.clips.filter(c => c.hasAudio !== false && !c.name.match(/\.(png|jpg|jpeg|gif|webp)$/i)).length || 0);
-  imageCount = computed(() => this.studio()?.clips.filter(c => c.name.match(/\.(png|jpg|jpeg|gif|webp)$/i)).length || 0);
-  audioCount = computed(() => this.studio()?.clips.filter(c => c.hasAudio && c.name.match(/\.(mp3|wav|ogg)$/i)).length || 0);
-  
+  readonly videoCount = computed(() => this.rows().length);
+  readonly imageCount = computed(() => this.studio()?.logoCandidates?.length ?? 0);
+  readonly videoCount = computed(() => this.rows().filter(r => this.getClipType(r.clip) === 'video').length);
+  readonly imageCount = computed(() => {
+    const inRows = this.rows().filter(r => this.getClipType(r.clip) === 'image').length;
+    const studio = this.studio();
+    const rowIds = new Set(this.rows().map(r => r.clip.id));
+    const extra = (studio?.logoCandidates || []).filter(img => !rowIds.has(img.id)).length;
+    return inRows + extra;
+  });
+  readonly audioCount = computed(() => this.studio()?.musicCandidates?.length ?? 0);
+  readonly totalMediaCount = computed(() => this.videoCount() + this.imageCount() + this.audioCount());
+
   toggleSelectAll() {
     this.selectAllCheckbox = !this.selectAllCheckbox;
-    this.selectAll(this.selectAllCheckbox);
+    const included = this.selectAllCheckbox;
+    const cat = this.activeCategory();
+
+    if (cat === 'video' || cat === 'all') {
+      this.selectAll(included);
+    }
+    if (cat === 'audio' || cat === 'all') {
+    if (cat === 'video') {
+      this.rows.update((rows) =>
+        rows.map((r) => (this.getClipType(r.clip) === 'video' ? { ...r, included } : r)));
+    } else if (cat === 'image') {
+      this.rows.update((rows) =>
+        rows.map((r) => (this.getClipType(r.clip) === 'image' ? { ...r, included } : r)));
+    } else if (cat === 'audio') {
+      if (included) {
+        for (const aud of this.studio()?.musicCandidates || []) {
+          if (!this.musicTracks().some(t => t.assetId === aud.id)) {
+            this.addMusicTrackFromAsset(aud.id);
+          }
+        }
+      } else {
+        this.musicTracks.set([]);
+      }
+    } else {
+      this.selectAll(included);
+    }
+    if (cat === 'image' || cat === 'all') {
+      if (included && !this.watermarkLogoId()) {
+        const first = this.studio()?.logoCandidates?.[0];
+        if (first) {
+          this.watermarkLogoId.set(first.id);
+          this.watermarkKind.set('Logo');
+        }
+      } else if (!included) {
+        this.watermarkLogoId.set('');
+        this.watermarkKind.set('None');
+      }
+    }
+    this.hasUnsavedChanges.set(true);
   }
 
   getClipType(clip: Clip): 'video' | 'audio' | 'image' | 'ai' {
+    const studio = this.studio();
+    if (studio?.logoCandidates?.some(l => l.id === clip.id)) return 'image';
+    if (studio?.musicCandidates?.some(m => m.id === clip.id)) return 'audio';
     const n = clip.name.toLowerCase();
     if (n.match(/\.(png|jpg|jpeg|gif|webp)$/i)) return 'image';
     if (n.match(/\.(mp3|wav|ogg)$/i)) return 'audio';
+    if (n.match(/\.(png|jpg|jpeg|gif|webp|bmp|svg)$/i)) return 'image';
+    if (n.match(/\.(mp3|wav|ogg|m4a|aac|flac)$/i)) return 'audio';
     if (n.includes('ai_') || n.includes('gen_')) return 'ai';
     return 'video';
+  }
+
+  readonly previewingAudioId = signal<string | null>(null);
+  private previewAudioEl: HTMLAudioElement | null = null;
+
+  togglePreviewAudio(assetId: string, event?: Event): void {
+    event?.stopPropagation();
+    if (this.previewingAudioId() === assetId) {
+      this.previewAudioEl?.pause();
+      this.previewingAudioId.set(null);
+      return;
+    }
+
+    if (this.previewAudioEl) {
+      this.previewAudioEl.pause();
+    }
+    this.previewAudioEl = new Audio(this.assetUrl(assetId));
+    this.previewAudioEl.onended = () => this.previewingAudioId.set(null);
+    this.previewAudioEl.onerror = () => this.previewingAudioId.set(null);
+    this.previewAudioEl.play().catch(() => this.previewingAudioId.set(null));
+    this.previewingAudioId.set(assetId);
+  }
+
+  addMusicTrackFromAsset(assetId: string, startSec?: number): void {
+    const key = `m${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+    const start = startSec ?? this.playheadTime();
+    this.musicTracks.update((tracks) => [
+      ...tracks,
+      { key, assetId, startSeconds: start, volume: 0.5, trimStartSeconds: null, trimEndSeconds: null },
+    ]);
+    this.hasUnsavedChanges.set(true);
+    this.status.notify(['Added audio track to timeline.']);
   }
 
   // --- upload
@@ -258,10 +491,12 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   readonly transitionSeconds = signal(0.5);
   readonly musicAssetId = signal('');
   readonly musicVolume = signal(0.18);
-  readonly muteClipAudio = signal<"Never" | "Always" | "Overlap">("Never");
+  readonly muteClipAudio = signal<'Never' | 'Always' | 'Overlap' | 'MuteOnAudio'>('Never');
+  readonly videoDuckLevel = signal<number>(0.2);
 
   // --- timeline scale, in pixels per second of finished video
   readonly pxPerSecond = signal(44);
+  readonly timelineThumbnailMode = signal<boolean>(true);
 
   // --- per-junction transition overrides
   readonly junctionOverrides = signal<Map<string, JunctionSetting>>(new Map());
@@ -624,6 +859,19 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     return found ?? schedule[schedule.length - 1];
   });
 
+  readonly activeClipIsImage = computed(() => {
+    const sched = this.currentScheduledClip();
+    if (!sched) return false;
+    return this.getClipType(sched.clip) === 'image';
+  });
+
+  readonly activeClipImageUrl = computed(() => {
+    const sched = this.currentScheduledClip();
+    if (!sched) return null;
+    if (this.getClipType(sched.clip) !== 'image') return null;
+    return this.assetUrl(sched.clip.id);
+  });
+
   readonly formattedPlayheadTime = computed(() => {
     const total = Math.max(0, this.playheadTime());
     const mins = Math.floor(total / 60);
@@ -874,21 +1122,35 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     if (!projectId || this.uploading()) return;
 
     const limit = studio?.maxClipUploadBytes ?? 0;
+    const mediaLimit = studio?.maxImageOrAudioUploadBytes || (25 * 1024 * 1024);
     const problems: string[] = [];
     const queue: File[] = [];
 
     for (const file of files) {
-      if (!this.looksLikeVideo(file)) {
+      const isVid = this.looksLikeVideo(file);
+      const isAud = this.looksLikeAudio(file);
+      const isImg = this.looksLikeImage(file);
+
+      if (!isVid && !isAud && !isImg) {
         problems.push(
-          `"${file.name}" is not an MP4 video, so it was skipped. A watermark image or a `
-          + 'music file goes in through its own box further down this page.');
+          `"${file.name}" is not a supported media file (video, audio, or image), so it was skipped.`
+        );
         continue;
       }
 
-      if (limit > 0 && file.size > limit) {
+      if (isVid && limit > 0 && file.size > limit) {
         problems.push(
           `"${file.name}" is ${this.megabytes(file.size)}MB, over the `
-          + `${this.megabytes(limit)}MB limit, so it was skipped.`);
+          + `${this.megabytes(limit)}MB video limit, so it was skipped.`
+        );
+        continue;
+      }
+
+      if (!isVid && file.size > mediaLimit) {
+        problems.push(
+          `"${file.name}" is ${this.megabytes(file.size)}MB, over the `
+          + `${this.megabytes(mediaLimit)}MB limit for audio and images, so it was skipped.`
+        );
         continue;
       }
 
@@ -919,6 +1181,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
           this.uploadTotal.set(0);
           this.uploadDone.set(0);
           this.status.notify(problems);
+          this.store.refreshAssets();
           this.reload(false);
         },
       });
@@ -1002,7 +1265,15 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   }
 
   private looksLikeVideo(file: File): boolean {
-    return file.type.startsWith('video/') || file.name.toLowerCase().endsWith('.mp4');
+    return file.type.startsWith('video/') || /\.(mp4|webm|mov|mkv|m4v|avi)$/i.test(file.name);
+  }
+
+  private looksLikeAudio(file: File): boolean {
+    return file.type.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(file.name);
+  }
+
+  private looksLikeImage(file: File): boolean {
+    return file.type.startsWith('image/') || /\.(png|jpg|jpeg|webp|gif|bmp|svg)$/i.test(file.name);
   }
 
   private megabytes(bytes: number): string {
@@ -1024,7 +1295,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
 
   removeFromLibrary(): void {
     const projectId = this.store.projectId();
-    const ids = this.included().map((r) => r.clip.id);
+    const ids = this.allMediaRows().filter((r) => r.included).map((r) => r.clip.id);
 
     if (!projectId || ids.length === 0) {
       this.confirmingDelete.set(false);
@@ -1086,13 +1357,21 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
 
     if (from === null || from === index) return;
 
-    this.rows.update((rows) => {
-      const next = [...rows];
-      const [moved] = next.splice(from, 1);
-      next.splice(index, 0, moved);
-      return next;
-    });
-    this.saveOrder();
+    const paged = this.pagedRows();
+    const fromItem = paged[from];
+    const toItem = paged[index];
+    if (!fromItem || !toItem) return;
+
+    const rows = [...this.rows()];
+    const fromIdxInRows = rows.findIndex(r => r.clip.id === fromItem.clip.id);
+    const toIdxInRows = rows.findIndex(r => r.clip.id === toItem.clip.id);
+
+    if (fromIdxInRows >= 0 && toIdxInRows >= 0) {
+      const [moved] = rows.splice(fromIdxInRows, 1);
+      rows.splice(toIdxInRows, 0, moved);
+      this.rows.set(rows);
+      this.saveOrder();
+    }
   }
 
   onRowDragEnd(): void {
@@ -1182,7 +1461,8 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
       musicTracks: this.musicTracks(),
       musicAssetId: this.musicAssetId(),
       musicVolume: this.musicVolume(),
-      muteClipAudio: this.muteClipAudio() === 'Always',
+      muteClipAudio: this.muteClipAudio(),
+      videoDuckLevel: this.videoDuckLevel(),
       fit: this.fit(),
       transition: this.transition(),
       transitionSeconds: this.transitionSeconds(),
@@ -1202,6 +1482,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
       lowerThirdEnabled: this.lowerThirdEnabled(),
       lowerThirdTitle: this.lowerThirdTitle(),
       lowerThirdSubtitle: this.lowerThirdSubtitle(),
+      timelineThumbnailMode: this.timelineThumbnailMode(),
     };
 
     try {
@@ -1219,6 +1500,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     }
 
     this.hasUnsavedChanges.set(false);
+    this.restoredDraftTime.set(null);
     const now = new Date();
     const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     this.lastSavedTime.set(timeStr);
@@ -1268,16 +1550,25 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
       if (Array.isArray(draft.musicTracks)) {
         this.musicTracks.set(draft.musicTracks);
       }
-      if (typeof draft.musicAssetId === 'string') this.musicAssetId.set(draft.musicAssetId);
-      if (typeof draft.musicVolume === 'number') this.musicVolume.set(draft.musicVolume);
+      if (typeof draft.musicAssetId === 'string' || draft.musicAssetId === null) {
+        this.musicAssetId.set(draft.musicAssetId);
+      }
+      if (typeof draft.musicVolume === 'number') {
+        this.musicVolume.set(draft.musicVolume);
+      }
       if (typeof draft.muteClipAudio === 'boolean') {
-      this.muteClipAudio.set(draft.muteClipAudio ? 'Always' : 'Never');
-    } else if (typeof draft.muteClipAudio === 'string') {
-      this.muteClipAudio.set(draft.muteClipAudio as any);
-    }
+        this.muteClipAudio.set(draft.muteClipAudio ? 'Always' : 'Never');
+      } else if (draft.muteClipAudio === 'Never' || draft.muteClipAudio === 'Always' || draft.muteClipAudio === 'Overlap' || draft.muteClipAudio === 'MuteOnAudio') {
+        this.muteClipAudio.set(draft.muteClipAudio);
+      }
+      if (typeof draft.videoDuckLevel === 'number') {
+        this.videoDuckLevel.set(draft.videoDuckLevel);
+      }
       if (draft.fit) this.fit.set(draft.fit);
       if (draft.transition) this.transition.set(draft.transition);
-      if (typeof draft.transitionSeconds === 'number') this.transitionSeconds.set(draft.transitionSeconds);
+      if (typeof draft.transitionSeconds === 'number') {
+        this.transitionSeconds.set(draft.transitionSeconds);
+      }
 
       if (draft.watermarkSource) this.watermarkSource.set(draft.watermarkSource);
       if (draft.watermarkKind) this.watermarkKind.set(draft.watermarkKind);
@@ -1297,12 +1588,13 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
       if (typeof draft.lowerThirdEnabled === 'boolean') this.lowerThirdEnabled.set(draft.lowerThirdEnabled);
       if (typeof draft.lowerThirdTitle === 'string') this.lowerThirdTitle.set(draft.lowerThirdTitle);
       if (typeof draft.lowerThirdSubtitle === 'string') this.lowerThirdSubtitle.set(draft.lowerThirdSubtitle);
+      if (typeof draft.timelineThumbnailMode === 'boolean') this.timelineThumbnailMode.set(draft.timelineThumbnailMode);
 
       if (draft.savedAt) {
         const d = new Date(draft.savedAt);
         const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        this.restoredDraftTime.set(timeStr);
         this.lastSavedTime.set(timeStr);
+        this.restoredDraftTime.set(null);
       }
       this.hasUnsavedChanges.set(false);
     } catch {
@@ -1804,12 +2096,42 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   }
 
   selectClip(clipId: string): void {
+    const studio = this.studio();
+    const isImage = studio?.logoCandidates?.some(l => l.id === clipId);
+    const isAudio = studio?.musicCandidates?.some(m => m.id === clipId);
+    const isAudioOnly = studio?.musicCandidates?.some((m) => m.id === clipId) && !this.rows().some((r) => r.clip.id === clipId);
+
+    if (isImage) {
+    if (isAudioOnly) {
+      this.selectedClipId.set(clipId);
+      this.activeInspectorTab.set('text');
+      return;
+    }
+
+    if (isAudio) {
+      this.selectedClipId.set(clipId);
+      this.activeInspectorTab.set('audio');
+      return;
+    }
+
     this.selectedClipId.set(clipId);
     this.activeInspectorTab.set('clip');
     const sched = this.clipSchedule().find((s) => s.clip.id === clipId);
     if (sched) {
       this.seekToTime(sched.startSeconds);
     }
+  }
+
+  setImageClipDuration(clipId: string, durationSeconds: number): void {
+    const dur = Math.max(0.5, Math.min(60, Number(durationSeconds)));
+    this.rows.update((rows) =>
+      rows.map((r) =>
+        r.clip.id === clipId
+          ? { ...r, clip: { ...r.clip, durationSeconds: dur } }
+          : r
+      )
+    );
+    this.hasUnsavedChanges.set(true);
   }
 
   selectAndSeekClip(clip: Clip): void {
@@ -1849,6 +2171,13 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   }
 
   duplicateClip(clipId: string): void {
+    const studio = this.studio();
+    const isAudio = studio?.musicCandidates?.some(m => m.id === clipId);
+    if (isAudio) {
+      this.addMusicTrackFromAsset(clipId);
+      return;
+    }
+
     const rows = [...this.rows()];
     const rowIndex = rows.findIndex((r) => r.clip.id === clipId);
     if (rowIndex < 0) return;
@@ -1904,25 +2233,41 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     const inTransition = hasTrans && time >= transStart && curr.index < schedule.length - 1;
 
     const sound = this.clipSound(curr.clip.id);
-    let isOverlap = false;
-    if (this.muteClipAudio() === 'Overlap') {
-      const hasBg = this.musicAssetId() !== '';
-      if (hasBg) {
-        isOverlap = true;
-      } else {
-        isOverlap = this.musicTracks().some(t => {
-          const mStart = t.startSeconds;
-          const mEnd = t.startSeconds + this.musicTrackDurationSeconds(t);
-          return mStart < curr.endSeconds && mEnd > curr.startSeconds;
-        });
+    const mode = this.muteClipAudio();
+    let isAudioCuePlaying = false;
+    if (this.musicAssetId() !== '') {
+      isAudioCuePlaying = true;
+    } else {
+      isAudioCuePlaying = this.musicTracks().some((t) => {
+        const mStart = t.startSeconds;
+        const mEnd = t.startSeconds + this.musicTrackDurationSeconds(t);
+        return time >= mStart && time < mEnd;
+      });
+    }
+
+    let effectiveClipGain = sound.volume;
+    if (mode === 'Always') {
+      effectiveClipGain = 0;
+    } else if (isAudioCuePlaying) {
+      if (mode === 'Overlap') {
+        effectiveClipGain = sound.volume * this.videoDuckLevel();
+      } else if (mode === 'MuteOnAudio') {
+        effectiveClipGain = 0;
       }
     }
-    const isMuted = this.isMonitorMuted() || this.muteClipAudio() === 'Always';
-    const clipVol = isMuted ? 0 : Math.min(1, sound.volume);
+
+    const isMuted = this.isMonitorMuted() || effectiveClipGain === 0;
+    const clipVol = isMuted ? 0 : Math.min(1, effectiveClipGain);
     const speed = this.playbackSpeed();
 
     // 1. Synchronize the active playing video
     if (currentActiveVideo) {
+    const isCurrImage = this.getClipType(curr.clip) === 'image';
+    if (isCurrImage) {
+      if (currentActiveVideo && !currentActiveVideo.paused) {
+        currentActiveVideo.pause();
+      }
+    } else if (currentActiveVideo) {
       const activeLoadedId = currentActiveIsA ? this.loadedClipIdA : this.loadedClipIdB;
       if (activeLoadedId !== curr.clip.id) {
         if (currentActiveIsA) this.loadedClipIdA = curr.clip.id;
@@ -1957,6 +2302,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
 
     // 2. Synchronize the standby video: transition or preloading
     const nextSched = curr.index < schedule.length - 1 ? schedule[curr.index + 1] : null;
+    const isNextImage = nextSched ? this.getClipType(nextSched.clip) === 'image' : false;
 
     if (inTransition && nextSched && currentStandbyVideo) {
       const nextLocalTime = Math.max(0, time - transStart);
@@ -1971,14 +2317,43 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
           currentStandbyVideo.src = targetSrc;
         }
         if (currentStandbyVideo.readyState >= 1) {
+      if (isNextImage) {
+        if (!currentStandbyVideo.paused) currentStandbyVideo.pause();
+      } else {
+        const nextLocalTime = Math.max(0, time - transStart);
+        const standbyLoadedId = currentActiveIsA ? this.loadedClipIdB : this.loadedClipIdA;
+        if (standbyLoadedId !== nextSched.clip.id) {
+          if (currentActiveIsA) this.loadedClipIdB = nextSched.clip.id;
+          else this.loadedClipIdA = nextSched.clip.id;
+          currentStandbyVideo.src = this.assetUrl(nextSched.clip.id);
           currentStandbyVideo.currentTime = nextLocalTime;
         } else {
           currentStandbyVideo.onloadedmetadata = () => {
+          const targetSrc = this.assetUrl(nextSched.clip.id);
+          if (currentStandbyVideo.src !== targetSrc) {
+            currentStandbyVideo.src = targetSrc;
+          }
+          if (currentStandbyVideo.readyState >= 1) {
             currentStandbyVideo.currentTime = nextLocalTime;
           };
+          } else {
+            currentStandbyVideo.onloadedmetadata = () => {
+              currentStandbyVideo.currentTime = nextLocalTime;
+            };
+          }
+        } else if (!playing || (Math.abs(currentStandbyVideo.currentTime - nextLocalTime) > 0.4 && !currentStandbyVideo.seeking)) {
+          currentStandbyVideo.currentTime = nextLocalTime;
         }
       } else if (!playing || (Math.abs(currentStandbyVideo.currentTime - nextLocalTime) > 0.4 && !currentStandbyVideo.seeking)) {
         currentStandbyVideo.currentTime = nextLocalTime;
+        currentStandbyVideo.volume = 0;
+        currentStandbyVideo.muted = true;
+        currentStandbyVideo.playbackRate = speed;
+        if (playing) {
+          if (currentStandbyVideo.paused) currentStandbyVideo.play().catch(() => undefined);
+        } else {
+          if (!currentStandbyVideo.paused) currentStandbyVideo.pause();
+        }
       }
       currentStandbyVideo.volume = 0;
       currentStandbyVideo.muted = true;
@@ -1996,6 +2371,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
       this.liveTransitionActive.set(false);
       // Preload next incoming clip onto the standby video layer so transitions start instantly
       if (nextSched && currentStandbyVideo) {
+      if (nextSched && !isNextImage && currentStandbyVideo) {
         const standbyLoadedId = currentActiveIsA ? this.loadedClipIdB : this.loadedClipIdA;
         if (standbyLoadedId !== nextSched.clip.id) {
           if (currentActiveIsA) this.loadedClipIdB = nextSched.clip.id;
@@ -2530,7 +2906,8 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
 
   private clipAudioPayload(): ClipAudioBody[] | null {
     const clips = this.included();
-    const needsOverlapCheck = this.muteClipAudio() === 'Overlap';
+    const mode = this.muteClipAudio();
+    const needsOverlapCheck = mode === 'Overlap' || mode === 'MuteOnAudio';
     if (!needsOverlapCheck && !clips.some((r) => this.isClipSoundCustom(r.clip.id))) return null;
 
     const schedule = this.clipSchedule();
@@ -2555,7 +2932,9 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
                 return mStart < s.endSeconds && mEnd > s.startSeconds;
              });
            }
-           if (isOverlap) vol = 0;
+           if (isOverlap) {
+             vol = mode === 'MuteOnAudio' ? 0 : Math.round(sound.volume * this.videoDuckLevel() * 100) / 100;
+           }
         }
       }
 

@@ -105,6 +105,13 @@ public sealed class ClipMergeOrchestrator(
         // clip by clip below, because that is the number the join arithmetic needs.
         var estimates = spec.AssetIds
             .Select(id => ClipPlanFactory.EstimateLength(assetMap[id].Probe, canvas.FrameRate))
+            .Select(id =>
+            {
+                var a = assetMap[id];
+                return a.Kind == AssetKind.Image
+                    ? FrameCount.FromSeconds(5.0, canvas.FrameRate)
+                    : ClipPlanFactory.EstimateLength(a.Probe, canvas.FrameRate);
+            })
             .ToList();
 
         var hasMusic = !string.IsNullOrEmpty(spec.BackgroundMusicAssetId);
@@ -197,6 +204,7 @@ public sealed class ClipMergeOrchestrator(
                         materialized.TryGetValue(extraId, out extraAudio);
                     }
 
+                    var isImage = asset.Kind == AssetKind.Image;
                     var plan = new ClipRenderPlan
                     {
                         ClipIndex = index,
@@ -205,9 +213,12 @@ public sealed class ClipMergeOrchestrator(
                         OutputRelativePath = $"clips/clip_{index + 1:D3}.mp4",
                         ExpectedFrames = estimates[index],
                         Fit = spec.Fit,
+                        SourceIsImage = isImage,
+                        ImageDurationSeconds = 5.0,
                         // A clip with no audio track needs generated silence, or the join
                         // produces a file that stops at the first silent clip.
                         SourceHasAudio = !string.IsNullOrEmpty(asset.Probe.AudioCodec),
+                        SourceHasAudio = !isImage && !string.IsNullOrEmpty(asset.Probe.AudioCodec),
                         MuteAudio = spec.MuteClipAudio,
                         AudioVolume = audio?.Volume ?? 1.0,
                         ExtraAudioRelativePath = extraAudio,
