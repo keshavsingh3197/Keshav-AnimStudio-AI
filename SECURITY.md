@@ -31,7 +31,6 @@ We will acknowledge receipt of your report within 48 hours and work with you to 
 | **Object Store Credentials** | `Storage:*` | .NET User Secrets or environment variable |
 | **AI Provider API Keys** | `Ai:Secrets:{providerId}` | .NET User Secrets, environment variables (e.g., `Ai__Secrets__groq`), or Admin API |
 | **Credential-Store Data Key** | `Encryption:DataKey` | .NET User Secrets or `Encryption__DataKey` |
-| **Admin JWT Signing Key** | `Admin:Jwt:SigningKey` | .NET User Secrets or `Admin__Jwt__SigningKey` |
 
 All configuration files (`appsettings.json`, `appsettings.Development.json`) ship with empty secret values by default.
 
