@@ -64,6 +64,8 @@ public sealed record ClipMergeCommand
     public IReadOnlyList<ClipAudioTrack>? ClipAudio { get; init; }
 
     public WatermarkSettings Watermark { get; init; } = new();
+
+    public IReadOnlyList<TimelineItemSpec>? TimelineItems { get; init; }
 }
 
 /// <summary>
@@ -455,7 +457,8 @@ public sealed class ClipMergeService(
                 BackgroundMusicVolume = command.BackgroundMusicVolume,
                 MusicTracks = musicTrackSpecs,
                 ClipAudio = clipAudioSpecs,
-                Watermark = watermark
+                Watermark = watermark,
+                TimelineItems = command.TimelineItems?.ToList() ?? []
             }
         };
 

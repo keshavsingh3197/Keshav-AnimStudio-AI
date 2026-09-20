@@ -529,9 +529,9 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         var hasMusic = plan.BackgroundMusicRelativePath is not null || plan.MusicTracks.Count > 0;
         var total = RenderTimeline.TotalLength(lengths, durations);
 
-        var canCopy = RenderTimeline.CanStreamCopy(durations, hasMusic)
+        var canCopy = plan.Overlays.Count == 0 && (RenderTimeline.CanStreamCopy(durations, hasMusic)
                       || (durations.All(d => d.Value == 0)
-                          && !capabilities.Supports(RenderFeature.CrossFadeTransitions));
+                          && !capabilities.Supports(RenderFeature.CrossFadeTransitions)));
 
         return canCopy
             ? BuildConcatMerge(plan, total)
@@ -603,7 +603,55 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
             videoLabel = next;
         }
 
-        graph.Append($"[{videoLabel}]format={plan.Encoder.PixelFormat}[vfinal];\n");
+        var currentVideoLabel = videoLabel;
+        for (var idx = 0; idx < plan.Overlays.Count; idx++)
+        {
+            var overlay = plan.Overlays[idx];
+            var nextVideoLabel = $"v_ov_{idx}";
+            var startSec = FilterExpr.N(overlay.StartSeconds);
+            var endSec = FilterExpr.N(overlay.StartSeconds + overlay.DurationSeconds);
+
+            if (overlay.Type is "image" or "video" && overlay.RelativePath is { Length: > 0 })
+            {
+                var ovInput = inputs.Count;
+                inputs.Add(new FfmpegInputSpec([], overlay.RelativePath));
+
+                var ovScaledLabel = $"ov_s_{idx}";
+                var scaleStr = overlay.Scale != 1.0 ? $",scale=iw*{FilterExpr.N(overlay.Scale)}:-1" : "";
+                var opacityStr = overlay.Opacity < 1.0 ? $",colorchannelmixer=aa={FilterExpr.N(overlay.Opacity)}" : "";
+
+                graph.Append($"[{ovInput}:v]format=rgba{scaleStr}{opacityStr}[{ovScaledLabel}];\n");
+
+                var xPos = overlay.X != 0 ? $"(W-w)/2+W*{FilterExpr.N(overlay.X / 100.0)}" : "(W-w)/2";
+                var yPos = overlay.Y != 0 ? $"(H-h)/2+H*{FilterExpr.N(overlay.Y / 100.0)}" : "(H-h)/2";
+
+                graph.Append($"[{currentVideoLabel}][{ovScaledLabel}]overlay=x={xPos}:y={yPos}:enable='between(t,{startSec},{endSec})'[{nextVideoLabel}];\n");
+                currentVideoLabel = nextVideoLabel;
+            }
+            else if (overlay.Type == "text" && !string.IsNullOrWhiteSpace(overlay.Text))
+            {
+                var fontSize = FilterExpr.N(overlay.FontSize > 0 ? overlay.FontSize : 36);
+                var fontColor = !string.IsNullOrEmpty(overlay.Color) ? overlay.Color : "#ffffff";
+                var bgColor = !string.IsNullOrEmpty(overlay.BackgroundColor) ? overlay.BackgroundColor : "black@0.6";
+
+                string yPos = overlay.Position?.ToLowerInvariant() switch
+                {
+                    "top" => "h*0.1",
+                    "center" => "(h-text_h)/2",
+                    _ => "h*0.85-text_h"
+                };
+
+                var safeText = overlay.Text
+                    .Replace(@"\", @"\\")
+                    .Replace("'", @"\'")
+                    .Replace(":", @"\:");
+
+                graph.Append($"[{currentVideoLabel}]drawtext=text='{safeText}':fontsize={fontSize}:fontcolor={fontColor}:box=1:boxcolor={bgColor}:boxborderw=10:x=(w-text_w)/2:y={yPos}:enable='between(t,{startSec},{endSec})'[{nextVideoLabel}];\n");
+                currentVideoLabel = nextVideoLabel;
+            }
+        }
+
+        graph.Append($"[{currentVideoLabel}]format={plan.Encoder.PixelFormat}[vfinal];\n");
 
         // Audio mirrors the video chain. acrossfade consumes audio with exactly the same
         // arithmetic xfade uses, so driving both from the same durations keeps them locked.

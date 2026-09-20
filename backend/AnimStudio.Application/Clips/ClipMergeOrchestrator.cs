@@ -308,6 +308,44 @@ public sealed class ClipMergeOrchestrator(
                     t.TrimStartSeconds, t.TrimEndSeconds))
                 .ToList();
 
+            var overlays = new List<MergeOverlayItem>();
+            foreach (var item in spec.TimelineItems)
+            {
+                if (item.TrackId is "V2" or "V3" or "TXT1")
+                {
+                    string? relPath = null;
+                    if (item.Type is "image" or "video")
+                    {
+                        materialized.TryGetValue(item.Src, out relPath);
+                    }
+                    var tr = item.Transform;
+                    var txt = item.TextStyle;
+                    overlays.Add(new MergeOverlayItem(
+                        item.Type,
+                        relPath,
+                        item.StartTime,
+                        item.Duration,
+                        tr?.Scale ?? 1.0,
+                        tr?.X ?? 0.0,
+                        tr?.Y ?? 0.0,
+                        tr?.Opacity ?? 1.0,
+                        item.Src,
+                        txt?.FontSize ?? 36.0,
+                        txt?.Color ?? "#ffffff",
+                        txt?.BackgroundColor ?? "rgba(0,0,0,0.6)",
+                        txt?.Position ?? "bottom"));
+                }
+                else if (item.TrackId is "A1" or "A2" && item.Type == "audio")
+                {
+                    if (materialized.TryGetValue(item.Src, out var audioPath))
+                    {
+                        timedTracks.Add(new MergeMusicTrack(
+                            audioPath, item.StartTime, item.Volume ?? 1.0,
+                            item.TrimStartSeconds, item.TrimEndSeconds));
+                    }
+                }
+            }
+
             var mergePlan = new MergePlan
             {
                 Canvas = canvas,
@@ -315,6 +353,7 @@ public sealed class ClipMergeOrchestrator(
                 BackgroundMusicRelativePath = musicPath,
                 BackgroundMusicVolume = spec.BackgroundMusicVolume,
                 MusicTracks = timedTracks,
+                Overlays = overlays,
                 OutputRelativePath = "out/final.mp4",
                 // Always the delivery profile: whether this re-encodes or stream-copies,
                 // its output is what the viewer downloads.
@@ -449,6 +488,14 @@ public sealed class ClipMergeOrchestrator(
         foreach (var clip in spec.ClipAudio)
         {
             if (clip.AudioAssetId is { Length: > 0 } clipAudio) ids.Add(clipAudio);
+        }
+
+        foreach (var item in spec.TimelineItems)
+        {
+            if (item.Type is "image" or "video" or "audio" && !string.IsNullOrWhiteSpace(item.Src))
+            {
+                ids.Add(item.Src);
+            }
         }
 
         var loaded = await assets.GetManyAsync(ids, ct).ConfigureAwait(false);

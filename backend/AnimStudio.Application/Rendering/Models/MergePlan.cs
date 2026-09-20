@@ -12,6 +12,21 @@ public sealed record MergeMusicTrack(
     string RelativePath, double StartSeconds, double Volume,
     double? TrimStartSeconds, double? TrimEndSeconds);
 
+public sealed record MergeOverlayItem(
+    string Type,
+    string? RelativePath,
+    double StartSeconds,
+    double DurationSeconds,
+    double Scale,
+    double X,
+    double Y,
+    double Opacity,
+    string? Text,
+    double FontSize,
+    string Color,
+    string BackgroundColor,
+    string Position);
+
 public sealed record MergePlan
 {
     public required Canvas Canvas { get; init; }
@@ -26,6 +41,8 @@ public sealed record MergePlan
     /// built.
     /// </summary>
     public IReadOnlyList<MergeMusicTrack> MusicTracks { get; init; } = [];
+
+    public IReadOnlyList<MergeOverlayItem> Overlays { get; init; } = [];
 
     public required string OutputRelativePath { get; init; }
 

@@ -140,10 +140,38 @@ public sealed class ClipsController(
                 .ToList(),
             ClipAudio = request.ClipAudio?
                 .Select(c => new ClipAudioTrack(
-
                     c.Volume, c.AudioAssetId, c.AudioVolume, c.KeepOriginalAudio, c.TrimStartSeconds, c.TrimEndSeconds))
                 .ToList(),
-            Watermark = request.Watermark.ToSettings()
+            Watermark = request.Watermark.ToSettings(),
+            TimelineItems = request.TimelineItems?
+                .Select(t => new TimelineItemSpec
+                {
+                    Id = t.Id,
+                    Type = t.Type,
+                    TrackId = t.TrackId,
+                    StartTime = t.StartTime,
+                    Duration = t.Duration,
+                    Src = t.Src,
+                    Name = t.Name,
+                    Transform = t.Transform is null ? null : new TimelineItemTransformSpec
+                    {
+                        Scale = t.Transform.Scale,
+                        X = t.Transform.X,
+                        Y = t.Transform.Y,
+                        Opacity = t.Transform.Opacity
+                    },
+                    TextStyle = t.TextStyle is null ? null : new TimelineItemTextStyleSpec
+                    {
+                        FontSize = t.TextStyle.FontSize,
+                        Color = t.TextStyle.Color,
+                        BackgroundColor = t.TextStyle.BackgroundColor,
+                        Position = t.TextStyle.Position
+                    },
+                    Volume = t.Volume,
+                    TrimStartSeconds = t.TrimStartSeconds,
+                    TrimEndSeconds = t.TrimEndSeconds
+                })
+                .ToList()
         };
 
         var job = await clips.QueueAsync(projectId, command, ct);

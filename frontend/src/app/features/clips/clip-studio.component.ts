@@ -8,8 +8,10 @@ import {
   Clip, ClipAudioBody, ClipFit, ClipOrder, ClipStudio, MAX_CLIP_GAIN, RenderJob,
   SHORTS_MAX_SECONDS, TRANSITIONS, WATERMARK_POSITIONS, WatermarkBody, WatermarkKind, WatermarkPosition,
   aspectRatioLabel, isTerminal, videoFormat,
+  TimelineItem, TimelineItemType, TrackControlState, TimelineItemTransform, TimelineItemTextStyle,
 } from '../../core/models/api.models';
 import { ApiService } from '../../core/services/api.service';
+import { AudioEngineService } from '../../core/services/audio-engine.service';
 import { ProjectStore } from '../../core/services/project-store';
 import { StatusService } from '../../core/services/status.service';
 
@@ -310,6 +312,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   }
 
   private readonly api = inject(ApiService);
+  private readonly audioEngine = inject(AudioEngineService);
 
   readonly store = inject(ProjectStore);
   readonly appFullscreen = signal(false);
@@ -474,7 +477,30 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   @ViewChild('timelineInner') timelineInnerRef?: ElementRef<HTMLElement>;
   @ViewChild('bgMusicAudio') bgMusicAudioRef?: ElementRef<HTMLAudioElement>;
   @ViewChild('clipSoundAudio') clipSoundAudioRef?: ElementRef<HTMLAudioElement>;
+  @ViewChild('overlayVideoMonitor') overlayVideoRef?: ElementRef<HTMLVideoElement>;
+  @ViewChild('playheadNeedle') playheadNeedleRef?: ElementRef<HTMLElement>;
+  @ViewChild('timelineSnapLine') snapLineRef?: ElementRef<HTMLElement>;
   private timelineAudioElements: Map<string, HTMLAudioElement> = new Map();
+
+  // --- Multi-Track Timeline Signals & State
+  readonly timelineTracks = signal<TrackControlState[]>([
+    { id: 'TXT1', name: 'Text 1', label: 'TXT1', kind: 'text', visible: true, muted: false, locked: false, color: '#f59e0b' },
+    { id: 'V3', name: 'Images', label: 'V3', kind: 'image', visible: true, muted: false, locked: false, color: '#10b981' },
+    { id: 'V2', name: 'Video 2', label: 'V2', kind: 'video', visible: true, muted: false, locked: false, color: '#06b6d4' },
+    { id: 'V1', name: 'Video 1', label: 'V1', kind: 'video', visible: true, muted: false, locked: false, color: '#3b82f6' },
+    { id: 'A1', name: 'Audio 1', label: 'A1', kind: 'audio', visible: true, muted: false, locked: false, color: '#8b5cf6' },
+    { id: 'A2', name: 'Audio 2', label: 'A2', kind: 'audio', visible: true, muted: false, locked: false, color: '#ec4899' },
+  ]);
+
+  readonly timelineItems = signal<TimelineItem[]>([]);
+  readonly selectedTimelineItemId = signal<string | null>(null);
+  readonly snapLineLeftPx = signal<number | null>(null);
+
+  readonly isSeeking = signal<boolean>(false);
+  private pendingSeekTime: number | null = null;
+  private activeSeekPromise: Promise<void> | null = null;
+  private itemDrag: { itemId: string; trackId: string; startClientX: number; origStartTime: number; duration: number } | null = null;
+  private itemTrim: { itemId: string; edge: 'left' | 'right'; startClientX: number; origStartTime: number; origDuration: number; origTrimStart: number } | null = null;
 
   // --- Live Studio Monitor Player state
   readonly isPlaying = signal(false);
@@ -671,8 +697,10 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   readonly timelineSeconds = computed(() => {
     const musicEnd = this.musicTracks()
       .reduce((max, t) => Math.max(max, t.startSeconds + this.musicTrackDurationSeconds(t)), 0);
+    const itemEnd = this.timelineItems()
+      .reduce((max, it) => Math.max(max, it.startTime + it.duration), 0);
 
-    return Math.max(this.totalSeconds(), musicEnd, 1);
+    return Math.max(this.totalSeconds(), musicEnd, itemEnd, 1);
   });
 
   readonly running = computed(() => {
@@ -980,6 +1008,33 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     if (!sched) return null;
     if (this.getClipType(sched.clip) !== 'image') return null;
     return this.assetUrl(sched.clip.id);
+  });
+
+  readonly activeV2Item = computed<TimelineItem | null>(() => {
+    const t = this.playheadTime();
+    const track = this.timelineTracks().find((tr) => tr.id === 'V2');
+    if (track && !track.visible) return null;
+    return this.timelineItems().find((item) => item.trackId === 'V2' && t >= item.startTime && t < (item.startTime + item.duration)) ?? null;
+  });
+
+  readonly activeV3Item = computed<TimelineItem | null>(() => {
+    const t = this.playheadTime();
+    const track = this.timelineTracks().find((tr) => tr.id === 'V3');
+    if (track && !track.visible) return null;
+    return this.timelineItems().find((item) => item.trackId === 'V3' && t >= item.startTime && t < (item.startTime + item.duration)) ?? null;
+  });
+
+  readonly activeTxtItem = computed<TimelineItem | null>(() => {
+    const t = this.playheadTime();
+    const track = this.timelineTracks().find((tr) => tr.id === 'TXT1');
+    if (track && !track.visible) return null;
+    return this.timelineItems().find((item) => item.trackId === 'TXT1' && t >= item.startTime && t < (item.startTime + item.duration)) ?? null;
+  });
+
+  readonly selectedTimelineItem = computed<TimelineItem | null>(() => {
+    const id = this.selectedTimelineItemId();
+    if (!id) return null;
+    return this.timelineItems().find((i) => i.id === id) ?? null;
   });
 
   readonly formattedPlayheadTime = computed(() => {
@@ -1495,6 +1550,8 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
       this.lowerThirdEnabled();
       this.lowerThirdTitle();
       this.lowerThirdSubtitle();
+      this.timelineItems();
+      this.timelineTracks();
 
       if (this.isInitialized) {
         this.hasUnsavedChanges.set(true);
@@ -1510,6 +1567,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
 
   ngOnDestroy(): void {
     this.pausePlayback();
+    this.audioEngine.dispose();
     this.stopPolling();
   }
 
@@ -1806,8 +1864,19 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     this.saveOrder();
   }
 
-  onRowDragStart(index: number): void {
+  onRowDragStart(index: number, event?: DragEvent): void {
     this.dragIndex.set(index);
+    const paged = this.pagedRows();
+    const item = paged[index];
+    if (item && event?.dataTransfer) {
+      event.dataTransfer.setData('text/plain', item.clip.id);
+      event.dataTransfer.setData('application/json', JSON.stringify({
+        id: item.clip.id,
+        name: item.clip.name,
+        type: this.getClipType(item.clip),
+        duration: item.clip.durationSeconds ?? 5.0
+      }));
+    }
   }
 
   onRowDragOver(index: number, event: DragEvent): void {
@@ -1952,6 +2021,8 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
       lowerThirdTitle: this.lowerThirdTitle(),
       lowerThirdSubtitle: this.lowerThirdSubtitle(),
       timelineThumbnailMode: this.timelineThumbnailMode(),
+      timelineItems: this.timelineItems(),
+      timelineTracks: this.timelineTracks(),
     };
 
     try {
@@ -2064,6 +2135,12 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
       if (typeof draft.lowerThirdTitle === 'string') this.lowerThirdTitle.set(draft.lowerThirdTitle);
       if (typeof draft.lowerThirdSubtitle === 'string') this.lowerThirdSubtitle.set(draft.lowerThirdSubtitle);
       if (typeof draft.timelineThumbnailMode === 'boolean') this.timelineThumbnailMode.set(draft.timelineThumbnailMode);
+      if (Array.isArray(draft.timelineItems)) {
+        this.timelineItems.set(draft.timelineItems);
+      }
+      if (Array.isArray(draft.timelineTracks)) {
+        this.timelineTracks.set(draft.timelineTracks);
+      }
 
       if (draft.savedAt) {
         const d = new Date(draft.savedAt);
@@ -2094,6 +2171,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     this.clipText.set(new Map());
     this.junctionOverrides.set(new Map());
     this.musicTracks.set([]);
+    this.timelineItems.set([]);
     this.resetColorGrading();
     this.reload(false, () => {
       setTimeout(() => {
@@ -2152,6 +2230,375 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     const ticks: number[] = [];
     for (let t = 0; t <= total; t += step) ticks.push(t);
     return ticks;
+  }
+
+  formatRulerTimestamp(seconds: number): string {
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  }
+
+  toggleTrackLock(trackId: string): void {
+    this.timelineTracks.update((tracks) =>
+      tracks.map((t) => (t.id === trackId ? { ...t, locked: !t.locked } : t))
+    );
+  }
+
+  isTrackLocked(trackId: string): boolean {
+    return this.timelineTracks().find((t) => t.id === trackId)?.locked ?? false;
+  }
+
+  toggleTrackVisibility(trackId: string): void {
+    this.timelineTracks.update((tracks) =>
+      tracks.map((t) => {
+        if (t.id !== trackId) return t;
+        if (t.kind === 'audio') {
+          const nextMuted = !t.muted;
+          this.audioEngine.setTrackMute(t.id as 'A1' | 'A2', nextMuted);
+          return { ...t, muted: nextMuted };
+        }
+        return { ...t, visible: !t.visible };
+      })
+    );
+  }
+
+  isTrackVisible(trackId: string): boolean {
+    const t = this.timelineTracks().find((t) => t.id === trackId);
+    if (!t) return true;
+    return t.kind === 'audio' ? !t.muted : t.visible;
+  }
+
+  updatePlayheadVisual(seconds: number): void {
+    if (this.playheadNeedleRef?.nativeElement) {
+      const px = 76 + this.secondsToPx(seconds);
+      this.playheadNeedleRef.nativeElement.style.transform = `translate3d(${px}px, 0, 0)`;
+    }
+  }
+
+  itemsForTrack(trackId: string): TimelineItem[] {
+    return this.timelineItems().filter((item) => item.trackId === trackId);
+  }
+
+  getOverlayTransform(transform?: TimelineItemTransform): string {
+    if (!transform) return 'none';
+    const scale = transform.scale ?? 1;
+    const x = transform.x ?? 0;
+    const y = transform.y ?? 0;
+    return `scale(${scale}) translate(${x}%, ${y}%)`;
+  }
+
+  applySnap(targetTime: number): number {
+    const threshold = 0.2;
+    const candidates: number[] = [0, this.playheadTime()];
+
+    for (const s of this.clipSchedule()) {
+      candidates.push(s.startSeconds, s.endSeconds);
+    }
+    for (const it of this.timelineItems()) {
+      candidates.push(it.startTime, it.startTime + it.duration);
+    }
+    const ticks = this.rulerTicks();
+    for (const tick of ticks) {
+      candidates.push(tick);
+    }
+
+    let bestSnap: number | null = null;
+    let minDiff = threshold;
+
+    for (const c of candidates) {
+      const diff = Math.abs(targetTime - c);
+      if (diff < minDiff) {
+        minDiff = diff;
+        bestSnap = c;
+      }
+    }
+
+    if (bestSnap !== null) {
+      this.snapLineLeftPx.set(this.secondsToPx(bestSnap));
+      return bestSnap;
+    }
+    this.snapLineLeftPx.set(null);
+    return targetTime;
+  }
+
+  clampItemCollision(trackId: string, startTime: number, duration: number, excludeItemId?: string): number {
+    const minStart = Math.max(0, startTime);
+    const minDur = Math.max(0.5, duration);
+    const siblings = this.timelineItems()
+      .filter((i) => i.trackId === trackId && i.id !== excludeItemId)
+      .sort((a, b) => a.startTime - b.startTime);
+
+    let clampedStart = minStart;
+
+    for (const sib of siblings) {
+      const sibStart = sib.startTime;
+      const sibEnd = sib.startTime + sib.duration;
+      if (clampedStart < sibEnd && (clampedStart + minDur) > sibStart) {
+        clampedStart = sibEnd;
+      }
+    }
+
+    return clampedStart;
+  }
+
+  waitForSeekSync(targetTime: number): Promise<void> {
+    if (this.isSeeking()) {
+      this.pendingSeekTime = targetTime;
+      return this.activeSeekPromise || Promise.resolve();
+    }
+
+    this.isSeeking.set(true);
+    const activeVideo = this.activeLayer() === 'A'
+      ? this.videoMonitorARef?.nativeElement
+      : this.videoMonitorBRef?.nativeElement;
+    const overlayVideo = this.overlayVideoRef?.nativeElement;
+
+    const seekPromises: Promise<void>[] = [];
+
+    const createSeekPromise = (video: HTMLVideoElement | undefined, time: number) => {
+      if (!video || isNaN(time)) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        let resolved = false;
+        const onSeeked = () => {
+          if (!resolved) {
+            resolved = true;
+            video.removeEventListener('seeked', onSeeked);
+            resolve();
+          }
+        };
+        video.addEventListener('seeked', onSeeked, { once: true });
+        setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            video.removeEventListener('seeked', onSeeked);
+            resolve();
+          }
+        }, 150);
+      });
+    };
+
+    const schedule = this.clipSchedule();
+    const curr = schedule.find((s) => targetTime >= s.startSeconds && targetTime < s.endSeconds)
+      ?? schedule[schedule.length - 1];
+    if (curr && activeVideo) {
+      const localTime = Math.max(0.001, targetTime - curr.startSeconds);
+      seekPromises.push(createSeekPromise(activeVideo, localTime));
+    }
+
+    const v2 = this.activeV2Item();
+    if (v2 && overlayVideo) {
+      const v2LocalTime = Math.max(0.001, targetTime - v2.startTime + (v2.trimStartSeconds ?? 0));
+      seekPromises.push(createSeekPromise(overlayVideo, v2LocalTime));
+    }
+
+    this.activeSeekPromise = Promise.all(seekPromises).then(() => {
+      this.isSeeking.set(false);
+      this.activeSeekPromise = null;
+      if (this.pendingSeekTime !== null) {
+        const nextTime = this.pendingSeekTime;
+        this.pendingSeekTime = null;
+        this.seekToTime(nextTime);
+      }
+    });
+
+    return this.activeSeekPromise;
+  }
+
+  onItemPointerDown(item: TimelineItem, event: PointerEvent): void {
+    const track = this.timelineTracks().find((t) => t.id === item.trackId);
+    if (track?.locked) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.selectedTimelineItemId.set(item.id);
+    this.itemDrag = {
+      itemId: item.id,
+      trackId: item.trackId,
+      startClientX: event.clientX,
+      origStartTime: item.startTime,
+      duration: item.duration,
+    };
+  }
+
+  onItemTrimPointerDown(item: TimelineItem, edge: 'left' | 'right', event: PointerEvent): void {
+    const track = this.timelineTracks().find((t) => t.id === item.trackId);
+    if (track?.locked) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.itemTrim = {
+      itemId: item.id,
+      edge,
+      startClientX: event.clientX,
+      origStartTime: item.startTime,
+      origDuration: item.duration,
+      origTrimStart: item.trimStartSeconds ?? 0,
+    };
+  }
+
+  onTrackDrop(trackId: string, event: DragEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.snapLineLeftPx.set(null);
+
+    const track = this.timelineTracks().find((t) => t.id === trackId);
+    if (!track || track.locked) {
+      if (track?.locked) this.status.notify([`Track ${track.label} is locked.`]);
+      return;
+    }
+
+    const el = this.timelineInnerRef?.nativeElement;
+    const rect = el ? el.getBoundingClientRect() : { left: 0 };
+    const dropX = Math.max(0, event.clientX - rect.left - 76);
+    let dropTime = dropX / this.pxPerSecond();
+    dropTime = this.applySnap(dropTime);
+
+    const clipId = event.dataTransfer?.getData('text/plain') || event.dataTransfer?.getData('application/json');
+    if (!clipId) return;
+
+    const studio = this.studio();
+    let assetType: TimelineItemType = 'video';
+    let assetName = 'Clip';
+    let defaultDuration = 5.0;
+
+    const clipRow = this.rows().find((r) => r.clip.id === clipId);
+    const imgCandidate = studio?.logoCandidates?.find((l) => l.id === clipId);
+    const audioCandidate = studio?.musicCandidates?.find((m) => m.id === clipId);
+
+    if (imgCandidate) {
+      assetType = 'image';
+      assetName = imgCandidate.name;
+      defaultDuration = 5.0;
+    } else if (audioCandidate) {
+      assetType = 'audio';
+      assetName = audioCandidate.name;
+      defaultDuration = audioCandidate.durationSeconds ?? 5.0;
+    } else if (clipRow) {
+      const detected = this.getClipType(clipRow.clip);
+      assetType = detected === 'image' ? 'image' : (detected === 'audio' ? 'audio' : 'video');
+      assetName = clipRow.clip.name;
+      defaultDuration = clipRow.clip.durationSeconds ?? 5.0;
+    }
+
+    let targetTrackId = trackId;
+    if (trackId === 'TXT1') {
+      this.status.notify(['Use the Text tab or "+ Text" button to place subtitle/text overlays on TXT1.']);
+      return;
+    }
+
+    if (trackId === 'V3' && assetType !== 'image') {
+      if (assetType === 'video') {
+        targetTrackId = 'V2';
+        this.status.notify(['Redirected video clip to V2 Video Overlay track.']);
+      } else {
+        this.status.notify(['Only image overlays can be placed on V3 lane.']);
+        return;
+      }
+    }
+
+    if (trackId === 'V2' && assetType !== 'video') {
+      if (assetType === 'image') {
+        targetTrackId = 'V3';
+        this.status.notify(['Redirected image to V3 Image Overlay track.']);
+      } else {
+        this.status.notify(['Only video overlays can be placed on V2 lane.']);
+        return;
+      }
+    }
+
+    if ((trackId === 'A1' || trackId === 'A2') && assetType !== 'audio') {
+      this.status.notify(['Only audio clips can be placed on audio lanes.']);
+      return;
+    }
+
+    if (trackId === 'V1' && assetType === 'video') {
+      if (clipRow && !clipRow.included) {
+        this.toggle(this.rows().indexOf(clipRow));
+      }
+      return;
+    }
+
+    const validStart = this.clampItemCollision(targetTrackId, dropTime, defaultDuration);
+    const newItemId = `item_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+
+    const newItem: TimelineItem = {
+      id: newItemId,
+      type: assetType,
+      trackId: targetTrackId,
+      startTime: validStart,
+      duration: defaultDuration,
+      src: clipId,
+      name: assetName,
+      transform: assetType === 'image' || assetType === 'video' ? { scale: 1.0, x: 0, y: 0, opacity: 1.0 } : undefined,
+      volume: assetType === 'audio' ? 0.5 : undefined,
+    };
+
+    this.timelineItems.update((items) => [...items, newItem]);
+    this.selectedTimelineItemId.set(newItemId);
+    this.markDirty();
+    this.status.notify([`Added ${assetName} to ${targetTrackId} at ${validStart.toFixed(1)}s.`]);
+  }
+
+  addTextOverlay(text?: string): void {
+    const content = text || 'Subtitle Text';
+    const start = this.playheadTime();
+    const dur = 4.0;
+    const validStart = this.clampItemCollision('TXT1', start, dur);
+    const newItem: TimelineItem = {
+      id: `txt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+      type: 'text',
+      trackId: 'TXT1',
+      startTime: validStart,
+      duration: dur,
+      src: content,
+      name: 'Text Overlay',
+      textStyle: {
+        fontSize: 28,
+        color: '#ffffff',
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        position: 'bottom',
+      },
+    };
+    this.timelineItems.update((items) => [...items, newItem]);
+    this.selectedTimelineItemId.set(newItem.id);
+    this.markDirty();
+    this.status.notify(['Added text overlay to TXT1.']);
+  }
+
+  removeTimelineItem(itemId: string): void {
+    this.timelineItems.update((items) => items.filter((i) => i.id !== itemId));
+    if (this.selectedTimelineItemId() === itemId) {
+      this.selectedTimelineItemId.set(null);
+    }
+    this.markDirty();
+  }
+
+  selectTimelineItem(itemId: string, event?: Event): void {
+    event?.stopPropagation();
+    this.selectedTimelineItemId.set(itemId);
+    const item = this.timelineItems().find((i) => i.id === itemId);
+    if (item) {
+      if (item.type === 'text') this.activeInspectorTab.set('text');
+      else if (item.type === 'audio') this.activeInspectorTab.set('audio');
+      else if (item.type === 'image' || item.type === 'video') this.activeInspectorTab.set('clip');
+    }
+  }
+
+  timelineItemsPayload(): TimelineItem[] | null {
+    const items = this.timelineItems();
+    if (items.length === 0) return null;
+    return items.map((item) => ({
+      id: item.id,
+      type: item.type,
+      trackId: item.trackId,
+      startTime: item.startTime,
+      duration: item.duration,
+      src: item.src,
+      name: item.name,
+      transform: item.transform,
+      textStyle: item.textStyle,
+      volume: item.volume,
+      trimStartSeconds: item.trimStartSeconds,
+      trimEndSeconds: item.trimEndSeconds,
+    }));
   }
 
   // --- per-junction transitions ----------------------------------------------
@@ -2427,6 +2874,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   // --- live studio monitor player engine -------------------------------------
 
   togglePlay(): void {
+    this.audioEngine.ensureContext();
     if (this.isPlaying()) {
       this.pausePlayback();
     } else {
@@ -2439,6 +2887,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
 
   startPlayback(): void {
     if (this.clipSchedule().length === 0) return;
+    this.audioEngine.ensureContext();
     if (this.previewAudioEl) {
       this.previewAudioEl.pause();
       this.previewingAudioId.set(null);
@@ -2455,6 +2904,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
       cancelAnimationFrame(this.animFrameId);
       this.animFrameId = null;
     }
+    this.audioEngine.pauseAll();
     this.pauseAllMedia();
   }
 
@@ -2471,12 +2921,15 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     this.playbackSpeed.set(speed);
     const videoA = this.videoMonitorARef?.nativeElement;
     const videoB = this.videoMonitorBRef?.nativeElement;
+    const overlay = this.overlayVideoRef?.nativeElement;
     if (videoA) videoA.playbackRate = speed;
     if (videoB) videoB.playbackRate = speed;
+    if (overlay) overlay.playbackRate = speed;
   }
 
   toggleMonitorMute(): void {
     this.isMonitorMuted.update((m) => !m);
+    this.audioEngine.setMasterVolume(this.monitorVolume(), this.isMonitorMuted());
     this.syncMediaElements(this.isPlaying());
   }
 
@@ -2492,9 +2945,12 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   }
 
   seekToTime(seconds: number): void {
+    this.audioEngine.ensureContext();
     const clamped = Math.max(0, Math.min(seconds, this.timelineSeconds()));
     this.playheadTime.set(clamped);
+    this.updatePlayheadVisual(clamped);
     this.syncMediaElements(this.isPlaying());
+    this.waitForSeekSync(clamped);
   }
 
   seekRelative(deltaSeconds: number): void {
@@ -3070,47 +3526,104 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
       }
     }
 
-    // Sync Timeline Music Tracks
-    const currentTracks = this.musicTracks();
-    const validKeys = new Set(currentTracks.map(t => t.key));
+    // Sync V2 Overlay Video
+    const overlayVideo = this.overlayVideoRef?.nativeElement;
+    const v2Item = this.activeV2Item();
+    if (overlayVideo) {
+      if (v2Item && v2Item.type === 'video') {
+        const v2Src = this.assetUrl(v2Item.src);
+        if (overlayVideo.src !== v2Src) {
+          overlayVideo.src = v2Src;
+        }
+        const v2LocalTime = Math.max(0.001, (time - v2Item.startTime) + (v2Item.trimStartSeconds ?? 0));
+        if (!playing || (Math.abs(overlayVideo.currentTime - v2LocalTime) > 0.35 && !overlayVideo.seeking)) {
+          if (overlayVideo.readyState >= 1) {
+            overlayVideo.currentTime = v2LocalTime;
+          } else {
+            overlayVideo.onloadedmetadata = () => {
+              overlayVideo.currentTime = v2LocalTime;
+            };
+          }
+        }
+        overlayVideo.playbackRate = speed;
+        if (playing) {
+          if (overlayVideo.paused) overlayVideo.play().catch(() => undefined);
+        } else {
+          if (!overlayVideo.paused) overlayVideo.pause();
+        }
+      } else {
+        if (!overlayVideo.paused) overlayVideo.pause();
+      }
+    }
 
-    for (const [key, audio] of this.timelineAudioElements.entries()) {
-      if (!validKeys.has(key)) {
-        audio.pause();
-        audio.removeAttribute('src');
-        audio.load();
-        this.timelineAudioElements.delete(key);
+    // Sync Web Audio API engine for A1 and A2
+    const currentTracks = this.musicTracks();
+    const a1Items = this.timelineItems().filter((i) => i.trackId === 'A1' && i.type === 'audio');
+    const a2Items = this.timelineItems().filter((i) => i.trackId === 'A2' && i.type === 'audio');
+    const activeAudioKeys = new Set<string>();
+    let isA1Playing = false;
+
+    for (const item of a1Items) {
+      const dur = item.duration;
+      if (time >= item.startTime && time < item.startTime + dur) {
+        activeAudioKeys.add(item.id);
+        const source = this.audioEngine.getOrCreateSource(item.id, this.assetUrl(item.src), 'A1');
+        const localTime = (time - item.startTime) + (item.trimStartSeconds ?? 0);
+        if (Math.abs(source.element.currentTime - localTime) > 0.35 || !playing) {
+          source.element.currentTime = localTime;
+        }
+        source.element.playbackRate = speed;
+        if (playing) {
+          if (source.element.paused) source.element.play().catch(() => undefined);
+          isA1Playing = true;
+        } else {
+          if (!source.element.paused) source.element.pause();
+        }
+      }
+    }
+
+    if (sound.audioAssetId && clipSoundEl && !clipSoundEl.paused) {
+      isA1Playing = true;
+    }
+    this.audioEngine.setA1Active(isA1Playing);
+
+    for (const item of a2Items) {
+      const dur = item.duration;
+      if (time >= item.startTime && time < item.startTime + dur) {
+        activeAudioKeys.add(item.id);
+        const source = this.audioEngine.getOrCreateSource(item.id, this.assetUrl(item.src), 'A2');
+        const localTime = (time - item.startTime) + (item.trimStartSeconds ?? 0);
+        if (Math.abs(source.element.currentTime - localTime) > 0.35 || !playing) {
+          source.element.currentTime = localTime;
+        }
+        source.element.playbackRate = speed;
+        if (playing) {
+          if (source.element.paused) source.element.play().catch(() => undefined);
+        } else {
+          if (!source.element.paused) source.element.pause();
+        }
       }
     }
 
     for (const track of currentTracks) {
-      let audio = this.timelineAudioElements.get(track.key);
-      if (!audio) {
-        audio = new Audio();
-        audio.src = this.assetUrl(track.assetId);
-        this.timelineAudioElements.set(track.key, audio);
-      }
-
       const dur = this.musicTrackDurationSeconds(track);
       if (time >= track.startSeconds && time < track.startSeconds + dur) {
-        const trackLocalTime = (time - track.startSeconds) + (track.trimStartSeconds ?? 0);
-        
-        if (Math.abs(audio.currentTime - trackLocalTime) > 0.35 || !playing) {
-          audio.currentTime = trackLocalTime;
+        activeAudioKeys.add(track.key);
+        const source = this.audioEngine.getOrCreateSource(track.key, this.assetUrl(track.assetId), 'A2');
+        const localTime = (time - track.startSeconds) + (track.trimStartSeconds ?? 0);
+        if (Math.abs(source.element.currentTime - localTime) > 0.35 || !playing) {
+          source.element.currentTime = localTime;
         }
-        audio.volume = this.isMonitorMuted() ? 0 : track.volume;
-        audio.muted = this.isMonitorMuted();
-        audio.playbackRate = speed;
-
+        source.element.playbackRate = speed;
         if (playing) {
-          if (audio.paused) audio.play().catch(() => undefined);
+          if (source.element.paused) source.element.play().catch(() => undefined);
         } else {
-          if (!audio.paused) audio.pause();
+          if (!source.element.paused) source.element.pause();
         }
-      } else {
-        if (!audio.paused) audio.pause();
       }
     }
+
+    this.audioEngine.cleanupUnused(activeAudioKeys);
 
     if (bgAudio) {
       const musicId = this.musicAssetId();
@@ -3156,8 +3669,12 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   }
 
   private pauseAllMedia(): void {
+    this.audioEngine.pauseAll();
     this.videoMonitorARef?.nativeElement.pause();
     this.videoMonitorBRef?.nativeElement.pause();
+    if (this.overlayVideoRef?.nativeElement && !this.overlayVideoRef.nativeElement.paused) {
+      this.overlayVideoRef.nativeElement.pause();
+    }
     this.bgMusicAudioRef?.nativeElement.pause();
     this.clipSoundAudioRef?.nativeElement.pause();
     for (const audio of this.timelineAudioElements.values()) {
@@ -3267,22 +3784,9 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     const el = this.timelineInnerRef?.nativeElement;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    const x = Math.max(0, event.clientX - rect.left);
+    const x = Math.max(0, event.clientX - rect.left - 76);
     let targetSeconds = x / this.pxPerSecond();
-
-    // Magnetic snapping: check if within 0.25s of clip junctions
-    const schedule = this.clipSchedule();
-    for (const item of schedule) {
-      if (Math.abs(targetSeconds - item.startSeconds) < 0.25) {
-        targetSeconds = item.startSeconds;
-        break;
-      }
-      if (Math.abs(targetSeconds - item.endSeconds) < 0.25) {
-        targetSeconds = item.endSeconds;
-        break;
-      }
-    }
-
+    targetSeconds = this.applySnap(targetSeconds);
     this.seekToTime(targetSeconds);
   }
 
@@ -3408,6 +3912,59 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
 
     const perSecond = this.pxPerSecond();
 
+    if (this.itemDrag) {
+      const drag = this.itemDrag;
+      const deltaSeconds = (event.clientX - drag.startClientX) / perSecond;
+      const rawStart = Math.max(0, drag.origStartTime + deltaSeconds);
+      const snappedStart = this.applySnap(rawStart);
+      const clampedStart = this.clampItemCollision(drag.trackId, snappedStart, drag.duration, drag.itemId);
+
+      this.timelineItems.update((items) =>
+        items.map((it) => (it.id === drag.itemId ? { ...it, startTime: clampedStart } : it))
+      );
+      this.markDirty();
+      return;
+    }
+
+    if (this.itemTrim) {
+      const trim = this.itemTrim;
+      const deltaSeconds = (event.clientX - trim.startClientX) / perSecond;
+
+      if (trim.edge === 'left') {
+        const origEnd = trim.origStartTime + trim.origDuration;
+        const rawStart = Math.max(0, Math.min(trim.origStartTime + deltaSeconds, origEnd - 0.5));
+        const snappedStart = Math.min(this.applySnap(rawStart), origEnd - 0.5);
+        const newDuration = origEnd - snappedStart;
+        const shift = snappedStart - trim.origStartTime;
+        const newTrimStart = Math.max(0, trim.origTrimStart + shift);
+
+        this.timelineItems.update((items) =>
+          items.map((it) =>
+            it.id === trim.itemId
+              ? { ...it, startTime: snappedStart, duration: newDuration, trimStartSeconds: newTrimStart }
+              : it
+          )
+        );
+      } else {
+        const rawEnd = trim.origStartTime + trim.origDuration + deltaSeconds;
+        const snappedEnd = this.applySnap(rawEnd);
+        const maxCeiling = this.timelineSeconds() + 30;
+        const clampedEnd = Math.max(trim.origStartTime + 0.5, Math.min(snappedEnd, maxCeiling));
+        const newDuration = clampedEnd - trim.origStartTime;
+        const newTrimEnd = trim.origTrimStart + newDuration;
+
+        this.timelineItems.update((items) =>
+          items.map((it) =>
+            it.id === trim.itemId
+              ? { ...it, duration: newDuration, trimEndSeconds: newTrimEnd }
+              : it
+          )
+        );
+      }
+      this.markDirty();
+      return;
+    }
+
     if (this.musicDrag) {
       const drag = this.musicDrag;
       const next = Math.max(0, drag.startSeconds + (event.clientX - drag.startClientX) / perSecond);
@@ -3436,6 +3993,9 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
 
   onTimelinePointerUp(): void {
     this.isScrubbing.set(false);
+    this.snapLineLeftPx.set(null);
+    this.itemDrag = null;
+    this.itemTrim = null;
     this.musicDrag = null;
     this.musicTrim = null;
   }
@@ -3468,6 +4028,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
           trimStartSeconds: t.trimStartSeconds,
           trimEndSeconds: t.trimEndSeconds,
         })),
+        timelineItems: this.timelineItemsPayload(),
         clipAudio: this.clipAudioPayload(),
         watermark: {
           kind: this.effectiveWatermark().kind,
@@ -3526,6 +4087,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
           trimStartSeconds: t.trimStartSeconds,
           trimEndSeconds: t.trimEndSeconds,
         })),
+        timelineItems: this.timelineItemsPayload(),
         clipAudio: this.clipAudioPayload(),
         watermark: {
           kind: this.effectiveWatermark().kind,

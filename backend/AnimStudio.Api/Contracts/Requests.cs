@@ -360,4 +360,38 @@ public sealed record ClipMergeRequest
     public List<ClipAudioRequest>? ClipAudio { get; init; }
 
     public WatermarkRequest Watermark { get; init; } = new();
+
+    public List<TimelineItemRequest>? TimelineItems { get; init; }
+}
+
+public sealed record TimelineItemTextStyleRequest
+{
+    public double FontSize { get; init; } = 36;
+    [StringLength(32)] public string Color { get; init; } = "#ffffff";
+    [StringLength(32)] public string BackgroundColor { get; init; } = "rgba(0,0,0,0.6)";
+    [StringLength(16)] public string Position { get; init; } = "bottom";
+}
+
+public sealed record TimelineItemTransformRequest
+{
+    public double Scale { get; init; } = 1.0;
+    public double X { get; init; }
+    public double Y { get; init; }
+    public double Opacity { get; init; } = 1.0;
+}
+
+public sealed record TimelineItemRequest
+{
+    public string Id { get; init; } = string.Empty;
+    public string Type { get; init; } = "video";
+    public string TrackId { get; init; } = "V1";
+    public double StartTime { get; init; }
+    public double Duration { get; init; }
+    public string Src { get; init; } = string.Empty;
+    public string? Name { get; init; }
+    public TimelineItemTransformRequest? Transform { get; init; }
+    public TimelineItemTextStyleRequest? TextStyle { get; init; }
+    public double? Volume { get; init; }
+    public double? TrimStartSeconds { get; init; }
+    public double? TrimEndSeconds { get; init; }
 }

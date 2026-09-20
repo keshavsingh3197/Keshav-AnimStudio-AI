@@ -102,6 +102,8 @@ public sealed class ClipMergeSpec
     /// </para>
     /// </summary>
     public List<ClipAudioSpec> ClipAudio { get; set; } = [];
+
+    public List<TimelineItemSpec> TimelineItems { get; set; } = [];
 }
 
 /// <summary>
@@ -169,6 +171,38 @@ public sealed class TimedMusicClipSpec
     public double Volume { get; set; } = 0.5;
 
     /// <summary>Optional window on the SOURCE file. Null on either end plays from/to the end.</summary>
+    public double? TrimStartSeconds { get; set; }
+    public double? TrimEndSeconds { get; set; }
+}
+
+public sealed class TimelineItemTextStyleSpec
+{
+    public double FontSize { get; set; } = 36;
+    public string Color { get; set; } = "#ffffff";
+    public string BackgroundColor { get; set; } = "rgba(0,0,0,0.6)";
+    public string Position { get; set; } = "bottom";
+}
+
+public sealed class TimelineItemTransformSpec
+{
+    public double Scale { get; set; } = 1.0;
+    public double X { get; set; }
+    public double Y { get; set; }
+    public double Opacity { get; set; } = 1.0;
+}
+
+public sealed class TimelineItemSpec
+{
+    public string Id { get; set; } = string.Empty;
+    public string Type { get; set; } = "video";
+    public string TrackId { get; set; } = "V1";
+    public double StartTime { get; set; }
+    public double Duration { get; set; }
+    public string Src { get; set; } = string.Empty;
+    public string? Name { get; set; }
+    public TimelineItemTransformSpec? Transform { get; set; }
+    public TimelineItemTextStyleSpec? TextStyle { get; set; }
+    public double? Volume { get; set; }
     public double? TrimStartSeconds { get; set; }
     public double? TrimEndSeconds { get; set; }
 }

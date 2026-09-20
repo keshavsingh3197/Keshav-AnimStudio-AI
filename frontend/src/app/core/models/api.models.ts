@@ -474,6 +474,48 @@ export interface ClipAudioBody {
 /** Loudest anything may be lifted. Mirrors ClipAudioSpec.MaxGain on the server. */
 export const MAX_CLIP_GAIN = 2;
 
+export type TimelineItemType = 'video' | 'image' | 'audio' | 'text';
+
+export interface TimelineItemTransform {
+  scale: number;
+  x: number;
+  y: number;
+  opacity: number;
+}
+
+export interface TimelineItemTextStyle {
+  fontSize: number;
+  color: string;
+  backgroundColor: string;
+  position: 'top' | 'center' | 'bottom';
+}
+
+export interface TimelineItem {
+  id: string;
+  type: TimelineItemType;
+  trackId: string;
+  startTime: number;
+  duration: number;
+  src: string;
+  name?: string;
+  transform?: TimelineItemTransform;
+  textStyle?: TimelineItemTextStyle;
+  volume?: number;
+  trimStartSeconds?: number;
+  trimEndSeconds?: number;
+}
+
+export interface TrackControlState {
+  id: string;
+  name: string;
+  label: string;
+  kind: 'text' | 'image' | 'video' | 'audio';
+  visible: boolean;
+  muted: boolean;
+  locked: boolean;
+  color: string;
+}
+
 export interface ClipMergeBody {
   assetIds: string[];
   fit: ClipFit;
@@ -490,6 +532,7 @@ export interface ClipMergeBody {
   /** One entry per clip in the cut; omitted means every clip plays as recorded. */
   clipAudio?: ClipAudioBody[] | null;
   watermark: WatermarkBody;
+  timelineItems?: TimelineItem[] | null;
 }
 // --- option lists, kept beside the models so a select and its API value cannot drift ---
 
