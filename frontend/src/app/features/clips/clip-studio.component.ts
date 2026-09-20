@@ -45,6 +45,7 @@ export interface ClipAudioSetting {
   keepOriginalAudio: boolean;
   audioTrimStartSeconds?: number;
   audioTrimEndSeconds?: number;
+  duckMode?: 'Normal' | 'Ducked' | 'LeadVoice';
 }
 
 export interface MusicTrackRow {
@@ -480,6 +481,14 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   @ViewChild('overlayVideoMonitor') overlayVideoRef?: ElementRef<HTMLVideoElement>;
   @ViewChild('playheadNeedle') playheadNeedleRef?: ElementRef<HTMLElement>;
   @ViewChild('timelineSnapLine') snapLineRef?: ElementRef<HTMLElement>;
+
+  // Lifecycle-gated peak meter bar elements
+  @ViewChild('meterBarV1') meterBarV1Ref?: ElementRef<HTMLElement>;
+  @ViewChild('meterBarV2') meterBarV2Ref?: ElementRef<HTMLElement>;
+  @ViewChild('meterBarA1') meterBarA1Ref?: ElementRef<HTMLElement>;
+  @ViewChild('meterBarA2') meterBarA2Ref?: ElementRef<HTMLElement>;
+  @ViewChild('meterBarMaster') meterBarMasterRef?: ElementRef<HTMLElement>;
+  private peakMeterRafId: number | null = null;
   private timelineAudioElements: Map<string, HTMLAudioElement> = new Map();
 
   // --- Multi-Track Timeline Signals & State
@@ -490,11 +499,21 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     { id: 'V1', name: 'Video 1', label: 'V1', kind: 'video', visible: true, muted: false, locked: false, color: '#3b82f6' },
     { id: 'A1', name: 'Audio 1', label: 'A1', kind: 'audio', visible: true, muted: false, locked: false, color: '#8b5cf6' },
     { id: 'A2', name: 'Audio 2', label: 'A2', kind: 'audio', visible: true, muted: false, locked: false, color: '#ec4899' },
+    { id: 'A2', name: 'Audio 2', label: 'A2', kind: 'audio', visible: true, muted: false, locked: false, color: '#a855f7' },
   ]);
 
   readonly timelineItems = signal<TimelineItem[]>([]);
   readonly selectedTimelineItemId = signal<string | null>(null);
+  readonly selectedTimelineItemIds = signal<Set<string>>(new Set());
   readonly snapLineLeftPx = signal<number | null>(null);
+
+  // Audio Hub Context-Switching & Bus Mixer Signals
+  readonly audioInspectorViewMode = signal<'auto' | 'clip' | 'mixer'>('auto');
+  readonly trackV1Volume = signal<number>(1.0);
+  readonly trackV2Volume = signal<number>(1.0);
+  readonly trackA1Volume = signal<number>(1.0);
+  readonly trackA2Volume = signal<number>(0.8);
+  readonly isGlobalDuckingBypassed = computed(() => this.muteClipAudio() === 'Never');
 
   readonly isSeeking = signal<boolean>(false);
   private pendingSeekTime: number | null = null;
@@ -981,7 +1000,78 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   setInspectorTab(tab: 'clip' | 'effects' | 'audio' | 'export' | 'color' | 'text' | 'transitions'): void {
     this.activeInspectorTab.set(tab);
     this.toolDropdownOpen.set(false);
+    if (tab === 'audio' && this.isPlaying()) {
+      this.startPeakMeterLoop();
+    } else {
+      this.stopPeakMeterLoop();
+    }
   }
+
+  readonly isMultiSelection = computed(() => this.selectedTimelineItemIds().size > 1 || (this.targetScope() === 'selected' && this.selectedClipsCount() > 1));
+  readonly multiSelectionCount = computed(() => {
+    if (this.selectedTimelineItemIds().size > 1) return this.selectedTimelineItemIds().size;
+    if (this.targetScope() === 'selected') return this.selectedClipsCount();
+    return 1;
+  });
+
+  readonly effectiveAudioInspectorView = computed<'clip' | 'mixer'>(() => {
+    const mode = this.audioInspectorViewMode();
+    if (mode === 'clip') return 'clip';
+    if (mode === 'mixer') return 'mixer';
+    if (this.targetScope() === 'all') return 'mixer';
+    if (this.selectedTimelineItemIds().size > 0 || this.selectedTimelineItemId() || this.selectedClipId() || (this.targetScope() === 'current' && this.currentScheduledClip())) {
+      return 'clip';
+    }
+    return 'mixer';
+  });
+
+  setAudioInspectorView(mode: 'auto' | 'clip' | 'mixer'): void {
+    this.audioInspectorViewMode.set(mode);
+  }
+
+  readonly activeTargetAudioItem = computed<{
+    name: string;
+    duration: number;
+    trackId: string;
+    clipId: string;
+    isTimelineItem: boolean;
+    volume: number;
+    duckMode: 'Normal' | 'Ducked' | 'LeadVoice';
+    fadeInSeconds: number;
+    fadeOutSeconds: number;
+  } | null>(() => {
+    const tlItem = this.selectedTimelineItem();
+    if (tlItem) {
+      return {
+        name: tlItem.name ?? (tlItem.trackId + ' Item'),
+        duration: tlItem.duration,
+        trackId: tlItem.trackId,
+        clipId: tlItem.id,
+        isTimelineItem: true,
+        volume: tlItem.volume ?? 1.0,
+        duckMode: tlItem.duckMode ?? 'Normal',
+        fadeInSeconds: 0,
+        fadeOutSeconds: 0,
+      };
+    }
+    const clip = this.activeTargetClip();
+    if (clip) {
+      const sound = this.clipSound(clip.id);
+      const fade = this.clipAudioFadeSetting(clip.id);
+      return {
+        name: clip.name,
+        duration: clip.durationSeconds ?? 0,
+        trackId: 'V1',
+        clipId: clip.id,
+        isTimelineItem: false,
+        volume: sound.volume,
+        duckMode: sound.duckMode ?? 'Normal',
+        fadeInSeconds: fade.fadeInSeconds,
+        fadeOutSeconds: fade.fadeOutSeconds,
+      };
+    }
+    return null;
+  });
 
   readonly selectedClipIndexInCut = computed<number>(() => {
     const sel = this.selectedClip();
@@ -2574,12 +2664,114 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   selectTimelineItem(itemId: string, event?: Event): void {
     event?.stopPropagation();
     this.selectedTimelineItemId.set(itemId);
+    const mouseEv = event as MouseEvent | undefined;
+    const isMulti = !!(mouseEv?.ctrlKey || mouseEv?.metaKey || mouseEv?.shiftKey);
+
+    if (isMulti) {
+      this.selectedTimelineItemIds.update((set) => {
+        const next = new Set(set);
+        if (next.has(itemId)) next.delete(itemId);
+        else next.add(itemId);
+        return next;
+      });
+      const currentSet = this.selectedTimelineItemIds();
+      if (currentSet.has(itemId)) {
+        this.selectedTimelineItemId.set(itemId);
+      } else if (currentSet.size > 0) {
+        this.selectedTimelineItemId.set(Array.from(currentSet)[0]);
+      } else {
+        this.selectedTimelineItemId.set(null);
+      }
+    } else {
+      this.selectedTimelineItemId.set(itemId);
+      this.selectedTimelineItemIds.set(new Set([itemId]));
+    }
+
     const item = this.timelineItems().find((i) => i.id === itemId);
     if (item) {
       if (item.type === 'text') this.activeInspectorTab.set('text');
       else if (item.type === 'audio') this.activeInspectorTab.set('audio');
       else if (item.type === 'image' || item.type === 'video') this.activeInspectorTab.set('clip');
     }
+  }
+
+  clearTimelineSelection(): void {
+    this.selectedTimelineItemId.set(null);
+    this.selectedTimelineItemIds.set(new Set());
+  }
+
+  // --- Multi-Selection Batch State (Guardrail 2: Atomic Signal Updates) ---
+  setBatchVolume(volume: number): void {
+    const vol = Math.max(0, Math.min(2.0, volume));
+    const selTlIds = this.selectedTimelineItemIds();
+    const selLibIds = this.selectedLibraryIds();
+
+    if (selTlIds.size > 0) {
+      this.timelineItems.update((items) =>
+        items.map((it) => (selTlIds.has(it.id) ? { ...it, volume: vol } : it))
+      );
+    }
+
+    if (selLibIds.size > 0) {
+      this.clipAudio.update((map) => {
+        const next = new Map(map);
+        for (const id of selLibIds) {
+          const cur = next.get(id) ?? { volume: 1, audioAssetId: '', audioVolume: 1, keepOriginalAudio: false };
+          next.set(id, { ...cur, volume: vol });
+        }
+        return next;
+      });
+    }
+    this.markDirty();
+  }
+
+  setBatchMute(muted: boolean): void {
+    const selTlIds = this.selectedTimelineItemIds();
+    const selLibIds = this.selectedLibraryIds();
+
+    if (selTlIds.size > 0) {
+      this.timelineItems.update((items) =>
+        items.map((it) => {
+          if (!selTlIds.has(it.id)) return it;
+          return { ...it, volume: muted ? 0 : (it.volume && it.volume > 0 ? it.volume : 1.0) };
+        })
+      );
+    }
+
+    if (selLibIds.size > 0) {
+      this.clipAudio.update((map) => {
+        const next = new Map(map);
+        for (const id of selLibIds) {
+          const cur = next.get(id) ?? { volume: 1, audioAssetId: '', audioVolume: 1, keepOriginalAudio: false };
+          next.set(id, { ...cur, volume: muted ? 0 : (cur.volume > 0 ? cur.volume : 1.0) });
+        }
+        return next;
+      });
+    }
+    this.markDirty();
+  }
+
+  setBatchDuckMode(mode: 'Normal' | 'Ducked' | 'LeadVoice'): void {
+    const selTlIds = this.selectedTimelineItemIds();
+    const selLibIds = this.selectedLibraryIds();
+
+    if (selTlIds.size > 0) {
+      this.timelineItems.update((items) =>
+        items.map((it) => (selTlIds.has(it.id) ? { ...it, duckMode: mode } : it))
+      );
+    }
+
+    if (selLibIds.size > 0) {
+      this.clipAudio.update((map) => {
+        const next = new Map(map);
+        for (const id of selLibIds) {
+          const cur = next.get(id) ?? { volume: 1, audioAssetId: '', audioVolume: 1, keepOriginalAudio: false };
+          next.set(id, { ...cur, duckMode: mode });
+        }
+        return next;
+      });
+    }
+    this.markDirty();
   }
 
   timelineItemsPayload(): TimelineItem[] | null {
@@ -2598,6 +2790,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
       volume: item.volume,
       trimStartSeconds: item.trimStartSeconds,
       trimEndSeconds: item.trimEndSeconds,
+      duckMode: item.duckMode,
     }));
   }
 
@@ -2896,10 +3089,14 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     this.lastTickMs = performance.now();
     this.syncMediaElements(true);
     this.scheduleNextTick();
+    if (this.activeInspectorTab() === 'audio') {
+      this.startPeakMeterLoop();
+    }
   }
 
   pausePlayback(): void {
     this.isPlaying.set(false);
+    this.stopPeakMeterLoop();
     if (this.animFrameId !== null) {
       cancelAnimationFrame(this.animFrameId);
       this.animFrameId = null;
@@ -3123,6 +3320,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   }
 
   // --- Audio Fade Methods ---
+  // --- Audio Fade Methods (Guardrail 3: Boundary Clamping fadeIn + fadeOut <= duration) ---
   clipAudioFadeSetting(clipId: string): { fadeInSeconds: number; fadeOutSeconds: number } {
     return this.clipAudioFade().get(clipId) ?? { fadeInSeconds: 0, fadeOutSeconds: 0 };
   }
@@ -3137,6 +3335,179 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
       return next;
     });
     this.markDirty();
+  }
+
+  setClipFadeIn(clipId: string, seconds: number): void {
+    const targetClip = this.activeTargetClip();
+    const duration = targetClip?.durationSeconds ?? 10.0;
+    const current = this.clipAudioFadeSetting(clipId);
+    const maxAllowedFadeIn = Math.max(0, duration - current.fadeOutSeconds);
+    const clamped = Math.max(0, Math.min(maxAllowedFadeIn, Math.round(seconds * 10) / 10));
+    this.setClipAudioFade(clipId, clamped, current.fadeOutSeconds);
+  }
+
+  setClipFadeOut(clipId: string, seconds: number): void {
+    const targetClip = this.activeTargetClip();
+    const duration = targetClip?.durationSeconds ?? 10.0;
+    const current = this.clipAudioFadeSetting(clipId);
+    const maxAllowedFadeOut = Math.max(0, duration - current.fadeInSeconds);
+    const clamped = Math.max(0, Math.min(maxAllowedFadeOut, Math.round(seconds * 10) / 10));
+    this.setClipAudioFade(clipId, current.fadeInSeconds, clamped);
+  }
+
+  adjustClipFadeIn(clipId: string, delta: number): void {
+    const current = this.clipAudioFadeSetting(clipId);
+    this.setClipFadeIn(clipId, current.fadeInSeconds + delta);
+  }
+
+  adjustClipFadeOut(clipId: string, delta: number): void {
+    const current = this.clipAudioFadeSetting(clipId);
+    this.setClipFadeOut(clipId, current.fadeOutSeconds + delta);
+  }
+
+  setClipDuckMode(clipId: string, mode: 'Normal' | 'Ducked' | 'LeadVoice'): void {
+    const targetIds = this.getTargetClipIds(clipId);
+    for (const id of targetIds) {
+      this.updateClipSound(id, (current) => ({
+        ...current,
+        duckMode: mode,
+      }));
+    }
+    const selTl = this.selectedTimelineItem();
+    if (selTl) {
+      this.timelineItems.update((items) =>
+        items.map((it) => (it.id === selTl.id ? { ...it, duckMode: mode } : it))
+      );
+    }
+    this.markDirty();
+  }
+
+  private previousClipVolumes = new Map<string, number>();
+
+  toggleClipMute(clipId: string): void {
+    const tlItem = this.selectedTimelineItem();
+    if (tlItem && tlItem.id === clipId) {
+      const curVol = tlItem.volume ?? 1.0;
+      const nextVol = curVol > 0 ? 0 : (this.previousClipVolumes.get(clipId) ?? 1.0);
+      if (curVol > 0) this.previousClipVolumes.set(clipId, curVol);
+      this.timelineItems.update((items) =>
+        items.map((it) => it.id === clipId ? { ...it, volume: nextVol } : it)
+      );
+      this.markDirty();
+      return;
+    }
+
+    const curVol = this.clipSound(clipId).volume;
+    const nextVol = curVol > 0 ? 0 : (this.previousClipVolumes.get(clipId) ?? 1.0);
+    if (curVol > 0) this.previousClipVolumes.set(clipId, curVol);
+    this.setClipVolume(clipId, nextVol);
+  }
+
+  // --- 5-Bus Mixer Track Volumes & Mute Helpers ---
+  setTrackVolume(trackId: 'V1' | 'V2' | 'A1' | 'A2' | 'Master', vol: number): void {
+    const clamped = Math.max(0, Math.min(2.0, vol));
+    if (trackId === 'V1') {
+      this.trackV1Volume.set(clamped);
+      this.audioEngine.setTrackVolume('V1', clamped);
+    } else if (trackId === 'V2') {
+      this.trackV2Volume.set(clamped);
+      this.audioEngine.setTrackVolume('V2', clamped);
+    } else if (trackId === 'A1') {
+      this.trackA1Volume.set(clamped);
+      this.audioEngine.setTrackVolume('A1', clamped);
+    } else if (trackId === 'A2') {
+      this.trackA2Volume.set(clamped);
+      this.audioEngine.setTrackVolume('A2', clamped);
+    } else if (trackId === 'Master') {
+      this.setMonitorVolume(clamped);
+    }
+    this.markDirty();
+  }
+
+  toggleTrackMute(trackId: 'V1' | 'V2' | 'A1' | 'A2' | 'Master'): void {
+    if (trackId === 'Master') {
+      this.toggleMonitorMute();
+      return;
+    }
+    this.timelineTracks.update((tracks) =>
+      tracks.map((t) => {
+        if (t.id !== trackId) return t;
+        const nextMuted = !t.muted;
+        this.audioEngine.setTrackMute(trackId, nextMuted);
+        return { ...t, muted: nextMuted };
+      })
+    );
+    this.markDirty();
+  }
+
+  isTrackMuted(trackId: 'V1' | 'V2' | 'A1' | 'A2' | 'Master'): boolean {
+    if (trackId === 'Master') return this.isMonitorMuted();
+    return this.timelineTracks().find((t) => t.id === trackId)?.muted ?? false;
+  }
+
+  volumeToDb(vol: number): string {
+    if (vol <= 0.0001) return '-∞ dB';
+    const db = 20 * Math.log10(vol);
+    const sign = db > 0 ? '+' : '';
+    return `${sign}${db.toFixed(1)} dB`;
+  }
+
+  toggleGlobalDucking(enable?: boolean): void {
+    const next = enable !== undefined ? enable : (this.muteClipAudio() === 'Never');
+    this.muteClipAudio.set(next ? 'Overlap' : 'Never');
+    this.audioEngine.setGlobalDuckingEnabled(next);
+    this.markDirty();
+  }
+
+  // --- Lifecycle-Gated Peak Metering (Guardrail 1: DOM manipulation only when audio tab active & playing) ---
+  startPeakMeterLoop(): void {
+    if (this.peakMeterRafId !== null) return;
+    if (this.activeInspectorTab() !== 'audio' || !this.isPlaying()) return;
+
+    const tick = () => {
+      if (this.activeInspectorTab() !== 'audio' || !this.isPlaying()) {
+        this.stopPeakMeterLoop();
+        return;
+      }
+
+      const pV1 = this.audioEngine.getTrackPeak('V1');
+      const pV2 = this.audioEngine.getTrackPeak('V2');
+      const pA1 = this.audioEngine.getTrackPeak('A1');
+      const pA2 = this.audioEngine.getTrackPeak('A2');
+      const pMaster = this.audioEngine.getTrackPeak('Master');
+
+      if (this.meterBarV1Ref?.nativeElement) {
+        this.meterBarV1Ref.nativeElement.style.width = `${(pV1 * 100).toFixed(1)}%`;
+      }
+      if (this.meterBarV2Ref?.nativeElement) {
+        this.meterBarV2Ref.nativeElement.style.width = `${(pV2 * 100).toFixed(1)}%`;
+      }
+      if (this.meterBarA1Ref?.nativeElement) {
+        this.meterBarA1Ref.nativeElement.style.width = `${(pA1 * 100).toFixed(1)}%`;
+      }
+      if (this.meterBarA2Ref?.nativeElement) {
+        this.meterBarA2Ref.nativeElement.style.width = `${(pA2 * 100).toFixed(1)}%`;
+      }
+      if (this.meterBarMasterRef?.nativeElement) {
+        this.meterBarMasterRef.nativeElement.style.width = `${(pMaster * 100).toFixed(1)}%`;
+      }
+
+      this.peakMeterRafId = requestAnimationFrame(tick);
+    };
+
+    this.peakMeterRafId = requestAnimationFrame(tick);
+  }
+
+  stopPeakMeterLoop(): void {
+    if (this.peakMeterRafId !== null) {
+      cancelAnimationFrame(this.peakMeterRafId);
+      this.peakMeterRafId = null;
+    }
+    if (this.meterBarV1Ref?.nativeElement) this.meterBarV1Ref.nativeElement.style.width = '0%';
+    if (this.meterBarV2Ref?.nativeElement) this.meterBarV2Ref.nativeElement.style.width = '0%';
+    if (this.meterBarA1Ref?.nativeElement) this.meterBarA1Ref.nativeElement.style.width = '0%';
+    if (this.meterBarA2Ref?.nativeElement) this.meterBarA2Ref.nativeElement.style.width = '0%';
+    if (this.meterBarMasterRef?.nativeElement) this.meterBarMasterRef.nativeElement.style.width = '0%';
   }
 
   // --- Transition Quick Cycle ---
@@ -3363,6 +3734,12 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
       }
     }
 
+    if (this.isTrackMuted('V1')) {
+      effectiveClipGain = 0;
+    } else {
+      effectiveClipGain *= this.trackV1Volume();
+    }
+
     const isMuted = this.isMonitorMuted() || effectiveClipGain === 0;
     const clipVol = isMuted ? 0 : Math.min(1, effectiveClipGain);
     const speed = this.playbackSpeed();
@@ -3397,8 +3774,10 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
         currentActiveVideo.currentTime = Math.max(0.001, localTime);
       }
       currentActiveVideo.volume = this.isMonitorMuted() ? 0 : this.monitorVolume() * clipVol;
+      currentActiveVideo.volume = this.isMonitorMuted() ? 0 : Math.min(1, this.monitorVolume() * clipVol);
       currentActiveVideo.muted = isMuted;
       currentActiveVideo.playbackRate = speed;
+      this.audioEngine.connectMediaElement(currentActiveVideo, 'V1');
       if (playing) {
         if (currentActiveVideo.paused) currentActiveVideo.play().catch(() => undefined);
       } else {
@@ -3545,7 +3924,12 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
             };
           }
         }
+        const isV2Muted = this.isTrackMuted('V2');
+        const v2Vol = isV2Muted ? 0 : Math.min(1, this.trackV2Volume() * this.monitorVolume() * (v2Item.volume ?? 1.0));
+        overlayVideo.volume = this.isMonitorMuted() ? 0 : v2Vol;
+        overlayVideo.muted = this.isMonitorMuted() || isV2Muted;
         overlayVideo.playbackRate = speed;
+        this.audioEngine.connectMediaElement(overlayVideo, 'V2');
         if (playing) {
           if (overlayVideo.paused) overlayVideo.play().catch(() => undefined);
         } else {

@@ -314,6 +314,8 @@ public sealed record ClipAudioRequest
 
     /// <summary>Plays that sound OVER the clip's own audio rather than instead of it.</summary>
     public bool KeepOriginalAudio { get; init; }
+
+    [StringLength(32)] public string? DuckMode { get; init; } = "Normal";
 }
 
 /// <summary>
@@ -394,4 +396,5 @@ public sealed record TimelineItemRequest
     public double? Volume { get; init; }
     public double? TrimStartSeconds { get; init; }
     public double? TrimEndSeconds { get; init; }
+    [StringLength(32)] public string? DuckMode { get; init; } = "Normal";
 }

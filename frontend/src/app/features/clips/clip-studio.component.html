@@ -1278,345 +1278,475 @@
           </div>
         }
 
-        <!-- TAB 6: AUDIO & MUSIC HUB -->
+        <!-- TAB 6: CONTEXT-AWARE AUDIO INSPECTOR & 5-BUS MASTER MIXER -->
         @if (activeInspectorTab() === 'audio') {
-          <div style="display: flex; flex-direction: column; gap: 10px;">
-            <div class="qa-title mb-0" style="padding-bottom: 4px; border-bottom: 1px solid var(--border); font-size: 0.82rem; font-weight: 700;">
-              🎵 MULTI-TRACK AUDIO HUB
-            </div>
-
-            <!-- SECTION 1: TARGET CLIP NATIVE AUDIO & VOICE-OVER -->
-            <div class="audio-hub-section" style="background: var(--surface-2); padding: 10px; border-radius: 8px; border: 1px solid var(--border);">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
-                <span style="font-size: 0.78rem; font-weight: 700; color: var(--text);">1. Target Clip Audio & Dubbing</span>
-                @if (targetScope() === 'all') {
-                  <span class="badge bg-primary font-monospace" style="font-size: 0.68rem;">All {{ included().length }} clips</span>
-                } @else if (targetScope() === 'selected' && selectedClipsCount() > 1) {
-                  <span class="badge bg-info font-monospace" style="font-size: 0.68rem;">{{ selectedClipsCount() }} selected clips</span>
-                } @else if (activeTargetClip(); as targetClip) {
-                  <span class="badge bg-secondary font-monospace" style="font-size: 0.68rem;">{{ Math.round(clipSound(targetClip.id).volume * 100) }}% vol</span>
-                }
-              </div>
-
-              @if (targetScope() === 'all') {
-                <div class="alert alert-info py-1 px-2 mb-2 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: color-mix(in srgb, var(--brand) 15%, transparent); border: 1px solid var(--brand); color: #93c5fd; border-radius: 6px;">
-                  <span>🌐</span>
-                  <span><strong>Batch Mode:</strong> Audio adjustments apply to all <strong>{{ included().length }} timeline clips</strong>.</span>
-                </div>
-              } @else if (targetScope() === 'selected' && selectedClipsCount() > 1) {
-                <div class="alert alert-primary py-1 px-2 mb-2 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: color-mix(in srgb, var(--brand) 15%, transparent); border: 1px solid var(--brand); color: #93c5fd; border-radius: 6px;">
-                  <span>🎯</span>
-                  <span><strong>Multi-Clip Edit:</strong> Audio adjustments apply to all <strong>{{ selectedClipsCount() }} selected clips</strong>.</span>
-                </div>
-              }
-
-              @if (activeTargetClip(); as clip) {
-                <!-- Active Clip Header -->
-                <div class="clip-info-header mb-2 pb-1 border-bottom border-secondary border-opacity-25">
-                  <div class="clip-name" [title]="clip.name" style="font-size: .8rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text);">{{ clip.name }}</div>
-                  <div class="muted mono" style="font-size: .72rem; margin-top: 2px;">
-                    {{ clip.durationSeconds ?? 0 | number: '1.1-1' }}s &middot; {{ clip.width }}&times;{{ clip.height }}
-                  </div>
-                </div>
-
-                <!-- Clip Volume Level & Presets -->
-                <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; margin-bottom: 8px;">
-                  <div class="d-flex justify-content-between align-items-center mb-1">
-                    <span style="font-size: 0.72rem; color: var(--text-dim);">Clip Audio Volume:</span>
-                    <span class="mono fw-bold" style="font-size: 0.74rem; color: var(--brand);">{{ Math.round(clipSound(clip.id).volume * 100) }}%</span>
-                  </div>
-                  <div class="d-flex gap-1 mb-1">
-                    <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.68rem;"
-                            [class.active]="clipSound(clip.id).volume === 0" (click)="setClipVolume(clip.id, 0)">0% Mute</button>
-                    <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.68rem;"
-                            [class.active]="clipSound(clip.id).volume === 0.25" (click)="setClipVolume(clip.id, 0.25)">25%</button>
-                    <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.68rem;"
-                            [class.active]="clipSound(clip.id).volume === 0.5" (click)="setClipVolume(clip.id, 0.5)">50%</button>
-                    <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.68rem;"
-                            [class.active]="clipSound(clip.id).volume === 1.0" (click)="setClipVolume(clip.id, 1.0)">100%</button>
-                    <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.68rem;"
-                            [class.active]="clipSound(clip.id).volume === 2.0" (click)="setClipVolume(clip.id, 2.0)">200%</button>
-                  </div>
-                  <input type="range" class="form-range w-100" min="0" [max]="maxGain" step="0.05"
-                         [ngModel]="clipSound(clip.id).volume" (ngModelChange)="setClipVolume(clip.id, $event)" />
-                </div>
-
-                <!-- Clip Audio Fade In / Fade Out -->
-                <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; margin-bottom: 8px;">
-                  <span style="font-size: 0.72rem; color: var(--text-dim); display: block; margin-bottom: 4px;">Audio Fade Transitions:</span>
-                  <div class="row g-2">
-                    <div class="col-6">
-                      <label style="font-size: 0.68rem; color: var(--text-dim); display: block; margin-bottom: 2px;">Fade-In</label>
-                      <select class="form-select form-select-sm" style="font-size: 0.72rem; padding: 2px 6px;"
-                              [ngModel]="clipAudioFadeSetting(clip.id).fadeInSeconds"
-                              (ngModelChange)="setClipAudioFade(clip.id, +$event, clipAudioFadeSetting(clip.id).fadeOutSeconds)">
-                        <option [value]="0">0s (None)</option>
-                        <option [value]="0.5">0.5s</option>
-                        <option [value]="1.0">1.0s</option>
-                        <option [value]="1.5">1.5s</option>
-                        <option [value]="2.0">2.0s</option>
-                      </select>
-                    </div>
-                    <div class="col-6">
-                      <label style="font-size: 0.68rem; color: var(--text-dim); display: block; margin-bottom: 2px;">Fade-Out</label>
-                      <select class="form-select form-select-sm" style="font-size: 0.72rem; padding: 2px 6px;"
-                              [ngModel]="clipAudioFadeSetting(clip.id).fadeOutSeconds"
-                              (ngModelChange)="setClipAudioFade(clip.id, clipAudioFadeSetting(clip.id).fadeInSeconds, +$event)">
-                        <option [value]="0">0s (None)</option>
-                        <option [value]="0.5">0.5s</option>
-                        <option [value]="1.0">1.0s</option>
-                        <option [value]="1.5">1.5s</option>
-                        <option [value]="2.0">2.0s</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Custom Voice-Over / Dubbing for this Clip -->
-                <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px;">
-                  <div class="d-flex justify-content-between align-items-center mb-1">
-                    <span style="font-size: 0.72rem; color: var(--text-dim);">Custom Voice-Over / Dubbing:</span>
-                    @if (clipSound(clip.id).audioAssetId) {
-                      <button type="button" class="btn btn-outline-danger btn-sm py-0 px-1" style="font-size: 0.65rem;"
-                              (click)="resetClipSound(clip.id)">Remove</button>
-                    }
-                  </div>
-                  <select class="form-select form-select-sm mb-1" style="font-size: 0.72rem;"
-                          [ngModel]="clipSound(clip.id).audioAssetId"
-                          (ngModelChange)="setClipSound(clip.id, $event)">
-                    <option value="">No custom audio track (original sound)</option>
-                    @for (item of studio.musicCandidates; track item.id) {
-                      <option [value]="item.id">{{ item.name }}</option>
-                    }
-                  </select>
-
-                  @if (clipSound(clip.id).audioAssetId) {
-                    <div class="mt-2 pt-2 border-top border-secondary border-opacity-25">
-                      <div class="form-check form-switch mb-1">
-                        <input class="form-check-input" type="checkbox" role="switch" [id]="'keepOrig_' + clip.id"
-                               [checked]="clipSound(clip.id).keepOriginalAudio"
-                               (change)="setClipKeepOriginal(clip.id, $any($event.target).checked)">
-                        <label class="form-check-label" [for]="'keepOrig_' + clip.id" style="font-size: 0.7rem; color: var(--text-dim);">
-                          Mix with original video audio
-                        </label>
-                      </div>
-                      <div class="d-flex justify-content-between align-items-center mb-1">
-                        <span style="font-size: 0.7rem; color: var(--text-dim);">Voice-over volume:</span>
-                        <span class="mono" style="font-size: 0.7rem; color: var(--brand);">{{ Math.round(clipSound(clip.id).audioVolume * 100) }}%</span>
-                      </div>
-                      <input type="range" class="form-range w-100 mb-1" min="0" [max]="maxGain" step="0.05"
-                             [ngModel]="clipSound(clip.id).audioVolume" (ngModelChange)="setClipSoundVolume(clip.id, $event)" />
-                    </div>
-                  }
-                </div>
-              } @else {
-                <div class="text-center py-3 px-2" style="color: var(--muted); background: rgba(255,255,255,0.02); border-radius: 6px; border: 1px dashed var(--border);">
-                  <div style="font-size: 1.4rem; margin-bottom: 4px;">🎵</div>
-                  <div style="font-size: 0.8rem; font-weight: 600; color: var(--text);">No Clip Selected</div>
-                  <div style="font-size: 0.72rem; margin-top: 2px;">Select clips in the library or click any clip on the timeline to adjust clip volume and voice-over.</div>
-                </div>
-              }
-            </div>
-
-            <!-- SECTION 2: GLOBAL VIDEO CLIPS SOUND BEHAVIOR -->
-            <div class="audio-hub-section" style="background: var(--surface-2); padding: 10px; border-radius: 8px; border: 1px solid var(--border);">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
-                <span style="font-size: 0.78rem; font-weight: 700; color: var(--text);">2. Video Clips Global Audio Behavior</span>
-                <span class="badge"
-                      [class.bg-success]="muteClipAudio() === 'Never'"
-                      [class.bg-primary]="muteClipAudio() === 'Overlap'"
-                      [class.bg-warning]="muteClipAudio() === 'MuteOnAudio'"
-                      [class.bg-danger]="muteClipAudio() === 'Always'"
-                      style="font-size: 0.68rem;">
-                  {{ muteClipAudio() === 'Always' ? 'MUTED (OFF)' : (muteClipAudio() === 'MuteOnAudio' ? 'OFF DURING AUDIO' : (muteClipAudio() === 'Overlap' ? 'DUCKED (' + (videoDuckLevel() * 100 | number:'1.0-0') + '%)' : 'NORMAL 100%')) }}
-                </span>
-              </div>
-
-              <!-- Options Grid for Video Sound Behavior -->
-              <div class="row g-1 mb-2">
-                <div class="col-6">
-                  <button type="button" class="btn btn-sm w-100 text-start d-flex align-items-center gap-1"
-                          [class.btn-primary]="muteClipAudio() === 'Never'"
-                          [class.btn-outline-secondary]="muteClipAudio() !== 'Never'"
-                          (click)="muteClipAudio.set('Never'); markDirty()"
-                          style="font-size: 0.72rem; padding: 4px 6px;">
-                    <span>●</span>
-                    <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Normal (100%)</span>
-                  </button>
-                </div>
-                <div class="col-6">
-                  <button type="button" class="btn btn-sm w-100 text-start d-flex align-items-center gap-1"
-                          [class.btn-primary]="muteClipAudio() === 'Overlap'"
-                          [class.btn-outline-secondary]="muteClipAudio() !== 'Overlap'"
-                          (click)="muteClipAudio.set('Overlap'); markDirty()"
-                          style="font-size: 0.72rem; padding: 4px 6px;">
-                    <span>🔉</span>
-                    <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Reduce / Duck</span>
-                  </button>
-                </div>
-                <div class="col-6">
-                  <button type="button" class="btn btn-sm w-100 text-start d-flex align-items-center gap-1"
-                          [class.btn-primary]="muteClipAudio() === 'MuteOnAudio'"
-                          [class.btn-outline-secondary]="muteClipAudio() !== 'MuteOnAudio'"
-                          (click)="muteClipAudio.set('MuteOnAudio'); markDirty()"
-                          style="font-size: 0.72rem; padding: 4px 6px;">
-                    <span>🔇</span>
-                    <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Off During Audio</span>
-                  </button>
-                </div>
-                <div class="col-6">
-                  <button type="button" class="btn btn-sm w-100 text-start d-flex align-items-center gap-1"
-                          [class.btn-danger]="muteClipAudio() === 'Always'"
-                          [class.btn-outline-secondary]="muteClipAudio() !== 'Always'"
-                          (click)="muteClipAudio.set('Always'); markDirty()"
-                          style="font-size: 0.72rem; padding: 4px 6px;">
-                    <span>✕</span>
-                    <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Mute All Clips</span>
-                  </button>
-                </div>
-              </div>
-
-              <!-- Duck Level Slider & Presets (Visible when Overlap/Duck is selected) -->
-              @if (muteClipAudio() === 'Overlap') {
-                <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; margin-bottom: 6px;">
-                  <div class="d-flex justify-content-between align-items-center mb-1">
-                    <span style="font-size: 0.72rem; color: var(--text-dim);">Video Sound Level while Audio plays:</span>
-                    <span class="mono fw-bold" style="font-size: 0.72rem; color: var(--brand);">{{ videoDuckLevel() * 100 | number:'1.0-0' }}%</span>
-                  </div>
-                  <!-- Quick chips -->
-                  <div class="d-flex gap-1 mb-1">
-                    <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.68rem;"
-                            [class.active]="videoDuckLevel() === 0.1" (click)="videoDuckLevel.set(0.1); markDirty()">10% Low</button>
-                    <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.68rem;"
-                            [class.active]="videoDuckLevel() === 0.2" (click)="videoDuckLevel.set(0.2); markDirty()">20% Rec.</button>
-                    <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.68rem;"
-                            [class.active]="videoDuckLevel() === 0.35" (click)="videoDuckLevel.set(0.35); markDirty()">35% Mid</button>
-                    <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.68rem;"
-                            [class.active]="videoDuckLevel() === 0.5" (click)="videoDuckLevel.set(0.5); markDirty()">50% Half</button>
-                  </div>
-                  <input type="range" class="form-range w-100" min="0.05" max="0.8" step="0.05"
-                         [ngModel]="videoDuckLevel()" (ngModelChange)="videoDuckLevel.set($event); markDirty()" />
-                </div>
-              }
-
-              <p class="muted" style="font-size: 0.72rem; margin: 0;">
-                @if (muteClipAudio() === 'Never') {
-                  Video clip sound plays normally at 100% volume together with added audio.
-                } @else if (muteClipAudio() === 'Overlap') {
-                  Video clip sound automatically lowers to {{ videoDuckLevel() * 100 | number:'1.0-0' }}% whenever background music or SFX/voice-over is playing.
-                } @else if (muteClipAudio() === 'MuteOnAudio') {
-                  Video clip sound is completely silenced (0%) whenever background music or SFX/voice-over is playing.
+          <div class="audio-hub-wrapper">
+            <!-- TOP CONTEXT-SWITCHING NAVIGATION -->
+            <div class="audio-context-nav">
+              <button type="button" class="audio-nav-pill"
+                      [class.active]="effectiveAudioInspectorView() === 'mixer'"
+                      (click)="setAudioInspectorView('mixer')">
+                <span class="icon">🎚</span> Master Mixer
+              </button>
+              <button type="button" class="audio-nav-pill"
+                      [class.active]="effectiveAudioInspectorView() === 'clip'"
+                      (click)="setAudioInspectorView('clip')">
+                <span class="icon">🔊</span>
+                @if (isMultiSelection()) {
+                  Batch ({{ multiSelectionCount() }})
                 } @else {
-                  Original video clip audio is completely muted for all clips across the entire project.
+                  Clip Inspector
                 }
-              </p>
+                @if (activeTargetAudioItem() || isMultiSelection()) {
+                  <span class="nav-active-dot" title="Item Selected"></span>
+                }
+              </button>
             </div>
 
-            <!-- SECTION 3: BACKGROUND MUSIC BED -->
-            <div class="audio-hub-section" style="background: var(--surface-2); padding: 10px; border-radius: 8px; border: 1px solid var(--border);">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
-                <span style="font-size: 0.78rem; font-weight: 700; color: var(--text);">3. Background Music Bed</span>
-                @if (musicAssetId()) {
-                  <span class="badge bg-primary font-monospace" style="font-size: 0.68rem;">{{ musicVolume() * 100 | number:'1.0-0' }}% vol</span>
-                }
-              </div>
-
-              <select class="form-select form-select-sm mb-2" [(ngModel)]="musicAssetId" (ngModelChange)="markDirty()" style="font-size: 0.78rem;">
-                <option value="">None — no background soundtrack</option>
-                @for (track of studio.musicCandidates; track track.id) {
-                  <option [value]="track.id">{{ track.name }}</option>
-                }
-              </select>
-
-              @if (musicAssetId()) {
-                <div style="margin-top: 6px;">
-                  <!-- Quick Volume Presets -->
-                  <div class="d-flex gap-1 mb-2">
-                    <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.7rem;"
-                            (click)="musicVolume.set(0.2); markDirty()">
-                      20% Subtle
-                    </button>
-                    <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.7rem;"
-                            (click)="musicVolume.set(0.5); markDirty()">
-                      50% Balanced
-                    </button>
-                    <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.7rem;"
-                            (click)="musicVolume.set(0.8); markDirty()">
-                      80% Prominent
-                    </button>
-                  </div>
-                  <div style="display:flex; justify-content:space-between; font-size: 0.72rem; color: var(--text-dim); margin-bottom: 2px;">
-                    <span>Music Volume</span>
-                    <span class="mono">{{ musicVolume() * 100 | number:'1.0-0' }}%</span>
-                  </div>
-                  <input type="range" class="form-range w-100" min="0" max="1" step="0.02" [(ngModel)]="musicVolume" (ngModelChange)="markDirty()" />
-                </div>
-              }
-            </div>
-
-            <!-- SECTION 4: TIMELINE SFX & VOICE-OVER OVERLAYS -->
-            <div class="audio-hub-section" style="background: var(--surface-2); padding: 10px; border-radius: 8px; border: 1px solid var(--border);">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
-                <span style="font-size: 0.78rem; font-weight: 700; color: var(--text);">4. SFX & Voice-Over Tracks</span>
-                <span class="badge bg-secondary font-monospace" style="font-size: 0.68rem;">{{ musicTracks().length }} cues</span>
-              </div>
-
-              <div class="d-flex gap-1 mb-2">
-                <select class="form-select form-select-sm" [(ngModel)]="addMusicAssetId" style="font-size: 0.75rem; flex: 1;">
-                  <option value="">Choose SFX/Voiceover to place...</option>
-                  @for (track of studio.musicCandidates; track track.id) {
-                    <option [value]="track.id">{{ track.name }}</option>
-                  }
-                </select>
-                <button class="btn btn-primary btn-sm py-0 px-2" type="button" [disabled]="!addMusicAssetId()" (click)="addMusicTrack()" style="font-size: 0.75rem;">
-                  + Add
-                </button>
-              </div>
-
-              @for (track of musicTracks(); track track.key) {
-                <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; margin-bottom: 6px;">
-                  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
-                    <span style="font-size: 0.74rem; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 80%;">
-                      {{ musicTrackName(track) }}
+            <!-- VIEW 1: CLIP & BATCH AUDIO INSPECTOR -->
+            @if (effectiveAudioInspectorView() === 'clip') {
+              <!-- SUB-VIEW A: MULTI-SELECTION BATCH STATE -->
+              @if (isMultiSelection()) {
+                <div class="audio-card batch-inspector-card">
+                  <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="badge bg-primary font-monospace" style="font-size: 0.72rem;">
+                      🎯 Batch Edit ({{ multiSelectionCount() }} Items Selected)
                     </span>
-                    <button class="btn btn-outline-danger btn-sm p-0 px-1" type="button" (click)="removeMusicTrack(track.key)" title="Remove cue">✕</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.68rem;" (click)="clearTimelineSelection()">
+                      Clear Selection
+                    </button>
                   </div>
-                  <div style="display: flex; align-items: center; gap: 8px; font-size: 0.7rem; margin-bottom: 6px;">
-                    <span class="mono text-secondary">Start: {{ track.startSeconds | number: '1.1-1' }}s</span>
-                    <input type="range" class="form-range" style="flex: 1;" min="0" max="1" step="0.02" [ngModel]="track.volume" (ngModelChange)="setMusicVolume(track.key, $event)" />
-                    <span class="mono text-secondary">{{ (track.volume * 100) | number:'1.0-0' }}%</span>
+                  <p class="muted mb-2" style="font-size: 0.72rem;">
+                    Bulk-adjust volume, mute states, and ducking participation across all selected clips and cues simultaneously.
+                  </p>
+
+                  <!-- Batch Volume Control -->
+                  <div class="inner-audio-card mb-2">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                      <span style="font-size: 0.72rem; color: var(--text-dim);">Bulk Volume Level:</span>
+                      <div class="d-flex gap-1">
+                        <button type="button" class="btn btn-sm btn-outline-danger py-0 px-2" style="font-size: 0.65rem;" (click)="setBatchMute(true)">
+                          🔇 Mute All
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-success py-0 px-2" style="font-size: 0.65rem;" (click)="setBatchMute(false)">
+                          🔊 Unmute All
+                        </button>
+                      </div>
+                    </div>
+                    <div class="d-flex gap-1 mb-1">
+                      <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2 flex-fill" style="font-size: 0.68rem;" (click)="setBatchVolume(0)">0%</button>
+                      <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2 flex-fill" style="font-size: 0.68rem;" (click)="setBatchVolume(0.5)">50%</button>
+                      <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2 flex-fill" style="font-size: 0.68rem;" (click)="setBatchVolume(1.0)">100%</button>
+                      <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2 flex-fill" style="font-size: 0.68rem;" (click)="setBatchVolume(1.5)">150%</button>
+                      <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2 flex-fill" style="font-size: 0.68rem;" (click)="setBatchVolume(2.0)">200%</button>
+                    </div>
                   </div>
 
-                  <!-- Quick Video Sound Behavior for this Cue -->
-                  <div class="d-flex align-items-center justify-content-between pt-1 border-top border-secondary border-opacity-25" style="font-size: 0.68rem;">
-                    <span class="text-secondary">Video sound:</span>
-                    <div class="btn-group btn-group-sm">
-                      <button type="button" class="btn btn-sm py-0 px-1" style="font-size: 0.65rem;"
-                              [class.btn-primary]="muteClipAudio() === 'Never'"
-                              [class.btn-outline-secondary]="muteClipAudio() !== 'Never'"
-                              (click)="muteClipAudio.set('Never'); markDirty()" title="Keep original video audio">
-                        Normal
+                  <!-- Batch Ducking Participation -->
+                  <div class="inner-audio-card mb-2">
+                    <span style="font-size: 0.72rem; color: var(--text-dim); display: block; margin-bottom: 4px;">Bulk Ducking Role:</span>
+                    <div class="duck-seg-group">
+                      <button type="button" class="duck-seg-btn" (click)="setBatchDuckMode('Normal')">
+                        <span>🎵</span> Normal
                       </button>
-                      <button type="button" class="btn btn-sm py-0 px-1" style="font-size: 0.65rem;"
-                              [class.btn-primary]="muteClipAudio() === 'Overlap'"
-                              [class.btn-outline-secondary]="muteClipAudio() !== 'Overlap'"
-                              (click)="muteClipAudio.set('Overlap'); markDirty()" title="Duck video audio to {{ videoDuckLevel() * 100 | number:'1.0-0' }}%">
-                        🔉 Duck ({{ videoDuckLevel() * 100 | number:'1.0-0' }}%)
+                      <button type="button" class="duck-seg-btn" (click)="setBatchDuckMode('Ducked')">
+                        <span>🔉</span> Ducked
                       </button>
-                      <button type="button" class="btn btn-sm py-0 px-1" style="font-size: 0.65rem;"
-                              [class.btn-primary]="muteClipAudio() === 'MuteOnAudio'"
-                              [class.btn-outline-secondary]="muteClipAudio() !== 'MuteOnAudio'"
-                              (click)="muteClipAudio.set('MuteOnAudio'); markDirty()" title="Completely mute video audio while this plays">
-                        🔇 Mute Off
+                      <button type="button" class="duck-seg-btn" (click)="setBatchDuckMode('LeadVoice')">
+                        <span>🎙</span> Lead Voice
                       </button>
                     </div>
                   </div>
+
+                  @if (isGlobalDuckingBypassed()) {
+                    <div class="alert alert-warning py-1 px-2 mb-0 d-flex justify-content-between align-items-center" style="font-size: 0.7rem; background: color-mix(in srgb, var(--warn) 15%, transparent); border: 1px solid var(--warn); color: #fde047; border-radius: 6px;">
+                      <span>⚠ Global Ducking is Bypassed in Master Mixer</span>
+                      <button type="button" class="btn btn-sm btn-warning py-0 px-2 text-dark fw-bold" style="font-size: 0.65rem;" (click)="toggleGlobalDucking(true)">
+                        Enable
+                      </button>
+                    </div>
+                  }
                 </div>
               }
-              @if (musicTracks().length === 0) {
-                <p class="muted text-center py-2" style="font-size: 0.72rem; margin: 0;">No SFX cues added to the timeline yet.</p>
+              <!-- SUB-VIEW B: SINGLE CLIP AUDIO INSPECTOR -->
+              @else if (activeTargetAudioItem(); as target) {
+                <div class="audio-card clip-inspector-card">
+                  <!-- Clip Identity Header Card -->
+                  <div class="clip-inspector-head mb-2 pb-2 border-bottom border-secondary border-opacity-25">
+                    <div class="d-flex justify-content-between align-items-start gap-2">
+                      <div style="overflow: hidden; flex: 1;">
+                        <div class="clip-name fw-bold" [title]="target.name" style="font-size: 0.82rem; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                          {{ target.name }}
+                        </div>
+                        <div class="muted mono" style="font-size: 0.7rem; margin-top: 2px;">
+                          Duration: {{ target.duration | number:'1.1-1' }}s
+                        </div>
+                      </div>
+                      <div class="d-flex gap-1 align-items-center">
+                        <span class="track-badge-pill"
+                              [style.background]="target.trackId === 'V1' ? '#3b82f6' : (target.trackId === 'V2' ? '#06b6d4' : (target.trackId === 'A1' ? '#8b5cf6' : '#a855f7'))">
+                          {{ target.trackId }}
+                        </span>
+                        @if (targetScope() === 'all') {
+                          <span class="badge bg-primary font-monospace" style="font-size: 0.65rem;">All Clips</span>
+                        }
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Volume & Mute Row -->
+                  <div class="inner-audio-card mb-2">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                      <div class="d-flex align-items-center gap-2">
+                        <button type="button" class="btn-mute-toggle" [class.muted]="target.volume === 0" (click)="toggleClipMute(target.clipId)" [title]="target.volume === 0 ? 'Unmute' : 'Mute'">
+                          {{ target.volume === 0 ? '🔇' : '🔊' }}
+                        </button>
+                        <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">Clip Volume</span>
+                      </div>
+                      <span class="mono fw-bold" style="font-size: 0.75rem; color: var(--brand);">
+                        {{ Math.round(target.volume * 100) }}% <small class="text-secondary">({{ volumeToDb(target.volume) }})</small>
+                      </span>
+                    </div>
+
+                    <div class="d-flex gap-1 mb-2">
+                      <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2 flex-fill" style="font-size: 0.68rem;"
+                              [class.active]="target.volume === 0" (click)="setClipVolume(target.clipId, 0)">0% Mute</button>
+                      <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2 flex-fill" style="font-size: 0.68rem;"
+                              [class.active]="target.volume === 0.5" (click)="setClipVolume(target.clipId, 0.5)">50%</button>
+                      <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2 flex-fill" style="font-size: 0.68rem;"
+                              [class.active]="target.volume === 1.0" (click)="setClipVolume(target.clipId, 1.0)">100%</button>
+                      <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2 flex-fill" style="font-size: 0.68rem;"
+                              [class.active]="target.volume === 1.5" (click)="setClipVolume(target.clipId, 1.5)">150%</button>
+                      <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2 flex-fill" style="font-size: 0.68rem;"
+                              [class.active]="target.volume === 2.0" (click)="setClipVolume(target.clipId, 2.0)">200%</button>
+                    </div>
+
+                    <input type="range" class="form-range w-100" min="0" max="2.0" step="0.05"
+                           [ngModel]="target.volume" (ngModelChange)="setClipVolume(target.clipId, $event)" />
+                  </div>
+
+                  <!-- Fade Controls (Guardrail 3: Numeric steppers with boundary clamping) -->
+                  @if (!target.isTimelineItem) {
+                    <div class="inner-audio-card mb-2">
+                      <div class="d-flex justify-content-between align-items-center mb-1">
+                        <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">Acoustic Fades (Exponential Curves)</span>
+                        <small class="muted mono" style="font-size: 0.65rem;">Max: {{ target.duration | number:'1.1-1' }}s</small>
+                      </div>
+
+                      <div class="row g-2 mb-2">
+                        <!-- Fade-In Stepper -->
+                        <div class="col-6">
+                          <label class="fade-stepper-label">
+                            <span>📈 Fade-In</span>
+                            <span class="mono">{{ target.fadeInSeconds | number:'1.1-1' }}s</span>
+                          </label>
+                          <div class="fade-stepper-group">
+                            <button type="button" class="stepper-btn" (click)="adjustClipFadeIn(target.clipId, -0.1)" [disabled]="target.fadeInSeconds <= 0">−</button>
+                            <input type="number" class="stepper-input" min="0" [max]="Math.max(0, target.duration - target.fadeOutSeconds)" step="0.1"
+                                   [ngModel]="target.fadeInSeconds" (ngModelChange)="setClipFadeIn(target.clipId, +$event)" />
+                            <button type="button" class="stepper-btn" (click)="adjustClipFadeIn(target.clipId, 0.1)" [disabled]="target.fadeInSeconds + target.fadeOutSeconds >= target.duration">+</button>
+                          </div>
+                        </div>
+
+                        <!-- Fade-Out Stepper -->
+                        <div class="col-6">
+                          <label class="fade-stepper-label">
+                            <span>📉 Fade-Out</span>
+                            <span class="mono">{{ target.fadeOutSeconds | number:'1.1-1' }}s</span>
+                          </label>
+                          <div class="fade-stepper-group">
+                            <button type="button" class="stepper-btn" (click)="adjustClipFadeOut(target.clipId, -0.1)" [disabled]="target.fadeOutSeconds <= 0">−</button>
+                            <input type="number" class="stepper-input" min="0" [max]="Math.max(0, target.duration - target.fadeInSeconds)" step="0.1"
+                                   [ngModel]="target.fadeOutSeconds" (ngModelChange)="setClipFadeOut(target.clipId, +$event)" />
+                            <button type="button" class="stepper-btn" (click)="adjustClipFadeOut(target.clipId, 0.1)" [disabled]="target.fadeInSeconds + target.fadeOutSeconds >= target.duration">+</button>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div class="d-flex gap-1">
+                        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 flex-fill" style="font-size: 0.65rem;"
+                                (click)="setClipFadeIn(target.clipId, 0); setClipFadeOut(target.clipId, 0)">0s (Off)</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 flex-fill" style="font-size: 0.65rem;"
+                                (click)="setClipFadeIn(target.clipId, 0.5); setClipFadeOut(target.clipId, 0.5)">0.5s</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 flex-fill" style="font-size: 0.65rem;"
+                                (click)="setClipFadeIn(target.clipId, 1.0); setClipFadeOut(target.clipId, 1.0)">1.0s</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 flex-fill" style="font-size: 0.65rem;"
+                                (click)="setClipFadeIn(target.clipId, 2.0); setClipFadeOut(target.clipId, 2.0)">2.0s</button>
+                      </div>
+                    </div>
+                  }
+
+                  <!-- Ducking Participation Segmented Control -->
+                  <div class="inner-audio-card mb-2">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                      <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">Ducking Participation Role:</span>
+                      <span class="badge" [class.bg-success]="target.duckMode === 'Normal'" [class.bg-warning]="target.duckMode === 'Ducked'" [class.bg-primary]="target.duckMode === 'LeadVoice'" style="font-size: 0.65rem;">
+                        {{ target.duckMode === 'LeadVoice' ? 'Lead Voice' : (target.duckMode === 'Ducked' ? 'Ducked by Speech' : 'Normal') }}
+                      </span>
+                    </div>
+
+                    <div class="duck-seg-group mb-2">
+                      <button type="button" class="duck-seg-btn" [class.active]="target.duckMode === 'Normal'" (click)="setClipDuckMode(target.clipId, 'Normal')">
+                        <span class="icon">🎵</span>
+                        <span>Normal</span>
+                      </button>
+                      <button type="button" class="duck-seg-btn" [class.active]="target.duckMode === 'Ducked'" (click)="setClipDuckMode(target.clipId, 'Ducked')">
+                        <span class="icon">🔉</span>
+                        <span>Ducked by Speech</span>
+                      </button>
+                      <button type="button" class="duck-seg-btn" [class.active]="target.duckMode === 'LeadVoice'" (click)="setClipDuckMode(target.clipId, 'LeadVoice')">
+                        <span class="icon">🎙</span>
+                        <span>Lead Voice</span>
+                      </button>
+                    </div>
+
+                    <!-- Global Ducking Bypass Notice -->
+                    @if (isGlobalDuckingBypassed()) {
+                      <div class="alert alert-warning py-1 px-2 mb-1 d-flex justify-content-between align-items-center" style="font-size: 0.68rem; background: color-mix(in srgb, var(--warn) 15%, transparent); border: 1px solid var(--warn); color: #fde047; border-radius: 6px;">
+                        <span>⚠ Global Auto-Ducking is Bypassed. Ducking role will be inactive during playback.</span>
+                        <button type="button" class="btn btn-sm btn-warning py-0 px-2 text-dark fw-bold" style="font-size: 0.65rem;" (click)="toggleGlobalDucking(true)">
+                          Enable
+                        </button>
+                      </div>
+                    }
+
+                    <p class="muted mb-0" style="font-size: 0.7rem;">
+                      @if (target.duckMode === 'LeadVoice') {
+                        This clip contains dialogue/speech that actively lowers background music & SFX volumes by {{ ((1 - videoDuckLevel()) * 100) | number:'1.0-0' }}%.
+                      } @else if (target.duckMode === 'Ducked') {
+                        This clip's sound is automatically reduced whenever speech or voiceover is playing on the timeline.
+                      } @else {
+                        This clip plays at full nominal volume unaffected by any ducking envelope.
+                      }
+                    </p>
+                  </div>
+                </div>
               }
-            </div>
+              <!-- SUB-VIEW C: EMPTY STATE -->
+              @else {
+                <div class="audio-card text-center py-4 px-3" style="background: rgba(255,255,255,0.02); border: 1px dashed var(--border); border-radius: 8px;">
+                  <div style="font-size: 1.8rem; margin-bottom: 6px;">🎧</div>
+                  <div style="font-size: 0.85rem; font-weight: 700; color: var(--text);">No Clip Selected</div>
+                  <p class="muted" style="font-size: 0.74rem; margin: 4px 0 12px;">
+                    Select any video clip, audio cue, or subtitle on the timeline to inspect its gain, acoustic fades, and ducking role.
+                  </p>
+                  <button type="button" class="btn btn-primary btn-sm px-3" style="font-size: 0.75rem;" (click)="setAudioInspectorView('mixer')">
+                    🎚 Open Master Mixer Console
+                  </button>
+                </div>
+              }
+            }
+
+            <!-- VIEW 2: 5-BUS MASTER AUDIO MIXING CONSOLE -->
+            @if (effectiveAudioInspectorView() === 'mixer') {
+              <div class="audio-card master-mixer-card">
+                <div class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom border-secondary border-opacity-25">
+                  <div>
+                    <span style="font-size: 0.82rem; font-weight: 800; color: var(--text); letter-spacing: 0.3px;">🎚 5-BUS MASTER CONSOLE</span>
+                    <div class="muted" style="font-size: 0.68rem; margin-top: 1px;">Hardware-grade level faders & real-time VU peak metering</div>
+                  </div>
+                  <span class="badge bg-secondary font-monospace" style="font-size: 0.65rem;">5 ACTIVE BUSES</span>
+                </div>
+
+                <!-- BUS 1: V1 (Primary Video Track) -->
+                <div class="mixer-bus-row mb-2">
+                  <div class="bus-meta-line">
+                    <div class="d-flex align-items-center gap-2">
+                      <span class="track-badge-pill" style="background: #3b82f6;">V1</span>
+                      <span class="bus-name">Primary Video</span>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                      <button type="button" class="btn-mute-toggle" [class.muted]="isTrackMuted('V1')" (click)="toggleTrackMute('V1')" [title]="isTrackMuted('V1') ? 'Unmute V1' : 'Mute V1'">
+                        {{ isTrackMuted('V1') ? '🔇' : '🔊' }}
+                      </button>
+                      <span class="mono fw-bold bus-db" [class.muted-text]="isTrackMuted('V1')">
+                        {{ isTrackMuted('V1') ? '-∞ dB' : Math.round(trackV1Volume() * 100) + '% (' + volumeToDb(trackV1Volume()) + ')' }}
+                      </span>
+                    </div>
+                  </div>
+                  <div class="bus-fader-container">
+                    <input type="range" class="form-range bus-slider" min="0" max="2.0" step="0.02"
+                           [disabled]="isTrackMuted('V1')"
+                           [ngModel]="trackV1Volume()" (ngModelChange)="setTrackVolume('V1', $event)" />
+                  </div>
+                  <!-- Reactive VU Peak Meter Bar -->
+                  <div class="vu-meter-track">
+                    <div #meterBarV1 class="vu-meter-fill"></div>
+                  </div>
+                </div>
+
+                <!-- BUS 2: V2 (Overlay Video Track) -->
+                <div class="mixer-bus-row mb-2">
+                  <div class="bus-meta-line">
+                    <div class="d-flex align-items-center gap-2">
+                      <span class="track-badge-pill" style="background: #06b6d4;">V2</span>
+                      <span class="bus-name">Overlay Video</span>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                      <button type="button" class="btn-mute-toggle" [class.muted]="isTrackMuted('V2')" (click)="toggleTrackMute('V2')" [title]="isTrackMuted('V2') ? 'Unmute V2' : 'Mute V2'">
+                        {{ isTrackMuted('V2') ? '🔇' : '🔊' }}
+                      </button>
+                      <span class="mono fw-bold bus-db" [class.muted-text]="isTrackMuted('V2')">
+                        {{ isTrackMuted('V2') ? '-∞ dB' : Math.round(trackV2Volume() * 100) + '% (' + volumeToDb(trackV2Volume()) + ')' }}
+                      </span>
+                    </div>
+                  </div>
+                  <div class="bus-fader-container">
+                    <input type="range" class="form-range bus-slider" min="0" max="2.0" step="0.02"
+                           [disabled]="isTrackMuted('V2')"
+                           [ngModel]="trackV2Volume()" (ngModelChange)="setTrackVolume('V2', $event)" />
+                  </div>
+                  <!-- Reactive VU Peak Meter Bar -->
+                  <div class="vu-meter-track">
+                    <div #meterBarV2 class="vu-meter-fill"></div>
+                  </div>
+                </div>
+
+                <!-- BUS 3: A1 (Voiceover & Dialogue Track) -->
+                <div class="mixer-bus-row mb-2">
+                  <div class="bus-meta-line">
+                    <div class="d-flex align-items-center gap-2">
+                      <span class="track-badge-pill" style="background: #8b5cf6;">A1</span>
+                      <span class="bus-name">Voiceover Track</span>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                      <button type="button" class="btn-mute-toggle" [class.muted]="isTrackMuted('A1')" (click)="toggleTrackMute('A1')" [title]="isTrackMuted('A1') ? 'Unmute A1' : 'Mute A1'">
+                        {{ isTrackMuted('A1') ? '🔇' : '🔊' }}
+                      </button>
+                      <span class="mono fw-bold bus-db" [class.muted-text]="isTrackMuted('A1')">
+                        {{ isTrackMuted('A1') ? '-∞ dB' : Math.round(trackA1Volume() * 100) + '% (' + volumeToDb(trackA1Volume()) + ')' }}
+                      </span>
+                    </div>
+                  </div>
+                  <div class="bus-fader-container">
+                    <input type="range" class="form-range bus-slider" min="0" max="2.0" step="0.02"
+                           [disabled]="isTrackMuted('A1')"
+                           [ngModel]="trackA1Volume()" (ngModelChange)="setTrackVolume('A1', $event)" />
+                  </div>
+                  <!-- Reactive VU Peak Meter Bar -->
+                  <div class="vu-meter-track">
+                    <div #meterBarA1 class="vu-meter-fill"></div>
+                  </div>
+                </div>
+
+                <!-- BUS 4: A2 (Music Bed & SFX Track) -->
+                <div class="mixer-bus-row mb-2">
+                  <div class="bus-meta-line">
+                    <div class="d-flex align-items-center gap-2">
+                      <span class="track-badge-pill" style="background: #a855f7;">A2</span>
+                      <span class="bus-name">Music Bed & SFX</span>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                      <button type="button" class="btn-mute-toggle" [class.muted]="isTrackMuted('A2')" (click)="toggleTrackMute('A2')" [title]="isTrackMuted('A2') ? 'Unmute A2' : 'Mute A2'">
+                        {{ isTrackMuted('A2') ? '🔇' : '🔊' }}
+                      </button>
+                      <span class="mono fw-bold bus-db" [class.muted-text]="isTrackMuted('A2')">
+                        {{ isTrackMuted('A2') ? '-∞ dB' : Math.round(trackA2Volume() * 100) + '% (' + volumeToDb(trackA2Volume()) + ')' }}
+                      </span>
+                    </div>
+                  </div>
+                  <div class="bus-fader-container">
+                    <input type="range" class="form-range bus-slider" min="0" max="2.0" step="0.02"
+                           [disabled]="isTrackMuted('A2')"
+                           [ngModel]="trackA2Volume()" (ngModelChange)="setTrackVolume('A2', $event)" />
+                  </div>
+                  <!-- Reactive VU Peak Meter Bar -->
+                  <div class="vu-meter-track">
+                    <div #meterBarA2 class="vu-meter-fill"></div>
+                  </div>
+                </div>
+
+                <!-- BUS 5: MASTER OUTPUT BUS -->
+                <div class="mixer-bus-row mb-3 master-bus-highlight">
+                  <div class="bus-meta-line">
+                    <div class="d-flex align-items-center gap-2">
+                      <span class="track-badge-pill" style="background: #6c8cff; font-weight: 800;">MST</span>
+                      <span class="bus-name fw-bold" style="color: #fff;">Master Output</span>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                      <button type="button" class="btn-mute-toggle" [class.muted]="isMonitorMuted()" (click)="toggleTrackMute('Master')" [title]="isMonitorMuted() ? 'Unmute Master' : 'Mute Master'">
+                        {{ isMonitorMuted() ? '🔇' : '🔊' }}
+                      </button>
+                      <span class="mono fw-bold bus-db" style="color: var(--brand);" [class.muted-text]="isMonitorMuted()">
+                        {{ isMonitorMuted() ? '-∞ dB' : Math.round(monitorVolume() * 100) + '% (' + volumeToDb(monitorVolume()) + ')' }}
+                      </span>
+                    </div>
+                  </div>
+                  <div class="bus-fader-container">
+                    <input type="range" class="form-range bus-slider" min="0" max="2.0" step="0.02"
+                           [disabled]="isMonitorMuted()"
+                           [ngModel]="monitorVolume()" (ngModelChange)="setTrackVolume('Master', $event)" />
+                  </div>
+                  <!-- Reactive VU Peak Meter Bar -->
+                  <div class="vu-meter-track">
+                    <div #meterBarMaster class="vu-meter-fill"></div>
+                  </div>
+                </div>
+
+                <!-- GLOBAL AUTO-DUCKING & MASTER BYPASS SECTION -->
+                <div class="inner-audio-card auto-ducking-console">
+                  <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div class="d-flex align-items-center gap-2">
+                      <span style="font-size: 0.76rem; font-weight: 700; color: var(--text);">Dialogue Auto-Ducking (Master Bypass)</span>
+                    </div>
+                    <div class="form-check form-switch m-0">
+                      <input class="form-check-input" type="checkbox" role="switch" id="globalDuckingSwitch"
+                             [checked]="!isGlobalDuckingBypassed()"
+                             (change)="toggleGlobalDucking($any($event.target).checked)">
+                    </div>
+                  </div>
+
+                  @if (!isGlobalDuckingBypassed()) {
+                    <div class="mb-2">
+                      <div class="d-flex justify-content-between align-items-center mb-1">
+                        <span style="font-size: 0.7rem; color: var(--text-dim);">Background Ducking Attenuation:</span>
+                        <span class="mono fw-bold" style="font-size: 0.72rem; color: var(--brand);">
+                          {{ videoDuckLevel() * 100 | number:'1.0-0' }}% nominal (-{{ ((1 - videoDuckLevel()) * 18) | number:'1.0-0' }} dB)
+                        </span>
+                      </div>
+                      <div class="d-flex gap-1 mb-1">
+                        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2 flex-fill" style="font-size: 0.65rem;"
+                                [class.active]="videoDuckLevel() === 0.1" (click)="videoDuckLevel.set(0.1); markDirty()">10% Subtle</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2 flex-fill" style="font-size: 0.65rem;"
+                                [class.active]="videoDuckLevel() === 0.2" (click)="videoDuckLevel.set(0.2); markDirty()">20% Rec.</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2 flex-fill" style="font-size: 0.65rem;"
+                                [class.active]="videoDuckLevel() === 0.35" (click)="videoDuckLevel.set(0.35); markDirty()">35% Mid</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2 flex-fill" style="font-size: 0.65rem;"
+                                [class.active]="videoDuckLevel() === 0.5" (click)="videoDuckLevel.set(0.5); markDirty()">50% Half</button>
+                      </div>
+                      <input type="range" class="form-range w-100" min="0.05" max="0.80" step="0.05"
+                             [ngModel]="videoDuckLevel()" (ngModelChange)="videoDuckLevel.set($event); markDirty()" />
+                    </div>
+                  } @else {
+                    <div class="alert alert-secondary py-1 px-2 mb-2" style="font-size: 0.7rem; background: rgba(255,255,255,0.04); border: 1px solid var(--border); color: var(--muted); border-radius: 6px;">
+                      Ducking engine bypassed. All tracks play at full nominal volume without automatic voiceover attenuation.
+                    </div>
+                  }
+
+                  <!-- Hold & Release Envelope Readout -->
+                  <div class="envelope-info-grid">
+                    <div class="envelope-stat">
+                      <span class="lbl">⚡ Attack</span>
+                      <span class="val mono">50ms</span>
+                    </div>
+                    <div class="envelope-stat">
+                      <span class="lbl">⏱ Hold</span>
+                      <span class="val mono">250ms</span>
+                    </div>
+                    <div class="envelope-stat">
+                      <span class="lbl">📈 Release</span>
+                      <span class="val mono">150ms</span>
+                    </div>
+                    <div class="envelope-stat">
+                      <span class="lbl">Mode</span>
+                      <span class="val mono" [style.color]="!isGlobalDuckingBypassed() ? 'var(--ok)' : 'var(--muted)'">
+                        {{ !isGlobalDuckingBypassed() ? 'Active' : 'Bypassed' }}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            }
           </div>
         }
 

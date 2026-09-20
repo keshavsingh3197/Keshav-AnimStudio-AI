@@ -4604,4 +4604,322 @@ audio { height: 2.2rem; vertical-align: middle; }
   bottom: 8% !important;
 }
 
+/* ============================================================
+   Context-Aware Audio Inspector & 5-Bus Master Mixer Console
+   ============================================================ */
+
+.audio-hub-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Context-Switching Nav Pills */
+.audio-context-nav {
+  display: flex;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px;
+  gap: 4px;
+}
+
+.audio-nav-pill {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+}
+
+.audio-nav-pill:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.audio-nav-pill.active {
+  background: var(--surface);
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  border: 1px solid color-mix(in srgb, var(--brand) 40%, transparent);
+}
+
+.nav-active-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 6px var(--ok);
+}
+
+/* Audio Hub Cards */
+.audio-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.inner-audio-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+/* Track Badge Pills (Consistent Colors - Guardrail 4) */
+.track-badge-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 800;
+  color: #fff;
+  border-radius: 4px;
+  padding: 1px 6px;
+  letter-spacing: 0.3px;
+}
+
+/* Mute Toggle Button */
+.btn-mute-toggle {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 0.72rem;
+  padding: 2px 6px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.btn-mute-toggle:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: var(--text-dim);
+}
+
+.btn-mute-toggle.muted {
+  background: color-mix(in srgb, #ef4444 20%, transparent);
+  border-color: #ef4444;
+  color: #f87171;
+}
+
+/* Fade Controls Stepper Group */
+.fade-stepper-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  margin-bottom: 3px;
+}
+
+.fade-stepper-group {
+  display: flex;
+  align-items: center;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.fade-stepper-group .stepper-btn {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: 0.8rem;
+  font-weight: 700;
+  width: 28px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.fade-stepper-group .stepper-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.fade-stepper-group .stepper-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.fade-stepper-group .stepper-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: 0.75rem;
+  font-family: var(--font-mono, monospace);
+  text-align: center;
+  padding: 2px;
+  -moz-appearance: textfield;
+}
+
+.fade-stepper-group .stepper-input::-webkit-outer-spin-button,
+.fade-stepper-group .stepper-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Ducking Segmented Control */
+.duck-seg-group {
+  display: flex;
+  gap: 4px;
+  background: var(--surface-2);
+  padding: 3px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.duck-seg-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 5px 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.68rem;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  white-space: nowrap;
+}
+
+.duck-seg-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.duck-seg-btn.active {
+  background: var(--surface);
+  border-color: var(--brand);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+/* 5-Bus Mixer Console */
+.master-mixer-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mixer-bus-row {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.mixer-bus-row.master-bus-highlight {
+  background: color-mix(in srgb, var(--brand) 10%, var(--surface));
+  border-color: color-mix(in srgb, var(--brand) 45%, transparent);
+}
+
+.bus-meta-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.bus-name {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.bus-db {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+}
+
+.bus-db.muted-text {
+  color: #f87171 !important;
+}
+
+.bus-fader-container {
+  margin-bottom: 4px;
+}
+
+.bus-slider {
+  margin: 0;
+  padding: 0;
+}
+
+/* Reactive VU Peak Meter Bar */
+.vu-meter-track {
+  height: 5px;
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.vu-meter-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(
+    90deg,
+    #10b981 0%,
+    #10b981 70%,
+    #eab308 70%,
+    #eab308 85%,
+    #ef4444 85%,
+    #ef4444 100%
+  );
+  border-radius: 3px;
+  transition: width 0.05s linear;
+}
+
+/* Envelope Info Grid */
+.envelope-info-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  background: var(--surface-2);
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  margin-top: 4px;
+}
+
+.envelope-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.envelope-stat .lbl {
+  font-size: 0.62rem;
+  color: var(--text-dim);
+  margin-bottom: 1px;
+}
+
+.envelope-stat .val {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
 

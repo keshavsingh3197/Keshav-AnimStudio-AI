@@ -469,6 +469,7 @@ export interface ClipAudioBody {
   keepOriginalAudio: boolean;
   trimStartSeconds?: number | null;
   trimEndSeconds?: number | null;
+  duckMode?: 'Normal' | 'Ducked' | 'LeadVoice';
 }
 
 /** Loudest anything may be lifted. Mirrors ClipAudioSpec.MaxGain on the server. */
@@ -503,6 +504,7 @@ export interface TimelineItem {
   volume?: number;
   trimStartSeconds?: number;
   trimEndSeconds?: number;
+  duckMode?: 'Normal' | 'Ducked' | 'LeadVoice';
 }
 
 export interface TrackControlState {
