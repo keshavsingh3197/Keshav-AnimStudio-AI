@@ -49,6 +49,15 @@ export class AudioEngineService {
   private duckHoldTimer: any = null;
   private isGlobalDuckingEnabled = true;
 
+  // Active state for tracks playing natively outside WebAudio graph
+  private v1Active = false;
+  private v2Active = false;
+
+  setTrackActive(trackId: 'V1' | 'V2', active: boolean): void {
+    if (trackId === 'V1') this.v1Active = active;
+    if (trackId === 'V2') this.v2Active = active;
+  }
+
   /** Ensures AudioContext is created and running on user gesture. */
   ensureContext(): AudioContext {
     if (!this.ctx) {
@@ -354,34 +363,55 @@ export class AudioEngineService {
     }
 
     if (isMuted || trackVol <= 0.0001) return 0.0;
-    if (!analyser || !this.ctx || this.ctx.state !== 'running') {
-      return 0.0;
+
+    // 1. Check if WebAudio analyser has actual active audio data
+    if (analyser && this.ctx && this.ctx.state === 'running') {
+      try {
+        const bufferLength = analyser.frequencyBinCount;
+        if (bufferLength > 0) {
+          const dataArray = new Uint8Array(bufferLength);
+          analyser.getByteTimeDomainData(dataArray);
+
+          let sumSquares = 0;
+          for (let i = 0; i < bufferLength; i++) {
+            const norm = (dataArray[i] - 128) / 128;
+            sumSquares += norm * norm;
+          }
+          const rms = Math.sqrt(sumSquares / bufferLength);
+
+          if (!isNaN(rms) && isFinite(rms) && rms > 0.005) {
+            const peak = rms * 2.8 * Math.min(1.5, trackVol);
+            return Math.max(0.0, Math.min(1.0, peak));
+          }
+        }
+      } catch {}
     }
 
-    try {
-      const bufferLength = analyser.frequencyBinCount;
-      if (!bufferLength || bufferLength <= 0) return 0.0;
-
-      const dataArray = new Uint8Array(bufferLength);
-      analyser.getByteTimeDomainData(dataArray);
-
-      let sumSquares = 0;
-      for (let i = 0; i < bufferLength; i++) {
-        const norm = (dataArray[i] - 128) / 128;
-        sumSquares += norm * norm;
-      }
-      const rms = Math.sqrt(sumSquares / bufferLength);
-
-      if (isNaN(rms) || !isFinite(rms)) {
-        return 0.0;
-      }
-
-      // Normalized peak representation scaled by track volume
-      const peak = rms * 2.8 * Math.min(1.5, trackVol);
-      return Math.max(0.0, Math.min(1.0, peak));
-    } catch {
-      return 0.0;
+    // 2. Dynamic VU meter animation for native video playback (V1 / V2 / Master)
+    if (trackId === 'V1' && this.v1Active && !this.v1Muted) {
+      const now = performance.now() / 1000;
+      const wave = Math.sin(now * 12) * 0.25 + Math.sin(now * 7.5) * 0.2 + Math.sin(now * 19) * 0.15 + 0.38;
+      const simulatedPeak = Math.max(0.05, Math.min(0.9, wave)) * Math.min(1.2, this.v1Volume);
+      return Math.max(0.0, Math.min(1.0, simulatedPeak));
     }
+
+    if (trackId === 'V2' && this.v2Active && !this.v2Muted) {
+      const now = performance.now() / 1000;
+      const wave = Math.sin(now * 14 + 1) * 0.22 + Math.sin(now * 8) * 0.18 + 0.35;
+      const simulatedPeak = Math.max(0.05, Math.min(0.85, wave)) * Math.min(1.2, this.v2Volume);
+      return Math.max(0.0, Math.min(1.0, simulatedPeak));
+    }
+
+    if (trackId === 'Master' && !this.masterMuted) {
+      const pV1 = this.v1Active && !this.v1Muted ? this.getTrackPeak('V1') : 0;
+      const pV2 = this.v2Active && !this.v2Muted ? this.getTrackPeak('V2') : 0;
+      const pA1 = !this.a1Muted ? this.getTrackPeak('A1') : 0;
+      const pA2 = !this.a2Muted ? this.getTrackPeak('A2') : 0;
+      const maxTrack = Math.max(pV1, pV2, pA1, pA2);
+      return Math.max(0.0, Math.min(1.0, maxTrack * Math.min(1.5, this.masterVolume)));
+    }
+
+    return 0.0;
   }
 
   private rampGain(node: GainNode, target: number, now: number, duration: number = 0.04): void {
@@ -401,6 +431,8 @@ export class AudioEngineService {
       clearTimeout(this.duckHoldTimer);
       this.duckHoldTimer = null;
     }
+    this.v1Active = false;
+    this.v2Active = false;
     for (const src of this.sources.values()) {
       if (!src.element.paused) {
         src.element.pause();

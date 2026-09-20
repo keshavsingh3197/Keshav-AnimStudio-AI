@@ -3159,10 +3159,8 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     if (this.isMonitorMuted() && vol > 0) {
       this.isMonitorMuted.set(false);
     }
-    const video = this.activeLayer() === 'A'
-      ? this.videoMonitorARef?.nativeElement
-      : this.videoMonitorBRef?.nativeElement;
-    if (video) video.volume = this.isMonitorMuted() ? 0 : vol;
+    this.audioEngine.setMasterVolume(vol, this.isMonitorMuted());
+    this.syncMediaElements(this.isPlaying());
   }
 
   stepFrame(frames: number): void {
@@ -3422,6 +3420,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
       this.setMonitorVolume(clamped);
     }
     this.markDirty();
+    this.syncMediaElements(this.isPlaying());
   }
 
   toggleTrackMute(trackId: 'V1' | 'V2' | 'A1' | 'A2' | 'Master'): void {
@@ -3438,6 +3437,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
       })
     );
     this.markDirty();
+    this.syncMediaElements(this.isPlaying());
   }
 
   isTrackMuted(trackId: 'V1' | 'V2' | 'A1' | 'A2' | 'Master'): boolean {
@@ -3746,6 +3746,9 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
 
     // 1. Synchronize the active playing video
     const isCurrImage = this.getClipType(curr.clip) === 'image';
+    const isV1Playing = playing && !isCurrImage && !isMuted && clipVol > 0;
+    this.audioEngine.setTrackActive('V1', isV1Playing);
+
     if (isCurrImage) {
       if (currentActiveVideo && !currentActiveVideo.paused) {
         currentActiveVideo.pause();
@@ -3773,11 +3776,9 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
       } else if (!playing || (Math.abs(currentActiveVideo.currentTime - localTime) > 0.4 && !currentActiveVideo.seeking)) {
         currentActiveVideo.currentTime = Math.max(0.001, localTime);
       }
-      currentActiveVideo.volume = this.isMonitorMuted() ? 0 : this.monitorVolume() * clipVol;
       currentActiveVideo.volume = this.isMonitorMuted() ? 0 : Math.min(1, this.monitorVolume() * clipVol);
       currentActiveVideo.muted = isMuted;
       currentActiveVideo.playbackRate = speed;
-      this.audioEngine.connectMediaElement(currentActiveVideo, 'V1');
       if (playing) {
         if (currentActiveVideo.paused) currentActiveVideo.play().catch(() => undefined);
       } else {
@@ -3841,6 +3842,8 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
             currentStandbyVideo.src = targetSrc;
           }
           currentStandbyVideo.currentTime = 0;
+          currentStandbyVideo.volume = 0;
+          currentStandbyVideo.muted = true;
           currentStandbyVideo.load();
         }
         if (!currentStandbyVideo.paused) {
@@ -3929,15 +3932,19 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
         overlayVideo.volume = this.isMonitorMuted() ? 0 : v2Vol;
         overlayVideo.muted = this.isMonitorMuted() || isV2Muted;
         overlayVideo.playbackRate = speed;
-        this.audioEngine.connectMediaElement(overlayVideo, 'V2');
+        const isV2Playing = playing && !this.isMonitorMuted() && !isV2Muted && v2Vol > 0;
+        this.audioEngine.setTrackActive('V2', isV2Playing);
         if (playing) {
           if (overlayVideo.paused) overlayVideo.play().catch(() => undefined);
         } else {
           if (!overlayVideo.paused) overlayVideo.pause();
         }
       } else {
+        this.audioEngine.setTrackActive('V2', false);
         if (!overlayVideo.paused) overlayVideo.pause();
       }
+    } else {
+      this.audioEngine.setTrackActive('V2', false);
     }
 
     // Sync Web Audio API engine for A1 and A2
@@ -3967,6 +3974,9 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     }
 
     if (sound.audioAssetId && clipSoundEl && !clipSoundEl.paused) {
+      isA1Playing = true;
+    }
+    if (sound.duckMode === 'LeadVoice' && isV1Playing) {
       isA1Playing = true;
     }
     this.audioEngine.setA1Active(isA1Playing);

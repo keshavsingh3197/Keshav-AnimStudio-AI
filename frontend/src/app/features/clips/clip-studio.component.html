@@ -354,14 +354,14 @@
                  [style.animation-duration.s]="liveTransitionDuration()"
                  [style.filter]="computedMonitorFilter()"
                  [style.transform]="activeClipTransform()"
-                 muted playsinline preload="auto"></video>
+                 playsinline preload="auto"></video>
 
           <video #videoMonitorB
                  [class]="'pv-monitor-layer ' + (activeLayer() === 'B' ? 'layer-front' : 'layer-back') + ' ' + monitorFitClass() + (liveTransitionActive() && activeLayer() === 'B' ? ' ' + liveTransitionClass() : '')"
                  [style.animation-duration.s]="liveTransitionDuration()"
                  [style.filter]="computedMonitorFilter()"
                  [style.transform]="activeClipTransform()"
-                 muted playsinline preload="auto"></video>
+                 playsinline preload="auto"></video>
 
           <!-- Static Image Clip Monitor Layer: Displays when playhead is over an image timeline clip -->
           @if (activeClipIsImage()) {
@@ -381,7 +381,7 @@
                    [src]="assetUrl(v2.src)"
                    [style.opacity]="v2.transform?.opacity ?? 1"
                    [style.transform]="getOverlayTransform(v2.transform)"
-                   muted playsinline preload="auto"></video>
+                   playsinline preload="auto"></video>
           }
 
           <!-- V3 Image Overlay Layer -->
