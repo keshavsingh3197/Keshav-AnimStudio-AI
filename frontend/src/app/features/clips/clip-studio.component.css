@@ -1,4 +1,4 @@
-﻿/* ============================================================
+/* ============================================================
    Obsidian Studio — Clip Studio Layout
    AnimStudio AI · NLE-style 4-column workspace
    Obsidian Studio â€” Clip Studio Layout
@@ -250,38 +250,233 @@
   overflow: hidden;
 }
 
-/* Inspector tab navigation strip — never shrinks */
-/* Inspector tab navigation strip â€” never shrinks */
-.fe-inspector .inspector-nav {
+/* Inspector Header Bar: Category Switcher & Modern Scope Dropdown */
+.fe-inspector .inspector-header-bar {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 8px 10px 0;
+  gap: 6px;
+  padding: 8px 10px;
   border-bottom: 1px solid var(--border, #1e2433);
-  background: color-mix(in srgb, var(--surface-2, #161b27) 60%, transparent);
+  background: color-mix(in srgb, var(--surface-2, #161b27) 80%, transparent);
+  position: relative;
+  z-index: 30;
 }
 
-.fe-inspector .inspector-nav .nav-tab {
-  padding: 6px 12px;
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-muted, #8892a4);
-  border-bottom: 2px solid transparent;
+/* Tool Dropdown Selector */
+.fe-inspector .tool-dropdown-wrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.fe-inspector .modern-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  background: #090e17;
+  border: 1px solid #1e293b;
+  border-radius: 6px;
+  color: #94a3b8;
+  font-size: 11.5px;
+  font-weight: 600;
   cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease;
-  user-select: none;
+  transition: all 0.15s ease;
+  white-space: nowrap;
 }
 
-.fe-inspector .inspector-nav .nav-tab:hover {
-  color: var(--text, #e2e8f0);
+.fe-inspector .modern-tool-btn:hover {
+  background: #0f172a;
+  border-color: #334155;
+  color: #f1f5f9;
 }
 
-.fe-inspector .inspector-nav .nav-tab.active {
-  color: var(--brand, #6c8cff);
-  border-bottom-color: var(--brand, #6c8cff);
+.fe-inspector .modern-tool-menu {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  min-width: 175px;
+  background: #0b1120;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 105;
+}
+
+.fe-inspector .modern-tool-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: #cbd5e1;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+  text-align: left;
+}
+
+.fe-inspector .modern-tool-item .tool-item-icon {
+  font-size: 13px;
+}
+
+.fe-inspector .modern-tool-item .tool-item-label {
+  flex: 1;
+}
+
+.fe-inspector .modern-tool-item:hover:not(.active) {
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+}
+
+.fe-inspector .modern-tool-item.active {
+  background: #173b75;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+/* Modern Target Scope Dropdown (Exact Image 2 Design) */
+.fe-inspector .scope-dropdown-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.fe-inspector .modern-scope-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #090e17;
+  border: 1px solid #1e293b;
+  border-radius: 6px;
+  color: #f1f5f9;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.fe-inspector .modern-scope-btn:hover {
+  background: #0f172a;
+  border-color: #334155;
+}
+
+.fe-inspector .scope-btn-content {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.fe-inspector .scope-btn-content .scope-icon {
+  flex-shrink: 0;
+  color: #94a3b8;
+}
+
+.fe-inspector .scope-btn-content .scope-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fe-inspector .dropdown-chevron {
+  flex-shrink: 0;
+  color: #94a3b8;
+}
+
+.fe-inspector .scope-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: transparent;
+}
+
+.fe-inspector .modern-scope-menu {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  right: 0;
+  min-width: 200px;
+  background: #0b1120;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 105;
+}
+
+.fe-inspector .modern-scope-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: #cbd5e1;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+  text-align: left;
+}
+
+.fe-inspector .modern-scope-item .item-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.fe-inspector .modern-scope-item .scope-icon {
+  flex-shrink: 0;
+  color: #94a3b8;
+}
+
+.fe-inspector .modern-scope-item .item-name {
+  white-space: nowrap;
+}
+
+.fe-inspector .modern-scope-item:hover:not(.active) {
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+}
+
+.fe-inspector .modern-scope-item.active {
+  background: #173b75;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.fe-inspector .modern-scope-item.active .scope-icon,
+.fe-inspector .modern-scope-item.active .check-icon {
+  color: #ffffff;
+}
+
+.fe-inspector .check-icon {
+  flex-shrink: 0;
+  margin-left: 6px;
+}
+
+.fe-inspector .inspector-nav {
+  display: none;
 }
 
 /* Inspector scrollable content — grows to fill remaining space */

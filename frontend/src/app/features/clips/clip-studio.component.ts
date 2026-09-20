@@ -818,6 +818,45 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     }
   }
 
+  readonly scopeDropdownOpen = signal<boolean>(false);
+  readonly toolDropdownOpen = signal<boolean>(false);
+  readonly selectedClipsCount = computed(() => (this.selectedClip() ? 1 : 0));
+
+  readonly activeInspectorTabLabel = computed(() => {
+    switch (this.activeInspectorTab()) {
+      case 'clip': return '📐 Framing';
+      case 'color': return '🎨 Color';
+      case 'audio': return '🎵 Audio';
+      case 'text': return 'T Text';
+      case 'effects': return '✨ FX';
+      case 'transitions': return '⚡ Trans';
+      case 'export': return '↑ Export';
+      default: return '📐 Framing';
+    }
+  });
+
+  toggleScopeDropdown(event?: MouseEvent): void {
+    if (event) event.stopPropagation();
+    this.scopeDropdownOpen.update((v) => !v);
+    this.toolDropdownOpen.set(false);
+  }
+
+  toggleToolDropdown(event?: MouseEvent): void {
+    if (event) event.stopPropagation();
+    this.toolDropdownOpen.update((v) => !v);
+    this.scopeDropdownOpen.set(false);
+  }
+
+  selectScopeOption(scope: 'selected' | 'current' | 'all'): void {
+    this.setTargetScope(scope);
+    this.scopeDropdownOpen.set(false);
+  }
+
+  setInspectorTab(tab: 'clip' | 'effects' | 'audio' | 'export' | 'color' | 'text' | 'transitions'): void {
+    this.activeInspectorTab.set(tab);
+    this.toolDropdownOpen.set(false);
+  }
+
   readonly selectedClipIndexInCut = computed<number>(() => {
     const sel = this.selectedClip();
     if (!sel) return -1;
