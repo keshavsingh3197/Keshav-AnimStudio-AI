@@ -71,13 +71,19 @@ export interface FilterPreset {
   swatch: string;
 }
 
-export interface MusicTrackRow {
-  key: string;
-  assetId: string;
-  startSeconds: number;
-  volume: number;
-  trimStartSeconds: number | null;
-  trimEndSeconds: number | null;
+export interface ClipColorSetting {
+  filter: string;
+  brightness: number;
+  contrast: number;
+  saturation: number;
+  sepia: number;
+  blur: number;
+}
+
+export interface ClipTextSetting {
+  enabled: boolean;
+  title: string;
+  subtitle: string;
 }
 
 /**
@@ -496,7 +502,11 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   readonly clipFraming = signal<Map<string, { fit: 'Contain' | 'Cover'; zoom: number; panY: 'center' | 'top' | 'bottom' }>>(new Map());
   readonly clipAudioFade = signal<Map<string, { fadeInSeconds: number; fadeOutSeconds: number }>>(new Map());
 
-  // --- Color grading look filters
+  // --- Per-Clip Color Grading & Lower-Third Overlays
+  readonly clipColor = signal<Map<string, ClipColorSetting>>(new Map());
+  readonly clipText = signal<Map<string, ClipTextSetting>>(new Map());
+
+  // --- Color grading look filters (global defaults)
   readonly activeFilter = signal<string>('none');
   readonly filterBrightness = signal<number>(100);
   readonly filterContrast = signal<number>(100);
@@ -1006,18 +1016,104 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     return '';
   });
 
+  clipColorSetting(clipId: string): ClipColorSetting {
+    return this.clipColor().get(clipId) ?? {
+      filter: this.activeFilter(),
+      brightness: this.filterBrightness(),
+      contrast: this.filterContrast(),
+      saturation: this.filterSaturation(),
+      sepia: this.filterSepia(),
+      blur: this.filterBlur(),
+    };
+  }
+
+  clipTextSetting(clipId: string): ClipTextSetting {
+    return this.clipText().get(clipId) ?? {
+      enabled: this.lowerThirdEnabled(),
+      title: this.lowerThirdTitle(),
+      subtitle: this.lowerThirdSubtitle(),
+    };
+  }
+
+  readonly activeScopeColorSetting = computed<ClipColorSetting>(() => {
+    const scope = this.targetScope();
+    if (scope === 'all') {
+      return {
+        filter: this.activeFilter(),
+        brightness: this.filterBrightness(),
+        contrast: this.filterContrast(),
+        saturation: this.filterSaturation(),
+        sepia: this.filterSepia(),
+        blur: this.filterBlur(),
+      };
+    }
+    const targetIds = this.getTargetClipIds();
+    if (targetIds.length > 0) {
+      return this.clipColorSetting(targetIds[0]);
+    }
+    return {
+      filter: this.activeFilter(),
+      brightness: this.filterBrightness(),
+      contrast: this.filterContrast(),
+      saturation: this.filterSaturation(),
+      sepia: this.filterSepia(),
+      blur: this.filterBlur(),
+    };
+  });
+
+  readonly activeScopeTextSetting = computed<ClipTextSetting>(() => {
+    const scope = this.targetScope();
+    if (scope === 'all') {
+      return {
+        enabled: this.lowerThirdEnabled(),
+        title: this.lowerThirdTitle(),
+        subtitle: this.lowerThirdSubtitle(),
+      };
+    }
+    const targetIds = this.getTargetClipIds();
+    if (targetIds.length > 0) {
+      return this.clipTextSetting(targetIds[0]);
+    }
+    return {
+      enabled: this.lowerThirdEnabled(),
+      title: this.lowerThirdTitle(),
+      subtitle: this.lowerThirdSubtitle(),
+    };
+  });
+
   /** Combined CSS filter string for live grading preview on the monitor. */
   readonly computedMonitorFilter = computed(() => {
-    const preset = this.filterPresets.find((p) => p.id === this.activeFilter());
+    let color: ClipColorSetting;
+    if (this.isPlaying()) {
+      const sched = this.currentScheduledClip();
+      color = sched ? this.clipColorSetting(sched.clip.id) : this.activeScopeColorSetting();
+    } else {
+      color = this.activeScopeColorSetting();
+    }
+    const preset = this.filterPresets.find((p) => p.id === color.filter);
     const baseFilter = preset && preset.id !== 'none' ? preset.filter : '';
-    const b = this.filterBrightness() / 100;
-    const c = this.filterContrast() / 100;
-    const s = this.filterSaturation() / 100;
-    const sep = this.filterSepia() / 100;
-    const bl = this.filterBlur();
+    const b = color.brightness / 100;
+    const c = color.contrast / 100;
+    const s = color.saturation / 100;
+    const sep = color.sepia / 100;
+    const bl = color.blur;
 
     const adjustments = `brightness(${b}) contrast(${c}) saturate(${s}) sepia(${sep}) blur(${bl}px)`;
     return baseFilter ? `${baseFilter} ${adjustments}` : adjustments;
+  });
+
+  readonly activeMonitorLowerThird = computed<{ enabled: boolean; title: string; subtitle: string } | null>(() => {
+    let text: ClipTextSetting;
+    if (this.isPlaying()) {
+      const sched = this.currentScheduledClip();
+      text = sched ? this.clipTextSetting(sched.clip.id) : this.activeScopeTextSetting();
+    } else {
+      text = this.activeScopeTextSetting();
+    }
+    if (text.enabled && text.title.trim().length > 0) {
+      return text;
+    }
+    return null;
   });
 
   resetColorGrading(): void {
@@ -1027,6 +1123,275 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     this.filterSaturation.set(100);
     this.filterSepia.set(0);
     this.filterBlur.set(0);
+  }
+
+  setScopeFilter(filterId: string): void {
+    const scope = this.targetScope();
+    if (scope === 'all') {
+      this.activeFilter.set(filterId);
+    }
+    const targetIds = this.getTargetClipIds();
+    if (targetIds.length > 0) {
+      this.clipColor.update((m) => {
+        const next = new Map(m);
+        for (const id of targetIds) {
+          const current = this.clipColorSetting(id);
+          next.set(id, { ...current, filter: filterId });
+        }
+        return next;
+      });
+    }
+    this.markDirty();
+  }
+
+  setScopeBrightness(value: number | string): void {
+    const num = Math.min(Math.max(Number(value), 70), 140);
+    const scope = this.targetScope();
+    if (scope === 'all') {
+      this.filterBrightness.set(num);
+    }
+    const targetIds = this.getTargetClipIds();
+    if (targetIds.length > 0) {
+      this.clipColor.update((m) => {
+        const next = new Map(m);
+        for (const id of targetIds) {
+          const current = this.clipColorSetting(id);
+          next.set(id, { ...current, brightness: num });
+        }
+        return next;
+      });
+    }
+    this.markDirty();
+  }
+
+  setScopeContrast(value: number | string): void {
+    const num = Math.min(Math.max(Number(value), 70), 150);
+    const scope = this.targetScope();
+    if (scope === 'all') {
+      this.filterContrast.set(num);
+    }
+    const targetIds = this.getTargetClipIds();
+    if (targetIds.length > 0) {
+      this.clipColor.update((m) => {
+        const next = new Map(m);
+        for (const id of targetIds) {
+          const current = this.clipColorSetting(id);
+          next.set(id, { ...current, contrast: num });
+        }
+        return next;
+      });
+    }
+    this.markDirty();
+  }
+
+  setScopeSaturation(value: number | string): void {
+    const num = Math.min(Math.max(Number(value), 0), 200);
+    const scope = this.targetScope();
+    if (scope === 'all') {
+      this.filterSaturation.set(num);
+    }
+    const targetIds = this.getTargetClipIds();
+    if (targetIds.length > 0) {
+      this.clipColor.update((m) => {
+        const next = new Map(m);
+        for (const id of targetIds) {
+          const current = this.clipColorSetting(id);
+          next.set(id, { ...current, saturation: num });
+        }
+        return next;
+      });
+    }
+    this.markDirty();
+  }
+
+  setScopeSepia(value: number | string): void {
+    const num = Math.min(Math.max(Number(value), 0), 100);
+    const scope = this.targetScope();
+    if (scope === 'all') {
+      this.filterSepia.set(num);
+    }
+    const targetIds = this.getTargetClipIds();
+    if (targetIds.length > 0) {
+      this.clipColor.update((m) => {
+        const next = new Map(m);
+        for (const id of targetIds) {
+          const current = this.clipColorSetting(id);
+          next.set(id, { ...current, sepia: num });
+        }
+        return next;
+      });
+    }
+    this.markDirty();
+  }
+
+  setScopeBlur(value: number | string): void {
+    const num = Math.min(Math.max(Number(value), 0), 10);
+    const scope = this.targetScope();
+    if (scope === 'all') {
+      this.filterBlur.set(num);
+    }
+    const targetIds = this.getTargetClipIds();
+    if (targetIds.length > 0) {
+      this.clipColor.update((m) => {
+        const next = new Map(m);
+        for (const id of targetIds) {
+          const current = this.clipColorSetting(id);
+          next.set(id, { ...current, blur: num });
+        }
+        return next;
+      });
+    }
+    this.markDirty();
+  }
+
+  resetScopeColorGrading(): void {
+    const scope = this.targetScope();
+    if (scope === 'all') {
+      this.resetColorGrading();
+      this.clipColor.update((m) => {
+        const next = new Map(m);
+        for (const r of this.included()) {
+          const cur = this.clipColorSetting(r.clip.id);
+          next.set(r.clip.id, {
+            ...cur,
+            filter: 'none',
+            brightness: 100,
+            contrast: 100,
+            saturation: 100,
+          });
+        }
+        return next;
+      });
+    } else {
+      const targetIds = this.getTargetClipIds();
+      this.clipColor.update((m) => {
+        const next = new Map(m);
+        for (const id of targetIds) {
+          const cur = this.clipColorSetting(id);
+          next.set(id, {
+            ...cur,
+            filter: 'none',
+            brightness: 100,
+            contrast: 100,
+            saturation: 100,
+          });
+        }
+        return next;
+      });
+    }
+    this.markDirty();
+  }
+
+  resetScopeEffects(): void {
+    const scope = this.targetScope();
+    if (scope === 'all') {
+      this.filterSepia.set(0);
+      this.filterBlur.set(0);
+      this.clipColor.update((m) => {
+        const next = new Map(m);
+        for (const r of this.included()) {
+          const cur = this.clipColorSetting(r.clip.id);
+          next.set(r.clip.id, {
+            ...cur,
+            sepia: 0,
+            blur: 0,
+          });
+        }
+        return next;
+      });
+    } else {
+      const targetIds = this.getTargetClipIds();
+      this.clipColor.update((m) => {
+        const next = new Map(m);
+        for (const id of targetIds) {
+          const cur = this.clipColorSetting(id);
+          next.set(id, {
+            ...cur,
+            sepia: 0,
+            blur: 0,
+          });
+        }
+        return next;
+      });
+    }
+    this.markDirty();
+  }
+
+  setScopeTextEnabled(enabled: boolean): void {
+    const scope = this.targetScope();
+    if (scope === 'all') {
+      this.lowerThirdEnabled.set(enabled);
+    }
+    const targetIds = this.getTargetClipIds();
+    if (targetIds.length > 0) {
+      this.clipText.update((m) => {
+        const next = new Map(m);
+        for (const id of targetIds) {
+          const current = this.clipTextSetting(id);
+          next.set(id, { ...current, enabled });
+        }
+        return next;
+      });
+    }
+    this.markDirty();
+  }
+
+  setScopeTextTitle(title: string): void {
+    const scope = this.targetScope();
+    if (scope === 'all') {
+      this.lowerThirdTitle.set(title);
+    }
+    const targetIds = this.getTargetClipIds();
+    if (targetIds.length > 0) {
+      this.clipText.update((m) => {
+        const next = new Map(m);
+        for (const id of targetIds) {
+          const current = this.clipTextSetting(id);
+          next.set(id, { ...current, title });
+        }
+        return next;
+      });
+    }
+    this.markDirty();
+  }
+
+  setScopeTextSubtitle(subtitle: string): void {
+    const scope = this.targetScope();
+    if (scope === 'all') {
+      this.lowerThirdSubtitle.set(subtitle);
+    }
+    const targetIds = this.getTargetClipIds();
+    if (targetIds.length > 0) {
+      this.clipText.update((m) => {
+        const next = new Map(m);
+        for (const id of targetIds) {
+          const current = this.clipTextSetting(id);
+          next.set(id, { ...current, subtitle });
+        }
+        return next;
+      });
+    }
+    this.markDirty();
+  }
+
+  applyScopeTextTemplate(title: string, subtitle: string): void {
+    const scope = this.targetScope();
+    if (scope === 'all') {
+      this.lowerThirdEnabled.set(true);
+      this.lowerThirdTitle.set(title);
+      this.lowerThirdSubtitle.set(subtitle);
+    }
+    const targetIds = this.getTargetClipIds();
+    if (targetIds.length > 0) {
+      this.clipText.update((m) => {
+        const next = new Map(m);
+        for (const id of targetIds) {
+          next.set(id, { enabled: true, title, subtitle });
+        }
+        return next;
+      });
+    }
+    this.markDirty();
   }
 
   readonly activeClipFraming = computed(() => {
@@ -1098,6 +1463,8 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
       this.clipAudioFade();
       this.clipAudio();
       this.junctionOverrides();
+      this.clipColor();
+      this.clipText();
       this.musicTracks();
       this.musicAssetId();
       this.musicVolume();
@@ -1553,6 +1920,8 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
       clipFraming: Array.from(this.clipFraming().entries()),
       clipAudioFade: Array.from(this.clipAudioFade().entries()),
       clipAudio: Array.from(this.clipAudio().entries()),
+      clipColor: Array.from(this.clipColor().entries()),
+      clipText: Array.from(this.clipText().entries()),
       junctionOverrides: Array.from(this.junctionOverrides().entries()),
       musicTracks: this.musicTracks(),
       musicAssetId: this.musicAssetId(),
@@ -1640,6 +2009,12 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
       if (Array.isArray(draft.clipAudio)) {
         this.clipAudio.set(new Map(draft.clipAudio));
       }
+      if (Array.isArray(draft.clipColor)) {
+        this.clipColor.set(new Map(draft.clipColor));
+      }
+      if (Array.isArray(draft.clipText)) {
+        this.clipText.set(new Map(draft.clipText));
+      }
       if (Array.isArray(draft.junctionOverrides)) {
         this.junctionOverrides.set(new Map(draft.junctionOverrides));
       }
@@ -1711,6 +2086,8 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     this.clipFraming.set(new Map());
     this.clipAudioFade.set(new Map());
     this.clipAudio.set(new Map());
+    this.clipColor.set(new Map());
+    this.clipText.set(new Map());
     this.junctionOverrides.set(new Map());
     this.musicTracks.set([]);
     this.resetColorGrading();

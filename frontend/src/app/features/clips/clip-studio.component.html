@@ -398,11 +398,11 @@
           }
 
           <!-- Lower-Third Caption Banner Overlay -->
-          @if (lowerThirdEnabled() && lowerThirdTitle()) {
+          @if (activeMonitorLowerThird(); as lt) {
             <div class="lower-third-overlay">
-              <div class="lower-third-title">{{ lowerThirdTitle() }}</div>
-              @if (lowerThirdSubtitle()) {
-                <div class="lower-third-sub">{{ lowerThirdSubtitle() }}</div>
+              <div class="lower-third-title">{{ lt.title }}</div>
+              @if (lt.subtitle) {
+                <div class="lower-third-sub">{{ lt.subtitle }}</div>
               }
             </div>
           }
@@ -763,215 +763,301 @@
 
         <!-- TAB 2: COLOR GRADING -->
         @if (activeInspectorTab() === 'color') {
-          <div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px;">
-            <div class="d-flex justify-content-between align-items-center mb-1">
-              <div class="qa-title mb-0" style="font-size: 0.82rem; font-weight: 700;">🎨 Color Grading & Look Presets</div>
-              <button class="link" type="button" style="font-size: .75rem" (click)="resetColorGrading()">
-                ↺ Reset All
-              </button>
+          @if (targetScope() === 'selected' && getTargetClipIds().length === 0) {
+            <div class="p-4 text-center text-secondary">
+              <div style="font-size: 1.8rem; margin-bottom: 8px;">🎨</div>
+              <div style="font-size: 0.85rem; font-weight: 600; color: var(--text);">No Clip Selected</div>
+              <div style="font-size: 0.75rem; margin-top: 4px;">Select clips on the timeline or in the media library to adjust color grading, or switch target scope to "All clips" or "Current clip".</div>
             </div>
-            <p class="muted" style="font-size: .74rem; margin: 0 0 .6rem">
-              Instant live styling applied to the Master Monitor.
-            </p>
-            <div class="filter-presets-grid">
-              @for (preset of filterPresets; track preset.id) {
-                <div class="filter-preset-card"
-                     [class.active]="activeFilter() === preset.id"
-                     (click)="activeFilter.set(preset.id)">
-                  <div class="filter-swatch" [style.background]="preset.swatch"></div>
-                  <span>{{ preset.label }}</span>
+          } @else {
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <!-- Scope Notification Banner -->
+              @if (targetScope() === 'all') {
+                <div class="alert alert-info py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: color-mix(in srgb, var(--brand) 15%, transparent); border: 1px solid var(--brand); color: #93c5fd; border-radius: 6px;">
+                  <span>🌐</span>
+                  <span><strong>Batch Mode:</strong> Color grading applies to all <strong>{{ included().length }} clips</strong> across the timeline.</span>
+                </div>
+              } @else if (targetScope() === 'selected' && selectedClipsCount() > 1) {
+                <div class="alert alert-primary py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: color-mix(in srgb, var(--brand) 15%, transparent); border: 1px solid var(--brand); color: #93c5fd; border-radius: 6px;">
+                  <span>🎯</span>
+                  <span><strong>Multi-Clip Scope:</strong> Color grading applies to <strong>{{ selectedClipsCount() }} selected clips</strong>.</span>
+                </div>
+              } @else if (targetScope() === 'current') {
+                <div class="alert alert-secondary py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: var(--surface-3); border: 1px solid var(--border); color: var(--text); border-radius: 6px;">
+                  <span>⏱️</span>
+                  <span><strong>Current Clip Scope:</strong> Color grading applies to <strong>{{ currentScheduledClip()?.clip?.name ?? 'current playing clip' }}</strong>.</span>
+                </div>
+              } @else if (targetScope() === 'selected' && selectedClipsCount() === 1) {
+                <div class="alert alert-secondary py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: var(--surface-3); border: 1px solid var(--border); color: var(--text); border-radius: 6px;">
+                  <span>🎯</span>
+                  <span><strong>Single Clip Scope:</strong> Color grading applies to <strong>{{ selectedClip()?.name ?? 'selected clip' }}</strong>.</span>
                 </div>
               }
-            </div>
 
-            <div class="d-flex flex-column gap-2" style="margin-top: .85rem">
-              <div>
+              <div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px;">
                 <div class="d-flex justify-content-between align-items-center mb-1">
-                  <label style="font-size: .75rem; margin-bottom: 0;">Brightness</label>
-                  <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 font-monospace" style="font-size: 0.72rem;"
-                          (click)="filterBrightness.set(100)" title="Click to reset to 100%">
-                    {{ filterBrightness() }}%
+                  <div class="qa-title mb-0" style="font-size: 0.82rem; font-weight: 700;">🎨 Color Grading & Look Presets</div>
+                  <button class="link" type="button" style="font-size: .75rem" (click)="resetScopeColorGrading()">
+                    ↺ Reset
                   </button>
                 </div>
-                <input type="range" class="form-range w-100" min="70" max="140" step="2" [(ngModel)]="filterBrightness" />
-              </div>
-              <div>
-                <div class="d-flex justify-content-between align-items-center mb-1">
-                  <label style="font-size: .75rem; margin-bottom: 0;">Contrast</label>
-                  <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 font-monospace" style="font-size: 0.72rem;"
-                          (click)="filterContrast.set(100)" title="Click to reset to 100%">
-                    {{ filterContrast() }}%
-                  </button>
+                <p class="muted" style="font-size: .74rem; margin: 0 0 .6rem">
+                  Instant live styling applied to the Master Monitor.
+                </p>
+                <div class="filter-presets-grid">
+                  @for (preset of filterPresets; track preset.id) {
+                    <div class="filter-preset-card"
+                         [class.active]="activeScopeColorSetting().filter === preset.id"
+                         (click)="setScopeFilter(preset.id)">
+                      <div class="filter-swatch" [style.background]="preset.swatch"></div>
+                      <span>{{ preset.label }}</span>
+                    </div>
+                  }
                 </div>
-                <input type="range" class="form-range w-100" min="70" max="150" step="2" [(ngModel)]="filterContrast" />
-              </div>
-              <div>
-                <div class="d-flex justify-content-between align-items-center mb-1">
-                  <label style="font-size: .75rem; margin-bottom: 0;">Saturation</label>
-                  <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 font-monospace" style="font-size: 0.72rem;"
-                          (click)="filterSaturation.set(100)" title="Click to reset to 100%">
-                    {{ filterSaturation() }}%
-                  </button>
+
+                <div class="d-flex flex-column gap-2" style="margin-top: .85rem">
+                  <div>
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                      <label style="font-size: .75rem; margin-bottom: 0;">Brightness</label>
+                      <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 font-monospace" style="font-size: 0.72rem;"
+                              (click)="setScopeBrightness(100)" title="Click to reset to 100%">
+                        {{ activeScopeColorSetting().brightness }}%
+                      </button>
+                    </div>
+                    <input type="range" class="form-range w-100" min="70" max="140" step="2"
+                           [ngModel]="activeScopeColorSetting().brightness"
+                           (ngModelChange)="setScopeBrightness($event)" />
+                  </div>
+                  <div>
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                      <label style="font-size: .75rem; margin-bottom: 0;">Contrast</label>
+                      <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 font-monospace" style="font-size: 0.72rem;"
+                              (click)="setScopeContrast(100)" title="Click to reset to 100%">
+                        {{ activeScopeColorSetting().contrast }}%
+                      </button>
+                    </div>
+                    <input type="range" class="form-range w-100" min="70" max="150" step="2"
+                           [ngModel]="activeScopeColorSetting().contrast"
+                           (ngModelChange)="setScopeContrast($event)" />
+                  </div>
+                  <div>
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                      <label style="font-size: .75rem; margin-bottom: 0;">Saturation</label>
+                      <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 font-monospace" style="font-size: 0.72rem;"
+                              (click)="setScopeSaturation(100)" title="Click to reset to 100%">
+                        {{ activeScopeColorSetting().saturation }}%
+                      </button>
+                    </div>
+                    <input type="range" class="form-range w-100" min="0" max="200" step="5"
+                           [ngModel]="activeScopeColorSetting().saturation"
+                           (ngModelChange)="setScopeSaturation($event)" />
+                  </div>
                 </div>
-                <input type="range" class="form-range w-100" min="0" max="200" step="5" [(ngModel)]="filterSaturation" />
               </div>
             </div>
-          </div>
+          }
         }
 
         <!-- TAB 3: STYLIZED EFFECTS -->
         @if (activeInspectorTab() === 'effects') {
-          <div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px;">
-            <div class="d-flex justify-content-between align-items-center mb-1">
-              <div class="qa-title mb-0" style="font-size: 0.82rem; font-weight: 700;">✨ Stylized Effects</div>
-              <button class="link" type="button" style="font-size: .75rem" (click)="filterSepia.set(0); filterBlur.set(0)">
-                ↺ Clear FX
-              </button>
+          @if (targetScope() === 'selected' && getTargetClipIds().length === 0) {
+            <div class="p-4 text-center text-secondary">
+              <div style="font-size: 1.8rem; margin-bottom: 8px;">✨</div>
+              <div style="font-size: 0.85rem; font-weight: 600; color: var(--text);">No Clip Selected</div>
+              <div style="font-size: 0.75rem; margin-top: 4px;">Select clips on the timeline or in the media library to adjust stylized effects, or switch target scope to "All clips" or "Current clip".</div>
             </div>
-            <p class="muted" style="font-size: .74rem; margin: 0 0 .6rem">
-              Atmospheric filters and lens focus effects.
-            </p>
-
-            <!-- Quick FX Presets -->
-            <div class="d-flex flex-wrap gap-1 mb-3">
-              <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
-                      [class.active]="filterSepia() === 0 && filterBlur() === 0"
-                      (click)="filterSepia.set(0); filterBlur.set(0)">
-                🌿 Clean
-              </button>
-              <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
-                      [class.active]="filterSepia() === 15 && filterBlur() === 2"
-                      (click)="filterSepia.set(15); filterBlur.set(2)">
-                🌸 Soft Dream
-              </button>
-              <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
-                      [class.active]="filterSepia() === 40 && filterBlur() === 1"
-                      (click)="filterSepia.set(40); filterBlur.set(1)">
-                🎞 Vintage Warm
-              </button>
-              <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
-                      [class.active]="filterSepia() === 80 && filterBlur() === 0"
-                      (click)="filterSepia.set(80); filterBlur.set(0)">
-                🎬 Deep Sepia
-              </button>
-              <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
-                      [class.active]="filterSepia() === 0 && filterBlur() === 3.5"
-                      (click)="filterSepia.set(0); filterBlur.set(3.5)">
-                🌫 Soft Focus
-              </button>
-            </div>
-
-            <div class="d-flex flex-column gap-2">
-              <div>
-                <div class="d-flex justify-content-between align-items-center mb-1">
-                  <label style="font-size: .75rem; margin-bottom: 0;">Sepia Tone</label>
-                  <span class="mono" style="font-size: .72rem; color: var(--text-dim);">{{ filterSepia() }}%</span>
+          } @else {
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <!-- Scope Notification Banner -->
+              @if (targetScope() === 'all') {
+                <div class="alert alert-info py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: color-mix(in srgb, var(--brand) 15%, transparent); border: 1px solid var(--brand); color: #93c5fd; border-radius: 6px;">
+                  <span>🌐</span>
+                  <span><strong>Batch Mode:</strong> Stylized effects apply to all <strong>{{ included().length }} clips</strong> across the timeline.</span>
                 </div>
-                <input type="range" class="form-range w-100" min="0" max="100" step="5" [(ngModel)]="filterSepia" />
-              </div>
-              <div>
-                <div class="d-flex justify-content-between align-items-center mb-1">
-                  <label style="font-size: .75rem; margin-bottom: 0;">Soft Focus / Blur</label>
-                  <span class="mono" style="font-size: .72rem; color: var(--text-dim);">{{ filterBlur() }}px</span>
+              } @else if (targetScope() === 'selected' && selectedClipsCount() > 1) {
+                <div class="alert alert-primary py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: color-mix(in srgb, var(--brand) 15%, transparent); border: 1px solid var(--brand); color: #93c5fd; border-radius: 6px;">
+                  <span>🎯</span>
+                  <span><strong>Multi-Clip Scope:</strong> Stylized effects apply to <strong>{{ selectedClipsCount() }} selected clips</strong>.</span>
                 </div>
-                <input type="range" class="form-range w-100" min="0" max="10" step="0.5" [(ngModel)]="filterBlur" />
+              } @else if (targetScope() === 'current') {
+                <div class="alert alert-secondary py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: var(--surface-3); border: 1px solid var(--border); color: var(--text); border-radius: 6px;">
+                  <span>⏱️</span>
+                  <span><strong>Current Clip Scope:</strong> Stylized effects apply to <strong>{{ currentScheduledClip()?.clip?.name ?? 'current playing clip' }}</strong>.</span>
+                </div>
+              } @else if (targetScope() === 'selected' && selectedClipsCount() === 1) {
+                <div class="alert alert-secondary py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: var(--surface-3); border: 1px solid var(--border); color: var(--text); border-radius: 6px;">
+                  <span>🎯</span>
+                  <span><strong>Single Clip Scope:</strong> Stylized effects apply to <strong>{{ selectedClip()?.name ?? 'selected clip' }}</strong>.</span>
+                </div>
+              }
+
+              <div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px;">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                  <div class="qa-title mb-0" style="font-size: 0.82rem; font-weight: 700;">✨ Stylized Effects</div>
+                  <button class="link" type="button" style="font-size: .75rem" (click)="resetScopeEffects()">
+                    ↺ Clear FX
+                  </button>
+                </div>
+                <p class="muted" style="font-size: .74rem; margin: 0 0 .6rem">
+                  Atmospheric filters and lens focus effects.
+                </p>
+
+                <!-- Quick FX Presets -->
+                <div class="d-flex flex-wrap gap-1 mb-3">
+                  <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
+                          [class.active]="activeScopeColorSetting().sepia === 0 && activeScopeColorSetting().blur === 0"
+                          (click)="setScopeSepia(0); setScopeBlur(0)">
+                    🌿 Clean
+                  </button>
+                  <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
+                          [class.active]="activeScopeColorSetting().sepia === 15 && activeScopeColorSetting().blur === 2"
+                          (click)="setScopeSepia(15); setScopeBlur(2)">
+                    🌸 Soft Dream
+                  </button>
+                  <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
+                          [class.active]="activeScopeColorSetting().sepia === 40 && activeScopeColorSetting().blur === 1"
+                          (click)="setScopeSepia(40); setScopeBlur(1)">
+                    🎞 Vintage Warm
+                  </button>
+                  <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
+                          [class.active]="activeScopeColorSetting().sepia === 80 && activeScopeColorSetting().blur === 0"
+                          (click)="setScopeSepia(80); setScopeBlur(0)">
+                    🎬 Deep Sepia
+                  </button>
+                  <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
+                          [class.active]="activeScopeColorSetting().sepia === 0 && activeScopeColorSetting().blur === 3.5"
+                          (click)="setScopeSepia(0); setScopeBlur(3.5)">
+                    🌫 Soft Focus
+                  </button>
+                </div>
+
+                <div class="d-flex flex-column gap-2">
+                  <div>
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                      <label style="font-size: .75rem; margin-bottom: 0;">Sepia Tone</label>
+                      <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 font-monospace" style="font-size: 0.72rem;"
+                              (click)="setScopeSepia(0)" title="Click to reset to 0%">
+                        {{ activeScopeColorSetting().sepia }}%
+                      </button>
+                    </div>
+                    <input type="range" class="form-range w-100" min="0" max="100" step="5"
+                           [ngModel]="activeScopeColorSetting().sepia"
+                           (ngModelChange)="setScopeSepia($event)" />
+                  </div>
+                  <div>
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                      <label style="font-size: .75rem; margin-bottom: 0;">Soft Focus / Blur</label>
+                      <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 font-monospace" style="font-size: 0.72rem;"
+                              (click)="setScopeBlur(0)" title="Click to reset to 0px">
+                        {{ activeScopeColorSetting().blur }}px
+                      </button>
+                    </div>
+                    <input type="range" class="form-range w-100" min="0" max="10" step="0.5"
+                           [ngModel]="activeScopeColorSetting().blur"
+                           (ngModelChange)="setScopeBlur($event)" />
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
+          }
         }
 
         <!-- TAB 4: LOWER-THIRD TEXT -->
         @if (activeInspectorTab() === 'text') {
-          <div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px;">
-            <div class="d-flex justify-content-between align-items-center mb-1">
-              <div class="qa-title mb-0" style="font-size: 0.82rem; font-weight: 700;">T Lower-Third Title Card</div>
-              <div class="form-check form-switch m-0 p-0 d-flex align-items-center gap-2">
-                <input class="form-check-input m-0 cursor-pointer" type="checkbox" id="ltSwitch"
-                       [checked]="lowerThirdEnabled()"
-                       (change)="lowerThirdEnabled.set(!lowerThirdEnabled())" />
-                <label class="form-check-label small text-muted cursor-pointer" for="ltSwitch" style="font-size: 0.74rem;">
-                  {{ lowerThirdEnabled() ? 'Enabled' : 'Disabled' }}
-                </label>
+          @if (targetScope() === 'selected' && getTargetClipIds().length === 0) {
+            <div class="p-4 text-center text-secondary">
+              <div style="font-size: 1.8rem; margin-bottom: 8px;">T</div>
+              <div style="font-size: 0.85rem; font-weight: 600; color: var(--text);">No Clip Selected</div>
+              <div style="font-size: 0.75rem; margin-top: 4px;">Select clips on the timeline or in the media library to configure lower-third text, or switch target scope to "All clips" or "Current clip".</div>
+            </div>
+          } @else {
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <!-- Scope Notification Banner -->
+              @if (targetScope() === 'all') {
+                <div class="alert alert-info py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: color-mix(in srgb, var(--brand) 15%, transparent); border: 1px solid var(--brand); color: #93c5fd; border-radius: 6px;">
+                  <span>🌐</span>
+                  <span><strong>Batch Mode:</strong> Title card applies to all <strong>{{ included().length }} clips</strong> across the timeline.</span>
+                </div>
+              } @else if (targetScope() === 'selected' && selectedClipsCount() > 1) {
+                <div class="alert alert-primary py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: color-mix(in srgb, var(--brand) 15%, transparent); border: 1px solid var(--brand); color: #93c5fd; border-radius: 6px;">
+                  <span>🎯</span>
+                  <span><strong>Multi-Clip Scope:</strong> Title card applies to <strong>{{ selectedClipsCount() }} selected clips</strong>.</span>
+                </div>
+              } @else if (targetScope() === 'current') {
+                <div class="alert alert-secondary py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: var(--surface-3); border: 1px solid var(--border); color: var(--text); border-radius: 6px;">
+                  <span>⏱️</span>
+                  <span><strong>Current Clip Scope:</strong> Title card applies to <strong>{{ currentScheduledClip()?.clip?.name ?? 'current playing clip' }}</strong>.</span>
+                </div>
+              } @else if (targetScope() === 'selected' && selectedClipsCount() === 1) {
+                <div class="alert alert-secondary py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: var(--surface-3); border: 1px solid var(--border); color: var(--text); border-radius: 6px;">
+                  <span>🎯</span>
+                  <span><strong>Single Clip Scope:</strong> Title card applies to <strong>{{ selectedClip()?.name ?? 'selected clip' }}</strong>.</span>
+                </div>
+              }
+
+              <div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px;">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                  <div class="qa-title mb-0" style="font-size: 0.82rem; font-weight: 700;">T Lower-Third Title Card</div>
+                  <div class="form-check form-switch m-0 p-0 d-flex align-items-center gap-2">
+                    <input class="form-check-input m-0 cursor-pointer" type="checkbox" id="ltSwitch"
+                           [checked]="activeScopeTextSetting().enabled"
+                           (change)="setScopeTextEnabled(!activeScopeTextSetting().enabled)" />
+                    <label class="form-check-label small text-muted cursor-pointer" for="ltSwitch" style="font-size: 0.74rem;">
+                      {{ activeScopeTextSetting().enabled ? 'Enabled' : 'Disabled' }}
+                    </label>
+                  </div>
+                </div>
+                <p class="muted" style="font-size: .74rem; margin: 0 0 .6rem">
+                  Broadcast title banner rendered at the bottom of the video.
+                </p>
+
+                <!-- Quick Templates -->
+                <div class="d-flex flex-wrap gap-1 mb-3">
+                  <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
+                          (click)="applyScopeTextTemplate('Presenter Name', 'Host / Speaker')">
+                    👤 Presenter
+                  </button>
+                  <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
+                          (click)="applyScopeTextTemplate('Chapter 1', 'Introduction')">
+                    📌 Chapter
+                  </button>
+                  <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
+                          (click)="applyScopeTextTemplate('Key Takeaway', 'Source Citation')">
+                    💬 Quote
+                  </button>
+                </div>
+
+                @if (activeScopeTextSetting().enabled) {
+                  <div class="d-flex flex-column gap-2">
+                    <div>
+                      <label for="ltTitle" style="font-size: .75rem; margin-bottom: 2px;">Main Title / Speaker</label>
+                      <input id="ltTitle" type="text" class="form-control form-control-sm bg-dark text-light border-secondary border-opacity-50"
+                             [ngModel]="activeScopeTextSetting().title"
+                             (ngModelChange)="setScopeTextTitle($event)"
+                             placeholder="e.g. Host Name or Chapter 1" />
+                    </div>
+                    <div>
+                      <label for="ltSub" style="font-size: .75rem; margin-bottom: 2px;">Subtitle / Role</label>
+                      <input id="ltSub" type="text" class="form-control form-control-sm bg-dark text-light border-secondary border-opacity-50"
+                             [ngModel]="activeScopeTextSetting().subtitle"
+                             (ngModelChange)="setScopeTextSubtitle($event)"
+                             placeholder="e.g. Lead Animator" />
+                    </div>
+                  </div>
+                } @else {
+                  <p class="muted text-center py-2" style="font-size: .74rem; margin: 0;">
+                    Toggle switch above to activate lower-third title on monitor.
+                  </p>
+                }
               </div>
             </div>
-            <p class="muted" style="font-size: .74rem; margin: 0 0 .6rem">
-              Broadcast title banner rendered at the bottom of the video.
-            </p>
-
-            <!-- Quick Templates -->
-            <div class="d-flex flex-wrap gap-1 mb-3">
-              <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
-                      (click)="lowerThirdEnabled.set(true); lowerThirdTitle.set('Presenter Name'); lowerThirdSubtitle.set('Host / Speaker')">
-                👤 Presenter
-              </button>
-              <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
-                      (click)="lowerThirdEnabled.set(true); lowerThirdTitle.set('Chapter 1'); lowerThirdSubtitle.set('Introduction')">
-                📌 Chapter
-              </button>
-              <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
-                      (click)="lowerThirdEnabled.set(true); lowerThirdTitle.set('Key Takeaway'); lowerThirdSubtitle.set('Source Citation')">
-                💬 Quote
-              </button>
-            </div>
-
-            @if (lowerThirdEnabled()) {
-              <div class="d-flex flex-column gap-2">
-                <div>
-                  <label for="ltTitle" style="font-size: .75rem; margin-bottom: 2px;">Main Title / Speaker</label>
-                  <input id="ltTitle" type="text" class="form-control form-control-sm bg-dark text-light border-secondary border-opacity-50"
-                         [(ngModel)]="lowerThirdTitle" placeholder="e.g. Host Name or Chapter 1" />
-                </div>
-                <div>
-                  <label for="ltSub" style="font-size: .75rem; margin-bottom: 2px;">Subtitle / Role</label>
-                  <input id="ltSub" type="text" class="form-control form-control-sm bg-dark text-light border-secondary border-opacity-50"
-                         [(ngModel)]="lowerThirdSubtitle" placeholder="e.g. Lead Animator" />
-                </div>
-              </div>
-            } @else {
-              <p class="muted text-center py-2" style="font-size: .74rem; margin: 0;">
-                Toggle switch above to activate lower-third title on monitor.
-              </p>
-            }
-          </div>
+          }
         }
 
         <!-- TAB 5: TRANSITIONS & CUT JUNCTIONS -->
         @if (activeInspectorTab() === 'transitions') {
           <div style="display: flex; flex-direction: column; gap: 10px;">
-            <!-- Global Default Transition Card -->
-            <div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px;">
-              <div class="qa-title mb-1" style="font-size: 0.82rem; font-weight: 700;">⚡ Global Transition</div>
-              <p class="muted" style="font-size: .74rem; margin: 0 0 8px;">
-                Default transition between clips on the timeline.
-              </p>
 
-              <!-- Quick Pickers -->
-              <div class="d-flex flex-wrap gap-1 mb-2">
-                <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
-                        [class.active]="transition() === 'None'"
-                        (click)="transition.set('None')">
-                  ✂ Hard Cut
-                </button>
-                <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
-                        [class.active]="transition() === 'Dissolve'"
-                        (click)="transition.set('Dissolve')">
-                  ⧉ Dissolve
-                </button>
-                <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
-                        [class.active]="transition() === 'Fade'"
-                        (click)="transition.set('Fade')">
-                  ◐ Fade
-                </button>
-                <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
-                        [class.active]="transition() === 'WipeLeft'"
-                        (click)="transition.set('WipeLeft')">
-                  ◀ Wipe Left
-                </button>
-                <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
-                        [class.active]="transition() === 'WipeRight'"
-                        (click)="transition.set('WipeRight')">
-                  ▶ Wipe Right
-                </button>
             <!-- Scope Notification Banner -->
             @if (targetScope() === 'all') {
               <div class="alert alert-info py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: color-mix(in srgb, var(--brand) 15%, transparent); border: 1px solid var(--brand); color: #93c5fd; border-radius: 6px;">
@@ -995,26 +1081,12 @@
               </div>
             }
 
-              <div class="mb-2">
-                <label for="globalTrans" style="font-size: .75rem; margin-bottom: 2px;">Transition Style</label>
-                <select id="globalTrans" class="form-select form-select-sm" style="font-size: .78rem;"
-                        [(ngModel)]="transition" [disabled]="!studio.transitionsAvailable">
-                  @for (option of transitions; track option) {
-                    <option [value]="option">{{ option === 'None' ? 'Hard cut (No blend)' : option }}</option>
-                  }
-                </select>
             @if (targetScope() === 'selected' && selectedClipsCount() === 0) {
               <div class="text-center py-4 px-3" style="color: var(--muted); background: rgba(255,255,255,0.02); border-radius: 8px; border: 1px dashed var(--border);">
                 <div style="font-size: 1.8rem; margin-bottom: 8px;">⚡</div>
                 <div style="font-size: 0.85rem; font-weight: 600; color: var(--text);">No Clip Selected</div>
                 <div style="font-size: 0.75rem; margin-top: 4px;">Select clips on the timeline or in the media library to configure transitions, or switch target scope to "All clips".</div>
               </div>
-
-              @if (transition() !== 'None') {
-                <div>
-                  <div class="d-flex justify-content-between align-items-center mb-1">
-                    <label style="font-size: .75rem; margin-bottom: 0;">Crossfade Duration</label>
-                    <span class="mono" style="font-size: .72rem; color: var(--text-dim);">{{ transitionSeconds() | number: '1.1-1' }}s</span>
             } @else {
               <!-- Target Scope Transition Configuration Card -->
               <div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px;">
@@ -1028,7 +1100,6 @@
                       ⚡ Selected Clip Transition
                     }
                   </div>
-                  <input type="range" class="form-range w-100" min="0.1" max="3" step="0.1" [(ngModel)]="transitionSeconds" />
                   @if (targetScope() !== 'all' && targetJunctions().length > 0) {
                     <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.7rem;"
                             (click)="resetScopeTransitions()" title="Reset target cuts to global default">
@@ -1036,14 +1107,7 @@
                     </button>
                   }
                 </div>
-              }
-            </div>
 
-            <!-- Per-Cut Timeline Junctions List -->
-            <div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px;">
-              <div class="d-flex justify-content-between align-items-center mb-1">
-                <div class="qa-title mb-0" style="font-size: 0.82rem; font-weight: 700;">Per-Cut Junctions</div>
-                <span class="badge bg-secondary font-monospace" style="font-size: 0.7rem;">{{ junctions().length }} cuts</span>
                 <p class="muted" style="font-size: .74rem; margin: 0 0 8px;">
                   @if (targetScope() === 'all') {
                     Default transition style for all cuts across the timeline.
@@ -1107,18 +1171,7 @@
                   </div>
                 }
               </div>
-              <p class="muted" style="font-size: .74rem; margin: 0 0 8px;">
-                Override or preview specific cuts between adjacent timeline clips.
-              </p>
 
-              @for (junction of junctions(); track junction.key) {
-                <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-bottom: 6px;">
-                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 0.74rem;">
-                    <span style="font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 75%;">
-                      {{ junction.left.name }} ➔ {{ junction.right.name }}
-                    </span>
-                    @if (isJunctionCustom(junction.key)) {
-                      <span class="badge bg-warning text-dark" style="font-size: 0.65rem;">Custom</span>
               <!-- Scope Junctions List -->
               <div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px;">
                 <div class="d-flex justify-content-between align-items-center mb-1">
@@ -1128,7 +1181,6 @@
                     } @else if (targetScope() === 'current') {
                       Current Clip Cuts
                     } @else {
-                      <span class="badge bg-secondary" style="font-size: 0.65rem;">Default</span>
                       Selected Clip Cuts
                     }
                   </div>
@@ -1138,13 +1190,6 @@
                   Fine-tune individual cut junctions in this scope.
                 </p>
 
-                  <div class="d-flex gap-1 align-items-center mb-1">
-                    <select class="form-select form-select-sm" style="font-size: 0.75rem; flex: 1;"
-                            [ngModel]="junction.transition"
-                            (ngModelChange)="setJunctionTransition(junction, $event)"
-                            [disabled]="!studio.transitionsAvailable">
-                      @for (option of transitions; track option) {
-                        <option [value]="option">{{ option === 'None' ? 'Hard cut' : option }}</option>
                 @for (junction of targetJunctions(); track junction.key) {
                   <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-bottom: 6px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 0.74rem;">
@@ -1156,25 +1201,8 @@
                       } @else {
                         <span class="badge bg-secondary" style="font-size: 0.65rem;">Default</span>
                       }
-                    </select>
-                    <button class="btn btn-outline-primary btn-sm py-0 px-2" type="button" style="font-size: 0.75rem;" (click)="openPreview(junction)" title="Preview this transition">
-                      ▶ Preview
-                    </button>
-                  </div>
-
-                  @if (junction.transition !== 'None') {
-                    <div class="d-flex align-items-center gap-2 mt-1">
-                      <span style="font-size: 0.7rem; color: var(--text-dim); min-width: 40px;">{{ junction.seconds | number:'1.1-1' }}s</span>
-                      <input type="range" class="form-range flex-grow-1" min="0.1" max="3" step="0.1"
-                             [ngModel]="junction.seconds"
-                             (ngModelChange)="setJunctionSeconds(junction, $event)" />
                     </div>
-                  }
 
-                  @if (isJunctionCustom(junction.key)) {
-                    <div class="d-flex justify-content-end mt-1">
-                      <button class="link text-muted" type="button" style="font-size: 0.7rem;" (click)="resetJunction(junction.key)">
-                        ↺ Reset to global default
                     <div class="d-flex gap-1 align-items-center mb-1">
                       <select class="form-select form-select-sm" style="font-size: 0.75rem; flex: 1;"
                               [ngModel]="junction.transition"
@@ -1188,16 +1216,7 @@
                         ▶ Preview
                       </button>
                     </div>
-                  }
-                </div>
-              }
 
-              @if (junctions().length === 0) {
-                <p class="muted text-center py-2" style="font-size: .74rem; margin: 0;">
-                  Add 2 or more clips to customize cuts between them.
-                </p>
-              }
-            </div>
                     @if (junction.transition !== 'None') {
                       <div class="d-flex align-items-center gap-2 mt-1">
                         <span style="font-size: 0.7rem; color: var(--text-dim); min-width: 40px;">{{ junction.seconds | number:'1.1-1' }}s</span>
@@ -1723,7 +1742,6 @@
 
                     @if (i < junctions().length) {
                       @let junction = junctions()[i];
-                      <div class="tl-junction" [class.custom]="isJunctionCustom(junction.key)">
                       <div class="tl-junction" [class.custom]="isJunctionCustom(junction.key)" [class.in-scope]="targetJunctionKeys().has(junction.key)">
                         <button class="tl-junction-chip" type="button"
                                 style="padding:0; width:18px; height:24px; display:flex; align-items:center; justify-content:center; border-radius:4px; font-size:12px;"
