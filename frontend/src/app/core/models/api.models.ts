@@ -502,9 +502,10 @@ export interface TimelineItem {
   transform?: TimelineItemTransform;
   textStyle?: TimelineItemTextStyle;
   volume?: number;
+  muted?: boolean;
   trimStartSeconds?: number;
   trimEndSeconds?: number;
-  duckMode?: 'Normal' | 'Ducked' | 'LeadVoice';
+  duckMode?: 'Normal' | 'Ducked' | 'MuteOnAudio' | 'LeadVoice';
 }
 
 export interface TrackControlState {

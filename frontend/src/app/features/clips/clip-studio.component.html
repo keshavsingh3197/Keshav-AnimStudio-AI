@@ -1346,13 +1346,16 @@
                   <div class="inner-audio-card mb-2">
                     <span style="font-size: 0.72rem; color: var(--text-dim); display: block; margin-bottom: 4px;">Bulk Ducking Role:</span>
                     <div class="duck-seg-group">
-                      <button type="button" class="duck-seg-btn" (click)="setBatchDuckMode('Normal')">
+                      <button type="button" class="duck-seg-btn" (click)="setBatchDuckMode('Normal')" title="Normal nominal volume">
                         <span>🎵</span> Normal
                       </button>
-                      <button type="button" class="duck-seg-btn" (click)="setBatchDuckMode('Ducked')">
+                      <button type="button" class="duck-seg-btn" (click)="setBatchDuckMode('Ducked')" title="Ducked by speech">
                         <span>🔉</span> Ducked
                       </button>
-                      <button type="button" class="duck-seg-btn" (click)="setBatchDuckMode('LeadVoice')">
+                      <button type="button" class="duck-seg-btn" (click)="setBatchDuckMode('MuteOnAudio')" title="Mutes only when other audio/speech is playing">
+                        <span>🔇</span> Mute on Audio
+                      </button>
+                      <button type="button" class="duck-seg-btn" (click)="setBatchDuckMode('LeadVoice')" title="Lead Voice (triggers ducking on other tracks)">
                         <span>🎙</span> Lead Voice
                       </button>
                     </div>
@@ -1480,8 +1483,8 @@
                   <div class="inner-audio-card mb-2">
                     <div class="d-flex justify-content-between align-items-center mb-1">
                       <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">Ducking Participation Role:</span>
-                      <span class="badge" [class.bg-success]="target.duckMode === 'Normal'" [class.bg-warning]="target.duckMode === 'Ducked'" [class.bg-primary]="target.duckMode === 'LeadVoice'" style="font-size: 0.65rem;">
-                        {{ target.duckMode === 'LeadVoice' ? 'Lead Voice' : (target.duckMode === 'Ducked' ? 'Ducked by Speech' : 'Normal') }}
+                      <span class="badge" [class.bg-success]="target.duckMode === 'Normal'" [class.bg-warning]="target.duckMode === 'Ducked'" [class.bg-danger]="target.duckMode === 'MuteOnAudio'" [class.bg-primary]="target.duckMode === 'LeadVoice'" style="font-size: 0.65rem;">
+                        {{ target.duckMode === 'LeadVoice' ? 'Lead Voice' : (target.duckMode === 'MuteOnAudio' ? 'Mute on Audio' : (target.duckMode === 'Ducked' ? 'Ducked by Speech' : 'Normal')) }}
                       </span>
                     </div>
 
@@ -1492,7 +1495,11 @@
                       </button>
                       <button type="button" class="duck-seg-btn" [class.active]="target.duckMode === 'Ducked'" (click)="setClipDuckMode(target.clipId, 'Ducked')">
                         <span class="icon">🔉</span>
-                        <span>Ducked by Speech</span>
+                        <span>Ducked</span>
+                      </button>
+                      <button type="button" class="duck-seg-btn" [class.active]="target.duckMode === 'MuteOnAudio'" (click)="setClipDuckMode(target.clipId, 'MuteOnAudio')">
+                        <span class="icon">🔇</span>
+                        <span>Mute on Audio</span>
                       </button>
                       <button type="button" class="duck-seg-btn" [class.active]="target.duckMode === 'LeadVoice'" (click)="setClipDuckMode(target.clipId, 'LeadVoice')">
                         <span class="icon">🎙</span>
@@ -1513,6 +1520,8 @@
                     <p class="muted mb-0" style="font-size: 0.7rem;">
                       @if (target.duckMode === 'LeadVoice') {
                         This clip contains dialogue/speech that actively lowers background music & SFX volumes by {{ ((1 - videoDuckLevel()) * 100) | number:'1.0-0' }}%.
+                      } @else if (target.duckMode === 'MuteOnAudio') {
+                        This clip's audio is muted whenever another audio/speech track is active on the timeline, but plays normally during gaps.
                       } @else if (target.duckMode === 'Ducked') {
                         This clip's sound is automatically reduced whenever speech or voiceover is playing on the timeline.
                       } @else {
@@ -1954,10 +1963,10 @@
                         {{ isTrackLocked('V1') ? '🔒' : '🔓' }}
                       </button>
                       <button class="tl-h-btn" type="button"
-                              (click)="muteClipAudio.set(muteClipAudio() === 'Always' ? 'Never' : 'Always'); markDirty()"
-                              [title]="muteClipAudio() === 'Always' ? 'Unmute video audio' : 'Mute all video clips audio'"
-                              [style.color]="muteClipAudio() === 'Always' ? 'var(--err)' : (muteClipAudio() === 'Overlap' ? 'var(--brand)' : 'inherit')">
-                        {{ muteClipAudio() === 'Always' ? '🔇' : (muteClipAudio() === 'Overlap' ? '🔉' : '🔊') }}
+                              (click)="cycleV1AudioMode()"
+                              [title]="muteClipAudio() === 'Always' ? 'V1 Audio: Always Muted (Click for Normal)' : (muteClipAudio() === 'MuteOnAudio' ? 'V1 Audio: Mute on Audio (Mutes only when other audio is playing. Click to Mute Always)' : 'V1 Audio: Normal / Unmuted (Click for Mute on Audio)')"
+                              [style.color]="muteClipAudio() === 'Always' ? 'var(--err)' : (muteClipAudio() === 'MuteOnAudio' ? 'var(--warn, #f59e0b)' : (muteClipAudio() === 'Overlap' ? 'var(--brand)' : 'inherit'))">
+                        {{ muteClipAudio() === 'Always' ? '🔇' : (muteClipAudio() === 'MuteOnAudio' ? '🔈' : (muteClipAudio() === 'Overlap' ? '🔉' : '🔊')) }}
                       </button>
                     </div>
                   </div>

@@ -45,7 +45,7 @@ export interface ClipAudioSetting {
   keepOriginalAudio: boolean;
   audioTrimStartSeconds?: number;
   audioTrimEndSeconds?: number;
-  duckMode?: 'Normal' | 'Ducked' | 'LeadVoice';
+  duckMode?: 'Normal' | 'Ducked' | 'MuteOnAudio' | 'LeadVoice';
 }
 
 export interface MusicTrackRow {
@@ -1036,7 +1036,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     clipId: string;
     isTimelineItem: boolean;
     volume: number;
-    duckMode: 'Normal' | 'Ducked' | 'LeadVoice';
+    duckMode: 'Normal' | 'Ducked' | 'MuteOnAudio' | 'LeadVoice';
     fadeInSeconds: number;
     fadeOutSeconds: number;
   } | null>(() => {
@@ -2723,6 +2723,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
       });
     }
     this.markDirty();
+    this.syncMediaElements(this.isPlaying());
   }
 
   setBatchMute(muted: boolean): void {
@@ -2749,9 +2750,10 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
       });
     }
     this.markDirty();
+    this.syncMediaElements(this.isPlaying());
   }
 
-  setBatchDuckMode(mode: 'Normal' | 'Ducked' | 'LeadVoice'): void {
+  setBatchDuckMode(mode: 'Normal' | 'Ducked' | 'MuteOnAudio' | 'LeadVoice'): void {
     const selTlIds = this.selectedTimelineItemIds();
     const selLibIds = this.selectedLibraryIds();
 
@@ -2772,6 +2774,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
       });
     }
     this.markDirty();
+    this.syncMediaElements(this.isPlaying());
   }
 
   timelineItemsPayload(): TimelineItem[] | null {
@@ -2927,14 +2930,36 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   }
 
   setClipVolume(clipId: string, value: number): void {
-    const targetIds = this.getTargetClipIds(clipId);
     const vol = Math.min(Math.max(value, 0), MAX_CLIP_GAIN);
-    for (const id of targetIds) {
-      this.updateClipSound(id, (current) => ({
+
+    // 1. Check if this is a timeline item (e.g. A1 voiceover, A2 music, or V2 overlay)
+    const isTlItem = this.timelineItems().some((it) => it.id === clipId);
+    if (isTlItem) {
+      this.timelineItems.update((items) =>
+        items.map((it) => (it.id === clipId ? { ...it, volume: vol } : it))
+      );
+      this.markDirty();
+      this.syncMediaElements(this.isPlaying());
+      return;
+    }
+
+    // 2. Otherwise it is a V1 video clip
+    if (this.targetScope() === 'all' && this.isMultiSelection()) {
+      const targetIds = this.getTargetClipIds(clipId);
+      for (const id of targetIds) {
+        this.updateClipSound(id, (current) => ({
+          ...current,
+          volume: vol,
+        }));
+      }
+    } else {
+      this.updateClipSound(clipId, (current) => ({
         ...current,
         volume: vol,
       }));
     }
+    this.markDirty();
+    this.syncMediaElements(this.isPlaying());
   }
 
   setClipSound(clipId: string, assetId: string): void {
@@ -3363,38 +3388,56 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     this.setClipFadeOut(clipId, current.fadeOutSeconds + delta);
   }
 
-  setClipDuckMode(clipId: string, mode: 'Normal' | 'Ducked' | 'LeadVoice'): void {
-    const targetIds = this.getTargetClipIds(clipId);
-    for (const id of targetIds) {
-      this.updateClipSound(id, (current) => ({
+  setClipDuckMode(clipId: string, mode: 'Normal' | 'Ducked' | 'MuteOnAudio' | 'LeadVoice'): void {
+    // 1. Check if this is a timeline item (A1, A2, V2)
+    const isTlItem = this.timelineItems().some((it) => it.id === clipId);
+    if (isTlItem) {
+      this.timelineItems.update((items) =>
+        items.map((it) => (it.id === clipId ? { ...it, duckMode: mode } : it))
+      );
+      this.markDirty();
+      this.syncMediaElements(this.isPlaying());
+      return;
+    }
+
+    // 2. Otherwise it is a V1 video clip
+    if (this.targetScope() === 'all' && this.isMultiSelection()) {
+      const targetIds = this.getTargetClipIds(clipId);
+      for (const id of targetIds) {
+        this.updateClipSound(id, (current) => ({
+          ...current,
+          duckMode: mode,
+        }));
+      }
+    } else {
+      this.updateClipSound(clipId, (current) => ({
         ...current,
         duckMode: mode,
       }));
     }
-    const selTl = this.selectedTimelineItem();
-    if (selTl) {
-      this.timelineItems.update((items) =>
-        items.map((it) => (it.id === selTl.id ? { ...it, duckMode: mode } : it))
-      );
-    }
     this.markDirty();
+    this.syncMediaElements(this.isPlaying());
   }
 
   private previousClipVolumes = new Map<string, number>();
 
   toggleClipMute(clipId: string): void {
-    const tlItem = this.selectedTimelineItem();
-    if (tlItem && tlItem.id === clipId) {
+    // 1. Check if this is a timeline item
+    const isTlItem = this.timelineItems().some((it) => it.id === clipId);
+    if (isTlItem) {
+      const tlItem = this.timelineItems().find((it) => it.id === clipId)!;
       const curVol = tlItem.volume ?? 1.0;
       const nextVol = curVol > 0 ? 0 : (this.previousClipVolumes.get(clipId) ?? 1.0);
       if (curVol > 0) this.previousClipVolumes.set(clipId, curVol);
       this.timelineItems.update((items) =>
-        items.map((it) => it.id === clipId ? { ...it, volume: nextVol } : it)
+        items.map((it) => (it.id === clipId ? { ...it, volume: nextVol } : it))
       );
       this.markDirty();
+      this.syncMediaElements(this.isPlaying());
       return;
     }
 
+    // 2. Otherwise it is a V1 video clip
     const curVol = this.clipSound(clipId).volume;
     const nextVol = curVol > 0 ? 0 : (this.previousClipVolumes.get(clipId) ?? 1.0);
     if (curVol > 0) this.previousClipVolumes.set(clipId, curVol);
@@ -3458,6 +3501,20 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     this.audioEngine.setGlobalDuckingEnabled(next);
     this.markDirty();
   }
+
+  cycleV1AudioMode(): void {
+    const cur = this.muteClipAudio();
+    let next: 'Never' | 'MuteOnAudio' | 'Always' = 'Never';
+    if (cur === 'Never') next = 'MuteOnAudio';
+    else if (cur === 'MuteOnAudio') next = 'Always';
+    else next = 'Never';
+    this.muteClipAudio.set(next);
+    this.markDirty();
+    this.syncMediaElements(this.isPlaying());
+    const label = next === 'Never' ? 'Normal (Unmuted)' : (next === 'MuteOnAudio' ? 'Mute on Audio (Mutes only when audio is present)' : 'Always Muted');
+    this.status.notify([`V1 Video Audio: ${label}`]);
+  }
+
 
   // --- Lifecycle-Gated Peak Metering (Guardrail 1: DOM manipulation only when audio tab active & playing) ---
   startPeakMeterLoop(): void {
@@ -3712,25 +3769,58 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
 
     const sound = this.clipSound(curr.clip.id);
     const mode = this.muteClipAudio();
-    let isAudioCuePlaying = false;
-    if (this.musicAssetId() !== '') {
-      isAudioCuePlaying = true;
-    } else {
-      isAudioCuePlaying = this.musicTracks().some((t) => {
-        const mStart = t.startSeconds;
-        const mEnd = t.startSeconds + this.musicTrackDurationSeconds(t);
-        return time >= mStart && time < mEnd;
-      });
-    }
 
+    // Check active audio sources on timeline at playhead time
+    const a1Items = this.timelineItems().filter((i) => i.trackId === 'A1' && i.type === 'audio');
+    const a2Items = this.timelineItems().filter((i) => i.trackId === 'A2' && i.type === 'audio');
+    const currentTracks = this.musicTracks();
+
+    const isA1Muted = this.isTrackMuted('A1');
+    const isA2Muted = this.isTrackMuted('A2');
+
+    const activeA1Items = a1Items.filter((i) => time >= i.startTime && time < (i.startTime + i.duration));
+    const activeA2Items = a2Items.filter((i) => time >= i.startTime && time < (i.startTime + i.duration));
+    const activeMusicTracks = currentTracks.filter((t) => {
+      const dur = this.musicTrackDurationSeconds(t);
+      return time >= t.startSeconds && time < (t.startSeconds + dur);
+    });
+
+    const hasActiveA1Voice = !isA1Muted && activeA1Items.some((i) => !i.muted && (i.volume ?? 1.0) > 0);
+    const hasClipVoice = sound.audioAssetId && sound.audioVolume > 0;
+    const hasA2LeadVoice = !isA2Muted && activeA2Items.some((i) => i.duckMode === 'LeadVoice' && !i.muted && (i.volume ?? 1.0) > 0);
+
+    const isVoicePresent = hasActiveA1Voice || Boolean(hasClipVoice) || hasA2LeadVoice;
+
+    const hasActiveA2Audio = !isA2Muted && (
+      activeA2Items.some((i) => !i.muted && (i.volume ?? 1.0) > 0) ||
+      activeMusicTracks.length > 0
+    );
+    const hasBgMusic = this.musicAssetId() !== '' && this.musicVolume() > 0;
+
+    const isAnyAudioPresent = isVoicePresent || hasActiveA2Audio || hasBgMusic;
+
+    // Determine effective gain for the current V1 video clip
+    const clipDuck = sound.duckMode ?? 'Normal';
     let effectiveClipGain = sound.volume;
+
     if (mode === 'Always') {
       effectiveClipGain = 0;
-    } else if (isAudioCuePlaying) {
-      if (mode === 'Overlap') {
-        effectiveClipGain = sound.volume * this.videoDuckLevel();
-      } else if (mode === 'MuteOnAudio') {
+    } else if (clipDuck === 'MuteOnAudio') {
+      effectiveClipGain = isAnyAudioPresent ? 0 : sound.volume;
+    } else if (clipDuck === 'Ducked') {
+      effectiveClipGain = (isVoicePresent || (isAnyAudioPresent && mode === 'Overlap'))
+        ? sound.volume * this.videoDuckLevel()
+        : sound.volume;
+    } else if (clipDuck === 'LeadVoice') {
+      effectiveClipGain = sound.volume;
+    } else {
+      // Normal clip audio
+      if (mode === 'MuteOnAudio' && isAnyAudioPresent) {
         effectiveClipGain = 0;
+      } else if (mode === 'Overlap' && isVoicePresent) {
+        effectiveClipGain = sound.volume * this.videoDuckLevel();
+      } else {
+        effectiveClipGain = sound.volume;
       }
     }
 
@@ -3948,9 +4038,6 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     }
 
     // Sync Web Audio API engine for A1 and A2
-    const currentTracks = this.musicTracks();
-    const a1Items = this.timelineItems().filter((i) => i.trackId === 'A1' && i.type === 'audio');
-    const a2Items = this.timelineItems().filter((i) => i.trackId === 'A2' && i.type === 'audio');
     const activeAudioKeys = new Set<string>();
     let isA1Playing = false;
 
@@ -3964,16 +4051,29 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
           source.element.currentTime = localTime;
         }
         source.element.playbackRate = speed;
+
+        const itemVol = item.muted ? 0 : Math.max(0, Math.min(1.0, item.volume ?? 1.0));
+        let effectiveItemVol = itemVol;
+        if (item.duckMode === 'MuteOnAudio' && hasA2LeadVoice) {
+          effectiveItemVol = 0;
+        } else if (item.duckMode === 'Ducked' && hasA2LeadVoice) {
+          effectiveItemVol = itemVol * this.videoDuckLevel();
+        }
+        source.element.volume = this.isMonitorMuted() ? 0 : effectiveItemVol;
+        source.element.muted = this.isMonitorMuted() || effectiveItemVol === 0;
+
         if (playing) {
           if (source.element.paused) source.element.play().catch(() => undefined);
-          isA1Playing = true;
+          if (effectiveItemVol > 0 && !isA1Muted) {
+            isA1Playing = true;
+          }
         } else {
           if (!source.element.paused) source.element.pause();
         }
       }
     }
 
-    if (sound.audioAssetId && clipSoundEl && !clipSoundEl.paused) {
+    if (sound.audioAssetId && clipSoundEl && !clipSoundEl.paused && sound.audioVolume > 0 && !this.isMonitorMuted()) {
       isA1Playing = true;
     }
     if (sound.duckMode === 'LeadVoice' && isV1Playing) {
@@ -3991,6 +4091,19 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
           source.element.currentTime = localTime;
         }
         source.element.playbackRate = speed;
+
+        const itemVol = item.muted ? 0 : Math.max(0, Math.min(1.0, item.volume ?? 1.0));
+        let effectiveItemVol = itemVol;
+        if (item.duckMode === 'MuteOnAudio' && isVoicePresent) {
+          effectiveItemVol = 0;
+        } else if (item.duckMode === 'Ducked' && isVoicePresent) {
+          effectiveItemVol = itemVol * this.videoDuckLevel();
+        } else if (item.duckMode === 'Normal' && mode === 'Overlap' && isVoicePresent) {
+          effectiveItemVol = itemVol * this.videoDuckLevel();
+        }
+        source.element.volume = this.isMonitorMuted() ? 0 : effectiveItemVol;
+        source.element.muted = this.isMonitorMuted() || effectiveItemVol === 0;
+
         if (playing) {
           if (source.element.paused) source.element.play().catch(() => undefined);
         } else {
@@ -4009,6 +4122,14 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
           source.element.currentTime = localTime;
         }
         source.element.playbackRate = speed;
+
+        let effectiveTrackVol = 1.0;
+        if (isVoicePresent && (mode === 'Overlap' || mode === 'MuteOnAudio')) {
+          effectiveTrackVol = mode === 'MuteOnAudio' ? 0 : this.videoDuckLevel();
+        }
+        source.element.volume = this.isMonitorMuted() ? 0 : effectiveTrackVol;
+        source.element.muted = this.isMonitorMuted() || effectiveTrackVol === 0;
+
         if (playing) {
           if (source.element.paused) source.element.play().catch(() => undefined);
         } else {
@@ -4027,14 +4148,14 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
           bgAudio.src = this.assetUrl(musicId);
         }
 
-        // Auto-Ducking: when Overlap mode is active, duck background music volume to 35% when clip has audio
+        // Auto-Ducking / MuteOnAudio for background music
         let effectiveBgVol = this.musicVolume();
-        if (this.muteClipAudio() === 'Overlap' && clipVol > 0) {
-          effectiveBgVol *= 0.35;
+        if (isVoicePresent && (mode === 'Overlap' || mode === 'MuteOnAudio')) {
+          effectiveBgVol = mode === 'MuteOnAudio' ? 0 : effectiveBgVol * this.videoDuckLevel();
         }
 
         bgAudio.volume = this.isMonitorMuted() ? 0 : effectiveBgVol;
-        bgAudio.muted = this.isMonitorMuted();
+        bgAudio.muted = this.isMonitorMuted() || effectiveBgVol === 0;
         bgAudio.playbackRate = speed;
 
         // Sync background music playhead time with timeline playhead
@@ -4509,34 +4630,51 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   private clipAudioPayload(): ClipAudioBody[] | null {
     const clips = this.included();
     const mode = this.muteClipAudio();
-    const needsOverlapCheck = mode === 'Overlap' || mode === 'MuteOnAudio';
+    const hasPerClipMuteOnAudio = clips.some((r) => {
+      const d = this.clipSound(r.clip.id).duckMode;
+      return d === 'MuteOnAudio' || d === 'Ducked';
+    });
+    const needsOverlapCheck = mode === 'Overlap' || mode === 'MuteOnAudio' || hasPerClipMuteOnAudio;
     if (!needsOverlapCheck && !clips.some((r) => this.isClipSoundCustom(r.clip.id))) return null;
 
     const schedule = this.clipSchedule();
     const hasBg = this.musicAssetId() !== '';
     const available = new Set(this.studio()?.musicCandidates.map((a) => a.id) ?? []);
+    const audioTimelineItems = this.timelineItems().filter((i) => i.type === 'audio' && !i.muted && (i.volume ?? 1.0) > 0);
 
     return clips.map((row) => {
       const sound = this.clipSound(row.clip.id);
       const assetId = sound.audioAssetId && available.has(sound.audioAssetId)
         ? sound.audioAssetId
         : null;
-        
+
       let vol = sound.volume;
-      if (needsOverlapCheck) {
-        const s = schedule.find(x => x.clip.id === row.clip.id);
-        if (s) {
-           let isOverlap = hasBg;
-           if (!hasBg) {
-             isOverlap = this.musicTracks().some(t => {
-                const mStart = t.startSeconds;
-                const mEnd = t.startSeconds + this.musicTrackDurationSeconds(t);
-                return mStart < s.endSeconds && mEnd > s.startSeconds;
-             });
-           }
-           if (isOverlap) {
-             vol = mode === 'MuteOnAudio' ? 0 : Math.round(sound.volume * this.videoDuckLevel() * 100) / 100;
-           }
+      const clipDuck = sound.duckMode ?? 'Normal';
+      const s = schedule.find((x) => x.clip.id === row.clip.id);
+
+      if (s) {
+        const hasMusicOverlap = hasBg || this.musicTracks().some((t) => {
+          const mStart = t.startSeconds;
+          const mEnd = t.startSeconds + this.musicTrackDurationSeconds(t);
+          return mStart < s.endSeconds && mEnd > s.startSeconds;
+        });
+        const hasTimelineAudioOverlap = audioTimelineItems.some((i) => {
+          return i.startTime < s.endSeconds && (i.startTime + i.duration) > s.startSeconds;
+        });
+        const isOverlap = hasMusicOverlap || hasTimelineAudioOverlap;
+
+        if (mode === 'Always') {
+          vol = 0;
+        } else if (clipDuck === 'MuteOnAudio') {
+          if (isOverlap) vol = 0;
+        } else if (clipDuck === 'Ducked') {
+          if (isOverlap) vol = Math.round(sound.volume * this.videoDuckLevel() * 100) / 100;
+        } else if (clipDuck === 'LeadVoice') {
+          vol = sound.volume;
+        } else if (mode === 'MuteOnAudio' && isOverlap) {
+          vol = 0;
+        } else if (mode === 'Overlap' && isOverlap) {
+          vol = Math.round(sound.volume * this.videoDuckLevel() * 100) / 100;
         }
       }
 

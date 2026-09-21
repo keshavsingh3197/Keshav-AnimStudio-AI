@@ -4778,6 +4778,7 @@ audio { height: 2.2rem; vertical-align: middle; }
 /* Ducking Segmented Control */
 .duck-seg-group {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   background: var(--surface-2);
   padding: 3px;
@@ -4786,7 +4787,8 @@ audio { height: 2.2rem; vertical-align: middle; }
 }
 
 .duck-seg-btn {
-  flex: 1;
+  flex: 1 1 calc(50% - 4px);
+  min-width: 65px;
   display: flex;
   align-items: center;
   justify-content: center;
