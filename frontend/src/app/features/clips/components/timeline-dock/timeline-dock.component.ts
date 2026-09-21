@@ -49,6 +49,7 @@ export class TimelineDockComponent implements OnInit, OnDestroy {
         const time = this.state.getCurrentTimeExact();
         const px = 76 + this.state.secondsToPx(time);
         el.style.transform = `translate3d(${px}px, 0, 0)`;
+        el.style.transform = `translate3d(${px}px, 0, 0) translateX(-50%)`;
       }
       this.rafId = requestAnimationFrame(loop);
     };

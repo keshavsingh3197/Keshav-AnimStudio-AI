@@ -571,6 +571,15 @@ export class StudioStateService implements OnDestroy {
     return false;
   });
 
+  readonly hasSelectedNotOnTimeline = computed(() => {
+    const sel = this.selectedLibraryIds();
+    if (sel.size === 0) return false;
+    for (const id of sel) {
+      if (!this.isClipOnTimeline(id)) return true;
+    }
+    return false;
+  });
+
   readonly hasAnySelection = computed(() => {
     return (
       this.selectedTimelineItemIds().size > 0 ||

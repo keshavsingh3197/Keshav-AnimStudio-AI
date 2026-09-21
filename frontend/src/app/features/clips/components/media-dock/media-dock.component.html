@@ -1,41 +1,57 @@
-<div class="fe-panel fe-media-library d-flex flex-column h-100 bg-dark text-light p-2 border-end border-secondary border-opacity-25"
+<div class="fe-panel fe-media-library"
      [class.drop-active]="state.dropActive()"
      (dragover)="state.onDragOver($event)" (dragleave)="state.onDragLeave($event)" (drop)="state.onDrop($event)">
 
-  <!-- Search & View Dropdown -->
-  <div class="input-group input-group-sm mb-2 position-relative">
-    <label class="input-group-text bg-black border-secondary border-opacity-50 text-secondary mb-0" title="Import Media" style="cursor:pointer; font-weight:bold; font-size:1.1rem; padding: 0.2rem 0.5rem;">
+  <!-- Search & View Dropdown Header -->
+  <div class="media-search-header">
+    <label class="media-import-btn" title="Import media files (Videos, Images, Audio)">
       <input type="file" multiple accept="video/*,audio/*,image/*,.mp4,.webm,.mov,.png,.jpg,.jpeg,.webp,.gif,.mp3,.wav,.ogg,.m4a,.aac,.flac" (change)="state.onPick($event)" style="display:none" />
-      +
+      <span class="import-plus">+</span>
     </label>
-    <span class="input-group-text bg-black border-secondary border-opacity-50 text-secondary d-flex align-items-center" style="padding: 0.2rem 0.5rem;">
-      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-        <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+
+    <div class="media-search-box">
+      <svg class="search-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="8"></circle>
+        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
       </svg>
-    </span>
-    <input type="text" class="form-control bg-black border-secondary border-opacity-50 text-light"
-           placeholder="Search media..." [ngModel]="state.searchQuery()" (ngModelChange)="state.searchQuery.set($event); state.currentPage.set(0)" />
-    <button class="btn btn-outline-secondary dropdown-toggle" type="button" (click)="state.showOrganizeMenu = !state.showOrganizeMenu" title="View & Organize" style="font-size: 0.85rem; padding: 0.2rem 0.6rem;">
+      <input type="text" class="media-search-input"
+             placeholder="Search media..." [ngModel]="state.searchQuery()" (ngModelChange)="state.searchQuery.set($event); state.currentPage.set(0)" />
+      @if (state.searchQuery()) {
+        <button type="button" class="search-clear-btn" (click)="state.searchQuery.set(''); state.currentPage.set(0)" title="Clear search">✕</button>
+      }
+    </div>
+
+    <button class="media-menu-btn" type="button" (click)="state.showOrganizeMenu = !state.showOrganizeMenu" title="View & Organize">
       ⋮
     </button>
+
     @if (state.showOrganizeMenu) {
-      <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end shadow show" style="position:absolute; top:100%; right:0; z-index:1050; display:block;">
-        <li><h6 class="dropdown-header">View Mode</h6></li>
-        <li><a class="dropdown-item" role="button" (click)="state.viewMode = 'grid'; state.showOrganizeMenu = false" [class.active]="state.viewMode === 'grid'">⊞ Grid</a></li>
-        <li><a class="dropdown-item" role="button" (click)="state.viewMode = 'list'; state.showOrganizeMenu = false" [class.active]="state.viewMode === 'list'">☰ List</a></li>
-        <li><hr class="dropdown-divider border-secondary"></li>
-        <li><h6 class="dropdown-header">Sort By</h6></li>
-        <li><a class="dropdown-item" role="button" (click)="state.sortMedia('name'); state.showOrganizeMenu = false">Name (A-Z)</a></li>
-        <li><a class="dropdown-item" role="button" (click)="state.sortMedia('duration'); state.showOrganizeMenu = false">Duration</a></li>
-        <li><a class="dropdown-item" role="button" (click)="state.reverse(); state.showOrganizeMenu = false">Reverse Order</a></li>
-        <li><hr class="dropdown-divider border-secondary"></li>
-        <li class="px-3 py-1">
-          <label class="d-flex align-items-center gap-2 small text-light mb-0" style="cursor:pointer;">
-            <input type="checkbox" [checked]="state.selectAllCheckbox" (change)="state.toggleSelectAll()" class="form-check-input mt-0" />
-            Select All Media
-          </label>
-        </li>
-      </ul>
+      <div class="organize-backdrop" (click)="state.showOrganizeMenu = false"></div>
+      <div class="organize-dropdown shadow-lg">
+        <div class="dropdown-group-title">View Mode</div>
+        <button type="button" class="dropdown-item-btn" (click)="state.viewMode = 'grid'; state.showOrganizeMenu = false" [class.active]="state.viewMode === 'grid'">
+          <span>⊞ Grid</span>
+        </button>
+        <button type="button" class="dropdown-item-btn" (click)="state.viewMode = 'list'; state.showOrganizeMenu = false" [class.active]="state.viewMode === 'list'">
+          <span>☰ List</span>
+        </button>
+        <div class="dropdown-divider"></div>
+        <div class="dropdown-group-title">Sort By</div>
+        <button type="button" class="dropdown-item-btn" (click)="state.sortMedia('name'); state.showOrganizeMenu = false">
+          <span>Name (A-Z)</span>
+        </button>
+        <button type="button" class="dropdown-item-btn" (click)="state.sortMedia('duration'); state.showOrganizeMenu = false">
+          <span>Duration</span>
+        </button>
+        <button type="button" class="dropdown-item-btn" (click)="state.reverse(); state.showOrganizeMenu = false">
+          <span>Reverse Order</span>
+        </button>
+        <div class="dropdown-divider"></div>
+        <label class="dropdown-checkbox-row">
+          <input type="checkbox" [checked]="state.selectAllCheckbox" (change)="state.toggleSelectAll()" />
+          <span>Select All Media</span>
+        </label>
+      </div>
     }
   </div>
 
@@ -63,64 +79,66 @@
     </button>
   </div>
 
-  <!-- Dynamic Bulk Action Row (Visible only when selectedCount > 0) -->
+  <!-- Dynamic Bulk Action Row (Visible when selectedCount > 0) -->
   @if (state.selectedCount() > 0) {
     <div class="media-bulk-bar">
       <div class="media-bulk-count">
         <span class="bulk-dot"></span>
-        <span>{{ state.selectedCount() }} selected</span>
+        <span class="bulk-count-text">{{ state.selectedCount() }} selected</span>
       </div>
       <div class="media-bulk-actions">
         @if (state.hasSelectedOnTimeline()) {
-          <button class="media-bulk-btn btn-remove-timeline" type="button" (click)="state.removeSelectedFromTimeline()" title="Remove selected media from timeline cut">
-            ✕ Remove from Timeline
-            ✕ Remove
-            ✕ Remove from Cut
+          <button class="bulk-action-btn bulk-btn-remove" type="button" (click)="state.removeSelectedFromTimeline()" title="Remove selected media from timeline cut">
+            <span class="bulk-btn-icon">✕</span>
+            <span>Remove from Cut</span>
           </button>
         }
-        <button class="media-bulk-btn btn-add" type="button" (click)="state.addSelectedToTimeline()" title="Add selected to timeline">
-          <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2z"/>
-          </svg>
-          + Add
-        </button>
-        @if (state.confirmingDelete()) {
-          <button class="media-bulk-btn btn-confirm" type="button" (click)="state.removeFromLibrary()" title="Confirm delete from library">
-            Confirm
+        @if (state.hasSelectedNotOnTimeline()) {
+          <button class="bulk-action-btn bulk-btn-add" type="button" (click)="state.addSelectedToTimeline()" title="Add selected media to timeline cut">
+            <span class="bulk-btn-icon">+</span>
+            <span>Add to Cut</span>
           </button>
-          <button class="media-bulk-btn btn-cancel" type="button" (click)="state.confirmingDelete.set(false)" title="Cancel">
+        }
+        @if (state.confirmingDelete()) {
+          <button class="bulk-action-btn bulk-btn-confirm" type="button" (click)="state.removeFromLibrary()" title="Confirm delete from library">
+            Delete
+          </button>
+          <button class="bulk-action-btn bulk-btn-cancel" type="button" (click)="state.confirmingDelete.set(false)" title="Cancel">
             ✕
           </button>
         } @else {
-          <button class="media-bulk-btn btn-del" type="button" (click)="state.deleteSelected()" title="Delete selected from library">
+          <button class="bulk-action-btn bulk-btn-del" type="button" (click)="state.deleteSelected()" title="Delete selected from library">
             <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
               <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/>
               <path fill-rule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/>
             </svg>
           </button>
         }
+        <button class="bulk-action-btn bulk-btn-clear" type="button" (click)="state.clearAllSelections()" title="Deselect all">
+          ✕
+        </button>
       </div>
     </div>
   }
 
-  <!-- Upload Progress -->
+  <!-- Upload Progress Indicator -->
   @if (state.uploading()) {
-    <div class="p-2 bg-primary bg-opacity-25 rounded mb-2 flex-shrink-0 border border-secondary">
-      <div class="d-flex justify-content-between small mb-1">
-        <strong class="text-white">Uploading Media...</strong>
-        <span class="text-secondary">{{ state.uploadDone() + 1 }} / {{ state.uploadTotal() }}</span>
+    <div class="upload-progress-card">
+      <div class="upload-progress-head">
+        <strong>Uploading Media...</strong>
+        <span>{{ state.uploadDone() + 1 }} / {{ state.uploadTotal() }}</span>
       </div>
-      <div class="w-100 bg-black rounded overflow-hidden" style="height: 4px;">
-        <div class="h-100 bg-primary" [style.width.%]="(state.uploadDone() / state.uploadTotal()) * 100" style="transition: width 0.3s ease;"></div>
+      <div class="upload-progress-track">
+        <div class="upload-progress-bar" [style.width.%]="(state.uploadDone() / state.uploadTotal()) * 100"></div>
       </div>
     </div>
   }
 
-  <!-- Media Cards Grid Body (Strict 2-Column Grid) -->
-  <div class="flex-grow-1 overflow-y-auto mb-2 pe-1" style="min-height:0;">
+  <!-- Media Cards Grid Body -->
+  <div class="media-grid-scroll-wrap">
     <div class="media-card-grid" [class.list-view]="state.viewMode === 'list'">
       @for (row of state.pagedRows(); track row.clip.id; let i = $index) {
-        <div class="clip-card card bg-black border border-secondary border-opacity-50 overflow-hidden position-relative"
+        <div class="clip-card"
              [class.is-placed]="state.isClipOnTimeline(row.clip.id)"
              [class.library-selected]="state.isLibrarySelected(row.clip.id)"
              [class.selected]="state.isLibrarySelected(row.clip.id)"
@@ -128,137 +146,118 @@
              [class.drag-over]="state.dragOverIndex() === i && state.dragIndex() !== i"
              [attr.data-type]="state.getClipType(row.clip)"
              draggable="true"
-             (click)="state.selectClip(row.clip.id)"
              (click)="state.selectClip(row.clip.id, $event)"
              (dragstart)="onDragStart(i, row)"
              (dragover)="state.onRowDragOver(i, $event)"
              (drop)="state.onRowDrop(i, $event)"
              (dragend)="state.onRowDragEnd()">
 
-          <!-- 16:9 Thumbnail Box -->
-          <div class="position-relative w-100 bg-black overflow-hidden" style="aspect-ratio: 16 / 9;">
+          <!-- 16:9 Thumbnail Area -->
+          <div class="clip-thumb-container">
             @if (state.getClipType(row.clip) === 'video' || state.getClipType(row.clip) === 'ai') {
-              <video #vid class="object-fit-cover w-100 h-100" [src]="state.assetUrl(row.clip.id)" muted loop (mouseenter)="vid.play()" (mouseleave)="vid.pause(); vid.currentTime = 0;"></video>
+              <video #vid class="clip-thumb-media" [src]="state.assetUrl(row.clip.id)" muted loop (mouseenter)="vid.play()" (mouseleave)="vid.pause(); vid.currentTime = 0;"></video>
             } @else if (state.getClipType(row.clip) === 'image') {
-              <img class="object-fit-cover w-100 h-100" [src]="state.assetUrl(row.clip.id)" />
+              <img class="clip-thumb-media" [src]="state.assetUrl(row.clip.id)" alt="" />
             } @else {
-              <div class="d-flex flex-column align-items-center justify-content-center w-100 h-100 bg-dark position-relative" style="user-select:none;">
-                <button type="button" class="btn btn-sm btn-outline-info rounded-circle d-flex align-items-center justify-content-center mb-1 shadow-sm"
-                        style="width: 32px; height: 32px; padding: 0; z-index: 6;"
+              <div class="clip-audio-thumb">
+                <button type="button" class="audio-play-btn"
                         (click)="togglePreviewAudio(row.clip.id, $event)"
                         [title]="previewingAudioId() === row.clip.id ? 'Pause audio preview' : 'Play audio preview'">
                   @if (previewingAudioId() === row.clip.id) { ⏸ } @else { ▶ }
                 </button>
-                <span class="small text-info text-truncate px-2" style="font-size: 0.65rem; max-width: 90%;">🎵 Audio Track</span>
+                <span class="audio-track-label">Audio Track</span>
               </div>
             }
 
-            <!-- Top-Left Checkbox -->
-            <input type="checkbox" [checked]="state.isLibrarySelected(row.clip.id)" (change)="state.toggleLibrarySelection(row.clip.id)" (click)="$event.stopPropagation()"
-                   class="clip-card-check form-check-input position-absolute"
-                   title="Select media item"
-                   style="top: 4px; left: 4px; z-index: 5; width: 14px; height: 14px; margin: 0;" />
+            <!-- Top-Left Selection Checkbox -->
+            <label class="clip-check-wrap" (click)="$event.stopPropagation()" title="Select media item">
+              <input type="checkbox" [checked]="state.isLibrarySelected(row.clip.id)" (change)="state.toggleLibrarySelection(row.clip.id)" class="clip-check-input" />
+              <span class="clip-check-custom"></span>
+            </label>
 
-            <!-- Bottom-Left Timeline Placement Indicator / Action -->
-            <!-- Placement Indicator / Action (Top Left beside Checkbox) -->
+            <!-- Top-Left In-Cut Tag (Before Hover) -->
             @if (state.isClipOnTimeline(row.clip.id)) {
-              <button type="button"
-                      class="badge bg-success bg-opacity-75 text-white position-absolute font-monospace border-0"
-                      style="bottom: 4px; left: 4px; z-index: 5; font-size: 0.6rem; padding: 2px 5px; cursor: pointer;"
-                      class="badge bg-success bg-opacity-90 text-white position-absolute border-0 d-inline-flex align-items-center gap-1 shadow-sm"
-                      style="bottom: 4px; left: 4px; z-index: 5; font-size: 0.62rem; padding: 2px 5px; cursor: pointer; max-width: calc(100% - 50px);"
-                      style="bottom: 4px; left: 4px; z-index: 5; font-size: 0.62rem; padding: 2px 5px; cursor: pointer; border-radius: 4px;"
-                      style="top: 3px; left: 24px; z-index: 5; font-size: 0.6rem; padding: 2px 5px; cursor: pointer; border-radius: 3px;"
-                      (click)="$event.stopPropagation(); state.removeClipFromTimeline(row.clip.id)"
-                      title="Placed on timeline. Click to remove from timeline">
-                ✓ On Timeline <span style="margin-left: 2px; font-weight: 700;">✕</span>
-                      title="Placed on timeline cut. Click to remove">
-                      title="Placed in timeline cut. Click to remove">
-                <span>✓ In Cut</span>
-                <span style="font-weight: 700; opacity: 0.85;">✕</span>
-                      title="Placed in timeline cut. Click to remove">
-                <span>✓ On Timeline</span>
-                <span style="font-weight: 700; opacity: 0.85; margin-left: 1px;">✕</span>
-              </button>
-            } @else {
-              <button type="button"
-                      class="badge bg-secondary bg-opacity-75 text-white position-absolute font-monospace border-0"
-                      style="bottom: 4px; left: 4px; z-index: 5; font-size: 0.6rem; padding: 2px 5px; cursor: pointer;"
-                      class="badge bg-secondary bg-opacity-75 text-white position-absolute border-0 d-inline-flex align-items-center gap-1 shadow-sm"
-                      style="bottom: 4px; left: 4px; z-index: 5; font-size: 0.62rem; padding: 2px 5px; cursor: pointer;"
-                      style="bottom: 4px; left: 4px; z-index: 5; font-size: 0.62rem; padding: 2px 5px; cursor: pointer; border-radius: 4px;"
-                      style="top: 3px; left: 24px; z-index: 5; font-size: 0.6rem; padding: 2px 5px; cursor: pointer; border-radius: 3px;"
-                      (click)="$event.stopPropagation(); state.addClipToTimeline(row.clip.id)"
-                      title="Click to add to timeline">
-                + Add
-              </button>
+              <span class="clip-in-cut-tag" title="In timeline cut">
+                <span class="cut-dot"></span> In Cut
+              </span>
             }
 
-            <!-- Type Badge (Top Right) -->
+            <!-- Top-Right Media Type Badge -->
             @if (state.getClipType(row.clip) === 'ai') {
-              <span class="badge bg-purple position-absolute" style="top: 4px; right: 4px; z-index: 5;" title="AI Generated">✨ AI</span>
+              <span class="clip-type-badge ai" title="AI Generated">✨ AI</span>
             } @else if (state.getClipType(row.clip) === 'image') {
-              <span class="badge bg-success bg-opacity-75 position-absolute" style="top: 4px; right: 4px; z-index: 5; font-size: 0.6rem;" title="Image Asset">🖼 IMG</span>
+              <span class="clip-type-badge img" title="Image Asset">🖼 IMG</span>
             } @else if (state.getClipType(row.clip) === 'audio') {
-              <span class="badge bg-info bg-opacity-75 position-absolute" style="top: 4px; right: 4px; z-index: 5; font-size: 0.6rem;" title="Audio Track">🎵 AUD</span>
+              <span class="clip-type-badge aud" title="Audio Track">🎵 AUD</span>
             }
 
             <!-- Bottom-Right Duration Badge -->
             @if (row.clip.durationSeconds) {
-              <span class="badge bg-black bg-opacity-75 text-light position-absolute font-monospace"
-                    style="bottom: 4px; right: 4px; z-index: 5; font-size: 0.65rem; padding: 2px 4px;">
+              <span class="clip-duration-badge">
                 {{ row.clip.durationSeconds | number:'1.1-1' }}s
               </span>
             }
+
+            <!-- Dedicated Hover Action Overlay (On Hover) -->
+            <div class="clip-thumb-hover-overlay" (click)="$event.stopPropagation()">
+              @if (state.isClipOnTimeline(row.clip.id)) {
+                <button class="thumb-hover-btn btn-remove-cut" type="button"
+                        (click)="state.removeClipFromTimeline(row.clip.id)"
+                        title="Remove clip from timeline cut">
+                  <span class="hover-btn-icon">✕</span>
+                  <span>Remove from Cut</span>
+                </button>
+              } @else {
+                <button class="thumb-hover-btn btn-add-cut" type="button"
+                        (click)="state.addClipToTimeline(row.clip.id)"
+                        title="Add clip to timeline cut">
+                  <span class="hover-btn-icon">+</span>
+                  <span>Add to Cut</span>
+                </button>
+              }
+            </div>
           </div>
 
-          <!-- Filename underneath thumbnail -->
-          <div class="p-1 d-flex align-items-center justify-content-between" style="background: var(--surface-2);">
-            <span class="small text-secondary text-truncate mb-0" style="font-size: 0.72rem;" [title]="row.clip.name">{{ row.clip.name }}</span>
-            <div class="d-flex align-items-center gap-1">
-              @if (state.isClipOnTimeline(row.clip.id)) {
-                <button class="btn btn-link btn-sm p-0 text-warning text-decoration-none" type="button" (click)="$event.stopPropagation(); state.removeClipFromTimeline(row.clip.id)" title="Remove from timeline">✕</button>
-              } @else {
-                <button class="btn btn-link btn-sm p-0 text-info text-decoration-none" type="button" (click)="$event.stopPropagation(); state.addClipToTimeline(row.clip.id)" title="Add to timeline">➕</button>
-              }
-              <button class="btn btn-link btn-sm p-0 text-secondary text-decoration-none" type="button" (click)="$event.stopPropagation(); state.duplicateClip(row.clip.id)" title="Duplicate">⧉</button>
+          <!-- Card Footer (Filename + Subtle Duplicate Action) -->
+          <div class="clip-card-footer">
+            <span class="clip-title-text" [title]="row.clip.name">{{ row.clip.name }}</span>
+            <div class="clip-footer-actions">
+              <button class="clip-action-icon-btn dup" type="button" (click)="$event.stopPropagation(); state.duplicateClip(row.clip.id)" title="Duplicate clip">⧉</button>
             </div>
           </div>
         </div>
       }
+
       @if (state.filteredRows().length === 0) {
-        <div style="grid-column: 1 / -1;" class="text-center py-5 text-secondary">
-          <span style="font-size:2rem; opacity:.5;">📂</span>
-          <p class="small mt-2 mb-0">No media found.</p>
+        <div class="media-empty-state">
+          <span class="empty-icon">📂</span>
+          <p class="empty-text">No media found in library.</p>
         </div>
       }
     </div>
   </div>
 
   <!-- FIXED PAGINATION FOOTER -->
-  <div class="d-flex align-items-center justify-content-between border-top border-secondary border-opacity-25 pt-2 mt-auto text-secondary small text-nowrap flex-shrink-0">
-    <!-- Per Page Selector -->
-    <select class="form-select form-select-sm bg-dark text-light border-secondary border-opacity-50 w-auto py-0 pe-4"
+  <div class="media-pagination-bar">
+    <select class="pagination-select"
             [ngModel]="state.pageSize()" (ngModelChange)="state.pageSize.set($event); state.currentPage.set(0)">
       <option [ngValue]="6">6 / page</option>
       <option [ngValue]="12">12 / page</option>
       <option [ngValue]="24">24 / page</option>
     </select>
 
-    <!-- Range Display -->
-    <span class="font-monospace text-light mx-2 text-nowrap" style="font-size:0.75rem;">
+    <span class="pagination-range">
       {{ state.startIndex() }}–{{ state.endIndex() }} of {{ state.totalItems() }}
     </span>
 
-    <!-- Stepper Buttons -->
-    <div class="btn-group btn-group-sm">
-      <button class="btn btn-outline-secondary py-0 px-2 text-light"
+    <div class="pagination-stepper">
+      <button class="stepper-arrow-btn"
               type="button"
               [disabled]="state.currentPage() === 0"
               (click)="state.previousPage()">
         &lsaquo;
       </button>
-      <button class="btn btn-outline-secondary py-0 px-2 text-light"
+      <button class="stepper-arrow-btn"
               type="button"
               [disabled]="state.currentPage() >= state.totalPages() - 1"
               (click)="state.nextPage()">
@@ -267,4 +266,3 @@
     </div>
   </div>
 </div>
-

@@ -7,45 +7,87 @@
     <!-- Timeline Toolbar -->
     <div class="tl-toolbar">
       <div class="tool-group">
-        <button class="tool-btn" type="button" title="Undo (Ctrl+Z)" disabled>↩</button>
-        <button class="tool-btn" type="button" title="Redo (Ctrl+Y)" disabled>↪</button>
-        <button class="tool-btn text-danger" type="button" (click)="state.deleteOrRemoveCurrentSelection()" [disabled]="!state.hasAnySelection()" title="Remove selected from timeline cut (Del/Backspace)">
-          🗑 Remove
-          🗑
+        <button class="tool-btn" type="button" title="Undo (Ctrl+Z)" disabled>
+          <span class="tool-btn-icon">↩</span>
+        </button>
+        <button class="tool-btn" type="button" title="Redo (Ctrl+Y)" disabled>
+          <span class="tool-btn-icon">↪</span>
+        </button>
+        <button class="tool-btn btn-danger-action" type="button" (click)="state.deleteOrRemoveCurrentSelection()" [disabled]="!state.hasAnySelection()" title="Remove selected from timeline cut (Del/Backspace)">
+          <span class="tool-btn-icon">🗑</span>
+          <span>Remove</span>
         </button>
         @if (state.hasAnySelection()) {
-          <button class="tool-btn" type="button" (click)="state.clearAllSelections()" title="Deselect all (Esc)">
-            ✕ Deselect
+          <button class="tool-btn btn-clear-action" type="button" (click)="state.clearAllSelections()" title="Deselect all (Esc)">
+            <span class="tool-btn-icon">✕</span>
+            <span>Deselect</span>
           </button>
         }
       </div>
+
       <div class="tl-toolbar-sep"></div>
+
       <div class="tool-group">
-        <button class="tool-btn" type="button" (click)="state.splitClipAtPlayhead()" title="Split clip at playhead needle (S)">✂ Split</button>
-        <button class="tool-btn" type="button" [class.active]="state.activeInspectorTab() === 'clip'" [disabled]="!state.selectedClip()" (click)="state.activeInspectorTab.set('clip')" title="Crop, Framing & Clip Settings (C)">⬜ Crop</button>
-        <button class="tool-btn" type="button" [class.active]="state.activeInspectorTab() === 'clip'" [disabled]="!state.selectedClip()" (click)="state.activeInspectorTab.set('clip')" title="Crop, Framing & Clip Settings (C)">Crop</button>
-        <button class="tool-btn" type="button" [class.active]="state.activeInspectorTab() === 'color'" (click)="state.activeInspectorTab.set('color')" title="Color grading">🎨 Color</button>
-        <button class="tool-btn" type="button" [class.active]="state.activeInspectorTab() === 'audio'" (click)="state.activeInspectorTab.set('audio')" title="Audio Hub">🎵 Audio</button>
-        <button class="tool-btn" type="button" [class.active]="state.activeInspectorTab() === 'text'" (click)="state.activeInspectorTab.set('text')" title="Lower-Third Text Overlay">T Text</button>
-        <button class="tool-btn" type="button" (click)="state.addTextOverlay()" title="Add Text / Subtitle Overlay on TXT1">+ Text</button>
-        <button class="tool-btn" type="button" [class.active]="state.activeInspectorTab() === 'effects'" (click)="state.activeInspectorTab.set('effects')" title="Visual Effects">✨ Effects</button>
-        <button class="tool-btn" type="button" [class.active]="state.activeInspectorTab() === 'transitions'" (click)="state.activeInspectorTab.set('transitions')" title="Transitions">⚡ Transitions</button>
+        <button class="tool-btn" type="button" (click)="state.splitClipAtPlayhead()" title="Split clip at playhead needle (S)">
+          <span class="tool-btn-icon">✂</span>
+          <span>Split</span>
+        </button>
+        <button class="tool-btn" type="button" [class.active]="state.activeInspectorTab() === 'clip'" [disabled]="!state.selectedClip()" (click)="state.activeInspectorTab.set('clip')" title="Crop, Framing & Clip Settings (C)">
+          <span class="tool-btn-icon">⬜</span>
+          <span>Crop</span>
+        </button>
+        <button class="tool-btn" type="button" [class.active]="state.activeInspectorTab() === 'color'" (click)="state.activeInspectorTab.set('color')" title="Color grading">
+          <span class="tool-btn-icon">🎨</span>
+          <span>Color</span>
+        </button>
+        <button class="tool-btn" type="button" [class.active]="state.activeInspectorTab() === 'audio'" (click)="state.activeInspectorTab.set('audio')" title="Audio Hub">
+          <span class="tool-btn-icon">🎵</span>
+          <span>Audio</span>
+        </button>
+        <button class="tool-btn" type="button" [class.active]="state.activeInspectorTab() === 'text'" (click)="state.activeInspectorTab.set('text')" title="Lower-Third Text Overlay">
+          <span class="tool-btn-icon">T</span>
+          <span>Text</span>
+        </button>
+        <button class="tool-btn tool-btn-subtle" type="button" (click)="state.addTextOverlay()" title="Add Text / Subtitle Overlay on TXT1">
+          <span class="tool-btn-icon">+</span>
+          <span>Overlay</span>
+        </button>
+        <button class="tool-btn" type="button" [class.active]="state.activeInspectorTab() === 'effects'" (click)="state.activeInspectorTab.set('effects')" title="Visual Effects">
+          <span class="tool-btn-icon">✨</span>
+          <span>Effects</span>
+        </button>
+        <button class="tool-btn" type="button" [class.active]="state.activeInspectorTab() === 'transitions'" (click)="state.activeInspectorTab.set('transitions')" title="Transitions">
+          <span class="tool-btn-icon">⚡</span>
+          <span>Transitions</span>
+        </button>
       </div>
+
       <span style="flex:1"></span>
+
       <div class="tool-group">
-        <span class="mono muted" style="font-size:.78rem">{{ state.included().length }} clips · {{ state.totalSeconds() | number:'1.1-1' }}s</span>
-        <span class="mono muted" style="font-size:.74rem">{{ state.included().length }} clips ({{ state.totalSeconds() | number:'1.0-0' }}s)</span>
+        <div class="tl-stats-badge mono">
+          <span class="stat-dot"></span>
+          <span>{{ state.included().length }} clips · {{ state.totalSeconds() | number:'1.1-1' }}s</span>
+        </div>
+
         <button class="tool-btn" type="button"
                 [class.active]="state.timelineThumbnailMode() === 'filmstrip'"
                 (click)="state.timelineThumbnailMode.set(state.timelineThumbnailMode() === 'filmstrip' ? 'simple' : 'filmstrip')"
                 [title]="state.timelineThumbnailMode() === 'filmstrip' ? 'Switch to Compact timeline view' : 'Switch to Visual Thumbnails timeline view'">
-          {{ state.timelineThumbnailMode() === 'filmstrip' ? '🖼 Thumbnails' : '☰ Compact' }}
-          {{ state.timelineThumbnailMode() === 'filmstrip' ? '🖼 Thumbs' : '☰ Compact' }}
+          <span class="tool-btn-icon">{{ state.timelineThumbnailMode() === 'filmstrip' ? '🖼' : '☰' }}</span>
+          <span>{{ state.timelineThumbnailMode() === 'filmstrip' ? 'Filmstrip' : 'Compact' }}</span>
         </button>
-        <button class="tool-btn" type="button" (click)="fitTimeline()" title="Fit to screen">⤢ Fit</button>
-        <button class="tool-btn" type="button" (click)="state.zoom(-8)" title="Zoom out">−</button>
-        <span class="muted mono" style="font-size:.78rem">zoom</span>
-        <button class="tool-btn" type="button" (click)="state.zoom(8)" title="Zoom in">+</button>
+
+        <button class="tool-btn" type="button" (click)="fitTimeline()" title="Fit timeline to screen">
+          <span class="tool-btn-icon">⤢</span>
+          <span>Fit</span>
+        </button>
+
+        <div class="tl-zoom-ctrl">
+          <button class="zoom-stepper-btn" type="button" (click)="state.zoom(-8)" title="Zoom out">−</button>
+          <span class="zoom-value-text mono">{{ state.pxPerSecond() | number:'1.0-0' }}px/s</span>
+          <button class="zoom-stepper-btn" type="button" (click)="state.zoom(8)" title="Zoom in">+</button>
+        </div>
       </div>
     </div>
 
@@ -57,7 +99,7 @@
            (pointerup)="onTimelineScrubUp($event)">
         <div #timelineInner class="timeline-inner" [style.width.px]="76 + state.secondsToPx(state.timelineSeconds())">
           
-          <!-- Playhead Needle (Guardrail 2: 60fps translation via RAF) -->
+          <!-- Playhead Needle (60fps RAF translation loop) -->
           <div #playheadNeedle class="tl-playhead-needle" style="left: 0; will-change: transform;">
             <div class="tl-playhead-head" title="Drag to seek"></div>
             <div class="tl-playhead-bubble">{{ state.formattedPlayheadTime() }}</div>
@@ -115,7 +157,7 @@
                 </div>
               }
               @if (state.itemsForTrack('TXT1').length === 0) {
-                <div class="tl-lane-placeholder">Click "+ Text" in toolbar to add subtitle / text overlays</div>
+                <div class="tl-lane-placeholder">Click "+ Overlay" in toolbar to add subtitle / text overlays</div>
               }
             </div>
           </div>
@@ -230,7 +272,6 @@
                      [class.drag-over]="state.dragOverIndex() === entry.index && state.dragIndex() !== entry.index"
                      [style.width.px]="state.blockWidthPx(entry.row.clip)"
                      draggable="true"
-                     (click)="$event.stopPropagation(); state.selectClip(entry.row.clip.id)"
                      (click)="$event.stopPropagation(); state.selectClip(entry.row.clip.id, $event)"
                      (dblclick)="$event.stopPropagation(); state.selectAndSeekClip(entry.row.clip)"
                      (dragstart)="state.onRowDragStart(entry.index, entry.row)"
@@ -238,7 +279,7 @@
                      (drop)="state.onRowDrop(entry.index, $event)"
                      (dragend)="state.onRowDragEnd()"
                      [title]="entry.row.clip.name">
-                  <button class="tl-item-remove tl-clip-remove" type="button" (click)="$event.stopPropagation(); state.removeClipFromTimeline(entry.row.clip.id)" title="Remove clip from timeline cut">×</button>
+                  <button class="tl-clip-remove" type="button" (click)="$event.stopPropagation(); state.removeClipFromTimeline(entry.row.clip.id)" title="Remove clip from timeline cut">×</button>
                   @if (state.timelineThumbnailMode() === 'filmstrip') {
                     <div class="tl-clip-backdrop-thumb">
                       @if (state.getClipType(entry.row.clip) === 'image') {
@@ -267,7 +308,7 @@
                       </div>
                     </div>
                   } @else {
-                    <span class="tl-clip-seq">{{ i + 1 }}</span>
+                    <span class="tl-clip-seq">#{{ i + 1 }}</span>
                     <span class="tl-clip-name">{{ entry.row.clip.name }}</span>
                     <span class="tl-clip-dur mono">{{ entry.row.clip.durationSeconds ?? 0 | number:'1.0-1' }}s</span>
                   }
@@ -286,19 +327,23 @@
                   }
                 </div>
 
+                <!-- Junction / Cut Seam Point -->
                 @if (i < state.junctionsList().length) {
                   @let junction = state.junctionsList()[i];
-                  <div class="tl-junction" [class.custom]="state.isJunctionCustom(junction.key)" [class.in-scope]="state.targetJunctionKeys().has(junction.key)">
+                  <div class="tl-junction"
+                       [class.is-hard-cut]="junction.transition === 'None'"
+                       [class.has-transition]="junction.transition !== 'None'"
+                       [class.custom]="state.isJunctionCustom(junction.key)"
+                       [class.in-scope]="state.targetJunctionKeys().has(junction.key)">
                     <button class="tl-junction-chip" type="button"
-                            style="padding:0; width:18px; height:24px; display:flex; align-items:center; justify-content:center; border-radius:4px; font-size:12px;"
                             [class.has-trans]="junction.transition !== 'None'"
                             (click)="$event.stopPropagation(); state.toggleJunctionEditor(junction.key)"
                             (dblclick)="$event.stopPropagation(); state.cycleJunctionTransition(junction)"
-                            [title]="(junction.transition === 'None' ? 'Hard cut' : junction.transition + ' (' + junction.seconds + 's)') + ' — Click to edit'">
+                            [title]="(junction.transition === 'None' ? 'Cut point — Click to add transition' : junction.transition + ' (' + junction.seconds + 's) — Click to edit')">
                       @if (junction.transition === 'None') {
-                        <span class="j-icon" style="margin:0;">✂</span>
+                        <span class="j-icon">✂</span>
                       } @else {
-                        <span class="j-icon" style="margin:0;">⚡</span>
+                        <span class="j-icon">⚡</span>
                       }
                     </button>
                     @if (state.openJunctionKey() === junction.key) {
@@ -493,4 +538,3 @@
     </div>
   </div>
 }
-
