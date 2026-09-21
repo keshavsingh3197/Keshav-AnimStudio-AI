@@ -3898,6 +3898,18 @@ audio { height: 2.2rem; vertical-align: middle; }
   box-shadow: 0 2px 8px rgba(108, 140, 255, 0.4) !important;
 }
 
+.media-bulk-btn.btn-remove-timeline {
+  background: rgba(245, 158, 11, 0.15) !important;
+  color: #f59e0b !important;
+  border: 1px solid rgba(245, 158, 11, 0.35) !important;
+}
+
+.media-bulk-btn.btn-remove-timeline:hover {
+  background: #f59e0b !important;
+  color: #000 !important;
+  border-color: #f59e0b !important;
+}
+
 .media-bulk-btn.btn-del {
   background: rgba(239, 68, 68, 0.15) !important;
   color: #ef4444 !important;
@@ -4553,6 +4565,26 @@ audio { height: 2.2rem; vertical-align: middle; }
 }
 
 .tl-item-remove:hover {
+  background: #ef4444 !important;
+}
+
+.tl-clip-remove {
+  position: absolute !important;
+  top: 4px !important;
+  right: 4px !important;
+  z-index: 10 !important;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.12s ease !important;
+}
+
+.tl-clip:hover .tl-clip-remove,
+.tl-clip.selected .tl-clip-remove {
+  opacity: 0.85;
+}
+
+.tl-clip:hover .tl-clip-remove:hover,
+.tl-clip.selected .tl-clip-remove:hover {
+  opacity: 1;
   background: #ef4444 !important;
 }
 

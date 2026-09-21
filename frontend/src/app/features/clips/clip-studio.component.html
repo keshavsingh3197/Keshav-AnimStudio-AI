@@ -143,11 +143,16 @@
               <span>{{ selectedCount() }} selected</span>
             </div>
             <div class="media-bulk-actions">
+              @if (hasSelectedOnTimeline()) {
+                <button class="media-bulk-btn btn-remove-timeline" type="button" (click)="removeSelectedFromTimeline()" title="Remove selected media from timeline cut">
+                  ✕ Remove from Timeline
+                </button>
+              }
               <button class="media-bulk-btn btn-add" type="button" (click)="addSelectedToTimeline()" title="Add selected to timeline">
                 <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
                   <path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2z"/>
                 </svg>
-                Add
+                + Add
               </button>
               @if (confirmingDelete()) {
                 <button class="media-bulk-btn btn-confirm" type="button" (click)="removeFromLibrary()" title="Confirm delete from library">
@@ -223,11 +228,23 @@
                          title="Select media item"
                          style="top: 4px; left: 4px; z-index: 5; width: 14px; height: 14px; margin: 0;" />
 
-                  <!-- Bottom-Left Timeline Placement Indicator -->
+                  <!-- Bottom-Left Timeline Placement Indicator / Action -->
                   @if (isClipOnTimeline(row.clip.id)) {
-                    <span class="badge bg-success bg-opacity-75 text-white position-absolute font-monospace"
-                          style="bottom: 4px; left: 4px; z-index: 5; font-size: 0.6rem; padding: 1px 4px;"
-                          title="Placed on video timeline">✓ On Timeline</span>
+                    <button type="button"
+                            class="badge bg-success bg-opacity-75 text-white position-absolute font-monospace border-0"
+                            style="bottom: 4px; left: 4px; z-index: 5; font-size: 0.6rem; padding: 2px 5px; cursor: pointer;"
+                            (click)="$event.stopPropagation(); removeClipFromTimeline(row.clip.id)"
+                            title="Placed on timeline. Click to remove from timeline">
+                      ✓ On Timeline <span style="margin-left: 2px; font-weight: 700;">✕</span>
+                    </button>
+                  } @else {
+                    <button type="button"
+                            class="badge bg-secondary bg-opacity-75 text-white position-absolute font-monospace border-0"
+                            style="bottom: 4px; left: 4px; z-index: 5; font-size: 0.6rem; padding: 2px 5px; cursor: pointer;"
+                            (click)="$event.stopPropagation(); addClipToTimeline(row.clip.id)"
+                            title="Click to add to timeline">
+                      + Add
+                    </button>
                   }
 
                   <!-- Type Badge (Top Right) -->
@@ -251,7 +268,14 @@
                 <!-- Filename underneath thumbnail -->
                 <div class="p-1 d-flex align-items-center justify-content-between" style="background: var(--surface-2);">
                   <span class="small text-secondary text-truncate mb-0" style="font-size: 0.72rem;" [title]="row.clip.name">{{ row.clip.name }}</span>
-                  <button class="btn btn-link btn-sm p-0 text-secondary text-decoration-none" type="button" (click)="$event.stopPropagation(); duplicateClip(row.clip.id)" title="Duplicate">⧉</button>
+                  <div class="d-flex align-items-center gap-1">
+                    @if (isClipOnTimeline(row.clip.id)) {
+                      <button class="btn btn-link btn-sm p-0 text-warning text-decoration-none" type="button" (click)="$event.stopPropagation(); removeClipFromTimeline(row.clip.id)" title="Remove from timeline">✕</button>
+                    } @else {
+                      <button class="btn btn-link btn-sm p-0 text-info text-decoration-none" type="button" (click)="$event.stopPropagation(); addClipToTimeline(row.clip.id)" title="Add to timeline">➕</button>
+                    }
+                    <button class="btn btn-link btn-sm p-0 text-secondary text-decoration-none" type="button" (click)="$event.stopPropagation(); duplicateClip(row.clip.id)" title="Duplicate">⧉</button>
+                  </div>
                 </div>
               </div>
             }
@@ -1393,6 +1417,9 @@
                         @if (targetScope() === 'all') {
                           <span class="badge bg-primary font-monospace" style="font-size: 0.65rem;">All Clips</span>
                         }
+                        <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size: 0.65rem;" (click)="clearAllSelections()" title="Deselect clip (Esc)">
+                          ✕ Deselect
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -1774,7 +1801,14 @@
             <div class="tool-group">
               <button class="tool-btn" type="button" title="Undo (Ctrl+Z)" disabled>↩</button>
               <button class="tool-btn" type="button" title="Redo (Ctrl+Y)" disabled>↪</button>
-              <button class="tool-btn" type="button" (click)="toggle(selectedClipIndexInCut())" [disabled]="!selectedClip()" title="Remove selected clip from cut">🗑</button>
+              <button class="tool-btn text-danger" type="button" (click)="deleteOrRemoveCurrentSelection()" [disabled]="!hasAnySelection()" title="Remove selected from timeline cut (Del/Backspace)">
+                🗑 Remove
+              </button>
+              @if (hasAnySelection()) {
+                <button class="tool-btn" type="button" (click)="clearAllSelections()" title="Deselect all (Esc)">
+                  ✕ Deselect
+                </button>
+              }
             </div>
             <div class="tl-toolbar-sep"></div>
             <div class="tool-group">
@@ -1978,7 +2012,7 @@
                     @for (entry of includedWithIndex(); track $index; let i = $index) {
                       <div class="tl-clip"
                            [class.has-thumbnail]="timelineThumbnailMode()"
-                           [class.selected]="isLibrarySelected(entry.row.clip.id)"
+                           [class.selected]="isLibrarySelected(entry.row.clip.id) || selectedClipId() === entry.row.clip.id"
                            [class.dragging]="dragIndex() === entry.index"
                            [class.drag-over]="dragOverIndex() === entry.index && dragIndex() !== entry.index"
                            [style.width.px]="blockWidthPx(entry.row.clip)"
@@ -1990,6 +2024,7 @@
                            (drop)="onRowDrop(entry.index, $event)"
                            (dragend)="onRowDragEnd()"
                            [title]="entry.row.clip.name">
+                        <button class="tl-item-remove tl-clip-remove" type="button" (click)="$event.stopPropagation(); removeClipFromTimeline(entry.row.clip.id)" title="Remove clip from timeline (cut)">×</button>
                         @if (timelineThumbnailMode()) {
                           <div class="tl-clip-backdrop-thumb">
                             @if (getClipType(entry.row.clip) === 'image') {

@@ -198,7 +198,212 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
   isClipOnTimeline(clipId: string): boolean {
     const isAudio = this.musicAssetId() === clipId || this.musicTracks().some((t) => t.assetId === clipId);
     if (isAudio) return true;
+    if (this.timelineItems().some((it) => it.id === clipId || it.src === clipId)) return true;
     return this.rows().some((r) => r.clip.id === clipId && r.included);
+  }
+
+  readonly hasSelectedOnTimeline = computed(() => {
+    const sel = this.selectedLibraryIds();
+    if (sel.size === 0) return false;
+    for (const id of sel) {
+      if (this.isClipOnTimeline(id)) return true;
+    }
+    return false;
+  });
+
+  readonly hasAnySelection = computed(() => {
+    return this.selectedTimelineItemIds().size > 0
+      || Boolean(this.selectedTimelineItemId())
+      || this.selectedLibraryIds().size > 0
+      || Boolean(this.selectedClipId());
+  });
+
+  clearAllSelections(): void {
+    this.selectedClipId.set(null);
+    this.selectedLibraryIds.set(new Set());
+    this.selectedTimelineItemId.set(null);
+    this.selectedTimelineItemIds.set(new Set());
+  }
+
+  removeClipFromTimeline(clipId: string): void {
+    let removed = false;
+
+    // 1. If in rows, mark included = false
+    const rowIndex = this.rows().findIndex((r) => r.clip.id === clipId);
+    if (rowIndex >= 0 && this.rows()[rowIndex].included) {
+      this.rows.update((rows) =>
+        rows.map((r) => (r.clip.id === clipId ? { ...r, included: false } : r))
+      );
+      removed = true;
+    }
+
+    // 2. If in timelineItems, remove
+    if (this.timelineItems().some((it) => it.id === clipId || it.src === clipId)) {
+      this.timelineItems.update((items) =>
+        items.filter((it) => it.id !== clipId && it.src !== clipId)
+      );
+      removed = true;
+    }
+
+    // 3. If in musicTracks, remove
+    if (this.musicTracks().some((t) => t.assetId === clipId || t.key === clipId)) {
+      this.musicTracks.update((tracks) =>
+        tracks.filter((t) => t.assetId !== clipId && t.key !== clipId)
+      );
+      removed = true;
+    }
+
+    // 4. If bgMusic
+    if (this.musicAssetId() === clipId) {
+      this.musicAssetId.set('');
+      removed = true;
+    }
+
+    // Deselect if active
+    if (this.selectedClipId() === clipId) {
+      this.selectedClipId.set(null);
+    }
+    this.selectedLibraryIds.update((s) => {
+      const n = new Set(s);
+      n.delete(clipId);
+      return n;
+    });
+    if (this.selectedTimelineItemId() === clipId) {
+      this.selectedTimelineItemId.set(null);
+    }
+    this.selectedTimelineItemIds.update((s) => {
+      const n = new Set(s);
+      n.delete(clipId);
+      return n;
+    });
+
+    if (removed) {
+      this.markDirty();
+      this.syncMediaElements(this.isPlaying());
+      this.status.notify(['Removed from timeline cut.']);
+    }
+  }
+
+  addClipToTimeline(clipId: string): void {
+    const studio = this.studio();
+    const rows = [...this.rows()];
+    let added = false;
+
+    const isAudio = studio?.musicCandidates?.some((m) => m.id === clipId);
+    if (isAudio) {
+      this.addMusicTrackFromAsset(clipId);
+      added = true;
+    } else {
+      const existingIdx = rows.findIndex((r) => r.clip.id === clipId);
+      if (existingIdx >= 0) {
+        rows[existingIdx] = { ...rows[existingIdx], included: true };
+        this.rows.set(rows);
+        added = true;
+      } else {
+        const img = studio?.logoCandidates?.find((l) => l.id === clipId);
+        if (img) {
+          rows.push({
+            clip: {
+              id: img.id,
+              name: img.name,
+              fileSizeBytes: img.fileSizeBytes,
+              durationSeconds: 5.0,
+              width: img.width,
+              height: img.height,
+              hasAudio: false,
+            },
+            included: true,
+          });
+          this.rows.set(rows);
+          added = true;
+        } else {
+          const mediaRow = this.allMediaRows().find((r) => r.clip.id === clipId);
+          if (mediaRow) {
+            rows.push({ ...mediaRow, included: true });
+            this.rows.set(rows);
+            added = true;
+          }
+        }
+      }
+    }
+
+    if (added) {
+      this.markDirty();
+      this.syncMediaElements(this.isPlaying());
+      this.status.notify(['Added to timeline.']);
+    }
+  }
+
+  removeSelectedFromTimeline(): void {
+    const selLibIds = this.selectedLibraryIds();
+    const selTlIds = this.selectedTimelineItemIds();
+    if (selLibIds.size === 0 && selTlIds.size === 0) return;
+
+    if (selLibIds.size > 0) {
+      this.rows.update((rows) =>
+        rows.map((r) => (selLibIds.has(r.clip.id) ? { ...r, included: false } : r))
+      );
+      this.timelineItems.update((items) =>
+        items.filter((it) => !selLibIds.has(it.id) && !selLibIds.has(it.src))
+      );
+      this.musicTracks.update((tracks) =>
+        tracks.filter((t) => !selLibIds.has(t.assetId) && !selLibIds.has(t.key))
+      );
+      if (selLibIds.has(this.musicAssetId())) {
+        this.musicAssetId.set('');
+      }
+    }
+
+    if (selTlIds.size > 0) {
+      this.timelineItems.update((items) =>
+        items.filter((it) => !selTlIds.has(it.id))
+      );
+    }
+
+    this.selectedLibraryIds.set(new Set());
+    this.selectedTimelineItemIds.set(new Set());
+    this.selectedClipId.set(null);
+    this.selectedTimelineItemId.set(null);
+    this.markDirty();
+    this.syncMediaElements(this.isPlaying());
+    this.status.notify(['Removed selected items from timeline.']);
+  }
+
+  deleteOrRemoveCurrentSelection(): void {
+    const selTlIds = this.selectedTimelineItemIds();
+    const selTlId = this.selectedTimelineItemId();
+    if (selTlIds.size > 0 || selTlId) {
+      const toRemove = new Set(selTlIds);
+      if (selTlId) toRemove.add(selTlId);
+      this.timelineItems.update((items) => items.filter((it) => !toRemove.has(it.id)));
+      this.selectedTimelineItemIds.set(new Set());
+      this.selectedTimelineItemId.set(null);
+      this.markDirty();
+      this.syncMediaElements(this.isPlaying());
+      this.status.notify(['Removed timeline item(s).']);
+      return;
+    }
+
+    const selLibIds = this.selectedLibraryIds();
+    if (selLibIds.size > 0) {
+      this.removeSelectedFromTimeline();
+      return;
+    }
+
+    const selClip = this.selectedClip();
+    if (selClip) {
+      this.removeClipFromTimeline(selClip.id);
+      return;
+    }
+
+    const cutIdx = this.selectedClipIndexInCut();
+    if (cutIdx >= 0) {
+      this.toggle(cutIdx);
+      this.selectedClipId.set(null);
+      this.markDirty();
+      this.syncMediaElements(this.isPlaying());
+      this.status.notify(['Removed clip from cut.']);
+    }
   }
 
   toggleLibrarySelection(clipId: string): void {
@@ -1027,6 +1232,9 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
 
   setAudioInspectorView(mode: 'auto' | 'clip' | 'mixer'): void {
     this.audioInspectorViewMode.set(mode);
+    if (mode === 'mixer') {
+      this.clearAllSelections();
+    }
   }
 
   readonly activeTargetAudioItem = computed<{
@@ -1696,11 +1904,13 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     } else if (event.key === '?' || (event.shiftKey && event.key === '/')) {
       event.preventDefault();
       this.showShortcutsModal.update((v) => !v);
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      this.clearAllSelections();
     } else if (event.key === 'Delete' || event.key === 'Backspace') {
-      const selIdx = this.selectedClipIndexInCut();
-      if (selIdx >= 0) {
+      if (this.hasAnySelection()) {
         event.preventDefault();
-        this.toggle(selIdx);
+        this.deleteOrRemoveCurrentSelection();
       }
     }
   }
@@ -2683,6 +2893,11 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
         this.selectedTimelineItemId.set(null);
       }
     } else {
+      if (this.selectedTimelineItemId() === itemId && this.selectedTimelineItemIds().size <= 1) {
+        this.selectedTimelineItemId.set(null);
+        this.selectedTimelineItemIds.set(new Set());
+        return;
+      }
       this.selectedTimelineItemId.set(itemId);
       this.selectedTimelineItemIds.set(new Set([itemId]));
     }
@@ -3637,13 +3852,14 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
         this.selectedClipId.set(null);
       }
     } else {
-      if (this.selectedLibraryIds().has(clipId) && this.selectedLibraryIds().size === 1) {
+      const isAlreadySelected = this.selectedClipId() === clipId || (this.selectedLibraryIds().has(clipId) && this.selectedLibraryIds().size === 1);
+      if (isAlreadySelected) {
         this.selectedLibraryIds.set(new Set());
         this.selectedClipId.set(null);
-      } else {
-        this.selectedClipId.set(clipId);
-        this.selectedLibraryIds.set(new Set([clipId]));
+        return;
       }
+      this.selectedClipId.set(clipId);
+      this.selectedLibraryIds.set(new Set([clipId]));
     }
 
     if (this.activeInspectorTab() !== 'audio' && this.activeInspectorTab() !== 'color' && this.activeInspectorTab() !== 'text') {
@@ -3739,7 +3955,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
 
     if (!curr) return;
 
-    if (!this.isScrubbing()) {
+    if (!this.isScrubbing() && this.targetScope() === 'current') {
       this.selectedClipId.set(curr.clip.id);
     }
 
@@ -4273,6 +4489,7 @@ export class ClipStudioComponent implements OnDestroy, AfterViewInit {
     if (target.closest('.tl-clip') || target.closest('.tl-junction') || target.closest('.tl-music-clip')) {
       return;
     }
+    this.clearAllSelections();
     event.preventDefault();
     this.isScrubbing.set(true);
     try {
