@@ -1,0 +1,297 @@
+.fe-inspector {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  height: 100%;
+}
+
+.studio-inspector {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.inspector-header-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border, #1e2433);
+  background: color-mix(in srgb, var(--surface-2, #161b27) 80%, transparent);
+  position: relative;
+  z-index: 30;
+}
+
+.tool-dropdown-wrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.modern-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  background: #090e17;
+  border: 1px solid #1e293b;
+  border-radius: 6px;
+  color: #94a3b8;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.modern-tool-btn:hover {
+  background: #0f172a;
+  border-color: #334155;
+  color: #f1f5f9;
+}
+
+.modern-tool-menu {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  min-width: 175px;
+  background: #0b1120;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 105;
+}
+
+.modern-tool-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: #cbd5e1;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+  text-align: left;
+}
+
+.modern-tool-item:hover:not(.active) {
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+}
+
+.modern-tool-item.active {
+  background: #173b75;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.modern-tool-item .tool-item-icon {
+  font-size: 13px;
+}
+
+.modern-tool-item .tool-item-label {
+  flex: 1;
+}
+
+.scope-dropdown-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.modern-scope-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #090e17;
+  border: 1px solid #1e293b;
+  border-radius: 6px;
+  color: #f1f5f9;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.modern-scope-btn:hover {
+  background: #0f172a;
+  border-color: #334155;
+}
+
+.scope-btn-content {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.scope-btn-content .scope-icon {
+  flex-shrink: 0;
+  color: #94a3b8;
+}
+
+.scope-btn-content .scope-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dropdown-chevron {
+  flex-shrink: 0;
+  color: #94a3b8;
+}
+
+.scope-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: transparent;
+}
+
+.modern-scope-menu {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  right: 0;
+  min-width: 200px;
+  background: #0b1120;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 105;
+}
+
+.modern-scope-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: #cbd5e1;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+  text-align: left;
+}
+
+.modern-scope-item .item-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.modern-scope-item .scope-icon {
+  flex-shrink: 0;
+  color: #94a3b8;
+}
+
+.modern-scope-item .item-name {
+  white-space: nowrap;
+}
+
+.modern-scope-item:hover:not(.active) {
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+}
+
+.modern-scope-item.active {
+  background: #173b75;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.modern-scope-item.active .scope-icon,
+.modern-scope-item.active .check-icon {
+  color: #ffffff;
+}
+
+.check-icon {
+  flex-shrink: 0;
+  margin-left: 6px;
+}
+
+.inspector-content {
+  flex-grow: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 10px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border, #1e2433) transparent;
+}
+
+/* Modern Audio Context Switcher */
+.audio-nav-segment {
+  display: flex;
+  background: #080d1a;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  padding: 3px;
+  gap: 4px;
+}
+
+.audio-nav-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 0.74rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+  user-select: none;
+}
+
+.audio-nav-btn:hover:not(.active) {
+  color: #f1f5f9;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.audio-nav-btn.active {
+  background: #1e293b;
+  color: #ffffff;
+  font-weight: 600;
+  border-color: rgba(99, 102, 241, 0.4);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4), 0 0 10px rgba(99, 102, 241, 0.15);
+}
+
+.nav-active-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 6px #10b981;
+}
+

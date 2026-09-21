@@ -1,0 +1,178 @@
+<div style="display: flex; flex-direction: column; gap: 10px;">
+  <!-- Scope Notification Banner -->
+  @if (state.targetScope() === 'all') {
+    <div class="alert alert-info py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: color-mix(in srgb, var(--brand) 15%, transparent); border: 1px solid var(--brand); color: #93c5fd; border-radius: 6px;">
+      <span>🌐</span>
+      <span><strong>Batch Mode:</strong> Transitions apply to all <strong>{{ state.junctionsList().length }} cuts</strong> across the timeline.</span>
+    </div>
+  } @else if (state.targetScope() === 'selected' && state.selectedClipsCount() > 1) {
+    <div class="alert alert-primary py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: color-mix(in srgb, var(--brand) 15%, transparent); border: 1px solid var(--brand); color: #93c5fd; border-radius: 6px;">
+      <span>🎯</span>
+      <span><strong>Multi-Clip Edit:</strong> Transitions apply to <strong>{{ state.targetJunctions().length }} cut(s)</strong> connected to {{ state.selectedClipsCount() }} selected clips.</span>
+    </div>
+  } @else if (state.targetScope() === 'selected' && state.activeTargetClip(); as targetClip) {
+    <div class="alert alert-primary py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: color-mix(in srgb, var(--brand) 15%, transparent); border: 1px solid var(--brand); color: #93c5fd; border-radius: 6px;">
+      <span>🎯</span>
+      <span><strong>Target Clip:</strong> Transitions apply to <strong>{{ state.targetJunctions().length }} cut(s)</strong> connected to {{ targetClip.name }}.</span>
+    </div>
+  } @else if (state.targetScope() === 'current' && state.currentScheduledClip(); as curr) {
+    <div class="alert alert-info py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: color-mix(in srgb, var(--brand) 15%, transparent); border: 1px solid var(--brand); color: #93c5fd; border-radius: 6px;">
+      <span>▶</span>
+      <span><strong>Current Playing Clip:</strong> Transitions for cuts connected to {{ curr.clip.name }}.</span>
+    </div>
+  }
+
+  @if (state.targetScope() === 'selected' && state.selectedClipsCount() === 0) {
+    <div class="text-center py-4 px-3" style="color: var(--muted); background: rgba(255,255,255,0.02); border-radius: 8px; border: 1px dashed var(--border);">
+      <div style="font-size: 1.8rem; margin-bottom: 8px;">⚡</div>
+      <div style="font-size: 0.85rem; font-weight: 600; color: var(--text);">No Clip Selected</div>
+      <div style="font-size: 0.75rem; margin-top: 4px;">Select clips on the timeline or in the media library to configure transitions, or switch target scope to "All clips".</div>
+    </div>
+  } @else {
+    <!-- Target Scope Transition Configuration Card -->
+    <div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px;">
+      <div class="d-flex justify-content-between align-items-center mb-1">
+        <div class="qa-title mb-0" style="font-size: 0.82rem; font-weight: 700;">
+          @if (state.targetScope() === 'all') {
+            ⚡ All Clips Transition
+          } @else if (state.targetScope() === 'current') {
+            ⚡ Current Clip Transition
+          } @else {
+            ⚡ Selected Clip Transition
+          }
+        </div>
+        @if (state.targetScope() !== 'all' && state.targetJunctions().length > 0) {
+          <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.7rem;"
+                  (click)="state.resetScopeTransitions()" title="Reset target cuts to global default">
+            ↺ Reset
+          </button>
+        }
+      </div>
+
+      <p class="muted" style="font-size: .74rem; margin: 0 0 8px;">
+        @if (state.targetScope() === 'all') {
+          Default transition style for all cuts across the timeline.
+        } @else if (state.targetScope() === 'current') {
+          Transition style for cuts before and after current playing clip.
+        } @else {
+          Transition style for cuts connected to selected clip(s) ({{ state.targetJunctions().length }} cuts).
+        }
+      </p>
+
+      <!-- Quick Pickers -->
+      <div class="d-flex flex-wrap gap-1 mb-2">
+        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
+                [class.active]="state.activeScopeTransition() === 'None'"
+                (click)="state.setScopeTransition('None')">
+          ✂ Hard Cut
+        </button>
+        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
+                [class.active]="state.activeScopeTransition() === 'Dissolve'"
+                (click)="state.setScopeTransition('Dissolve')">
+          ⧉ Dissolve
+        </button>
+        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
+                [class.active]="state.activeScopeTransition() === 'Fade'"
+                (click)="state.setScopeTransition('Fade')">
+          ◐ Fade
+        </button>
+        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
+                [class.active]="state.activeScopeTransition() === 'WipeLeft'"
+                (click)="state.setScopeTransition('WipeLeft')">
+          ◀ Wipe Left
+        </button>
+        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
+                [class.active]="state.activeScopeTransition() === 'WipeRight'"
+                (click)="state.setScopeTransition('WipeRight')">
+          ▶ Wipe Right
+        </button>
+      </div>
+
+      <div class="mb-2">
+        <label for="scopeTrans" style="font-size: .75rem; margin-bottom: 2px;">Transition Style</label>
+        <select id="scopeTrans" class="form-select form-select-sm" style="font-size: .78rem;"
+                [ngModel]="state.activeScopeTransition()"
+                (ngModelChange)="state.setScopeTransition($event)">
+          @for (option of state.transitions; track option) {
+            <option [value]="option">{{ option === 'None' ? 'Hard cut (No blend)' : option }}</option>
+          }
+        </select>
+      </div>
+
+      @if (state.activeScopeTransition() !== 'None') {
+        <div>
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <label style="font-size: .75rem; margin-bottom: 0;">Crossfade Duration</label>
+            <span class="mono" style="font-size: .72rem; color: var(--text-dim);">{{ state.activeScopeTransitionSeconds() | number: '1.1-1' }}s</span>
+          </div>
+          <input type="range" class="form-range w-100" min="0.1" max="3" step="0.1"
+                 [ngModel]="state.activeScopeTransitionSeconds()"
+                 (ngModelChange)="state.setScopeTransitionSeconds($event)" />
+        </div>
+      }
+    </div>
+
+    <!-- Scope Junctions List -->
+    <div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px;">
+      <div class="d-flex justify-content-between align-items-center mb-1">
+        <div class="qa-title mb-0" style="font-size: 0.82rem; font-weight: 700;">
+          @if (state.targetScope() === 'all') {
+            Timeline Cuts
+          } @else if (state.targetScope() === 'current') {
+            Current Clip Cuts
+          } @else {
+            Selected Clip Cuts
+          }
+        </div>
+        <span class="badge bg-secondary font-monospace" style="font-size: 0.7rem;">{{ state.targetJunctions().length }} cuts</span>
+      </div>
+      <p class="muted" style="font-size: .74rem; margin: 0 0 8px;">
+        Fine-tune individual cut junctions in this scope.
+      </p>
+
+      @for (junction of state.targetJunctions(); track junction.key) {
+        <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-bottom: 6px;">
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <div class="d-flex align-items-center gap-1 font-monospace" style="font-size: 0.75rem; overflow: hidden;">
+              <span class="text-truncate" style="max-width: 90px;" [title]="junction.left.name">{{ junction.left.name }}</span>
+              <span class="text-secondary">➔</span>
+              <span class="text-truncate" style="max-width: 90px;" [title]="junction.right.name">{{ junction.right.name }}</span>
+            </div>
+            @if (state.isJunctionCustom(junction.key)) {
+              <span class="badge bg-primary-subtle text-primary border border-primary-subtle" style="font-size: 0.65rem;">Custom</span>
+            }
+          </div>
+
+          <div class="d-flex gap-2 align-items-center mt-2">
+            <select class="form-select form-select-sm flex-fill" style="font-size: 0.72rem; padding: 0.2rem 0.5rem;"
+                    [ngModel]="junction.transition"
+                    (ngModelChange)="state.setJunctionTransition(junction, $event)">
+              @for (option of state.transitions; track option) {
+                <option [value]="option">{{ option === 'None' ? 'Hard Cut' : option }}</option>
+              }
+            </select>
+            @if (junction.transition !== 'None') {
+              <div class="d-flex align-items-center gap-1">
+                <input type="range" class="form-range" style="width: 70px;" min="0.1" max="3" step="0.1"
+                       [ngModel]="junction.seconds"
+                       (ngModelChange)="state.setJunctionSeconds(junction, $event)" />
+                <span class="mono text-secondary" style="font-size: 0.7rem; min-width: 25px;">{{ junction.seconds | number: '1.1-1' }}s</span>
+              </div>
+            }
+            <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1" style="font-size: 0.7rem;"
+                    (click)="state.openPreview(junction)" title="Preview transition in modal">
+              ▶
+            </button>
+            @if (state.isJunctionCustom(junction.key)) {
+              <button type="button" class="btn btn-outline-danger btn-sm py-0 px-1" style="font-size: 0.7rem;"
+                      (click)="state.resetJunction(junction.key)" title="Reset to global default">
+                ✕
+              </button>
+            }
+          </div>
+        </div>
+      }
+    </div>
+  }
+</div>
+

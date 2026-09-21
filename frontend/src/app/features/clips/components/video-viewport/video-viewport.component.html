@@ -1,0 +1,233 @@
+<div class="fe-panel fe-preview">
+  <div class="program-monitor-card">
+    <div class="monitor-header">
+      <div class="monitor-header-left">
+        <span class="monitor-title">Preview</span>
+        <select [ngModel]="state.previewAspectOverride()" (ngModelChange)="state.setPreviewAspect($event)" class="hdr-btn">
+          <option value="auto">Auto</option>
+          <option value="16:9">16:9 Landscape</option>
+          <option value="9:16">9:16 Shorts</option>
+          <option value="1:1">1:1 Square</option>
+          <option value="4:5">4:5 Vertical</option>
+        </select>
+      </div>
+      <div class="monitor-header-right">
+        <button class="transport-btn btn-sm" type="button" [class.active]="state.showShortsSafeZone()" (click)="state.toggleShortsSafeZone()" title="Toggle Shorts Safe Zone">📱</button>
+        <button class="transport-btn btn-sm" type="button" [class.active]="state.showBroadcastSafeZone()" (click)="state.toggleBroadcastSafeZone()" title="Toggle Broadcast Safe Area">📺</button>
+        <button class="icon" type="button" (click)="captureSnapshot()" title="Capture Snapshot Frame">📷</button>
+        <button class="icon" type="button" (click)="toggleFullscreen()" title="Toggle Fullscreen (F)">⛶</button>
+      </div>
+    </div>
+
+    <div #monitorContainer class="monitor-screen-container" [class]="state.monitorScreenAspectClass()">
+      @if (state.included().length === 0) {
+        <div class="monitor-empty-state">
+          <span style="font-size: 2.2rem">🎬</span>
+          <strong>No clips in the cut yet</strong>
+          <p class="muted" style="margin: 0; font-size: .85rem">
+            Drop MP4 clips into the dropzone or tick clips in the library below.
+          </p>
+        </div>
+      } @else {
+        <!-- Camera Snapshot Flash FX -->
+        @if (state.snapshotFlash()) {
+          <div class="snapshot-flash"></div>
+        }
+
+        <!-- Live Safe Area Overlay Guides -->
+        @if (state.showShortsSafeZone()) {
+          <div class="shorts-safe-zone">
+            <div class="shorts-safe-inner">
+              <span class="shorts-safe-label">TikTok / Shorts Clean Safe Zone</span>
+            </div>
+            <div class="shorts-right-actions-zone">
+              <span>UI Zone</span>
+            </div>
+          </div>
+        }
+        @if (state.showBroadcastSafeZone()) {
+          <div class="broadcast-safe-zone"></div>
+        }
+
+        <!-- Dual Video Monitor Layers: Ping-pong buffering with seamless transitions -->
+        <video #videoMonitorA
+               [class]="'pv-monitor-layer ' + (activeLayer() === 'A' ? 'layer-front' : 'layer-back') + ' ' + state.monitorFitClass() + (liveTransitionActive() && activeLayer() === 'A' ? ' ' + liveTransitionClass() : '')"
+               [style.animation-duration.s]="liveTransitionDuration()"
+               [style.filter]="state.computedMonitorFilter()"
+               [style.transform]="state.activeClipTransform()"
+               playsinline preload="auto"></video>
+
+        <video #videoMonitorB
+               [class]="'pv-monitor-layer ' + (activeLayer() === 'B' ? 'layer-front' : 'layer-back') + ' ' + state.monitorFitClass() + (liveTransitionActive() && activeLayer() === 'B' ? ' ' + liveTransitionClass() : '')"
+               [style.animation-duration.s]="liveTransitionDuration()"
+               [style.filter]="state.computedMonitorFilter()"
+               [style.transform]="state.activeClipTransform()"
+               playsinline preload="auto"></video>
+
+        <!-- Static Image Clip Monitor Layer -->
+        @if (state.activeClipIsImage()) {
+          <img class="pv-monitor-layer layer-front"
+               [class]="state.monitorFitClass()"
+               [src]="state.activeClipImageUrl()"
+               [style.filter]="state.computedMonitorFilter()"
+               [style.transform]="state.activeClipTransform()"
+               [style.object-fit]="state.monitorFitClass() === 'fit-cover' ? 'cover' : 'contain'"
+               alt="" />
+        }
+
+        <!-- V2 Video Overlay Layer -->
+        @if (state.activeV2Item(); as v2) {
+          <video #overlayVideoMonitor
+                 class="pv-monitor-layer layer-front monitor-overlay-video"
+                 [src]="state.assetUrl(v2.src)"
+                 [style.opacity]="v2.transform?.opacity ?? 1"
+                 [style.transform]="state.getOverlayTransform(v2.transform)"
+                 playsinline preload="auto"></video>
+        }
+
+        <!-- V3 Image Overlay Layer -->
+        @if (state.activeV3Item(); as v3) {
+          <img class="pv-monitor-layer layer-front v3-image-overlay monitor-overlay-img"
+               [src]="state.assetUrl(v3.src)"
+               [style.opacity]="v3.transform?.opacity ?? 1"
+               [style.transform]="state.getOverlayTransform(v3.transform)"
+               alt="" />
+        }
+
+        <!-- TXT1 Text Overlay Layer -->
+        @if (state.activeTxtItem(); as txt) {
+          <div class="txt-overlay monitor-overlay-txt"
+               [class.pos-top]="txt.textStyle?.position === 'top'"
+               [class.pos-center]="txt.textStyle?.position === 'center'"
+               [class.pos-bottom]="!txt.textStyle || !txt.textStyle.position || txt.textStyle.position === 'bottom'"
+               [style.fontSize.px]="txt.textStyle?.fontSize ?? 28"
+               [style.color]="txt.textStyle?.color ?? '#ffffff'"
+               [style.backgroundColor]="txt.textStyle?.backgroundColor ?? 'rgba(0,0,0,0.6)'">
+            {{ txt.src }}
+          </div>
+        }
+
+        <!-- Live Watermark Overlay -->
+        @if (state.effectiveWatermark().kind !== 'None') {
+          <div class="monitor-watermark-overlay"
+               [style.padding.px]="state.preview().inset"
+               [style.align-items]="state.preview().top ? 'flex-start' : 'flex-end'"
+               [style.justify-content]="state.preview().align">
+            @if (state.effectiveWatermark().kind === 'Logo') {
+              @if (state.logoUrl(); as url) {
+                <img [src]="url" alt="" [style.height.px]="state.preview().fontSize"
+                     [style.opacity]="state.effectiveWatermark().opacity" />
+              }
+            } @else {
+              <span class="wm-text"
+                    [style.font-size.px]="state.preview().fontSize"
+                    [style.color]="state.effectiveWatermark().colorHex"
+                    [style.opacity]="state.effectiveWatermark().opacity"
+                    [style.background]="'rgba(0,0,0,' + state.effectiveWatermark().backplateOpacity + ')'">
+                {{ state.effectiveWatermark().text || 'yoursite.example' }}
+              </span>
+            }
+          </div>
+        }
+
+        <!-- Lower-Third Caption Banner Overlay -->
+        @if (state.activeMonitorLowerThird(); as lt) {
+          <div class="lower-third-overlay">
+            <div class="lower-third-title">{{ lt.title }}</div>
+            @if (lt.subtitle) {
+              <div class="lower-third-sub">{{ lt.subtitle }}</div>
+            }
+          </div>
+        }
+      }
+
+      <!-- Audio elements for background soundtrack and replacement clip audio -->
+      <audio #bgMusicAudio loop></audio>
+      <audio #clipSoundAudio></audio>
+    </div>
+
+    <!-- Scrubber Progress Track -->
+    <div class="monitor-scrubber-track">
+      <div class="scrub-progress" [style.width.%]="state.totalSeconds() > 0 ? (state.currentTime() / state.totalSeconds()) * 100 : 0"></div>
+    </div>
+
+    <!-- Transport Controls Bar -->
+    <div class="monitor-transport">
+      <div class="transport-timecode mono" title="Current Playhead / Total Duration">
+        <span class="active-time">{{ state.formattedPlayheadTime() }}</span> <span class="muted">/ {{ state.formattedTotalTime() }}</span>
+      </div>
+      
+      <div class="transport-controls">
+        <button class="transport-btn btn-sm" type="button" (click)="state.prevClip()" title="Previous Clip (Home)">
+          ⏮
+        </button>
+        <button class="transport-btn btn-sm" type="button" (click)="state.stepFrame(-1)" title="Step back 1 frame (Left Arrow)">
+          ❮
+        </button>
+        <button class="transport-btn primary play-btn" type="button" (click)="state.togglePlay()"
+                [title]="state.isPlaying() ? 'Pause (Space)' : 'Play (Space)'">
+          @if (state.isPlaying()) { ⏸ } @else { ▶ }
+        </button>
+        <button class="transport-btn btn-sm" type="button" (click)="state.stepFrame(1)" title="Step forward 1 frame (Right Arrow)">
+          ❯
+        </button>
+        <button class="transport-btn btn-sm" type="button" (click)="state.nextClip()" title="Next Clip (End)">
+          ⏭
+        </button>
+        
+        <button class="transport-btn" type="button" [class.active]="state.isLooping()"
+                (click)="state.toggleLoop()" title="Toggle loop playback">
+          ↻
+        </button>
+        <button class="transport-btn" type="button" (click)="toggleFullscreen()" title="Toggle Fullscreen (F)">
+          ⛶
+        </button>
+      </div>
+
+      <div class="transport-right">
+        <!-- Vertical Hover-expanding Volume Popup -->
+        <div class="transport-volume-group" title="Volume & Mute (M)">
+          <div class="volume-vertical-popover shadow-lg">
+            <span class="volume-percent-badge">{{ (state.isMonitorMuted() ? 0 : state.monitorVolume()) * 100 | number:'1.0-0' }}%</span>
+            <div class="volume-slider-wrapper">
+              <input type="range" class="volume-vertical-slider" orient="vertical" min="0" max="1" step="0.02"
+                     [ngModel]="state.isMonitorMuted() ? 0 : state.monitorVolume()"
+                     (ngModelChange)="state.setMonitorVolume($event)"
+                     title="Adjust Volume" />
+            </div>
+            <button type="button" class="volume-popover-mute-btn"
+                    (click)="state.toggleMonitorMute()"
+                    [title]="state.isMonitorMuted() ? 'Unmute' : 'Mute'">
+              {{ state.isMonitorMuted() || state.monitorVolume() === 0 ? '🔇' : '🔊' }}
+            </button>
+          </div>
+
+          <!-- Main Speaker Button -->
+          <button class="transport-btn btn-sm volume-toggle-btn" type="button" [class.active]="state.isMonitorMuted()"
+                  (click)="state.toggleMonitorMute()" [title]="state.isMonitorMuted() ? 'Unmute monitor (M)' : 'Mute monitor (M)'">
+            @if (state.isMonitorMuted() || state.monitorVolume() === 0) {
+              🔇
+            } @else if (state.monitorVolume() < 0.5) {
+              🔉
+            } @else {
+              🔊
+            }
+          </button>
+        </div>
+        
+        <div class="speed-dropdown">
+          <select class="speed-select-btn" [ngModel]="state.playbackSpeed()" (ngModelChange)="state.setPlaybackSpeed($event)" title="Playback Speed">
+            <option [ngValue]="0.25">0.25x</option>
+            <option [ngValue]="0.5">0.5x</option>
+            <option [ngValue]="0.75">0.75x</option>
+            <option [ngValue]="1">1.0x</option>
+            <option [ngValue]="1.25">1.25x</option>
+            <option [ngValue]="1.5">1.5x</option>
+            <option [ngValue]="2">2.0x</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+

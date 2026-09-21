@@ -4746,6 +4746,67 @@ audio { height: 2.2rem; vertical-align: middle; }
   color: #f87171;
 }
 
+/* Audio Preset Chips (0%, 50%, 100%, 150%, 200%) */
+.audio-preset-chip {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  color: var(--text-dim, #94a3b8);
+  font-size: 0.68rem;
+  font-weight: 500;
+  padding: 3px 0;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  user-select: none;
+}
+
+.audio-preset-chip:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.audio-preset-chip.active {
+  background: var(--brand, #6c8cff);
+  border-color: var(--brand, #6c8cff);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(108, 140, 255, 0.4);
+}
+
+/* Audio Action Buttons */
+.audio-action-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #cbd5e1;
+  font-size: 0.72rem;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.audio-action-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.audio-action-btn.primary {
+  background: var(--brand, #6c8cff);
+  border-color: var(--brand, #6c8cff);
+  color: #fff;
+}
+
+.audio-action-btn.primary:hover {
+  background: color-mix(in srgb, var(--brand, #6c8cff) 85%, #fff);
+}
+
 /* Fade Controls Stepper Group */
 .fade-stepper-label {
   display: flex;
@@ -4955,5 +5016,64 @@ audio { height: 2.2rem; vertical-align: middle; }
   font-weight: 700;
   color: var(--text);
 }
+
+/* ============================================================
+   Shared Editor Tokens & Track Color Badges
+   ============================================================ */
+
+.track-badge-v1 { background: #3b82f6 !important; color: #fff !important; }
+.track-badge-v2 { background: #06b6d4 !important; color: #fff !important; }
+.track-badge-v3 { background: #f59e0b !important; color: #fff !important; }
+.track-badge-txt1 { background: #10b981 !important; color: #fff !important; }
+.track-badge-a1 { background: #8b5cf6 !important; color: #fff !important; }
+.track-badge-a2 { background: #a855f7 !important; color: #fff !important; }
+.track-badge-master { background: #6c8cff !important; color: #fff !important; }
+
+/* Shared Panel Base */
+.fe-panel {
+  background: color-mix(in srgb, var(--surface, #0f1117) 92%, transparent);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border, #1e2433);
+  border-radius: 10px;
+  overflow: hidden;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Common editor buttons */
+.editor-hdr-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.editor-hdr-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--surface-2) 80%, #fff);
+  border-color: var(--border-bright);
+}
+.editor-hdr-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Shared VU meter direct styling */
+.direct-vu-meter-bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #10b981 0%, #10b981 70%, #eab308 70%, #eab308 85%, #ef4444 85%, #ef4444 100%);
+  border-radius: 3px;
+  pointer-events: none;
+}
+
 
 

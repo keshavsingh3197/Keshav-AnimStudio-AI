@@ -1,0 +1,225 @@
+<div class="fe-panel fe-inspector">
+  <div class="studio-inspector">
+    <!-- Modern Inspector Header Bar: Tool Picker + Target Scope Dropdown -->
+    <div class="inspector-header-bar">
+      <!-- Tool Dropdown Selector -->
+      <div class="tool-dropdown-wrap">
+        <button type="button" class="modern-tool-btn" (click)="state.toggleToolDropdown($event)" title="Switch Inspector Category">
+          <span class="tool-btn-label">{{ state.activeInspectorTabLabel() }}</span>
+          <svg class="dropdown-chevron" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </button>
+
+        @if (state.toolDropdownOpen()) {
+          <div class="scope-backdrop" (click)="state.toolDropdownOpen.set(false)"></div>
+          <div class="modern-tool-menu" (click)="$event.stopPropagation()">
+            <button type="button" class="modern-tool-item" [class.active]="state.activeInspectorTab() === 'clip'" (click)="state.setInspectorTab('clip')">
+              <span class="tool-item-icon">📐</span>
+              <span class="tool-item-label">Framing & Crop</span>
+              @if (state.activeInspectorTab() === 'clip') {
+                <svg class="check-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              }
+            </button>
+            <button type="button" class="modern-tool-item" [class.active]="state.activeInspectorTab() === 'color'" (click)="state.setInspectorTab('color')">
+              <span class="tool-item-icon">🎨</span>
+              <span class="tool-item-label">Color Grading</span>
+              @if (state.activeInspectorTab() === 'color') {
+                <svg class="check-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              }
+            </button>
+            <button type="button" class="modern-tool-item" [class.active]="state.activeInspectorTab() === 'audio'" (click)="state.setInspectorTab('audio')">
+              <span class="tool-item-icon">🎵</span>
+              <span class="tool-item-label">Audio & Voice</span>
+              @if (state.activeInspectorTab() === 'audio') {
+                <svg class="check-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              }
+            </button>
+            <button type="button" class="modern-tool-item" [class.active]="state.activeInspectorTab() === 'text'" (click)="state.setInspectorTab('text')">
+              <span class="tool-item-icon">T</span>
+              <span class="tool-item-label">Text Overlay</span>
+              @if (state.activeInspectorTab() === 'text') {
+                <svg class="check-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              }
+            </button>
+            <button type="button" class="modern-tool-item" [class.active]="state.activeInspectorTab() === 'effects'" (click)="state.setInspectorTab('effects')">
+              <span class="tool-item-icon">✨</span>
+              <span class="tool-item-label">Visual Effects</span>
+              @if (state.activeInspectorTab() === 'effects') {
+                <svg class="check-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              }
+            </button>
+            <button type="button" class="modern-tool-item" [class.active]="state.activeInspectorTab() === 'transitions'" (click)="state.setInspectorTab('transitions')">
+              <span class="tool-item-icon">⚡</span>
+              <span class="tool-item-label">Transitions</span>
+              @if (state.activeInspectorTab() === 'transitions') {
+                <svg class="check-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              }
+            </button>
+          </div>
+        }
+      </div>
+
+      <!-- Modern Target Scope Dropdown -->
+      <div class="scope-dropdown-wrap">
+        <button type="button" class="modern-scope-btn" (click)="state.toggleScopeDropdown($event)" title="Select Target Scope">
+          <span class="scope-btn-content">
+            @if (state.targetScope() === 'current') {
+              <svg class="scope-icon play-icon" width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                <polygon points="6 3 20 12 6 21 6 3"></polygon>
+              </svg>
+              <span class="scope-text">Current playing clip</span>
+            } @else if (state.targetScope() === 'selected') {
+              <svg class="scope-icon target-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <circle cx="12" cy="12" r="3"></circle>
+              </svg>
+              <span class="scope-text">Selected clips ({{ state.selectedClipsCount() }})</span>
+            } @else if (state.targetScope() === 'all') {
+              <svg class="scope-icon list-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                <line x1="8" y1="6" x2="21" y2="6"></line>
+                <line x1="8" y1="12" x2="21" y2="12"></line>
+                <line x1="8" y1="18" x2="21" y2="18"></line>
+                <circle cx="3" cy="6" r="1" fill="currentColor"></circle>
+                <circle cx="3" cy="12" r="1" fill="currentColor"></circle>
+                <circle cx="3" cy="18" r="1" fill="currentColor"></circle>
+              </svg>
+              <span class="scope-text">All clips ({{ state.included().length }})</span>
+            } @else {
+              <svg class="scope-icon target-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <circle cx="12" cy="12" r="3"></circle>
+              </svg>
+              <span class="scope-text">
+                @if (state.selectedClipsCount() > 1) {
+                  Selected ({{ state.selectedClipsCount() }})
+                } @else if (state.selectedClip()) {
+                  {{ state.selectedClip()?.name }}
+                } @else {
+                  All clips ({{ state.included().length }})
+                }
+              </span>
+            }
+          </span>
+          <svg class="dropdown-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </button>
+
+        @if (state.scopeDropdownOpen()) {
+          <div class="scope-backdrop" (click)="state.scopeDropdownOpen.set(false)"></div>
+          <div class="modern-scope-menu" (click)="$event.stopPropagation()">
+            <!-- Option 1: Current playing clip -->
+            <button type="button" class="modern-scope-item"
+                    [class.active]="state.targetScope() === 'current'"
+                    (click)="state.selectScopeOption('current')">
+              <div class="item-left">
+                <svg class="scope-icon play-icon" width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                  <polygon points="6 3 20 12 6 21 6 3"></polygon>
+                </svg>
+                <span class="item-name">Current playing clip</span>
+              </div>
+              @if (state.targetScope() === 'current') {
+                <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+              }
+            </button>
+
+            <!-- Option 2: Selected clips (N) -->
+            <button type="button" class="modern-scope-item"
+                    [class.active]="state.targetScope() === 'selected'"
+                    (click)="state.selectScopeOption('selected')">
+              <div class="item-left">
+                <svg class="scope-icon target-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+                <span class="item-name">Selected clips ({{ state.selectedClipsCount() }})</span>
+              </div>
+              @if (state.targetScope() === 'selected') {
+                <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+              }
+            </button>
+
+            <!-- Option 3: All clips (N) -->
+            <button type="button" class="modern-scope-item"
+                    [class.active]="state.targetScope() === 'all'"
+                    (click)="state.selectScopeOption('all')">
+              <div class="item-left">
+                <svg class="scope-icon list-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                  <line x1="8" y1="6" x2="21" y2="6"></line>
+                  <line x1="8" y1="12" x2="21" y2="12"></line>
+                  <line x1="8" y1="18" x2="21" y2="18"></line>
+                  <circle cx="3" cy="6" r="1" fill="currentColor"></circle>
+                  <circle cx="3" cy="12" r="1" fill="currentColor"></circle>
+                  <circle cx="3" cy="18" r="1" fill="currentColor"></circle>
+                </svg>
+                <span class="item-name">All clips ({{ state.included().length }})</span>
+              </div>
+              @if (state.targetScope() === 'all') {
+                <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+              }
+            </button>
+          </div>
+        }
+      </div>
+    </div>
+
+    <!-- Inspector Content Area hosting modular tab sub-components -->
+    <div class="inspector-content">
+      @if (state.activeInspectorTab() === 'clip') {
+        <app-transform-inspector />
+      }
+
+      @if (state.activeInspectorTab() === 'color' || state.activeInspectorTab() === 'effects') {
+        <app-color-inspector />
+      }
+
+      @if (state.activeInspectorTab() === 'text') {
+        <app-text-inspector />
+      }
+
+      @if (state.activeInspectorTab() === 'transitions') {
+        <app-transitions-inspector />
+      }
+
+      @if (state.activeInspectorTab() === 'audio') {
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <!-- Top Segmented View Switcher -->
+          <div class="audio-nav-segment">
+            <button type="button" class="audio-nav-btn"
+                    [class.active]="state.effectiveAudioInspectorView() === 'mixer'"
+                    (click)="state.setAudioInspectorView('mixer')">
+              <span>🎚 Master Mixer</span>
+            </button>
+            <button type="button" class="audio-nav-btn"
+                    [class.active]="state.effectiveAudioInspectorView() === 'clip'"
+                    (click)="state.setAudioInspectorView('clip')">
+              <span>🔊</span>
+              @if (state.isMultiSelection()) {
+                Batch ({{ state.multiSelectionCount() }})
+              } @else {
+                Clip Inspector
+              }
+              @if (state.activeTargetAudioItem() || state.isMultiSelection()) {
+                <span class="nav-active-dot" title="Item Selected"></span>
+              }
+            </button>
+          </div>
+
+          @if (state.effectiveAudioInspectorView() === 'clip') {
+            <app-clip-audio-inspector />
+          } @else {
+            <app-master-audio-mixer />
+          }
+        </div>
+      }
+    </div>
+  </div>
+</div>
+

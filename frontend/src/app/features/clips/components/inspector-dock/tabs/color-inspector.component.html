@@ -1,0 +1,164 @@
+@if (state.targetScope() === 'selected' && state.getTargetClipIds().length === 0) {
+  <div class="p-4 text-center text-secondary">
+    <div style="font-size: 1.8rem; margin-bottom: 8px;">🎨</div>
+    <div style="font-size: 0.85rem; font-weight: 600; color: var(--text);">No Clip Selected</div>
+    <div style="font-size: 0.75rem; margin-top: 4px;">Select clips on the timeline or in the media library to adjust color grading, or switch target scope to "All clips" or "Current clip".</div>
+  </div>
+} @else {
+  <div style="display: flex; flex-direction: column; gap: 8px;">
+    <!-- Scope Notification Banner -->
+    @if (state.targetScope() === 'all') {
+      <div class="alert alert-info py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: color-mix(in srgb, var(--brand) 15%, transparent); border: 1px solid var(--brand); color: #93c5fd; border-radius: 6px;">
+        <span>🌐</span>
+        <span><strong>Batch Mode:</strong> Color grading applies to all <strong>{{ state.included().length }} clips</strong> across the timeline.</span>
+      </div>
+    } @else if (state.targetScope() === 'selected' && state.selectedClipsCount() > 1) {
+      <div class="alert alert-primary py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: color-mix(in srgb, var(--brand) 15%, transparent); border: 1px solid var(--brand); color: #93c5fd; border-radius: 6px;">
+        <span>🎯</span>
+        <span><strong>Multi-Clip Scope:</strong> Color grading applies to <strong>{{ state.selectedClipsCount() }} selected clips</strong>.</span>
+      </div>
+    } @else if (state.targetScope() === 'current') {
+      <div class="alert alert-secondary py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: var(--surface-3); border: 1px solid var(--border); color: var(--text); border-radius: 6px;">
+        <span>⏱️</span>
+        <span><strong>Current Clip Scope:</strong> Color grading applies to <strong>{{ state.currentScheduledClip()?.clip?.name ?? 'current playing clip' }}</strong>.</span>
+      </div>
+    } @else if (state.targetScope() === 'selected' && state.selectedClipsCount() === 1) {
+      <div class="alert alert-secondary py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: var(--surface-3); border: 1px solid var(--border); color: var(--text); border-radius: 6px;">
+        <span>🎯</span>
+        <span><strong>Single Clip Scope:</strong> Color grading applies to <strong>{{ state.selectedClip()?.name ?? 'selected clip' }}</strong>.</span>
+      </div>
+    }
+
+    <!-- Color Grading & Look Presets -->
+    <div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px;">
+      <div class="d-flex justify-content-between align-items-center mb-1">
+        <div class="qa-title mb-0" style="font-size: 0.82rem; font-weight: 700;">🎨 Color Grading & Look Presets</div>
+        <button class="link" type="button" style="font-size: .75rem" (click)="state.resetScopeColorGrading()">
+          ↺ Reset
+        </button>
+      </div>
+      <p class="muted" style="font-size: .74rem; margin: 0 0 .6rem">
+        Instant live styling applied to the Master Monitor.
+      </p>
+      <div class="filter-presets-grid">
+        @for (preset of state.filterPresets; track preset.id) {
+          <div class="filter-preset-card"
+               [class.active]="state.activeScopeColorSetting().filter === preset.id"
+               (click)="state.setScopeFilter(preset.id)">
+            <div class="filter-swatch" [style.background]="preset.swatch"></div>
+            <span>{{ preset.label }}</span>
+          </div>
+        }
+      </div>
+
+      <div class="d-flex flex-column gap-2" style="margin-top: .85rem">
+        <div>
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <label style="font-size: .75rem; margin-bottom: 0;">Brightness</label>
+            <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 font-monospace" style="font-size: 0.72rem;"
+                    (click)="state.setScopeBrightness(100)" title="Click to reset to 100%">
+              {{ state.activeScopeColorSetting().brightness }}%
+            </button>
+          </div>
+          <input type="range" class="form-range w-100" min="70" max="140" step="2"
+                 [ngModel]="state.activeScopeColorSetting().brightness"
+                 (ngModelChange)="state.setScopeBrightness($event)" />
+        </div>
+        <div>
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <label style="font-size: .75rem; margin-bottom: 0;">Contrast</label>
+            <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 font-monospace" style="font-size: 0.72rem;"
+                    (click)="state.setScopeContrast(100)" title="Click to reset to 100%">
+              {{ state.activeScopeColorSetting().contrast }}%
+            </button>
+          </div>
+          <input type="range" class="form-range w-100" min="70" max="150" step="2"
+                 [ngModel]="state.activeScopeColorSetting().contrast"
+                 (ngModelChange)="state.setScopeContrast($event)" />
+        </div>
+        <div>
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <label style="font-size: .75rem; margin-bottom: 0;">Saturation</label>
+            <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 font-monospace" style="font-size: 0.72rem;"
+                    (click)="state.setScopeSaturation(100)" title="Click to reset to 100%">
+              {{ state.activeScopeColorSetting().saturation }}%
+            </button>
+          </div>
+          <input type="range" class="form-range w-100" min="0" max="200" step="5"
+                 [ngModel]="state.activeScopeColorSetting().saturation"
+                 (ngModelChange)="state.setScopeSaturation($event)" />
+        </div>
+      </div>
+    </div>
+
+    <!-- Stylized Effects -->
+    <div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px;">
+      <div class="d-flex justify-content-between align-items-center mb-1">
+        <div class="qa-title mb-0" style="font-size: 0.82rem; font-weight: 700;">✨ Stylized Effects</div>
+        <button class="link" type="button" style="font-size: .75rem" (click)="state.resetScopeEffects()">
+          ↺ Clear FX
+        </button>
+      </div>
+      <p class="muted" style="font-size: .74rem; margin: 0 0 .6rem">
+        Atmospheric filters and lens focus effects.
+      </p>
+
+      <!-- Quick FX Presets -->
+      <div class="d-flex flex-wrap gap-1 mb-3">
+        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
+                [class.active]="state.activeScopeColorSetting().sepia === 0 && state.activeScopeColorSetting().blur === 0"
+                (click)="state.setScopeSepia(0); state.setScopeBlur(0)">
+          🌿 Clean
+        </button>
+        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
+                [class.active]="state.activeScopeColorSetting().sepia === 15 && state.activeScopeColorSetting().blur === 2"
+                (click)="state.setScopeSepia(15); state.setScopeBlur(2)">
+          🌸 Soft Dream
+        </button>
+        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
+                [class.active]="state.activeScopeColorSetting().sepia === 40 && state.activeScopeColorSetting().blur === 1"
+                (click)="state.setScopeSepia(40); state.setScopeBlur(1)">
+          🎞 Vintage Warm
+        </button>
+        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
+                [class.active]="state.activeScopeColorSetting().sepia === 80 && state.activeScopeColorSetting().blur === 0"
+                (click)="state.setScopeSepia(80); state.setScopeBlur(0)">
+          🎬 Deep Sepia
+        </button>
+        <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.72rem;"
+                [class.active]="state.activeScopeColorSetting().sepia === 0 && state.activeScopeColorSetting().blur === 3.5"
+                (click)="state.setScopeSepia(0); state.setScopeBlur(3.5)">
+          🌫 Soft Focus
+        </button>
+      </div>
+
+      <div class="d-flex flex-column gap-2">
+        <div>
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <label style="font-size: .75rem; margin-bottom: 0;">Sepia Tone</label>
+            <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 font-monospace" style="font-size: 0.72rem;"
+                    (click)="state.setScopeSepia(0)" title="Click to reset to 0%">
+              {{ state.activeScopeColorSetting().sepia }}%
+            </button>
+          </div>
+          <input type="range" class="form-range w-100" min="0" max="100" step="5"
+                 [ngModel]="state.activeScopeColorSetting().sepia"
+                 (ngModelChange)="state.setScopeSepia($event)" />
+        </div>
+        <div>
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <label style="font-size: .75rem; margin-bottom: 0;">Soft Focus / Blur</label>
+            <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 font-monospace" style="font-size: 0.72rem;"
+                    (click)="state.setScopeBlur(0)" title="Click to reset to 0px">
+              {{ state.activeScopeColorSetting().blur }}px
+            </button>
+          </div>
+          <input type="range" class="form-range w-100" min="0" max="10" step="0.5"
+                 [ngModel]="state.activeScopeColorSetting().blur"
+                 (ngModelChange)="state.setScopeBlur($event)" />
+        </div>
+      </div>
+    </div>
+  </div>
+}
+

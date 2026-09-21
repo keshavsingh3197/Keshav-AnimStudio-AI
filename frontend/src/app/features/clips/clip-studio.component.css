@@ -1,18 +1,13 @@
 /* ============================================================
-   Obsidian Studio — Clip Studio Layout
-   AnimStudio AI · NLE-style 4-column workspace
-   Obsidian Studio â€” Clip Studio Layout
-   AnimStudio AI Â· NLE-style 4-column workspace
+   Obsidian Studio — Shell & Workspace Layout
+   AnimStudio AI · NLE-style Container Workspace
    ============================================================ */
 
-/* ----------------------------------------------------------
-   Root Workspace
-   ---------------------------------------------------------- */
-
+/* Root Workspace */
 .editor-workspace {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 56px); /* subtract topbar height */
+  height: calc(100vh - 56px);
   background: var(--bg, #080a0f);
   color: var(--text, #e2e8f0);
   overflow: hidden;
@@ -20,7 +15,6 @@
 }
 
 /* Fullscreen mode — covers topbar entirely */
-/* Fullscreen mode â€” covers topbar entirely */
 .editor-workspace.is-fullscreen {
   position: fixed;
   inset: 0;
@@ -28,22 +22,27 @@
   z-index: 9999;
 }
 
-/* ----------------------------------------------------------
-   4-Column NLE Grid
-   col1 : 60px   — icon rail (sidebar)
-   col2 : 300px  — media library
-   col3 : 1fr    — program monitor
-   col4 : 340px  — inspector
-   row1 : 1fr    — main workspace (min 320px)
-   row2 : 240px  — timeline
-   col1 : 60px   â€” icon rail (sidebar)
-   col2 : 300px  â€” media library
-   col3 : 1fr    â€” program monitor
-   col4 : 340px  â€” inspector
-   row1 : 1fr    â€” main workspace (min 320px)
-   row2 : 240px  â€” timeline
-   ---------------------------------------------------------- */
+/* Restored Draft Notice Banner */
+.notice.notice-info {
+  margin: 0 6px 6px;
+  padding: 8px 14px;
+  background: color-mix(in srgb, var(--brand, #6c8cff) 12%, var(--surface, #0f1117));
+  border: 1px solid var(--brand, #6c8cff);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  font-size: 0.8rem;
+}
 
+.notice-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 4-Section NLE Workspace Grid */
 .flowedit-layout {
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr) 340px;
@@ -55,605 +54,183 @@
   box-sizing: border-box;
 }
 
-/* ----------------------------------------------------------
-   Shared Panel Base — glassmorphism surface
-   Shared Panel Base â€” glassmorphism surface
-   ---------------------------------------------------------- */
-
-.fe-panel {
-  background: color-mix(in srgb, var(--surface, #0f1117) 92%, transparent);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid var(--border, #1e2433);
-  border-radius: 10px;
-  overflow: hidden;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-/* ----------------------------------------------------------
-   Column 1 — Icon Rail / Sidebar
-   Column 1 â€” Icon Rail / Sidebar
-   ---------------------------------------------------------- */
-
-.fe-sidebar {
+/* Column 1 — Media Dock Host Element */
+app-media-dock {
   grid-column: 1;
   grid-row: 1;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 10px 0;
-  background: var(--surface, #0f1117);
-  border: 1px solid var(--border, #1e2433);
-  border-radius: 10px;
-  overflow-y: auto;
-  overflow-x: hidden;
-  box-sizing: border-box;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border, #1e2433) transparent;
-}
-
-/* Icon tab item */
-.fe-tab {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
   width: 100%;
-  padding: 10px 0;
-  cursor: pointer;
-  border-left: 3px solid transparent;
-  transition:
-    background 0.18s ease,
-    border-color 0.18s ease,
-    color 0.18s ease;
-  color: var(--text-muted, #8892a4);
-  user-select: none;
-  box-sizing: border-box;
-}
-
-.fe-tab:hover {
-  background: color-mix(in srgb, var(--surface-2, #161b27) 80%, transparent);
-  color: var(--text, #e2e8f0);
-}
-
-/* Active tab — brand accent */
-/* Active tab â€” brand accent */
-.fe-tab.active {
-  background: color-mix(in srgb, var(--brand, #6c8cff) 18%, transparent);
-  border-left: 3px solid var(--brand, #6c8cff);
-  color: var(--brand, #6c8cff);
-}
-
-/* Icon / emoji inside tab */
-.fe-tab .icon {
-  font-size: 18px;
-  line-height: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-}
-
-/* Small label under icon */
-.fe-tab .label {
-  font-size: 9px;
-  font-weight: 500;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  text-align: center;
-  max-width: 52px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* ----------------------------------------------------------
-   Column 2 — Media Library Panel
-   Column 2 â€” Media Library Panel
-   ---------------------------------------------------------- */
-
-.fe-media-library {
-  grid-column: 1;
-  grid-row: 1;
-  display: flex;
-  flex-direction: column;
+  height: 100%;
   min-height: 0;
   overflow: hidden;
 }
 
-/* Media library inner card */
-.fe-media-library .card {
-  flex: 1 1 0;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-  background: transparent;
-  border: none;
-  border-radius: 0;
-}
-
-/* Scrollable content area inside media library */
-.fe-media-library .card-body,
-.fe-media-library .media-list {
-  flex: 1 1 0;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border, #1e2433) transparent;
-}
-
-/* ----------------------------------------------------------
-   Column 3 — Program Monitor / Preview
-   Column 3 â€” Program Monitor / Preview
-   ---------------------------------------------------------- */
-
-.fe-preview {
+/* Column 2 — Program Monitor / Video Viewport */
+app-video-viewport {
   grid-column: 2;
   grid-row: 1;
   display: flex;
   flex-direction: column;
+  width: 100%;
+  height: 100%;
   min-height: 0;
   overflow: hidden;
 }
 
-/* Inner monitor card fills the panel */
-.fe-preview .program-monitor-card {
-  flex: 1 1 0;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-  background: transparent;
-  border: none;
-  border-radius: 0;
-}
-
-/* Video / canvas area inside preview */
-.fe-preview .monitor-viewport {
-  flex: 1 1 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #000;
-  overflow: hidden;
-  border-radius: 6px;
-}
-
-/* ----------------------------------------------------------
-   Column 4 — Inspector Panel
-   Column 4 â€” Inspector Panel
-   ---------------------------------------------------------- */
-
-.fe-inspector {
+/* Column 3 — Right Inspector Dock */
+app-inspector-dock {
   grid-column: 3;
   grid-row: 1;
   display: flex;
   flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-}
-
-/* Outer inspector wrapper — fills the panel */
-/* Outer inspector wrapper â€” fills the panel */
-.fe-inspector .studio-inspector {
-  flex: 1 1 0;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-}
-
-/* Inspector Header Bar: Category Switcher & Modern Scope Dropdown */
-.fe-inspector .inspector-header-bar {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 8px 10px 0;
-  gap: 6px;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--border, #1e2433);
-  background: color-mix(in srgb, var(--surface-2, #161b27) 60%, transparent);
-  background: color-mix(in srgb, var(--surface-2, #161b27) 80%, transparent);
-  position: relative;
-  z-index: 30;
-}
-
-.fe-inspector .inspector-nav .nav-tab {
-  padding: 6px 12px;
-  font-size: 11px;
-}
-
-/* Tool Dropdown Selector */
-.fe-inspector .tool-dropdown-wrap {
-  position: relative;
-  flex: 0 0 auto;
-}
-
-.fe-inspector .modern-tool-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 6px 10px;
-  background: #090e17;
-  border: 1px solid #1e293b;
-  border-radius: 6px;
-  color: #94a3b8;
-  font-size: 11.5px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  white-space: nowrap;
-}
-
-.fe-inspector .modern-tool-btn:hover {
-  background: #0f172a;
-  border-color: #334155;
-  color: #f1f5f9;
-}
-
-.fe-inspector .modern-tool-menu {
-  position: absolute;
-  top: calc(100% + 5px);
-  left: 0;
-  min-width: 175px;
-  background: #0b1120;
-  border: 1px solid #1e293b;
-  border-radius: 8px;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.05);
-  padding: 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  z-index: 105;
-}
-
-.fe-inspector .modern-tool-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   width: 100%;
-  padding: 7px 10px;
-  border-radius: 6px;
-  border: none;
-  background: transparent;
-  color: #cbd5e1;
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--text-muted, #8892a4);
-  border-bottom: 2px solid transparent;
-  cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease;
-  user-select: none;
-  transition: background 0.12s ease, color 0.12s ease;
-  text-align: left;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
-.fe-inspector .inspector-nav .nav-tab:hover {
-  color: var(--text, #e2e8f0);
+/* Row 2 — Bottom NLE Multi-Track Timeline (spans all 3 columns) */
+app-timeline-dock {
+  grid-column: 1 / 4 !important;
+  grid-row: 2 !important;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
-.fe-inspector .modern-tool-item .tool-item-icon {
-  font-size: 13px;
-}
-
-.fe-inspector .inspector-nav .nav-tab.active {
-  color: var(--brand, #6c8cff);
-  border-bottom-color: var(--brand, #6c8cff);
-}
-
-.fe-inspector .modern-tool-item .tool-item-label {
+/* Loading State */
+.studio-loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
   flex: 1;
+  min-height: 400px;
+  color: var(--text-muted, #8892a4);
 }
 
-.fe-inspector .modern-tool-item:hover:not(.active) {
-  background: rgba(255, 255, 255, 0.06);
-  color: #ffffff;
+.studio-loading-state .spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid rgba(108, 140, 255, 0.2);
+  border-top-color: var(--brand, #6c8cff);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
 }
 
-.fe-inspector .modern-tool-item.active {
-  background: #173b75;
-  color: #ffffff;
-  font-weight: 600;
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
-/* Modern Target Scope Dropdown (Exact Image 2 Design) */
-.fe-inspector .scope-dropdown-wrap {
-  position: relative;
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.fe-inspector .modern-scope-btn {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  gap: 8px;
-  padding: 6px 10px;
-  background: #090e17;
-  border: 1px solid #1e293b;
-  border-radius: 6px;
-  color: #f1f5f9;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  white-space: nowrap;
-}
-
-.fe-inspector .modern-scope-btn:hover {
-  background: #0f172a;
-  border-color: #334155;
-}
-
-.fe-inspector .scope-btn-content {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.fe-inspector .scope-btn-content .scope-icon {
-  flex-shrink: 0;
-  color: #94a3b8;
-}
-
-.fe-inspector .scope-btn-content .scope-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.fe-inspector .dropdown-chevron {
-  flex-shrink: 0;
-  color: #94a3b8;
-}
-
-.fe-inspector .scope-backdrop {
+/* Shortcuts Cheat-Sheet Modal */
+.modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 100;
-  background: transparent;
-}
-
-.fe-inspector .modern-scope-menu {
-  position: absolute;
-  top: calc(100% + 5px);
-  left: 0;
-  right: 0;
-  min-width: 200px;
-  background: #0b1120;
-  border: 1px solid #1e293b;
-  border-radius: 8px;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.05);
-  padding: 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  z-index: 105;
-}
-
-.fe-inspector .modern-scope-item {
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(6px);
+  z-index: 10000;
   display: flex;
   align-items: center;
+  justify-content: center;
+}
+
+.shortcuts-dialog {
+  background: var(--surface, #0f1117);
+  border: 1px solid var(--border, #1e2433);
+  border-radius: 12px;
+  width: 90%;
+  max-width: 540px;
+  overflow: hidden;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7);
+}
+
+.shortcuts-header {
+  display: flex;
   justify-content: space-between;
-  width: 100%;
-  padding: 8px 10px;
-  border-radius: 6px;
-  border: none;
-  background: transparent;
-  color: #cbd5e1;
-  font-size: 12.5px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
-  text-align: left;
-}
-
-.fe-inspector .modern-scope-item .item-left {
-  display: flex;
   align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.fe-inspector .modern-scope-item .scope-icon {
-  flex-shrink: 0;
-  color: #94a3b8;
-}
-
-.fe-inspector .modern-scope-item .item-name {
-  white-space: nowrap;
-}
-
-.fe-inspector .modern-scope-item:hover:not(.active) {
-  background: rgba(255, 255, 255, 0.06);
-  color: #ffffff;
-}
-
-.fe-inspector .modern-scope-item.active {
-  background: #173b75;
-  color: #ffffff;
-  font-weight: 600;
-}
-
-.fe-inspector .modern-scope-item.active .scope-icon,
-.fe-inspector .modern-scope-item.active .check-icon {
-  color: #ffffff;
-}
-
-.fe-inspector .check-icon {
-  flex-shrink: 0;
-  margin-left: 6px;
-}
-
-.fe-inspector .inspector-nav {
-  display: none;
-}
-
-/* Inspector scrollable content — grows to fill remaining space */
-/* Inspector scrollable content â€” grows to fill remaining space */
-.fe-inspector .inspector-content {
-  flex-grow: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 12px 10px;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border, #1e2433) transparent;
-}
-
-/* ----------------------------------------------------------
-   Row 2 — Timeline Panel (spans all 4 columns)
-   Row 2 â€” Timeline Panel (spans all 4 columns)
-   ---------------------------------------------------------- */
-
-.fe-timeline {
-  grid-column: 1 / 4;
-  grid-row: 2;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-}
-
-/* Timeline inner card fills the panel */
-.fe-timeline .studio-timeline-card {
-  flex: 1 1 0;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-  background: transparent;
-  border: none;
-  border-radius: 0;
-}
-
-/* Timeline section header row (track labels / controls strip) */
-.fe-timeline .section-head {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
+  padding: 12px 16px;
+  background: var(--surface-2, #161b27);
   border-bottom: 1px solid var(--border, #1e2433);
-  background: color-mix(in srgb, var(--surface-2, #161b27) 70%, transparent);
-  font-size: 11px;
+}
+
+.shortcuts-header h3 {
+  margin: 0;
+  font-size: 1rem;
   font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--text-muted, #8892a4);
-  user-select: none;
+  color: var(--text, #f0f4fc);
 }
 
-/* Scrollable timeline track area */
-.fe-timeline .timeline-interactive-area {
-  flex: 1 1 0;
-  min-height: 0;
-  overflow-x: auto;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border, #1e2433) transparent;
-}
-
-/* ----------------------------------------------------------
-   Webkit scrollbar styling (Chrome / Edge / Safari)
-   ---------------------------------------------------------- */
-
-.fe-sidebar::-webkit-scrollbar,
-.fe-media-library .card-body::-webkit-scrollbar,
-.fe-media-library .media-list::-webkit-scrollbar,
-.fe-inspector .inspector-content::-webkit-scrollbar,
-.fe-timeline .timeline-interactive-area::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
-}
-
-.fe-sidebar::-webkit-scrollbar-track,
-.fe-media-library .card-body::-webkit-scrollbar-track,
-.fe-media-library .media-list::-webkit-scrollbar-track,
-.fe-inspector .inspector-content::-webkit-scrollbar-track,
-.fe-timeline .timeline-interactive-area::-webkit-scrollbar-track {
+.shortcuts-header .close-btn {
   background: transparent;
+  border: none;
+  font-size: 1.35rem;
+  line-height: 1;
+  color: var(--text-muted, #8892a4);
+  cursor: pointer;
 }
 
-.fe-sidebar::-webkit-scrollbar-thumb,
-.fe-media-library .card-body::-webkit-scrollbar-thumb,
-.fe-media-library .media-list::-webkit-scrollbar-thumb,
-.fe-inspector .inspector-content::-webkit-scrollbar-thumb,
-.fe-timeline .timeline-interactive-area::-webkit-scrollbar-thumb {
-  background: var(--border, #1e2433);
+.shortcuts-header .close-btn:hover {
+  color: var(--text, #fff);
+}
+
+.shortcuts-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 12px;
+  padding: 16px;
+}
+
+.shortcut-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: var(--text-muted, #8892a4);
+}
+
+.shortcut-item kbd {
+  background: var(--surface-2, #161b27);
+  border: 1px solid var(--border, #1e2433);
+  color: var(--brand, #6c8cff);
+  padding: 2px 6px;
   border-radius: 4px;
+  font-size: 0.75rem;
+  font-family: ui-monospace, monospace;
 }
 
-.fe-sidebar::-webkit-scrollbar-thumb:hover,
-.fe-media-library .card-body::-webkit-scrollbar-thumb:hover,
-.fe-media-library .media-list::-webkit-scrollbar-thumb:hover,
-.fe-inspector .inspector-content::-webkit-scrollbar-thumb:hover,
-.fe-timeline .timeline-interactive-area::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--brand, #6c8cff) 50%, var(--border, #1e2433));
-}
-
-/* ----------------------------------------------------------
-/* ----------------------------------------------------------
-   Responsive — 1400px breakpoint
-   ---------------------------------------------------------- */
-
+/* Responsive Breakpoints */
 @media (max-width: 1400px) {
   .flowedit-layout {
     grid-template-columns: 290px minmax(0, 1fr) 310px;
   }
-  .fe-timeline { grid-column: 1 / 4; }
 }
-
-/* ----------------------------------------------------------
-   Responsive — 1200px breakpoint
-   ---------------------------------------------------------- */
 
 @media (max-width: 1200px) {
   .flowedit-layout {
     grid-template-columns: 260px minmax(0, 1fr) 280px;
   }
-  .fe-timeline { grid-column: 1 / 4; }
 }
-
-/* ----------------------------------------------------------
-   Responsive — 900px breakpoint
-   ---------------------------------------------------------- */
 
 @media (max-width: 900px) {
   .flowedit-layout {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(280px, 1fr) 220px;
   }
-  .fe-media-library,
-  .fe-inspector,
-  .fe-quick-actions {
+  app-media-dock,
+  app-inspector-dock {
     display: none;
   }
-  .fe-preview {
+  app-video-viewport {
     grid-column: 1;
     grid-row: 1;
   }
-  .fe-timeline {
-    grid-column: 1;
-    grid-row: 2;
+  app-timeline-dock {
+    grid-column: 1 !important;
+    grid-row: 2 !important;
   }
 }
-
-/* In-scope junction chip highlight */
-.tl-junction.in-scope .tl-junction-chip {
-  border-color: var(--brand, #6c8cff) !important;
-  box-shadow: 0 0 8px rgba(108, 140, 255, 0.45);
-}
-

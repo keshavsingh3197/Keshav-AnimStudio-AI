@@ -1,0 +1,116 @@
+.studio-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 14px;
+  background: var(--surface, #0f1117);
+  border-bottom: 1px solid var(--border, #1e2433);
+  min-height: 48px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  gap: 12px;
+}
+
+.studio-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.studio-brand {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text, #e2e8f0);
+  white-space: nowrap;
+}
+
+.studio-brand strong {
+  color: var(--brand, #6c8cff);
+}
+
+.studio-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--text-dim, #94a3b8);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.studio-header-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.save-status {
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.save-status.unsaved {
+  color: var(--warn, #f59e0b);
+}
+
+.save-status.saved {
+  color: var(--ok, #22d36b);
+}
+
+.studio-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.hdr-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  background: var(--surface-2, #161b27);
+  border: 1px solid var(--border, #1e2433);
+  color: var(--text, #e2e8f0);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.hdr-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--surface-2, #161b27) 80%, #fff);
+  border-color: var(--border-bright, #2d3550);
+}
+
+.hdr-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hdr-btn-cta {
+  background: var(--brand, #6c8cff);
+  color: #fff;
+  border-color: var(--brand, #6c8cff);
+  font-weight: 600;
+}
+
+.hdr-btn-cta:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--brand, #6c8cff) 85%, #fff);
+}
+
+.hdr-btn-secondary {
+  background: color-mix(in srgb, var(--brand, #6c8cff) 15%, transparent);
+  border-color: var(--brand, #6c8cff);
+  color: var(--brand, #6c8cff);
+  font-weight: 600;
+}
+
+.hdr-icon {
+  font-size: 0.85rem;
+}
+
