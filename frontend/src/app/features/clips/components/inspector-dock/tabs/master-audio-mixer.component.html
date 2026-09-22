@@ -2,9 +2,11 @@
   <div class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom border-secondary border-opacity-25">
     <div>
       <span style="font-size: 0.82rem; font-weight: 800; color: var(--text); letter-spacing: 0.3px;">🎚 5-BUS MASTER CONSOLE</span>
+      <span style="font-size: 0.82rem; font-weight: 800; color: var(--text); letter-spacing: 0.3px;">🎚 MASTER AUDIO CONSOLE</span>
       <div class="muted" style="font-size: 0.68rem; margin-top: 1px;">Hardware-grade level faders & real-time VU peak metering</div>
     </div>
     <span class="badge bg-secondary font-monospace" style="font-size: 0.65rem;">5 ACTIVE BUSES</span>
+    <span class="badge bg-secondary font-monospace" style="font-size: 0.65rem;">ACTIVE BUSES</span>
   </div>
 
   <!-- BUS 1: V1 (Primary Video Track) -->
@@ -35,11 +37,13 @@
   </div>
 
   <!-- BUS 2: A1 (Voiceover & Dialogue Track) -->
+  <!-- BUS 2: A1 (Audio & Music Track) -->
   <div class="mixer-bus-row mb-2">
     <div class="bus-meta-line">
       <div class="d-flex align-items-center gap-2">
         <span class="track-badge-pill" style="background: #8b5cf6;">A1</span>
         <span class="bus-name">Voiceover Track</span>
+        <span class="bus-name">Audio & Music Track</span>
       </div>
       <div class="d-flex align-items-center gap-2">
         <button type="button" class="btn-mute-toggle" [class.muted]="state.isTrackMuted('A1')" (click)="state.toggleTrackMute('A1')" [title]="state.isTrackMuted('A1') ? 'Unmute A1' : 'Mute A1'">
@@ -89,6 +93,7 @@
   </div>
 
   <!-- BUS 4: MASTER OUTPUT BUS -->
+  <!-- BUS 3: MASTER OUTPUT BUS -->
   <div class="mixer-bus-row mb-3 master-bus-highlight">
     <div class="bus-meta-line">
       <div class="d-flex align-items-center gap-2">

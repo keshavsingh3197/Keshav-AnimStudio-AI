@@ -114,3 +114,62 @@
   font-size: 0.85rem;
 }
 
+.screen-mode-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.screen-mode-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+}
+
+.screen-mode-menu {
+  position: absolute;
+  top: calc(100% + 5px);
+  right: 0;
+  background: var(--surface, #0f1117);
+  border: 1px solid var(--border, #1e2433);
+  border-radius: 8px;
+  padding: 5px;
+  min-width: 220px;
+  z-index: 9999;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.65);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.screen-mode-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: transparent;
+  border: none;
+  color: var(--text, #e2e8f0);
+  font-size: 0.78rem;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+
+.screen-mode-item:hover {
+  background: var(--surface-2, #161b27);
+  color: #fff;
+}
+
+.screen-mode-item.active {
+  background: color-mix(in srgb, var(--brand, #6c8cff) 20%, transparent);
+  color: var(--brand, #6c8cff);
+  font-weight: 600;
+}
+
+.screen-mode-item .check-mark {
+  color: var(--brand, #6c8cff);
+  font-weight: 700;
+}
+

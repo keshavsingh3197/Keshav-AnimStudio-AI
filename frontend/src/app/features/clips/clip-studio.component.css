@@ -203,6 +203,230 @@ app-timeline-dock {
   font-family: ui-monospace, monospace;
 }
 
+/* Duplicate Upload Conflict Modal */
+.conflict-dialog {
+  background: var(--surface, #0f1117);
+  border: 1px solid var(--border, #1e2433);
+  border-radius: 14px;
+  width: 92%;
+  max-width: 680px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(24px);
+}
+
+.conflict-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 16px 20px;
+  background: var(--surface-2, #161b27);
+  border-bottom: 1px solid var(--border, #1e2433);
+  gap: 12px;
+}
+
+.conflict-header-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.conflict-warning-icon {
+  font-size: 1.6rem;
+  line-height: 1.1;
+  flex-shrink: 0;
+}
+
+.conflict-header h3 {
+  margin: 0;
+  font-size: 1.08rem;
+  font-weight: 600;
+  color: var(--text, #f0f4fc);
+  letter-spacing: -0.01em;
+}
+
+.conflict-subtitle {
+  margin: 4px 0 0;
+  font-size: 0.82rem;
+  color: var(--text-muted, #8892a4);
+  line-height: 1.4;
+}
+
+.conflict-body {
+  padding: 16px 20px;
+  overflow-y: auto;
+  max-height: 50vh;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.conflict-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.conflict-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 14px;
+  background: color-mix(in srgb, var(--surface-2, #161b27) 65%, transparent);
+  border: 1px solid var(--border, #1e2433);
+  border-radius: 8px;
+  transition: border-color 0.15s ease;
+}
+
+.conflict-item:hover {
+  border-color: color-mix(in srgb, var(--border, #1e2433) 80%, var(--brand, #6c8cff));
+}
+
+.conflict-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.conflict-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.conflict-item-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.conflict-item-name {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--text, #f0f4fc);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.conflict-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.meta-badge {
+  font-size: 0.72rem;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-family: ui-monospace, monospace;
+}
+
+.meta-badge.new-badge {
+  background: rgba(108, 140, 255, 0.12);
+  color: #8bb0ff;
+  border: 1px solid rgba(108, 140, 255, 0.25);
+}
+
+.meta-badge.existing-badge {
+  background: rgba(245, 158, 11, 0.12);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+.conflict-item-action-select {
+  flex-shrink: 0;
+}
+
+.conflict-select {
+  background: var(--surface-2, #161b27);
+  color: var(--text, #f0f4fc);
+  border: 1px solid var(--border, #1e2433);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.15s ease;
+}
+
+.conflict-select:focus {
+  border-color: var(--brand, #6c8cff);
+  box-shadow: 0 0 0 2px rgba(108, 140, 255, 0.2);
+}
+
+.non-conflict-notice {
+  font-size: 0.8rem;
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  padding: 8px 12px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.conflict-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 20px;
+  background: var(--surface-2, #161b27);
+  border-top: 1px solid var(--border, #1e2433);
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.conflict-footer-left {
+  display: flex;
+  align-items: center;
+}
+
+.conflict-footer-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.conflict-footer-right .btn,
+.conflict-footer-left .btn {
+  font-size: 0.8rem;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-outline-warning {
+  background: transparent;
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+.btn-outline-warning:hover {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: #fbbf24;
+}
+
+.btn-outline-info {
+  background: transparent;
+  color: #67e8f9;
+  border: 1px solid rgba(6, 182, 212, 0.4);
+}
+.btn-outline-info:hover {
+  background: rgba(6, 182, 212, 0.15);
+  border-color: #67e8f9;
+}
+
 /* Responsive Breakpoints */
 @media (max-width: 1400px) {
   .flowedit-layout {

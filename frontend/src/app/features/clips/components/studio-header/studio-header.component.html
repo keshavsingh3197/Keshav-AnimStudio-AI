@@ -65,6 +65,41 @@
     <button class="hdr-btn" type="button" (click)="state.toggleAppFullscreen()" title="Toggle fullscreen editor">
       @if (state.appFullscreen()) { ✕ } @else { ⛶ }
     </button>
+    <!-- 3-Mode Screen Display: Standard, Window Full, Machine/PC Fullscreen -->
+    <div class="screen-mode-wrap">
+      <button class="hdr-btn" type="button" (click)="state.toggleScreenModeDropdown($event)"
+              [title]="state.screenMode() === 'display' ? 'Display Mode: PC Fullscreen (F11)' : (state.screenMode() === 'window' ? 'Display Mode: Full in Window' : 'Display Mode: Standard Window')">
+        <span class="hdr-icon">
+          @if (state.screenMode() === 'display') { 🖥 }
+          @else if (state.screenMode() === 'window') { 🗖 }
+          @else { ⛶ }
+        </span>
+        <span>
+          @if (state.screenMode() === 'display') { Full PC }
+          @else if (state.screenMode() === 'window') { Window }
+          @else { Standard }
+        </span>
+        <span style="font-size:0.65rem; opacity:0.7;">▾</span>
+      </button>
+
+      @if (state.screenModeDropdownOpen()) {
+        <div class="screen-mode-backdrop" (click)="state.screenModeDropdownOpen.set(false)"></div>
+        <div class="screen-mode-menu" (click)="$event.stopPropagation()">
+          <button type="button" class="screen-mode-item" [class.active]="state.screenMode() === 'normal'" (click)="state.setScreenMode('normal')">
+            <span>⛶ Standard (Normal View)</span>
+            @if (state.screenMode() === 'normal') { <span class="check-mark">✓</span> }
+          </button>
+          <button type="button" class="screen-mode-item" [class.active]="state.screenMode() === 'window'" (click)="state.setScreenMode('window')">
+            <span>🗖 Full in Window (Maximize)</span>
+            @if (state.screenMode() === 'window') { <span class="check-mark">✓</span> }
+          </button>
+          <button type="button" class="screen-mode-item" [class.active]="state.screenMode() === 'display'" (click)="state.setScreenMode('display')">
+            <span>🖥 Full on PC (Machine F11)</span>
+            @if (state.screenMode() === 'display') { <span class="check-mark">✓</span> }
+          </button>
+        </div>
+      }
+    </div>
     <button class="hdr-btn hdr-btn-cta" type="button"
             (click)="state.build()"
             [disabled]="state.status.busy() || state.uploading() || state.sideUpload() !== null || state.running() || state.blockedReason() !== null">

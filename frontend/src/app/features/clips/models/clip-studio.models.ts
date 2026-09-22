@@ -97,3 +97,13 @@ export const TRACK_COLORS = {
   Master: '#6c8cff',
 } as const;
 
+export interface FileUploadConflict {
+  file: File;
+  existingClipId: string;
+  existingName: string;
+  existingDuration?: number;
+  existingSizeBytes?: number;
+  existingType?: string;
+  resolution: 'skip' | 'overwrite' | 'rename';
+}
+

@@ -32,6 +32,8 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
 
   private loadedClipIdA: string | null = null;
   private loadedClipIdB: string | null = null;
+  private loadedMusicAssetId: string | null = null;
+  private loadedClipSoundAssetId: string | null = null;
   private animFrameId: number | null = null;
   private lastTickMs = 0;
   private lastPlayedClipIndex: number | null = null;
@@ -192,6 +194,20 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       activeEl.currentTime = localTime;
     }
 
+    // Immediately sync background music seek
+    const bg = this.bgMusicAudioRef?.nativeElement;
+    if (bg) {
+      const activeMusic = this.state.musicTracks().find((t) => {
+        const d = this.state.musicTrackDurationSeconds(t);
+        return time >= t.startSeconds && time < (t.startSeconds + d);
+      });
+      if (activeMusic) {
+        bg.currentTime = Math.max(0, (time - activeMusic.startSeconds) + (activeMusic.trimStartSeconds ?? 0));
+      } else if (this.state.musicAssetId() !== '') {
+        bg.currentTime = Math.max(0, time);
+      }
+    }
+
     this.syncMediaElements(this.state.isPlaying());
   }
 
@@ -199,6 +215,8 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     if (this.videoMonitorARef?.nativeElement) this.videoMonitorARef.nativeElement.playbackRate = speed;
     if (this.videoMonitorBRef?.nativeElement) this.videoMonitorBRef.nativeElement.playbackRate = speed;
     if (this.overlayVideoRef?.nativeElement) this.overlayVideoRef.nativeElement.playbackRate = speed;
+    if (this.bgMusicAudioRef?.nativeElement) this.bgMusicAudioRef.nativeElement.playbackRate = speed;
+    if (this.clipSoundAudioRef?.nativeElement) this.clipSoundAudioRef.nativeElement.playbackRate = speed;
   }
 
   private updateVolumes(masterVol: number, isMuted: boolean): void {
@@ -212,6 +230,36 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       videoB.muted = isMuted;
       videoB.volume = isMuted ? 0 : Math.min(1, masterVol);
     }
+    const bg = this.bgMusicAudioRef?.nativeElement;
+    if (bg) {
+      const bgMuted = isMuted || this.state.isTrackMuted('A1');
+      bg.muted = bgMuted;
+      bg.volume = bgMuted ? 0 : Math.min(1, masterVol * this.state.trackA1Volume() * this.state.musicVolume());
+    }
+    const cs = this.clipSoundAudioRef?.nativeElement;
+    if (cs) {
+      const csMuted = isMuted || this.state.isTrackMuted('V1');
+      cs.muted = csMuted;
+      cs.volume = csMuted ? 0 : Math.min(1, masterVol * this.state.trackV1Volume());
+    }
+  }
+
+  togglePlayback(): void {
+    this.state.audioEngine.ensureContext();
+    // Synchronously initiate playback on media elements within user gesture to unlock audio
+    if (!this.state.isPlaying()) {
+      const activeEl = this.activeLayer() === 'A'
+        ? this.videoMonitorARef?.nativeElement
+        : this.videoMonitorBRef?.nativeElement;
+      if (activeEl && activeEl.paused) {
+        activeEl.play().catch(() => undefined);
+      }
+      const bg = this.bgMusicAudioRef?.nativeElement;
+      if (bg && bg.src && bg.paused) {
+        bg.play().catch(() => undefined);
+      }
+    }
+    this.state.togglePlayback();
   }
 
   // Core Sync of Dual-Layer Ping-Pong Video and Overlays
@@ -251,54 +299,42 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     const mode = this.state.muteClipAudio();
 
     // Check active audio sources on timeline at playhead time
-    const a1Items = this.state.timelineItems().filter((i) => i.trackId === 'A1' && i.type === 'audio');
-    const a2Items = this.state.timelineItems().filter((i) => i.trackId === 'A2' && i.type === 'audio');
+    const a1Items = this.state.timelineItems().filter((i) => (i.trackId === 'A1' || i.trackId === 'A2') && i.type === 'audio');
     const currentTracks = this.state.musicTracks();
 
-    const isA1Muted = this.state.isTrackMuted('A1');
-    const isA2Muted = this.state.isTrackMuted('A2');
-
-    const activeA1Items = a1Items.filter((i) => time >= i.startTime && time < (i.startTime + i.duration));
-    const activeA2Items = a2Items.filter((i) => time >= i.startTime && time < (i.startTime + i.duration));
-    const activeMusicTracks = currentTracks.filter((t) => {
+    const activeA1Item = a1Items.find((i) => time >= i.startTime && time < (i.startTime + i.duration));
+    const activeMusicTrack = currentTracks.find((t) => {
       const dur = this.state.musicTrackDurationSeconds(t);
       return time >= t.startSeconds && time < (t.startSeconds + dur);
     });
+    const hasGlobalMusic = this.state.musicAssetId() !== '' && this.state.musicVolume() > 0;
 
-    const hasActiveA1Voice = !isA1Muted && activeA1Items.some((i) => !i.muted && (i.volume ?? 1.0) > 0);
-    const hasClipVoice = sound.audioAssetId && sound.audioVolume > 0;
-    const hasA2LeadVoice = !isA2Muted && activeA2Items.some((i) => i.duckMode === 'LeadVoice' && !i.muted && (i.volume ?? 1.0) > 0);
+    // Is any music or soundtrack cue active at THIS playhead time?
+    const hasActiveMusicAtTime = Boolean(activeMusicTrack) || Boolean(activeA1Item) || hasGlobalMusic;
 
-    const isVoicePresent = hasActiveA1Voice || Boolean(hasClipVoice) || hasA2LeadVoice;
-    const hasActiveA2Audio = !isA2Muted && (
-      activeA2Items.some((i) => !i.muted && (i.volume ?? 1.0) > 0) ||
-      activeMusicTracks.length > 0
-    );
-    const hasBgMusic = this.state.musicAssetId() !== '' && this.state.musicVolume() > 0;
-    const isAnyAudioPresent = isVoicePresent || hasActiveA2Audio || hasBgMusic;
-
-    // Determine effective gain for the current V1 video clip
-    const clipDuck = sound.duckMode ?? 'Normal';
+    // Determine effective gain for the current V1 video clip based on muteClipAudio mode:
+    // - 'Always': Mute ALL clip sound (Music Only)
+    // - 'MuteOnAudio': Mute clip sound whenever music/audio is playing; keep sound if no music
+    // - 'Never': Keep all audio (Never mute clip camera sound)
     let effectiveClipGain = sound.volume;
-
     if (mode === 'Always') {
       effectiveClipGain = 0;
-    } else if (clipDuck === 'MuteOnAudio') {
-      effectiveClipGain = isAnyAudioPresent ? 0 : sound.volume;
-    } else if (clipDuck === 'Ducked') {
-      effectiveClipGain = (isVoicePresent || (isAnyAudioPresent && mode === 'Overlap'))
-        ? sound.volume * this.state.videoDuckLevel()
-        : sound.volume;
-    } else if (clipDuck === 'LeadVoice') {
-      effectiveClipGain = sound.volume;
+    } else if (mode === 'MuteOnAudio') {
+      effectiveClipGain = hasActiveMusicAtTime ? 0 : sound.volume;
     } else {
-      if (mode === 'MuteOnAudio' && isAnyAudioPresent) {
+      // 'Never' (or any custom ducking if configured)
+      if (sound.duckMode === 'MuteOnAudio' && hasActiveMusicAtTime) {
         effectiveClipGain = 0;
-      } else if (mode === 'Overlap' && isVoicePresent) {
+      } else if (sound.duckMode === 'Ducked' && hasActiveMusicAtTime) {
         effectiveClipGain = sound.volume * this.state.videoDuckLevel();
       } else {
         effectiveClipGain = sound.volume;
       }
+    }
+
+    // If replacement voiceover is active and user unchecked keepOriginalAudio
+    if (sound.audioAssetId && !sound.keepOriginalAudio) {
+      effectiveClipGain = 0;
     }
 
     if (this.state.isTrackMuted('V1')) {
@@ -307,13 +343,13 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       effectiveClipGain *= this.state.trackV1Volume();
     }
 
-    const isMuted = this.state.isMonitorMuted() || effectiveClipGain === 0;
-    const clipVol = isMuted ? 0 : Math.min(1, effectiveClipGain);
+    const isVideoMuted = this.state.isMonitorMuted() || effectiveClipGain === 0;
+    const clipVol = isVideoMuted ? 0 : Math.min(1, effectiveClipGain);
     const speed = this.state.playbackSpeed();
 
     // 1. Sync active video
     const isCurrImage = this.state.getClipType(curr.clip) === 'image';
-    this.state.audioEngine.setTrackActive('V1', playing && !isCurrImage && !isMuted && clipVol > 0);
+    this.state.audioEngine.setTrackActive('V1', playing && !isCurrImage && !isVideoMuted && clipVol > 0);
 
     if (isCurrImage) {
       if (currentActiveVideo && !currentActiveVideo.paused) {
@@ -325,13 +361,20 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
         if (currentActiveIsA) this.loadedClipIdA = curr.clip.id;
         else this.loadedClipIdB = curr.clip.id;
         currentActiveVideo.src = this.state.assetUrl(curr.clip.id);
-        currentActiveVideo.currentTime = Math.max(0.001, localTime);
-        currentActiveVideo.load();
+        const targetTime = Math.max(0.001, localTime);
+        if (currentActiveVideo.readyState >= 1) {
+          currentActiveVideo.currentTime = targetTime;
+        } else {
+          currentActiveVideo.onloadedmetadata = () => {
+            currentActiveVideo.currentTime = targetTime;
+            currentActiveVideo.onloadedmetadata = null;
+          };
+        }
       } else if (!playing || (Math.abs(currentActiveVideo.currentTime - localTime) > 0.4 && !currentActiveVideo.seeking)) {
         currentActiveVideo.currentTime = Math.max(0.001, localTime);
       }
       currentActiveVideo.volume = this.state.isMonitorMuted() ? 0 : Math.min(1, this.state.monitorVolume() * clipVol);
-      currentActiveVideo.muted = isMuted;
+      currentActiveVideo.muted = isVideoMuted;
       currentActiveVideo.playbackRate = speed;
       if (playing) {
         if (currentActiveVideo.paused) currentActiveVideo.play().catch(() => undefined);
@@ -398,6 +441,77 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       else if (!playing && !overlayVideo.paused) overlayVideo.pause();
     } else if (overlayVideo && !overlayVideo.paused) {
       overlayVideo.pause();
+    }
+
+    // 4. Sync Background Music & Audio Track
+    const bgAudio = this.bgMusicAudioRef?.nativeElement;
+    let targetMusicAssetId: string | null = null;
+    let targetMusicTime = 0;
+    let targetMusicVolume = 1.0;
+    let isMusicTrackMuted = this.state.isMonitorMuted() || this.state.isTrackMuted('A1');
+
+    if (activeMusicTrack) {
+      targetMusicAssetId = activeMusicTrack.assetId;
+      targetMusicTime = (time - activeMusicTrack.startSeconds) + (activeMusicTrack.trimStartSeconds ?? 0);
+      targetMusicVolume = (activeMusicTrack.volume ?? 1.0) * this.state.trackA1Volume();
+    } else if (activeA1Item) {
+      targetMusicAssetId = activeA1Item.src;
+      targetMusicTime = (time - activeA1Item.startTime) + (activeA1Item.trimStartSeconds ?? 0);
+      targetMusicVolume = (activeA1Item.volume ?? 1.0) * this.state.trackA1Volume();
+      if (activeA1Item.muted) isMusicTrackMuted = true;
+    } else if (hasGlobalMusic) {
+      targetMusicAssetId = this.state.musicAssetId();
+      targetMusicTime = time;
+      targetMusicVolume = this.state.musicVolume() * this.state.trackA1Volume();
+    }
+
+    if (bgAudio && targetMusicAssetId) {
+      const musicUrl = this.state.assetUrl(targetMusicAssetId);
+      if (this.loadedMusicAssetId !== targetMusicAssetId) {
+        this.loadedMusicAssetId = targetMusicAssetId;
+        bgAudio.src = musicUrl;
+        bgAudio.currentTime = Math.max(0, targetMusicTime);
+      } else if (!playing || Math.abs(bgAudio.currentTime - targetMusicTime) > 0.35) {
+        bgAudio.currentTime = Math.max(0, targetMusicTime);
+      }
+      bgAudio.volume = isMusicTrackMuted ? 0 : Math.min(1, this.state.monitorVolume() * targetMusicVolume);
+      bgAudio.muted = isMusicTrackMuted;
+      bgAudio.playbackRate = speed;
+      if (playing) {
+        if (bgAudio.paused) bgAudio.play().catch(() => undefined);
+      } else {
+        if (!bgAudio.paused) bgAudio.pause();
+      }
+    } else if (bgAudio && !bgAudio.paused) {
+      bgAudio.pause();
+    }
+
+    // 5. Sync Replacement Clip Sound (Voiceover)
+    const clipSoundAudio = this.clipSoundAudioRef?.nativeElement;
+    if (clipSoundAudio && sound.audioAssetId && sound.audioVolume > 0) {
+      const clipSoundUrl = this.state.assetUrl(sound.audioAssetId);
+      const clipRun = this.state.clipSoundRunOffset(curr.clip.id);
+      const targetClipSoundTime = localTime + clipRun.startOffset;
+      const isClipSoundMuted = this.state.isMonitorMuted() || this.state.isTrackMuted('V1');
+      const clipSoundVol = isClipSoundMuted ? 0 : Math.min(1, sound.audioVolume * this.state.trackV1Volume() * this.state.monitorVolume());
+
+      if (this.loadedClipSoundAssetId !== sound.audioAssetId) {
+        this.loadedClipSoundAssetId = sound.audioAssetId;
+        clipSoundAudio.src = clipSoundUrl;
+        clipSoundAudio.currentTime = Math.max(0, targetClipSoundTime);
+      } else if (!playing || Math.abs(clipSoundAudio.currentTime - targetClipSoundTime) > 0.35) {
+        clipSoundAudio.currentTime = Math.max(0, targetClipSoundTime);
+      }
+      clipSoundAudio.volume = clipSoundVol;
+      clipSoundAudio.muted = isClipSoundMuted;
+      clipSoundAudio.playbackRate = speed;
+      if (playing) {
+        if (clipSoundAudio.paused) clipSoundAudio.play().catch(() => undefined);
+      } else {
+        if (!clipSoundAudio.paused) clipSoundAudio.pause();
+      }
+    } else if (clipSoundAudio && !clipSoundAudio.paused) {
+      clipSoundAudio.pause();
     }
   }
 

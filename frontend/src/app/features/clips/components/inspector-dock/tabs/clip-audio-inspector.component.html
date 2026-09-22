@@ -1,9 +1,82 @@
+<!-- ── TOP LEVEL: BACKGROUND MUSIC & VIDEO SOUND STRATEGY ── -->
+<div class="audio-card mb-2">
+  <div class="d-flex justify-content-between align-items-center mb-2 pb-1 border-bottom border-secondary border-opacity-25">
+    <span style="font-size: 0.8rem; font-weight: 700; color: var(--text);">
+      {{ state.hasMusicOnTimeline() ? '🎵 Background Music & Video Sound' : '🔊 Video Clip Audio' }}
+    </span>
+    @if (state.hasMusicOnTimeline()) {
+      <span class="badge font-monospace" style="font-size: 0.65rem; background: color-mix(in srgb, var(--brand) 25%, transparent); color: #8cb0ff; border: 1px solid rgba(108, 140, 255, 0.4);">
+        Music Active
+      </span>
+    }
+  </div>
+
+  @if (state.hasMusicOnTimeline()) {
+    <!-- Music Track Summary Line -->
+    <div class="d-flex justify-content-between align-items-center mb-2 px-1">
+      <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.72rem; color: #cbd5e1; max-width: 200px;" [title]="state.activeMusicTrackName()">
+        🎵 <strong style="color: #fff;">{{ state.activeMusicTrackName() }}</strong>
+      </div>
+      @if (state.clipsUnderMusic().length > 0) {
+        <button type="button" class="audio-action-btn" style="font-size: 0.65rem; padding: 2px 7px;"
+                (click)="state.selectClipsUnderMusic()"
+                title="Select only the video clips that overlap with background music">
+          🎯 Select Clips Under Music ({{ state.clipsUnderMusic().length }})
+        </button>
+      }
+    </div>
+
+    <!-- 3 Quick Strategy Buttons -->
+    <div class="audio-strategy-grid">
+      <button type="button" class="audio-strategy-btn"
+              [class.active]="state.v1AudioMode() === 'MuteOnAudio'"
+              (click)="state.setV1AudioMode('MuteOnAudio')"
+              title="Auto-mute camera sound for clips covered by background music. Clips after music ends keep their sound.">
+        <span class="strat-icon">🎵</span>
+        <span>Mute Under Music</span>
+        <span class="strat-badge">Auto</span>
+      </button>
+
+      <button type="button" class="audio-strategy-btn"
+              [class.active]="state.v1AudioMode() === 'Always'"
+              (click)="state.setV1AudioMode('Always')"
+              title="Mute all original video audio completely across all clips (Music Only)">
+        <span class="strat-icon">🔇</span>
+        <span>Mute ALL Clips</span>
+      </button>
+
+      <button type="button" class="audio-strategy-btn"
+              [class.active]="state.v1AudioMode() === 'Never'"
+              (click)="state.setV1AudioMode('Never')"
+              title="Keep all camera audio playing alongside background music">
+        <span class="strat-icon">🔊</span>
+        <span>Keep All Audio</span>
+      </button>
+    </div>
+  } @else {
+    <!-- No music placed yet -->
+    <div class="d-flex justify-content-between align-items-center">
+      <div style="font-size: 0.72rem; color: var(--text-dim);">
+        Video track sound:
+      </div>
+      <div class="d-flex gap-1">
+        <button type="button" class="audio-action-btn"
+                [class.primary]="state.v1AudioMode() === 'Always'"
+                (click)="state.setV1AudioMode(state.v1AudioMode() === 'Always' ? 'Never' : 'Always')">
+          {{ state.v1AudioMode() === 'Always' ? '🔇 Unmute Video Clips' : '🔇 Mute All Video Clips' }}
+        </button>
+      </div>
+    </div>
+  }
+</div>
+
 <!-- SUB-VIEW A: MULTI-SELECTION BATCH STATE -->
 @if (state.isMultiSelection()) {
   <div class="audio-card batch-inspector-card">
     <div class="d-flex justify-content-between align-items-center mb-2">
       <span class="badge bg-primary font-monospace" style="font-size: 0.72rem;">
         🎯 {{ state.targetScope() === 'all' ? 'All Clips in Cut' : 'Batch Edit' }} ({{ state.multiSelectionCount() }} Items)
+        🎯 {{ state.targetScope() === 'all' ? 'All Clips in Cut' : (state.targetScope() === 'under_music' ? 'Clips Under Music' : 'Batch Edit') }} ({{ state.multiSelectionCount() }} Items)
       </span>
       <button type="button" class="audio-action-btn" (click)="state.clearAllSelections()">
         ✕ Deselect
@@ -11,6 +84,7 @@
     </div>
     <p class="muted mb-2" style="font-size: 0.72rem;">
       Bulk-adjust volume, mute states, and ducking participation across all selected clips and cues simultaneously.
+      Bulk-adjust volume and mute states across all selected clips simultaneously.
     </p>
 
     <!-- Batch Volume Control -->
@@ -37,12 +111,12 @@
 
     <!-- Batch Ducking Participation -->
     <div class="inner-audio-card mb-2">
-      <span style="font-size: 0.72rem; color: var(--text-dim); display: block; margin-bottom: 4px;">Bulk Ducking Role:</span>
+      <span style="font-size: 0.72rem; color: var(--text-dim); display: block; margin-bottom: 4px;">Background Audio Interaction:</span>
       <div class="duck-seg-group">
-        <button type="button" class="duck-seg-btn" (click)="state.setBatchDuckMode('Normal')" title="Normal nominal volume">
+        <button type="button" class="duck-seg-btn" (click)="state.setBatchDuckMode('Normal')" title="Normal volume">
           <span>🎵</span> Normal
         </button>
-        <button type="button" class="duck-seg-btn" (click)="state.setBatchDuckMode('Ducked')" title="Ducked by speech">
+        <button type="button" class="duck-seg-btn" (click)="state.setBatchDuckMode('Ducked')" title="Lowers during speech">
           <span>🔉</span> Ducked
         </button>
         <button type="button" class="duck-seg-btn" (click)="state.setBatchDuckMode('MuteOnAudio')" title="Mutes only when other audio/speech is playing">
@@ -125,10 +199,12 @@
     </div>
 
     <!-- Fade Controls (Numeric steppers with boundary clamping) -->
+    <!-- Fade Controls -->
     @if (!target.isTimelineItem) {
       <div class="inner-audio-card mb-2">
         <div class="d-flex justify-content-between align-items-center mb-1">
           <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">Acoustic Fades (Exponential Curves)</span>
+          <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">Clip Fades</span>
           <small class="muted mono" style="font-size: 0.65rem;">Max: {{ target.duration | number:'1.1-1' }}s</small>
         </div>
 
@@ -176,15 +252,16 @@
     }
 
     <!-- Ducking Participation Segmented Control -->
+    <!-- Background Audio Interaction Segmented Control -->
     <div class="inner-audio-card mb-2">
       <div class="d-flex justify-content-between align-items-center mb-1">
-        <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">Ducking Participation Role:</span>
+        <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">Background Audio Interaction:</span>
         <span class="badge" [class.bg-success]="target.duckMode === 'Normal'" [class.bg-warning]="target.duckMode === 'Ducked'" [class.bg-danger]="target.duckMode === 'MuteOnAudio'" [class.bg-primary]="target.duckMode === 'LeadVoice'" style="font-size: 0.65rem;">
           {{ target.duckMode === 'LeadVoice' ? 'Lead Voice' : (target.duckMode === 'MuteOnAudio' ? 'Mute on Audio' : (target.duckMode === 'Ducked' ? 'Ducked by Speech' : 'Normal')) }}
         </span>
       </div>
 
-      <div class="duck-seg-group mb-2">
+      <div class="duck-seg-group mb-1">
         <button type="button" class="duck-seg-btn" [class.active]="target.duckMode === 'Normal'" (click)="state.setClipDuckMode(target.clipId, 'Normal')">
           <span class="icon">🎵</span>
           <span>Normal</span>
@@ -223,6 +300,12 @@
       Click any video clip, voiceover, or music cue on the timeline to inspect its individual volume, fades, and ducking role.
     </div>
     <div class="d-flex flex-wrap gap-2 justify-content-center">
+      @if (state.clipsUnderMusic().length > 0) {
+        <button type="button" class="audio-action-btn primary" (click)="state.selectClipsUnderMusic()"
+                title="Select all video clips that are covered by the background music track">
+          🎵 Select Clips Under Music ({{ state.clipsUnderMusic().length }})
+        </button>
+      }
       @if (state.included().length > 0) {
         <button type="button" class="audio-action-btn primary" (click)="state.selectClip(state.included()[0].clip.id)">
           🎯 Select First Clip

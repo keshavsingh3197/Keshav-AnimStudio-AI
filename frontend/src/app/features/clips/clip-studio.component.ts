@@ -1,5 +1,6 @@
 import { Component, HostListener, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { StudioStateService } from './services/studio-state.service';
 import { StudioHeaderComponent } from './components/studio-header/studio-header.component';
@@ -14,6 +15,7 @@ import { TimelineDockComponent } from './components/timeline-dock/timeline-dock.
   providers: [StudioStateService],
   imports: [
     CommonModule,
+    FormsModule,
     StudioHeaderComponent,
     MediaDockComponent,
     VideoViewportComponent,

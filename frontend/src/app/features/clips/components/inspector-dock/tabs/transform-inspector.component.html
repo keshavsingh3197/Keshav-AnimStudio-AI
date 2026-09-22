@@ -1,4 +1,4 @@
-﻿@let tx = state.activeScopeTransformSetting();
+@let tx = state.activeScopeTransformSetting();
 @let clip = state.activeTargetClip();
 
 @if (clip) {
@@ -30,13 +30,15 @@
         <div class="scale-row">
           <span class="ctrl-label" title="Scale / Zoom">Scale</span>
           <input type="range" class="scale-slider" min="5" max="300" step="1"
-                 [value]="tx.scale !== null ? tx.scale * 100 : 100"
-                 (input)="state.setScopeTransformScale(+$any($event.target).value / 100)"
+                 [value]="tx.scale !== null ? (tx.scale * 100 | number:'1.0-0') : 100"
+                 (input)="onScaleSlider($event)"
                  title="Drag to scale" />
           <input type="number" class="num-input" style="max-width:52px" min="5" max="300" step="1"
                  [value]="tx.scale !== null ? (tx.scale * 100 | number:'1.0-0') : ''"
                  [placeholder]="fmt(tx.scale !== null ? tx.scale * 100 : null, 0)"
-                 (change)="state.setScopeTransformScale(+$any($event.target).value / 100)"
+                 (input)="onScaleInput($event)"
+                 (blur)="onScaleBlur($event)"
+                 (change)="onScaleBlur($event)"
                  title="Scale %" />
           <span class="unit">%</span>
         </div>
@@ -47,8 +49,10 @@
           <input type="number" class="num-input" min="-50" max="50" step="0.5"
                  [value]="tx.x !== null ? tx.x : ''"
                  [placeholder]="fmt(tx.x)"
-                 (change)="state.setScopeTransformPositionX(+$any($event.target).value)"
-                 title="Position X (% from center)" />
+                 (input)="onXInput($event)"
+                 (blur)="onXBlur($event)"
+                 (change)="onXBlur($event)"
+                 title="Position X (% from center, -50 to 50)" />
           <span class="unit">%</span>
         </div>
 
@@ -57,8 +61,10 @@
           <input type="number" class="num-input" min="-50" max="50" step="0.5"
                  [value]="tx.y !== null ? tx.y : ''"
                  [placeholder]="fmt(tx.y)"
-                 (change)="state.setScopeTransformPositionY(+$any($event.target).value)"
-                 title="Position Y (% from center)" />
+                 (input)="onYInput($event)"
+                 (blur)="onYBlur($event)"
+                 (change)="onYBlur($event)"
+                 title="Position Y (% from center, -50 to 50)" />
           <span class="unit">%</span>
         </div>
 
@@ -68,8 +74,10 @@
           <input type="number" class="num-input" min="-360" max="360" step="0.5"
                  [value]="tx.rotation !== null ? tx.rotation : ''"
                  [placeholder]="fmt(tx.rotation)"
-                 (change)="state.setScopeTransformRotation(+$any($event.target).value)"
-                 title="Rotation (degrees)" />
+                 (input)="onRotateInput($event)"
+                 (blur)="onRotateBlur($event)"
+                 (change)="onRotateBlur($event)"
+                 title="Rotation (-360° to 360°)" />
           <span class="unit">°</span>
           <button class="icon-btn" type="button" (click)="state.resetScopeTransformRotation()" title="Reset rotation to 0°">↺</button>
         </div>
@@ -104,7 +112,9 @@
             <input type="number" class="num-input" min="0" max="98" step="0.5"
                    [value]="tx.cropTop !== null ? tx.cropTop : ''"
                    [placeholder]="fmt(tx.cropTop)"
-                   (change)="state.setScopeCrop('top', +$any($event.target).value)"
+                   (input)="onCropInput('top', $event)"
+                   (blur)="onCropBlur('top', $event)"
+                   (change)="onCropBlur('top', $event)"
                    title="Crop Top %" />
             <span class="unit">T</span>
           </div>
@@ -115,7 +125,9 @@
             <input type="number" class="num-input" min="0" max="98" step="0.5"
                    [value]="tx.cropLeft !== null ? tx.cropLeft : ''"
                    [placeholder]="fmt(tx.cropLeft)"
-                   (change)="state.setScopeCrop('left', +$any($event.target).value)"
+                   (input)="onCropInput('left', $event)"
+                   (blur)="onCropBlur('left', $event)"
+                   (change)="onCropBlur('left', $event)"
                    title="Crop Left %" />
           </div>
 
@@ -133,7 +145,9 @@
             <input type="number" class="num-input" min="0" max="98" step="0.5"
                    [value]="tx.cropRight !== null ? tx.cropRight : ''"
                    [placeholder]="fmt(tx.cropRight)"
-                   (change)="state.setScopeCrop('right', +$any($event.target).value)"
+                   (input)="onCropInput('right', $event)"
+                   (blur)="onCropBlur('right', $event)"
+                   (change)="onCropBlur('right', $event)"
                    title="Crop Right %" />
             <span class="unit">R</span>
           </div>
@@ -143,7 +157,9 @@
             <input type="number" class="num-input" min="0" max="98" step="0.5"
                    [value]="tx.cropBottom !== null ? tx.cropBottom : ''"
                    [placeholder]="fmt(tx.cropBottom)"
-                   (change)="state.setScopeCrop('bottom', +$any($event.target).value)"
+                   (input)="onCropInput('bottom', $event)"
+                   (blur)="onCropBlur('bottom', $event)"
+                   (change)="onCropBlur('bottom', $event)"
                    title="Crop Bottom %" />
             <span class="unit">B</span>
           </div>

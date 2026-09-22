@@ -8,7 +8,8 @@
       <span>Restored unsaved draft from <strong>{{ draftTime }}</strong>.</span>
       <div class="notice-actions">
         <button class="btn btn-sm btn-outline-secondary" type="button" (click)="state.discardDraft()">Discard</button>
-        <button class="btn btn-sm btn-primary" type="button" (click)="state.saveDraft()">Keep Draft</button>
+        <button class="btn btn-sm btn-primary" type="button" (click)="state.keepDraft()">Keep Draft</button>
+        <button class="btn btn-sm btn-outline-secondary" type="button" (click)="state.restoredDraftTime.set(null)" title="Dismiss notice">✕</button>
       </div>
     </div>
   }
@@ -56,6 +57,95 @@
           <div class="shortcut-item"><kbd>Delete</kbd> / <kbd>Backspace</kbd> <span>Delete Selected</span></div>
           <div class="shortcut-item"><kbd>Ctrl</kbd> + <kbd>S</kbd> <span>Save Draft Locally</span></div>
           <div class="shortcut-item"><kbd>F</kbd> <span>Toggle Fullscreen</span></div>
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- Duplicate File Upload Conflict Modal -->
+  @if (state.uploadConflictModalOpen()) {
+    <div class="modal-backdrop" (click)="state.cancelUploadConflicts()">
+      <div class="conflict-dialog" (click)="$event.stopPropagation()">
+        <!-- Header -->
+        <div class="conflict-header">
+          <div class="conflict-header-title">
+            <span class="conflict-warning-icon">⚠️</span>
+            <div>
+              <h3>Duplicate Files Detected</h3>
+              <p class="conflict-subtitle">
+                {{ state.uploadConflicts().length }} file{{ state.uploadConflicts().length === 1 ? '' : 's' }} already exist{{ state.uploadConflicts().length === 1 ? 's' : '' }} in this project's Media Library.
+              </p>
+            </div>
+          </div>
+          <button class="close-btn" type="button" (click)="state.cancelUploadConflicts()" title="Cancel and close">&times;</button>
+        </div>
+
+        <!-- Conflicting Files List -->
+        <div class="conflict-body">
+          <div class="conflict-list">
+            @for (conflict of state.uploadConflicts(); track conflict.file.name; let i = $index) {
+              <div class="conflict-item">
+                <div class="conflict-item-info">
+                  <div class="conflict-item-head">
+                    <span class="conflict-item-icon">
+                      @if (conflict.existingType === 'audio') { 🎵 }
+                      @else if (conflict.existingType === 'image') { 🖼 }
+                      @else { 🎬 }
+                    </span>
+                    <span class="conflict-item-name" [title]="conflict.file.name">{{ conflict.file.name }}</span>
+                  </div>
+                  <div class="conflict-item-meta">
+                    <span class="meta-badge new-badge">Incoming: {{ state.formatFileSize(conflict.file.size) }}</span>
+                    @if (conflict.existingClipId) {
+                      <span class="meta-badge existing-badge">
+                        In Library: {{ state.formatFileSize(conflict.existingSizeBytes) }}
+                        @if (conflict.existingDuration) {
+                          · {{ conflict.existingDuration | number:'1.1-1' }}s
+                        }
+                      </span>
+                    }
+                  </div>
+                </div>
+
+                <div class="conflict-item-action-select">
+                  <select [ngModel]="conflict.resolution" (ngModelChange)="state.setConflictResolution(i, $event)" class="conflict-select">
+                    <option value="skip">Skip file</option>
+                    <option value="rename">Keep both (rename)</option>
+                    <option value="overwrite">Overwrite existing</option>
+                  </select>
+                </div>
+              </div>
+            }
+          </div>
+
+          @if (state.pendingNonConflictFiles().length > 0) {
+            <div class="non-conflict-notice">
+              <span>✓ Plus <strong>{{ state.pendingNonConflictFiles().length }}</strong> unique new file(s) ready to upload.</span>
+            </div>
+          }
+        </div>
+
+        <!-- Footer / Action Buttons -->
+        <div class="conflict-footer">
+          <div class="conflict-footer-left">
+            <button class="btn btn-secondary" type="button" (click)="state.cancelUploadConflicts()">Cancel</button>
+          </div>
+          <div class="conflict-footer-right">
+            <button class="btn btn-outline-warning" type="button" (click)="state.resolveUploadConflicts('skip')" title="Skip duplicate files and only upload unique ones">
+              Skip Duplicates
+            </button>
+            <button class="btn btn-outline-info" type="button" (click)="state.resolveUploadConflicts('rename')" title="Auto-rename duplicate files with (1) suffix and upload all">
+              Keep Both (Auto-Rename)
+            </button>
+            <button class="btn btn-danger" type="button" (click)="state.resolveUploadConflicts('overwrite')" title="Delete existing files from library and upload new ones in their place">
+              Overwrite & Replace
+            </button>
+            @if (state.uploadConflicts().length > 1) {
+              <button class="btn btn-primary" type="button" (click)="state.applyCustomConflictResolutions()" title="Apply individual dropdown choices">
+                Apply Choices
+              </button>
+            }
+          </div>
         </div>
       </div>
     </div>

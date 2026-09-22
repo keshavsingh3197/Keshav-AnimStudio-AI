@@ -1722,6 +1722,7 @@ audio { height: 2.2rem; vertical-align: middle; }
   width: 100%;
   height: 100%;
   object-fit: contain;
+  transform-origin: center center;
   transition: opacity 0.15s ease;
 }
 
@@ -4940,6 +4941,60 @@ audio { height: 2.2rem; vertical-align: middle; }
   font-weight: 600;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
 }
+
+/* Quick Audio Strategy Selector */
+.audio-strategy-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+  margin-bottom: 6px;
+}
+
+.audio-strategy-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  color: var(--text-dim, #94a3b8);
+  font-size: 0.67rem;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.audio-strategy-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: var(--text, #f1f5f9);
+}
+
+.audio-strategy-btn.active {
+  background: color-mix(in srgb, var(--brand, #6c8cff) 18%, var(--surface));
+  border-color: var(--brand, #6c8cff);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 0 8px rgba(108, 140, 255, 0.35);
+}
+
+.audio-strategy-btn .strat-icon {
+  font-size: 1rem;
+}
+
+.audio-strategy-btn .strat-badge {
+  font-size: 0.58rem;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+  font-weight: 700;
+}
+
 
 /* 5-Bus Mixer Console */
 .master-mixer-card {

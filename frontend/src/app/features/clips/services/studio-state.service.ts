@@ -13,7 +13,7 @@ import { ProjectStore } from '../../../core/services/project-store';
 import { StatusService } from '../../../core/services/status.service';
 import {
   ClipAudioSetting, ClipColorSetting, ClipRow, ClipTextSetting, FILTER_PRESETS,
-  FilterPreset, JunctionSetting, JunctionView, MusicTrackRow, ScheduledClip, SideUploadTarget, TRACK_COLORS
+  FileUploadConflict, FilterPreset, JunctionSetting, JunctionView, MusicTrackRow, ScheduledClip, SideUploadTarget, TRACK_COLORS
 } from '../models/clip-studio.models';
 
 const DRAFT_KEY_PREFIX = 'animstudio_studio_draft_';
@@ -32,9 +32,24 @@ export class StudioStateService implements OnDestroy {
   viewMode: 'grid' | 'list' = 'grid';
   selectAllCheckbox = false;
   showOrganizeMenu = false;
+  readonly screenMode = signal<'normal' | 'window' | 'display'>('normal');
+  readonly screenModeDropdownOpen = signal<boolean>(false);
   readonly appFullscreen = signal<boolean>(false);
   readonly showShortcutsModal = signal<boolean>(false);
   readonly dropActive = signal<boolean>(false);
+  readonly uploadConflictModalOpen = signal<boolean>(false);
+  readonly uploadConflicts = signal<FileUploadConflict[]>([]);
+  readonly pendingNonConflictFiles = signal<File[]>([]);
+
+  constructor() {
+    if (typeof document !== 'undefined') {
+      document.addEventListener('fullscreenchange', () => {
+        if (!document.fullscreenElement && this.screenMode() === 'display') {
+          this.screenMode.set('window');
+        }
+      });
+    }
+  }
 
   // Core Data Signals
   readonly studio = signal<ClipStudio | null>(null);
@@ -229,7 +244,7 @@ export class StudioStateService implements OnDestroy {
   readonly selectedTimelineItemId = signal<string | null>(null);
   readonly selectedTimelineItemIds = signal<Set<string>>(new Set<string>());
   readonly activeInspectorTab = signal<'clip' | 'color' | 'audio' | 'text' | 'effects' | 'transitions'>('clip');
-  readonly targetScope = signal<'auto' | 'selected' | 'all' | 'current'>('auto');
+  readonly targetScope = signal<'auto' | 'selected' | 'all' | 'current' | 'under_music'>('auto');
   readonly scopeDropdownOpen = signal<boolean>(false);
   readonly toolDropdownOpen = signal<boolean>(false);
 
@@ -254,7 +269,7 @@ export class StudioStateService implements OnDestroy {
     if (mode === 'mixer') return 'mixer';
     if (mode === 'clip') return 'clip';
     if (this.targetScope() === 'all') return 'mixer';
-    if (this.selectedClipId() || this.selectedTimelineItemId() || this.selectedTimelineItemIds().size > 0 || (this.targetScope() === 'current' && this.currentScheduledClip())) {
+    if (this.selectedClipId() || this.selectedTimelineItemId() || this.selectedTimelineItemIds().size > 0 || this.targetScope() === 'under_music' || (this.targetScope() === 'current' && this.currentScheduledClip())) {
       return 'clip';
     }
     return 'mixer';
@@ -394,15 +409,50 @@ export class StudioStateService implements OnDestroy {
     return nextIdx < sched.length ? sched[nextIdx] : null;
   });
 
+  readonly clipsUnderMusic = computed<Clip[]>(() => {
+    const sched = this.clipSchedule();
+    const tracks = this.musicTracks();
+    const hasBg = this.musicAssetId() !== '';
+    if (hasBg) return this.included().map((r) => r.clip);
+    if (tracks.length === 0) return [];
+    return sched
+      .filter((s) =>
+        tracks.some((t) => {
+          const dur = this.musicTrackDurationSeconds(t);
+          const tEnd = t.startSeconds + dur;
+          return t.startSeconds < s.endSeconds && tEnd > s.startSeconds;
+        })
+      )
+      .map((s) => s.clip);
+  });
+
+  readonly hasMusicOnTimeline = computed<boolean>(() => {
+    return this.musicAssetId() !== '' || this.musicTracks().length > 0;
+  });
+
+  readonly activeMusicTrackName = computed<string>(() => {
+    const tracks = this.musicTracks();
+    if (tracks.length > 0) {
+      return this.musicTrackName(tracks[0]);
+    }
+    if (this.musicAssetId()) {
+      const cand = this.studio()?.musicCandidates.find((c) => c.id === this.musicAssetId());
+      return cand?.name || 'Background Music';
+    }
+    return '';
+  });
+
   readonly isMultiSelection = computed(() => {
     if (this.selectedTimelineItemIds().size > 1) return true;
     if (this.selectedLibraryIds().size > 1) return true;
     if (this.targetScope() === 'all' && this.included().length > 1) return true;
+    if (this.targetScope() === 'under_music' && this.clipsUnderMusic().length > 1) return true;
     if (this.targetScope() === 'selected' && (this.selectedCount() > 1 || this.selectedTimelineItemIds().size > 1)) return true;
     return false;
   });
 
   readonly multiSelectionCount = computed(() => {
+    if (this.targetScope() === 'under_music') return this.clipsUnderMusic().length;
     if (this.selectedTimelineItemIds().size > 1) return this.selectedTimelineItemIds().size;
     if (this.selectedLibraryIds().size > 1) return this.selectedLibraryIds().size;
     if (this.targetScope() === 'all') return this.included().length;
@@ -410,7 +460,10 @@ export class StudioStateService implements OnDestroy {
     return 1;
   });
 
-  readonly selectedClipsCount = computed(() => this.selectedLibraryIds().size);
+  readonly selectedClipsCount = computed(() => {
+    if (this.targetScope() === 'under_music') return this.clipsUnderMusic().length;
+    return this.selectedLibraryIds().size;
+  });
 
   readonly selectedClip = computed<Clip | null>(() => {
     const id = this.selectedClipId();
@@ -771,11 +824,12 @@ export class StudioStateService implements OnDestroy {
   });
 
   readonly activeClipTransform = computed(() => {
-    const clip = this.activeTargetClip();
-    const framing = this.activeClipFraming();
+    const clip = this.currentScheduledClip()?.clip ?? this.activeTargetClip();
+    if (!clip) return 'none';
 
     // Combine framing zoom/pan with per-clip transform (scale, position, rotation)
-    const t = clip ? this.clipTransformSetting(clip.id) : null;
+    const framing = this.clipFramingSetting(clip.id);
+    const t = this.clipTransformSetting(clip.id);
 
     const frameScale = framing ? (framing.zoom !== 100 ? framing.zoom / 100 : 1) : 1;
     const framePanY = framing?.panY === 'top' ? -8 : framing?.panY === 'bottom' ? 8 : 0;
@@ -1385,6 +1439,7 @@ export class StudioStateService implements OnDestroy {
     if (trackId === 'V1') {
       nextMuted = !this.trackV1Muted();
       this.trackV1Muted.set(nextMuted);
+      this.v1AudioMode.set(nextMuted ? 'Always' : 'Never');
     } else if (trackId === 'V2') {
       nextMuted = !this.trackV2Muted();
       this.trackV2Muted.set(nextMuted);
@@ -1611,12 +1666,19 @@ export class StudioStateService implements OnDestroy {
   }
 
   // Inspector Header Bar Controls
-  setTargetScope(scope: 'selected' | 'current' | 'all'): void {
+  setTargetScope(scope: 'selected' | 'current' | 'all' | 'under_music'): void {
     this.targetScope.set(scope);
     if (scope === 'current') {
       const curr = this.currentScheduledClip();
       if (curr) {
         this.selectedClipId.set(curr.clip.id);
+      }
+    } else if (scope === 'under_music') {
+      const clips = this.clipsUnderMusic();
+      const ids = new Set(clips.map((c) => c.id));
+      this.selectedLibraryIds.set(ids);
+      if (clips.length > 0) {
+        this.selectedClipId.set(clips[0].id);
       }
     }
   }
@@ -1633,7 +1695,7 @@ export class StudioStateService implements OnDestroy {
     this.scopeDropdownOpen.set(false);
   }
 
-  selectScopeOption(scope: 'selected' | 'current' | 'all'): void {
+  selectScopeOption(scope: 'selected' | 'current' | 'all' | 'under_music'): void {
     this.setTargetScope(scope);
     this.scopeDropdownOpen.set(false);
   }
@@ -1644,22 +1706,43 @@ export class StudioStateService implements OnDestroy {
   }
 
   getTargetClipIds(fallbackClipId?: string): string[] {
+    const fallbackList = fallbackClipId ? [fallbackClipId] : [];
     const scope = this.targetScope();
     if (scope === 'all') {
-      return this.included().map((r) => r.clip.id);
+      const allIds = this.included().map((r) => r.clip.id);
+      return allIds.length > 0 ? allIds : fallbackList;
+    }
+    if (scope === 'under_music') {
+      const musicClips = this.clipsUnderMusic().map((c) => c.id);
+      return musicClips.length > 0 ? musicClips : fallbackList;
     }
     if (scope === 'current') {
       const curr = this.currentScheduledClip();
-      if (curr) return [curr.clip.id];
-      return fallbackClipId ? [fallbackClipId] : [];
+      if (curr?.clip?.id) return [curr.clip.id];
+      if (fallbackClipId) return fallbackList;
+      const first = this.included()[0];
+      return first ? [first.clip.id] : [];
     }
+    if (scope === 'selected') {
+      const selIds = Array.from(this.selectedLibraryIds());
+      if (selIds.length > 0) return selIds;
+      const selId = this.selectedClipId();
+      if (selId) return [selId];
+      const curr = this.currentScheduledClip();
+      if (curr?.clip?.id) return [curr.clip.id];
+      if (fallbackClipId) return fallbackList;
+      const all = this.included().map((r) => r.clip.id);
+      return all.length > 0 ? all : [];
+    }
+    // 'auto' scope fallback: selected -> current -> all
     const selIds = Array.from(this.selectedLibraryIds());
-    if (selIds.length > 0) {
-      return selIds;
-    }
+    if (selIds.length > 0) return selIds;
     const selId = this.selectedClipId();
     if (selId) return [selId];
-    return fallbackClipId ? [fallbackClipId] : [];
+    const curr = this.currentScheduledClip();
+    if (curr?.clip?.id) return [curr.clip.id];
+    if (fallbackClipId) return fallbackList;
+    return this.included().map((r) => r.clip.id);
   }
 
   // Framing, Crop & Pan Methods
@@ -1779,7 +1862,7 @@ export class StudioStateService implements OnDestroy {
 
   /** CSS clip-path for live crop preview in the monitor. */
   readonly activeClipClipPath = computed<string>(() => {
-    const clip = this.activeTargetClip();
+    const clip = this.currentScheduledClip()?.clip ?? this.activeTargetClip();
     if (!clip) return 'none';
     const t = this.clipTransformSetting(clip.id);
     if (t.cropLeft === 0 && t.cropRight === 0 && t.cropTop === 0 && t.cropBottom === 0) return 'none';
@@ -1833,19 +1916,28 @@ export class StudioStateService implements OnDestroy {
       for (const id of targetIds) {
         const t = this.clipTransformSetting(id);
         if (t.cropLinked) {
-          // Linked: all four edges equal; total cannot reach 99 (each = val, but val <= 49.5 when both sides equal)
-          const v = Math.min(clamped, 49);
+          // Linked: all four edges equal; total cannot reach 99 (each = val <= 49, so left+right <= 98 < 99)
+          const v = Math.max(0, Math.min(49, clamped));
           next[id] = { ...t, cropLeft: v, cropRight: v, cropTop: v, cropBottom: v };
         } else {
-          // Per-edge clamping so opposite edges don't sum to >= 99
+          // Per-edge clamping so opposite edges sum to strictly < 99
           let newLeft = t.cropLeft ?? 0;
           let newRight = t.cropRight ?? 0;
           let newTop = t.cropTop ?? 0;
           let newBottom = t.cropBottom ?? 0;
-          if (edge === 'left') { newLeft = Math.min(clamped, 98 - newRight); }
-          else if (edge === 'right') { newRight = Math.min(clamped, 98 - newLeft); }
-          else if (edge === 'top') { newTop = Math.min(clamped, 98 - newBottom); }
-          else { newBottom = Math.min(clamped, 98 - newTop); }
+          if (edge === 'left') {
+            const maxL = Math.max(0, 98 - newRight);
+            newLeft = Math.max(0, Math.min(maxL, clamped));
+          } else if (edge === 'right') {
+            const maxR = Math.max(0, 98 - newLeft);
+            newRight = Math.max(0, Math.min(maxR, clamped));
+          } else if (edge === 'top') {
+            const maxT = Math.max(0, 98 - newBottom);
+            newTop = Math.max(0, Math.min(maxT, clamped));
+          } else {
+            const maxB = Math.max(0, 98 - newTop);
+            newBottom = Math.max(0, Math.min(maxB, clamped));
+          }
           next[id] = { ...t, cropLeft: newLeft, cropRight: newRight, cropTop: newTop, cropBottom: newBottom };
         }
       }
@@ -2201,6 +2293,11 @@ export class StudioStateService implements OnDestroy {
         (item) => item.trackId === 'IMG1' || item.trackId === 'IMG' || item.trackId === 'V3' || item.trackId === 'V2'
       );
     }
+    if (trackId === 'A1' || trackId === 'A2') {
+      return this.timelineItems().filter(
+        (item) => item.trackId === 'A1' || item.trackId === 'A2'
+      );
+    }
     return this.timelineItems().filter((item) => item.trackId === trackId);
   }
 
@@ -2240,12 +2337,49 @@ export class StudioStateService implements OnDestroy {
     return t.kind === 'audio' ? !t.muted : t.visible;
   }
 
+  setV1AudioMode(mode: 'Never' | 'MuteOnAudio' | 'Always'): void {
+    this.v1AudioMode.set(mode);
+    if (mode === 'Always') {
+      this.trackV1Muted.set(true);
+      this.status.notify(['All video clips muted (Music Only).']);
+    } else if (mode === 'MuteOnAudio') {
+      this.trackV1Muted.set(false);
+      this.status.notify(['Video audio muted under background music (Auto-Duck).']);
+    } else {
+      this.trackV1Muted.set(false);
+      this.status.notify(['All video audio active (Full Mix).']);
+    }
+    this.markDirty();
+  }
+
   cycleV1AudioMode(): void {
     const current = this.v1AudioMode();
     const next = current === 'Never' ? 'MuteOnAudio' : current === 'MuteOnAudio' ? 'Always' : 'Never';
     this.v1AudioMode.set(next);
     this.markDirty();
     this.status.notify([`V1 Audio Mode: ${next}`]);
+    this.setV1AudioMode(next);
+  }
+
+  selectClipsUnderMusic(): void {
+    const clips = this.clipsUnderMusic();
+    if (clips.length === 0) {
+      this.status.notify(['No video clips currently overlap with background music.']);
+      return;
+    }
+    const ids = new Set(clips.map((c) => c.id));
+    this.selectedLibraryIds.set(ids);
+    this.selectedClipId.set(clips[0].id);
+    this.setTargetScope('under_music');
+    this.status.notify([`Selected ${clips.length} clip(s) under background music.`]);
+  }
+
+  onTimelineAudioClicked(): void {
+    this.setInspectorTab('audio');
+    this.setAudioInspectorView('clip');
+    if (this.clipsUnderMusic().length > 0) {
+      this.selectClipsUnderMusic();
+    }
   }
 
   blockWidthPx(clip: Clip): number {
@@ -2322,6 +2456,11 @@ export class StudioStateService implements OnDestroy {
       }
       this.selectedTimelineItemIds.set(new Set([itemId]));
       this.selectedClipId.set(null);
+      const item = this.timelineItems().find((it) => it.id === itemId);
+      if (item && item.type === 'audio') {
+        this.setInspectorTab('audio');
+        this.setAudioInspectorView('clip');
+      }
     }
   }
 
@@ -2768,7 +2907,217 @@ export class StudioStateService implements OnDestroy {
     this.uploadFiles(Array.from(event.dataTransfer.files));
   }
 
+  formatFileSize(bytes?: number): string {
+    if (!bytes || bytes <= 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let i = 0;
+    let val = bytes;
+    while (val >= 1024 && i < units.length - 1) {
+      val /= 1024;
+      i++;
+    }
+    return `${val.toFixed(1)} ${units[i]}`;
+  }
+
+  generateUniqueFile(file: File, existingNames: Set<string>): File {
+    const lastDotIndex = file.name.lastIndexOf('.');
+    const baseName = lastDotIndex !== -1 ? file.name.substring(0, lastDotIndex) : file.name;
+    const ext = lastDotIndex !== -1 ? file.name.substring(lastDotIndex) : '';
+    let counter = 1;
+    let candidate = `${baseName} (${counter})${ext}`;
+    while (existingNames.has(candidate.trim().toLowerCase())) {
+      counter++;
+      candidate = `${baseName} (${counter})${ext}`;
+    }
+    existingNames.add(candidate.trim().toLowerCase());
+    return new File([file], candidate, { type: file.type, lastModified: file.lastModified });
+  }
+
   uploadFiles(files: File[]): void {
+    const projectId = this.store.projectId();
+    if (!projectId || files.length === 0) return;
+
+    // Check incoming files against existing media rows
+    const allMedia = this.allMediaRows();
+    const existingMap = new Map<string, ClipRow>();
+    for (const row of allMedia) {
+      if (row.clip?.name) {
+        existingMap.set(row.clip.name.trim().toLowerCase(), row);
+      }
+    }
+
+    const conflicts: FileUploadConflict[] = [];
+    const nonConflicts: File[] = [];
+    const seenInBatch = new Set<string>();
+
+    for (const file of files) {
+      const normalized = file.name.trim().toLowerCase();
+      const existing = existingMap.get(normalized);
+      if (existing) {
+        conflicts.push({
+          file,
+          existingClipId: existing.clip.id,
+          existingName: existing.clip.name,
+          existingDuration: existing.clip.durationSeconds,
+          existingSizeBytes: existing.clip.fileSizeBytes,
+          existingType: this.getClipType(existing.clip),
+          resolution: 'skip',
+        });
+      } else if (seenInBatch.has(normalized)) {
+        conflicts.push({
+          file,
+          existingClipId: '',
+          existingName: file.name,
+          existingSizeBytes: file.size,
+          existingType: 'video',
+          resolution: 'rename',
+        });
+      } else {
+        seenInBatch.add(normalized);
+        nonConflicts.push(file);
+      }
+    }
+
+    if (conflicts.length > 0) {
+      this.uploadConflicts.set(conflicts);
+      this.pendingNonConflictFiles.set(nonConflicts);
+      this.uploadConflictModalOpen.set(true);
+      return;
+    }
+
+    // No duplicate conflicts: upload directly
+    this.executeUpload(files);
+  }
+
+  setConflictResolution(index: number, resolution: 'skip' | 'overwrite' | 'rename'): void {
+    this.uploadConflicts.update((conflicts) =>
+      conflicts.map((c, i) => (i === index ? { ...c, resolution } : c))
+    );
+  }
+
+  resolveUploadConflicts(action: 'skip' | 'rename' | 'overwrite' | 'cancel'): void {
+    if (action === 'cancel') {
+      this.cancelUploadConflicts();
+      return;
+    }
+
+    const conflicts = this.uploadConflicts();
+    const nonConflicts = this.pendingNonConflictFiles();
+
+    if (action === 'skip') {
+      this.uploadConflictModalOpen.set(false);
+      this.uploadConflicts.set([]);
+      this.pendingNonConflictFiles.set([]);
+      if (nonConflicts.length > 0) {
+        this.status.notify([`Skipped ${conflicts.length} duplicate file(s). Uploading ${nonConflicts.length} new file(s).`]);
+        this.executeUpload(nonConflicts);
+      } else {
+        this.status.notify([`Skipped ${conflicts.length} duplicate file(s). No new files to upload.`]);
+      }
+      return;
+    }
+
+    if (action === 'rename') {
+      this.uploadConflictModalOpen.set(false);
+      this.uploadConflicts.set([]);
+      this.pendingNonConflictFiles.set([]);
+
+      const existingNames = new Set(this.allMediaRows().map((r) => r.clip.name.trim().toLowerCase()));
+      const renamedFiles: File[] = [];
+      for (const conflict of conflicts) {
+        const renamed = this.generateUniqueFile(conflict.file, existingNames);
+        renamedFiles.push(renamed);
+      }
+      const allFiles = [...nonConflicts, ...renamedFiles];
+      this.status.notify([`Auto-renamed ${conflicts.length} duplicate file(s) to avoid collisions.`]);
+      this.executeUpload(allFiles);
+      return;
+    }
+
+    if (action === 'overwrite') {
+      this.uploadConflictModalOpen.set(false);
+      const existingIds = conflicts.map((c) => c.existingClipId).filter((id) => !!id);
+      const filesToUpload = [...conflicts.map((c) => c.file), ...nonConflicts];
+      this.uploadConflicts.set([]);
+      this.pendingNonConflictFiles.set([]);
+
+      this.overwriteAndUpload(existingIds, filesToUpload, `Overwriting ${existingIds.length} existing file(s)...`);
+      return;
+    }
+  }
+
+  applyCustomConflictResolutions(): void {
+    const conflicts = this.uploadConflicts();
+    const nonConflicts = this.pendingNonConflictFiles();
+    this.uploadConflictModalOpen.set(false);
+
+    const existingNames = new Set(this.allMediaRows().map((r) => r.clip.name.trim().toLowerCase()));
+    const idsToDelete: string[] = [];
+    const filesToUpload: File[] = [...nonConflicts];
+    let skippedCount = 0;
+
+    for (const conflict of conflicts) {
+      if (conflict.resolution === 'skip') {
+        skippedCount++;
+      } else if (conflict.resolution === 'overwrite') {
+        if (conflict.existingClipId) {
+          idsToDelete.push(conflict.existingClipId);
+        }
+        filesToUpload.push(conflict.file);
+      } else if (conflict.resolution === 'rename') {
+        const renamed = this.generateUniqueFile(conflict.file, existingNames);
+        filesToUpload.push(renamed);
+      }
+    }
+
+    this.uploadConflicts.set([]);
+    this.pendingNonConflictFiles.set([]);
+
+    if (idsToDelete.length > 0) {
+      this.overwriteAndUpload(idsToDelete, filesToUpload, `Overwriting ${idsToDelete.length} existing file(s)...`);
+    } else if (filesToUpload.length > 0) {
+      if (skippedCount > 0) {
+        this.status.notify([`Skipped ${skippedCount} duplicate(s). Uploading ${filesToUpload.length} file(s).`]);
+      }
+      this.executeUpload(filesToUpload);
+    } else {
+      this.status.notify([`Skipped all duplicate files. No new files to upload.`]);
+    }
+  }
+
+  cancelUploadConflicts(): void {
+    this.uploadConflictModalOpen.set(false);
+    this.uploadConflicts.set([]);
+    this.pendingNonConflictFiles.set([]);
+    this.status.notify(['Upload cancelled.']);
+  }
+
+  private overwriteAndUpload(existingIdsToDelete: string[], filesToUpload: File[], statusMsg?: string): void {
+    const projectId = this.store.projectId();
+    if (!projectId) return;
+
+    if (statusMsg) {
+      this.status.notify([statusMsg]);
+    }
+
+    if (existingIdsToDelete.length > 0) {
+      this.status.run(
+        this.api.deleteClips(projectId, existingIdsToDelete),
+        () => {
+          this.store.refreshAssets();
+          if (filesToUpload.length > 0) {
+            this.executeUpload(filesToUpload);
+          } else {
+            this.loadStudio();
+          }
+        }
+      );
+    } else if (filesToUpload.length > 0) {
+      this.executeUpload(filesToUpload);
+    }
+  }
+
+  executeUpload(files: File[]): void {
     const projectId = this.store.projectId();
     if (!projectId || files.length === 0) return;
 
@@ -2792,8 +3141,9 @@ export class StudioStateService implements OnDestroy {
         }),
         finalize(() => {
           this.uploading.set(false);
+          this.store.refreshAssets();
           this.loadStudio();
-          this.status.notify(['Upload completed.']);
+          this.status.notify(['Upload completed successfully.']);
         })
       )
       .subscribe();
@@ -2914,7 +3264,14 @@ export class StudioStateService implements OnDestroy {
     localStorage.setItem(`${DRAFT_KEY_PREFIX}${projectId}`, JSON.stringify(draftData));
     this.hasUnsavedChanges.set(false);
     this.lastSavedTime.set(draftData.savedAt);
+    this.restoredDraftTime.set(null);
     this.status.notify(['Draft saved locally.']);
+  }
+
+  keepDraft(): void {
+    this.saveDraft();
+    this.restoredDraftTime.set(null);
+    this.status.notify(['Draft kept and saved.']);
   }
 
   discardDraft(): void {
@@ -3008,7 +3365,44 @@ export class StudioStateService implements OnDestroy {
   }
 
   timelineItemsPayload(): TimelineItem[] | null {
-    const items = this.timelineItems();
+    const items = [...this.timelineItems()];
+    // Include V1 primary video timeline items so backend receives their transforms/crops
+    const schedule = this.clipSchedule();
+    for (const entry of schedule) {
+      const clipId = entry.clip.id;
+      const t = this.clipTransformSetting(clipId);
+      const transformSpec: TimelineItemTransform = {
+        scale: t.scale,
+        x: t.x,
+        y: t.y,
+        opacity: t.opacity,
+        rotation: t.rotation,
+        cropLeft: t.cropLeft,
+        cropRight: t.cropRight,
+        cropTop: t.cropTop,
+        cropBottom: t.cropBottom,
+        cropLinked: t.cropLinked,
+        stabilization: t.stabilization,
+      };
+      const existingIdx = items.findIndex((it) => (it.trackId === 'V1' || it.trackId === 'video') && (it.src === clipId || it.id === clipId));
+      if (existingIdx >= 0) {
+        items[existingIdx] = {
+          ...items[existingIdx],
+          transform: transformSpec,
+        };
+      } else {
+        items.push({
+          id: `v1_${clipId}`,
+          type: 'video',
+          trackId: 'V1',
+          startTime: entry.startSeconds,
+          duration: Math.max(0.1, entry.endSeconds - entry.startSeconds),
+          src: clipId,
+          name: entry.clip.name,
+          transform: transformSpec,
+        });
+      }
+    }
     if (items.length === 0) return null;
     return items.map((item) => ({
       id: item.id,
@@ -3176,7 +3570,7 @@ export class StudioStateService implements OnDestroy {
           transition: j.transition,
           transitionSeconds: j.transition === 'None' ? 0 : j.seconds,
         })),
-        muteClipAudio: this.v1AudioMode() === 'Always',
+        muteClipAudio: this.v1AudioMode() === 'Always' || this.trackV1Muted(),
         backgroundMusicAssetId: this.musicAssetId() || null,
         backgroundMusicVolume: this.musicVolume(),
         musicTracks: this.musicTracks().map((t) => ({
@@ -3230,7 +3624,7 @@ export class StudioStateService implements OnDestroy {
           transition: j.transition,
           transitionSeconds: j.transition === 'None' ? 0 : j.seconds,
         })),
-        muteClipAudio: this.v1AudioMode() === 'Always',
+        muteClipAudio: this.v1AudioMode() === 'Always' || this.trackV1Muted(),
         backgroundMusicAssetId: this.musicAssetId() || null,
         backgroundMusicVolume: this.musicVolume(),
         musicTracks: this.musicTracks().map((t) => ({
@@ -3268,8 +3662,46 @@ export class StudioStateService implements OnDestroy {
     });
   }
 
+  setScreenMode(mode: 'normal' | 'window' | 'display'): void {
+    this.screenMode.set(mode);
+    this.screenModeDropdownOpen.set(false);
+    if (mode === 'normal') {
+      this.appFullscreen.set(false);
+      if (typeof document !== 'undefined' && document.fullscreenElement) {
+        document.exitFullscreen().catch(() => undefined);
+      }
+    } else if (mode === 'window') {
+      this.appFullscreen.set(true);
+      if (typeof document !== 'undefined' && document.fullscreenElement) {
+        document.exitFullscreen().catch(() => undefined);
+      }
+    } else if (mode === 'display') {
+      this.appFullscreen.set(true);
+      if (typeof document !== 'undefined' && !document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(() => undefined);
+      }
+    }
+  }
+
+  toggleScreenModeDropdown(event?: MouseEvent): void {
+    if (event) event.stopPropagation();
+    this.screenModeDropdownOpen.update((v) => !v);
+  }
+
+  cycleScreenMode(): void {
+    const cur = this.screenMode();
+    if (cur === 'normal') this.setScreenMode('window');
+    else if (cur === 'window') this.setScreenMode('display');
+    else this.setScreenMode('normal');
+  }
+
   toggleAppFullscreen(): void {
     this.appFullscreen.update((f) => !f);
+    if (this.screenMode() === 'normal') {
+      this.setScreenMode('window');
+    } else {
+      this.setScreenMode('normal');
+    }
   }
 
   exportClipAsShort(clipId: string): void {
