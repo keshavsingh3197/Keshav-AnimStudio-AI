@@ -204,6 +204,14 @@ public sealed class ClipMergeOrchestrator(
                     }
 
                     var isImage = asset.Kind == AssetKind.Image;
+
+                    // Find the matching V1 timeline item for this asset to get transform/crop.
+                    // TimelineItems are keyed by asset src (asset ID), so look for V1 track item
+                    // whose Src matches this asset's ID.
+                    var v1Item = spec.TimelineItems.FirstOrDefault(
+                        it => it.TrackId is "V1" or "video" && it.Src == asset.Id);
+                    var v1Transform = v1Item?.Transform;
+
                     var plan = new ClipRenderPlan
                     {
                         ClipIndex = index,
@@ -226,8 +234,14 @@ public sealed class ClipMergeOrchestrator(
                         KeepOwnAudio = audio?.KeepOriginalAudio ?? false,
                         Watermark = watermark,
                         Encoder = clipEncoder,
-                        EncoderThreads = perClipThreads
+                        EncoderThreads = perClipThreads,
+                        // Per-clip crop from transform inspector (applied before fit scaling).
+                        CropLeft = v1Transform?.CropLeft ?? 0,
+                        CropRight = v1Transform?.CropRight ?? 0,
+                        CropTop = v1Transform?.CropTop ?? 0,
+                        CropBottom = v1Transform?.CropBottom ?? 0,
                     };
+
 
                     var result = await renderer
                         .RenderClipAsync(plan, workspace, reporter, token).ConfigureAwait(false);

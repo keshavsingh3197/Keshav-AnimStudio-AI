@@ -1,102 +1,224 @@
-@if (state.activeTargetClip(); as clip) {
+﻿@let tx = state.activeScopeTransformSetting();
+@let clip = state.activeTargetClip();
+
+@if (clip) {
+  <!-- Scope badge -->
   @if (state.targetScope() === 'all') {
-    <div class="alert alert-info py-1 px-2 mb-2 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: color-mix(in srgb, var(--brand) 15%, transparent); border: 1px solid var(--brand); color: #93c5fd; border-radius: 6px;">
+    <div class="scope-badge">
       <span>🌐</span>
-      <span><strong>Batch Mode:</strong> Framing adjustments apply to all <strong>{{ state.included().length }} timeline clips</strong>.</span>
+      <span><strong>All Clips</strong> · {{ state.included().length }} clips</span>
     </div>
   } @else if (state.targetScope() === 'selected' && state.selectedClipsCount() > 1) {
-    <div class="alert alert-primary py-1 px-2 mb-2 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: color-mix(in srgb, var(--brand) 15%, transparent); border: 1px solid var(--brand); color: #93c5fd; border-radius: 6px;">
+    <div class="scope-badge">
       <span>🎯</span>
-      <span><strong>Multi-Clip Edit:</strong> Framing adjustments apply to all <strong>{{ state.selectedClipsCount() }} selected clips</strong>.</span>
-    </div>
-  } @else {
-    <div class="clip-info-header" style="margin-bottom: 8px;">
-      <div class="clip-name" [title]="clip.name" style="font-size: .85rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text);">{{ clip.name }}</div>
-      <div class="muted mono" style="font-size: .75rem; margin-top: 2px;">
-        {{ clip.durationSeconds ?? 0 | number: '1.1-1' }}s &middot;
-        {{ clip.width }}&times;{{ clip.height }} &middot;
-        {{ clip.fileSizeBytes / 1048576 | number: '1.1-1' }}MB
-      </div>
+      <span><strong>{{ state.selectedClipsCount() }} Selected</strong></span>
     </div>
   }
 
-  <!-- Framing, Pan & Zoom Control Card -->
-  @let framing = state.clipFramingSetting(clip.id);
-  <div class="framing-card" style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 10px;">
-    <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 4px;">
-      <div class="qa-title mb-0" style="font-size: 0.82rem; font-weight: 700;">📐 Framing, Crop & Zoom</div>
-      <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1 font-monospace" style="font-size: 0.72rem;"
-              (click)="state.setClipFramingZoom(clip.id, 100)" title="Reset zoom to 100%">
-        {{ framing.zoom }}%
-      </button>
-    </div>
-    <p class="muted" style="font-size: .75rem; margin: 0 0 8px;">
-      Adapt horizontal clips to vertical Shorts without black letterbox bars.
-    </p>
-    <div class="row" style="gap: .4rem; margin-bottom: 8px;">
-      <button class="aspect-pill" type="button" [class.active]="framing.fit === 'Contain'"
-              (click)="state.setClipFramingFit(clip.id, 'Contain')" title="Fit whole frame with black letterbox bars">
-        Contain (Letterbox)
-      </button>
-      <button class="aspect-pill" type="button" [class.active]="framing.fit === 'Cover'"
-              (click)="state.setClipFramingFit(clip.id, 'Cover')" title="Fill screen completely (crops edges)">
-        Cover (Fill & Crop)
-      </button>
-    </div>
-    @if (framing.fit === 'Cover') {
-      <p class="muted" style="margin: .3rem 0 .5rem; font-size: .74rem; color: #fbbf24">
-        ⚠️ Cover mode crops clip edges to fill canvas.
-      </p>
-    }
-    <div class="d-flex flex-column gap-2">
-      <div>
-        <div class="d-flex justify-content-between align-items-center mb-1">
-          <label style="font-size: .75rem; margin-bottom: 0;">Scale / Zoom</label>
-          <span class="mono" style="font-size: .72rem; color: var(--text-dim);">{{ framing.zoom }}%</span>
+  <!-- ── TRANSFORM section ───────────────────────────────────────── -->
+  <div class="inspector-section">
+    <button class="section-header" type="button" (click)="toggleTransform()" title="Transform controls">
+      <span class="section-title">Transform</span>
+      <button class="reset-btn" type="button" (click)="$event.stopPropagation(); state.resetScopeTransform()" title="Reset all transform to defaults">↺</button>
+      <span class="chevron" [class.open]="transformOpen()">▶</span>
+    </button>
+
+    @if (transformOpen()) {
+      <div class="section-body">
+
+        <!-- Scale -->
+        <div class="scale-row">
+          <span class="ctrl-label" title="Scale / Zoom">Scale</span>
+          <input type="range" class="scale-slider" min="5" max="300" step="1"
+                 [value]="tx.scale !== null ? tx.scale * 100 : 100"
+                 (input)="state.setScopeTransformScale(+$any($event.target).value / 100)"
+                 title="Drag to scale" />
+          <input type="number" class="num-input" style="max-width:52px" min="5" max="300" step="1"
+                 [value]="tx.scale !== null ? (tx.scale * 100 | number:'1.0-0') : ''"
+                 [placeholder]="fmt(tx.scale !== null ? tx.scale * 100 : null, 0)"
+                 (change)="state.setScopeTransformScale(+$any($event.target).value / 100)"
+                 title="Scale %" />
+          <span class="unit">%</span>
         </div>
-        <input type="range" class="form-range w-100" min="100" max="250" step="5" [ngModel]="framing.zoom"
-               (ngModelChange)="state.setClipFramingZoom(clip.id, $event)" />
+
+        <!-- Position X & Y -->
+        <div class="ctrl-row">
+          <span class="ctrl-label" title="Horizontal position offset (%)">X</span>
+          <input type="number" class="num-input" min="-50" max="50" step="0.5"
+                 [value]="tx.x !== null ? tx.x : ''"
+                 [placeholder]="fmt(tx.x)"
+                 (change)="state.setScopeTransformPositionX(+$any($event.target).value)"
+                 title="Position X (% from center)" />
+          <span class="unit">%</span>
+        </div>
+
+        <div class="ctrl-row">
+          <span class="ctrl-label" title="Vertical position offset (%)">Y</span>
+          <input type="number" class="num-input" min="-50" max="50" step="0.5"
+                 [value]="tx.y !== null ? tx.y : ''"
+                 [placeholder]="fmt(tx.y)"
+                 (change)="state.setScopeTransformPositionY(+$any($event.target).value)"
+                 title="Position Y (% from center)" />
+          <span class="unit">%</span>
+        </div>
+
+        <!-- Rotation -->
+        <div class="ctrl-row">
+          <span class="ctrl-label" title="Clockwise rotation in degrees">Rotate</span>
+          <input type="number" class="num-input" min="-360" max="360" step="0.5"
+                 [value]="tx.rotation !== null ? tx.rotation : ''"
+                 [placeholder]="fmt(tx.rotation)"
+                 (change)="state.setScopeTransformRotation(+$any($event.target).value)"
+                 title="Rotation (degrees)" />
+          <span class="unit">°</span>
+          <button class="icon-btn" type="button" (click)="state.resetScopeTransformRotation()" title="Reset rotation to 0°">↺</button>
+        </div>
+
+        <!-- Framing fit (Contain / Cover) -->
+        @let framing = state.clipFramingSetting(clip.id);
+        <div class="ctrl-row" style="margin-top:4px;">
+          <span class="ctrl-label" title="How the clip fills the canvas">Fit</span>
+          <button class="aspect-pill" type="button" [class.active]="framing.fit === 'Contain'"
+                  (click)="state.setClipFramingFit(clip.id, 'Contain')" title="Letterbox (Contain)">Contain</button>
+          <button class="aspect-pill" type="button" [class.active]="framing.fit === 'Cover'"
+                  (click)="state.setClipFramingFit(clip.id, 'Cover')" title="Fill & crop (Cover)">Cover</button>
+        </div>
+
       </div>
-      <div>
-        <label style="font-size: .75rem; margin-bottom: 4px;">Vertical Focus / Pan</label>
-        <div class="row" style="gap: .25rem">
-          <button class="aspect-pill" type="button" [class.active]="framing.panY === 'top'"
-                  (click)="state.setClipFramingPan(clip.id, 'top')">Top</button>
-          <button class="aspect-pill" type="button" [class.active]="framing.panY === 'center'"
-                  (click)="state.setClipFramingPan(clip.id, 'center')">Center</button>
-          <button class="aspect-pill" type="button" [class.active]="framing.panY === 'bottom'"
-                  (click)="state.setClipFramingPan(clip.id, 'bottom')">Bottom</button>
+    }
+  </div>
+
+  <!-- ── CROP section ───────────────────────────────────────────── -->
+  <div class="inspector-section">
+    <button class="section-header" type="button" (click)="toggleCrop()" title="Crop controls">
+      <span class="section-title">Crop</span>
+      <button class="reset-btn" type="button" (click)="$event.stopPropagation(); state.resetScopeCrop()" title="Reset all crop to 0%">↺</button>
+      <span class="chevron" [class.open]="cropOpen()">▶</span>
+    </button>
+
+    @if (cropOpen()) {
+      <div class="section-body">
+        <div class="crop-grid">
+          <!-- Top -->
+          <div class="crop-top crop-input-wrap">
+            <input type="number" class="num-input" min="0" max="98" step="0.5"
+                   [value]="tx.cropTop !== null ? tx.cropTop : ''"
+                   [placeholder]="fmt(tx.cropTop)"
+                   (change)="state.setScopeCrop('top', +$any($event.target).value)"
+                   title="Crop Top %" />
+            <span class="unit">T</span>
+          </div>
+
+          <!-- Left -->
+          <div class="crop-left crop-input-wrap">
+            <span class="unit">L</span>
+            <input type="number" class="num-input" min="0" max="98" step="0.5"
+                   [value]="tx.cropLeft !== null ? tx.cropLeft : ''"
+                   [placeholder]="fmt(tx.cropLeft)"
+                   (change)="state.setScopeCrop('left', +$any($event.target).value)"
+                   title="Crop Left %" />
+          </div>
+
+          <!-- Center — link button -->
+          <div class="crop-center">
+            <button class="icon-btn" [class.active]="tx.cropLinked" type="button"
+                    (click)="state.toggleScopeCropLinked()"
+                    [title]="tx.cropLinked ? 'Unlink crop edges' : 'Link all crop edges'">
+              {{ tx.cropLinked ? '🔗' : '⛓️‍💥' }}
+            </button>
+          </div>
+
+          <!-- Right -->
+          <div class="crop-right crop-input-wrap">
+            <input type="number" class="num-input" min="0" max="98" step="0.5"
+                   [value]="tx.cropRight !== null ? tx.cropRight : ''"
+                   [placeholder]="fmt(tx.cropRight)"
+                   (change)="state.setScopeCrop('right', +$any($event.target).value)"
+                   title="Crop Right %" />
+            <span class="unit">R</span>
+          </div>
+
+          <!-- Bottom -->
+          <div class="crop-bottom crop-input-wrap">
+            <input type="number" class="num-input" min="0" max="98" step="0.5"
+                   [value]="tx.cropBottom !== null ? tx.cropBottom : ''"
+                   [placeholder]="fmt(tx.cropBottom)"
+                   (change)="state.setScopeCrop('bottom', +$any($event.target).value)"
+                   title="Crop Bottom %" />
+            <span class="unit">B</span>
+          </div>
         </div>
+      </div>
+    }
+  </div>
+
+  <!-- ── STABILIZATION row ───────────────────────────────────────── -->
+  <div class="inspector-section">
+    <div class="section-body" style="padding:8px 10px">
+      <div class="toggle-row">
+        <span class="toggle-label" title="Request stabilization in export render">⚡ Stabilization</span>
+        <label class="toggle-switch">
+          <input type="checkbox" [checked]="tx.stabilization" (change)="state.toggleScopeStabilization()" />
+          <span class="toggle-track"></span>
+        </label>
       </div>
     </div>
   </div>
 
-  <!-- Image Display Duration (for Image Timeline Clips) -->
-  @if (state.getClipType(clip) === 'image') {
-    <div class="image-duration-card" style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 10px;">
-      <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 4px;">
-        <div class="qa-title mb-0" style="font-size: 0.82rem; font-weight: 700;">⏱ Image Duration</div>
-        <span class="mono" style="font-size: .78rem; color: var(--brand); font-weight: 600;">{{ clip.durationSeconds ?? 5.0 | number: '1.1-1' }}s</span>
+  <!-- ── AI TOOLS row ────────────────────────────────────────────── -->
+  <div class="inspector-section">
+    <button class="section-header" type="button" (click)="toggleAiTools()">
+      <span class="ai-tools-header">
+        <span class="section-title">AI Tools</span>
+        <span class="ai-badge">New</span>
+      </span>
+      <span class="chevron" [class.open]="aiToolsOpen()">▶</span>
+    </button>
+
+    @if (aiToolsOpen()) {
+      <div class="section-body" style="gap:6px">
+        <button class="ai-btn" type="button" (click)="triggerAiReframe()"
+                [disabled]="aiToolBusy() !== null"
+                title="AI Smart Auto-Reframe — automatically adjusts framing for 9:16 Shorts">
+          @if (aiToolBusy() === 'reframe') {
+            <span class="ai-spinner"></span> Reframing…
+          } @else {
+            🤖 Auto-Reframe (9:16)
+          }
+        </button>
+        <button class="ai-btn" type="button" (click)="triggerAiBgRemoval()"
+                [disabled]="aiToolBusy() !== null"
+                title="AI Background Removal — remove background from this clip">
+          @if (aiToolBusy() === 'bgremove') {
+            <span class="ai-spinner"></span> Removing BG…
+          } @else {
+            ✨ AI Background Removal
+          }
+        </button>
       </div>
-      <p class="muted" style="font-size: .75rem; margin: 0 0 8px;">
-        Set how long this photo or graphic displays on the video timeline.
-      </p>
-      <input type="range" class="form-range w-100" min="1" max="30" step="0.5" [ngModel]="clip.durationSeconds ?? 5.0"
-             (ngModelChange)="state.setImageClipDuration(clip.id, $event)" />
-      <div class="d-flex justify-content-between text-secondary mt-1" style="font-size: 0.7rem;">
-        <span>1s</span>
-        <span>5s</span>
-        <span>10s</span>
-        <span>20s</span>
-        <span>30s</span>
+    }
+  </div>
+
+  <!-- ── IMAGE DURATION (image clips only) ──────────────────────── -->
+  @if (state.getClipType(clip) === 'image') {
+    <div class="inspector-section">
+      <div class="section-body">
+        <div class="img-dur-label">
+          <span title="How long this image displays on the timeline">⏱ Duration</span>
+          <span class="img-dur-val">{{ clip.durationSeconds ?? 5.0 | number:'1.1-1' }}s</span>
+        </div>
+        <input type="range" class="scale-slider w-100" min="1" max="30" step="0.5"
+               [ngModel]="clip.durationSeconds ?? 5.0"
+               (ngModelChange)="state.setImageClipDuration(clip.id, $event)"
+               title="Image display duration (seconds)" />
       </div>
     </div>
   }
+
 } @else {
-  <div class="p-4 text-center text-secondary">
-    <div style="font-size: 1.8rem; margin-bottom: 8px;">📐</div>
-    <div style="font-size: 0.85rem; font-weight: 600; color: var(--text);">No Clip Selected</div>
-    <div style="font-size: 0.75rem; margin-top: 4px;">Select clips in the media library or click any clip on the timeline to adjust framing.</div>
+  <div class="no-clip">
+    <span class="icon">📐</span>
+    <span class="title">No Clip Selected</span>
+    <span class="hint">Select a clip on the timeline to adjust transform &amp; crop.</span>
   </div>
 }
-

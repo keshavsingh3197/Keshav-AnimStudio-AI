@@ -482,6 +482,17 @@ export interface TimelineItemTransform {
   x: number;
   y: number;
   opacity: number;
+  /** Clockwise rotation in degrees */
+  rotation?: number;
+  /** Crop percentages [0-99] from each edge */
+  cropLeft?: number;
+  cropRight?: number;
+  cropTop?: number;
+  cropBottom?: number;
+  /** When true, editing any single crop edge mirrors to all four */
+  cropLinked?: boolean;
+  /** Request video stabilization for this clip */
+  stabilization?: boolean;
 }
 
 export interface TimelineItemTextStyle {

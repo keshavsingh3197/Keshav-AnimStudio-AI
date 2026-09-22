@@ -186,9 +186,35 @@ public sealed class TimelineItemTextStyleSpec
 public sealed class TimelineItemTransformSpec
 {
     public double Scale { get; set; } = 1.0;
+
+    /// <summary>Normalized percentage offset [-50, 50] from canvas centre on X axis.</summary>
     public double X { get; set; }
+
+    /// <summary>Normalized percentage offset [-50, 50] from canvas centre on Y axis.</summary>
     public double Y { get; set; }
+
     public double Opacity { get; set; } = 1.0;
+
+    /// <summary>Clockwise rotation in degrees.</summary>
+    public double Rotation { get; set; }
+
+    /// <summary>Pixels to crop from left as a percentage of source width [0–99].</summary>
+    public double CropLeft { get; set; }
+
+    /// <summary>Pixels to crop from right as a percentage of source width [0–99].</summary>
+    public double CropRight { get; set; }
+
+    /// <summary>Pixels to crop from top as a percentage of source height [0–99].</summary>
+    public double CropTop { get; set; }
+
+    /// <summary>Pixels to crop from bottom as a percentage of source height [0–99].</summary>
+    public double CropBottom { get; set; }
+
+    /// <summary>Whether video stabilization post-process is requested for this clip.</summary>
+    public bool Stabilization { get; set; }
+
+    /// <summary>Returns true when any crop edge is non-zero (crop filter needed).</summary>
+    public bool HasCrop => CropLeft > 0 || CropRight > 0 || CropTop > 0 || CropBottom > 0;
 }
 
 public sealed class TimelineItemSpec

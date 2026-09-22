@@ -136,4 +136,13 @@ public sealed record ClipRenderPlan
     /// </para>
     /// </summary>
     public int EncoderThreads { get; init; }
+
+    /// <summary>Crop percentages [0–99] applied BEFORE fit scaling.</summary>
+    public double CropLeft { get; init; }
+    public double CropRight { get; init; }
+    public double CropTop { get; init; }
+    public double CropBottom { get; init; }
+
+    /// <summary>True when any crop edge is non-zero.</summary>
+    public bool HasCrop => CropLeft > 0 || CropRight > 0 || CropTop > 0 || CropBottom > 0;
 }

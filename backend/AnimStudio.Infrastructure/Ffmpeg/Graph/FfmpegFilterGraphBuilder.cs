@@ -306,7 +306,7 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         var drawsText = wantsText && canDrawText;
         var working = drawsLogo || drawsText ? "yuv444p" : plan.Encoder.PixelFormat;
 
-        graph.Append(FitChain(fit, canvas, rate, working));
+        graph.Append(FitChain(fit, canvas, rate, working, plan));
 
         var current = "base";
         var stage = 0;
@@ -444,22 +444,29 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
     /// the result, otherwise the delivery format, which is roughly half the plane data to
     /// scale, pad and blur.
     /// </param>
-    private static string FitChain(ClipFit fit, Canvas canvas, FrameRate rate, string working)
+    private static string FitChain(ClipFit fit, Canvas canvas, FrameRate rate, string working, ClipRenderPlan plan)
     {
         var size = $"{FilterExpr.N(canvas.Width)}:{FilterExpr.N(canvas.Height)}";
         var conform = $"setsar=1,fps={rate.ToFfmpegRate()},format={working}";
+
+        // Build an optional crop prefix. The crop filter trims edges BEFORE the scale/pad
+        // step so that the FitChain sees only the intended region of the source frame.
+        // Percentages are expressed as fractions: L/100, R/100, T/100, B/100.
+        var cropPrefix = plan.HasCrop
+            ? BuildCropFilter(plan)
+            : string.Empty;
 
         return fit switch
         {
             // Fill and centre-crop. No bars, at the cost of the edges.
             ClipFit.Cover =>
-                $"[0:v]scale={size}:force_original_aspect_ratio=increase:flags=lanczos,"
+                $"[0:v]{cropPrefix}scale={size}:force_original_aspect_ratio=increase:flags=lanczos,"
                 + $"crop={size},{conform}[base];\n",
 
             // Letterbox over a blurred, cropped copy of the same frame. split comes first
             // so the source is decoded once and used twice.
             ClipFit.BlurredBackdrop =>
-                "[0:v]split=2[bgsrc][fgsrc];\n"
+                $"[0:v]{cropPrefix}split=2[bgsrc][fgsrc];\n"
                 + $"[bgsrc]scale={size}:force_original_aspect_ratio=increase,crop={size},"
                 + $"gblur=sigma={FilterExpr.N(Math.Max(canvas.Height / 40, 4))}:steps=2,"
                 + $"setsar=1,format={working}[bgblur];\n"
@@ -470,10 +477,31 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
 
             // Letterbox on black. Loses nothing.
             _ =>
-                $"[0:v]scale={size}:force_original_aspect_ratio=decrease:flags=lanczos,"
+                $"[0:v]{cropPrefix}scale={size}:force_original_aspect_ratio=decrease:flags=lanczos,"
                 + $"pad={size}:(ow-iw)/2:(oh-ih)/2:color=black,{conform}[base];\n"
         };
     }
+
+    /// <summary>
+    /// Builds an inline crop= filter fragment (no leading '[0:v]', no trailing '[out]').
+    /// <para>
+    /// Formula: crop=w=in_w*(1-L-R):h=in_h*(1-T-B):x=in_w*L:y=in_h*T
+    /// where L/R/T/B are the fractional crop edges (e.g. 10% → 0.1).
+    /// </para>
+    /// </summary>
+    private static string BuildCropFilter(ClipRenderPlan plan)
+    {
+        var l = FilterExpr.N(plan.CropLeft / 100.0);
+        var r = FilterExpr.N(plan.CropRight / 100.0);
+        var t = FilterExpr.N(plan.CropTop / 100.0);
+        var b = FilterExpr.N(plan.CropBottom / 100.0);
+
+        // Prevent w/h from reaching zero by clamping (caller already guards < 99 total,
+        // but a double-rounding edge at render time is worth a no-op guard here too).
+        return $"crop=w='max(1,in_w*(1-{l}-{r}))':h='max(1,in_h*(1-{t}-{b}))'"
+             + $":x=in_w*{l}:y=in_h*{t},";
+    }
+
 
     /// <summary>
     /// The clip's output arguments. Identical to a scene's in every respect that decides

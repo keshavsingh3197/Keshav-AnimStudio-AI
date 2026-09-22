@@ -158,7 +158,13 @@ public sealed class ClipsController(
                         Scale = t.Transform.Scale,
                         X = t.Transform.X,
                         Y = t.Transform.Y,
-                        Opacity = t.Transform.Opacity
+                        Opacity = t.Transform.Opacity,
+                        Rotation = t.Transform.Rotation,
+                        CropLeft = t.Transform.CropLeft,
+                        CropRight = t.Transform.CropRight,
+                        CropTop = t.Transform.CropTop,
+                        CropBottom = t.Transform.CropBottom,
+                        Stabilization = t.Transform.Stabilization,
                     },
                     TextStyle = t.TextStyle is null ? null : new TimelineItemTextStyleSpec
                     {

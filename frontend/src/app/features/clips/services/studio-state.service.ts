@@ -771,12 +771,25 @@ export class StudioStateService implements OnDestroy {
   });
 
   readonly activeClipTransform = computed(() => {
+    const clip = this.activeTargetClip();
     const framing = this.activeClipFraming();
-    if (!framing || (framing.zoom === 100 && framing.panY === 'center')) return 'none';
-    const scale = framing.zoom / 100;
-    const yOffset = framing.panY === 'top' ? '-8%' : framing.panY === 'bottom' ? '8%' : '0%';
-    return `scale(${scale}) translateY(${yOffset})`;
+
+    // Combine framing zoom/pan with per-clip transform (scale, position, rotation)
+    const t = clip ? this.clipTransformSetting(clip.id) : null;
+
+    const frameScale = framing ? (framing.zoom !== 100 ? framing.zoom / 100 : 1) : 1;
+    const framePanY = framing?.panY === 'top' ? -8 : framing?.panY === 'bottom' ? 8 : 0;
+
+    const totalScale = frameScale * (t?.scale ?? 1);
+    const x = t?.x ?? 0;
+    const y = (t?.y ?? 0) + framePanY;
+    const rot = t?.rotation ?? 0;
+
+    if (totalScale === 1 && x === 0 && y === 0 && rot === 0) return 'none';
+    // Req 2: translate3d(x%, y%, 0) rotate(deg) scale(scale)
+    return `translate3d(${x}%, ${y}%, 0) rotate(${rot}deg) scale(${totalScale})`;
   });
+
 
   readonly activeInspectorTabLabel = computed(() => {
     switch (this.activeInspectorTab()) {
@@ -1692,6 +1705,196 @@ export class StudioStateService implements OnDestroy {
     });
     this.markDirty();
   }
+
+  // ── Transform & Crop Methods ────────────────────────────────────────────────
+
+  /** Default transform values (all neutral). */
+  readonly DEFAULT_TRANSFORM: Required<Pick<TimelineItemTransform,
+    'scale' | 'x' | 'y' | 'opacity' | 'rotation' | 'cropLeft' | 'cropRight' | 'cropTop' | 'cropBottom' | 'cropLinked' | 'stabilization'
+  >> = { scale: 1, x: 0, y: 0, opacity: 1, rotation: 0, cropLeft: 0, cropRight: 0, cropTop: 0, cropBottom: 0, cropLinked: false, stabilization: false };
+
+  clipTransformSetting(clipId: string): Required<Pick<TimelineItemTransform,
+    'scale' | 'x' | 'y' | 'opacity' | 'rotation' | 'cropLeft' | 'cropRight' | 'cropTop' | 'cropBottom' | 'cropLinked' | 'stabilization'
+  >> {
+    const t = this.clipTransforms()[clipId];
+    return {
+      scale: t?.scale ?? 1,
+      x: t?.x ?? 0,
+      y: t?.y ?? 0,
+      opacity: t?.opacity ?? 1,
+      rotation: t?.rotation ?? 0,
+      cropLeft: t?.cropLeft ?? 0,
+      cropRight: t?.cropRight ?? 0,
+      cropTop: t?.cropTop ?? 0,
+      cropBottom: t?.cropBottom ?? 0,
+      cropLinked: t?.cropLinked ?? false,
+      stabilization: t?.stabilization ?? false,
+    };
+  }
+
+  /**
+   * Returns transform values for the active scope.
+   * When multiple clips in scope have differing values for a field, that field returns null
+   * (displayed as '--' in inputs). Req 4: mixed-value scope handling.
+   */
+  readonly activeScopeTransformSetting = computed<{
+    scale: number | null;
+    x: number | null;
+    y: number | null;
+    rotation: number | null;
+    cropLeft: number | null;
+    cropRight: number | null;
+    cropTop: number | null;
+    cropBottom: number | null;
+    cropLinked: boolean;
+    stabilization: boolean;
+  }>(() => {
+    const ids = this.getTargetClipIds();
+    if (ids.length === 0) {
+      const clip = this.activeTargetClip();
+      if (clip) {
+        const t = this.clipTransformSetting(clip.id);
+        return { scale: t.scale, x: t.x, y: t.y, rotation: t.rotation, cropLeft: t.cropLeft, cropRight: t.cropRight, cropTop: t.cropTop, cropBottom: t.cropBottom, cropLinked: t.cropLinked, stabilization: t.stabilization };
+      }
+      return { scale: 1, x: 0, y: 0, rotation: 0, cropLeft: 0, cropRight: 0, cropTop: 0, cropBottom: 0, cropLinked: false, stabilization: false };
+    }
+    const transforms = ids.map((id) => this.clipTransformSetting(id));
+    const first = transforms[0];
+    const mixed = <K extends keyof typeof first>(key: K): typeof first[K] | null => {
+      return transforms.every((t) => t[key] === first[key]) ? first[key] : null;
+    };
+    return {
+      scale: mixed('scale') as number | null,
+      x: mixed('x') as number | null,
+      y: mixed('y') as number | null,
+      rotation: mixed('rotation') as number | null,
+      cropLeft: mixed('cropLeft') as number | null,
+      cropRight: mixed('cropRight') as number | null,
+      cropTop: mixed('cropTop') as number | null,
+      cropBottom: mixed('cropBottom') as number | null,
+      cropLinked: first.cropLinked,
+      stabilization: first.stabilization,
+    };
+  });
+
+  /** CSS clip-path for live crop preview in the monitor. */
+  readonly activeClipClipPath = computed<string>(() => {
+    const clip = this.activeTargetClip();
+    if (!clip) return 'none';
+    const t = this.clipTransformSetting(clip.id);
+    if (t.cropLeft === 0 && t.cropRight === 0 && t.cropTop === 0 && t.cropBottom === 0) return 'none';
+    return `inset(${t.cropTop}% ${t.cropRight}% ${t.cropBottom}% ${t.cropLeft}%)`;
+  });
+
+  private _setScopeTransformField(patch: Partial<TimelineItemTransform>, fallbackClipId?: string): void {
+    const targetIds = this.getTargetClipIds(fallbackClipId);
+    if (targetIds.length === 0) return;
+    this.clipTransforms.update((rec) => {
+      const next = { ...rec };
+      for (const id of targetIds) {
+        next[id] = { ...this.clipTransformSetting(id), ...patch };
+      }
+      return next;
+    });
+    this.markDirty();
+  }
+
+  setScopeTransformScale(scale: number): void {
+    this._setScopeTransformField({ scale: Math.max(0.05, Math.min(5, scale)) });
+  }
+
+  setScopeTransformPositionX(x: number): void {
+    this._setScopeTransformField({ x: Math.max(-50, Math.min(50, x)) });
+  }
+
+  setScopeTransformPositionY(y: number): void {
+    this._setScopeTransformField({ y: Math.max(-50, Math.min(50, y)) });
+  }
+
+  setScopeTransformRotation(deg: number): void {
+    this._setScopeTransformField({ rotation: deg });
+  }
+
+  resetScopeTransformRotation(): void {
+    this._setScopeTransformField({ rotation: 0 });
+  }
+
+  /**
+   * Set a single crop edge with clamping + linked math.
+   * Req 1: cropLeft + cropRight < 99, cropTop + cropBottom < 99.
+   * When cropLinked, all four edges are set to the same value.
+   */
+  setScopeCrop(edge: 'left' | 'right' | 'top' | 'bottom', val: number): void {
+    const clamped = Math.max(0, Math.min(98, val));
+    const targetIds = this.getTargetClipIds();
+    if (targetIds.length === 0) return;
+    this.clipTransforms.update((rec) => {
+      const next = { ...rec };
+      for (const id of targetIds) {
+        const t = this.clipTransformSetting(id);
+        if (t.cropLinked) {
+          // Linked: all four edges equal; total cannot reach 99 (each = val, but val <= 49.5 when both sides equal)
+          const v = Math.min(clamped, 49);
+          next[id] = { ...t, cropLeft: v, cropRight: v, cropTop: v, cropBottom: v };
+        } else {
+          // Per-edge clamping so opposite edges don't sum to >= 99
+          let newLeft = t.cropLeft ?? 0;
+          let newRight = t.cropRight ?? 0;
+          let newTop = t.cropTop ?? 0;
+          let newBottom = t.cropBottom ?? 0;
+          if (edge === 'left') { newLeft = Math.min(clamped, 98 - newRight); }
+          else if (edge === 'right') { newRight = Math.min(clamped, 98 - newLeft); }
+          else if (edge === 'top') { newTop = Math.min(clamped, 98 - newBottom); }
+          else { newBottom = Math.min(clamped, 98 - newTop); }
+          next[id] = { ...t, cropLeft: newLeft, cropRight: newRight, cropTop: newTop, cropBottom: newBottom };
+        }
+      }
+      return next;
+    });
+    this.markDirty();
+  }
+
+  toggleScopeCropLinked(): void {
+    const targetIds = this.getTargetClipIds();
+    if (targetIds.length === 0) return;
+    this.clipTransforms.update((rec) => {
+      const next = { ...rec };
+      const first = this.clipTransformSetting(targetIds[0]);
+      const newLinked = !first.cropLinked;
+      for (const id of targetIds) {
+        next[id] = { ...this.clipTransformSetting(id), cropLinked: newLinked };
+      }
+      return next;
+    });
+    this.markDirty();
+  }
+
+  toggleScopeStabilization(): void {
+    const targetIds = this.getTargetClipIds();
+    if (targetIds.length === 0) return;
+    this.clipTransforms.update((rec) => {
+      const next = { ...rec };
+      const first = this.clipTransformSetting(targetIds[0]);
+      const newStab = !first.stabilization;
+      for (const id of targetIds) {
+        next[id] = { ...this.clipTransformSetting(id), stabilization: newStab };
+      }
+      return next;
+    });
+    this.markDirty();
+  }
+
+  /** Req 6: Reset all transform fields to defaults for the active scope. */
+  resetScopeTransform(): void {
+    this._setScopeTransformField({ scale: 1, x: 0, y: 0, rotation: 0, opacity: 1 });
+  }
+
+  /** Req 6: Reset all crop edges to 0 for the active scope. */
+  resetScopeCrop(): void {
+    this._setScopeTransformField({ cropLeft: 0, cropRight: 0, cropTop: 0, cropBottom: 0 });
+  }
+
+
 
   setImageClipDuration(clipId: string, seconds: number): void {
     this.rows.update((rows) =>

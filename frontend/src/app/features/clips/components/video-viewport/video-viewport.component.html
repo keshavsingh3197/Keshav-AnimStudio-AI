@@ -55,6 +55,7 @@
                [style.animation-duration.s]="liveTransitionDuration()"
                [style.filter]="state.computedMonitorFilter()"
                [style.transform]="state.activeClipTransform()"
+               [style.clip-path]="state.activeClipClipPath()"
                playsinline preload="auto"></video>
 
         <video #videoMonitorB
@@ -62,6 +63,7 @@
                [style.animation-duration.s]="liveTransitionDuration()"
                [style.filter]="state.computedMonitorFilter()"
                [style.transform]="state.activeClipTransform()"
+               [style.clip-path]="state.activeClipClipPath()"
                playsinline preload="auto"></video>
 
         <!-- Static Image Clip Monitor Layer -->
@@ -71,6 +73,7 @@
                [src]="state.activeClipImageUrl()"
                [style.filter]="state.computedMonitorFilter()"
                [style.transform]="state.activeClipTransform()"
+               [style.clip-path]="state.activeClipClipPath()"
                [style.object-fit]="state.monitorFitClass() === 'fit-cover' ? 'cover' : 'contain'"
                alt="" />
         }

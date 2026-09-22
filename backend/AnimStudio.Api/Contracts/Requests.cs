@@ -377,9 +377,26 @@ public sealed record TimelineItemTextStyleRequest
 public sealed record TimelineItemTransformRequest
 {
     public double Scale { get; init; } = 1.0;
+
+    /// <summary>Normalized percentage offset [-50, 50] from canvas centre on X axis.</summary>
     public double X { get; init; }
+
+    /// <summary>Normalized percentage offset [-50, 50] from canvas centre on Y axis.</summary>
     public double Y { get; init; }
+
     public double Opacity { get; init; } = 1.0;
+
+    /// <summary>Clockwise rotation in degrees.</summary>
+    public double Rotation { get; init; }
+
+    /// <summary>Crop percentages [0–99] from each edge.</summary>
+    public double CropLeft { get; init; }
+    public double CropRight { get; init; }
+    public double CropTop { get; init; }
+    public double CropBottom { get; init; }
+
+    /// <summary>Request video stabilization for this clip.</summary>
+    public bool Stabilization { get; init; }
 }
 
 public sealed record TimelineItemRequest
