@@ -88,9 +88,10 @@ export const FILTER_PRESETS: readonly FilterPreset[] = [
 
 export const TRACK_COLORS = {
   V1: '#3b82f6',
+  IMG1: '#10b981',
   V2: '#06b6d4',
-  V3: '#f59e0b',
-  TXT1: '#10b981',
+  V3: '#10b981',
+  TXT1: '#f59e0b',
   A1: '#8b5cf6',
   A2: '#a855f7',
   Master: '#6c8cff',

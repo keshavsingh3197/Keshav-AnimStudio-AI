@@ -311,7 +311,7 @@ public sealed class ClipMergeOrchestrator(
             var overlays = new List<MergeOverlayItem>();
             foreach (var item in spec.TimelineItems)
             {
-                if (item.TrackId is "V2" or "V3" or "TXT1")
+                if (item.TrackId is "IMG1" or "IMG" or "IMAGE" or "V2" or "V3" or "TXT1")
                 {
                     string? relPath = null;
                     if (item.Type is "image" or "video")

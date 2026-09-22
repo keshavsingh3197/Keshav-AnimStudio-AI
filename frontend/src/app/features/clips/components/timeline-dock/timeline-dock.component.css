@@ -366,6 +366,7 @@
 
 /* Lane Specific Heights & Tints */
 .tl-lane-txt { min-height: 36px !important; height: 36px !important; background: rgba(245, 158, 11, 0.02) !important; }
+.tl-lane-img,
 .tl-lane-v3  { min-height: 38px !important; height: 38px !important; background: rgba(16, 185, 129, 0.02) !important; }
 .tl-lane-v2  { min-height: 42px !important; height: 42px !important; background: rgba(6, 182, 212, 0.02) !important; }
 .tl-lane-v1  { min-height: 48px !important; height: 48px !important; background: rgba(59, 130, 246, 0.02) !important; }
@@ -406,6 +407,7 @@
 }
 
 .tl-item-txt { background: linear-gradient(135deg, rgba(245, 158, 11, 0.25) 0%, rgba(217, 119, 6, 0.35) 100%); border-color: rgba(245, 158, 11, 0.5); }
+.tl-item-img,
 .tl-item-v3  { background: linear-gradient(135deg, rgba(16, 185, 129, 0.25) 0%, rgba(5, 150, 105, 0.35) 100%); border-color: rgba(16, 185, 129, 0.5); }
 .tl-item-v2  { background: linear-gradient(135deg, rgba(6, 182, 212, 0.25) 0%, rgba(8, 145, 178, 0.35) 100%); border-color: rgba(6, 182, 212, 0.5); }
 .tl-item-a1  { background: linear-gradient(135deg, rgba(139, 92, 246, 0.25) 0%, rgba(124, 58, 237, 0.35) 100%); border-color: rgba(139, 92, 246, 0.5); }
@@ -836,8 +838,9 @@
   bottom: 0 !important;
   width: 2px !important;
   background: #ff3b30 !important;
-  z-index: 28 !important;
+  z-index: 60 !important;
   pointer-events: none !important;
+  margin-left: -1px !important;
   box-shadow: 0 0 8px rgba(255, 59, 48, 0.95) !important;
 }
 

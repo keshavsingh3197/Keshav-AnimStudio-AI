@@ -45,11 +45,24 @@ export class TimelineDockComponent implements OnInit, OnDestroy {
   private startPlayheadRaf(): void {
     const loop = () => {
       const el = this.playheadNeedleRef?.nativeElement;
-      if (el) {
+      if (el && !this.isScrubbing()) {
         const time = this.state.getCurrentTimeExact();
         const px = 76 + this.state.secondsToPx(time);
-        el.style.transform = `translate3d(${px}px, 0, 0)`;
-        el.style.transform = `translate3d(${px}px, 0, 0) translateX(-50%)`;
+        el.style.left = `${px}px`;
+
+        // Keep playhead within view during playback
+        if (this.state.isPlaying()) {
+          const area = this.timelineAreaRef?.nativeElement;
+          if (area) {
+            const scrollLeft = area.scrollLeft;
+            const clientWidth = area.clientWidth;
+            if (px > scrollLeft + clientWidth - 60) {
+              area.scrollLeft = px - clientWidth + 120;
+            } else if (px < scrollLeft + 76) {
+              area.scrollLeft = Math.max(0, px - 76);
+            }
+          }
+        }
       }
       this.rafId = requestAnimationFrame(loop);
     };
@@ -92,7 +105,13 @@ export class TimelineDockComponent implements OnInit, OnDestroy {
   // Scrubbing Handlers
   onTimelineScrubDown(event: PointerEvent): void {
     const target = event.target as HTMLElement;
-    if (target.closest('.tl-clip') || target.closest('.tl-junction') || target.closest('.tl-music-clip')) {
+    if (
+      target.closest('.tl-clip') ||
+      target.closest('.tl-junction') ||
+      target.closest('.tl-music-clip') ||
+      target.closest('.tl-header-76') ||
+      target.closest('.tl-ruler-corner')
+    ) {
       return;
     }
     this.state.clearAllSelections();
@@ -129,6 +148,11 @@ export class TimelineDockComponent implements OnInit, OnDestroy {
       targetSeconds = this.state.applySnap(targetSeconds);
     } else {
       this.state.snapLineLeftPx.set(null);
+    }
+
+    const needleEl = this.playheadNeedleRef?.nativeElement;
+    if (needleEl) {
+      needleEl.style.left = `${76 + this.state.secondsToPx(targetSeconds)}px`;
     }
 
     this.state.seekTo(targetSeconds);

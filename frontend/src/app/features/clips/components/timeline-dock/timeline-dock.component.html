@@ -99,8 +99,10 @@
            (pointerup)="onTimelineScrubUp($event)">
         <div #timelineInner class="timeline-inner" [style.width.px]="76 + state.secondsToPx(state.timelineSeconds())">
           
-          <!-- Playhead Needle (60fps RAF translation loop) -->
-          <div #playheadNeedle class="tl-playhead-needle" style="left: 0; will-change: transform;">
+          <!-- Playhead Needle (Declarative binding + 60fps RAF translation loop) -->
+          <div #playheadNeedle class="tl-playhead-needle"
+               [style.left.px]="76 + state.secondsToPx(state.currentTime())"
+               style="will-change: left;">
             <div class="tl-playhead-head" title="Drag to seek"></div>
             <div class="tl-playhead-bubble">{{ state.formattedPlayheadTime() }}</div>
           </div>
@@ -162,27 +164,27 @@
             </div>
           </div>
 
-          <!-- V3 Image Overlay Swimlane Row -->
-          <div class="tl-row tl-track-row tl-row-v3">
-            <div class="tl-header-76 tl-header-v3">
+          <!-- Image Overlay Swimlane Row -->
+          <div class="tl-row tl-track-row tl-row-img">
+            <div class="tl-header-76 tl-header-img">
               <div class="tl-h-top">
-                <span class="tl-badge tl-badge-img track-badge-v3">V3</span>
+                <span class="tl-badge tl-badge-img track-badge-img">IMG</span>
               </div>
               <div class="tl-h-actions">
-                <button class="tl-h-btn" type="button" (click)="state.toggleTrackLock('V3')" [title]="state.isTrackLocked('V3') ? 'Unlock V3' : 'Lock V3'">
-                  {{ state.isTrackLocked('V3') ? '🔒' : '🔓' }}
+                <button class="tl-h-btn" type="button" (click)="state.toggleTrackLock('IMG1')" [title]="state.isTrackLocked('IMG1') ? 'Unlock Image track' : 'Lock Image track'">
+                  {{ state.isTrackLocked('IMG1') ? '🔒' : '🔓' }}
                 </button>
-                <button class="tl-h-btn" type="button" (click)="state.toggleTrackVisibility('V3')" [title]="state.isTrackVisible('V3') ? 'Hide V3' : 'Show V3'">
-                  {{ state.isTrackVisible('V3') ? '👁' : '🚫' }}
+                <button class="tl-h-btn" type="button" (click)="state.toggleTrackVisibility('IMG1')" [title]="state.isTrackVisible('IMG1') ? 'Hide Image track' : 'Show Image track'">
+                  {{ state.isTrackVisible('IMG1') ? '👁' : '🚫' }}
                 </button>
               </div>
             </div>
-            <div class="tl-lane tl-lane-v3"
+            <div class="tl-lane tl-lane-img"
                  [style.width.px]="state.secondsToPx(state.timelineSeconds())"
                  (dragover)="$event.preventDefault()"
-                 (drop)="onTrackDrop('V3', $event)">
-              @for (item of state.itemsForTrack('V3'); track item.id) {
-                <div class="tl-clip tl-item-v3"
+                 (drop)="onTrackDrop('IMG1', $event)">
+              @for (item of state.itemsForTrack('IMG1'); track item.id) {
+                <div class="tl-clip tl-item-img"
                      [class.selected]="state.selectedTimelineItemId() === item.id"
                      [style.left.px]="state.secondsToPx(item.startTime)"
                      [style.width.px]="state.secondsToPx(item.duration)"
@@ -196,48 +198,8 @@
                   <span class="tl-trim-handle right" (pointerdown)="onItemTrimPointerDown(item, 'right', $event)"></span>
                 </div>
               }
-              @if (state.itemsForTrack('V3').length === 0) {
-                <div class="tl-lane-placeholder">Drop Image Overlays (PNG/JPG/SVG)</div>
-              }
-            </div>
-          </div>
-
-          <!-- V2 Video Overlay Swimlane Row -->
-          <div class="tl-row tl-track-row tl-row-v2">
-            <div class="tl-header-76 tl-header-v2">
-              <div class="tl-h-top">
-                <span class="tl-badge tl-badge-vid track-badge-v2">V2</span>
-              </div>
-              <div class="tl-h-actions">
-                <button class="tl-h-btn" type="button" (click)="state.toggleTrackLock('V2')" [title]="state.isTrackLocked('V2') ? 'Unlock V2' : 'Lock V2'">
-                  {{ state.isTrackLocked('V2') ? '🔒' : '🔓' }}
-                </button>
-                <button class="tl-h-btn" type="button" (click)="state.toggleTrackVisibility('V2')" [title]="state.isTrackVisible('V2') ? 'Hide V2' : 'Show V2'">
-                  {{ state.isTrackVisible('V2') ? '👁' : '🚫' }}
-                </button>
-              </div>
-            </div>
-            <div class="tl-lane tl-lane-v2"
-                 [style.width.px]="state.secondsToPx(state.timelineSeconds())"
-                 (dragover)="$event.preventDefault()"
-                 (drop)="onTrackDrop('V2', $event)">
-              @for (item of state.itemsForTrack('V2'); track item.id) {
-                <div class="tl-clip tl-item-v2"
-                     [class.selected]="state.selectedTimelineItemId() === item.id"
-                     [style.left.px]="state.secondsToPx(item.startTime)"
-                     [style.width.px]="state.secondsToPx(item.duration)"
-                     (pointerdown)="onItemPointerDown(item, $event)"
-                     (click)="$event.stopPropagation(); state.selectTimelineItem(item.id, $event)">
-                  <span class="tl-trim-handle left" (pointerdown)="onItemTrimPointerDown(item, 'left', $event)"></span>
-                  <span class="tl-item-badge">VID</span>
-                  <span class="tl-item-name">{{ item.name || item.src }}</span>
-                  <span class="tl-item-dur mono">{{ item.duration | number:'1.1-1' }}s</span>
-                  <button class="tl-item-remove" type="button" (click)="$event.stopPropagation(); state.removeTimelineItem(item.id)" aria-label="Remove">×</button>
-                  <span class="tl-trim-handle right" (pointerdown)="onItemTrimPointerDown(item, 'right', $event)"></span>
-                </div>
-              }
-              @if (state.itemsForTrack('V2').length === 0) {
-                <div class="tl-lane-placeholder">Drop Video Overlays (PiP / B-Roll)</div>
+              @if (state.itemsForTrack('IMG1').length === 0) {
+                <div class="tl-lane-placeholder">Drop Image Overlays (PNG / JPG / Stickers / Logos)</div>
               }
             </div>
           </div>

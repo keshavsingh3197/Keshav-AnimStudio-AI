@@ -42,8 +42,7 @@ export class StudioStateService implements OnDestroy {
   readonly timelineItems = signal<TimelineItem[]>([]);
   readonly timelineTracks = signal<TrackControlState[]>([
     { id: 'TXT1', name: 'Text', label: 'TXT1', kind: 'text', muted: false, locked: false, visible: true, color: '#10b981' },
-    { id: 'V3', name: 'Graphics', label: 'V3', kind: 'image', muted: false, locked: false, visible: true, color: '#f59e0b' },
-    { id: 'V2', name: 'Overlay', label: 'V2', kind: 'video', muted: false, locked: false, visible: true, color: '#06b6d4' },
+    { id: 'IMG1', name: 'Image', label: 'IMG1', kind: 'image', muted: false, locked: false, visible: true, color: '#10b981' },
     { id: 'V1', name: 'Primary Video', label: 'V1', kind: 'video', muted: false, locked: false, visible: true, color: '#3b82f6' },
     { id: 'A1', name: 'Voiceover', label: 'A1', kind: 'audio', muted: false, locked: false, visible: true, color: '#8b5cf6' },
     { id: 'A2', name: 'Music Bed', label: 'A2', kind: 'audio', muted: false, locked: false, visible: true, color: '#a855f7' },
@@ -97,7 +96,9 @@ export class StudioStateService implements OnDestroy {
           height: img.height,
           hasAudio: false,
         },
-        included: false,
+        included: this.timelineItems().some(
+          (it) => (it.trackId === 'IMG1' || it.trackId === 'IMG' || it.trackId === 'V3' || it.trackId === 'V2') && (it.src === img.id || it.id === img.id)
+        ),
       }));
 
     const audioRows: ClipRow[] = (studio.musicCandidates || []).map((aud) => ({
@@ -138,15 +139,9 @@ export class StudioStateService implements OnDestroy {
   readonly endIndex = computed(() => Math.min((this.currentPage() + 1) * this.pageSize(), this.totalItems()));
 
   readonly selectedCount = computed(() => this.selectedLibraryIds().size);
-  readonly videoCount = computed(() => this.rows().filter((r) => this.getClipType(r.clip) === 'video').length);
-  readonly imageCount = computed(() => {
-    const inRows = this.rows().filter((r) => this.getClipType(r.clip) === 'image').length;
-    const studio = this.studio();
-    const rowIds = new Set(this.rows().map((r) => r.clip.id));
-    const extra = (studio?.logoCandidates || []).filter((img) => !rowIds.has(img.id)).length;
-    return inRows + extra;
-  });
-  readonly audioCount = computed(() => this.studio()?.musicCandidates?.length ?? 0);
+  readonly videoCount = computed(() => this.allMediaRows().filter((r) => this.getClipType(r.clip) === 'video').length);
+  readonly imageCount = computed(() => this.allMediaRows().filter((r) => this.getClipType(r.clip) === 'image').length);
+  readonly audioCount = computed(() => this.allMediaRows().filter((r) => this.getClipType(r.clip) === 'audio').length);
   readonly totalMediaCount = computed(() => this.videoCount() + this.imageCount() + this.audioCount());
 
   // Export & Project Signals
@@ -346,7 +341,7 @@ export class StudioStateService implements OnDestroy {
     return last.endSeconds;
   });
 
-  readonly timelineSeconds = computed(() => {
+  readonly contentDurationSeconds = computed(() => {
     let maxSec = this.totalSeconds();
     for (const item of this.timelineItems()) {
       const end = item.startTime + item.duration;
@@ -357,7 +352,11 @@ export class StudioStateService implements OnDestroy {
       const end = track.startSeconds + dur;
       if (end > maxSec) maxSec = end;
     }
-    return Math.max(maxSec, 10);
+    return maxSec;
+  });
+
+  readonly timelineSeconds = computed(() => {
+    return Math.max(this.contentDurationSeconds(), 10);
   });
 
   readonly rulerTicks = computed<number[]>(() => {
@@ -446,12 +445,14 @@ export class StudioStateService implements OnDestroy {
     return this.timelineItems().find((item) => item.trackId === 'V2' && t >= item.startTime && t < (item.startTime + item.duration)) ?? null;
   });
 
-  readonly activeV3Item = computed<TimelineItem | null>(() => {
+  readonly activeImgItem = computed<TimelineItem | null>(() => {
     const t = this.currentTime();
-    const track = this.timelineTracks().find((tr) => tr.id === 'V3');
+    const track = this.timelineTracks().find((tr) => tr.id === 'IMG1' || tr.id === 'IMG' || tr.id === 'V3');
     if (track && !track.visible) return null;
-    return this.timelineItems().find((item) => item.trackId === 'V3' && t >= item.startTime && t < (item.startTime + item.duration)) ?? null;
+    return this.timelineItems().find((item) => (item.trackId === 'IMG1' || item.trackId === 'IMG' || item.trackId === 'V3') && t >= item.startTime && t < (item.startTime + item.duration)) ?? null;
   });
+
+  readonly activeV3Item = this.activeImgItem;
 
   readonly activeTxtItem = computed<TimelineItem | null>(() => {
     const t = this.currentTime();
@@ -591,7 +592,7 @@ export class StudioStateService implements OnDestroy {
 
   readonly formattedCurrentTime = computed(() => this.formatTimecode(this.currentTime()));
   readonly formattedPlayheadTime = this.formattedCurrentTime;
-  readonly formattedTotalTime = computed(() => this.formatTimecode(this.totalSeconds()));
+  readonly formattedTotalTime = computed(() => this.formatTimecode(this.contentDurationSeconds()));
 
   readonly effectiveWatermark = computed<WatermarkBody>(() => {
     if (this.watermark()) return this.watermark()!;
@@ -1040,51 +1041,85 @@ export class StudioStateService implements OnDestroy {
 
   addClipToTimeline(clipId: string): void {
     const studio = this.studio();
-    const rows = [...this.rows()];
-    let added = false;
-
-    const isAudio = studio?.musicCandidates?.some((m) => m.id === clipId);
-    if (isAudio) {
-      this.addMusicTrackFromAsset(clipId);
-      added = true;
+    // Resolve clip metadata
+    let clip: Clip | null = null;
+    const mediaRow = this.allMediaRows().find((r) => r.clip.id === clipId);
+    if (mediaRow) {
+      clip = mediaRow.clip;
+    } else if (studio?.logoCandidates?.some((l) => l.id === clipId)) {
+      const img = studio.logoCandidates.find((l) => l.id === clipId)!;
+      clip = {
+        id: img.id,
+        name: img.name,
+        fileSizeBytes: img.fileSizeBytes,
+        durationSeconds: 5.0,
+        width: img.width,
+        height: img.height,
+        hasAudio: false,
+      };
+    } else if (studio?.musicCandidates?.some((m) => m.id === clipId)) {
+      const aud = studio.musicCandidates.find((m) => m.id === clipId)!;
+      clip = {
+        id: aud.id,
+        name: aud.name,
+        fileSizeBytes: aud.fileSizeBytes,
+        durationSeconds: aud.durationSeconds,
+        hasAudio: true,
+      };
     } else {
-      const existingIdx = rows.findIndex((r) => r.clip.id === clipId);
-      if (existingIdx >= 0) {
-        rows[existingIdx] = { ...rows[existingIdx], included: true };
-        this.rows.set(rows);
-        added = true;
-      } else {
-        const img = studio?.logoCandidates?.find((l) => l.id === clipId);
-        if (img) {
-          rows.push({
-            clip: {
-              id: img.id,
-              name: img.name,
-              fileSizeBytes: img.fileSizeBytes,
-              durationSeconds: 5.0,
-              width: img.width,
-              height: img.height,
-              hasAudio: false,
-            },
-            included: true,
-          });
-          this.rows.set(rows);
-          added = true;
-        } else {
-          const mediaRow = this.allMediaRows().find((r) => r.clip.id === clipId);
-          if (mediaRow) {
-            rows.push({ ...mediaRow, included: true });
-            this.rows.set(rows);
-            added = true;
-          }
-        }
-      }
+      const row = this.rows().find((r) => r.clip.id === clipId);
+      if (row) clip = row.clip;
     }
 
-    if (added) {
+    if (!clip) return;
+
+    const assetType = this.getClipType(clip);
+
+    if (assetType === 'image') {
+      // Images route strictly to IMG1 Image track
+      const defaultDuration = clip.durationSeconds ?? 5.0;
+      const validStart = this.clampItemCollision('IMG1', this.currentTime(), defaultDuration);
+      const newItemId = `img_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+      const newItem: TimelineItem = {
+        id: newItemId,
+        type: 'image',
+        trackId: 'IMG1',
+        startTime: validStart,
+        duration: defaultDuration,
+        src: clip.id,
+        name: clip.name,
+        transform: { scale: 1.0, x: 0, y: 0, opacity: 1.0 },
+      };
+      this.timelineItems.update((items) => [...items, newItem]);
+      this.selectedTimelineItemId.set(newItemId);
+      // Ensure image is never in rows (V1)
+      if (this.rows().some((r) => r.clip.id === clipId)) {
+        this.rows.update((r) => r.filter((row) => row.clip.id !== clipId));
+      }
       this.markDirty();
-      this.status.notify(['Added to timeline.']);
+      this.status.notify([`Added image "${clip.name}" to Image track (IMG1).`]);
+      return;
     }
+
+    if (assetType === 'audio') {
+      // Audio routes strictly to audio track
+      this.addMusicTrackFromAsset(clip.id);
+      this.status.notify([`Added audio "${clip.name}" to audio track.`]);
+      return;
+    }
+
+    // Video clips route strictly to V1 Base Video track
+    const rows = [...this.rows()];
+    const existingIdx = rows.findIndex((r) => r.clip.id === clipId);
+    if (existingIdx >= 0) {
+      rows[existingIdx] = { ...rows[existingIdx], included: true };
+      this.rows.set(rows);
+    } else {
+      rows.push({ clip, included: true });
+      this.rows.set(rows);
+    }
+    this.markDirty();
+    this.status.notify([`Added video "${clip.name}" to V1 video track.`]);
   }
 
   removeClipFromTimeline(clipId: string): void {
@@ -1213,6 +1248,9 @@ export class StudioStateService implements OnDestroy {
 
   // Playback Methods
   play(): void {
+    if (this.currentTime() >= this.contentDurationSeconds() && this.contentDurationSeconds() > 0) {
+      this.seekTo(0);
+    }
     this.audioEngine.ensureContext();
     this.isPlaying.set(true);
   }
@@ -1955,6 +1993,11 @@ export class StudioStateService implements OnDestroy {
   }
 
   itemsForTrack(trackId: string): TimelineItem[] {
+    if (trackId === 'IMG1' || trackId === 'IMG') {
+      return this.timelineItems().filter(
+        (item) => item.trackId === 'IMG1' || item.trackId === 'IMG' || item.trackId === 'V3' || item.trackId === 'V2'
+      );
+    }
     return this.timelineItems().filter((item) => item.trackId === trackId);
   }
 
@@ -2188,34 +2231,48 @@ export class StudioStateService implements OnDestroy {
       return;
     }
 
-    if (trackId === 'V3' && assetType !== 'image') {
-      if (assetType === 'video') {
-        targetTrackId = 'V2';
-        this.status.notify(['Redirected video clip to V2 Video Overlay track.']);
-      } else {
-        this.status.notify(['Only image overlays can be placed on V3 lane.']);
-        return;
+    if (trackId === 'IMG1' || trackId === 'IMG' || trackId === 'V3' || trackId === 'V2') {
+      if (assetType !== 'image') {
+        if (assetType === 'video') {
+          this.addClipToTimeline(row.clip.id);
+          this.status.notify(['Videos belong on the V1 video track. Added to V1.']);
+          return;
+        } else {
+          this.status.notify(['Only image overlays can be placed on Image track (IMG1).']);
+          return;
+        }
+      }
+      targetTrackId = 'IMG1';
+    }
+
+    if (trackId === 'A1' || trackId === 'A2') {
+      if (assetType !== 'audio') {
+        if (assetType === 'image') {
+          targetTrackId = 'IMG1';
+          this.status.notify(['Images belong on the Image track. Placed overlay on IMG1.']);
+        } else if (assetType === 'video') {
+          this.addClipToTimeline(row.clip.id);
+          this.status.notify(['Videos belong on the V1 video track. Added to V1.']);
+          return;
+        } else {
+          this.status.notify(['Only audio clips can be placed on audio lanes.']);
+          return;
+        }
       }
     }
 
-    if (trackId === 'V2' && assetType !== 'video') {
+    if (trackId === 'V1') {
       if (assetType === 'image') {
-        targetTrackId = 'V3';
-        this.status.notify(['Redirected image to V3 Image Overlay track.']);
-      } else {
-        this.status.notify(['Only video overlays can be placed on V2 lane.']);
+        targetTrackId = 'IMG1';
+        this.status.notify(['Images belong on the Image track. Placed overlay on IMG1.']);
+      } else if (assetType === 'audio') {
+        this.addMusicTrackFromAsset(row.clip.id);
+        this.status.notify(['Audio belongs on audio tracks. Added to audio track.']);
+        return;
+      } else if (assetType === 'video') {
+        this.addClipToTimeline(row.clip.id);
         return;
       }
-    }
-
-    if ((trackId === 'A1' || trackId === 'A2') && assetType !== 'audio') {
-      this.status.notify(['Only audio clips can be placed on audio lanes.']);
-      return;
-    }
-
-    if (trackId === 'V1' && assetType === 'video') {
-      this.addClipToTimeline(row.clip.id);
-      return;
     }
 
     const validStart = this.clampItemCollision(targetTrackId, dropTime, defaultDuration);
@@ -2437,12 +2494,37 @@ export class StudioStateService implements OnDestroy {
 
   onRowDrop(index: number, event: DragEvent): void {
     event.preventDefault();
+    event.stopPropagation();
+
+    const dragging = this.draggingAsset();
+    if (dragging) {
+      const type = this.getClipType(dragging.clip);
+      if (type === 'image') {
+        this.addAssetToTrack('IMG1', dragging, this.currentTime());
+        this.dragIndex.set(null);
+        this.dragOverIndex.set(null);
+        this.draggingAsset.set(null);
+        return;
+      }
+      if (type === 'audio') {
+        this.addMusicTrackFromAsset(dragging.clip.id);
+        this.dragIndex.set(null);
+        this.dragOverIndex.set(null);
+        this.draggingAsset.set(null);
+        return;
+      }
+    }
+
     const fromIdx = this.dragIndex();
     if (fromIdx !== null && fromIdx !== index) {
       this.rows.update((rows) => {
         const next = [...rows];
-        const [moved] = next.splice(fromIdx, 1);
-        next.splice(index, 0, moved);
+        if (fromIdx >= 0 && fromIdx < next.length) {
+          const [moved] = next.splice(fromIdx, 1);
+          if (moved) {
+            next.splice(index, 0, moved);
+          }
+        }
         return next;
       });
       this.markDirty();
@@ -2649,10 +2731,12 @@ export class StudioStateService implements OnDestroy {
     this.api.clipStudio(projectId).subscribe({
       next: (studio: ClipStudio) => {
         this.studio.set(studio);
-        const rowList: ClipRow[] = (studio.clips || []).map((clip) => ({
-          clip,
-          included: true,
-        }));
+        const rowList: ClipRow[] = (studio.clips || [])
+          .filter((clip) => this.getClipType(clip) === 'video')
+          .map((clip) => ({
+            clip,
+            included: true,
+          }));
         this.rows.set(rowList);
 
         // Check for local draft
@@ -2660,8 +2744,30 @@ export class StudioStateService implements OnDestroy {
         if (draftJson) {
           try {
             const draft = JSON.parse(draftJson);
-            if (draft.rows) this.rows.set(draft.rows);
-            if (draft.timelineItems) this.timelineItems.set(draft.timelineItems);
+            let draftItems: TimelineItem[] = Array.isArray(draft.timelineItems) ? [...draft.timelineItems] : [];
+
+            if (draft.rows && Array.isArray(draft.rows)) {
+              // Migrate any legacy images that were previously saved in rows onto IMG1
+              const legacyImageRows = draft.rows.filter((r: ClipRow) => this.getClipType(r.clip) === 'image' && r.included);
+              for (const imgRow of legacyImageRows) {
+                if (!draftItems.some((it) => (it.trackId === 'IMG1' || it.trackId === 'IMG') && (it.src === imgRow.clip.id || it.id === imgRow.clip.id))) {
+                  draftItems.push({
+                    id: `img_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+                    type: 'image',
+                    trackId: 'IMG1',
+                    startTime: 0,
+                    duration: imgRow.clip.durationSeconds ?? 5.0,
+                    src: imgRow.clip.id,
+                    name: imgRow.clip.name,
+                    transform: { scale: 1.0, x: 0, y: 0, opacity: 1.0 },
+                  });
+                }
+              }
+              // Only pure video clips stay on V1
+              this.rows.set(draft.rows.filter((r: ClipRow) => this.getClipType(r.clip) === 'video'));
+            }
+
+            this.timelineItems.set(draftItems);
             if (draft.musicTracks) this.musicTracks.set(draft.musicTracks);
             if (draft.clipSounds) this.clipSounds.set(draft.clipSounds);
             if (draft.clipTransforms) this.clipTransforms.set(draft.clipTransforms);

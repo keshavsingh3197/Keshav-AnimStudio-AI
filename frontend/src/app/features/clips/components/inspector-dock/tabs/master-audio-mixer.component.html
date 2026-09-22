@@ -34,34 +34,7 @@
     </div>
   </div>
 
-  <!-- BUS 2: V2 (Overlay Video Track) -->
-  <div class="mixer-bus-row mb-2">
-    <div class="bus-meta-line">
-      <div class="d-flex align-items-center gap-2">
-        <span class="track-badge-pill" style="background: #06b6d4;">V2</span>
-        <span class="bus-name">Overlay Video</span>
-      </div>
-      <div class="d-flex align-items-center gap-2">
-        <button type="button" class="btn-mute-toggle" [class.muted]="state.isTrackMuted('V2')" (click)="state.toggleTrackMute('V2')" [title]="state.isTrackMuted('V2') ? 'Unmute V2' : 'Mute V2'">
-          {{ state.isTrackMuted('V2') ? '🔇' : '🔊' }}
-        </button>
-        <span class="mono fw-bold bus-db" [class.muted-text]="state.isTrackMuted('V2')">
-          {{ state.isTrackMuted('V2') ? '-∞ dB' : Math.round(state.trackV2Volume() * 100) + '% (' + state.volumeToDb(state.trackV2Volume()) + ')' }}
-        </span>
-      </div>
-    </div>
-    <div class="bus-fader-container">
-      <input type="range" class="form-range bus-slider" min="0" max="2.0" step="0.02"
-             [disabled]="state.isTrackMuted('V2')"
-             [ngModel]="state.trackV2Volume()" (ngModelChange)="state.setTrackVolume('V2', $event)" />
-    </div>
-    <!-- Reactive VU Peak Meter Bar -->
-    <div class="vu-meter-track">
-      <div #meterBarV2 class="vu-meter-fill"></div>
-    </div>
-  </div>
-
-  <!-- BUS 3: A1 (Voiceover & Dialogue Track) -->
+  <!-- BUS 2: A1 (Voiceover & Dialogue Track) -->
   <div class="mixer-bus-row mb-2">
     <div class="bus-meta-line">
       <div class="d-flex align-items-center gap-2">
@@ -88,7 +61,7 @@
     </div>
   </div>
 
-  <!-- BUS 4: A2 (Music Bed & SFX Track) -->
+  <!-- BUS 3: A2 (Music Bed & SFX Track) -->
   <div class="mixer-bus-row mb-2">
     <div class="bus-meta-line">
       <div class="d-flex align-items-center gap-2">
@@ -115,7 +88,7 @@
     </div>
   </div>
 
-  <!-- BUS 5: MASTER OUTPUT BUS -->
+  <!-- BUS 4: MASTER OUTPUT BUS -->
   <div class="mixer-bus-row mb-3 master-bus-highlight">
     <div class="bus-meta-line">
       <div class="d-flex align-items-center gap-2">

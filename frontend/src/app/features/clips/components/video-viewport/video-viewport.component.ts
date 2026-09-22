@@ -35,6 +35,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
   private animFrameId: number | null = null;
   private lastTickMs = 0;
   private lastPlayedClipIndex: number | null = null;
+  private bufferWaitStartMs: number | null = null;
 
   constructor() {
     // React to Seek Requests
@@ -89,6 +90,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     if (this.animFrameId !== null) {
       cancelAnimationFrame(this.animFrameId);
     }
+    this.bufferWaitStartMs = null;
     this.lastTickMs = performance.now();
     this.scheduleNextTick();
   }
@@ -103,12 +105,24 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
         ? this.videoMonitorARef?.nativeElement
         : this.videoMonitorBRef?.nativeElement;
 
-      // Pause tick progression if video is actively seeking/buffering
-      if (activeEl && (activeEl.seeking || (activeEl.readyState < 2 && !activeEl.paused))) {
-        this.lastTickMs = now;
-        this.scheduleNextTick();
-        return;
+      // Pause tick progression if video is actively seeking/buffering (with max 500ms stall timeout)
+      const isBuffering = Boolean(
+        activeEl &&
+        !activeEl.error &&
+        (activeEl.seeking || (activeEl.readyState < 2 && !activeEl.paused))
+      );
+
+      if (isBuffering) {
+        if (this.bufferWaitStartMs === null) {
+          this.bufferWaitStartMs = now;
+        }
+        if (now - this.bufferWaitStartMs < 500) {
+          this.lastTickMs = now;
+          this.scheduleNextTick();
+          return;
+        }
       }
+      this.bufferWaitStartMs = null;
 
       const delta = ((now - this.lastTickMs) / 1000) * this.state.playbackSpeed();
       this.lastTickMs = now;
@@ -116,19 +130,19 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       const safeDelta = Math.min(Math.max(delta, 0), 0.25);
       let nextTime = this.state.getCurrentTimeExact() + safeDelta;
 
-      // Sync with active video playback timestamp
-      if (activeEl && !activeEl.paused && !activeEl.seeking && activeEl.readyState >= 2) {
+      // Sync with active video playback timestamp (soft drift correction; never pins to 0 on start)
+      if (activeEl && !activeEl.paused && !activeEl.seeking && activeEl.readyState >= 2 && activeEl.currentTime > 0.05) {
         const schedule = this.state.clipSchedule();
         const curr = schedule.find((s) => this.state.getCurrentTimeExact() >= s.startSeconds && this.state.getCurrentTimeExact() < s.endSeconds);
         if (curr) {
           const videoTime = curr.startSeconds + activeEl.currentTime;
-          if (Math.abs(videoTime - nextTime) < 0.25) {
-            nextTime = videoTime;
+          if (Math.abs(videoTime - nextTime) > 0.03 && Math.abs(videoTime - nextTime) < 0.3) {
+            nextTime += (videoTime - nextTime) * 0.25;
           }
         }
       }
 
-      const total = this.state.totalSeconds();
+      const total = Math.max(this.state.totalSeconds(), this.state.contentDurationSeconds());
       if (nextTime >= total && total > 0) {
         if (this.state.isLooping()) {
           this.state.seekTo(0);

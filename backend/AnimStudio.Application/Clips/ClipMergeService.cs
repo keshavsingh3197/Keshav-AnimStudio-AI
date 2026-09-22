@@ -102,7 +102,7 @@ public sealed class ClipMergeService(
         var project = await EnsureOwnedAsync(projectId, ct).ConfigureAwait(false);
 
         var all = await assets.ListByProjectAsync(projectId, ct).ConfigureAwait(false);
-        var clips = all.Where(a => (a.Kind == AssetKind.Video || a.Kind == AssetKind.Image) && a.IsUsableInScene).ToList();
+        var clips = all.Where(a => a.Kind == AssetKind.Video && a.IsUsableInScene).ToList();
         var savedPosition = project.Settings.ClipOrderAssetIds
             .Select((id, index) => (id, index))
             .ToDictionary(entry => entry.id, entry => entry.index, StringComparer.Ordinal);

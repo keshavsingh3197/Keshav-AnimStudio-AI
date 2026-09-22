@@ -2049,9 +2049,9 @@ audio { height: 2.2rem; vertical-align: middle; }
   width: 2px;
   background: #ff3b30;
   background: var(--tl-needle);
-  z-index: 10;
+  z-index: 60;
   pointer-events: none;
-  transform: translateX(-50%);
+  margin-left: -1px;
   box-shadow: 0 0 6px rgba(255, 59, 48, 0.8);
   box-shadow: 0 0 8px rgba(255, 59, 48, 0.9);
 }
@@ -4279,10 +4279,9 @@ audio { height: 2.2rem; vertical-align: middle; }
   bottom: 0 !important;
   width: 2px !important;
   background: #ff3b30 !important;
-  z-index: 40 !important;
-  z-index: 28 !important;
+  z-index: 60 !important;
   pointer-events: none !important;
-  transform: translateX(-50%) !important;
+  margin-left: -1px !important;
   box-shadow: 0 0 8px rgba(255, 59, 48, 0.95) !important;
 }
 
@@ -4386,6 +4385,7 @@ audio { height: 2.2rem; vertical-align: middle; }
   background: rgba(245, 158, 11, 0.03) !important;
 }
 
+.tl-lane-img,
 .tl-lane-v3 {
   min-height: 38px !important;
   height: 38px !important;
@@ -4461,6 +4461,7 @@ audio { height: 2.2rem; vertical-align: middle; }
   border: 1px solid #f59e0b !important;
 }
 
+.tl-item-img,
 .tl-item-v3 {
   background: linear-gradient(135deg, rgba(16, 185, 129, 0.9) 0%, rgba(5, 150, 105, 0.9) 100%) !important;
   color: #fff !important;
