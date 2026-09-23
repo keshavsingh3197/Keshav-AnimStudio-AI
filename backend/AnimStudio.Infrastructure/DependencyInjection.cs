@@ -71,33 +71,11 @@ public static class DependencyInjection
 
         services.AddSingleton(TimeProvider.System);
 
-        // --- shared packages: Mongo access and blob storage come from KeshavSingh.*
-        // rather than being reimplemented here.
-        RequireMongoConnectionString(configuration);
-        services.AddKeshavMongo(configuration);
         // --- shared packages: blob storage comes from KeshavSingh.*
         services.AddKeshavStorage(configuration);
 
-        MongoMappingRegistrar.Register();
-
         // Adapts the package's IObjectStore to the Application layer's own port.
         services.AddSingleton<AppObjectStore, KeshavObjectStoreAdapter>();
-
-        // --- persistence
-        services.AddScoped<IProjectRepository, MongoProjectRepository>();
-        services.AddScoped<ICharacterRepository, MongoCharacterRepository>();
-        services.AddScoped<ISceneRepository, MongoSceneRepository>();
-        services.AddScoped<IAssetRepository, MongoAssetRepository>();
-        services.AddScoped<IAssetFolderRepository, MongoAssetFolderRepository>();
-        services.AddScoped<IScriptRepository, MongoScriptRepository>();
-        services.AddScoped<IIngestRepository, MongoIngestRepository>();
-        services.AddScoped<IRenderJobRepository, MongoRenderJobRepository>();
-        services.AddScoped<IAiUsageRepository, MongoAiUsageRepository>();
-        services.AddScoped<IAiCredentialRepository, MongoAiCredentialRepository>();
-        services.AddScoped<IPromptTemplateRepository, MongoPromptTemplateRepository>();
-        services.AddScoped<IAiSettingsRepository, MongoAiSettingsRepository>();
-        services.AddScoped<IAdminAuditRepository, MongoAdminAuditRepository>();
-        services.AddHostedService<MongoIndexInitializer>();
         // --- persistence: Dual database support (SqlServer on localhost or Mongo)
         var dbProvider = configuration["Database:Provider"] ?? "SqlServer";
         var useSqlServer = string.Equals(dbProvider, "SqlServer", StringComparison.OrdinalIgnoreCase);
