@@ -268,6 +268,13 @@ public sealed record SaveClipOrderRequest
     public List<string> AssetIds { get; init; } = [];
 }
 
+/// <summary>Full timeline, overlays, audio cues and state from Clip Studio.</summary>
+public sealed record SaveStudioDraftRequest
+{
+    [Required]
+    public string DraftJson { get; init; } = string.Empty;
+}
+
 /// <summary>Just a set of clips, for an action that needs no other parameters.</summary>
 public sealed record ClipIdsRequest
 {

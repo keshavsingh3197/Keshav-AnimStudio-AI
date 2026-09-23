@@ -47,6 +47,7 @@ public sealed class ClipsController(
     {
         var clipList = await clips.ListClipsAsync(projectId, ct);
         var all = await assets.ListByProjectAsync(projectId, ct);
+        var project = await projects.GetAsync(projectId, ct);
 
         var options = renderOptions.Value;
 
@@ -79,7 +80,8 @@ public sealed class ClipsController(
             // can composite a logo.
             capabilities.IsAvailable,
             capabilities.Supports(RenderFeature.CrossFadeTransitions),
-            capabilities.Supports(RenderFeature.BlurBackdrop))));
+            capabilities.Supports(RenderFeature.BlurBackdrop),
+            project?.StudioDraftJson)));
     }
 
     /// <summary>
@@ -108,6 +110,26 @@ public sealed class ClipsController(
         string projectId, [FromBody] SaveClipOrderRequest request, CancellationToken ct)
     {
         await clips.SaveOrderAsync(projectId, request.AssetIds, ct);
+        return Ok(ApiResponse<object>.Ok(new { }));
+    }
+
+    /// <summary>
+    /// Persists the complete timeline state, including audio cues, voiceovers, text overlays,
+    /// image overlays, and clip transformations directly into the project database record.
+    /// </summary>
+    [HttpPut("api/projects/{projectId}/clips/draft")]
+    public async Task<ActionResult<ApiResponse<object>>> SaveDraft(
+        string projectId, [FromBody] SaveStudioDraftRequest request, CancellationToken ct)
+    {
+        var project = await projects.GetAsync(projectId, ct) ?? throw new KeyNotFoundException();
+
+        if (!string.Equals(project.UserId, currentUser.UserId, StringComparison.Ordinal))
+            throw new UnauthorizedAccessException();
+
+        project.StudioDraftJson = request.DraftJson;
+        project.UpdatedAt = DateTime.UtcNow;
+        await projects.ReplaceAsync(project, ct);
+
         return Ok(ApiResponse<object>.Ok(new { }));
     }
 

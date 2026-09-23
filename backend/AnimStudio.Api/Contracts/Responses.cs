@@ -200,4 +200,5 @@ public sealed record ClipStudioResponse(
     bool TextWatermarkAvailable,
     bool LogoWatermarkAvailable,
     bool TransitionsAvailable,
-    bool BlurredBackdropAvailable);
+    bool BlurredBackdropAvailable,
+    string? StudioDraftJson = null);

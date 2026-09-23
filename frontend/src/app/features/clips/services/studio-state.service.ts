@@ -40,6 +40,7 @@ export class StudioStateService implements OnDestroy {
   readonly uploadConflictModalOpen = signal<boolean>(false);
   readonly uploadConflicts = signal<FileUploadConflict[]>([]);
   readonly pendingNonConflictFiles = signal<File[]>([]);
+  private autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     if (typeof document !== 'undefined') {
@@ -795,14 +796,16 @@ export class StudioStateService implements OnDestroy {
 
   readonly monitorScreenAspectClass = computed(() => {
     const override = this.previewAspectOverride();
-    if (override === '9:16') return 'aspect-short';
-    if (override === '1:1') return 'aspect-square';
-    if (override === '4:5') return 'aspect-portrait';
-    if (override === '16:9') return '';
+    if (override === '9:16') return 'aspect-9-16 aspect-short';
+    if (override === '1:1') return 'aspect-1-1 aspect-square';
+    if (override === '4:5') return 'aspect-4-5 aspect-portrait';
+    if (override === '16:9') return 'aspect-16-9 aspect-wide';
     const fmt = this.format();
-    if (fmt === 'Short') return 'aspect-short';
-    if (fmt === 'Square') return 'aspect-square';
-    return '';
+    const asp = this.aspect();
+    if (fmt === 'Short' || asp === '9:16') return 'aspect-9-16 aspect-short';
+    if (fmt === 'Square' || asp === '1:1') return 'aspect-1-1 aspect-square';
+    if (asp === '4:5') return 'aspect-4-5 aspect-portrait';
+    return 'aspect-16-9 aspect-wide';
   });
 
   readonly monitorFitClass = computed(() => {
@@ -943,6 +946,13 @@ export class StudioStateService implements OnDestroy {
   });
 
   ngOnDestroy(): void {
+    if (this.autoSaveTimer) {
+      clearTimeout(this.autoSaveTimer);
+      this.autoSaveTimer = null;
+      if (this.hasUnsavedChanges()) {
+        this.autoSaveDraft();
+      }
+    }
     this.stopPolling();
     this.audioEngine.dispose();
   }
@@ -3236,16 +3246,22 @@ export class StudioStateService implements OnDestroy {
   // Project Operations & Drafts
   markDirty(): void {
     this.hasUnsavedChanges.set(true);
+    if (this.autoSaveTimer) {
+      clearTimeout(this.autoSaveTimer);
+    }
+    this.autoSaveTimer = setTimeout(() => {
+      this.autoSaveDraft();
+    }, 2500);
   }
 
-  saveDraft(): void {
-    const projectId = this.store.projectId();
-    if (!projectId) return;
-
-    const draftData = {
+  buildDraftData(): any {
+    return {
       rows: this.rows(),
       timelineItems: this.timelineItems(),
+      timelineTracks: this.timelineTracks(),
       musicTracks: this.musicTracks(),
+      musicAssetId: this.musicAssetId(),
+      musicVolume: this.musicVolume(),
       clipSounds: this.clipSounds(),
       clipTransforms: this.clipTransforms(),
       clipColors: this.clipColors(),
@@ -3256,16 +3272,97 @@ export class StudioStateService implements OnDestroy {
       trackA1Volume: this.trackA1Volume(),
       trackA2Volume: this.trackA2Volume(),
       v1AudioMode: this.v1AudioMode(),
+      fit: this.fit(),
       clipFraming: Array.from(this.clipFraming().entries()),
       clipAudioFade: Array.from(this.clipAudioFade().entries()),
       savedAt: new Date().toLocaleTimeString(),
     };
+  }
 
-    localStorage.setItem(`${DRAFT_KEY_PREFIX}${projectId}`, JSON.stringify(draftData));
+  applyDraft(draft: any): void {
+    let draftItems: TimelineItem[] = Array.isArray(draft.timelineItems) ? [...draft.timelineItems] : [];
+
+    if (draft.rows && Array.isArray(draft.rows)) {
+      // Migrate any legacy images that were previously saved in rows onto IMG1
+      const legacyImageRows = draft.rows.filter((r: ClipRow) => this.getClipType(r.clip) === 'image' && r.included);
+      for (const imgRow of legacyImageRows) {
+        if (!draftItems.some((it) => (it.trackId === 'IMG1' || it.trackId === 'IMG') && (it.src === imgRow.clip.id || it.id === imgRow.clip.id))) {
+          draftItems.push({
+            id: `img_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+            type: 'image',
+            trackId: 'IMG1',
+            startTime: 0,
+            duration: imgRow.clip.durationSeconds ?? 5.0,
+            src: imgRow.clip.id,
+            name: imgRow.clip.name,
+            transform: { scale: 1.0, x: 0, y: 0, opacity: 1.0 },
+          });
+        }
+      }
+      // Only pure video clips stay on V1
+      this.rows.set(draft.rows.filter((r: ClipRow) => this.getClipType(r.clip) === 'video'));
+    }
+
+    this.timelineItems.set(draftItems);
+    if (draft.timelineTracks && Array.isArray(draft.timelineTracks)) this.timelineTracks.set(draft.timelineTracks);
+    if (draft.musicTracks && Array.isArray(draft.musicTracks)) this.musicTracks.set(draft.musicTracks);
+    if (draft.musicAssetId !== undefined) this.musicAssetId.set(draft.musicAssetId);
+    if (draft.musicVolume !== undefined) this.musicVolume.set(draft.musicVolume);
+    if (draft.clipSounds) this.clipSounds.set(draft.clipSounds);
+    if (draft.clipTransforms) this.clipTransforms.set(draft.clipTransforms);
+    if (draft.clipColors) this.clipColors.set(draft.clipColors);
+    if (draft.clipTexts) this.clipTexts.set(draft.clipTexts);
+    if (draft.junctions) this.junctions.set(draft.junctions);
+    if (draft.trackV1Volume !== undefined) this.trackV1Volume.set(draft.trackV1Volume);
+    if (draft.trackV2Volume !== undefined) this.trackV2Volume.set(draft.trackV2Volume);
+    if (draft.trackA1Volume !== undefined) this.trackA1Volume.set(draft.trackA1Volume);
+    if (draft.trackA2Volume !== undefined) this.trackA2Volume.set(draft.trackA2Volume);
+    if (draft.v1AudioMode !== undefined) this.v1AudioMode.set(draft.v1AudioMode);
+    if (draft.fit !== undefined) this.fit.set(draft.fit);
+    if (Array.isArray(draft.clipFraming)) this.clipFraming.set(new Map(draft.clipFraming));
+    if (Array.isArray(draft.clipAudioFade)) this.clipAudioFade.set(new Map(draft.clipAudioFade));
+  }
+
+  saveDraft(): void {
+    const projectId = this.store.projectId();
+    if (!projectId) return;
+
+    if (this.autoSaveTimer) {
+      clearTimeout(this.autoSaveTimer);
+      this.autoSaveTimer = null;
+    }
+
+    const draftData = this.buildDraftData();
+    const draftJson = JSON.stringify(draftData);
+
+    localStorage.setItem(`${DRAFT_KEY_PREFIX}${projectId}`, draftJson);
     this.hasUnsavedChanges.set(false);
     this.lastSavedTime.set(draftData.savedAt);
     this.restoredDraftTime.set(null);
-    this.status.notify(['Draft saved locally.']);
+    this.status.notify(['Saved to database & local storage.']);
+
+    this.api.saveStudioDraft(projectId, draftJson).subscribe({
+      next: () => {},
+      error: (err) => console.warn('Failed to sync draft to server', err),
+    });
+  }
+
+  autoSaveDraft(): void {
+    const projectId = this.store.projectId();
+    if (!projectId || !this.hasUnsavedChanges()) return;
+
+    const draftData = this.buildDraftData();
+    const draftJson = JSON.stringify(draftData);
+
+    localStorage.setItem(`${DRAFT_KEY_PREFIX}${projectId}`, draftJson);
+
+    this.api.saveStudioDraft(projectId, draftJson).subscribe({
+      next: () => {
+        this.hasUnsavedChanges.set(false);
+        this.lastSavedTime.set(draftData.savedAt);
+      },
+      error: (err) => console.warn('Auto-save failed to sync to server', err),
+    });
   }
 
   keepDraft(): void {
@@ -3278,6 +3375,10 @@ export class StudioStateService implements OnDestroy {
     const projectId = this.store.projectId();
     if (projectId) {
       localStorage.removeItem(`${DRAFT_KEY_PREFIX}${projectId}`);
+      this.api.saveStudioDraft(projectId, '').subscribe({
+        next: () => {},
+        error: (err) => console.warn('Failed to clear draft on server', err),
+      });
     }
     this.restoredDraftTime.set(null);
     this.loadStudio();
@@ -3299,51 +3400,39 @@ export class StudioStateService implements OnDestroy {
           }));
         this.rows.set(rowList);
 
-        // Check for local draft
+        // Check for server draft first
+        if (studio.studioDraftJson) {
+          try {
+            const serverDraft = JSON.parse(studio.studioDraftJson);
+            this.applyDraft(serverDraft);
+            this.hasUnsavedChanges.set(false);
+            this.lastSavedTime.set(serverDraft.savedAt || 'Saved');
+            this.restoredDraftTime.set(null);
+            localStorage.setItem(`${DRAFT_KEY_PREFIX}${projectId}`, studio.studioDraftJson);
+            return;
+          } catch (e) {
+            console.warn('Failed to parse server draft', e);
+          }
+        }
+
+        // Fallback to local draft if server draft is absent
         const draftJson = localStorage.getItem(`${DRAFT_KEY_PREFIX}${projectId}`);
         if (draftJson) {
           try {
-            const draft = JSON.parse(draftJson);
-            let draftItems: TimelineItem[] = Array.isArray(draft.timelineItems) ? [...draft.timelineItems] : [];
-
-            if (draft.rows && Array.isArray(draft.rows)) {
-              // Migrate any legacy images that were previously saved in rows onto IMG1
-              const legacyImageRows = draft.rows.filter((r: ClipRow) => this.getClipType(r.clip) === 'image' && r.included);
-              for (const imgRow of legacyImageRows) {
-                if (!draftItems.some((it) => (it.trackId === 'IMG1' || it.trackId === 'IMG') && (it.src === imgRow.clip.id || it.id === imgRow.clip.id))) {
-                  draftItems.push({
-                    id: `img_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
-                    type: 'image',
-                    trackId: 'IMG1',
-                    startTime: 0,
-                    duration: imgRow.clip.durationSeconds ?? 5.0,
-                    src: imgRow.clip.id,
-                    name: imgRow.clip.name,
-                    transform: { scale: 1.0, x: 0, y: 0, opacity: 1.0 },
-                  });
-                }
-              }
-              // Only pure video clips stay on V1
-              this.rows.set(draft.rows.filter((r: ClipRow) => this.getClipType(r.clip) === 'video'));
-            }
-
-            this.timelineItems.set(draftItems);
-            if (draft.musicTracks) this.musicTracks.set(draft.musicTracks);
-            if (draft.clipSounds) this.clipSounds.set(draft.clipSounds);
-            if (draft.clipTransforms) this.clipTransforms.set(draft.clipTransforms);
-            if (draft.clipColors) this.clipColors.set(draft.clipColors);
-            if (draft.clipTexts) this.clipTexts.set(draft.clipTexts);
-            if (draft.junctions) this.junctions.set(draft.junctions);
-            if (draft.trackV1Volume !== undefined) this.trackV1Volume.set(draft.trackV1Volume);
-            if (draft.trackV2Volume !== undefined) this.trackV2Volume.set(draft.trackV2Volume);
-            if (draft.trackA1Volume !== undefined) this.trackA1Volume.set(draft.trackA1Volume);
-            if (draft.trackA2Volume !== undefined) this.trackA2Volume.set(draft.trackA2Volume);
-            if (draft.v1AudioMode !== undefined) this.v1AudioMode.set(draft.v1AudioMode);
-            if (Array.isArray(draft.clipFraming)) this.clipFraming.set(new Map(draft.clipFraming));
-            if (Array.isArray(draft.clipAudioFade)) this.clipAudioFade.set(new Map(draft.clipAudioFade));
-            this.restoredDraftTime.set(draft.savedAt || 'Unknown');
+            const localDraft = JSON.parse(draftJson);
+            this.applyDraft(localDraft);
+            this.restoredDraftTime.set(localDraft.savedAt || 'Unknown');
+            // Auto-migrate local draft to server database
+            this.api.saveStudioDraft(projectId, draftJson).subscribe({
+              next: () => {
+                this.hasUnsavedChanges.set(false);
+                this.lastSavedTime.set(localDraft.savedAt || 'Saved');
+                this.restoredDraftTime.set(null);
+              },
+              error: (err) => console.warn('Failed to migrate local draft to server', err),
+            });
           } catch (e) {
-            console.warn('Failed to parse draft', e);
+            console.warn('Failed to parse local draft', e);
           }
         }
       },

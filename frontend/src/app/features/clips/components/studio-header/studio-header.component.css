@@ -9,6 +9,9 @@
   box-sizing: border-box;
   flex-shrink: 0;
   gap: 12px;
+  position: relative;
+  z-index: 1000;
+  overflow: visible;
 }
 
 .studio-header-left {
@@ -65,6 +68,8 @@
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
+  position: relative;
+  overflow: visible;
 }
 
 .hdr-btn {
@@ -117,17 +122,20 @@
 .screen-mode-wrap {
   position: relative;
   display: inline-flex;
+  z-index: 1001;
 }
 
 .screen-mode-backdrop {
   position: fixed;
   inset: 0;
   z-index: 9998;
+  z-index: 99998;
 }
 
 .screen-mode-menu {
   position: absolute;
   top: calc(100% + 5px);
+  top: calc(100% + 6px);
   right: 0;
   background: var(--surface, #0f1117);
   border: 1px solid var(--border, #1e2433);
@@ -136,6 +144,9 @@
   min-width: 220px;
   z-index: 9999;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.65);
+  min-width: 230px;
+  z-index: 99999;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.09);
   display: flex;
   flex-direction: column;
   gap: 3px;

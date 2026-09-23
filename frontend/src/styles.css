@@ -1701,18 +1701,24 @@ audio { height: 2.2rem; vertical-align: middle; }
   justify-content: center;
 }
 
-.monitor-screen-container.aspect-short {
+.monitor-screen-container.aspect-short,
+.monitor-screen-container.aspect-9-16 {
   aspect-ratio: 9 / 16;
+  width: auto;
   max-height: 480px;
 }
 
-.monitor-screen-container.aspect-square {
+.monitor-screen-container.aspect-square,
+.monitor-screen-container.aspect-1-1 {
   aspect-ratio: 1 / 1;
+  width: auto;
   max-height: 440px;
 }
 
-.monitor-screen-container.aspect-portrait {
+.monitor-screen-container.aspect-portrait,
+.monitor-screen-container.aspect-4-5 {
   aspect-ratio: 4 / 5;
+  width: auto;
   max-height: 460px;
 }
 

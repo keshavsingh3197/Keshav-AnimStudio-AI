@@ -1,0 +1,144 @@
+@if (state.targetScope() === 'selected' && state.getTargetClipIds().length === 0) {
+  <div class="p-4 text-center text-secondary">
+    <div style="font-size: 1.8rem; margin-bottom: 8px;">✨</div>
+    <div style="font-size: 0.85rem; font-weight: 600; color: var(--text);">No Clip Selected</div>
+    <div style="font-size: 0.75rem; margin-top: 4px;">Select clips on the timeline or in the media library to apply visual effects, or switch target scope to "All clips" or "Current clip".</div>
+  </div>
+} @else {
+  <div class="effects-container">
+    <!-- Scope Notification Banner -->
+    @if (state.targetScope() === 'all') {
+      <div class="scope-alert alert-batch">
+        <span>🌐</span>
+        <span><strong>Batch Mode:</strong> Visual effects apply to all <strong>{{ state.included().length }} clips</strong> across the timeline.</span>
+      </div>
+    } @else if (state.targetScope() === 'under_music') {
+      <div class="scope-alert alert-music">
+        <span>🎵</span>
+        <span><strong>Music Scope:</strong> Visual effects apply to <strong>{{ state.clipsUnderMusic().length }} clips under music</strong>.</span>
+      </div>
+    } @else if (state.targetScope() === 'selected' && state.selectedClipsCount() > 1) {
+      <div class="scope-alert alert-multi">
+        <span>🎯</span>
+        <span><strong>Multi-Clip Scope:</strong> Visual effects apply to <strong>{{ state.selectedClipsCount() }} selected clips</strong>.</span>
+      </div>
+    } @else if (state.targetScope() === 'current') {
+      <div class="scope-alert alert-single">
+        <span>⏱️</span>
+        <span><strong>Current Clip Scope:</strong> Visual effects apply to <strong>{{ state.currentScheduledClip()?.clip?.name ?? 'current playing clip' }}</strong>.</span>
+      </div>
+    } @else if (state.targetScope() === 'selected' && state.selectedClipsCount() === 1) {
+      <div class="scope-alert alert-single">
+        <span>🎯</span>
+        <span><strong>Single Clip Scope:</strong> Visual effects apply to <strong>{{ state.selectedClip()?.name ?? 'selected clip' }}</strong>.</span>
+      </div>
+    }
+
+    <!-- Visual Effects Card -->
+    <div class="effects-card">
+      <div class="effects-head">
+        <div class="effects-title-wrap">
+          <span class="effects-icon">✨</span>
+          <div>
+            <div class="effects-title">Visual Effects & Lens FX</div>
+            <div class="effects-sub">Atmospheric lens blur, vintage patina, and creative stylization</div>
+          </div>
+        </div>
+        <button class="btn-clear-fx" type="button" (click)="state.resetScopeEffects()" title="Reset all visual effects to clean">
+          ↺ Clear FX
+        </button>
+      </div>
+
+      <!-- Quick FX Style Cards -->
+      <div class="fx-section-label">Quick FX Styles</div>
+      <div class="fx-presets-grid">
+        <div class="fx-preset-card"
+             [class.active]="state.activeScopeColorSetting().sepia === 0 && state.activeScopeColorSetting().blur === 0"
+             (click)="state.setScopeSepia(0); state.setScopeBlur(0)">
+          <div class="fx-preset-badge">🌿 Clean</div>
+          <span class="fx-preset-desc">Standard neutral look without lens distortion</span>
+        </div>
+        <div class="fx-preset-card"
+             [class.active]="state.activeScopeColorSetting().sepia === 15 && state.activeScopeColorSetting().blur === 2"
+             (click)="state.setScopeSepia(15); state.setScopeBlur(2)">
+          <div class="fx-preset-badge">🌸 Soft Dream</div>
+          <span class="fx-preset-desc">Gentle bloom glow with subtle warmth (2px blur)</span>
+        </div>
+        <div class="fx-preset-card"
+             [class.active]="state.activeScopeColorSetting().sepia === 40 && state.activeScopeColorSetting().blur === 1"
+             (click)="state.setScopeSepia(40); state.setScopeBlur(1)">
+          <div class="fx-preset-badge">🎞 35mm Vintage</div>
+          <span class="fx-preset-desc">Classic retro film feel with warm patina</span>
+        </div>
+        <div class="fx-preset-card"
+             [class.active]="state.activeScopeColorSetting().sepia === 80 && state.activeScopeColorSetting().blur === 0"
+             (click)="state.setScopeSepia(80); state.setScopeBlur(0)">
+          <div class="fx-preset-badge">🎬 Deep Sepia</div>
+          <span class="fx-preset-desc">Archival historical monochrome tone (80% sepia)</span>
+        </div>
+        <div class="fx-preset-card"
+             [class.active]="state.activeScopeColorSetting().sepia === 0 && state.activeScopeColorSetting().blur === 3.5"
+             (click)="state.setScopeSepia(0); state.setScopeBlur(3.5)">
+          <div class="fx-preset-badge">🌫 Dreamy Focus</div>
+          <span class="fx-preset-desc">Ethereal soft focus lens defocus (3.5px blur)</span>
+        </div>
+        <div class="fx-preset-card"
+             [class.active]="state.activeScopeColorSetting().sepia === 25 && state.activeScopeColorSetting().blur === 5"
+             (click)="state.setScopeSepia(25); state.setScopeBlur(5)">
+          <div class="fx-preset-badge">🔮 Heavy Bokeh</div>
+          <span class="fx-preset-desc">Deep background blur effect (5px blur)</span>
+        </div>
+      </div>
+
+      <!-- Fine-Tuning Parameter Sliders -->
+      <div class="fx-controls-wrap">
+        <div class="fx-section-label">Lens Parameters</div>
+
+        <!-- Lens Focus / Blur Slider -->
+        <div class="fx-slider-row">
+          <div class="fx-slider-head">
+            <label class="fx-slider-label">
+              <span class="fx-control-icon">🌫</span>
+              <span>Soft Focus / Lens Blur</span>
+            </label>
+            <button type="button" class="fx-reset-chip" (click)="state.setScopeBlur(0)" title="Reset Blur to 0px">
+              {{ state.activeScopeColorSetting().blur }}px
+            </button>
+          </div>
+          <input type="range" class="fx-range-input" min="0" max="10" step="0.5"
+                 [ngModel]="state.activeScopeColorSetting().blur"
+                 (ngModelChange)="state.setScopeBlur($event)" />
+          <div class="fx-slider-scale">
+            <span>Sharp (0px)</span>
+            <span>Subtle (2px)</span>
+            <span>Dreamy (5px)</span>
+            <span>Max (10px)</span>
+          </div>
+        </div>
+
+        <!-- Sepia Tone Slider -->
+        <div class="fx-slider-row">
+          <div class="fx-slider-head">
+            <label class="fx-slider-label">
+              <span class="fx-control-icon">🎞</span>
+              <span>Sepia / Nostalgia Tone</span>
+            </label>
+            <button type="button" class="fx-reset-chip" (click)="state.setScopeSepia(0)" title="Reset Sepia to 0%">
+              {{ state.activeScopeColorSetting().sepia }}%
+            </button>
+          </div>
+          <input type="range" class="fx-range-input" min="0" max="100" step="5"
+                 [ngModel]="state.activeScopeColorSetting().sepia"
+                 (ngModelChange)="state.setScopeSepia($event)" />
+          <div class="fx-slider-scale">
+            <span>Modern (0%)</span>
+            <span>Subtle (25%)</span>
+            <span>Vintage (50%)</span>
+            <span>Antique (100%)</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+}
+

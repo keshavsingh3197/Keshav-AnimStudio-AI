@@ -22,6 +22,14 @@
   z-index: 9999;
 }
 
+/* Header Host Element — must stack above workspace panels for dropdowns */
+app-studio-header {
+  display: block;
+  position: relative;
+  z-index: 1000;
+  flex-shrink: 0;
+}
+
 /* Restored Draft Notice Banner */
 .notice.notice-info {
   margin: 0 6px 6px;

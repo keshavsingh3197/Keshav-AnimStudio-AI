@@ -1,4 +1,4 @@
-﻿using AnimStudio.Domain.Rendering;
+using AnimStudio.Domain.Rendering;
 
 namespace AnimStudio.Domain.Projects;
 
@@ -39,6 +39,7 @@ public sealed class Project
     // New dynamic fields
     public bool IsPinned { get; set; }
     public string? CustomThumbnail { get; set; }
+    public string? StudioDraftJson { get; set; }
 
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }

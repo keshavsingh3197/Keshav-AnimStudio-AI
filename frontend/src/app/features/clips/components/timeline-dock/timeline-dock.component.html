@@ -341,7 +341,6 @@
           <div class="tl-row tl-track-row tl-row-a1">
             <div class="tl-header-76 tl-header-a1"
                  [class.has-thumbnails]="state.timelineThumbnailMode() === 'filmstrip'"
-                 (click)="state.setInspectorTab('audio'); state.setAudioInspectorView('clip')"
                  (click)="state.onTimelineAudioClicked()"
                  title="Click to open Audio Inspector">
               <div class="tl-h-top">
@@ -366,7 +365,6 @@
                  [style.width.px]="state.secondsToPx(state.timelineSeconds())"
                  (dragover)="$event.preventDefault()"
                  (drop)="onTrackDrop('A1', $event)"
-                 (click)="state.setInspectorTab('audio'); state.setAudioInspectorView('clip')">
                  (click)="state.onTimelineAudioClicked()">
               @for (item of state.itemsForTrack('A1'); track item.id) {
                 <div class="tl-clip tl-item-a1"
@@ -374,7 +372,7 @@
                      [style.left.px]="state.secondsToPx(item.startTime)"
                      [style.width.px]="state.secondsToPx(item.duration)"
                      (pointerdown)="onItemPointerDown(item, $event)"
-                     (click)="$event.stopPropagation(); state.selectTimelineItem(item.id, $event); state.setInspectorTab('audio'); state.setAudioInspectorView('clip')"
+                     (click)="$event.stopPropagation(); state.selectTimelineItem(item.id, $event); state.onTimelineAudioClicked()"
                      title="Click to open Audio Inspector">
                   <span class="tl-trim-handle left" (pointerdown)="onItemTrimPointerDown(item, 'left', $event)"></span>
                   <span class="tl-item-badge">A1</span>
@@ -391,7 +389,6 @@
                      [style.left.px]="state.secondsToPx(track.startSeconds)"
                      [style.width.px]="state.secondsToPx(state.musicTrackDurationSeconds(track))"
                      (pointerdown)="onMusicBlockPointerDown(track, $event)"
-                     (click)="$event.stopPropagation(); state.setInspectorTab('audio'); state.setAudioInspectorView('clip')"
                      (click)="$event.stopPropagation(); state.onTimelineAudioClicked()"
                      title="Click to open Audio Inspector · Drag to move in time">
                   <span class="tl-trim-handle left" (pointerdown)="onMusicTrimPointerDown(track, 'start', $event)"></span>

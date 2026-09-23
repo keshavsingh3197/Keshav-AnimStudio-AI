@@ -197,8 +197,12 @@
         <app-transform-inspector />
       }
 
-      @if (state.activeInspectorTab() === 'color' || state.activeInspectorTab() === 'effects') {
+      @if (state.activeInspectorTab() === 'color') {
         <app-color-inspector />
+      }
+
+      @if (state.activeInspectorTab() === 'effects') {
+        <app-effects-inspector />
       }
 
       @if (state.activeInspectorTab() === 'text') {

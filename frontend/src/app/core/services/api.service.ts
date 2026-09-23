@@ -357,6 +357,12 @@ export class ApiService {
       `${this.base}/api/projects/${projectId}/clips/order`, { assetIds }));
   }
 
+  /** Saves the complete studio timeline, overlays, audio cues and state to the project database. */
+  saveStudioDraft(projectId: string, draftJson: string): Observable<unknown> {
+    return this.unwrap(this.http.put<ApiResponse<unknown>>(
+      `${this.base}/api/projects/${projectId}/clips/draft`, { draftJson }));
+  }
+
   /** Queues the stitch. Polled and downloaded through the same job endpoints as a render. */
   mergeClips(projectId: string, body: ClipMergeBody): Observable<RenderJob> {
     return this.unwrap(this.http.post<ApiResponse<RenderJob>>(

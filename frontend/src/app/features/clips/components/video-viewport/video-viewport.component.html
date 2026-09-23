@@ -3,7 +3,10 @@
     <div class="monitor-header">
       <div class="monitor-header-left">
         <span class="monitor-title">Preview</span>
-        <select [ngModel]="state.previewAspectOverride()" (ngModelChange)="state.setPreviewAspect($event)" class="hdr-btn">
+        <select [ngModel]="state.previewAspectOverride()"
+                (ngModelChange)="state.setPreviewAspect($event)"
+                (change)="state.setPreviewAspect($any($event.target).value)"
+                class="hdr-btn">
           <option value="auto">Auto</option>
           <option value="16:9">16:9 Landscape</option>
           <option value="9:16">9:16 Shorts</option>
@@ -19,7 +22,9 @@
       </div>
     </div>
 
-    <div #monitorContainer class="monitor-screen-container" [class]="state.monitorScreenAspectClass()">
+    <!-- Centering Stage for letterbox & pillarbox canvas -->
+    <div class="monitor-stage">
+      <div #monitorContainer [class]="'monitor-screen-container ' + state.monitorScreenAspectClass()">
       @if (state.included().length === 0) {
         <div class="monitor-empty-state">
           <span style="font-size: 2.2rem">🎬</span>
@@ -136,9 +141,9 @@
 
       <!-- Audio elements for background soundtrack and replacement clip audio -->
       <audio #bgMusicAudio loop></audio>
-      <audio #bgMusicAudio></audio>
       <audio #clipSoundAudio></audio>
     </div>
+  </div>
 
     <!-- Scrubber Progress Track -->
     <div class="monitor-scrubber-track">

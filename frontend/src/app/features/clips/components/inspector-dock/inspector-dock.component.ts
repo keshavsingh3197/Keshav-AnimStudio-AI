@@ -4,6 +4,7 @@ import { TransformInspectorComponent } from './tabs/transform-inspector.componen
 import { ClipAudioInspectorComponent } from './tabs/clip-audio-inspector.component';
 import { MasterAudioMixerComponent } from './tabs/master-audio-mixer.component';
 import { ColorInspectorComponent } from './tabs/color-inspector.component';
+import { EffectsInspectorComponent } from './tabs/effects-inspector.component';
 import { TransitionsInspectorComponent } from './tabs/transitions-inspector.component';
 import { TextInspectorComponent } from './tabs/text-inspector.component';
 
@@ -15,6 +16,7 @@ import { TextInspectorComponent } from './tabs/text-inspector.component';
     ClipAudioInspectorComponent,
     MasterAudioMixerComponent,
     ColorInspectorComponent,
+    EffectsInspectorComponent,
     TransitionsInspectorComponent,
     TextInspectorComponent,
   ],

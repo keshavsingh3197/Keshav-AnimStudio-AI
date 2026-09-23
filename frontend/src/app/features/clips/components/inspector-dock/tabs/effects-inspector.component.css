@@ -1,0 +1,207 @@
+.effects-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.scope-alert {
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 0.74rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 0;
+}
+
+.alert-batch,
+.alert-music,
+.alert-multi {
+  background: color-mix(in srgb, var(--brand, #6c8cff) 15%, transparent);
+  border: 1px solid var(--brand, #6c8cff);
+  color: #93c5fd;
+}
+
+.alert-single {
+  background: var(--surface-2, #161b27);
+  border: 1px solid var(--border, #1e2433);
+  color: var(--text, #f0f4fc);
+}
+
+.effects-card {
+  background: var(--surface-2, #161b27);
+  border: 1px solid var(--border, #1e2433);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.effects-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.effects-title-wrap {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.effects-icon {
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.effects-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text, #f0f4fc);
+}
+
+.effects-sub {
+  font-size: 0.72rem;
+  color: var(--text-muted, #8892a4);
+  margin-top: 2px;
+  line-height: 1.3;
+}
+
+.btn-clear-fx {
+  background: transparent;
+  border: 1px solid var(--border, #1e2433);
+  color: var(--text-muted, #8892a4);
+  font-size: 0.72rem;
+  font-family: ui-monospace, monospace;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.btn-clear-fx:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: var(--err, #ef4444);
+  color: #fca5a5;
+}
+
+.fx-section-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted, #8892a4);
+}
+
+.fx-presets-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+
+.fx-preset-card {
+  background: color-mix(in srgb, var(--surface, #0f1117) 70%, transparent);
+  border: 1px solid var(--border, #1e2433);
+  border-radius: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+
+.fx-preset-card:hover {
+  border-color: var(--brand, #6c8cff);
+  background: color-mix(in srgb, var(--brand, #6c8cff) 10%, var(--surface, #0f1117));
+}
+
+.fx-preset-card.active {
+  border-color: var(--brand, #6c8cff);
+  background: color-mix(in srgb, var(--brand, #6c8cff) 20%, var(--surface, #0f1117));
+  box-shadow: 0 0 0 1px var(--brand, #6c8cff);
+}
+
+.fx-preset-badge {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--text, #f0f4fc);
+}
+
+.fx-preset-desc {
+  font-size: 0.68rem;
+  color: var(--text-muted, #8892a4);
+  line-height: 1.25;
+}
+
+.fx-controls-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border, #1e2433);
+  padding-top: 10px;
+}
+
+.fx-slider-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fx-slider-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.fx-slider-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.75rem;
+  color: var(--text, #f0f4fc);
+  margin-bottom: 0;
+  font-weight: 500;
+}
+
+.fx-control-icon {
+  font-size: 0.85rem;
+}
+
+.fx-reset-chip {
+  background: var(--surface, #0f1117);
+  border: 1px solid var(--border, #1e2433);
+  color: var(--text, #f0f4fc);
+  font-size: 0.72rem;
+  font-family: ui-monospace, monospace;
+  padding: 1px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.fx-reset-chip:hover {
+  background: var(--surface-2, #161b27);
+  border-color: var(--brand, #6c8cff);
+  color: var(--brand, #6c8cff);
+}
+
+.fx-range-input {
+  width: 100%;
+  accent-color: var(--brand, #6c8cff);
+  height: 4px;
+  cursor: pointer;
+}
+
+.fx-slider-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.65rem;
+  color: var(--text-muted, #8892a4);
+  padding: 0 2px;
+}
+

@@ -410,6 +410,7 @@ export interface ClipStudio {
   logoWatermarkAvailable: boolean;
   transitionsAvailable: boolean;
   blurredBackdropAvailable: boolean;
+  studioDraftJson?: string;
 }
 
 export type WatermarkKind = 'None' | 'Text' | 'Logo';
