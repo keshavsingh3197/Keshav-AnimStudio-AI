@@ -165,7 +165,13 @@ public sealed class AssetsController(
     [HttpHead("api/assets/{id}/content")]
     public async Task<IActionResult> Content(string id, CancellationToken ct)
     {
-        var asset = await assets.GetAsync(id, ct) ?? throw new KeyNotFoundException();
+        var asset = await assets.GetAsync(id, ct);
+        if (asset is null && (id.Contains("_a_") || id.Contains("_b_") || id.Contains("_part")))
+        {
+            var baseId = System.Text.RegularExpressions.Regex.Replace(id, @"(_[ab]_\d+|_part.*)$", "");
+            asset = await assets.GetAsync(baseId, ct);
+        }
+        if (asset is null) throw new KeyNotFoundException();
         await EnsureOwnedAsync(asset.ProjectId, ct);
 
         var stream = await store.OpenAsync(asset.StorageKey, ct) ?? throw new KeyNotFoundException();

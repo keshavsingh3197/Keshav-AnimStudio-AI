@@ -93,15 +93,7 @@
                 <circle cx="12" cy="12" r="10"></circle>
                 <circle cx="12" cy="12" r="3"></circle>
               </svg>
-              <span class="scope-text">
-                @if (state.selectedClipsCount() > 1) {
-                  Selected ({{ state.selectedClipsCount() }})
-                } @else if (state.selectedClip()) {
-                  {{ state.selectedClip()?.name }}
-                } @else {
-                  All clips ({{ state.included().length }})
-                }
-              </span>
+              <span class="scope-text">Selected clips ({{ state.selectedClipsCount() }})</span>
             }
           </span>
           <svg class="dropdown-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">

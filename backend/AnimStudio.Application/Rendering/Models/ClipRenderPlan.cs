@@ -91,6 +91,15 @@ public sealed record ClipRenderPlan
     /// <summary>Duration in seconds for an image clip (default 5.0 seconds).</summary>
     public double ImageDurationSeconds { get; init; } = 5.0;
 
+    /// <summary>Optional trim start in-point on the video source.</summary>
+    public double? TrimStartSeconds { get; init; }
+
+    /// <summary>Optional trim end out-point on the video source.</summary>
+    public double? TrimEndSeconds { get; init; }
+
+    /// <summary>Optional custom duration override for this clip in the edit.</summary>
+    public double? DurationSeconds { get; init; }
+
     /// <summary>False when the source is silent, in which case silence is generated.</summary>
     public bool SourceHasAudio { get; init; } = true;
 

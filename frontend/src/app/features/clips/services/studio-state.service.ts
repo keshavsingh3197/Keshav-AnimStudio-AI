@@ -80,8 +80,32 @@ export class StudioStateService implements OnDestroy {
   readonly watermarkBackplate = signal<number>(0.3);
   readonly globalWatermark = signal<WatermarkBody | null>(null);
 
-  assetUrl(assetId: string): string {
-    return this.api.assetUrl(assetId);
+  resolveAssetId(clipOrId: string | Clip | undefined): string {
+    if (!clipOrId) return '';
+    if (typeof clipOrId !== 'string') {
+      if (clipOrId.assetId) return clipOrId.assetId;
+      return this.resolveAssetId(clipOrId.id);
+    }
+    const id = clipOrId;
+    const studioClips = this.studio()?.clips || [];
+    const directMatch = studioClips.find((c) => c.id === id);
+    if (directMatch) return directMatch.assetId || directMatch.id;
+
+    const rowMatch = this.rows().find((r) => r.clip.id === id);
+    if (rowMatch && rowMatch.clip.assetId) return rowMatch.clip.assetId;
+
+    // Check if ID has a split suffix like '_a_123', '_b_123', '_part_123'
+    const cleaned = id.replace(/_[ab]_\d+.*$/, '').replace(/_part.*$/, '');
+    if (cleaned !== id) {
+      return this.resolveAssetId(cleaned);
+    }
+    return id;
+  }
+
+  assetUrl(clipOrId: string | Clip | undefined): string {
+    if (!clipOrId) return '';
+    const resolved = this.resolveAssetId(clipOrId);
+    return this.api.assetUrl(resolved);
   }
 
   // Cross-Component Drag-and-Drop Contract (Guardrail 4)
@@ -95,40 +119,71 @@ export class StudioStateService implements OnDestroy {
   readonly selectedLibraryIds = signal<Set<string>>(new Set<string>());
 
   readonly allMediaRows = computed<ClipRow[]>(() => {
-    const timelineRows = this.rows();
     const studio = this.studio();
-    if (!studio) return timelineRows;
+    if (!studio) return [];
 
-    const rowIds = new Set(timelineRows.map((r) => r.clip.id));
-    const extraImages: ClipRow[] = (studio.logoCandidates || [])
-      .filter((img) => !rowIds.has(img.id))
-      .map((img) => ({
-        clip: {
-          id: img.id,
-          name: img.name,
-          fileSizeBytes: img.fileSizeBytes,
-          durationSeconds: 5.0,
-          width: img.width,
-          height: img.height,
-          hasAudio: false,
-        },
-        included: this.timelineItems().some(
+    const seenIds = new Set<string>();
+    const mediaList: ClipRow[] = [];
+
+    // 1. Project visual/video clips from studio.clips
+    for (const clip of studio.clips || []) {
+      if (!seenIds.has(clip.id)) {
+        seenIds.add(clip.id);
+        const type = this.getClipType(clip);
+        let isIncluded = false;
+        if (type === 'video') {
+          isIncluded = this.rows().some((r) => (r.clip.id === clip.id || this.resolveAssetId(r.clip) === clip.id) && r.included);
+        } else if (type === 'image') {
+          isIncluded = this.timelineItems().some(
+            (it) => (it.trackId === 'IMG1' || it.trackId === 'IMG') && (it.src === clip.id || it.id === clip.id)
+          );
+        } else if (type === 'audio') {
+          isIncluded = this.musicAssetId() === clip.id || this.musicTracks().some((t) => t.assetId === clip.id);
+        }
+        mediaList.push({ clip, included: isIncluded });
+      }
+    }
+
+    // 2. Extra project image/logo candidates
+    for (const img of studio.logoCandidates || []) {
+      if (!seenIds.has(img.id)) {
+        seenIds.add(img.id);
+        const isIncluded = this.timelineItems().some(
           (it) => (it.trackId === 'IMG1' || it.trackId === 'IMG' || it.trackId === 'V3' || it.trackId === 'V2') && (it.src === img.id || it.id === img.id)
-        ),
-      }));
+        );
+        mediaList.push({
+          clip: {
+            id: img.id,
+            name: img.name,
+            fileSizeBytes: img.fileSizeBytes,
+            durationSeconds: 5.0,
+            width: img.width,
+            height: img.height,
+            hasAudio: false,
+          },
+          included: isIncluded,
+        });
+      }
+    }
 
-    const audioRows: ClipRow[] = (studio.musicCandidates || []).map((aud) => ({
-      clip: {
-        id: aud.id,
-        name: aud.name,
-        fileSizeBytes: aud.fileSizeBytes,
-        durationSeconds: aud.durationSeconds,
-        hasAudio: true,
-      },
-      included: this.musicAssetId() === aud.id || this.musicTracks().some((t) => t.assetId === aud.id),
-    }));
+    // 3. Audio / music candidates
+    for (const aud of studio.musicCandidates || []) {
+      if (!seenIds.has(aud.id)) {
+        seenIds.add(aud.id);
+        mediaList.push({
+          clip: {
+            id: aud.id,
+            name: aud.name,
+            fileSizeBytes: aud.fileSizeBytes,
+            durationSeconds: aud.durationSeconds,
+            hasAudio: true,
+          },
+          included: this.musicAssetId() === aud.id || this.musicTracks().some((t) => t.assetId === aud.id),
+        });
+      }
+    }
 
-    return [...timelineRows, ...extraImages, ...audioRows];
+    return mediaList;
   });
 
   readonly filteredRows = computed(() => {
@@ -184,6 +239,8 @@ export class StudioStateService implements OnDestroy {
   readonly junctions = signal<Record<string, JunctionSetting>>({});
   readonly junctionOverrides = signal<Map<string, JunctionSetting>>(new Map());
   readonly openJunctionKey = signal<string | null>(null);
+  readonly selectedJunctionKey = signal<string | null>(null);
+  readonly transitionModalOpen = signal<boolean>(false);
   readonly previewJunction = signal<{ key: string; leftClip: Clip; rightClip: Clip; transition: string; seconds: number } | null>(null);
   readonly clipSounds = signal<Record<string, ClipAudioSetting>>({});
   readonly clipTransforms = signal<Record<string, TimelineItemTransform>>({});
@@ -242,10 +299,11 @@ export class StudioStateService implements OnDestroy {
 
   // Selection & Inspector State
   readonly selectedClipId = signal<string | null>(null);
+  readonly selectedTimelineClipIndex = signal<number | null>(null);
   readonly selectedTimelineItemId = signal<string | null>(null);
   readonly selectedTimelineItemIds = signal<Set<string>>(new Set<string>());
   readonly activeInspectorTab = signal<'clip' | 'color' | 'audio' | 'text' | 'effects' | 'transitions'>('clip');
-  readonly targetScope = signal<'auto' | 'selected' | 'all' | 'current' | 'under_music'>('auto');
+  readonly targetScope = signal<'auto' | 'selected' | 'all' | 'current' | 'under_music'>('selected');
   readonly scopeDropdownOpen = signal<boolean>(false);
   readonly toolDropdownOpen = signal<boolean>(false);
 
@@ -329,8 +387,11 @@ export class StudioStateService implements OnDestroy {
         const nextClip = rows[i + 1].clip;
         const key = this.junctionKey(clip.id, nextClip.id);
         const custom = junctionsMap.get(key);
-        jTrans = custom ? custom.transition : defaultTrans;
-        jSecs = custom ? custom.seconds : defaultSecs;
+        const isSplitAdjacent = this.resolveAssetId(clip) === this.resolveAssetId(nextClip);
+        const defaultTransToUse = isSplitAdjacent ? 'None' : defaultTrans;
+        const defaultSecsToUse = isSplitAdjacent ? 0 : defaultSecs;
+        jTrans = custom ? custom.transition : defaultTransToUse;
+        jSecs = custom ? custom.seconds : defaultSecsToUse;
         if (jTrans === 'None') jSecs = 0;
       }
 
@@ -463,7 +524,12 @@ export class StudioStateService implements OnDestroy {
 
   readonly selectedClipsCount = computed(() => {
     if (this.targetScope() === 'under_music') return this.clipsUnderMusic().length;
-    return this.selectedLibraryIds().size;
+    const libCount = this.selectedLibraryIds().size;
+    if (libCount > 0) return libCount;
+    const tlCount = this.selectedTimelineItemIds().size;
+    if (tlCount > 0) return tlCount;
+    if (this.selectedClipId() || this.selectedTimelineItemId()) return 1;
+    return 0;
   });
 
   readonly selectedClip = computed<Clip | null>(() => {
@@ -478,6 +544,10 @@ export class StudioStateService implements OnDestroy {
     if (!sel) return -1;
     return this.included().findIndex((r) => r.clip.id === sel.id);
   });
+
+  getIncludedClipIndex(clipId: string): number {
+    return this.included().findIndex((r) => r.clip.id === clipId);
+  }
 
   readonly activeClipIsImage = computed(() => {
     const sched = this.currentScheduledClip();
@@ -529,13 +599,164 @@ export class StudioStateService implements OnDestroy {
     return null;
   });
 
-  getOverlayTransform(t?: TimelineItemTransform): string {
-    if (!t) return 'none';
-    const x = t.x ?? 0;
-    const y = t.y ?? 0;
-    const scale = t.scale ?? 1;
+  getOverlayEffectiveOpacity(img: TimelineItem): number {
+    const t = img.transform;
+    const baseOpacity = t?.opacity ?? 1.0;
+    const inType = t?.transitionIn ?? 'fade';
+    const inDur = t?.transitionInDuration ?? 0.5;
+    const outType = t?.transitionOut ?? 'fade';
+    const outDur = t?.transitionOutDuration ?? 0.5;
+
+    const ct = this.currentTime();
+    const elapsed = ct - img.startTime;
+    const remaining = (img.startTime + img.duration) - ct;
+
+    if (inType !== 'none' && elapsed >= 0 && elapsed < inDur && inDur > 0) {
+      const p = Math.min(1, Math.max(0, elapsed / inDur));
+      const ease = 1 - Math.pow(1 - p, 3);
+      return baseOpacity * ease;
+    }
+    if (outType !== 'none' && remaining >= 0 && remaining < outDur && outDur > 0) {
+      const p = Math.min(1, Math.max(0, remaining / outDur));
+      const ease = Math.pow(p, 2);
+      return baseOpacity * ease;
+    }
+    return baseOpacity;
+  }
+
+  getOverlayTransform(imgOrTransform: TimelineItem | TimelineItemTransform | undefined): string {
+    if (!imgOrTransform) return 'none';
+    let imgItem: TimelineItem | null = null;
+    let t: TimelineItemTransform;
+    if ('type' in imgOrTransform && 'trackId' in imgOrTransform) {
+      imgItem = imgOrTransform as TimelineItem;
+      t = imgItem.transform ?? { scale: 1, x: 0, y: 0, opacity: 1 };
+    } else {
+      t = imgOrTransform as TimelineItemTransform;
+    }
+
+    const baseX = t.x ?? 0;
+    const baseY = t.y ?? 0;
+    const baseScale = t.scale ?? 1;
     const rot = (t as { rotation?: number }).rotation ?? 0;
-    return `translate(${x}px, ${y}px) scale(${scale}) rotate(${rot}deg)`;
+
+    let extraX = 0;
+    let extraY = 0;
+    let extraScale = 1.0;
+
+    if (imgItem) {
+      const inType = t.transitionIn ?? 'fade';
+      const inDur = t.transitionInDuration ?? 0.5;
+      const outType = t.transitionOut ?? 'fade';
+      const outDur = t.transitionOutDuration ?? 0.5;
+
+      const ct = this.currentTime();
+      const elapsed = ct - imgItem.startTime;
+      const remaining = (imgItem.startTime + imgItem.duration) - ct;
+
+      if (inType !== 'none' && elapsed >= 0 && elapsed < inDur && inDur > 0) {
+        const p = Math.min(1, Math.max(0, elapsed / inDur));
+        const ease = 1 - Math.pow(1 - p, 3);
+        if (inType === 'slide-left') {
+          extraX = -100 * (1 - ease);
+        } else if (inType === 'slide-right') {
+          extraX = 100 * (1 - ease);
+        } else if (inType === 'slide-up') {
+          extraY = 100 * (1 - ease);
+        } else if (inType === 'slide-down') {
+          extraY = -100 * (1 - ease);
+        } else if (inType === 'zoom-in') {
+          extraScale = 0.2 + 0.8 * ease;
+        }
+      } else if (outType !== 'none' && remaining >= 0 && remaining < outDur && outDur > 0) {
+        const p = Math.min(1, Math.max(0, remaining / outDur));
+        const ease = Math.pow(p, 2);
+        if (outType === 'slide-left') {
+          extraX = -100 * (1 - ease);
+        } else if (outType === 'slide-right') {
+          extraX = 100 * (1 - ease);
+        } else if (outType === 'slide-down') {
+          extraY = 100 * (1 - ease);
+        } else if (outType === 'slide-up') {
+          extraY = -100 * (1 - ease);
+        } else if (outType === 'zoom-out') {
+          extraScale = 0.2 + 0.8 * ease;
+        } else if (outType === 'zoom-in') {
+          extraScale = 1.0 + 0.8 * (1 - ease);
+        }
+      }
+    }
+
+    return `translate(${baseX + extraX}px, ${baseY + extraY}px) scale(${baseScale * extraScale}) rotate(${rot}deg)`;
+  }
+
+  getTextOverlayEffectiveOpacity(txt: TimelineItem): number {
+    const st = txt.textStyle;
+    const inType = st?.transitionIn ?? 'fade';
+    const inDur = st?.transitionInDuration ?? 0.5;
+    const outType = st?.transitionOut ?? 'fade';
+    const outDur = st?.transitionOutDuration ?? 0.5;
+
+    const ct = this.currentTime();
+    const elapsed = ct - txt.startTime;
+    const remaining = (txt.startTime + txt.duration) - ct;
+
+    if (inType !== 'none' && elapsed >= 0 && elapsed < inDur && inDur > 0) {
+      const p = Math.min(1, Math.max(0, elapsed / inDur));
+      return 1 - Math.pow(1 - p, 3);
+    }
+    if (outType !== 'none' && remaining >= 0 && remaining < outDur && outDur > 0) {
+      const p = Math.min(1, Math.max(0, remaining / outDur));
+      return Math.pow(p, 2);
+    }
+    return 1.0;
+  }
+
+  getTextOverlayTransform(txt: TimelineItem): string {
+    const st = txt.textStyle;
+    const isCenter = st?.position === 'center';
+    const inType = st?.transitionIn ?? 'fade';
+    const inDur = st?.transitionInDuration ?? 0.5;
+    const outType = st?.transitionOut ?? 'fade';
+    const outDur = st?.transitionOutDuration ?? 0.5;
+
+    let extraY = 0;
+    let extraScale = 1.0;
+
+    const ct = this.currentTime();
+    const elapsed = ct - txt.startTime;
+    const remaining = (txt.startTime + txt.duration) - ct;
+
+    if (inType !== 'none' && elapsed >= 0 && elapsed < inDur && inDur > 0) {
+      const p = Math.min(1, Math.max(0, elapsed / inDur));
+      const ease = 1 - Math.pow(1 - p, 3);
+      if (inType === 'slide-up') {
+        extraY = 40 * (1 - ease);
+      } else if (inType === 'slide-down') {
+        extraY = -40 * (1 - ease);
+      } else if (inType === 'zoom-in') {
+        extraScale = 0.5 + 0.5 * ease;
+      }
+    } else if (outType !== 'none' && remaining >= 0 && remaining < outDur && outDur > 0) {
+      const p = Math.min(1, Math.max(0, remaining / outDur));
+      const ease = Math.pow(p, 2);
+      if (outType === 'slide-up') {
+        extraY = -40 * (1 - ease);
+      } else if (outType === 'slide-down') {
+        extraY = 40 * (1 - ease);
+      } else if (outType === 'zoom-out') {
+        extraScale = 0.5 + 0.5 * ease;
+      } else if (outType === 'zoom-in') {
+        extraScale = 1.0 + 0.4 * (1 - ease);
+      }
+    }
+
+    const baseCenterTranslate = isCenter ? 'translateY(-50%) ' : '';
+    const animTranslate = extraY !== 0 ? `translateY(${extraY}px) ` : '';
+    const animScale = extraScale !== 1 ? `scale(${extraScale})` : '';
+
+    const combined = `${baseCenterTranslate}${animTranslate}${animScale}`.trim();
+    return combined || 'none';
   }
 
   readonly activeTargetClip = computed<Clip | null>(() => {
@@ -548,6 +769,17 @@ export class StudioStateService implements OnDestroy {
     if (scope === 'all') {
       const first = this.included()[0];
       return first ? first.clip : null;
+    }
+    // 0. Selected image overlay timeline item
+    const selItem = this.selectedTimelineItem();
+    if (selItem && (selItem.type === 'image' || selItem.trackId === 'IMG1' || selItem.trackId === 'IMG')) {
+      return {
+        id: selItem.src || selItem.id,
+        name: selItem.name || 'Image Overlay',
+        durationSeconds: selItem.duration,
+        fileSizeBytes: 0,
+        hasAudio: false,
+      };
     }
     // 1. Direct selected clip
     const direct = this.selectedClip();
@@ -731,16 +963,33 @@ export class StudioStateService implements OnDestroy {
       const key = this.junctionKey(left.id, right.id);
       const override = overrides.get(key);
 
+      const isSplitAdjacent = this.resolveAssetId(left) === this.resolveAssetId(right);
+      const defaultTrans = isSplitAdjacent ? 'None' : this.transition();
+      const defaultSecs = isSplitAdjacent ? 0 : this.transitionSeconds();
+
       list.push({
         key,
         left,
         right,
-        transition: override?.transition ?? this.transition(),
-        seconds: override?.seconds ?? this.transitionSeconds(),
+        transition: override?.transition ?? defaultTrans,
+        seconds: override?.seconds ?? defaultSecs,
       });
     }
 
     return list;
+  });
+
+  readonly selectedJunction = computed<JunctionView | null>(() => {
+    const key = this.selectedJunctionKey();
+    if (!key) return null;
+    return this.junctionsList().find((j) => j.key === key) ?? null;
+  });
+
+  readonly transitionModalJunction = computed<JunctionView | null>(() => {
+    const direct = this.selectedJunction();
+    if (direct) return direct;
+    const list = this.junctionsList();
+    return list.length > 0 ? list[0] : null;
   });
 
   readonly targetJunctions = computed<JunctionView[]>(() => {
@@ -1059,7 +1308,127 @@ export class StudioStateService implements OnDestroy {
     }
   }
 
+  selectTimelineClip(index: number, clipId: string, event?: Event): void {
+    event?.stopPropagation();
+    this.selectedTimelineClipIndex.set(index);
+    this.selectedClipId.set(clipId);
+    this.selectedLibraryIds.set(new Set([clipId]));
+    this.selectedTimelineItemId.set(null);
+    this.selectedTimelineItemIds.set(new Set());
+  }
+
+  removeTimelineClipAtIndex(clipIdOrIndex: string | number, timelineIndex?: number): void {
+    const allRows = [...this.rows()];
+    let removeIdx = -1;
+
+    if (typeof clipIdOrIndex === 'string') {
+      removeIdx = allRows.findIndex((r) => r.clip.id === clipIdOrIndex);
+    } else if (clipIdOrIndex >= 0 && clipIdOrIndex < allRows.length && allRows[clipIdOrIndex].included) {
+      removeIdx = clipIdOrIndex;
+    } else if (timelineIndex !== undefined && timelineIndex >= 0) {
+      let count = 0;
+      for (let i = 0; i < allRows.length; i++) {
+        if (allRows[i].included) {
+          if (count === timelineIndex) {
+            removeIdx = i;
+            break;
+          }
+          count++;
+        }
+      }
+    } else if (clipIdOrIndex >= 0) {
+      let count = 0;
+      for (let i = 0; i < allRows.length; i++) {
+        if (allRows[i].included) {
+          if (count === clipIdOrIndex) {
+            removeIdx = i;
+            break;
+          }
+          count++;
+        }
+      }
+    }
+
+    if (removeIdx >= 0) {
+      const removedClip = allRows[removeIdx].clip;
+      allRows.splice(removeIdx, 1);
+      this.rows.set(allRows);
+      this.markDirty();
+      this.saveOrder();
+
+      if (this.selectedClipId() === removedClip.id || this.selectedTimelineClipIndex() === removeIdx) {
+        this.selectedTimelineClipIndex.set(null);
+        this.selectedClipId.set(null);
+      }
+      this.status.notify(['Removed clip from timeline cut.']);
+    }
+  }
+
+  duplicateSelectedTimelineItem(): void {
+    // 1. If a timeline clip on V1 is selected
+    const clipIdx = this.selectedTimelineClipIndex();
+    const clipId = this.selectedClipId();
+    if (clipIdx !== null || clipId) {
+      const inc = this.included();
+      const allRows = [...this.rows()];
+      let targetRow: ClipRow | null = null;
+      let foundIdx = -1;
+
+      if (clipId) {
+        foundIdx = allRows.findIndex((r) => r.clip.id === clipId);
+        if (foundIdx >= 0) targetRow = allRows[foundIdx];
+      }
+      if (!targetRow && clipIdx !== null && clipIdx >= 0 && clipIdx < inc.length) {
+        targetRow = inc[clipIdx];
+        foundIdx = allRows.findIndex((r) => r === targetRow);
+      }
+
+      if (targetRow && foundIdx >= 0) {
+        const realAssetId = this.resolveAssetId(targetRow.clip);
+        const uniqueId = `${realAssetId}_dup_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        const baseName = targetRow.clip.name.replace(/ \(Copy( \d+)?\)$/, '');
+        const newClip: Clip = {
+          ...targetRow.clip,
+          id: uniqueId,
+          assetId: realAssetId,
+          name: `${baseName} (Copy)`,
+        };
+        const newEntry: ClipRow = {
+          clip: newClip,
+          included: true,
+        };
+        allRows.splice(foundIdx + 1, 0, newEntry);
+        this.rows.set(allRows);
+        this.selectedClipId.set(uniqueId);
+        this.selectedTimelineClipIndex.set(foundIdx + 1);
+        this.markDirty();
+        this.saveOrder();
+        this.status.notify([`Duplicated clip "${targetRow.clip.name}" on timeline cut.`]);
+        return;
+      }
+    }
+
+    // 2. If an overlay timeline item (IMG or TXT) is selected
+    const tlItem = this.selectedTimelineItem();
+    if (tlItem) {
+      const dur = tlItem.duration;
+      const validStart = this.clampItemCollision(tlItem.trackId, tlItem.startTime + dur, dur);
+      const newItemId = `${tlItem.type}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+      const newItem: TimelineItem = {
+        ...tlItem,
+        id: newItemId,
+        startTime: validStart,
+        name: tlItem.name ? `${tlItem.name} (Copy)` : undefined,
+      };
+      this.timelineItems.update((items) => [...items, newItem]);
+      this.selectedTimelineItemId.set(newItemId);
+      this.markDirty();
+      this.status.notify([`Duplicated item on track ${tlItem.trackId}.`]);
+    }
+  }
+
   clearAllSelections(): void {
+    this.selectedTimelineClipIndex.set(null);
     this.selectedClipId.set(null);
     this.selectedLibraryIds.set(new Set());
     this.selectedTimelineItemId.set(null);
@@ -1152,6 +1521,13 @@ export class StudioStateService implements OnDestroy {
 
     const assetType = this.getClipType(clip);
 
+    if (assetType === 'audio') {
+      // Audio routes strictly to audio track
+      this.addMusicTrackFromAsset(clip.id);
+      this.status.notify([`Added audio "${clip.name}" to audio track.`]);
+      return;
+    }
+
     if (assetType === 'image') {
       // Images route strictly to IMG1 Image track
       const defaultDuration = clip.durationSeconds ?? 5.0;
@@ -1165,7 +1541,16 @@ export class StudioStateService implements OnDestroy {
         duration: defaultDuration,
         src: clip.id,
         name: clip.name,
-        transform: { scale: 1.0, x: 0, y: 0, opacity: 1.0 },
+        transform: {
+          scale: 1.0,
+          x: 0,
+          y: 0,
+          opacity: 1.0,
+          transitionIn: 'fade',
+          transitionInDuration: 0.5,
+          transitionOut: 'fade',
+          transitionOutDuration: 0.5,
+        },
       };
       this.timelineItems.update((items) => [...items, newItem]);
       this.selectedTimelineItemId.set(newItemId);
@@ -1174,14 +1559,7 @@ export class StudioStateService implements OnDestroy {
         this.rows.update((r) => r.filter((row) => row.clip.id !== clipId));
       }
       this.markDirty();
-      this.status.notify([`Added image "${clip.name}" to Image track (IMG1).`]);
-      return;
-    }
-
-    if (assetType === 'audio') {
-      // Audio routes strictly to audio track
-      this.addMusicTrackFromAsset(clip.id);
-      this.status.notify([`Added audio "${clip.name}" to audio track.`]);
+      this.status.notify([`Added image "${clip.name}" to Image track (IMG).`]);
       return;
     }
 
@@ -1196,29 +1574,37 @@ export class StudioStateService implements OnDestroy {
       this.rows.set(rows);
     }
     this.markDirty();
-    this.status.notify([`Added video "${clip.name}" to V1 video track.`]);
+    this.status.notify([`Added video "${clip.name}" to V1 sequence cut.`]);
   }
 
-  removeClipFromTimeline(clipId: string): void {
+  removeClipFromTimeline(clipOrAssetId: string): void {
     let removed = false;
 
-    const rowIndex = this.rows().findIndex((r) => r.clip.id === clipId);
-    if (rowIndex >= 0 && this.rows()[rowIndex].included) {
-      this.rows.update((rows) => rows.map((r) => (r.clip.id === clipId ? { ...r, included: false } : r)));
+    const rows = [...this.rows()];
+    const filteredRows = rows.filter((r) => {
+      const match = r.clip.id === clipOrAssetId || this.resolveAssetId(r.clip) === clipOrAssetId;
+      if (match) removed = true;
+      return !match;
+    });
+
+    if (removed) {
+      this.rows.set(filteredRows);
+      this.saveOrder();
+    }
+
+    if (this.timelineItems().some((it) => it.id === clipOrAssetId || it.src === clipOrAssetId || this.resolveAssetId(it.src) === clipOrAssetId)) {
+      this.timelineItems.update((items) =>
+        items.filter((it) => it.id !== clipOrAssetId && it.src !== clipOrAssetId && this.resolveAssetId(it.src) !== clipOrAssetId)
+      );
       removed = true;
     }
 
-    if (this.timelineItems().some((it) => it.id === clipId || it.src === clipId)) {
-      this.timelineItems.update((items) => items.filter((it) => it.id !== clipId && it.src !== clipId));
+    if (this.musicTracks().some((t) => t.assetId === clipOrAssetId || t.key === clipOrAssetId)) {
+      this.musicTracks.update((tracks) => tracks.filter((t) => t.assetId !== clipOrAssetId && t.key !== clipOrAssetId));
       removed = true;
     }
 
-    if (this.musicTracks().some((t) => t.assetId === clipId || t.key === clipId)) {
-      this.musicTracks.update((tracks) => tracks.filter((t) => t.assetId !== clipId && t.key !== clipId));
-      removed = true;
-    }
-
-    if (this.musicAssetId() === clipId) {
+    if (this.musicAssetId() === clipOrAssetId) {
       this.musicAssetId.set('');
       removed = true;
     }
@@ -1247,12 +1633,19 @@ export class StudioStateService implements OnDestroy {
     if (selLibIds.size === 0 && selTlIds.size === 0) return;
 
     if (selLibIds.size > 0) {
-      this.rows.update((rows) => rows.map((r) => (selLibIds.has(r.clip.id) ? { ...r, included: false } : r)));
-      this.timelineItems.update((items) => items.filter((it) => !selLibIds.has(it.id) && !selLibIds.has(it.src)));
-      this.musicTracks.update((tracks) => tracks.filter((t) => !selLibIds.has(t.assetId) && !selLibIds.has(t.key)));
+      this.rows.update((rows) =>
+        rows.filter((r) => !selLibIds.has(r.clip.id) && !selLibIds.has(this.resolveAssetId(r.clip)))
+      );
+      this.timelineItems.update((items) =>
+        items.filter((it) => !selLibIds.has(it.id) && !selLibIds.has(it.src) && !selLibIds.has(this.resolveAssetId(it.src)))
+      );
+      this.musicTracks.update((tracks) =>
+        tracks.filter((t) => !selLibIds.has(t.assetId) && !selLibIds.has(t.key))
+      );
       if (selLibIds.has(this.musicAssetId())) {
         this.musicAssetId.set('');
       }
+      this.saveOrder();
     }
 
     if (selTlIds.size > 0) {
@@ -1278,6 +1671,13 @@ export class StudioStateService implements OnDestroy {
       return;
     }
 
+    const selClipId = this.selectedClipId();
+    const selClipIdx = this.selectedTimelineClipIndex();
+    if (selClipId || selClipIdx !== null) {
+      this.removeTimelineClipAtIndex(selClipId || selClipIdx!, selClipIdx ?? undefined);
+      return;
+    }
+
     const selLibIds = this.selectedLibraryIds();
     if (selLibIds.size > 0) {
       this.removeSelectedFromTimeline();
@@ -1294,6 +1694,17 @@ export class StudioStateService implements OnDestroy {
   readonly confirmingDelete = signal<boolean>(false);
 
   deleteSelected(): void {
+    const selItemId = this.selectedTimelineItemId();
+    if (selItemId) {
+      this.removeTimelineItem(selItemId);
+      return;
+    }
+    const selClipId = this.selectedClipId();
+    const selClipIdx = this.selectedTimelineClipIndex();
+    if (selClipId || selClipIdx !== null) {
+      this.removeTimelineClipAtIndex(selClipId || selClipIdx!, selClipIdx ?? undefined);
+      return;
+    }
     if (this.confirmingDelete()) {
       this.removeFromLibrary();
     } else {
@@ -1842,6 +2253,22 @@ export class StudioStateService implements OnDestroy {
     cropLinked: boolean;
     stabilization: boolean;
   }>(() => {
+    const selItem = this.selectedTimelineItem();
+    if (selItem && (selItem.type === 'image' || selItem.trackId === 'IMG1' || selItem.trackId === 'IMG')) {
+      const t = selItem.transform ?? { scale: 1, x: 0, y: 0, opacity: 1, transitionIn: 'fade', transitionInDuration: 0.5, transitionOut: 'fade', transitionOutDuration: 0.5 };
+      return {
+        scale: t.scale ?? 1,
+        x: t.x ?? 0,
+        y: t.y ?? 0,
+        rotation: (t as any).rotation ?? 0,
+        cropLeft: t.cropLeft ?? 0,
+        cropRight: t.cropRight ?? 0,
+        cropTop: t.cropTop ?? 0,
+        cropBottom: t.cropBottom ?? 0,
+        cropLinked: false,
+        stabilization: false,
+      };
+    }
     const ids = this.getTargetClipIds();
     if (ids.length === 0) {
       const clip = this.activeTargetClip();
@@ -1880,6 +2307,11 @@ export class StudioStateService implements OnDestroy {
   });
 
   private _setScopeTransformField(patch: Partial<TimelineItemTransform>, fallbackClipId?: string): void {
+    const selItemId = this.selectedTimelineItemId();
+    if (selItemId) {
+      this.updateImageItemTransform(selItemId, patch);
+      return;
+    }
     const targetIds = this.getTargetClipIds(fallbackClipId);
     if (targetIds.length === 0) return;
     this.clipTransforms.update((rec) => {
@@ -1910,6 +2342,22 @@ export class StudioStateService implements OnDestroy {
 
   resetScopeTransformRotation(): void {
     this._setScopeTransformField({ rotation: 0 });
+  }
+
+  setScopeTransformTransitionIn(trans: any): void {
+    this._setScopeTransformField({ transitionIn: trans });
+  }
+
+  setScopeTransformTransitionInDuration(dur: number): void {
+    this._setScopeTransformField({ transitionInDuration: dur });
+  }
+
+  setScopeTransformTransitionOut(trans: any): void {
+    this._setScopeTransformField({ transitionOut: trans });
+  }
+
+  setScopeTransformTransitionOutDuration(dur: number): void {
+    this._setScopeTransformField({ transitionOutDuration: dur });
   }
 
   /**
@@ -2242,7 +2690,7 @@ export class StudioStateService implements OnDestroy {
   splitClipAtPlayhead(): void {
     const t = this.currentTime();
     const sched = this.clipSchedule();
-    const hit = sched.find((c) => t > c.startSeconds + 0.1 && t < c.endSeconds - 0.1);
+    const hit = sched.find((c) => t > c.startSeconds + 0.05 && t < c.endSeconds - 0.05);
     if (!hit) {
       this.status.notify(['No clip under playhead to split.']);
       return;
@@ -2250,19 +2698,30 @@ export class StudioStateService implements OnDestroy {
 
     const splitOffset = t - hit.startSeconds;
     const origClip = hit.clip;
-    const origDur = origClip.durationSeconds ?? 5.0;
+    const realAssetId = this.resolveAssetId(origClip);
+    const origTrimStart = origClip.trimStartSeconds ?? 0;
+    const origDur = origClip.durationSeconds ?? (origClip.trimEndSeconds ? origClip.trimEndSeconds - origTrimStart : 5.0);
+
+    const baseName = origClip.name.replace(/ \(Part \d+\)$/, '');
+    const ts = Date.now();
 
     const clipA: Clip = {
       ...origClip,
-      id: `${origClip.id}_a_${Date.now()}`,
-      name: `${origClip.name} (Part 1)`,
+      id: `${realAssetId}_part_${ts}_1`,
+      assetId: realAssetId,
+      name: `${baseName} (Part 1)`,
       durationSeconds: splitOffset,
+      trimStartSeconds: origTrimStart,
+      trimEndSeconds: origTrimStart + splitOffset,
     };
     const clipB: Clip = {
       ...origClip,
-      id: `${origClip.id}_b_${Date.now()}`,
-      name: `${origClip.name} (Part 2)`,
+      id: `${realAssetId}_part_${ts}_2`,
+      assetId: realAssetId,
+      name: `${baseName} (Part 2)`,
       durationSeconds: origDur - splitOffset,
+      trimStartSeconds: origTrimStart + splitOffset,
+      trimEndSeconds: origTrimStart + origDur,
     };
 
     const rows = [...this.rows()];
@@ -2270,7 +2729,36 @@ export class StudioStateService implements OnDestroy {
     if (rowIdx >= 0) {
       rows.splice(rowIdx, 1, { clip: clipA, included: true }, { clip: clipB, included: true });
       this.rows.set(rows);
+
+      // Copy custom transform, color, and sound settings to both clips
+      const transforms = { ...this.clipTransforms() };
+      if (transforms[origClip.id]) {
+        transforms[clipA.id] = { ...transforms[origClip.id] };
+        transforms[clipB.id] = { ...transforms[origClip.id] };
+        this.clipTransforms.set(transforms);
+      }
+      const colors = { ...this.clipColors() };
+      if (colors[origClip.id]) {
+        colors[clipA.id] = { ...colors[origClip.id] };
+        colors[clipB.id] = { ...colors[origClip.id] };
+        this.clipColors.set(colors);
+      }
+      const sounds = { ...this.clipSounds() };
+      if (sounds[origClip.id]) {
+        sounds[clipA.id] = { ...sounds[origClip.id] };
+        sounds[clipB.id] = { ...sounds[origClip.id] };
+        this.clipSounds.set(sounds);
+      }
+
+      // Ensure the seam between Part 1 and Part 2 has no transition (razor split)
+      const overrides = new Map(this.junctionOverrides());
+      overrides.set(this.junctionKey(clipA.id, clipB.id), { transition: 'None', seconds: 0 });
+      this.junctionOverrides.set(overrides);
+
+      this.selectedTimelineClipIndex.set(hit.index + 1);
+      this.selectedClipId.set(clipB.id);
       this.markDirty();
+      this.saveOrder();
       this.status.notify(['Split clip into two parts.']);
     }
   }
@@ -2421,6 +2909,10 @@ export class StudioStateService implements OnDestroy {
         color: '#ffffff',
         backgroundColor: 'rgba(0,0,0,0.6)',
         position: 'bottom',
+        transitionIn: 'fade',
+        transitionInDuration: 0.5,
+        transitionOut: 'fade',
+        transitionOutDuration: 0.5,
       },
     };
     this.timelineItems.update((items) => [...items, newItem]);
@@ -2434,6 +2926,65 @@ export class StudioStateService implements OnDestroy {
     if (this.selectedTimelineItemId() === itemId) {
       this.selectedTimelineItemId.set(null);
     }
+    this.markDirty();
+  }
+
+  updateTextItemContent(itemId: string, content: string): void {
+    this.timelineItems.update((items) =>
+      items.map((it) => (it.id === itemId ? { ...it, src: content } : it))
+    );
+    this.markDirty();
+  }
+
+  updateTextItemStyle(itemId: string, styleUpdates: Partial<TimelineItemTextStyle>): void {
+    this.timelineItems.update((items) =>
+      items.map((it) => {
+        if (it.id !== itemId) return it;
+        const currentStyle = it.textStyle ?? {
+          fontSize: 28,
+          color: '#ffffff',
+          backgroundColor: 'rgba(0,0,0,0.6)',
+          position: 'bottom',
+          transitionIn: 'fade',
+          transitionInDuration: 0.5,
+          transitionOut: 'fade',
+          transitionOutDuration: 0.5,
+        };
+        return {
+          ...it,
+          textStyle: {
+            ...currentStyle,
+            ...styleUpdates,
+          },
+        };
+      })
+    );
+    this.markDirty();
+  }
+
+  updateImageItemTransform(itemId: string, updates: Partial<TimelineItemTransform>): void {
+    this.timelineItems.update((items) =>
+      items.map((it) => {
+        if (it.id !== itemId) return it;
+        const curTransform = it.transform ?? {
+          scale: 1.0,
+          x: 0,
+          y: 0,
+          opacity: 1.0,
+          transitionIn: 'fade',
+          transitionInDuration: 0.5,
+          transitionOut: 'fade',
+          transitionOutDuration: 0.5,
+        };
+        return {
+          ...it,
+          transform: {
+            ...curTransform,
+            ...updates,
+          },
+        };
+      })
+    );
     this.markDirty();
   }
 
@@ -2470,6 +3021,10 @@ export class StudioStateService implements OnDestroy {
       if (item && item.type === 'audio') {
         this.setInspectorTab('audio');
         this.setAudioInspectorView('clip');
+      } else if (item && item.type === 'text') {
+        this.setInspectorTab('text');
+      } else if (item && item.type === 'image') {
+        this.setInspectorTab('clip');
       }
     }
   }
@@ -2614,14 +3169,14 @@ export class StudioStateService implements OnDestroy {
     }
 
     if (trackId === 'V1') {
-      if (assetType === 'image') {
-        targetTrackId = 'IMG1';
-        this.status.notify(['Images belong on the Image track. Placed overlay on IMG1.']);
-      } else if (assetType === 'audio') {
+      if (assetType === 'audio') {
         this.addMusicTrackFromAsset(row.clip.id);
         this.status.notify(['Audio belongs on audio tracks. Added to audio track.']);
         return;
-      } else if (assetType === 'video') {
+      } else if (assetType === 'image') {
+        targetTrackId = 'IMG1';
+        this.status.notify(['Images belong on the Image track (IMG). Placed on IMG track.']);
+      } else {
         this.addClipToTimeline(row.clip.id);
         return;
       }
@@ -2638,7 +3193,16 @@ export class StudioStateService implements OnDestroy {
       duration: defaultDuration,
       src: row.clip.id,
       name: assetName,
-      transform: assetType === 'image' || assetType === 'video' ? { scale: 1.0, x: 0, y: 0, opacity: 1.0 } : undefined,
+      transform: assetType === 'image' || assetType === 'video' ? {
+        scale: 1.0,
+        x: 0,
+        y: 0,
+        opacity: 1.0,
+        transitionIn: 'fade',
+        transitionInDuration: 0.5,
+        transitionOut: 'fade',
+        transitionOutDuration: 0.5,
+      } : undefined,
       volume: assetType === 'audio' ? 0.5 : undefined,
     };
 
@@ -2651,6 +3215,70 @@ export class StudioStateService implements OnDestroy {
   // Transitions & Junctions
   toggleJunctionEditor(key: string): void {
     this.openJunctionKey.update((cur) => (cur === key ? null : key));
+    this.selectedJunctionKey.set(key);
+  }
+
+  selectJunction(key: string | null): void {
+    this.selectedJunctionKey.set(key);
+  }
+
+  openTransitionDialog(key?: string): void {
+    if (key) {
+      this.selectedJunctionKey.set(key);
+      this.openJunctionKey.set(key);
+    } else if (!this.selectedJunctionKey() && this.junctionsList().length > 0) {
+      this.selectedJunctionKey.set(this.junctionsList()[0].key);
+    }
+    this.transitionModalOpen.set(true);
+  }
+
+  closeTransitionDialog(): void {
+    this.transitionModalOpen.set(false);
+  }
+
+  onJunctionChipClicked(key: string): void {
+    this.selectedJunctionKey.set(key);
+    this.openJunctionKey.set(key);
+    this.setInspectorTab('transitions');
+  }
+
+  closeJunctionEditor(): void {
+    this.openJunctionKey.set(null);
+  }
+
+  openTransitionsTab(): void {
+    const list = this.junctionsList();
+    if (list.length > 0 && (!this.selectedJunctionKey() || !list.some((j) => j.key === this.selectedJunctionKey()))) {
+      const curTime = this.currentTime();
+      const sched = this.clipSchedule();
+      let bestKey = list[0].key;
+      let minDiff = Infinity;
+      for (let i = 0; i < sched.length - 1 && i < list.length; i++) {
+        const cutTime = sched[i].endSeconds;
+        const diff = Math.abs(curTime - cutTime);
+        if (diff < minDiff) {
+          minDiff = diff;
+          bestKey = list[i].key;
+        }
+      }
+      this.selectedJunctionKey.set(bestKey);
+    }
+    this.setInspectorTab('transitions');
+  }
+
+  applyJunctionToAll(junction: JunctionView): void {
+    const trans = junction.transition;
+    const secs = junction.seconds;
+    this.transition.set(trans);
+    this.transitionSeconds.set(secs);
+    this.junctionOverrides.update((map) => {
+      const next = new Map(map);
+      for (const j of this.junctionsList()) {
+        next.set(j.key, { transition: trans, seconds: secs });
+      }
+      return next;
+    });
+    this.markDirty();
   }
 
   cycleJunctionTransition(junction: JunctionView): void {
@@ -3204,7 +3832,7 @@ export class StudioStateService implements OnDestroy {
     const projectId = this.store.projectId();
     if (!projectId) return;
 
-    const uniqueAssetIds = Array.from(new Set(this.rows().map((row) => row.clip.id)));
+    const uniqueAssetIds = Array.from(new Set(this.rows().map((row) => this.resolveAssetId(row.clip))));
     this.api.saveClipOrder(projectId, uniqueAssetIds).subscribe({
       error: () => this.status.notify(['Could not save the video order. Try the move again.']),
     });
@@ -3283,24 +3911,80 @@ export class StudioStateService implements OnDestroy {
     let draftItems: TimelineItem[] = Array.isArray(draft.timelineItems) ? [...draft.timelineItems] : [];
 
     if (draft.rows && Array.isArray(draft.rows)) {
-      // Migrate any legacy images that were previously saved in rows onto IMG1
-      const legacyImageRows = draft.rows.filter((r: ClipRow) => this.getClipType(r.clip) === 'image' && r.included);
-      for (const imgRow of legacyImageRows) {
-        if (!draftItems.some((it) => (it.trackId === 'IMG1' || it.trackId === 'IMG') && (it.src === imgRow.clip.id || it.id === imgRow.clip.id))) {
+      // Strictly keep ONLY video clips in rows (V1) sequence
+      const videoRows: ClipRow[] = [];
+      const imageRows: ClipRow[] = [];
+      for (const r of draft.rows) {
+        if (this.getClipType(r.clip) === 'video') {
+          videoRows.push(r);
+        } else if (this.getClipType(r.clip) === 'image') {
+          imageRows.push(r);
+        }
+      }
+
+      // If there were any images previously saved in draft.rows, migrate them to IMG1 if not already there
+      for (const imgRow of imageRows) {
+        const alreadyInItems = draftItems.some(
+          (it) => (it.trackId === 'IMG1' || it.trackId === 'IMG') && (it.src === imgRow.clip.id || it.id === imgRow.clip.id)
+        );
+        if (!alreadyInItems && imgRow.included) {
+          const defaultDuration = imgRow.clip.durationSeconds ?? 5.0;
+          const newItemId = `img_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
           draftItems.push({
-            id: `img_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+            id: newItemId,
             type: 'image',
             trackId: 'IMG1',
             startTime: 0,
-            duration: imgRow.clip.durationSeconds ?? 5.0,
+            duration: defaultDuration,
             src: imgRow.clip.id,
             name: imgRow.clip.name,
-            transform: { scale: 1.0, x: 0, y: 0, opacity: 1.0 },
+            transform: {
+              scale: 1.0,
+              x: 0,
+              y: 0,
+              opacity: 1.0,
+              transitionIn: 'fade',
+              transitionInDuration: 0.5,
+              transitionOut: 'fade',
+              transitionOutDuration: 0.5,
+            },
           });
         }
       }
-      // Only pure video clips stay on V1
-      this.rows.set(draft.rows.filter((r: ClipRow) => this.getClipType(r.clip) === 'video'));
+
+      // Auto-heal video clips (resolving assetId and sequencing trim offsets for split parts if needed)
+      const currentAssetOffsetMap = new Map<string, number>();
+      const healedVideoRows = videoRows.map((r) => {
+        const realAssetId = this.resolveAssetId(r.clip);
+        let trimStart = r.clip.trimStartSeconds;
+        let trimEnd = r.clip.trimEndSeconds;
+        const dur = r.clip.durationSeconds ?? 5.0;
+
+        const isSplitPart = r.clip.id !== realAssetId;
+        if (isSplitPart && (trimStart === undefined || trimEnd === undefined)) {
+          const prevOffset = currentAssetOffsetMap.get(realAssetId) ?? 0;
+          trimStart = prevOffset;
+          trimEnd = prevOffset + dur;
+          currentAssetOffsetMap.set(realAssetId, trimEnd);
+        } else if (isSplitPart && trimEnd !== undefined) {
+          currentAssetOffsetMap.set(realAssetId, trimEnd);
+        } else if (!isSplitPart) {
+          if (trimStart === undefined) trimStart = 0;
+          if (trimEnd === undefined) trimEnd = dur;
+        }
+
+        return {
+          ...r,
+          clip: {
+            ...r.clip,
+            assetId: realAssetId,
+            trimStartSeconds: trimStart,
+            trimEndSeconds: trimEnd,
+          },
+        };
+      });
+
+      this.rows.set(healedVideoRows);
     }
 
     this.timelineItems.set(draftItems);
@@ -3393,6 +4077,7 @@ export class StudioStateService implements OnDestroy {
       next: (studio: ClipStudio) => {
         this.studio.set(studio);
         const rowList: ClipRow[] = (studio.clips || [])
+          .filter((clip) => this.getClipType(clip) !== 'audio')
           .filter((clip) => this.getClipType(clip) === 'video')
           .map((clip) => ({
             clip,
@@ -3431,9 +4116,41 @@ export class StudioStateService implements OnDestroy {
               },
               error: (err) => console.warn('Failed to migrate local draft to server', err),
             });
+            return;
           } catch (e) {
             console.warn('Failed to parse local draft', e);
           }
+        }
+
+        // If no draft exists, initialize image overlays on IMG1
+        const initialImages = (studio.clips || []).filter((clip) => this.getClipType(clip) === 'image');
+        if (initialImages.length > 0 && this.timelineItems().length === 0) {
+          let startT = 0;
+          const imgItems: TimelineItem[] = initialImages.map((img) => {
+            const dur = img.durationSeconds ?? 5.0;
+            const item: TimelineItem = {
+              id: `img_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+              type: 'image',
+              trackId: 'IMG1',
+              startTime: startT,
+              duration: dur,
+              src: img.id,
+              name: img.name,
+              transform: {
+                scale: 1.0,
+                x: 0,
+                y: 0,
+                opacity: 1.0,
+                transitionIn: 'fade',
+                transitionInDuration: 0.5,
+                transitionOut: 'fade',
+                transitionOutDuration: 0.5,
+              },
+            };
+            startT += dur;
+            return item;
+          });
+          this.timelineItems.set(imgItems);
         }
       },
       error: () => {
@@ -3459,6 +4176,7 @@ export class StudioStateService implements OnDestroy {
     const schedule = this.clipSchedule();
     for (const entry of schedule) {
       const clipId = entry.clip.id;
+      const realAssetId = this.resolveAssetId(entry.clip);
       const t = this.clipTransformSetting(clipId);
       const transformSpec: TimelineItemTransform = {
         scale: t.scale,
@@ -3473,11 +4191,14 @@ export class StudioStateService implements OnDestroy {
         cropLinked: t.cropLinked,
         stabilization: t.stabilization,
       };
-      const existingIdx = items.findIndex((it) => (it.trackId === 'V1' || it.trackId === 'video') && (it.src === clipId || it.id === clipId));
+      const existingIdx = items.findIndex((it) => (it.trackId === 'V1' || it.trackId === 'video') && (it.src === clipId || it.id === clipId || it.src === realAssetId || it.id === `v1_${clipId}`));
       if (existingIdx >= 0) {
         items[existingIdx] = {
           ...items[existingIdx],
+          src: realAssetId,
           transform: transformSpec,
+          trimStartSeconds: entry.clip.trimStartSeconds,
+          trimEndSeconds: entry.clip.trimEndSeconds,
         };
       } else {
         items.push({
@@ -3486,9 +4207,11 @@ export class StudioStateService implements OnDestroy {
           trackId: 'V1',
           startTime: entry.startSeconds,
           duration: Math.max(0.1, entry.endSeconds - entry.startSeconds),
-          src: clipId,
+          src: realAssetId,
           name: entry.clip.name,
           transform: transformSpec,
+          trimStartSeconds: entry.clip.trimStartSeconds,
+          trimEndSeconds: entry.clip.trimEndSeconds,
         });
       }
     }
@@ -3499,7 +4222,7 @@ export class StudioStateService implements OnDestroy {
       trackId: item.trackId,
       startTime: item.startTime,
       duration: item.duration,
-      src: item.src,
+      src: this.resolveAssetId(item.src) || item.src,
       name: item.name,
       transform: item.transform,
       textStyle: item.textStyle,

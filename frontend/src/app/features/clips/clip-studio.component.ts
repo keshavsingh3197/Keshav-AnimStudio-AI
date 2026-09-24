@@ -55,6 +55,9 @@ export class ClipStudioComponent implements OnInit {
       } else if (event.key.toLowerCase() === 'a') {
         event.preventDefault();
         this.state.selectAllTimelineClips();
+      } else if (event.key.toLowerCase() === 'd') {
+        event.preventDefault();
+        this.state.duplicateSelectedTimelineItem();
       }
       return;
     }

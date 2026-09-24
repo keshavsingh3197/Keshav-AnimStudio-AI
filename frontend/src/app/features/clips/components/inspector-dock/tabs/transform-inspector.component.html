@@ -231,6 +231,78 @@
     </div>
   }
 
+  <!-- ── IMAGE TRANSITIONS & ANIMATION (In / Out) ────────────────── -->
+  @let selectedImgItem = state.selectedTimelineItem()?.type === 'image' ? state.selectedTimelineItem() : null;
+  @if (selectedImgItem) {
+    @let curTrans = selectedImgItem.transform;
+    <div class="inspector-section">
+      <div class="section-header" style="cursor:default">
+        <span class="section-title">⚡ In / Out Transitions</span>
+      </div>
+      <div class="section-body" style="gap:10px">
+        <!-- Transition In -->
+        <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 6px; padding: 8px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px">
+            <span style="font-size:0.74rem; font-weight:700; color:#34d399">Entrance (In)</span>
+            <span class="mono" style="font-size:0.68rem; color:var(--text-muted)">{{ curTrans?.transitionInDuration ?? 0.5 | number:'1.1-1' }}s</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Type</span>
+            <select class="aspect-pill" style="flex:1; background:var(--surface-3); color:var(--text); border:1px solid var(--border); padding:2px 6px; font-size:0.75rem; border-radius:4px"
+                    [ngModel]="curTrans?.transitionIn ?? 'fade'"
+                    (ngModelChange)="state.updateImageItemTransform(selectedImgItem.id, { transitionIn: $event })">
+              <option value="none">None (Cut)</option>
+              <option value="fade">Fade In</option>
+              <option value="slide-left">Slide from Left</option>
+              <option value="slide-right">Slide from Right</option>
+              <option value="slide-up">Slide Up</option>
+              <option value="zoom-in">Zoom In</option>
+            </select>
+          </div>
+          @if ((curTrans?.transitionIn ?? 'fade') !== 'none') {
+            <div class="ctrl-row" style="margin-top:6px">
+              <span class="ctrl-label">Duration</span>
+              <input type="range" class="scale-slider" min="0.1" max="3.0" step="0.1"
+                     [ngModel]="curTrans?.transitionInDuration ?? 0.5"
+                     (ngModelChange)="state.updateImageItemTransform(selectedImgItem.id, { transitionInDuration: $event })" />
+              <span class="unit">s</span>
+            </div>
+          }
+        </div>
+
+        <!-- Transition Out -->
+        <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 6px; padding: 8px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px">
+            <span style="font-size:0.74rem; font-weight:700; color:#f87171">Exit (Out)</span>
+            <span class="mono" style="font-size:0.68rem; color:var(--text-muted)">{{ curTrans?.transitionOutDuration ?? 0.5 | number:'1.1-1' }}s</span>
+          </div>
+          <div class="ctrl-row">
+            <span class="ctrl-label">Type</span>
+            <select class="aspect-pill" style="flex:1; background:var(--surface-3); color:var(--text); border:1px solid var(--border); padding:2px 6px; font-size:0.75rem; border-radius:4px"
+                    [ngModel]="curTrans?.transitionOut ?? 'fade'"
+                    (ngModelChange)="state.updateImageItemTransform(selectedImgItem.id, { transitionOut: $event })">
+              <option value="none">None (Cut)</option>
+              <option value="fade">Fade Out</option>
+              <option value="slide-left">Slide to Left</option>
+              <option value="slide-right">Slide to Right</option>
+              <option value="slide-down">Slide Down</option>
+              <option value="zoom-out">Zoom Out</option>
+            </select>
+          </div>
+          @if ((curTrans?.transitionOut ?? 'fade') !== 'none') {
+            <div class="ctrl-row" style="margin-top:6px">
+              <span class="ctrl-label">Duration</span>
+              <input type="range" class="scale-slider" min="0.1" max="3.0" step="0.1"
+                     [ngModel]="curTrans?.transitionOutDuration ?? 0.5"
+                     (ngModelChange)="state.updateImageItemTransform(selectedImgItem.id, { transitionOutDuration: $event })" />
+              <span class="unit">s</span>
+            </div>
+          }
+        </div>
+      </div>
+    </div>
+  }
+
 } @else {
   <div class="no-clip">
     <span class="icon">📐</span>

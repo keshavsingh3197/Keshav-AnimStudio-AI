@@ -181,6 +181,10 @@ public sealed class TimelineItemTextStyleSpec
     public string Color { get; set; } = "#ffffff";
     public string BackgroundColor { get; set; } = "rgba(0,0,0,0.6)";
     public string Position { get; set; } = "bottom";
+    public string? TransitionIn { get; set; } = "fade";
+    public double TransitionInDuration { get; set; } = 0.5;
+    public string? TransitionOut { get; set; } = "fade";
+    public double TransitionOutDuration { get; set; } = 0.5;
 }
 
 public sealed class TimelineItemTransformSpec
@@ -212,6 +216,11 @@ public sealed class TimelineItemTransformSpec
 
     /// <summary>Whether video stabilization post-process is requested for this clip.</summary>
     public bool Stabilization { get; set; }
+
+    public string? TransitionIn { get; set; } = "fade";
+    public double TransitionInDuration { get; set; } = 0.5;
+    public string? TransitionOut { get; set; } = "fade";
+    public double TransitionOutDuration { get; set; } = 0.5;
 
     /// <summary>Returns true when any crop edge is non-zero (crop filter needed).</summary>
     public bool HasCrop => CropLeft > 0 || CropRight > 0 || CropTop > 0 || CropBottom > 0;

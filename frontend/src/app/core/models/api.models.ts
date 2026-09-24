@@ -364,6 +364,9 @@ export function isTerminal(status: string): boolean {
 
 export interface Clip {
   id: string;
+  assetId?: string;
+  trimStartSeconds?: number;
+  trimEndSeconds?: number;
   name: string;
   fileSizeBytes: number;
   durationSeconds?: number;
@@ -494,6 +497,12 @@ export interface TimelineItemTransform {
   cropLinked?: boolean;
   /** Request video stabilization for this clip */
   stabilization?: boolean;
+  /** Transition In style for image overlay */
+  transitionIn?: 'none' | 'fade' | 'slide-left' | 'slide-right' | 'slide-up' | 'slide-down' | 'zoom' | 'zoom-in' | 'zoom-out';
+  transitionInDuration?: number;
+  /** Transition Out style for image overlay */
+  transitionOut?: 'none' | 'fade' | 'slide-left' | 'slide-right' | 'slide-up' | 'slide-down' | 'zoom' | 'zoom-in' | 'zoom-out';
+  transitionOutDuration?: number;
 }
 
 export interface TimelineItemTextStyle {
@@ -501,6 +510,12 @@ export interface TimelineItemTextStyle {
   color: string;
   backgroundColor: string;
   position: 'top' | 'center' | 'bottom';
+  /** Transition In animation for text overlay */
+  transitionIn?: 'none' | 'fade' | 'slide-up' | 'slide-down' | 'zoom' | 'zoom-in' | 'zoom-out';
+  transitionInDuration?: number;
+  /** Transition Out animation for text overlay */
+  transitionOut?: 'none' | 'fade' | 'slide-down' | 'slide-up' | 'zoom' | 'zoom-in' | 'zoom-out';
+  transitionOutDuration?: number;
 }
 
 export interface TimelineItem {

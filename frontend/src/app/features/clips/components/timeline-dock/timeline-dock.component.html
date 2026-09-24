@@ -32,6 +32,10 @@
           <span class="tool-btn-icon">✂</span>
           <span>Split</span>
         </button>
+        <button class="tool-btn" type="button" [disabled]="!state.hasAnySelection()" (click)="state.duplicateSelectedTimelineItem()" title="Duplicate selected timeline clip or overlay (Ctrl+D)">
+          <span class="tool-btn-icon">⧉</span>
+          <span>Duplicate</span>
+        </button>
         <button class="tool-btn" type="button" [class.active]="state.activeInspectorTab() === 'clip'" [disabled]="!state.selectedClip()" (click)="state.activeInspectorTab.set('clip')" title="Crop, Framing & Clip Settings (C)">
           <span class="tool-btn-icon">⬜</span>
           <span>Crop</span>
@@ -56,7 +60,7 @@
           <span class="tool-btn-icon">✨</span>
           <span>Effects</span>
         </button>
-        <button class="tool-btn" type="button" [class.active]="state.activeInspectorTab() === 'transitions'" (click)="state.activeInspectorTab.set('transitions')" title="Transitions">
+        <button class="tool-btn" type="button" [class.active]="state.activeInspectorTab() === 'transitions'" (click)="state.openTransitionsTab()" title="Transitions">
           <span class="tool-btn-icon">⚡</span>
           <span>Transitions</span>
         </button>
@@ -151,9 +155,15 @@
                      (pointerdown)="onItemPointerDown(item, $event)"
                      (click)="$event.stopPropagation(); state.selectTimelineItem(item.id, $event)">
                   <span class="tl-trim-handle left" (pointerdown)="onItemTrimPointerDown(item, 'left', $event)"></span>
+                  @if (item.textStyle?.transitionIn && item.textStyle.transitionIn !== 'none') {
+                    <span class="tl-trans-in-badge" [title]="'In: ' + item.textStyle.transitionIn + ' (' + (item.textStyle.transitionInDuration ?? 0.5) + 's)'">⚡ {{ item.textStyle.transitionIn }}</span>
+                  }
                   <span class="tl-item-badge">TXT</span>
                   <span class="tl-item-name">{{ item.name || item.src || 'Text Overlay' }}</span>
                   <span class="tl-item-dur mono">{{ item.duration | number:'1.1-1' }}s</span>
+                  @if (item.textStyle?.transitionOut && item.textStyle.transitionOut !== 'none') {
+                    <span class="tl-trans-out-badge" [title]="'Out: ' + item.textStyle.transitionOut + ' (' + (item.textStyle.transitionOutDuration ?? 0.5) + 's)'">⚡ {{ item.textStyle.transitionOut }}</span>
+                  }
                   <button class="tl-item-remove" type="button" (click)="$event.stopPropagation(); state.removeTimelineItem(item.id)" aria-label="Remove">×</button>
                   <span class="tl-trim-handle right" (pointerdown)="onItemTrimPointerDown(item, 'right', $event)"></span>
                 </div>
@@ -191,9 +201,15 @@
                      (pointerdown)="onItemPointerDown(item, $event)"
                      (click)="$event.stopPropagation(); state.selectTimelineItem(item.id, $event)">
                   <span class="tl-trim-handle left" (pointerdown)="onItemTrimPointerDown(item, 'left', $event)"></span>
+                  @if (item.transform?.transitionIn && item.transform.transitionIn !== 'none') {
+                    <span class="tl-trans-in-badge" [title]="'In: ' + item.transform.transitionIn + ' (' + (item.transform.transitionInDuration ?? 0.5) + 's)'">⚡ {{ item.transform.transitionIn }}</span>
+                  }
                   <span class="tl-item-badge">IMG</span>
                   <span class="tl-item-name">{{ item.name || item.src }}</span>
                   <span class="tl-item-dur mono">{{ item.duration | number:'1.1-1' }}s</span>
+                  @if (item.transform?.transitionOut && item.transform.transitionOut !== 'none') {
+                    <span class="tl-trans-out-badge" [title]="'Out: ' + item.transform.transitionOut + ' (' + (item.transform.transitionOutDuration ?? 0.5) + 's)'">⚡ {{ item.transform.transitionOut }}</span>
+                  }
                   <button class="tl-item-remove" type="button" (click)="$event.stopPropagation(); state.removeTimelineItem(item.id)" aria-label="Remove">×</button>
                   <span class="tl-trim-handle right" (pointerdown)="onItemTrimPointerDown(item, 'right', $event)"></span>
                 </div>
@@ -227,25 +243,25 @@
               @for (entry of state.includedWithIndex(); track entry.row.clip.id; let i = $index) {
                 <div class="tl-clip"
                      [class.has-thumbnail]="state.timelineThumbnailMode() === 'filmstrip'"
-                     [class.selected]="state.isLibrarySelected(entry.row.clip.id) || state.selectedClipId() === entry.row.clip.id"
-                     [class.dragging]="state.dragIndex() === entry.index"
-                     [class.drag-over]="state.dragOverIndex() === entry.index && state.dragIndex() !== entry.index"
+                     [class.selected]="state.selectedTimelineClipIndex() === i || state.selectedClipId() === entry.row.clip.id"
+                     [class.dragging]="state.dragIndex() === i"
+                     [class.drag-over]="state.dragOverIndex() === i && state.dragIndex() !== i"
                      [style.width.px]="state.blockWidthPx(entry.row.clip)"
                      draggable="true"
-                     (click)="$event.stopPropagation(); state.selectClip(entry.row.clip.id, $event)"
+                     (click)="state.selectTimelineClip(i, entry.row.clip.id, $event)"
                      (dblclick)="$event.stopPropagation(); state.selectAndSeekClip(entry.row.clip)"
-                     (dragstart)="state.onRowDragStart(entry.index, entry.row)"
-                     (dragover)="state.onRowDragOver(entry.index, $event)"
-                     (drop)="state.onRowDrop(entry.index, $event)"
+                     (dragstart)="state.onRowDragStart(i, entry.row)"
+                     (dragover)="state.onRowDragOver(i, $event)"
+                     (drop)="state.onRowDrop(i, $event)"
                      (dragend)="state.onRowDragEnd()"
                      [title]="entry.row.clip.name">
-                  <button class="tl-clip-remove" type="button" (click)="$event.stopPropagation(); state.removeClipFromTimeline(entry.row.clip.id)" title="Remove clip from timeline cut">×</button>
+                  <button class="tl-clip-remove" type="button" (click)="$event.stopPropagation(); state.removeTimelineClipAtIndex(entry.row.clip.id, i)" title="Remove clip from timeline cut">×</button>
                   @if (state.timelineThumbnailMode() === 'filmstrip') {
                     <div class="tl-clip-backdrop-thumb">
                       @if (state.getClipType(entry.row.clip) === 'image') {
                         <img [src]="state.assetUrl(entry.row.clip.id)" class="tl-clip-thumb-media backdrop" alt="" />
                       } @else {
-                        <video [src]="state.assetUrl(entry.row.clip.id) + '#t=0.1'" preload="metadata" muted playsinline class="tl-clip-thumb-media backdrop"></video>
+                        <video [src]="state.assetUrl(entry.row.clip.id) + '#t=' + ((entry.row.clip.trimStartSeconds || 0) + 0.1)" preload="metadata" muted playsinline class="tl-clip-thumb-media backdrop"></video>
                       }
                     </div>
                     <div class="tl-clip-content">
@@ -253,7 +269,7 @@
                         @if (state.getClipType(entry.row.clip) === 'image') {
                           <img [src]="state.assetUrl(entry.row.clip.id)" class="tl-clip-thumb-media" alt="" />
                         } @else {
-                          <video [src]="state.assetUrl(entry.row.clip.id) + '#t=0.1'" preload="metadata" muted playsinline class="tl-clip-thumb-media"></video>
+                          <video [src]="state.assetUrl(entry.row.clip.id) + '#t=' + ((entry.row.clip.trimStartSeconds || 0) + 0.1)" preload="metadata" muted playsinline class="tl-clip-thumb-media"></video>
                         }
                         <span class="tl-clip-thumb-badge">#{{ i + 1 }}</span>
                       </div>
@@ -295,12 +311,14 @@
                        [class.has-transition]="junction.transition !== 'None'"
                        [class.custom]="state.isJunctionCustom(junction.key)"
                        [class.in-scope]="state.targetJunctionKeys().has(junction.key)"
+                       [class.selected]="state.selectedJunctionKey() === junction.key"
                        [class.open]="state.openJunctionKey() === junction.key">
                     <button class="tl-junction-chip" type="button"
                             [class.has-trans]="junction.transition !== 'None'"
-                            (click)="$event.stopPropagation(); state.toggleJunctionEditor(junction.key)"
+                            [class.selected]="state.selectedJunctionKey() === junction.key"
+                            (click)="$event.stopPropagation(); state.onJunctionChipClicked(junction.key)"
                             (dblclick)="$event.stopPropagation(); state.cycleJunctionTransition(junction)"
-                            [title]="(junction.transition === 'None' ? 'Cut point — Click to add transition' : junction.transition + ' (' + junction.seconds + 's) — Click to edit')">
+                            [title]="(junction.transition === 'None' ? 'Cut point — Click to edit transition in top-right box' : junction.transition + ' (' + junction.seconds + 's) — Click to edit in top-right box')">
                       @if (junction.transition === 'None') {
                         <span class="j-icon">✂</span>
                       } @else {
@@ -309,24 +327,122 @@
                     </button>
                     @if (state.openJunctionKey() === junction.key) {
                       <div class="tl-junction-pop" (click)="$event.stopPropagation()">
-                        <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:.4rem">
-                          <strong style="font-size:.85rem">Edit Transition</strong>
-                          <button class="transport-btn btn-sm" type="button" (click)="state.cycleJunctionTransition(junction)">Cycle ↻</button>
+                        <!-- Header Bar -->
+                        <div class="tl-pop-header">
+                          <div class="tl-pop-title">
+                            <span class="tl-pop-icon" [class.has-trans]="junction.transition !== 'None'">
+                              {{ junction.transition === 'None' ? '✂' : '⚡' }}
+                            </span>
+                            <span>{{ junction.transition === 'None' ? 'Cut Point' : junction.transition }}</span>
+                          </div>
+                          <div class="tl-pop-actions">
+                            <button class="tl-pop-btn-icon" type="button"
+                                    (click)="$event.stopPropagation(); state.onJunctionChipClicked(junction.key)"
+                                    title="Open Transition in Top-Right Inspector Box">
+                              ↗
+                            </button>
+                            <button class="tl-pop-btn-icon" type="button"
+                                    (click)="$event.stopPropagation(); state.openTransitionDialog(junction.key)"
+                                    title="Open Centered Dialog Modal">
+                              ⛶
+                            </button>
+                            <button class="tl-pop-btn-icon" type="button"
+                                    (click)="state.cycleJunctionTransition(junction)"
+                                    title="Cycle next transition style (or double-click seam chip)">
+                              ↻
+                            </button>
+                            <button class="tl-pop-btn-icon close" type="button"
+                                    (click)="$event.stopPropagation(); state.closeJunctionEditor()"
+                                    title="Close editor">
+                              ✕
+                            </button>
+                          </div>
                         </div>
-                        <label>Transition</label>
-                        <select [ngModel]="junction.transition" (ngModelChange)="state.setJunctionTransition(junction, $event)" [disabled]="!state.studio()?.transitionsAvailable">
-                          @for (option of state.transitions; track option) {
-                            <option [value]="option">{{ option === 'None' ? 'Hard cut' : option }}</option>
-                          }
-                        </select>
+
+                        <!-- Quick Pickers -->
+                        <div class="tl-pop-pills">
+                          <button type="button" class="tl-pop-pill"
+                                  [class.active]="junction.transition === 'None'"
+                                  (click)="state.setJunctionTransition(junction, 'None')">
+                            ✂ Cut
+                          </button>
+                          <button type="button" class="tl-pop-pill"
+                                  [class.active]="junction.transition === 'Dissolve'"
+                                  (click)="state.setJunctionTransition(junction, 'Dissolve')">
+                            ⧉ Dissolve
+                          </button>
+                          <button type="button" class="tl-pop-pill"
+                                  [class.active]="junction.transition === 'Fade'"
+                                  (click)="state.setJunctionTransition(junction, 'Fade')">
+                            ◐ Fade
+                          </button>
+                          <button type="button" class="tl-pop-pill"
+                                  [class.active]="junction.transition === 'WipeLeft'"
+                                  (click)="state.setJunctionTransition(junction, 'WipeLeft')">
+                            ◀ Wipe
+                          </button>
+                        </div>
+
+                        <!-- Style Dropdown -->
+                        <div class="tl-pop-field">
+                          <label class="tl-pop-label">All Transitions</label>
+                          <div class="tl-pop-select-wrap">
+                            <select class="tl-pop-select"
+                                    [ngModel]="junction.transition"
+                                    (ngModelChange)="state.setJunctionTransition(junction, $event)"
+                                    [disabled]="!state.studio()?.transitionsAvailable">
+                              @for (option of state.transitions; track option) {
+                                <option [value]="option">{{ option === 'None' ? 'Hard Cut (None)' : option }}</option>
+                              }
+                            </select>
+                            <span class="tl-pop-select-arrow">▾</span>
+                          </div>
+                        </div>
+
+                        <!-- Duration Controls -->
                         @if (junction.transition !== 'None') {
-                          <label>Length — {{ junction.seconds | number:'1.1-1' }}s</label>
-                          <input type="range" min="0.1" max="3" step="0.1" [ngModel]="junction.seconds" (ngModelChange)="state.setJunctionSeconds(junction, $event)" />
+                          <div class="tl-pop-field">
+                            <div class="tl-pop-field-row">
+                              <label class="tl-pop-label">Duration</label>
+                              <span class="tl-pop-value">{{ junction.seconds | number:'1.1-1' }}s</span>
+                            </div>
+                            <input type="range" class="tl-pop-slider" min="0.1" max="3" step="0.1"
+                                   [ngModel]="junction.seconds"
+                                   (ngModelChange)="state.setJunctionSeconds(junction, $event)" />
+                            <div class="tl-pop-dur-presets">
+                              @for (sec of [0.3, 0.5, 1.0, 1.5]; track sec) {
+                                <button type="button" class="tl-pop-dur-btn"
+                                        [class.active]="junction.seconds === sec"
+                                        (click)="state.setJunctionSeconds(junction, sec)">
+                                  {{ sec }}s
+                                </button>
+                              }
+                            </div>
+                          </div>
                         }
-                        <div class="row" style="margin-top:.5rem;gap:.4rem">
-                          <button type="button" (click)="state.openPreview(junction)">Preview</button>
+
+                        <!-- Action Footer -->
+                        <div class="tl-pop-footer">
+                          <button type="button" class="tl-pop-btn-primary"
+                                  (click)="state.openPreview(junction)">
+                            ▶ Preview
+                          </button>
+                          <button type="button" class="tl-pop-btn-subtle"
+                                  (click)="state.onJunctionChipClicked(junction.key)"
+                                  title="Open Transition in Top-Right Inspector Dock">
+                            ↗ Inspector
+                          </button>
+                          <button type="button" class="tl-pop-btn-subtle"
+                                  (click)="state.openTransitionDialog(junction.key)"
+                                  title="Open in Centered Dialog Modal">
+                            ⛶ Dialog
+                          </button>
                           @if (state.isJunctionCustom(junction.key)) {
-                            <button class="link" type="button" (click)="state.resetJunction(junction.key)">use default</button>
+                            <button type="button" class="tl-pop-btn-subtle"
+                                    (click)="state.resetJunction(junction.key)"
+                                    title="Reset to project default transition">
+                              ↺ Default
+                            </button>
                           }
                         </div>
                       </div>

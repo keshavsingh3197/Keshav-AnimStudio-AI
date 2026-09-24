@@ -379,6 +379,10 @@ public sealed record TimelineItemTextStyleRequest
     [StringLength(32)] public string Color { get; init; } = "#ffffff";
     [StringLength(32)] public string BackgroundColor { get; init; } = "rgba(0,0,0,0.6)";
     [StringLength(16)] public string Position { get; init; } = "bottom";
+    [StringLength(32)] public string? TransitionIn { get; init; } = "fade";
+    public double TransitionInDuration { get; init; } = 0.5;
+    [StringLength(32)] public string? TransitionOut { get; init; } = "fade";
+    public double TransitionOutDuration { get; init; } = 0.5;
 }
 
 public sealed record TimelineItemTransformRequest
@@ -404,6 +408,11 @@ public sealed record TimelineItemTransformRequest
 
     /// <summary>Request video stabilization for this clip.</summary>
     public bool Stabilization { get; init; }
+
+    [StringLength(32)] public string? TransitionIn { get; init; } = "fade";
+    public double TransitionInDuration { get; init; } = 0.5;
+    [StringLength(32)] public string? TransitionOut { get; init; } = "fade";
+    public double TransitionOutDuration { get; init; } = 0.5;
 }
 
 public sealed record TimelineItemRequest

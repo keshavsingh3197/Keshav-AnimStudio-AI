@@ -207,9 +207,11 @@ public sealed class ClipMergeOrchestrator(
 
                     // Find the matching V1 timeline item for this asset to get transform/crop.
                     // TimelineItems are keyed by asset src (asset ID), so look for V1 track item
-                    // whose Src matches this asset's ID.
-                    var v1Item = spec.TimelineItems.FirstOrDefault(
-                        it => it.TrackId is "V1" or "video" && it.Src == asset.Id);
+                    var v1Item = spec.TimelineItems
+                        .Where(it => it.TrackId is "V1" or "video")
+                        .ElementAtOrDefault(index)
+                        ?? spec.TimelineItems.FirstOrDefault(
+                            it => it.TrackId is "V1" or "video" && it.Src == asset.Id);
                     var v1Transform = v1Item?.Transform;
 
                     var plan = new ClipRenderPlan
@@ -222,6 +224,9 @@ public sealed class ClipMergeOrchestrator(
                         Fit = spec.Fit,
                         SourceIsImage = isImage,
                         ImageDurationSeconds = 5.0,
+                        TrimStartSeconds = v1Item?.TrimStartSeconds,
+                        TrimEndSeconds = v1Item?.TrimEndSeconds,
+                        DurationSeconds = v1Item?.Duration,
                         // A clip with no audio track needs generated silence, or the join
                         // produces a file that stops at the first silent clip.
                         SourceHasAudio = !isImage && !string.IsNullOrEmpty(asset.Probe.AudioCodec),
@@ -347,7 +352,11 @@ public sealed class ClipMergeOrchestrator(
                         txt?.FontSize ?? 36.0,
                         txt?.Color ?? "#ffffff",
                         txt?.BackgroundColor ?? "rgba(0,0,0,0.6)",
-                        txt?.Position ?? "bottom"));
+                        txt?.Position ?? "bottom",
+                        tr?.TransitionIn ?? txt?.TransitionIn ?? "fade",
+                        tr?.TransitionInDuration ?? txt?.TransitionInDuration ?? 0.5,
+                        tr?.TransitionOut ?? txt?.TransitionOut ?? "fade",
+                        tr?.TransitionOutDuration ?? txt?.TransitionOutDuration ?? 0.5));
                 }
                 else if (item.TrackId is "A1" or "A2" && item.Type == "audio")
                 {
@@ -512,14 +521,37 @@ public sealed class ClipMergeOrchestrator(
             }
         }
 
-        var loaded = await assets.GetManyAsync(ids, ct).ConfigureAwait(false);
+        static string CleanId(string raw) =>
+            System.Text.RegularExpressions.Regex.Replace(raw, @"(_[ab]_\d+|_part.*)$", "");
 
-        return loaded
-            .Where(a => (string.Equals(a.ProjectId, projectId, StringComparison.Ordinal)
-                         || string.Equals(a.ProjectId, "global", StringComparison.OrdinalIgnoreCase)
-                         || string.Equals(a.ProjectId, "system", StringComparison.OrdinalIgnoreCase))
-                        && a.IsUsableInScene)
-            .ToDictionary(a => a.Id, StringComparer.Ordinal);
+        var queryIds = new HashSet<string>(ids, StringComparer.Ordinal);
+        foreach (var id in ids)
+        {
+            var clean = CleanId(id);
+            if (clean != id) queryIds.Add(clean);
+        }
+
+        var loaded = await assets.GetManyAsync(queryIds, ct).ConfigureAwait(false);
+
+        var result = new Dictionary<string, Asset>(StringComparer.Ordinal);
+        foreach (var a in loaded)
+        {
+            if ((string.Equals(a.ProjectId, projectId, StringComparison.Ordinal)
+                 || string.Equals(a.ProjectId, "global", StringComparison.OrdinalIgnoreCase)
+                 || string.Equals(a.ProjectId, "system", StringComparison.OrdinalIgnoreCase))
+                && a.IsUsableInScene)
+            {
+                result[a.Id] = a;
+                foreach (var origId in ids)
+                {
+                    if (CleanId(origId) == a.Id)
+                    {
+                        result[origId] = a;
+                    }
+                }
+            }
+        }
+        return result;
     }
 
     /// <summary>

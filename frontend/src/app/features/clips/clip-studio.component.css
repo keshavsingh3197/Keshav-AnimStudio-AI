@@ -435,6 +435,387 @@ app-timeline-dock {
   border-color: #67e8f9;
 }
 
+/* ── Centered Transition Editor Dialog Modal ────────────────────────────── */
+.transition-dialog {
+  background: var(--surface, #0f1117);
+  border: 1px solid color-mix(in srgb, var(--brand, #6c8cff) 35%, var(--border, #1e2433));
+  border-radius: 14px;
+  width: 92%;
+  max-width: 660px;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(24px);
+}
+
+.transition-dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 20px;
+  background: var(--surface-2, #161b27);
+  border-bottom: 1px solid var(--border, #1e2433);
+  gap: 12px;
+}
+
+.transition-dialog-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.trans-dialog-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--brand, #6c8cff);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.15rem;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(108, 140, 255, 0.4);
+}
+
+.transition-dialog-header h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text, #f0f4fc);
+  letter-spacing: -0.01em;
+}
+
+.trans-dialog-subtitle {
+  margin: 2px 0 0;
+  font-size: 0.78rem;
+  color: var(--text-muted, #8892a4);
+  font-family: ui-monospace, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 480px;
+}
+
+.transition-dialog-body {
+  padding: 16px 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.trans-clips-preview-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: color-mix(in srgb, var(--surface-2, #161b27) 80%, transparent);
+  border: 1px solid var(--border, #1e2433);
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+
+.trans-clip-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.trans-clip-card .badge-num {
+  background: var(--brand, #6c8cff);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: ui-monospace, monospace;
+  flex-shrink: 0;
+}
+
+.trans-clip-card .clip-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.trans-clip-card .name {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text, #f0f4fc);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trans-clip-card .dur {
+  font-size: 0.72rem;
+  color: var(--text-muted, #8892a4);
+}
+
+.trans-seam-indicator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 10px;
+  background: rgba(108, 140, 255, 0.12);
+  border: 1px solid rgba(108, 140, 255, 0.28);
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.trans-seam-indicator .seam-badge {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: #93c5fd;
+}
+
+.trans-seam-indicator .seam-dur {
+  font-size: 0.68rem;
+  color: #cbd5e1;
+}
+
+.trans-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.trans-sec-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text, #f0f4fc);
+}
+
+.trans-dialog-pills {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 8px;
+}
+
+.trans-pill-large {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 8px 12px;
+  background: var(--surface-2, #161b27);
+  border: 1px solid var(--border, #1e2433);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+}
+
+.trans-pill-large:hover {
+  border-color: var(--brand, #6c8cff);
+  background: rgba(108, 140, 255, 0.08);
+}
+
+.trans-pill-large.active {
+  border-color: var(--brand, #6c8cff);
+  background: color-mix(in srgb, var(--brand, #6c8cff) 20%, var(--surface-2, #161b27));
+  box-shadow: 0 0 0 1px var(--brand, #6c8cff);
+}
+
+.trans-pill-large .icon {
+  font-size: 1.15rem;
+  margin-bottom: 2px;
+}
+
+.trans-pill-large .title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text, #f0f4fc);
+}
+
+.trans-pill-large .sub {
+  font-size: 0.68rem;
+  color: var(--text-muted, #8892a4);
+}
+
+.trans-dialog-select-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.trans-dialog-select-row label {
+  font-size: 0.78rem;
+  color: var(--text-muted, #8892a4);
+  white-space: nowrap;
+}
+
+.trans-dialog-preset-btn {
+  background: var(--surface-2, #161b27);
+  border: 1px solid var(--border, #1e2433);
+  color: var(--text-muted, #8892a4);
+  padding: 3px 10px;
+  font-size: 0.74rem;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.trans-dialog-preset-btn:hover {
+  border-color: var(--brand, #6c8cff);
+  color: #fff;
+}
+
+.trans-dialog-preset-btn.active {
+  background: var(--brand, #6c8cff);
+  border-color: var(--brand, #6c8cff);
+  color: #fff;
+  font-weight: 600;
+}
+
+.transition-dialog-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 20px;
+  background: var(--surface-2, #161b27);
+  border-top: 1px solid var(--border, #1e2433);
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* ── Transition Preview Dialog ──────────────────────────────────── */
+.transition-preview-dialog {
+  background: var(--surface, #0f1117);
+  border: 1px solid color-mix(in srgb, var(--brand, #6c8cff) 35%, var(--border, #1e2433));
+  border-radius: 14px;
+  width: 90%;
+  max-width: 600px;
+  overflow: hidden;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.85);
+}
+
+.transition-preview-body {
+  padding: 16px;
+  background: #06080d;
+}
+
+.transition-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border, #1e2433);
+}
+
+.stage-clip {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+}
+
+.stage-clip img,
+.stage-clip video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.stage-left {
+  z-index: 1;
+}
+
+.stage-right {
+  z-index: 2;
+}
+
+.clip-label-overlay {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-size: 0.7rem;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-family: ui-monospace, monospace;
+  z-index: 5;
+  pointer-events: none;
+}
+
+/* Transition Animations */
+.anim-pv-fade-in {
+  animation: pvFadeIn 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+@keyframes pvFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.anim-pv-fade-out {
+  animation: pvFadeOut 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+@keyframes pvFadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.anim-pv-wipe-left-in {
+  animation: pvWipeLeft 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+@keyframes pvWipeLeft {
+  from { clip-path: inset(0 0 0 100%); }
+  to { clip-path: inset(0 0 0 0); }
+}
+
+.anim-pv-wipe-right-in {
+  animation: pvWipeRight 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+@keyframes pvWipeRight {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 0 0 0); }
+}
+
+.anim-pv-slide-left-in {
+  animation: pvSlideLeftIn 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+@keyframes pvSlideLeftIn {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.anim-pv-slide-left-out {
+  animation: pvSlideLeftOut 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+@keyframes pvSlideLeftOut {
+  from { transform: translateX(0); }
+  to { transform: translateX(-100%); }
+}
+
+.anim-pv-slide-right-in {
+  animation: pvSlideRightIn 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+@keyframes pvSlideRightIn {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+.anim-pv-slide-right-out {
+  animation: pvSlideRightOut 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+@keyframes pvSlideRightOut {
+  from { transform: translateX(0); }
+  to { transform: translateX(100%); }
+}
+
 /* Responsive Breakpoints */
 @media (max-width: 1400px) {
   .flowedit-layout {

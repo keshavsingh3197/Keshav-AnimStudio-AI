@@ -102,7 +102,7 @@ public sealed class ClipMergeService(
         var project = await EnsureOwnedAsync(projectId, ct).ConfigureAwait(false);
 
         var all = await assets.ListByProjectAsync(projectId, ct).ConfigureAwait(false);
-        var clips = all.Where(a => a.Kind == AssetKind.Video && a.IsUsableInScene).ToList();
+        var clips = all.Where(a => (a.Kind == AssetKind.Video || a.Kind == AssetKind.Image) && a.IsUsableInScene).ToList();
         var savedPosition = project.Settings.ClipOrderAssetIds
             .Select((id, index) => (id, index))
             .ToDictionary(entry => entry.id, entry => entry.index, StringComparer.Ordinal);
@@ -134,18 +134,21 @@ public sealed class ClipMergeService(
 
         var clips = await assets.ListByProjectAsync(projectId, ct).ConfigureAwait(false);
         var usableIds = clips
-            .Where(a => a.Kind == AssetKind.Video && a.IsUsableInScene)
             .Where(a => (a.Kind == AssetKind.Video || a.Kind == AssetKind.Image) && a.IsUsableInScene)
             .Select(a => a.Id)
             .ToHashSet(StringComparer.Ordinal);
 
-        if (distinctIds.Any(id => !usableIds.Contains(id)))
+        static string CleanId(string raw) =>
+            System.Text.RegularExpressions.Regex.Replace(raw, @"(_[ab]_\d+|_part.*)$", "");
+
+        var cleanedDistinctIds = distinctIds.Select(CleanId).Distinct().ToList();
+        if (cleanedDistinctIds.Any(id => !usableIds.Contains(id)))
         {
             throw EditingException.Invalid("clip-not-found",
                 "One of the clips in this order is no longer in this project.");
         }
 
-        project.Settings.ClipOrderAssetIds = distinctIds;
+        project.Settings.ClipOrderAssetIds = cleanedDistinctIds;
         project.UpdatedAt = clock.GetUtcNow().UtcDateTime;
         await projects.ReplaceAsync(project, ct).ConfigureAwait(false);
     }
@@ -172,11 +175,21 @@ public sealed class ClipMergeService(
         var clips = await ListClipsAsync(projectId, ct).ConfigureAwait(false);
         var byId = clips.ToDictionary(c => c.Id, StringComparer.Ordinal);
 
+        static string CleanId(string raw) =>
+            System.Text.RegularExpressions.Regex.Replace(raw, @"(_[ab]_\d+|_part.*)$", "");
+
         // Unknown ids are dropped rather than rejected: a clip deleted in another tab
         // should not make the whole paste fail.
         var candidates = selectedAssetIds
-            .Where(byId.ContainsKey)
-            .Select(id => new ClipCandidate(id, byId[id].Name))
+            .Select(id =>
+            {
+                if (byId.TryGetValue(id, out var c)) return new ClipCandidate(id, c.Name);
+                var clean = CleanId(id);
+                if (byId.TryGetValue(clean, out c)) return new ClipCandidate(id, c.Name);
+                return null;
+            })
+            .Where(c => c is not null)
+            .Select(c => c!)
             .ToList();
 
         if (candidates.Count == 0)
@@ -233,18 +246,36 @@ public sealed class ClipMergeService(
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
-        var loaded = await assets.GetManyAsync(referenced, ct).ConfigureAwait(false);
-        var byId = loaded.ToDictionary(a => a.Id, StringComparer.Ordinal);
+        static string CleanId(string raw) =>
+            System.Text.RegularExpressions.Regex.Replace(raw, @"(_[ab]_\d+|_part.*)$", "");
+
+        var queryIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var id in referenced)
+        {
+            queryIds.Add(id);
+            var clean = CleanId(id);
+            if (clean != id) queryIds.Add(clean);
+        }
+
+        var loaded = await assets.GetManyAsync(queryIds, ct).ConfigureAwait(false);
+        var byId = new Dictionary<string, Asset>(StringComparer.Ordinal);
+        foreach (var a in loaded)
+        {
+            byId[a.Id] = a;
+            foreach (var origId in referenced)
+            {
+                if (CleanId(origId) == a.Id)
+                {
+                    byId[origId] = a;
+                }
+            }
+        }
 
         foreach (var id in clipIds)
         {
             var asset = Require(byId, id, projectId, "clip");
-
-            if (asset.Kind != AssetKind.Video)
             if (asset.Kind != AssetKind.Video && asset.Kind != AssetKind.Image)
             {
-                throw EditingException.Invalid("not-a-video",
-                    $"'{asset.Name}' is not a video clip.");
                 throw EditingException.Invalid("not-a-video-or-image",
                     $"'{asset.Name}' is not a video or image clip.");
             }
@@ -538,7 +569,13 @@ public sealed class ClipMergeService(
     private static Asset Require(
         Dictionary<string, Asset> byId, string assetId, string projectId, string role)
     {
-        if (!byId.TryGetValue(assetId, out var asset)
+        if (!byId.TryGetValue(assetId, out var asset))
+        {
+            var clean = System.Text.RegularExpressions.Regex.Replace(assetId, @"(_[ab]_\d+|_part.*)$", "");
+            byId.TryGetValue(clean, out asset);
+        }
+
+        if (asset is null
             || (!string.Equals(asset.ProjectId, projectId, StringComparison.Ordinal)
                 && !string.Equals(asset.ProjectId, "global", StringComparison.OrdinalIgnoreCase)
                 && !string.Equals(asset.ProjectId, "system", StringComparison.OrdinalIgnoreCase)))

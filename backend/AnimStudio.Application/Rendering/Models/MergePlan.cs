@@ -25,7 +25,11 @@ public sealed record MergeOverlayItem(
     double FontSize,
     string Color,
     string BackgroundColor,
-    string Position);
+    string Position,
+    string? TransitionIn = "fade",
+    double TransitionInDuration = 0.5,
+    string? TransitionOut = "fade",
+    double TransitionOutDuration = 0.5);
 
 public sealed record MergePlan
 {

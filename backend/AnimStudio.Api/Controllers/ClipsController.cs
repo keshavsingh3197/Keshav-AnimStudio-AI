@@ -187,13 +187,21 @@ public sealed class ClipsController(
                         CropTop = t.Transform.CropTop,
                         CropBottom = t.Transform.CropBottom,
                         Stabilization = t.Transform.Stabilization,
+                        TransitionIn = t.Transform.TransitionIn,
+                        TransitionInDuration = t.Transform.TransitionInDuration,
+                        TransitionOut = t.Transform.TransitionOut,
+                        TransitionOutDuration = t.Transform.TransitionOutDuration,
                     },
                     TextStyle = t.TextStyle is null ? null : new TimelineItemTextStyleSpec
                     {
                         FontSize = t.TextStyle.FontSize,
                         Color = t.TextStyle.Color,
                         BackgroundColor = t.TextStyle.BackgroundColor,
-                        Position = t.TextStyle.Position
+                        Position = t.TextStyle.Position,
+                        TransitionIn = t.TextStyle.TransitionIn,
+                        TransitionInDuration = t.TextStyle.TransitionInDuration,
+                        TransitionOut = t.TextStyle.TransitionOut,
+                        TransitionOutDuration = t.TextStyle.TransitionOutDuration,
                     },
                     Volume = t.Volume,
                     TrimStartSeconds = t.TrimStartSeconds,

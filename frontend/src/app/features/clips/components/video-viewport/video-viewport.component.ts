@@ -190,7 +190,8 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     const curr = sched.find((s) => time >= s.startSeconds && time < s.endSeconds) ?? sched[sched.length - 1];
 
     if (curr && activeEl) {
-      const localTime = Math.max(0, time - curr.startSeconds);
+      const clipTrimStart = curr.clip.trimStartSeconds ?? 0;
+      const localTime = Math.max(0, clipTrimStart + (time - curr.startSeconds));
       activeEl.currentTime = localTime;
     }
 
@@ -282,7 +283,8 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     }
     this.lastPlayedClipIndex = curr.index;
 
-    const localTime = Math.max(0, time - curr.startSeconds);
+    const clipTrimStart = curr.clip.trimStartSeconds ?? 0;
+    const localTime = Math.max(0, clipTrimStart + (time - curr.startSeconds));
     const videoA = this.videoMonitorARef?.nativeElement;
     const videoB = this.videoMonitorBRef?.nativeElement;
 
@@ -356,11 +358,12 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
         currentActiveVideo.pause();
       }
     } else if (currentActiveVideo) {
+      const currAssetId = this.state.resolveAssetId(curr.clip);
       const activeLoadedId = currentActiveIsA ? this.loadedClipIdA : this.loadedClipIdB;
-      if (activeLoadedId !== curr.clip.id) {
-        if (currentActiveIsA) this.loadedClipIdA = curr.clip.id;
-        else this.loadedClipIdB = curr.clip.id;
-        currentActiveVideo.src = this.state.assetUrl(curr.clip.id);
+      if (activeLoadedId !== currAssetId) {
+        if (currentActiveIsA) this.loadedClipIdA = currAssetId;
+        else this.loadedClipIdB = currAssetId;
+        currentActiveVideo.src = this.state.assetUrl(currAssetId);
         const targetTime = Math.max(0.001, localTime);
         if (currentActiveVideo.readyState >= 1) {
           currentActiveVideo.currentTime = targetTime;
@@ -391,12 +394,14 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       if (isNextImage) {
         if (!currentStandbyVideo.paused) currentStandbyVideo.pause();
       } else {
-        const nextLocalTime = Math.max(0, time - transStart);
+        const nextAssetId = this.state.resolveAssetId(nextSched.clip);
+        const nextTrimStart = nextSched.clip.trimStartSeconds ?? 0;
+        const nextLocalTime = Math.max(0, nextTrimStart + (time - transStart));
         const standbyLoadedId = currentActiveIsA ? this.loadedClipIdB : this.loadedClipIdA;
-        if (standbyLoadedId !== nextSched.clip.id) {
-          if (currentActiveIsA) this.loadedClipIdB = nextSched.clip.id;
-          else this.loadedClipIdA = nextSched.clip.id;
-          currentStandbyVideo.src = this.state.assetUrl(nextSched.clip.id);
+        if (standbyLoadedId !== nextAssetId) {
+          if (currentActiveIsA) this.loadedClipIdB = nextAssetId;
+          else this.loadedClipIdA = nextAssetId;
+          currentStandbyVideo.src = this.state.assetUrl(nextAssetId);
           currentStandbyVideo.currentTime = nextLocalTime;
         } else if (!playing || (Math.abs(currentStandbyVideo.currentTime - nextLocalTime) > 0.4 && !currentStandbyVideo.seeking)) {
           currentStandbyVideo.currentTime = nextLocalTime;
@@ -418,12 +423,13 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       this.liveTransitionActive.set(false);
       // Preload next incoming clip
       if (nextSched && !isNextImage && currentStandbyVideo) {
+        const nextAssetId = this.state.resolveAssetId(nextSched.clip);
         const standbyLoadedId = currentActiveIsA ? this.loadedClipIdB : this.loadedClipIdA;
-        if (standbyLoadedId !== nextSched.clip.id) {
-          if (currentActiveIsA) this.loadedClipIdB = nextSched.clip.id;
-          else this.loadedClipIdA = nextSched.clip.id;
-          currentStandbyVideo.src = this.state.assetUrl(nextSched.clip.id);
-          currentStandbyVideo.currentTime = 0;
+        if (standbyLoadedId !== nextAssetId) {
+          if (currentActiveIsA) this.loadedClipIdB = nextAssetId;
+          else this.loadedClipIdA = nextAssetId;
+          currentStandbyVideo.src = this.state.assetUrl(nextAssetId);
+          currentStandbyVideo.currentTime = nextSched.clip.trimStartSeconds ?? 0;
         }
       }
     }

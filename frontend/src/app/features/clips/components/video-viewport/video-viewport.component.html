@@ -73,8 +73,8 @@
 
         <!-- Static Image Clip Monitor Layer -->
         @if (state.activeClipIsImage()) {
-          <img class="pv-monitor-layer layer-front"
-               [class]="state.monitorFitClass()"
+          <img [class]="'pv-monitor-layer layer-front ' + state.monitorFitClass() + (liveTransitionActive() ? ' ' + liveTransitionClass() : '')"
+               [style.animation-duration.s]="liveTransitionDuration()"
                [src]="state.activeClipImageUrl()"
                [style.filter]="state.computedMonitorFilter()"
                [style.transform]="state.activeClipTransform()"
@@ -87,8 +87,8 @@
         @if (state.activeImgItem(); as img) {
           <img class="pv-monitor-layer layer-front v3-image-overlay monitor-overlay-img"
                [src]="state.assetUrl(img.src)"
-               [style.opacity]="img.transform?.opacity ?? 1"
-               [style.transform]="state.getOverlayTransform(img.transform)"
+               [style.opacity]="state.getOverlayEffectiveOpacity(img)"
+               [style.transform]="state.getOverlayTransform(img)"
                alt="" />
         }
 
@@ -100,7 +100,9 @@
                [class.pos-bottom]="!txt.textStyle || !txt.textStyle.position || txt.textStyle.position === 'bottom'"
                [style.fontSize.px]="txt.textStyle?.fontSize ?? 28"
                [style.color]="txt.textStyle?.color ?? '#ffffff'"
-               [style.backgroundColor]="txt.textStyle?.backgroundColor ?? 'rgba(0,0,0,0.6)'">
+               [style.backgroundColor]="txt.textStyle?.backgroundColor ?? 'rgba(0,0,0,0.6)'"
+               [style.opacity]="state.getTextOverlayEffectiveOpacity(txt)"
+               [style.transform]="state.getTextOverlayTransform(txt)">
             {{ txt.src }}
           </div>
         }
@@ -229,4 +231,5 @@
     </div>
   </div>
 </div>
+
 

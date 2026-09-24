@@ -260,10 +260,27 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         var canvas = plan.Canvas;
         var rate = canvas.FrameRate;
         var warnings = new List<string>();
-        var inputArgs = plan.SourceIsImage
-            ? new[] { "-loop", "1", "-t", FilterExpr.N(plan.ImageDurationSeconds) }
-            : Array.Empty<string>();
-        var inputs = new List<FfmpegInputSpec> { new(inputArgs, plan.SourceRelativePath) };
+        var inputArgsList = new List<string>();
+        if (plan.SourceIsImage)
+        {
+            inputArgsList.AddRange(["-loop", "1", "-t", FilterExpr.N(plan.ImageDurationSeconds)]);
+        }
+        else
+        {
+            if (plan.TrimStartSeconds.HasValue && plan.TrimStartSeconds.Value > 0)
+            {
+                inputArgsList.AddRange(["-ss", FilterExpr.N(plan.TrimStartSeconds.Value)]);
+            }
+            if (plan.TrimEndSeconds.HasValue && plan.TrimEndSeconds.Value > (plan.TrimStartSeconds ?? 0))
+            {
+                inputArgsList.AddRange(["-to", FilterExpr.N(plan.TrimEndSeconds.Value)]);
+            }
+            else if (plan.DurationSeconds.HasValue && plan.DurationSeconds.Value > 0)
+            {
+                inputArgsList.AddRange(["-t", FilterExpr.N(plan.DurationSeconds.Value)]);
+            }
+        }
+        var inputs = new List<FfmpegInputSpec> { new(inputArgsList, plan.SourceRelativePath) };
         var graph = new StringBuilder();
 
         var fit = plan.Fit;
@@ -649,6 +666,18 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
                 var opacityStr = overlay.Opacity < 1.0 ? $",colorchannelmixer=aa={FilterExpr.N(overlay.Opacity)}" : "";
 
                 graph.Append($"[{ovInput}:v]format=rgba{scaleStr}{opacityStr}[{ovScaledLabel}];\n");
+                var fadeStr = "";
+                if (overlay.TransitionIn == "fade" && overlay.TransitionInDuration > 0)
+                {
+                    fadeStr += $",fade=t=in:st=0:d={FilterExpr.N(overlay.TransitionInDuration)}:alpha=1";
+                }
+                if (overlay.TransitionOut == "fade" && overlay.TransitionOutDuration > 0)
+                {
+                    var outStart = Math.Max(0, overlay.DurationSeconds - overlay.TransitionOutDuration);
+                    fadeStr += $",fade=t=out:st={FilterExpr.N(outStart)}:d={FilterExpr.N(overlay.TransitionOutDuration)}:alpha=1";
+                }
+
+                graph.Append($"[{ovInput}:v]format=rgba{scaleStr}{opacityStr}{fadeStr}[{ovScaledLabel}];\n");
 
                 var xPos = overlay.X != 0 ? $"(W-w)/2+W*{FilterExpr.N(overlay.X / 100.0)}" : "(W-w)/2";
                 var yPos = overlay.Y != 0 ? $"(H-h)/2+H*{FilterExpr.N(overlay.Y / 100.0)}" : "(H-h)/2";
@@ -675,6 +704,23 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
                     .Replace(":", @"\:");
 
                 graph.Append($"[{currentVideoLabel}]drawtext=text='{safeText}':fontsize={fontSize}:fontcolor={fontColor}:box=1:boxcolor={bgColor}:boxborderw=10:x=(w-text_w)/2:y={yPos}:enable='between(t,{startSec},{endSec})'[{nextVideoLabel}];\n");
+                var alphaExpr = "";
+                var inDur = FilterExpr.N(overlay.TransitionInDuration > 0 ? overlay.TransitionInDuration : 0.5);
+                var outDur = FilterExpr.N(overlay.TransitionOutDuration > 0 ? overlay.TransitionOutDuration : 0.5);
+                if (overlay.TransitionIn == "fade" && overlay.TransitionOut == "fade")
+                {
+                    alphaExpr = $":alpha='if(lt(t,{startSec}+{inDur}),(t-{startSec})/{inDur},if(gt(t,{endSec}-{outDur}),({endSec}-t)/{outDur},1))'";
+                }
+                else if (overlay.TransitionIn == "fade")
+                {
+                    alphaExpr = $":alpha='if(lt(t,{startSec}+{inDur}),(t-{startSec})/{inDur},1)'";
+                }
+                else if (overlay.TransitionOut == "fade")
+                {
+                    alphaExpr = $":alpha='if(gt(t,{endSec}-{outDur}),({endSec}-t)/{outDur},1)'";
+                }
+
+                graph.Append($"[{currentVideoLabel}]drawtext=text='{safeText}':fontsize={fontSize}:fontcolor={fontColor}:box=1:boxcolor={bgColor}:boxborderw=10:x=(w-text_w)/2:y={yPos}{alphaExpr}:enable='between(t,{startSec},{endSec})'[{nextVideoLabel}];\n");
                 currentVideoLabel = nextVideoLabel;
             }
         }

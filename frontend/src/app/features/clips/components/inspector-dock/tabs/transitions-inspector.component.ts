@@ -8,6 +8,7 @@ import { StudioStateService } from '../../../services/studio-state.service';
   standalone: true,
   imports: [FormsModule, DecimalPipe],
   templateUrl: './transitions-inspector.component.html',
+  styleUrl: './transitions-inspector.component.css',
 })
 export class TransitionsInspectorComponent {
   readonly state = inject(StudioStateService);

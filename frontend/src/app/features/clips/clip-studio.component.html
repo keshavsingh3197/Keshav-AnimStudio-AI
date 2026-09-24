@@ -62,6 +62,224 @@
     </div>
   }
 
+  <!-- Centered Transition Editor Dialog Modal -->
+  @if (state.transitionModalOpen() && state.transitionModalJunction(); as junction) {
+    <div class="modal-backdrop" (click)="state.closeTransitionDialog()">
+      <div class="transition-dialog" (click)="$event.stopPropagation()">
+        <!-- Header -->
+        <div class="transition-dialog-header">
+          <div class="transition-dialog-title">
+            <span class="trans-dialog-icon">{{ junction.transition === 'None' ? '✂' : '⚡' }}</span>
+            <div>
+              <h3>Transition Settings</h3>
+              <p class="trans-dialog-subtitle">
+                Cut Point: #{{ state.getIncludedClipIndex(junction.left.id) + 1 }} {{ junction.left.name }} ➔ #{{ state.getIncludedClipIndex(junction.right.id) + 1 }} {{ junction.right.name }}
+              </p>
+            </div>
+          </div>
+          <button class="close-btn" type="button" (click)="state.closeTransitionDialog()" title="Close">&times;</button>
+        </div>
+
+        <!-- Body -->
+        <div class="transition-dialog-body">
+          <!-- Connected Clips Visual Bar -->
+          <div class="trans-clips-preview-bar">
+            <div class="trans-clip-card left">
+              <span class="badge-num">#{{ state.getIncludedClipIndex(junction.left.id) + 1 }}</span>
+              <div class="clip-meta">
+                <span class="name" [title]="junction.left.name">{{ junction.left.name }}</span>
+                <span class="dur mono">{{ junction.left.durationSeconds ?? 0 | number:'1.1-1' }}s</span>
+              </div>
+            </div>
+
+            <div class="trans-seam-indicator" [class.has-trans]="junction.transition !== 'None'">
+              <span class="seam-badge">{{ junction.transition === 'None' ? '✂ Hard Cut' : '⚡ ' + junction.transition }}</span>
+              @if (junction.transition !== 'None') {
+                <span class="seam-dur mono">{{ junction.seconds | number:'1.1-1' }}s</span>
+              }
+            </div>
+
+            <div class="trans-clip-card right">
+              <span class="badge-num">#{{ state.getIncludedClipIndex(junction.right.id) + 1 }}</span>
+              <div class="clip-meta">
+                <span class="name" [title]="junction.right.name">{{ junction.right.name }}</span>
+                <span class="dur mono">{{ junction.right.durationSeconds ?? 0 | number:'1.1-1' }}s</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Style Selection Section -->
+          <div class="trans-section">
+            <label class="trans-sec-label">Transition Style</label>
+            <div class="trans-dialog-pills">
+              <button type="button" class="trans-pill-large"
+                      [class.active]="junction.transition === 'None'"
+                      (click)="state.setJunctionTransition(junction, 'None')">
+                <span class="icon">✂</span>
+                <span class="title">Hard Cut</span>
+                <span class="sub">Instant cut</span>
+              </button>
+              <button type="button" class="trans-pill-large"
+                      [class.active]="junction.transition === 'Dissolve'"
+                      (click)="state.setJunctionTransition(junction, 'Dissolve')">
+                <span class="icon">⧉</span>
+                <span class="title">Dissolve</span>
+                <span class="sub">Cross dissolve</span>
+              </button>
+              <button type="button" class="trans-pill-large"
+                      [class.active]="junction.transition === 'Fade'"
+                      (click)="state.setJunctionTransition(junction, 'Fade')">
+                <span class="icon">◐</span>
+                <span class="title">Fade</span>
+                <span class="sub">Fade to black</span>
+              </button>
+              <button type="button" class="trans-pill-large"
+                      [class.active]="junction.transition === 'WipeLeft'"
+                      (click)="state.setJunctionTransition(junction, 'WipeLeft')">
+                <span class="icon">◀</span>
+                <span class="title">Wipe Left</span>
+                <span class="sub">Slide curtain</span>
+              </button>
+              <button type="button" class="trans-pill-large"
+                      [class.active]="junction.transition === 'WipeRight'"
+                      (click)="state.setJunctionTransition(junction, 'WipeRight')">
+                <span class="icon">▶</span>
+                <span class="title">Wipe Right</span>
+                <span class="sub">Slide curtain</span>
+              </button>
+              <button type="button" class="trans-pill-large"
+                      [class.active]="junction.transition === 'SlideLeft'"
+                      (click)="state.setJunctionTransition(junction, 'SlideLeft')">
+                <span class="icon">◁</span>
+                <span class="title">Slide Left</span>
+                <span class="sub">Push left</span>
+              </button>
+              <button type="button" class="trans-pill-large"
+                      [class.active]="junction.transition === 'SlideRight'"
+                      (click)="state.setJunctionTransition(junction, 'SlideRight')">
+                <span class="icon">▷</span>
+                <span class="title">Slide Right</span>
+                <span class="sub">Push right</span>
+              </button>
+            </div>
+
+            <div class="trans-dialog-select-row">
+              <label for="modalAllTrans">All Transitions Library:</label>
+              <select id="modalAllTrans" class="form-select form-select-sm"
+                      [ngModel]="junction.transition"
+                      (ngModelChange)="state.setJunctionTransition(junction, $event)">
+                @for (opt of state.transitions; track opt) {
+                  <option [value]="opt">{{ opt === 'None' ? 'Hard Cut (None)' : opt }}</option>
+                }
+              </select>
+            </div>
+          </div>
+
+          <!-- Duration Controls -->
+          @if (junction.transition !== 'None') {
+            <div class="trans-section">
+              <div class="d-flex justify-content-between align-items-center mb-1">
+                <label class="trans-sec-label mb-0">Crossfade Duration</label>
+                <span class="mono fw-bold" style="color: var(--brand, #6c8cff);">{{ junction.seconds | number:'1.1-1' }}s</span>
+              </div>
+              <input type="range" class="form-range w-100" min="0.1" max="3" step="0.1"
+                     [ngModel]="junction.seconds"
+                     (ngModelChange)="state.setJunctionSeconds(junction, $event)" />
+              <div class="d-flex gap-2 mt-1">
+                @for (sec of [0.2, 0.3, 0.5, 0.8, 1.0, 1.5, 2.0]; track sec) {
+                  <button type="button" class="trans-dialog-preset-btn"
+                          [class.active]="junction.seconds === sec"
+                          (click)="state.setJunctionSeconds(junction, sec)">
+                    {{ sec }}s
+                  </button>
+                }
+              </div>
+            </div>
+          }
+        </div>
+
+        <!-- Footer -->
+        <div class="transition-dialog-footer">
+          <div class="d-flex align-items-center gap-2">
+            <button type="button" class="btn btn-outline-secondary btn-sm"
+                    (click)="state.openPreview(junction)">
+              ▶ Preview Transition
+            </button>
+            @if (state.isJunctionCustom(junction.key)) {
+              <button type="button" class="btn btn-outline-danger btn-sm"
+                      (click)="state.resetJunction(junction.key)"
+                      title="Reset to global timeline default">
+                ↺ Reset Default
+              </button>
+            }
+          </div>
+          <div class="d-flex align-items-center gap-2">
+            <button type="button" class="btn btn-outline-primary btn-sm"
+                    (click)="state.applyJunctionToAll(junction)"
+                    title="Apply this transition to all cuts">
+              🌐 Apply to All Cuts
+            </button>
+            <button type="button" class="btn btn-primary btn-sm"
+                    (click)="state.closeTransitionDialog()">
+              Done
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- Transition Animation Preview Modal -->
+  @if (state.previewJunction(); as pj) {
+    <div class="modal-backdrop" (click)="state.closePreview()">
+      <div class="transition-preview-dialog" (click)="$event.stopPropagation()">
+        <div class="transition-dialog-header">
+          <div class="transition-dialog-title">
+            <span class="trans-dialog-icon">▶</span>
+            <div>
+              <h3>Transition Preview: {{ pj.transition === 'None' ? 'Hard Cut' : pj.transition }} ({{ pj.seconds | number:'1.1-1' }}s)</h3>
+              <p class="trans-dialog-subtitle">{{ pj.leftClip.name }} ➔ {{ pj.rightClip.name }}</p>
+            </div>
+          </div>
+          <button class="close-btn" type="button" (click)="state.closePreview()" title="Close">&times;</button>
+        </div>
+
+        <div class="transition-preview-body">
+          <div class="transition-stage" [class.is-playing]="state.previewPlaying()">
+            <!-- Left Clip View -->
+            <div class="stage-clip stage-left" [class]="state.previewPlaying() ? ('anim-' + state.previewClass() + '-out') : ''">
+              <div class="clip-label-overlay">A: {{ pj.leftClip.name }}</div>
+              @if (state.getClipType(pj.leftClip) === 'image') {
+                <img [src]="state.assetUrl(pj.leftClip.id)" alt="Clip A" />
+              } @else {
+                <video [src]="state.assetUrl(pj.leftClip.id)" autoplay muted loop playsinline></video>
+              }
+            </div>
+
+            <!-- Right Clip View -->
+            <div class="stage-clip stage-right" [class]="state.previewPlaying() ? ('anim-' + state.previewClass() + '-in') : ''">
+              <div class="clip-label-overlay">B: {{ pj.rightClip.name }}</div>
+              @if (state.getClipType(pj.rightClip) === 'image') {
+                <img [src]="state.assetUrl(pj.rightClip.id)" alt="Clip B" />
+              } @else {
+                <video [src]="state.assetUrl(pj.rightClip.id)" autoplay muted loop playsinline></video>
+              }
+            </div>
+          </div>
+        </div>
+
+        <div class="transition-dialog-footer">
+          <button type="button" class="btn btn-outline-secondary btn-sm" (click)="state.replayPreview()">
+            ↺ Replay Preview
+          </button>
+          <button type="button" class="btn btn-primary btn-sm" (click)="state.closePreview()">
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+
   <!-- Duplicate File Upload Conflict Modal -->
   @if (state.uploadConflictModalOpen()) {
     <div class="modal-backdrop" (click)="state.cancelUploadConflicts()">
