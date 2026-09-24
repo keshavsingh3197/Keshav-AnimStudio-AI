@@ -119,6 +119,67 @@
   color: #cbd5e1;
 }
 
+/* Add Track Dropdown */
+.add-track-dropdown-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.add-track-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 60;
+  min-width: 175px;
+  background: #111624;
+  border: 1px solid #28354e;
+  border-radius: 6px;
+  padding: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.add-track-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: #e2e8f0;
+  font-size: 0.76rem;
+  font-weight: 500;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  transition: background 0.12s ease;
+}
+
+.add-track-item:hover {
+  background: rgba(108, 140, 255, 0.15);
+  color: #fff;
+}
+
+.track-menu-icon {
+  font-size: 0.85rem;
+}
+
+.track-menu-label {
+  flex: 1;
+}
+
+.track-menu-badge {
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.15);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
 /* Toolbar Stats & Zoom */
 .tl-stats-badge {
   display: flex;
@@ -316,6 +377,26 @@
   border-color: rgba(255, 255, 255, 0.2) !important;
 }
 
+.tl-h-close-btn {
+  background: transparent !important;
+  border: none !important;
+  color: #64748b !important;
+  font-size: 0.8rem !important;
+  line-height: 1 !important;
+  padding: 0 2px !important;
+  cursor: pointer !important;
+  border-radius: 2px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  margin-left: auto !important;
+  transition: color 0.12s ease !important;
+}
+
+.tl-h-close-btn:hover {
+  color: #ef4444 !important;
+}
+
 /* Badges */
 .tl-badge {
   font-size: 0.65rem !important;
@@ -366,6 +447,8 @@
 
 /* Lane Specific Heights & Tints */
 .tl-lane-txt { min-height: 36px !important; height: 36px !important; background: rgba(245, 158, 11, 0.02) !important; }
+.tl-lane-txt { min-height: 36px !important; height: 36px !important; background: rgba(245, 158, 11, 0.02) !important; cursor: pointer !important; }
+.tl-lane-txt:hover { background: rgba(245, 158, 11, 0.06) !important; }
 .tl-lane-img,
 .tl-lane-v3  { min-height: 38px !important; height: 38px !important; background: rgba(16, 185, 129, 0.02) !important; }
 .tl-lane-v2  { min-height: 42px !important; height: 42px !important; background: rgba(6, 182, 212, 0.02) !important; }
@@ -423,6 +506,37 @@
   flex-shrink: 0;
 }
 
+.tl-clip-img-thumb-wrap {
+  width: 28px;
+  height: 28px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.4);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.tl-clip-img-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.tl-clip-mini-thumb-img {
+  width: 20px;
+  height: 20px;
+  object-fit: cover;
+  border-radius: 3px;
+  margin-right: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  flex-shrink: 0;
+}
+
 .tl-trans-in-badge,
 .tl-trans-out-badge {
   font-size: 0.58rem;
@@ -473,9 +587,31 @@
   flex-shrink: 0;
   padding: 0;
   transition: background 0.12s ease;
+  position: relative !important;
+  z-index: 25 !important;
+  margin-right: 8px !important;
+  background: rgba(0, 0, 0, 0.5) !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  color: #fff !important;
+  border-radius: 50% !important;
+  width: 18px !important;
+  height: 18px !important;
+  font-size: 13px !important;
+  font-weight: bold !important;
+  line-height: 1 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  flex-shrink: 0 !important;
+  padding: 0 !important;
+  transition: all 0.12s ease !important;
 }
 .tl-item-remove:hover {
   background: #ef4444;
+  background: #ef4444 !important;
+  border-color: #ef4444 !important;
+  transform: scale(1.15) !important;
 }
 
 /* Trim handles */
@@ -1232,9 +1368,31 @@
   flex-shrink: 0;
   padding: 0;
   transition: background 0.12s ease;
+  position: relative !important;
+  z-index: 25 !important;
+  margin-right: 8px !important;
+  background: rgba(0, 0, 0, 0.5) !important;
+  border: 1px solid rgba(255, 255, 255, 0.3) !important;
+  color: #fff !important;
+  border-radius: 50% !important;
+  width: 18px !important;
+  height: 18px !important;
+  font-size: 13px !important;
+  font-weight: bold !important;
+  line-height: 1 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  flex-shrink: 0 !important;
+  padding: 0 !important;
+  transition: all 0.12s ease !important;
 }
 .tl-music-remove:hover {
   background: #ef4444;
+  background: #ef4444 !important;
+  border-color: #ef4444 !important;
+  transform: scale(1.15) !important;
 }
 
 /* ── Playhead Needle & Bubble ────────────────────────────────── */

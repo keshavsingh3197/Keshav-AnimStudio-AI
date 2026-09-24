@@ -876,6 +876,78 @@ export class StudioStateService implements OnDestroy {
     );
   });
 
+  readonly explicitlyShownTracks = signal<Set<string>>(new Set<string>());
+
+  readonly showTxtTrack = computed(() => {
+    if (this.itemsForTrack('TXT1').length > 0) return true;
+    if (this.explicitlyShownTracks().has('TXT1')) return true;
+    if (this.activeInspectorTab() === 'text') return true;
+    return false;
+  });
+
+  readonly showImgTrack = computed(() => {
+    if (this.itemsForTrack('IMG1').length > 0) return true;
+    if (this.explicitlyShownTracks().has('IMG1')) return true;
+    if (this.activeInspectorTab() === 'clip') {
+      const sel = this.selectedClip();
+      if (sel && this.getClipType(sel) === 'image') return true;
+      const selTl = this.selectedTimelineItem();
+      if (selTl && selTl.type === 'image') return true;
+    }
+    if (this.activeCategory() === 'image') return true;
+    const sel = this.selectedClip();
+    if (sel && this.getClipType(sel) === 'image') return true;
+    return false;
+  });
+
+  readonly showA1Track = computed(() => {
+    if (this.musicTracks().length > 0) return true;
+    if (this.itemsForTrack('A1').length > 0) return true;
+    if (this.explicitlyShownTracks().has('A1')) return true;
+    if (this.activeInspectorTab() === 'audio') return true;
+    if (this.activeCategory() === 'audio') return true;
+    const sel = this.selectedClip();
+    if (sel && this.getClipType(sel) === 'audio') return true;
+    return false;
+  });
+
+  showTrackManually(trackId: string): void {
+    this.explicitlyShownTracks.update((set) => {
+      const next = new Set(set);
+      next.add(trackId);
+      return next;
+    });
+    this.status.notify([`Added ${trackId} track to timeline.`]);
+  }
+
+  hideTrack(trackId: string): void {
+    this.explicitlyShownTracks.update((set) => {
+      const next = new Set(set);
+      next.delete(trackId);
+      return next;
+    });
+    if (trackId === 'TXT1' && this.activeInspectorTab() === 'text') {
+      this.activeInspectorTab.set('clip');
+    }
+    if (trackId === 'A1' && this.activeInspectorTab() === 'audio') {
+      this.activeInspectorTab.set('clip');
+    }
+    this.status.notify([`Collapsed empty ${trackId} track.`]);
+  }
+
+  itemImageUrl(item: TimelineItem): string {
+    if (!item.src) return '';
+    if (
+      item.src.startsWith('http://') ||
+      item.src.startsWith('https://') ||
+      item.src.startsWith('data:') ||
+      item.src.startsWith('/')
+    ) {
+      return item.src;
+    }
+    return this.assetUrl(item.src);
+  }
+
   readonly formattedCurrentTime = computed(() => this.formatTimecode(this.currentTime()));
   readonly formattedPlayheadTime = this.formattedCurrentTime;
   readonly formattedTotalTime = computed(() => this.formatTimecode(this.contentDurationSeconds()));
@@ -1422,6 +1494,7 @@ export class StudioStateService implements OnDestroy {
       };
       this.timelineItems.update((items) => [...items, newItem]);
       this.selectedTimelineItemId.set(newItemId);
+      this.selectedTimelineItemIds.set(new Set([newItemId]));
       this.markDirty();
       this.status.notify([`Duplicated item on track ${tlItem.trackId}.`]);
     }
@@ -1694,9 +1767,16 @@ export class StudioStateService implements OnDestroy {
   readonly confirmingDelete = signal<boolean>(false);
 
   deleteSelected(): void {
+    const selTlIds = this.selectedTimelineItemIds();
     const selItemId = this.selectedTimelineItemId();
-    if (selItemId) {
-      this.removeTimelineItem(selItemId);
+    if (selTlIds.size > 0 || selItemId) {
+      const toRemove = new Set(selTlIds);
+      if (selItemId) toRemove.add(selItemId);
+      this.timelineItems.update((items) => items.filter((it) => !toRemove.has(it.id)));
+      this.selectedTimelineItemIds.set(new Set());
+      this.selectedTimelineItemId.set(null);
+      this.markDirty();
+      this.status.notify(['Removed timeline item(s).']);
       return;
     }
     const selClipId = this.selectedClipId();
@@ -2775,7 +2855,7 @@ export class StudioStateService implements OnDestroy {
   }
 
   setZoom(val: number): void {
-    this.pxPerSecond.set(Math.max(10, Math.min(val, 200)));
+    this.pxPerSecond.set(Math.max(2, Math.min(val, 200)));
   }
 
   fitTimelineToScreen(containerWidth: number): void {
@@ -2891,9 +2971,10 @@ export class StudioStateService implements OnDestroy {
     if (sched) this.seekTo(sched.startSeconds);
   }
 
-  addTextOverlay(text?: string): void {
+  addTextOverlay(text?: string, startTime?: number): void {
+    this.showTrackManually('TXT1');
     const content = text || 'Subtitle Text';
-    const start = this.currentTime();
+    const start = startTime !== undefined ? Math.max(0, startTime) : this.currentTime();
     const dur = 4.0;
     const validStart = this.clampItemCollision('TXT1', start, dur);
     const newItem: TimelineItem = {
@@ -2917,8 +2998,30 @@ export class StudioStateService implements OnDestroy {
     };
     this.timelineItems.update((items) => [...items, newItem]);
     this.selectedTimelineItemId.set(newItem.id);
+    this.selectedTimelineItemIds.set(new Set([newItem.id]));
+    this.selectedClipId.set(null);
+    this.selectedTimelineClipIndex.set(null);
+    this.activeInspectorTab.set('text');
+    this.seekTo(validStart);
     this.markDirty();
     this.status.notify(['Added text overlay to TXT1.']);
+  }
+
+  onTextToolbarClicked(): void {
+    this.showTrackManually('TXT1');
+    this.activeInspectorTab.set('text');
+    const curTime = this.currentTime();
+    const items = this.itemsForTrack('TXT1');
+    if (items.length === 0) {
+      this.addTextOverlay('Subtitle Text', curTime);
+      return;
+    }
+    const currentItem = items.find((it) => curTime >= it.startTime && curTime < (it.startTime + it.duration));
+    if (currentItem) {
+      this.selectTimelineItem(currentItem.id);
+    } else if (!this.selectedTimelineItemId()) {
+      this.selectTimelineItem(items[0].id);
+    }
   }
 
   removeTimelineItem(itemId: string): void {
@@ -2926,7 +3029,13 @@ export class StudioStateService implements OnDestroy {
     if (this.selectedTimelineItemId() === itemId) {
       this.selectedTimelineItemId.set(null);
     }
+    this.selectedTimelineItemIds.update((set) => {
+      const next = new Set(set);
+      next.delete(itemId);
+      return next;
+    });
     this.markDirty();
+    this.status.notify(['Removed timeline item.']);
   }
 
   updateTextItemContent(itemId: string, content: string): void {
@@ -3015,8 +3124,10 @@ export class StudioStateService implements OnDestroy {
         this.selectedTimelineItemIds.set(new Set());
         return;
       }
+      this.selectedTimelineItemId.set(itemId);
       this.selectedTimelineItemIds.set(new Set([itemId]));
       this.selectedClipId.set(null);
+      this.selectedTimelineClipIndex.set(null);
       const item = this.timelineItems().find((it) => it.id === itemId);
       if (item && item.type === 'audio') {
         this.setInspectorTab('audio');
@@ -3208,6 +3319,10 @@ export class StudioStateService implements OnDestroy {
 
     this.timelineItems.update((items) => [...items, newItem]);
     this.selectedTimelineItemId.set(newItemId);
+    this.selectedTimelineItemIds.set(new Set([newItemId]));
+    this.selectedClipId.set(null);
+    this.selectedTimelineClipIndex.set(null);
+    this.showTrackManually(targetTrackId);
     this.markDirty();
     this.status.notify([`Added ${assetName} to ${targetTrackId} at ${validStart.toFixed(1)}s.`]);
   }
@@ -3801,6 +3916,7 @@ export class StudioStateService implements OnDestroy {
       trimEndSeconds: dur,
     };
     this.musicTracks.update((t) => [...t, newTrack]);
+    this.showTrackManually('A1');
     this.markDirty();
   }
 

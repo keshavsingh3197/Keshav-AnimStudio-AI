@@ -1,5 +1,6 @@
 import {
-  Component, ElementRef, OnDestroy, OnInit, ViewChild, inject, signal
+  AfterViewInit,
+  Component, ElementRef, HostListener, OnDestroy, OnInit, ViewChild, inject, signal
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -14,7 +15,7 @@ import { ClipRow, JunctionView, MusicTrackRow } from '../../models/clip-studio.m
   templateUrl: './timeline-dock.component.html',
   styleUrls: ['./timeline-dock.component.css'],
 })
-export class TimelineDockComponent implements OnInit, OnDestroy {
+export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
   readonly state = inject(StudioStateService);
 
   @ViewChild('playheadNeedle') playheadNeedleRef?: ElementRef<HTMLElement>;
@@ -23,7 +24,9 @@ export class TimelineDockComponent implements OnInit, OnDestroy {
 
   // Scrubbing & Dragging Pointer State
   readonly isScrubbing = signal<boolean>(false);
+  readonly addTrackMenuOpen = signal<boolean>(false);
   private rafId: number | null = null;
+  private resizeObserver?: ResizeObserver;
 
   private itemDrag: { itemId: string; startClientX: number; origStartTime: number; duration: number; trackId: string } | null = null;
   private itemTrim: { itemId: string; edge: 'left' | 'right'; startClientX: number; origStartTime: number; origDuration: number; origTrimStart: number } | null = null;
@@ -34,10 +37,72 @@ export class TimelineDockComponent implements OnInit, OnDestroy {
     this.startPlayheadRaf();
   }
 
+  ngAfterViewInit(): void {
+    setTimeout(() => {
+      this.fitTimeline();
+    }, 150);
+
+    const area = this.timelineAreaRef?.nativeElement;
+    if (area && typeof ResizeObserver !== 'undefined') {
+      let initialFitDone = false;
+      this.resizeObserver = new ResizeObserver(() => {
+        if (!initialFitDone) {
+          initialFitDone = true;
+          this.fitTimeline();
+        }
+      });
+      this.resizeObserver.observe(area);
+    }
+  }
+
+  toggleAddTrackMenu(event: Event): void {
+    event.stopPropagation();
+    this.addTrackMenuOpen.update((v) => !v);
+  }
+
+  addTrack(trackId: string): void {
+    this.state.showTrackManually(trackId);
+    this.addTrackMenuOpen.set(false);
+  }
+
+  onTextTrackClick(event: MouseEvent): void {
+    const target = event.target as HTMLElement;
+    if (target.closest('.tl-clip') || target.closest('.tl-item-remove') || target.closest('.tl-trim-handle')) return;
+
+    const lane = event.currentTarget as HTMLElement;
+    const rect = lane.getBoundingClientRect();
+    const clickX = event.clientX - rect.left;
+    const time = Math.max(0, this.state.pxToSeconds(clickX));
+    this.state.addTextOverlay('Subtitle Text', time);
+  }
+
+  onRemoveItemClick(event: MouseEvent | PointerEvent, itemId: string): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.state.removeTimelineItem(itemId);
+  }
+
+  onRemoveMusicClick(event: MouseEvent | PointerEvent, key: string): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.state.removeMusicTrack(key);
+  }
+
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(event: MouseEvent): void {
+    const target = event.target as HTMLElement;
+    if (!target.closest('.add-track-dropdown-wrap')) {
+      this.addTrackMenuOpen.set(false);
+    }
+  }
+
   ngOnDestroy(): void {
     if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
+    }
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
     }
   }
 
@@ -163,6 +228,7 @@ export class TimelineDockComponent implements OnInit, OnDestroy {
     if ((event.target as HTMLElement).closest('.tl-trim-handle') || (event.target as HTMLElement).closest('.tl-item-remove')) return;
     event.preventDefault();
     event.stopPropagation();
+    this.state.selectTimelineItem(item.id, event);
     this.itemDrag = {
       itemId: item.id,
       startClientX: event.clientX,
