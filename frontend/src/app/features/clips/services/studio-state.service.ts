@@ -109,6 +109,12 @@ export class StudioStateService implements OnDestroy {
     return this.api.assetUrl(resolved);
   }
 
+  assetThumbnailUrl(clipOrId: string | Clip | undefined): string {
+    if (!clipOrId) return '';
+    const resolved = this.resolveAssetId(clipOrId);
+    return this.api.assetThumbnailUrl(resolved);
+  }
+
   // Cross-Component Drag-and-Drop Contract (Guardrail 4)
   readonly draggingAsset = signal<ClipRow | null>(null);
 

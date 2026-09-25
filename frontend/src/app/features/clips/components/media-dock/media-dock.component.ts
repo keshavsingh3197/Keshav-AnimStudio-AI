@@ -49,6 +49,17 @@ export class MediaDockComponent implements OnDestroy {
     this.previewingAudioId.set(assetId);
   }
 
+  // Safe hover preview tracking (Guardrail: zero persistent background video elements)
+  readonly activeHoverId = signal<string | null>(null);
+
+  onCardMouseEnter(id: string): void {
+    this.activeHoverId.set(id);
+  }
+
+  onCardMouseLeave(): void {
+    this.activeHoverId.set(null);
+  }
+
   // Safe hover preview promise tracking
   private hoverPlayPromise: Promise<void> | null = null;
   private activeHoverVideo: HTMLVideoElement | null = null;

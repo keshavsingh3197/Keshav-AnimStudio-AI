@@ -154,6 +154,11 @@ export class ApiService {
     return `${this.base}/api/assets/${assetId}/content`;
   }
 
+  /** Direct URL to the fast lightweight thumbnail image (320px JPEG for videos). */
+  assetThumbnailUrl(assetId: string): string {
+    return `${this.base}/api/assets/${assetId}/thumbnail`;
+  }
+
   // --- characters
   listCharacters(projectId: string): Observable<Character[]> {
     return this.unwrap(

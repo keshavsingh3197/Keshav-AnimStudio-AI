@@ -300,7 +300,7 @@
                       <span class="tl-trans-in-badge" [title]="'In: ' + item.transform.transitionIn + ' (' + (item.transform.transitionInDuration ?? 0.5) + 's)'">⚡ {{ item.transform.transitionIn }}</span>
                     }
                     <div class="tl-clip-img-thumb-wrap">
-                      <video [src]="state.assetUrl(item.src) + '#t=0.1'" preload="metadata" muted playsinline class="tl-clip-img-thumb" (error)="$any($event.target).style.display='none'"></video>
+                      <img [src]="state.assetThumbnailUrl(item.src)" loading="lazy" class="tl-clip-img-thumb" (error)="$any($event.target).style.display='none'" alt="" />
                       <span class="tl-clip-fallback-icon">🎞</span>
                     </div>
                     <span class="tl-item-badge">V2</span>
@@ -362,19 +362,11 @@
                   <button class="tl-clip-remove" type="button" (pointerdown)="$event.stopPropagation(); state.removeTimelineClipAtIndex(entry.row.clip.id, i)" (click)="$event.stopPropagation(); state.removeTimelineClipAtIndex(entry.row.clip.id, i)" title="Remove clip from timeline cut">×</button>
                   @if (state.timelineThumbnailMode() === 'filmstrip') {
                     <div class="tl-clip-backdrop-thumb">
-                      @if (state.getClipType(entry.row.clip) === 'image') {
-                        <img [src]="state.assetUrl(entry.row.clip.id)" class="tl-clip-thumb-media backdrop" alt="" />
-                      } @else {
-                        <video [src]="state.assetUrl(entry.row.clip.id) + '#t=' + ((entry.row.clip.trimStartSeconds || 0) + 0.1)" preload="metadata" muted playsinline class="tl-clip-thumb-media backdrop"></video>
-                      }
+                      <img [src]="state.assetThumbnailUrl(entry.row.clip.id)" loading="lazy" class="tl-clip-thumb-media backdrop" alt="" (error)="$any($event.target).style.display='none'" />
                     </div>
                     <div class="tl-clip-content">
                       <div class="tl-clip-mini-thumb">
-                        @if (state.getClipType(entry.row.clip) === 'image') {
-                          <img [src]="state.assetUrl(entry.row.clip.id)" class="tl-clip-thumb-media" alt="" />
-                        } @else {
-                          <video [src]="state.assetUrl(entry.row.clip.id) + '#t=' + ((entry.row.clip.trimStartSeconds || 0) + 0.1)" preload="metadata" muted playsinline class="tl-clip-thumb-media"></video>
-                        }
+                        <img [src]="state.assetThumbnailUrl(entry.row.clip.id)" loading="lazy" class="tl-clip-thumb-media" alt="" (error)="$any($event.target).style.display='none'" />
                         <span class="tl-clip-thumb-badge">#{{ i + 1 }}</span>
                       </div>
                       <div class="tl-clip-details">
@@ -390,7 +382,7 @@
                   } @else {
                     <span class="tl-clip-seq">#{{ i + 1 }}</span>
                     @if (state.getClipType(entry.row.clip) === 'image') {
-                      <img [src]="state.assetUrl(entry.row.clip.id)" class="tl-clip-mini-thumb-img" alt="" (error)="$any($event.target).style.display='none'" />
+                      <img [src]="state.assetThumbnailUrl(entry.row.clip.id)" loading="lazy" class="tl-clip-mini-thumb-img" alt="" (error)="$any($event.target).style.display='none'" />
                     }
                     <span class="tl-clip-name">{{ entry.row.clip.name }}</span>
                     <span class="tl-clip-dur mono">{{ entry.row.clip.durationSeconds ?? 0 | number:'1.0-1' }}s</span>

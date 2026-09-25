@@ -206,6 +206,101 @@ public sealed class AssetsController(
     }
 
     /// <summary>
+    /// Serves a lightweight image thumbnail for an asset (e.g., 320px JPEG for videos, or direct image stream).
+    /// Prevents browser connection saturation when browsing large media libraries or timeline filmstrips.
+    /// </summary>
+    [HttpGet("api/assets/{id}/thumbnail")]
+    [HttpHead("api/assets/{id}/thumbnail")]
+    public async Task<IActionResult> Thumbnail(string id, CancellationToken ct)
+    {
+        try
+        {
+            if (ct.IsCancellationRequested || HttpContext.RequestAborted.IsCancellationRequested)
+                return StatusCode(499);
+
+            if (!MetaCache.TryGetValue(id, out var meta))
+            {
+                var asset = await assets.GetAsync(id, ct);
+                if (asset is null && (id.Contains("_a_") || id.Contains("_b_") || id.Contains("_part")))
+                {
+                    var baseId = System.Text.RegularExpressions.Regex.Replace(id, @"(_[ab]_\d+|_part.*)$", "");
+                    asset = await assets.GetAsync(baseId, ct);
+                }
+                if (asset is null) throw new KeyNotFoundException();
+                meta = (asset.StorageKey, asset.MimeType, asset.ProjectId);
+                MetaCache.TryAdd(id, meta);
+            }
+
+            await EnsureOwnedAsync(meta.ProjectId, ct);
+
+            Response.Headers.XContentTypeOptions = "nosniff";
+            Response.Headers.CacheControl = "public, max-age=604800";
+
+            if (meta.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+            {
+                var imgStream = await store.OpenAsync(meta.StorageKey, ct) ?? throw new KeyNotFoundException();
+                return File(imgStream, meta.MimeType);
+            }
+
+            if (meta.MimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase))
+            {
+                var thumbDir = Path.Combine("D:", "AI_STUDIO", "temp", "thumbnails");
+                Directory.CreateDirectory(thumbDir);
+                var thumbPath = Path.Combine(thumbDir, $"{id}.jpg");
+
+                if (System.IO.File.Exists(thumbPath))
+                {
+                    return PhysicalFile(thumbPath, "image/jpeg");
+                }
+
+                var videoPath = Path.IsPathRooted(meta.StorageKey)
+                    ? meta.StorageKey
+                    : Path.Combine("D:", "AI_STUDIO", "objects", meta.StorageKey.Replace('/', Path.DirectorySeparatorChar));
+                if (System.IO.File.Exists(videoPath))
+                {
+                    try
+                    {
+                        var psi = new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = "ffmpeg",
+                            Arguments = $"-ss 00:00:00.100 -i \"{videoPath}\" -vframes 1 -vf \"scale=320:-1\" -q:v 4 \"{thumbPath}\" -y",
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true,
+                            UseShellExecute = false,
+                            CreateNoWindow = true
+                        };
+                        using var proc = System.Diagnostics.Process.Start(psi);
+                        if (proc != null)
+                        {
+                            await proc.WaitForExitAsync(ct);
+                            if (System.IO.File.Exists(thumbPath))
+                            {
+                                return PhysicalFile(thumbPath, "image/jpeg");
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // Fall back to stream
+                    }
+                }
+            }
+
+            var stream = await store.OpenAsync(meta.StorageKey, ct) ?? throw new KeyNotFoundException();
+            return File(stream, meta.MimeType);
+        }
+        catch (OperationCanceledException)
+        {
+            return StatusCode(499);
+        }
+        catch (Exception ex) when (ex.Message.Contains("cancelled", StringComparison.OrdinalIgnoreCase) ||
+                                   ex.Message.Contains("aborted", StringComparison.OrdinalIgnoreCase))
+        {
+            return StatusCode(499);
+        }
+    }
+
+    /// <summary>
     /// Deletes a file from the library. Refused while anything still points at it, because
     /// a missing asset does not surface until a render is minutes in.
     /// </summary>

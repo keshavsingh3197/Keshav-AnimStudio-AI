@@ -213,19 +213,33 @@
              (dragend)="state.onRowDragEnd()">
 
           <!-- 16:9 Thumbnail Area -->
-          <div class="clip-thumb-container">
+          <div class="clip-thumb-container"
+               (mouseenter)="onCardMouseEnter(row.clip.id)"
+               (mouseleave)="onCardMouseLeave()">
             @if (state.getClipType(row.clip) === 'video' || state.getClipType(row.clip) === 'ai') {
-              <video #vid class="clip-thumb-media"
-                     [src]="state.assetUrl(row.clip.id)"
-                     preload="auto"
-                     [muted]="true"
-                     playsinline
-                     loop
-                     (loadeddata)="onThumbLoaded(vid)"
-                     (mouseenter)="onThumbMouseEnter(vid)"
-                     (mouseleave)="onThumbMouseLeave(vid)"></video>
+              @if (activeHoverId() === row.clip.id) {
+                <video #vid class="clip-thumb-media"
+                       [src]="state.assetUrl(row.clip.id)"
+                       preload="auto"
+                       [muted]="true"
+                       playsinline
+                       autoplay
+                       loop
+                       (loadeddata)="onThumbLoaded(vid)"
+                       (error)="$any($event.target).style.display='none'"></video>
+              } @else {
+                <img class="clip-thumb-media"
+                     [src]="state.assetThumbnailUrl(row.clip.id)"
+                     loading="lazy"
+                     alt=""
+                     (error)="$any($event.target).style.display='none'" />
+              }
             } @else if (state.getClipType(row.clip) === 'image') {
-              <img class="clip-thumb-media" [src]="state.assetUrl(row.clip.id)" alt="" />
+              <img class="clip-thumb-media"
+                   [src]="state.assetThumbnailUrl(row.clip.id)"
+                   loading="lazy"
+                   alt=""
+                   (error)="$any($event.target).style.display='none'" />
             } @else {
               <div class="clip-audio-thumb">
                 <button type="button" class="audio-play-btn"
