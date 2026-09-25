@@ -24,7 +24,21 @@ public sealed class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logge
     public async ValueTask<bool> TryHandleAsync(
         HttpContext context, Exception exception, CancellationToken ct)
     {
+        // Don't treat client-aborted requests (e.g. video scrub/hover cancels) as 500 server crashes
+        if (context.RequestAborted.IsCancellationRequested || exception is OperationCanceledException)
+        {
+            logger.LogDebug("Client cancelled connection on {Method} {Path}", context.Request.Method, context.Request.Path);
+            return true;
+        }
+
         var (status, code, message) = Classify(exception);
+
+        // Client aborted SQL command or closed connection
+        if (status == ClientClosedRequest || exception.Message.Contains("Operation cancelled by user", StringComparison.OrdinalIgnoreCase))
+        {
+            logger.LogDebug("Request aborted by client on {Method} {Path}: {Code}", context.Request.Method, context.Request.Path, code);
+            return true;
+        }
 
         // The full detail goes to the server log only.
         if (status >= StatusCodes.Status500InternalServerError)
@@ -35,9 +49,16 @@ public sealed class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logge
                 context.Request.Method, context.Request.Path, code);
 
         context.Response.StatusCode = status;
-        await context.Response
-            .WriteAsJsonAsync(ApiResponse<EmptyPayload>.Fail(message, new ApiError(code, message)), ct)
-            .ConfigureAwait(false);
+        try
+        {
+            await context.Response
+                .WriteAsJsonAsync(ApiResponse<EmptyPayload>.Fail(message, new ApiError(code, message)), ct)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Response stream closed by client
+        }
 
         return true;
     }

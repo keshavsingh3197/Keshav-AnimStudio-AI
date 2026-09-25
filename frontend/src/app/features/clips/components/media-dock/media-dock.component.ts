@@ -49,8 +49,79 @@ export class MediaDockComponent implements OnDestroy {
     this.previewingAudioId.set(assetId);
   }
 
+  // Safe hover preview promise tracking
+  private hoverPlayPromise: Promise<void> | null = null;
+  private activeHoverVideo: HTMLVideoElement | null = null;
+  showSelectionMenu = false;
+
+  onThumbMouseEnter(videoEl: HTMLVideoElement): void {
+    videoEl.muted = true;
+    this.activeHoverVideo = videoEl;
+    const promise = videoEl.play();
+    if (promise !== undefined) {
+      this.hoverPlayPromise = promise;
+      promise.catch(() => {
+        // Suppress browser abort / pause interruptions cleanly
+      });
+    }
+  }
+
+  onThumbMouseLeave(videoEl: HTMLVideoElement): void {
+    if (this.hoverPlayPromise) {
+      this.hoverPlayPromise
+        .then(() => {
+          videoEl.pause();
+          try {
+            videoEl.currentTime = 0.1;
+          } catch {
+            // ignore seek error
+          }
+        })
+        .catch(() => {
+          videoEl.pause();
+        });
+      this.hoverPlayPromise = null;
+    } else {
+      videoEl.pause();
+      try {
+        videoEl.currentTime = 0.1;
+      } catch {
+        // ignore seek error
+      }
+    }
+
+    if (this.activeHoverVideo === videoEl) {
+      this.activeHoverVideo = null;
+    }
+  }
+
   onDragStart(index: number, row: ClipRow): void {
     this.state.onRowDragStart(index, row);
+  }
+
+  selectAll(): void {
+    this.state.selectAllFiltered();
+    this.showSelectionMenu = false;
+  }
+
+  selectUnused(): void {
+    this.state.selectUnusedMedia();
+    this.showSelectionMenu = false;
+  }
+
+  selectInCut(): void {
+    this.state.selectInCutMedia();
+    this.showSelectionMenu = false;
+  }
+
+  invertSelection(): void {
+    this.state.invertSelection();
+    this.showSelectionMenu = false;
+  }
+
+  deselectAll(): void {
+    this.state.clearAllSelections();
+    this.showSelectionMenu = false;
   }
 }
 

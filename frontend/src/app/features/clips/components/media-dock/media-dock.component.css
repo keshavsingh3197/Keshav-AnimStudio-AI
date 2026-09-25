@@ -133,6 +133,47 @@
   color: #fff;
 }
 
+/* Quick Selection Tool */
+.media-select-tool-group {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.media-select-tool-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid #1e293b;
+  border-radius: 6px;
+  color: #94a3b8;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.media-select-tool-btn:hover {
+  background: rgba(108, 140, 255, 0.15);
+  border-color: var(--brand, #6c8cff);
+  color: var(--brand, #6c8cff);
+}
+
+.selection-dropdown {
+  right: 0;
+  width: 210px;
+}
+
+.dropdown-item-btn.highlight-unused {
+  color: #38bdf8;
+}
+
+.dropdown-item-btn.highlight-incut {
+  color: #34d399;
+}
+
 /* Dropdown Menu */
 .organize-backdrop {
   position: fixed;
@@ -242,6 +283,60 @@
   box-shadow: 0 0 8px rgba(108, 140, 255, 0.4);
 }
 
+/* ── Timeline Status Sub-Filter (Row 2) ───────────────────── */
+.media-status-pills {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+  flex-shrink: 0;
+  padding: 2px 0;
+}
+
+.status-pill {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 3px 6px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid #1e293b;
+  border-radius: 4px;
+  color: #94a3b8;
+  font-size: 10px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.status-pill:hover {
+  background: rgba(30, 41, 59, 0.8);
+  color: #e2e8f0;
+}
+
+.status-pill.active {
+  background: var(--brand, #6c8cff);
+  border-color: var(--brand, #6c8cff);
+  color: #fff;
+  font-weight: 600;
+}
+
+.status-badge-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.unused-dot {
+  background: #38bdf8;
+}
+
+.incut-dot {
+  background: #34d399;
+}
+
 /* ── Bulk Action Row ───────────────────────────────────────── */
 .media-bulk-bar {
   display: flex;
@@ -274,6 +369,27 @@
   font-size: 11px;
   font-weight: 600;
   color: #cbd5e1;
+}
+
+.bulk-breakdown {
+  font-size: 10px;
+  color: #94a3b8;
+  margin-left: 2px;
+}
+
+.bulk-btn-narrow {
+  padding: 2px 6px;
+  font-size: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid #334155;
+  border-radius: 4px;
+  color: #cbd5e1;
+  cursor: pointer;
+}
+
+.bulk-btn-narrow:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
 }
 
 .media-bulk-actions {
@@ -397,7 +513,7 @@
 
 .media-card-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
   gap: 8px;
 }
 
@@ -589,6 +705,14 @@
   border-radius: 50%;
   background: #10b981;
   box-shadow: 0 0 4px #10b981;
+}
+
+.cut-repeat-cnt {
+  font-size: 8px;
+  background: rgba(16, 185, 129, 0.4);
+  padding: 0 3px;
+  border-radius: 6px;
+  line-height: 1.2;
 }
 
 /* Type Badge (Top-Right) */

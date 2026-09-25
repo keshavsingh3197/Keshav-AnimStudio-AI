@@ -70,6 +70,14 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       const muted = this.state.isMonitorMuted();
       this.updateVolumes(vol, muted);
     });
+
+    // React to Schedule or Clip Layout changes while paused to render current frame
+    effect(() => {
+      this.state.clipSchedule();
+      if (!this.state.isPlaying()) {
+        this.syncMediaElements(false);
+      }
+    });
   }
 
   ngOnInit(): void {
@@ -191,7 +199,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
 
     if (curr && activeEl) {
       const clipTrimStart = curr.clip.trimStartSeconds ?? 0;
-      const localTime = Math.max(0, clipTrimStart + (time - curr.startSeconds));
+      const localTime = Math.max(0.05, clipTrimStart + (time - curr.startSeconds));
       activeEl.currentTime = localTime;
     }
 
@@ -253,7 +261,12 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
         ? this.videoMonitorARef?.nativeElement
         : this.videoMonitorBRef?.nativeElement;
       if (activeEl && activeEl.paused) {
-        activeEl.play().catch(() => undefined);
+        activeEl.play().catch((err: unknown) => {
+          if (err instanceof DOMException && err.name === 'NotAllowedError') {
+            activeEl.muted = true;
+            activeEl.play().catch(() => undefined);
+          }
+        });
       }
       const bg = this.bgMusicAudioRef?.nativeElement;
       if (bg && bg.src && bg.paused) {
@@ -364,23 +377,30 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
         if (currentActiveIsA) this.loadedClipIdA = currAssetId;
         else this.loadedClipIdB = currAssetId;
         currentActiveVideo.src = this.state.assetUrl(currAssetId);
-        const targetTime = Math.max(0.001, localTime);
+        const targetTime = Math.max(0.05, localTime);
         if (currentActiveVideo.readyState >= 1) {
           currentActiveVideo.currentTime = targetTime;
         } else {
-          currentActiveVideo.onloadedmetadata = () => {
+          currentActiveVideo.onloadeddata = () => {
             currentActiveVideo.currentTime = targetTime;
-            currentActiveVideo.onloadedmetadata = null;
+            currentActiveVideo.onloadeddata = null;
           };
         }
       } else if (!playing || (Math.abs(currentActiveVideo.currentTime - localTime) > 0.4 && !currentActiveVideo.seeking)) {
-        currentActiveVideo.currentTime = Math.max(0.001, localTime);
+        currentActiveVideo.currentTime = Math.max(0.05, localTime);
       }
       currentActiveVideo.volume = this.state.isMonitorMuted() ? 0 : Math.min(1, this.state.monitorVolume() * clipVol);
       currentActiveVideo.muted = isVideoMuted;
       currentActiveVideo.playbackRate = speed;
       if (playing) {
-        if (currentActiveVideo.paused) currentActiveVideo.play().catch(() => undefined);
+        if (currentActiveVideo.paused) {
+          currentActiveVideo.play().catch((err: unknown) => {
+            if (err instanceof DOMException && err.name === 'NotAllowedError') {
+              currentActiveVideo.muted = true;
+              currentActiveVideo.play().catch(() => undefined);
+            }
+          });
+        }
       } else {
         if (!currentActiveVideo.paused) currentActiveVideo.pause();
       }
@@ -396,7 +416,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       } else {
         const nextAssetId = this.state.resolveAssetId(nextSched.clip);
         const nextTrimStart = nextSched.clip.trimStartSeconds ?? 0;
-        const nextLocalTime = Math.max(0, nextTrimStart + (time - transStart));
+        const nextLocalTime = Math.max(0.05, nextTrimStart + (time - transStart));
         const standbyLoadedId = currentActiveIsA ? this.loadedClipIdB : this.loadedClipIdA;
         if (standbyLoadedId !== nextAssetId) {
           if (currentActiveIsA) this.loadedClipIdB = nextAssetId;

@@ -62,6 +62,21 @@ app-studio-header {
   box-sizing: border-box;
 }
 
+/* Big Screen & Ultrawide Display Optimizations */
+@media (min-width: 1800px) {
+  .flowedit-layout {
+    grid-template-columns: 420px minmax(0, 1fr) 380px;
+    grid-template-rows: minmax(360px, 1fr) 320px;
+  }
+}
+
+@media (min-width: 2560px) {
+  .flowedit-layout {
+    grid-template-columns: 520px minmax(0, 1fr) 420px;
+    grid-template-rows: minmax(420px, 1fr) 360px;
+  }
+}
+
 /* Column 1 — Media Dock Host Element */
 app-media-dock {
   grid-column: 1;

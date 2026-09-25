@@ -146,9 +146,12 @@ public sealed class AssetsController(
             asset.Probe = await probe.ProbeAsync(storageKey, ct);
 
         await assets.InsertAsync(asset, ct);
+        MetaCache.TryAdd(asset.Id, (asset.StorageKey, asset.MimeType, asset.ProjectId));
 
         return Ok(ApiResponse<AssetResponse>.Ok(asset.ToResponse()));
     }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (string StorageKey, string MimeType, string ProjectId)> MetaCache = new();
 
     /// <summary>
     /// Serves an uploaded file back, so the library and the scene editor can show what a
@@ -165,19 +168,41 @@ public sealed class AssetsController(
     [HttpHead("api/assets/{id}/content")]
     public async Task<IActionResult> Content(string id, CancellationToken ct)
     {
-        var asset = await assets.GetAsync(id, ct);
-        if (asset is null && (id.Contains("_a_") || id.Contains("_b_") || id.Contains("_part")))
+        try
         {
-            var baseId = System.Text.RegularExpressions.Regex.Replace(id, @"(_[ab]_\d+|_part.*)$", "");
-            asset = await assets.GetAsync(baseId, ct);
+            if (ct.IsCancellationRequested || HttpContext.RequestAborted.IsCancellationRequested)
+                return StatusCode(499);
+
+            if (!MetaCache.TryGetValue(id, out var meta))
+            {
+                var asset = await assets.GetAsync(id, ct);
+                if (asset is null && (id.Contains("_a_") || id.Contains("_b_") || id.Contains("_part")))
+                {
+                    var baseId = System.Text.RegularExpressions.Regex.Replace(id, @"(_[ab]_\d+|_part.*)$", "");
+                    asset = await assets.GetAsync(baseId, ct);
+                }
+                if (asset is null) throw new KeyNotFoundException();
+                meta = (asset.StorageKey, asset.MimeType, asset.ProjectId);
+                MetaCache.TryAdd(id, meta);
+            }
+
+            await EnsureOwnedAsync(meta.ProjectId, ct);
+
+            var stream = await store.OpenAsync(meta.StorageKey, ct) ?? throw new KeyNotFoundException();
+
+            Response.Headers.XContentTypeOptions = "nosniff";
+            Response.Headers.CacheControl = "public, max-age=86400";
+            return File(stream, meta.MimeType, enableRangeProcessing: stream.CanSeek);
         }
-        if (asset is null) throw new KeyNotFoundException();
-        await EnsureOwnedAsync(asset.ProjectId, ct);
-
-        var stream = await store.OpenAsync(asset.StorageKey, ct) ?? throw new KeyNotFoundException();
-
-        Response.Headers.XContentTypeOptions = "nosniff";
-        return File(stream, asset.MimeType, enableRangeProcessing: stream.CanSeek);
+        catch (OperationCanceledException)
+        {
+            return StatusCode(499);
+        }
+        catch (Exception ex) when (ex.Message.Contains("cancelled", StringComparison.OrdinalIgnoreCase) ||
+                                   ex.Message.Contains("aborted", StringComparison.OrdinalIgnoreCase))
+        {
+            return StatusCode(499);
+        }
     }
 
     /// <summary>

@@ -21,6 +21,34 @@
       }
     </div>
 
+    <div class="media-select-tool-group">
+      <button class="media-select-tool-btn" type="button" (click)="showSelectionMenu = !showSelectionMenu" title="Quick Selection Tools">
+        ☑▾
+      </button>
+      @if (showSelectionMenu) {
+        <div class="organize-backdrop" (click)="showSelectionMenu = false"></div>
+        <div class="organize-dropdown selection-dropdown shadow-lg">
+          <div class="dropdown-group-title">Selection Tools</div>
+          <button type="button" class="dropdown-item-btn" (click)="selectAll()">
+            <span>Select All ({{ state.totalItems() }})</span>
+          </button>
+          <button type="button" class="dropdown-item-btn highlight-unused" (click)="selectUnused()">
+            <span>Select Unused Media ({{ state.unusedCount() }})</span>
+          </button>
+          <button type="button" class="dropdown-item-btn highlight-incut" (click)="selectInCut()">
+            <span>Select In-Cut Media ({{ state.inCutCount() }})</span>
+          </button>
+          <button type="button" class="dropdown-item-btn" (click)="invertSelection()">
+            <span>Invert Selection</span>
+          </button>
+          <div class="dropdown-divider"></div>
+          <button type="button" class="dropdown-item-btn" (click)="deselectAll()">
+            <span>Clear Selection</span>
+          </button>
+        </div>
+      }
+    </div>
+
     <button class="media-menu-btn" type="button" (click)="state.showOrganizeMenu = !state.showOrganizeMenu" title="View & Organize">
       ⋮
     </button>
@@ -79,24 +107,56 @@
     </button>
   </div>
 
+  <!-- Timeline Status Sub-Filter (Row 2: All / Unused / In Cut) -->
+  <div class="media-status-pills">
+    <button type="button" class="status-pill"
+            [class.active]="state.statusFilter() === 'all'"
+            (click)="state.statusFilter.set('all'); state.currentPage.set(0)">
+      All Status
+    </button>
+    <button type="button" class="status-pill unused-pill"
+            [class.active]="state.statusFilter() === 'unused'"
+            (click)="state.statusFilter.set('unused'); state.currentPage.set(0)"
+            title="Show only media not yet placed on timeline">
+      <span class="status-badge-dot unused-dot"></span>
+      Not in Cut ({{ state.unusedCount() }})
+    </button>
+    <button type="button" class="status-pill incut-pill"
+            [class.active]="state.statusFilter() === 'in_cut'"
+            (click)="state.statusFilter.set('in_cut'); state.currentPage.set(0)"
+            title="Show only media placed on timeline">
+      <span class="status-badge-dot incut-dot"></span>
+      In Cut ({{ state.inCutCount() }})
+    </button>
+  </div>
+
   <!-- Dynamic Bulk Action Row (Visible when selectedCount > 0) -->
   @if (state.selectedCount() > 0) {
     <div class="media-bulk-bar">
       <div class="media-bulk-count">
         <span class="bulk-dot"></span>
         <span class="bulk-count-text">{{ state.selectedCount() }} selected</span>
+        <span class="bulk-breakdown">({{ state.selectedUnplacedCount() }} unused, {{ state.selectedPlacedCount() }} in cut)</span>
       </div>
       <div class="media-bulk-actions">
-        @if (state.hasSelectedOnTimeline()) {
-          <button class="bulk-action-btn bulk-btn-remove" type="button" (click)="state.removeSelectedFromTimeline()" title="Remove selected media from timeline cut">
-            <span class="bulk-btn-icon">✕</span>
-            <span>Remove from Cut</span>
+        @if (state.selectedUnplacedCount() > 0) {
+          <button class="bulk-action-btn bulk-btn-add" type="button" (click)="state.addSelectedToTimeline()" title="Add {{ state.selectedUnplacedCount() }} unplaced media to timeline cut">
+            <span class="bulk-btn-icon">+</span>
+            <span>Add to Cut ({{ state.selectedUnplacedCount() }})</span>
           </button>
         }
-        @if (state.hasSelectedNotOnTimeline()) {
-          <button class="bulk-action-btn bulk-btn-add" type="button" (click)="state.addSelectedToTimeline()" title="Add selected media to timeline cut">
-            <span class="bulk-btn-icon">+</span>
-            <span>Add to Cut</span>
+        @if (state.selectedPlacedCount() > 0) {
+          <button class="bulk-action-btn bulk-btn-remove" type="button" (click)="state.removeSelectedFromTimeline()" title="Remove {{ state.selectedPlacedCount() }} clips from timeline cut">
+            <span class="bulk-btn-icon">✕</span>
+            <span>Remove ({{ state.selectedPlacedCount() }})</span>
+          </button>
+        }
+        @if (state.selectedUnplacedCount() > 0 && state.selectedPlacedCount() > 0) {
+          <button class="bulk-action-btn bulk-btn-narrow" type="button" (click)="state.selectOnlyUnusedFromCurrent()" title="Keep only unused in selection">
+            Keep Unused
+          </button>
+          <button class="bulk-action-btn bulk-btn-narrow" type="button" (click)="state.selectOnlyInCutFromCurrent()" title="Keep only in-cut in selection">
+            Keep In-Cut
           </button>
         }
         @if (state.confirmingDelete()) {
@@ -155,7 +215,14 @@
           <!-- 16:9 Thumbnail Area -->
           <div class="clip-thumb-container">
             @if (state.getClipType(row.clip) === 'video' || state.getClipType(row.clip) === 'ai') {
-              <video #vid class="clip-thumb-media" [src]="state.assetUrl(row.clip.id)" muted loop (mouseenter)="vid.play()" (mouseleave)="vid.pause(); vid.currentTime = 0;"></video>
+              <video #vid class="clip-thumb-media"
+                     [src]="state.assetUrl(row.clip.id) + '#t=0.1'"
+                     preload="metadata"
+                     [muted]="true"
+                     playsinline
+                     loop
+                     (mouseenter)="onThumbMouseEnter(vid)"
+                     (mouseleave)="onThumbMouseLeave(vid)"></video>
             } @else if (state.getClipType(row.clip) === 'image') {
               <img class="clip-thumb-media" [src]="state.assetUrl(row.clip.id)" alt="" />
             } @else {
@@ -179,6 +246,13 @@
             @if (state.isClipOnTimeline(row.clip.id)) {
               <span class="clip-in-cut-tag" title="In timeline cut">
                 <span class="cut-dot"></span> In Cut
+              </span>
+            }
+
+            <!-- Occurrence Badge if clip used multiple times -->
+            @if (state.getClipTimelineCount(row.clip.id) > 1) {
+              <span class="cut-repeat-cnt" title="Used {{ state.getClipTimelineCount(row.clip.id) }} times on timeline">
+                ×{{ state.getClipTimelineCount(row.clip.id) }}
               </span>
             }
 
@@ -245,6 +319,9 @@
       <option [ngValue]="6">6 / page</option>
       <option [ngValue]="12">12 / page</option>
       <option [ngValue]="24">24 / page</option>
+      <option [ngValue]="48">48 / page</option>
+      <option [ngValue]="96">96 / page</option>
+      <option [ngValue]="1000">All</option>
     </select>
 
     <span class="pagination-range">

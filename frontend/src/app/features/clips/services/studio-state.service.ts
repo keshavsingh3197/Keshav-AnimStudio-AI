@@ -115,6 +115,7 @@ export class StudioStateService implements OnDestroy {
   // Media Library Filtering & Paging
   readonly searchQuery = signal<string>('');
   readonly activeCategory = signal<'all' | 'video' | 'image' | 'audio'>('all');
+  readonly statusFilter = signal<'all' | 'unused' | 'in_cut'>('all');
   readonly pageSize = signal<number>(12);
   readonly currentPage = signal<number>(0);
   readonly selectedLibraryIds = signal<Set<string>>(new Set<string>());
@@ -193,6 +194,12 @@ export class StudioStateService implements OnDestroy {
     if (cat !== 'all') {
       list = list.filter((r) => this.getClipType(r.clip) === cat);
     }
+    const stat = this.statusFilter();
+    if (stat === 'unused') {
+      list = list.filter((r) => !this.isClipOnTimeline(r.clip.id));
+    } else if (stat === 'in_cut') {
+      list = list.filter((r) => this.isClipOnTimeline(r.clip.id));
+    }
     const q = this.searchQuery().trim().toLowerCase();
     if (q) {
       list = list.filter((r) => r.clip.name.toLowerCase().includes(q));
@@ -215,6 +222,25 @@ export class StudioStateService implements OnDestroy {
   readonly imageCount = computed(() => this.allMediaRows().filter((r) => this.getClipType(r.clip) === 'image').length);
   readonly audioCount = computed(() => this.allMediaRows().filter((r) => this.getClipType(r.clip) === 'audio').length);
   readonly totalMediaCount = computed(() => this.videoCount() + this.imageCount() + this.audioCount());
+
+  readonly unusedCount = computed(() => this.allMediaRows().filter((r) => !this.isClipOnTimeline(r.clip.id)).length);
+  readonly inCutCount = computed(() => this.allMediaRows().filter((r) => this.isClipOnTimeline(r.clip.id)).length);
+
+  readonly selectedUnplacedCount = computed(() => {
+    let count = 0;
+    for (const id of this.selectedLibraryIds()) {
+      if (!this.isClipOnTimeline(id)) count++;
+    }
+    return count;
+  });
+
+  readonly selectedPlacedCount = computed(() => {
+    let count = 0;
+    for (const id of this.selectedLibraryIds()) {
+      if (this.isClipOnTimeline(id)) count++;
+    }
+    return count;
+  });
 
   // Export & Project Signals
   readonly job = signal<RenderJob | null>(null);
@@ -1336,10 +1362,91 @@ export class StudioStateService implements OnDestroy {
   }
 
   isClipOnTimeline(clipId: string): boolean {
-    const isAudio = this.musicAssetId() === clipId || this.musicTracks().some((t) => t.assetId === clipId);
+    const assetId = this.resolveAssetId(clipId);
+    const isAudio = this.musicAssetId() === clipId || this.musicAssetId() === assetId ||
+      this.musicTracks().some((t) => t.assetId === clipId || t.assetId === assetId);
     if (isAudio) return true;
-    if (this.timelineItems().some((it) => it.id === clipId || it.src === clipId)) return true;
-    return this.rows().some((r) => r.clip.id === clipId && r.included);
+    if (this.timelineItems().some((it) => it.id === clipId || it.src === clipId || it.src === assetId)) return true;
+    return this.rows().some((r) => (r.clip.id === clipId || this.resolveAssetId(r.clip) === assetId) && r.included);
+  }
+
+  getClipTimelineCount(clipId: string): number {
+    const assetId = this.resolveAssetId(clipId);
+    let count = 0;
+    count += this.musicTracks().filter((t) => t.assetId === clipId || t.assetId === assetId).length;
+    count += this.timelineItems().filter((it) => it.id === clipId || it.src === clipId || it.src === assetId).length;
+    count += this.rows().filter((r) => (r.clip.id === clipId || this.resolveAssetId(r.clip) === assetId) && r.included).length;
+    return count;
+  }
+
+  selectAllFiltered(): void {
+    const rows = this.filteredRows();
+    const ids = new Set<string>(rows.map((r) => r.clip.id));
+    this.selectedLibraryIds.set(ids);
+    if (ids.size > 0) {
+      this.selectedClipId.set(Array.from(ids)[0]);
+    }
+  }
+
+  selectUnusedMedia(): void {
+    const rows = this.filteredRows().filter((r) => !this.isClipOnTimeline(r.clip.id));
+    const ids = new Set<string>(rows.map((r) => r.clip.id));
+    this.selectedLibraryIds.set(ids);
+    if (ids.size > 0) {
+      this.selectedClipId.set(Array.from(ids)[0]);
+    } else {
+      this.selectedClipId.set(null);
+    }
+  }
+
+  selectInCutMedia(): void {
+    const rows = this.filteredRows().filter((r) => this.isClipOnTimeline(r.clip.id));
+    const ids = new Set<string>(rows.map((r) => r.clip.id));
+    this.selectedLibraryIds.set(ids);
+    if (ids.size > 0) {
+      this.selectedClipId.set(Array.from(ids)[0]);
+    } else {
+      this.selectedClipId.set(null);
+    }
+  }
+
+  invertSelection(): void {
+    const rows = this.filteredRows();
+    const cur = this.selectedLibraryIds();
+    const next = new Set<string>();
+    for (const r of rows) {
+      if (!cur.has(r.clip.id)) {
+        next.add(r.clip.id);
+      }
+    }
+    this.selectedLibraryIds.set(next);
+    if (next.size > 0) {
+      this.selectedClipId.set(Array.from(next)[0]);
+    } else {
+      this.selectedClipId.set(null);
+    }
+  }
+
+  selectOnlyUnusedFromCurrent(): void {
+    const cur = this.selectedLibraryIds();
+    const next = new Set<string>();
+    for (const id of cur) {
+      if (!this.isClipOnTimeline(id)) {
+        next.add(id);
+      }
+    }
+    this.selectedLibraryIds.set(next);
+  }
+
+  selectOnlyInCutFromCurrent(): void {
+    const cur = this.selectedLibraryIds();
+    const next = new Set<string>();
+    for (const id of cur) {
+      if (this.isClipOnTimeline(id)) {
+        next.add(id);
+      }
+    }
+    this.selectedLibraryIds.set(next);
   }
 
   selectClip(clipId: string, event?: Event): void {
@@ -1705,10 +1812,27 @@ export class StudioStateService implements OnDestroy {
     const selectedIds = this.selectedLibraryIds();
     if (selectedIds.size === 0) return;
 
+    let addedCount = 0;
+    let skippedCount = 0;
+
     for (const clipId of selectedIds) {
+      if (this.isClipOnTimeline(clipId)) {
+        skippedCount++;
+        continue;
+      }
       this.addClipToTimeline(clipId);
+      addedCount++;
     }
+
     this.markDirty();
+
+    if (addedCount > 0 && skippedCount > 0) {
+      this.status.notify([`Added ${addedCount} new clip${addedCount > 1 ? 's' : ''} to timeline (skipped ${skippedCount} already in cut).`]);
+    } else if (addedCount > 0) {
+      this.status.notify([`Added ${addedCount} clip${addedCount > 1 ? 's' : ''} to timeline.`]);
+    } else if (skippedCount > 0) {
+      this.status.notify([`Selected media (${skippedCount} item${skippedCount > 1 ? 's' : ''}) is already on the timeline.`]);
+    }
   }
 
   removeSelectedFromTimeline(): void {

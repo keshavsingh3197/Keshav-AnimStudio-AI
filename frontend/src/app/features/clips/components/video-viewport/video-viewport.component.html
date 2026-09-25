@@ -61,6 +61,8 @@
                [style.filter]="state.computedMonitorFilter()"
                [style.transform]="state.activeClipTransform()"
                [style.clip-path]="state.activeClipClipPath()"
+               [muted]="state.isMonitorMuted()"
+               crossorigin="anonymous"
                playsinline preload="auto"></video>
 
         <video #videoMonitorB
@@ -69,7 +71,19 @@
                [style.filter]="state.computedMonitorFilter()"
                [style.transform]="state.activeClipTransform()"
                [style.clip-path]="state.activeClipClipPath()"
+               [muted]="state.isMonitorMuted()"
+               crossorigin="anonymous"
                playsinline preload="auto"></video>
+
+        <!-- V2 Video Track Overlay Layer -->
+        @if (state.activeV2Item(); as v2) {
+          <video #overlayVideoMonitor
+                 class="pv-monitor-layer layer-front v2-video-overlay"
+                 [src]="state.assetUrl(v2.src)"
+                 [muted]="state.isMonitorMuted()"
+                 playsinline preload="auto"
+                 crossorigin="anonymous"></video>
+        }
 
         <!-- Static Image Clip Monitor Layer -->
         @if (state.activeClipIsImage()) {
