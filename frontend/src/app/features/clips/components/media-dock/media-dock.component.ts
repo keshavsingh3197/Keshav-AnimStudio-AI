@@ -54,6 +54,16 @@ export class MediaDockComponent implements OnDestroy {
   private activeHoverVideo: HTMLVideoElement | null = null;
   showSelectionMenu = false;
 
+  onThumbLoaded(videoEl: HTMLVideoElement): void {
+    try {
+      if (videoEl.currentTime < 0.05) {
+        videoEl.currentTime = 0.05;
+      }
+    } catch {
+      // ignore seek error on load
+    }
+  }
+
   onThumbMouseEnter(videoEl: HTMLVideoElement): void {
     videoEl.muted = true;
     this.activeHoverVideo = videoEl;

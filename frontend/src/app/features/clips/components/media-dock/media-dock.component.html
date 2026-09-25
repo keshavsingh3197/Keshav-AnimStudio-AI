@@ -216,11 +216,12 @@
           <div class="clip-thumb-container">
             @if (state.getClipType(row.clip) === 'video' || state.getClipType(row.clip) === 'ai') {
               <video #vid class="clip-thumb-media"
-                     [src]="state.assetUrl(row.clip.id) + '#t=0.1'"
-                     preload="metadata"
+                     [src]="state.assetUrl(row.clip.id)"
+                     preload="auto"
                      [muted]="true"
                      playsinline
                      loop
+                     (loadeddata)="onThumbLoaded(vid)"
                      (mouseenter)="onThumbMouseEnter(vid)"
                      (mouseleave)="onThumbMouseLeave(vid)"></video>
             } @else if (state.getClipType(row.clip) === 'image') {

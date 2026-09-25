@@ -1,5 +1,5 @@
 import {
-  Component, ElementRef, OnDestroy, OnInit, ViewChild, computed, effect, inject, signal
+  Component, ElementRef, OnDestroy, OnInit, ViewChild, computed, effect, inject, signal, untracked
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -44,47 +44,50 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     effect(() => {
       const req = this.state.seekRequest();
       if (req) {
-        this.syncSeek(req.time);
+        untracked(() => this.syncSeek(req.time));
       }
-    });
+    }, { allowSignalWrites: true });
 
     // React to Play/Pause
     effect(() => {
       const playing = this.state.isPlaying();
-      if (playing) {
-        this.startPlaybackLoop();
-      } else {
-        this.pausePlayback();
-      }
-    });
+      untracked(() => {
+        if (playing) {
+          this.startPlaybackLoop();
+        } else {
+          this.pausePlayback();
+        }
+      });
+    }, { allowSignalWrites: true });
 
     // React to Playback Speed
     effect(() => {
       const speed = this.state.playbackSpeed();
-      this.updatePlaybackSpeed(speed);
+      untracked(() => this.updatePlaybackSpeed(speed));
     });
 
     // React to Volume & Mute Changes
     effect(() => {
       const vol = this.state.monitorVolume();
       const muted = this.state.isMonitorMuted();
-      this.updateVolumes(vol, muted);
+      untracked(() => this.updateVolumes(vol, muted));
     });
 
     // React to Schedule or Clip Layout changes while paused to render current frame
     effect(() => {
-      this.state.clipSchedule();
-      if (!this.state.isPlaying()) {
-        this.syncMediaElements(false);
+      const sched = this.state.clipSchedule();
+      const playing = this.state.isPlaying();
+      if (!playing && sched.length > 0) {
+        untracked(() => this.syncMediaElements(false));
       }
-    });
+    }, { allowSignalWrites: true });
   }
 
   ngOnInit(): void {
     // Initial sync
     setTimeout(() => {
       this.syncMediaElements(false);
-    }, 100);
+    }, 50);
   }
 
   ngOnDestroy(): void {
@@ -257,6 +260,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     this.state.audioEngine.ensureContext();
     // Synchronously initiate playback on media elements within user gesture to unlock audio
     if (!this.state.isPlaying()) {
+      this.syncMediaElements(true);
       const activeEl = this.activeLayer() === 'A'
         ? this.videoMonitorARef?.nativeElement
         : this.videoMonitorBRef?.nativeElement;
@@ -373,7 +377,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     } else if (currentActiveVideo) {
       const currAssetId = this.state.resolveAssetId(curr.clip);
       const activeLoadedId = currentActiveIsA ? this.loadedClipIdA : this.loadedClipIdB;
-      if (activeLoadedId !== currAssetId) {
+      if (activeLoadedId !== currAssetId || !currentActiveVideo.src) {
         if (currentActiveIsA) this.loadedClipIdA = currAssetId;
         else this.loadedClipIdB = currAssetId;
         currentActiveVideo.src = this.state.assetUrl(currAssetId);
@@ -381,12 +385,14 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
         if (currentActiveVideo.readyState >= 1) {
           currentActiveVideo.currentTime = targetTime;
         } else {
-          currentActiveVideo.onloadeddata = () => {
+          currentActiveVideo.onloadedmetadata = () => {
             currentActiveVideo.currentTime = targetTime;
-            currentActiveVideo.onloadeddata = null;
+            currentActiveVideo.onloadedmetadata = null;
           };
         }
-      } else if (!playing || (Math.abs(currentActiveVideo.currentTime - localTime) > 0.4 && !currentActiveVideo.seeking)) {
+      } else if (!playing && Math.abs(currentActiveVideo.currentTime - localTime) > 0.05 && !currentActiveVideo.seeking) {
+        currentActiveVideo.currentTime = Math.max(0.05, localTime);
+      } else if (playing && Math.abs(currentActiveVideo.currentTime - localTime) > 0.4 && !currentActiveVideo.seeking) {
         currentActiveVideo.currentTime = Math.max(0.05, localTime);
       }
       currentActiveVideo.volume = this.state.isMonitorMuted() ? 0 : Math.min(1, this.state.monitorVolume() * clipVol);
