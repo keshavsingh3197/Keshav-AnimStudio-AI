@@ -285,16 +285,17 @@ public sealed class AssetsController(
             await EnsureOwnedAsync(meta.ProjectId, ct);
 
             Response.Headers.XContentTypeOptions = "nosniff";
-            Response.Headers.CacheControl = "public, max-age=604800";
 
             if (meta.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
             {
+                Response.Headers.CacheControl = "public, max-age=604800";
                 var imgStream = await store.OpenAsync(meta.StorageKey, ct) ?? throw new KeyNotFoundException();
                 return File(imgStream, meta.MimeType);
             }
 
             if (meta.MimeType.StartsWith("audio/", StringComparison.OrdinalIgnoreCase))
             {
+                Response.Headers.CacheControl = "public, max-age=604800";
                 var audioSvg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"320\" height=\"180\" viewBox=\"0 0 320 180\"><rect width=\"100%\" height=\"100%\" fill=\"#1e293b\"/><path d=\"M30 90 Q65 30 100 90 T170 90 T240 90 T300 90\" fill=\"none\" stroke=\"#38bdf8\" stroke-width=\"4\" stroke-linecap=\"round\"/><text x=\"160\" y=\"150\" font-family=\"sans-serif\" font-size=\"14\" font-weight=\"bold\" fill=\"#94a3b8\" text-anchor=\"middle\">🎵 Audio Track</text></svg>";
                 return Content(audioSvg, "image/svg+xml");
             }
@@ -306,6 +307,7 @@ public sealed class AssetsController(
 
                 if (System.IO.File.Exists(thumbPath))
                 {
+                    Response.Headers.CacheControl = "public, max-age=604800";
                     return PhysicalFile(thumbPath, "image/jpeg");
                 }
 
@@ -320,6 +322,7 @@ public sealed class AssetsController(
                     {
                         if (System.IO.File.Exists(thumbPath))
                         {
+                            Response.Headers.CacheControl = "public, max-age=604800";
                             return PhysicalFile(thumbPath, "image/jpeg");
                         }
 
@@ -339,6 +342,7 @@ public sealed class AssetsController(
                             await proc.WaitForExitAsync(linkedCts.Token);
                             if (System.IO.File.Exists(thumbPath))
                             {
+                                Response.Headers.CacheControl = "public, max-age=604800";
                                 return PhysicalFile(thumbPath, "image/jpeg");
                             }
                         }
@@ -353,10 +357,15 @@ public sealed class AssetsController(
                     }
                 }
 
+                // Never cache temporary fallback SVGs
+                Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
+                Response.Headers.Pragma = "no-cache";
+                Response.Headers.Expires = "0";
                 var videoFallbackSvg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"320\" height=\"180\" viewBox=\"0 0 320 180\"><rect width=\"100%\" height=\"100%\" fill=\"#0f172a\"/><circle cx=\"160\" cy=\"80\" r=\"28\" fill=\"#1e293b\" stroke=\"#475569\" stroke-width=\"2\"/><polygon points=\"153,68 173,80 153,92\" fill=\"#38bdf8\"/><text x=\"160\" y=\"145\" font-family=\"sans-serif\" font-size=\"13\" fill=\"#64748b\" text-anchor=\"middle\">Video Clip</text></svg>";
                 return Content(videoFallbackSvg, "image/svg+xml");
             }
 
+            Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
             var fallbackDefaultSvg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"320\" height=\"180\" viewBox=\"0 0 320 180\"><rect width=\"100%\" height=\"100%\" fill=\"#0f172a\"/><text x=\"160\" y=\"95\" font-family=\"sans-serif\" font-size=\"14\" fill=\"#64748b\" text-anchor=\"middle\">Media Asset</text></svg>";
             return Content(fallbackDefaultSvg, "image/svg+xml");
         }

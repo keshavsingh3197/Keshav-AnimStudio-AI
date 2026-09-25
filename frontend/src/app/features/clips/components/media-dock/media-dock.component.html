@@ -221,21 +221,27 @@
                 <video #vid class="clip-thumb-media"
                        [src]="state.assetUrl(row.clip.id)"
                        preload="auto"
-                       [muted]="true"
+                       muted
                        playsinline
                        autoplay
                        loop
-                       (loadeddata)="onThumbLoaded(vid)"></video>
+                       (loadedmetadata)="onHoverCanPlay(vid)"
+                       (canplay)="onHoverCanPlay(vid)"
+                       (error)="onHoverError(row.clip.id)"></video>
               } @else {
                 <img class="clip-thumb-media"
                      [src]="state.assetThumbnailUrl(row.clip.id)"
                      loading="lazy"
+                     decoding="async"
+                     (error)="onThumbImgError($event, row.clip.id)"
                      alt="" />
               }
             } @else if (state.getClipType(row.clip) === 'image') {
               <img class="clip-thumb-media"
                    [src]="state.assetThumbnailUrl(row.clip.id)"
                    loading="lazy"
+                   decoding="async"
+                   (error)="onThumbImgError($event, row.clip.id)"
                    alt="" />
             } @else {
               <div class="clip-audio-thumb">

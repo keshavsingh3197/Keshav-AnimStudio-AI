@@ -155,8 +155,8 @@ export class ApiService {
   }
 
   /** Direct URL to the fast lightweight thumbnail image (320px JPEG for videos). */
-  assetThumbnailUrl(assetId: string): string {
-    return `${this.base}/api/assets/${assetId}/thumbnail`;
+  assetThumbnailUrl(assetId: string, version = 2): string {
+    return `${this.base}/api/assets/${encodeURIComponent(assetId)}/thumbnail?v=${version}`;
   }
 
   // --- characters

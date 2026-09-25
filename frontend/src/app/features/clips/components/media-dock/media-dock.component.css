@@ -760,12 +760,14 @@
   pointer-events: none;
 }
 
-/* Dedicated Hover Action Overlay (On Hover) */
+/* Dedicated Hover Action Overlay (On Hover) - Sleek bottom bar that never obscures or blurs the playing video */
 .clip-thumb-hover-overlay {
   position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(2px);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 6px 8px;
+  background: linear-gradient(to top, rgba(15, 23, 42, 0.92) 0%, rgba(15, 23, 42, 0) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -780,7 +782,8 @@
   pointer-events: auto;
 }
 
-.clip-thumb-container:hover .clip-in-cut-tag {
+.clip-thumb-container:hover .clip-in-cut-tag,
+.clip-thumb-container:hover .clip-duration-badge {
   opacity: 0 !important;
 }
 

@@ -20,6 +20,18 @@ export class MediaDockComponent implements OnDestroy {
   readonly previewingAudioId = signal<string | null>(null);
 
   ngOnDestroy(): void {
+    if (this.hoverTimer) {
+      clearTimeout(this.hoverTimer);
+      this.hoverTimer = null;
+    }
+    if (this.activeHoverVideo) {
+      try {
+        this.activeHoverVideo.pause();
+        this.activeHoverVideo.removeAttribute('src');
+        this.activeHoverVideo.load();
+      } catch {}
+      this.activeHoverVideo = null;
+    }
     if (this.previewAudioEl) {
       this.previewAudioEl.pause();
       this.previewAudioEl = null;
@@ -49,70 +61,71 @@ export class MediaDockComponent implements OnDestroy {
     this.previewingAudioId.set(assetId);
   }
 
+  constructor() {
+    // Automatically refresh thumbnails after 2s and 5s in case any were still generating in background
+    setTimeout(() => this.state.refreshThumbnails(), 2000);
+    setTimeout(() => this.state.refreshThumbnails(), 5000);
+  }
+
   // Safe hover preview tracking (Guardrail: zero persistent background video elements)
   readonly activeHoverId = signal<string | null>(null);
-
-  onCardMouseEnter(id: string): void {
-    this.activeHoverId.set(id);
-  }
-
-  onCardMouseLeave(): void {
-    this.activeHoverId.set(null);
-  }
-
-  // Safe hover preview promise tracking
+  private hoverTimer: ReturnType<typeof setTimeout> | null = null;
   private hoverPlayPromise: Promise<void> | null = null;
   private activeHoverVideo: HTMLVideoElement | null = null;
   showSelectionMenu = false;
 
-  onThumbLoaded(videoEl: HTMLVideoElement): void {
-    try {
-      if (videoEl.currentTime < 0.05) {
-        videoEl.currentTime = 0.05;
-      }
-    } catch {
-      // ignore seek error on load
-    }
+  onCardMouseEnter(id: string): void {
+    if (this.hoverTimer) clearTimeout(this.hoverTimer);
+    // 120ms debounce prevents socket storms when rapidly brushing cursor over cards
+    this.hoverTimer = setTimeout(() => {
+      this.activeHoverId.set(id);
+    }, 120);
   }
 
-  onThumbMouseEnter(videoEl: HTMLVideoElement): void {
-    videoEl.muted = true;
-    this.activeHoverVideo = videoEl;
-    const promise = videoEl.play();
-    if (promise !== undefined) {
-      this.hoverPlayPromise = promise;
-      promise.catch(() => {
-        // Suppress browser abort / pause interruptions cleanly
+  onCardMouseLeave(): void {
+    if (this.hoverTimer) {
+      clearTimeout(this.hoverTimer);
+      this.hoverTimer = null;
+    }
+    if (this.activeHoverVideo) {
+      const vid = this.activeHoverVideo;
+      this.activeHoverVideo = null;
+      try {
+        vid.pause();
+        vid.removeAttribute('src');
+        vid.load();
+      } catch {}
+    }
+    this.activeHoverId.set(null);
+  }
+
+  onHoverCanPlay(vid: HTMLVideoElement): void {
+    vid.muted = true;
+    this.activeHoverVideo = vid;
+    const playPromise = vid.play();
+    if (playPromise !== undefined) {
+      this.hoverPlayPromise = playPromise;
+      playPromise.catch(() => {
+        // Silently catch browser abort / policy interruption
       });
     }
   }
 
-  onThumbMouseLeave(videoEl: HTMLVideoElement): void {
-    if (this.hoverPlayPromise) {
-      this.hoverPlayPromise
-        .then(() => {
-          videoEl.pause();
-          try {
-            videoEl.currentTime = 0.1;
-          } catch {
-            // ignore seek error
-          }
-        })
-        .catch(() => {
-          videoEl.pause();
-        });
-      this.hoverPlayPromise = null;
-    } else {
-      videoEl.pause();
-      try {
-        videoEl.currentTime = 0.1;
-      } catch {
-        // ignore seek error
-      }
+  onHoverError(id: string): void {
+    if (this.activeHoverId() === id) {
+      this.activeHoverId.set(null);
     }
+  }
 
-    if (this.activeHoverVideo === videoEl) {
-      this.activeHoverVideo = null;
+  onThumbImgError(event: Event, id: string): void {
+    const img = event.target as HTMLImageElement;
+    if (!img) return;
+    const currentRetries = parseInt(img.dataset['retries'] || '0', 10);
+    if (currentRetries < 2) {
+      img.dataset['retries'] = String(currentRetries + 1);
+      setTimeout(() => {
+        img.src = `${this.state.assetThumbnailUrl(id)}&r=${Date.now()}`;
+      }, 1500);
     }
   }
 

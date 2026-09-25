@@ -39,6 +39,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
   private lastPlayedClipIndex: number | null = null;
   private bufferWaitStartMs: number | null = null;
   private lastPrefetchSec = -1;
+  private readonly prefetchedAssetIds = new Set<string>();
 
   constructor() {
     // React to Seek Requests
@@ -306,7 +307,8 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       if (!assetId) continue;
 
       const type = this.state.getClipType(upcoming.clip);
-      if (type === 'image') {
+      if (type === 'image' && !this.prefetchedAssetIds.has(assetId)) {
+        this.prefetchedAssetIds.add(assetId);
         const img = new Image();
         img.src = this.state.assetUrl(assetId);
       } else if (type === 'video' && offset === 1) {
@@ -328,7 +330,8 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
 
       // Preload replacement sound / soundtrack
       const sound = this.state.clipSound(upcoming.clip.id);
-      if (sound?.audioAssetId) {
+      if (sound?.audioAssetId && !this.prefetchedAssetIds.has(sound.audioAssetId)) {
+        this.prefetchedAssetIds.add(sound.audioAssetId);
         const audio = new Audio();
         audio.preload = 'auto';
         audio.src = this.state.assetUrl(sound.audioAssetId);
@@ -338,7 +341,8 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     // Also prefetch upcoming V2 video overlays within 4 seconds ahead
     const v2Items = this.state.itemsForTrack('V2');
     const upcomingV2 = v2Items.find((v) => v.startTime > time && v.startTime <= time + 4);
-    if (upcomingV2 && upcomingV2.src) {
+    if (upcomingV2 && upcomingV2.src && !this.prefetchedAssetIds.has(upcomingV2.src)) {
+      this.prefetchedAssetIds.add(upcomingV2.src);
       const v = document.createElement('video');
       v.preload = 'metadata';
       v.src = this.state.assetUrl(upcomingV2.src);
@@ -347,7 +351,8 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     // Also prefetch upcoming V3 image overlays within 4 seconds ahead
     const v3Items = this.state.itemsForTrack('V3');
     const upcomingV3 = v3Items.find((img) => img.startTime > time && img.startTime <= time + 4);
-    if (upcomingV3 && upcomingV3.src) {
+    if (upcomingV3 && upcomingV3.src && !this.prefetchedAssetIds.has(upcomingV3.src)) {
+      this.prefetchedAssetIds.add(upcomingV3.src);
       const img = new Image();
       img.src = this.state.assetUrl(upcomingV3.src);
     }

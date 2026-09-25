@@ -109,10 +109,16 @@ export class StudioStateService implements OnDestroy {
     return this.api.assetUrl(resolved);
   }
 
+  readonly thumbnailVersion = signal<number>(2);
+
   assetThumbnailUrl(clipOrId: string | Clip | undefined): string {
     if (!clipOrId) return '';
     const resolved = this.resolveAssetId(clipOrId);
-    return this.api.assetThumbnailUrl(resolved);
+    return this.api.assetThumbnailUrl(resolved, this.thumbnailVersion());
+  }
+
+  refreshThumbnails(): void {
+    this.thumbnailVersion.update((v) => v + 1);
   }
 
   // Cross-Component Drag-and-Drop Contract (Guardrail 4)
