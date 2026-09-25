@@ -225,21 +225,18 @@
                        playsinline
                        autoplay
                        loop
-                       (loadeddata)="onThumbLoaded(vid)"
-                       (error)="$any($event.target).style.display='none'"></video>
+                       (loadeddata)="onThumbLoaded(vid)"></video>
               } @else {
                 <img class="clip-thumb-media"
                      [src]="state.assetThumbnailUrl(row.clip.id)"
                      loading="lazy"
-                     alt=""
-                     (error)="$any($event.target).style.display='none'" />
+                     alt="" />
               }
             } @else if (state.getClipType(row.clip) === 'image') {
               <img class="clip-thumb-media"
                    [src]="state.assetThumbnailUrl(row.clip.id)"
                    loading="lazy"
-                   alt=""
-                   (error)="$any($event.target).style.display='none'" />
+                   alt="" />
             } @else {
               <div class="clip-audio-thumb">
                 <button type="button" class="audio-play-btn"

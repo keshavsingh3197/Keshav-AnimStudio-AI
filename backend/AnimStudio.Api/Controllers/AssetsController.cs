@@ -57,6 +57,8 @@ public sealed class AssetsController(
         await EnsureOwnedAsync(projectId, ct);
 
         var list = await assets.ListByProjectAsync(projectId, ct);
+        _ = Task.Run(() => PrewarmThumbnails(list));
+
         return Ok(ApiResponse<IReadOnlyList<AssetResponse>>.Ok(
             [.. list.Select(a => a.ToResponse())]));
     }
@@ -205,6 +207,55 @@ public sealed class AssetsController(
         }
     }
 
+    private static readonly SemaphoreSlim ThumbLock = new(3, 3);
+
+    private static void PrewarmThumbnails(IReadOnlyList<AnimStudio.Domain.Assets.Asset> assetList)
+    {
+        try
+        {
+            var thumbDir = Path.Combine("D:", "AI_STUDIO", "temp", "thumbnails");
+            Directory.CreateDirectory(thumbDir);
+
+            foreach (var a in assetList)
+            {
+                if (a.Kind != AnimStudio.Domain.Assets.AssetKind.Video && !a.MimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var thumbPath = Path.Combine(thumbDir, $"{a.Id}.jpg");
+                if (System.IO.File.Exists(thumbPath)) continue;
+
+                var videoPath = Path.IsPathRooted(a.StorageKey)
+                    ? a.StorageKey
+                    : Path.Combine("D:", "AI_STUDIO", "objects", a.StorageKey.Replace('/', Path.DirectorySeparatorChar));
+
+                if (!System.IO.File.Exists(videoPath)) continue;
+
+                try
+                {
+                    var psi = new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = "ffmpeg",
+                        Arguments = $"-ss 00:00:00.100 -i \"{videoPath}\" -vframes 1 -vf \"scale=320:-1\" -q:v 4 \"{thumbPath}\" -y",
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    };
+                    using var proc = System.Diagnostics.Process.Start(psi);
+                    proc?.WaitForExit(6000);
+                }
+                catch
+                {
+                    // Ignore single extraction failure during background prewarm
+                }
+            }
+        }
+        catch
+        {
+            // Ignore prewarm failure
+        }
+    }
+
     /// <summary>
     /// Serves a lightweight image thumbnail for an asset (e.g., 320px JPEG for videos, or direct image stream).
     /// Prevents browser connection saturation when browsing large media libraries or timeline filmstrips.
@@ -242,6 +293,12 @@ public sealed class AssetsController(
                 return File(imgStream, meta.MimeType);
             }
 
+            if (meta.MimeType.StartsWith("audio/", StringComparison.OrdinalIgnoreCase))
+            {
+                var audioSvg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"320\" height=\"180\" viewBox=\"0 0 320 180\"><rect width=\"100%\" height=\"100%\" fill=\"#1e293b\"/><path d=\"M30 90 Q65 30 100 90 T170 90 T240 90 T300 90\" fill=\"none\" stroke=\"#38bdf8\" stroke-width=\"4\" stroke-linecap=\"round\"/><text x=\"160\" y=\"150\" font-family=\"sans-serif\" font-size=\"14\" font-weight=\"bold\" fill=\"#94a3b8\" text-anchor=\"middle\">🎵 Audio Track</text></svg>";
+                return Content(audioSvg, "image/svg+xml");
+            }
+
             if (meta.MimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase))
             {
                 var thumbDir = Path.Combine("D:", "AI_STUDIO", "temp", "thumbnails");
@@ -256,10 +313,18 @@ public sealed class AssetsController(
                 var videoPath = Path.IsPathRooted(meta.StorageKey)
                     ? meta.StorageKey
                     : Path.Combine("D:", "AI_STUDIO", "objects", meta.StorageKey.Replace('/', Path.DirectorySeparatorChar));
+
                 if (System.IO.File.Exists(videoPath))
                 {
+                    await ThumbLock.WaitAsync(ct);
                     try
                     {
+                        if (System.IO.File.Exists(thumbPath))
+                        {
+                            return PhysicalFile(thumbPath, "image/jpeg");
+                        }
+
+                        using var linkedCts = new CancellationTokenSource(TimeSpan.FromSeconds(12));
                         var psi = new System.Diagnostics.ProcessStartInfo
                         {
                             FileName = "ffmpeg",
@@ -272,7 +337,7 @@ public sealed class AssetsController(
                         using var proc = System.Diagnostics.Process.Start(psi);
                         if (proc != null)
                         {
-                            await proc.WaitForExitAsync(ct);
+                            await proc.WaitForExitAsync(linkedCts.Token);
                             if (System.IO.File.Exists(thumbPath))
                             {
                                 return PhysicalFile(thumbPath, "image/jpeg");
@@ -281,13 +346,20 @@ public sealed class AssetsController(
                     }
                     catch
                     {
-                        // Fall back to stream
+                        // Fall back to clean SVG
+                    }
+                    finally
+                    {
+                        ThumbLock.Release();
                     }
                 }
+
+                var videoFallbackSvg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"320\" height=\"180\" viewBox=\"0 0 320 180\"><rect width=\"100%\" height=\"100%\" fill=\"#0f172a\"/><circle cx=\"160\" cy=\"80\" r=\"28\" fill=\"#1e293b\" stroke=\"#475569\" stroke-width=\"2\"/><polygon points=\"153,68 173,80 153,92\" fill=\"#38bdf8\"/><text x=\"160\" y=\"145\" font-family=\"sans-serif\" font-size=\"13\" fill=\"#64748b\" text-anchor=\"middle\">Video Clip</text></svg>";
+                return Content(videoFallbackSvg, "image/svg+xml");
             }
 
-            var stream = await store.OpenAsync(meta.StorageKey, ct) ?? throw new KeyNotFoundException();
-            return File(stream, meta.MimeType);
+            var fallbackDefaultSvg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"320\" height=\"180\" viewBox=\"0 0 320 180\"><rect width=\"100%\" height=\"100%\" fill=\"#0f172a\"/><text x=\"160\" y=\"95\" font-family=\"sans-serif\" font-size=\"14\" fill=\"#64748b\" text-anchor=\"middle\">Media Asset</text></svg>";
+            return Content(fallbackDefaultSvg, "image/svg+xml");
         }
         catch (OperationCanceledException)
         {
@@ -297,6 +369,31 @@ public sealed class AssetsController(
                                    ex.Message.Contains("aborted", StringComparison.OrdinalIgnoreCase))
         {
             return StatusCode(499);
+        }
+    }
+
+    /// <summary>
+    /// Purges the on-disk thumbnail cache under D:/AI_STUDIO/temp/thumbnails.
+    /// </summary>
+    [HttpDelete("api/assets/thumbnails/cache")]
+    public IActionResult ClearThumbnailCache()
+    {
+        try
+        {
+            var thumbDir = Path.Combine("D:", "AI_STUDIO", "temp", "thumbnails");
+            if (Directory.Exists(thumbDir))
+            {
+                var files = Directory.GetFiles(thumbDir, "*.jpg");
+                foreach (var f in files)
+                {
+                    try { System.IO.File.Delete(f); } catch { }
+                }
+            }
+            return Ok(ApiResponse<string>.Ok("Thumbnail cache cleared."));
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, ApiResponse<string>.Fail(ex.Message, new ApiError("cache-clear-failed", ex.Message)));
         }
     }
 

@@ -38,6 +38,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
   private lastTickMs = 0;
   private lastPlayedClipIndex: number | null = null;
   private bufferWaitStartMs: number | null = null;
+  private lastPrefetchSec = -1;
 
   constructor() {
     // React to Seek Requests
@@ -170,6 +171,10 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       // Guardrail 2: Report exact continuous time, throttles reactive signal to 10fps
       this.state.reportPlaybackTime(nextTime);
       this.syncMediaElements(true);
+      if (Math.abs(nextTime - this.lastPrefetchSec) > 1.5) {
+        this.lastPrefetchSec = nextTime;
+        this.prefetchUpcomingMedia();
+      }
       this.scheduleNextTick();
     });
   }
@@ -261,6 +266,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     // Synchronously initiate playback on media elements within user gesture to unlock audio
     if (!this.state.isPlaying()) {
       this.syncMediaElements(true);
+      this.prefetchUpcomingMedia();
       const activeEl = this.activeLayer() === 'A'
         ? this.videoMonitorARef?.nativeElement
         : this.videoMonitorBRef?.nativeElement;
@@ -278,6 +284,73 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       }
     }
     this.state.togglePlayback();
+  }
+
+  /**
+   * Look-ahead prefetching: Loads the next scenes (video, image, audio, overlays)
+   * in advance so playback across cut transitions is instant with zero stutter.
+   */
+  private prefetchUpcomingMedia(): void {
+    const schedule = this.state.clipSchedule();
+    if (schedule.length === 0) return;
+    const time = this.state.getCurrentTimeExact();
+    const currIdx = schedule.findIndex((s) => time >= s.startSeconds && time < s.endSeconds);
+    if (currIdx === -1) return;
+
+    // Look ahead to next 2 clips
+    for (let offset = 1; offset <= 2; offset++) {
+      const upcomingIdx = currIdx + offset;
+      if (upcomingIdx >= schedule.length) break;
+      const upcoming = schedule[upcomingIdx];
+      const assetId = this.state.resolveAssetId(upcoming.clip);
+      if (!assetId) continue;
+
+      const type = this.state.getClipType(upcoming.clip);
+      if (type === 'image') {
+        const img = new Image();
+        img.src = this.state.assetUrl(assetId);
+      } else if (type === 'video' && offset === 1) {
+        const currentActiveIsA = this.activeLayer() === 'A';
+        const standby = currentActiveIsA
+          ? this.videoMonitorBRef?.nativeElement
+          : this.videoMonitorARef?.nativeElement;
+        if (standby) {
+          const url = this.state.assetUrl(assetId);
+          if (standby.src !== url) {
+            if (currentActiveIsA) this.loadedClipIdB = assetId;
+            else this.loadedClipIdA = assetId;
+            standby.src = url;
+            standby.currentTime = upcoming.clip.trimStartSeconds ?? 0;
+            standby.load();
+          }
+        }
+      }
+
+      // Preload replacement sound / soundtrack
+      const sound = this.state.clipSound(upcoming.clip.id);
+      if (sound?.audioAssetId) {
+        const audio = new Audio();
+        audio.preload = 'auto';
+        audio.src = this.state.assetUrl(sound.audioAssetId);
+      }
+    }
+
+    // Also prefetch upcoming V2 video overlays within 4 seconds ahead
+    const v2Items = this.state.itemsForTrack('V2');
+    const upcomingV2 = v2Items.find((v) => v.startTime > time && v.startTime <= time + 4);
+    if (upcomingV2 && upcomingV2.src) {
+      const v = document.createElement('video');
+      v.preload = 'metadata';
+      v.src = this.state.assetUrl(upcomingV2.src);
+    }
+
+    // Also prefetch upcoming V3 image overlays within 4 seconds ahead
+    const v3Items = this.state.itemsForTrack('V3');
+    const upcomingV3 = v3Items.find((img) => img.startTime > time && img.startTime <= time + 4);
+    if (upcomingV3 && upcomingV3.src) {
+      const img = new Image();
+      img.src = this.state.assetUrl(upcomingV3.src);
+    }
   }
 
   // Core Sync of Dual-Layer Ping-Pong Video and Overlays
