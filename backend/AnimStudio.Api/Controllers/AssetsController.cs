@@ -208,20 +208,20 @@ public sealed class AssetsController(
     }
 
     private static readonly SemaphoreSlim ThumbLock = new(3, 3);
+    private static readonly string ThumbDir = @"D:\AI_STUDIO\thumbnails";
 
     private static void PrewarmThumbnails(IReadOnlyList<AnimStudio.Domain.Assets.Asset> assetList)
     {
         try
         {
-            var thumbDir = Path.Combine("D:", "AI_STUDIO", "temp", "thumbnails");
-            Directory.CreateDirectory(thumbDir);
+            Directory.CreateDirectory(ThumbDir);
 
             foreach (var a in assetList)
             {
                 if (a.Kind != AnimStudio.Domain.Assets.AssetKind.Video && !a.MimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                var thumbPath = Path.Combine(thumbDir, $"{a.Id}.jpg");
+                var thumbPath = Path.Combine(ThumbDir, $"{a.Id}.jpg");
                 if (System.IO.File.Exists(thumbPath)) continue;
 
                 var videoPath = Path.IsPathRooted(a.StorageKey)
@@ -301,9 +301,8 @@ public sealed class AssetsController(
 
             if (meta.MimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase))
             {
-                var thumbDir = Path.Combine("D:", "AI_STUDIO", "temp", "thumbnails");
-                Directory.CreateDirectory(thumbDir);
-                var thumbPath = Path.Combine(thumbDir, $"{id}.jpg");
+                Directory.CreateDirectory(ThumbDir);
+                var thumbPath = Path.Combine(ThumbDir, $"{id}.jpg");
 
                 if (System.IO.File.Exists(thumbPath))
                 {
@@ -380,10 +379,9 @@ public sealed class AssetsController(
     {
         try
         {
-            var thumbDir = Path.Combine("D:", "AI_STUDIO", "temp", "thumbnails");
-            if (Directory.Exists(thumbDir))
+            if (Directory.Exists(ThumbDir))
             {
-                var files = Directory.GetFiles(thumbDir, "*.jpg");
+                var files = Directory.GetFiles(ThumbDir, "*.jpg");
                 foreach (var f in files)
                 {
                     try { System.IO.File.Delete(f); } catch { }

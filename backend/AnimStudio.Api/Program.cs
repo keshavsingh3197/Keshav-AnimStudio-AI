@@ -11,6 +11,7 @@ Directory.CreateDirectory("D:/AI_STUDIO/temp");
 Directory.CreateDirectory("D:/AI_STUDIO/downloads");
 Directory.CreateDirectory("D:/AI_STUDIO/chunks");
 Directory.CreateDirectory("D:/AI_STUDIO/logs");
+Directory.CreateDirectory("D:/AI_STUDIO/thumbnails");
 
 var builder = WebApplication.CreateBuilder(args);
 
