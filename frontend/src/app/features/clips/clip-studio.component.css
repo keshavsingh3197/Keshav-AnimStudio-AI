@@ -54,7 +54,7 @@ app-studio-header {
 .flowedit-layout {
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr) 340px;
-  grid-template-rows: minmax(320px, 1fr) 260px;
+  grid-template-rows: minmax(300px, 1fr) 290px;
   gap: 6px;
   flex-grow: 1;
   min-height: 0;
@@ -832,7 +832,7 @@ app-timeline-dock {
 @media (max-width: 900px) {
   .flowedit-layout {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(280px, 1fr) 220px;
+    grid-template-rows: minmax(260px, 1fr) 250px;
   }
   app-media-dock,
   app-inspector-dock {

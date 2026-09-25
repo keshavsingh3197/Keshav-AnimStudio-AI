@@ -11,5 +11,6 @@ import { StudioStateService } from '../../../services/studio-state.service';
 })
 export class TextInspectorComponent {
   readonly state = inject(StudioStateService);
+  readonly Math = Math;
 }
 

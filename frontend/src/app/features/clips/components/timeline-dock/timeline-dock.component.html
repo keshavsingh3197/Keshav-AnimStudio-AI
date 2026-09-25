@@ -36,37 +36,6 @@
           <span class="tool-btn-icon">⧉</span>
           <span>Duplicate</span>
         </button>
-        <div class="add-track-dropdown-wrap">
-          <button class="tool-btn" type="button" (click)="toggleAddTrackMenu($event)" title="Add a track to timeline">
-            <span class="tool-btn-icon">➕</span>
-            <span>Track ▾</span>
-          </button>
-          @if (addTrackMenuOpen()) {
-            <div class="add-track-menu" (click)="$event.stopPropagation()">
-              <button type="button" class="add-track-item" (click)="addTrack('TXT1')">
-                <span class="track-menu-icon">📝</span>
-                <span class="track-menu-label">Text Track (TXT)</span>
-                @if (state.showTxtTrack()) {
-                  <span class="track-menu-badge">Active</span>
-                }
-              </button>
-              <button type="button" class="add-track-item" (click)="addTrack('IMG1')">
-                <span class="track-menu-icon">🖼</span>
-                <span class="track-menu-label">Image Track (IMG)</span>
-                @if (state.showImgTrack()) {
-                  <span class="track-menu-badge">Active</span>
-                }
-              </button>
-              <button type="button" class="add-track-item" (click)="addTrack('A1')">
-                <span class="track-menu-icon">🎵</span>
-                <span class="track-menu-label">Audio Track (A1)</span>
-                @if (state.showA1Track()) {
-                  <span class="track-menu-badge">Active</span>
-                }
-              </button>
-            </div>
-          }
-        </div>
         <button class="tool-btn" type="button" [class.active]="state.activeInspectorTab() === 'clip'" [disabled]="!state.selectedClip()" (click)="state.activeInspectorTab.set('clip')" title="Crop, Framing & Clip Settings (C)">
           <span class="tool-btn-icon">⬜</span>
           <span>Crop</span>
@@ -132,29 +101,36 @@
            (pointerdown)="onTimelineScrubDown($event)"
            (pointermove)="onTimelineScrubMove($event)"
            (pointerup)="onTimelineScrubUp($event)">
-        <div #timelineInner class="timeline-inner" [style.width.px]="76 + state.secondsToPx(state.timelineSeconds())">
+        <div #timelineInner class="timeline-inner" [style.width.px]="trackHeaderWidth + state.secondsToPx(state.timelineSeconds())">
           
           <!-- Playhead Needle (Declarative binding + 60fps RAF translation loop) -->
           <div #playheadNeedle class="tl-playhead-needle"
-               [style.left.px]="76 + state.secondsToPx(state.currentTime())"
+               [class.is-scrubbing]="isScrubbing()"
+               [style.left.px]="trackHeaderWidth + state.secondsToPx(state.currentTime())"
                style="will-change: left;">
-            <div class="tl-playhead-head" title="Drag to seek"></div>
+            <div class="tl-playhead-head" title="Drag to scrub timeline"></div>
             <div class="tl-playhead-bubble">{{ state.formattedPlayheadTime() }}</div>
           </div>
 
           <!-- Magnetic Snap Line -->
           @if (state.snapLineLeftPx() !== null) {
-            <div class="tl-snap-line" [style.left.px]="76 + state.snapLineLeftPx()!"></div>
+            <div class="tl-snap-line" [style.left.px]="trackHeaderWidth + state.snapLineLeftPx()!"></div>
           }
 
           <!-- Ruler Row -->
           <div class="tl-row tl-ruler-row">
-            <div class="tl-header-76 tl-ruler-corner">
-              <span class="tl-track-icon">⏱</span>
+            <div class="tl-ruler-corner">
+              <button class="tl-ruler-add-track-btn" type="button" (click)="openAddTrackDialog($event)" title="Add &amp; Manage Tracks">
+                <svg class="add-track-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19"></line>
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+                <span class="add-track-label">Track</span>
+              </button>
             </div>
             <div class="tl-ruler-track" [style.width.px]="state.secondsToPx(state.timelineSeconds())">
-              @for (t of state.rulerTicks(); track t) {
-                <span class="tl-tick" [style.left.px]="state.secondsToPx(t)">{{ state.formatRulerTimestamp(t) }}</span>
+              @for (t of state.rulerTicks(); track t; let idx = $index) {
+                <span class="tl-tick" [class.first-tick]="idx === 0" [style.left.px]="state.secondsToPx(t)">{{ state.formatRulerTimestamp(t) }}</span>
               }
             </div>
           </div>
@@ -162,9 +138,10 @@
           <!-- TXT1 Swimlane Row -->
           @if (state.showTxtTrack()) {
             <div class="tl-row tl-track-row tl-row-txt">
-              <div class="tl-header-76 tl-header-txt">
+              <div class="tl-header-col tl-header-txt">
                 <div class="tl-h-top">
                   <span class="tl-badge tl-badge-txt track-badge-txt1">TXT1</span>
+                  <span class="tl-h-label">Text</span>
                   @if (state.itemsForTrack('TXT1').length === 0) {
                     <button class="tl-h-close-btn" type="button" (click)="state.hideTrack('TXT1')" title="Hide empty Text track">×</button>
                   }
@@ -190,7 +167,7 @@
                        [style.width.px]="state.secondsToPx(item.duration)"
                        (pointerdown)="onItemPointerDown(item, $event)"
                        (click)="$event.stopPropagation(); state.selectTimelineItem(item.id, $event)">
-                    <span class="tl-trim-handle left" (pointerdown)="onItemTrimPointerDown(item, 'left', $event)"></span>
+                    <span class="tl-trim-handle left" (pointerdown)="onItemTrimPointerDown(item, 'left', $event)" title="Drag to trim start"></span>
                     @if (item.textStyle?.transitionIn && item.textStyle.transitionIn !== 'none') {
                       <span class="tl-trans-in-badge" [title]="'In: ' + item.textStyle.transitionIn + ' (' + (item.textStyle.transitionInDuration ?? 0.5) + 's)'">⚡ {{ item.textStyle.transitionIn }}</span>
                     }
@@ -204,7 +181,7 @@
                             (pointerdown)="$event.stopPropagation()"
                             (click)="onRemoveItemClick($event, item.id)"
                             title="Remove text overlay" aria-label="Remove">×</button>
-                    <span class="tl-trim-handle right" (pointerdown)="onItemTrimPointerDown(item, 'right', $event)"></span>
+                    <span class="tl-trim-handle right" (pointerdown)="onItemTrimPointerDown(item, 'right', $event)" title="Drag to trim end"></span>
                   </div>
                 }
                 @if (state.itemsForTrack('TXT1').length === 0) {
@@ -218,10 +195,11 @@
 
           <!-- Image Overlay Swimlane Row -->
           @if (state.showImgTrack()) {
-            <div class="tl-row tl-track-row tl-row-img">
-              <div class="tl-header-76 tl-header-img">
+            <div class="tl-row tl-track-row tl-row-img" [class.has-thumbnails]="state.timelineThumbnailMode() === 'filmstrip'">
+              <div class="tl-header-col tl-header-img" [class.has-thumbnails]="state.timelineThumbnailMode() === 'filmstrip'">
                 <div class="tl-h-top">
-                  <span class="tl-badge tl-badge-img track-badge-img">IMG</span>
+                  <span class="tl-badge tl-badge-img track-badge-img">IMG1</span>
+                  <span class="tl-h-label">Image</span>
                   @if (state.itemsForTrack('IMG1').length === 0) {
                     <button class="tl-h-close-btn" type="button" (click)="state.hideTrack('IMG1')" title="Hide empty Image track">×</button>
                   }
@@ -236,6 +214,7 @@
                 </div>
               </div>
               <div class="tl-lane tl-lane-img"
+                   [class.has-thumbnails]="state.timelineThumbnailMode() === 'filmstrip'"
                    [style.width.px]="state.secondsToPx(state.timelineSeconds())"
                    (dragover)="$event.preventDefault()"
                    (drop)="onTrackDrop('IMG1', $event)">
@@ -247,22 +226,33 @@
                        (pointerdown)="onItemPointerDown(item, $event)"
                        (click)="$event.stopPropagation(); state.selectTimelineItem(item.id, $event)">
                     <span class="tl-trim-handle left" (pointerdown)="onItemTrimPointerDown(item, 'left', $event)"></span>
-                    @if (item.transform?.transitionIn && item.transform.transitionIn !== 'none') {
-                      <span class="tl-trans-in-badge" [title]="'In: ' + item.transform.transitionIn + ' (' + (item.transform.transitionInDuration ?? 0.5) + 's)'">⚡ {{ item.transform.transitionIn }}</span>
+                    
+                    <!-- Full-bleed background image preview -->
+                    @if (state.itemImageUrl(item)) {
+                      <div class="tl-clip-backdrop-thumb">
+                        <img [src]="state.itemImageUrl(item)" class="tl-clip-thumb-media backdrop" alt="" />
+                      </div>
                     }
-                    <div class="tl-clip-img-thumb-wrap">
-                      <img [src]="state.itemImageUrl(item)" class="tl-clip-img-thumb" alt="" (error)="$any($event.target).style.display='none'" />
+
+                    <div class="tl-clip-img-content">
+                      @if (item.transform?.transitionIn && item.transform.transitionIn !== 'none') {
+                        <span class="tl-trans-in-badge" [title]="'In: ' + item.transform.transitionIn + ' (' + (item.transform.transitionInDuration ?? 0.5) + 's)'">⚡ {{ item.transform.transitionIn }}</span>
+                      }
+                      <div class="tl-clip-img-thumb-wrap">
+                        <img [src]="state.itemImageUrl(item)" class="tl-clip-img-thumb" alt="" (error)="$any($event.target).style.display='none'" />
+                        <span class="tl-clip-fallback-icon">🖼</span>
+                      </div>
+                      <span class="tl-item-badge">IMG</span>
+                      <span class="tl-item-name">{{ item.name || item.src }}</span>
+                      <span class="tl-item-dur mono">{{ item.duration | number:'1.1-1' }}s</span>
+                      @if (item.transform?.transitionOut && item.transform.transitionOut !== 'none') {
+                        <span class="tl-trans-out-badge" [title]="'Out: ' + item.transform.transitionOut + ' (' + (item.transform.transitionOutDuration ?? 0.5) + 's)'">⚡ {{ item.transform.transitionOut }}</span>
+                      }
+                      <button class="tl-item-remove" type="button"
+                              (pointerdown)="$event.stopPropagation()"
+                              (click)="onRemoveItemClick($event, item.id)"
+                              title="Remove image overlay" aria-label="Remove">×</button>
                     </div>
-                    <span class="tl-item-badge">IMG</span>
-                    <span class="tl-item-name">{{ item.name || item.src }}</span>
-                    <span class="tl-item-dur mono">{{ item.duration | number:'1.1-1' }}s</span>
-                    @if (item.transform?.transitionOut && item.transform.transitionOut !== 'none') {
-                      <span class="tl-trans-out-badge" [title]="'Out: ' + item.transform.transitionOut + ' (' + (item.transform.transitionOutDuration ?? 0.5) + 's)'">⚡ {{ item.transform.transitionOut }}</span>
-                    }
-                    <button class="tl-item-remove" type="button"
-                            (pointerdown)="$event.stopPropagation()"
-                            (click)="onRemoveItemClick($event, item.id)"
-                            title="Remove image overlay" aria-label="Remove">×</button>
                     <span class="tl-trim-handle right" (pointerdown)="onItemTrimPointerDown(item, 'right', $event)"></span>
                   </div>
                 }
@@ -273,11 +263,72 @@
             </div>
           }
 
+          <!-- V2 Video Overlay / B-Roll Row -->
+          @if (state.showV2Track()) {
+            <div class="tl-row tl-track-row tl-row-v2" [class.has-thumbnails]="state.timelineThumbnailMode() === 'filmstrip'">
+              <div class="tl-header-col tl-header-v2" [class.has-thumbnails]="state.timelineThumbnailMode() === 'filmstrip'">
+                <div class="tl-h-top">
+                  <span class="tl-badge tl-badge-vid track-badge-v2">V2</span>
+                  <span class="tl-h-label">Overlay</span>
+                  @if (state.itemsForTrack('V2').length === 0) {
+                    <button class="tl-h-close-btn" type="button" (click)="state.hideTrack('V2')" title="Hide empty V2 Overlay track">×</button>
+                  }
+                </div>
+                <div class="tl-h-actions">
+                  <button class="tl-h-btn" type="button" (click)="state.toggleTrackLock('V2')" [title]="state.isTrackLocked('V2') ? 'Unlock V2' : 'Lock V2'">
+                    {{ state.isTrackLocked('V2') ? '🔒' : '🔓' }}
+                  </button>
+                  <button class="tl-h-btn" type="button" (click)="state.toggleTrackVisibility('V2')" [title]="state.isTrackVisible('V2') ? 'Hide V2' : 'Show V2'">
+                    {{ state.isTrackVisible('V2') ? '👁' : '🚫' }}
+                  </button>
+                </div>
+              </div>
+              <div class="tl-lane tl-lane-v2"
+                   [class.has-thumbnails]="state.timelineThumbnailMode() === 'filmstrip'"
+                   [style.width.px]="state.secondsToPx(state.timelineSeconds())"
+                   (dragover)="$event.preventDefault()"
+                   (drop)="onTrackDrop('V2', $event)">
+                @for (item of state.itemsForTrack('V2'); track item.id) {
+                  <div class="tl-clip tl-item-v2"
+                       [class.selected]="state.selectedTimelineItemId() === item.id"
+                       [style.left.px]="state.secondsToPx(item.startTime)"
+                       [style.width.px]="state.secondsToPx(item.duration)"
+                       (pointerdown)="onItemPointerDown(item, $event)"
+                       (click)="$event.stopPropagation(); state.selectTimelineItem(item.id, $event)">
+                    <span class="tl-trim-handle left" (pointerdown)="onItemTrimPointerDown(item, 'left', $event)"></span>
+                    @if (item.transform?.transitionIn && item.transform.transitionIn !== 'none') {
+                      <span class="tl-trans-in-badge" [title]="'In: ' + item.transform.transitionIn + ' (' + (item.transform.transitionInDuration ?? 0.5) + 's)'">⚡ {{ item.transform.transitionIn }}</span>
+                    }
+                    <div class="tl-clip-img-thumb-wrap">
+                      <video [src]="state.assetUrl(item.src) + '#t=0.1'" preload="metadata" muted playsinline class="tl-clip-img-thumb" (error)="$any($event.target).style.display='none'"></video>
+                      <span class="tl-clip-fallback-icon">🎞</span>
+                    </div>
+                    <span class="tl-item-badge">V2</span>
+                    <span class="tl-item-name">{{ item.name || item.src }}</span>
+                    <span class="tl-item-dur mono">{{ item.duration | number:'1.1-1' }}s</span>
+                    @if (item.transform?.transitionOut && item.transform.transitionOut !== 'none') {
+                      <span class="tl-trans-out-badge" [title]="'Out: ' + item.transform.transitionOut + ' (' + (item.transform.transitionOutDuration ?? 0.5) + 's)'">⚡ {{ item.transform.transitionOut }}</span>
+                    }
+                    <button class="tl-item-remove" type="button"
+                            (pointerdown)="$event.stopPropagation()"
+                            (click)="onRemoveItemClick($event, item.id)"
+                            title="Remove video overlay" aria-label="Remove">×</button>
+                    <span class="tl-trim-handle right" (pointerdown)="onItemTrimPointerDown(item, 'right', $event)"></span>
+                  </div>
+                }
+                @if (state.itemsForTrack('V2').length === 0) {
+                  <div class="tl-lane-placeholder">Drop B-Roll / Video Overlays here (PiP, cutaways)</div>
+                }
+              </div>
+            </div>
+          }
+
           <!-- V1 Base Video Sequence Row -->
-          <div class="tl-row tl-track-row tl-row-v1">
-            <div class="tl-header-76 tl-header-v1" [class.has-thumbnails]="state.timelineThumbnailMode() === 'filmstrip'">
+          <div class="tl-row tl-track-row tl-row-v1" [class.has-thumbnails]="state.timelineThumbnailMode() === 'filmstrip'">
+            <div class="tl-header-col tl-header-v1" [class.has-thumbnails]="state.timelineThumbnailMode() === 'filmstrip'">
               <div class="tl-h-top">
                 <span class="tl-badge tl-badge-v1 track-badge-v1">V1</span>
+                <span class="tl-h-label">Video</span>
               </div>
               <div class="tl-h-actions">
                 <button class="tl-h-btn" type="button" (click)="state.toggleTrackLock('V1')" [title]="state.isTrackLocked('V1') ? 'Unlock V1' : 'Lock V1'">
@@ -511,14 +562,14 @@
 
           <!-- Single Consolidated Audio Track Row (A1) -->
           @if (state.showA1Track()) {
-            <div class="tl-row tl-track-row tl-row-a1">
-              <div class="tl-header-76 tl-header-a1"
+            <div class="tl-row tl-track-row tl-row-a1" [class.has-thumbnails]="state.timelineThumbnailMode() === 'filmstrip'">
+              <div class="tl-header-col tl-header-a1"
                    [class.has-thumbnails]="state.timelineThumbnailMode() === 'filmstrip'"
                    (click)="state.onTimelineAudioClicked()"
                    title="Click to open Audio Inspector">
                 <div class="tl-h-top">
                   <span class="tl-badge tl-badge-a1 track-badge-a1">A1</span>
-                  <span style="font-size:0.68rem;font-weight:700;color:var(--text-muted,#94a3b8);">Audio</span>
+                  <span class="tl-h-label">Audio</span>
                   @if (state.itemsForTrack('A1').length === 0 && state.musicTracks().length === 0) {
                     <button class="tl-h-close-btn" type="button" (click)="$event.stopPropagation(); state.hideTrack('A1')" title="Hide empty Audio track">×</button>
                   }
@@ -649,6 +700,157 @@
       <div class="row" style="justify-content: space-between; align-items: center; padding: .8rem 1.2rem; background: var(--surface-2); border-top: 1px solid var(--border);">
         <button type="button" class="btn btn-primary btn-sm px-3" (click)="state.replayPreview()">▶ Replay Transition</button>
         <button type="button" class="secondary btn-sm" (click)="state.closePreview()">Close</button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- Add / Manage Tracks Dialog Modal -->
+@if (addTrackDialogOpen()) {
+  <div class="tl-dialog-backdrop" (click)="closeAddTrackDialog()">
+    <div class="tl-dialog-modal" (click)="$event.stopPropagation()">
+      <div class="tl-dialog-header">
+        <div class="tl-dialog-title">
+          <span class="tl-dialog-icon">➕</span>
+          <span>Add &amp; Manage Tracks</span>
+        </div>
+        <button class="tl-dialog-close-btn" type="button" (click)="closeAddTrackDialog()" title="Close (Esc)">✕</button>
+      </div>
+      
+      <div class="tl-dialog-body">
+        <p class="tl-dialog-subtitle">Configure which swimlane tracks appear in your timeline editor:</p>
+
+        <div class="tl-dialog-cards">
+          <!-- Primary Video Track (V1) -->
+          <div class="tl-track-card active-card">
+            <div class="tl-card-icon vid">🎬</div>
+            <div class="tl-card-info">
+              <div class="tl-card-title-row">
+                <span class="tl-card-title">Primary Video Track (V1)</span>
+                <span class="tl-status-pill core">Core Sequence</span>
+              </div>
+              <div class="tl-card-desc">Main A-roll video cuts and story sequencing ({{ state.included().length }} clips · {{ state.totalSeconds() | number:'1.1-1' }}s)</div>
+            </div>
+            <div class="tl-card-action">
+              <button type="button" class="tl-card-btn btn-add" (click)="addVideoClipsToTimeline()">
+                + Add Video
+              </button>
+            </div>
+          </div>
+
+          <!-- Video Overlay Track (V2) -->
+          <div class="tl-track-card" [class.active-card]="state.showV2Track()">
+            <div class="tl-card-icon vid">🎞</div>
+            <div class="tl-card-info">
+              <div class="tl-card-title-row">
+                <span class="tl-card-title">Video Overlay Track (V2)</span>
+                @if (state.showV2Track()) {
+                  <span class="tl-status-pill active">Active</span>
+                } @else {
+                  <span class="tl-status-pill hidden">Hidden</span>
+                }
+              </div>
+              <div class="tl-card-desc">Secondary B-roll video clips, cutaways &amp; picture-in-picture layers</div>
+            </div>
+            <div class="tl-card-action">
+              @if (state.showV2Track()) {
+                <button type="button" class="tl-card-btn btn-hide" (click)="toggleTrack('V2')">
+                  Hide
+                </button>
+              } @else {
+                <button type="button" class="tl-card-btn btn-add" (click)="addTrack('V2')">
+                  + Add Track
+                </button>
+              }
+            </div>
+          </div>
+
+          <!-- Text Track (TXT1) -->
+          <div class="tl-track-card" [class.active-card]="state.showTxtTrack()">
+            <div class="tl-card-icon txt">📝</div>
+            <div class="tl-card-info">
+              <div class="tl-card-title-row">
+                <span class="tl-card-title">Text Track (TXT1)</span>
+                @if (state.showTxtTrack()) {
+                  <span class="tl-status-pill active">Active</span>
+                } @else {
+                  <span class="tl-status-pill hidden">Hidden</span>
+                }
+              </div>
+              <div class="tl-card-desc">Subtitles, animated captions, lower-thirds &amp; title overlays</div>
+            </div>
+            <div class="tl-card-action">
+              @if (state.showTxtTrack()) {
+                <button type="button" class="tl-card-btn btn-hide" (click)="toggleTrack('TXT1')">
+                  Hide
+                </button>
+              } @else {
+                <button type="button" class="tl-card-btn btn-add" (click)="addTrack('TXT1')">
+                  + Add Track
+                </button>
+              }
+            </div>
+          </div>
+
+          <!-- Image Track (IMG1) -->
+          <div class="tl-track-card" [class.active-card]="state.showImgTrack()">
+            <div class="tl-card-icon img">🖼</div>
+            <div class="tl-card-info">
+              <div class="tl-card-title-row">
+                <span class="tl-card-title">Image Track (IMG1)</span>
+                @if (state.showImgTrack()) {
+                  <span class="tl-status-pill active">Active</span>
+                } @else {
+                  <span class="tl-status-pill hidden">Hidden</span>
+                }
+              </div>
+              <div class="tl-card-desc">Logos, PNG watermarks, stickers, PIP &amp; graphic elements</div>
+            </div>
+            <div class="tl-card-action">
+              @if (state.showImgTrack()) {
+                <button type="button" class="tl-card-btn btn-hide" (click)="toggleTrack('IMG1')">
+                  Hide
+                </button>
+              } @else {
+                <button type="button" class="tl-card-btn btn-add" (click)="addTrack('IMG1')">
+                  + Add Track
+                </button>
+              }
+            </div>
+          </div>
+
+          <!-- Audio Track (A1) -->
+          <div class="tl-track-card" [class.active-card]="state.showA1Track()">
+            <div class="tl-card-icon aud">🎵</div>
+            <div class="tl-card-info">
+              <div class="tl-card-title-row">
+                <span class="tl-card-title">Audio Track (A1)</span>
+                @if (state.showA1Track()) {
+                  <span class="tl-status-pill active">Active</span>
+                } @else {
+                  <span class="tl-status-pill hidden">Hidden</span>
+                }
+              </div>
+              <div class="tl-card-desc">Multi-track background score, sound effects &amp; voiceover narration</div>
+            </div>
+            <div class="tl-card-action">
+              @if (state.showA1Track()) {
+                <button type="button" class="tl-card-btn btn-hide" (click)="toggleTrack('A1')">
+                  Hide
+                </button>
+              } @else {
+                <button type="button" class="tl-card-btn btn-add" (click)="addTrack('A1')">
+                  + Add Track
+                </button>
+              }
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tl-dialog-footer">
+        <span class="tl-dialog-esc-hint">Press <kbd>Esc</kbd> or click outside to dismiss</span>
+        <button type="button" class="tl-btn-primary" (click)="closeAddTrackDialog()">Done</button>
       </div>
     </div>
   </div>

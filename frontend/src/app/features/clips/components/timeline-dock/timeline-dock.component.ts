@@ -22,9 +22,11 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
   @ViewChild('timelineArea') timelineAreaRef?: ElementRef<HTMLElement>;
   @ViewChild('timelineInner') timelineInnerRef?: ElementRef<HTMLElement>;
 
+  readonly trackHeaderWidth = 104;
+
   // Scrubbing & Dragging Pointer State
   readonly isScrubbing = signal<boolean>(false);
-  readonly addTrackMenuOpen = signal<boolean>(false);
+  readonly addTrackDialogOpen = signal<boolean>(false);
   private rafId: number | null = null;
   private resizeObserver?: ResizeObserver;
 
@@ -55,25 +57,65 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  toggleAddTrackMenu(event: Event): void {
-    event.stopPropagation();
-    this.addTrackMenuOpen.update((v) => !v);
+  openAddTrackDialog(event?: Event): void {
+    event?.stopPropagation();
+    this.addTrackDialogOpen.set(true);
+  }
+
+  closeAddTrackDialog(): void {
+    this.addTrackDialogOpen.set(false);
+  }
+
+  toggleTrack(trackId: string): void {
+    if (trackId === 'TXT1') {
+      if (this.state.showTxtTrack()) {
+        this.state.hideTrack('TXT1');
+      } else {
+        this.state.showTrackManually('TXT1');
+      }
+    } else if (trackId === 'IMG1') {
+      if (this.state.showImgTrack()) {
+        this.state.hideTrack('IMG1');
+      } else {
+        this.state.showTrackManually('IMG1');
+      }
+    } else if (trackId === 'V2') {
+      if (this.state.showV2Track()) {
+        this.state.hideTrack('V2');
+      } else {
+        this.state.showTrackManually('V2');
+      }
+    } else if (trackId === 'A1') {
+      if (this.state.showA1Track()) {
+        this.state.hideTrack('A1');
+      } else {
+        this.state.showTrackManually('A1');
+      }
+    }
   }
 
   addTrack(trackId: string): void {
     this.state.showTrackManually(trackId);
-    this.addTrackMenuOpen.set(false);
+    this.closeAddTrackDialog();
+  }
+
+  addVideoClipsToTimeline(): void {
+    this.state.activeCategory.set('video');
+    this.closeAddTrackDialog();
+    this.state.status.notify(['Select or drag video clips from the Media Library into V1 or V2.']);
   }
 
   onTextTrackClick(event: MouseEvent): void {
     const target = event.target as HTMLElement;
     if (target.closest('.tl-clip') || target.closest('.tl-item-remove') || target.closest('.tl-trim-handle')) return;
 
+    // Deselect any timeline selection and seek playhead to clicked spot
+    this.state.clearAllSelections();
     const lane = event.currentTarget as HTMLElement;
     const rect = lane.getBoundingClientRect();
     const clickX = event.clientX - rect.left;
     const time = Math.max(0, this.state.pxToSeconds(clickX));
-    this.state.addTextOverlay('Subtitle Text', time);
+    this.state.seekTo(time);
   }
 
   onRemoveItemClick(event: MouseEvent | PointerEvent, itemId: string): void {
@@ -88,11 +130,12 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
     this.state.removeMusicTrack(key);
   }
 
-  @HostListener('document:click', ['$event'])
-  onDocumentClick(event: MouseEvent): void {
-    const target = event.target as HTMLElement;
-    if (!target.closest('.add-track-dropdown-wrap')) {
-      this.addTrackMenuOpen.set(false);
+  @HostListener('document:keydown.escape')
+  onEscapeKey(): void {
+    if (this.addTrackDialogOpen()) {
+      this.closeAddTrackDialog();
+    } else if (this.state.hasAnySelection()) {
+      this.state.clearAllSelections();
     }
   }
 
@@ -112,7 +155,7 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
       const el = this.playheadNeedleRef?.nativeElement;
       if (el && !this.isScrubbing()) {
         const time = this.state.getCurrentTimeExact();
-        const px = 76 + this.state.secondsToPx(time);
+        const px = this.trackHeaderWidth + this.state.secondsToPx(time);
         el.style.left = `${px}px`;
 
         // Keep playhead within view during playback
@@ -123,8 +166,8 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
             const clientWidth = area.clientWidth;
             if (px > scrollLeft + clientWidth - 60) {
               area.scrollLeft = px - clientWidth + 120;
-            } else if (px < scrollLeft + 76) {
-              area.scrollLeft = Math.max(0, px - 76);
+            } else if (px < scrollLeft + this.trackHeaderWidth) {
+              area.scrollLeft = Math.max(0, px - this.trackHeaderWidth);
             }
           }
         }
@@ -147,7 +190,7 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
 
     const el = this.timelineInnerRef?.nativeElement;
     const rect = el ? el.getBoundingClientRect() : { left: 0 };
-    const dropX = Math.max(0, event.clientX - rect.left - 76);
+    const dropX = Math.max(0, event.clientX - rect.left - this.trackHeaderWidth);
     let dropTime = dropX / this.state.pxPerSecond();
     dropTime = this.state.applySnap(dropTime);
 
@@ -174,6 +217,7 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
       target.closest('.tl-clip') ||
       target.closest('.tl-junction') ||
       target.closest('.tl-music-clip') ||
+      target.closest('.tl-header-col') ||
       target.closest('.tl-header-76') ||
       target.closest('.tl-ruler-corner')
     ) {
@@ -206,7 +250,7 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
     const el = this.timelineInnerRef?.nativeElement;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    const x = Math.max(0, event.clientX - rect.left - 76);
+    const x = Math.max(0, event.clientX - rect.left - this.trackHeaderWidth);
     let targetSeconds = x / this.state.pxPerSecond();
 
     if (this.state.snapEnabled()) {
@@ -217,7 +261,7 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
 
     const needleEl = this.playheadNeedleRef?.nativeElement;
     if (needleEl) {
-      needleEl.style.left = `${76 + this.state.secondsToPx(targetSeconds)}px`;
+      needleEl.style.left = `${this.trackHeaderWidth + this.state.secondsToPx(targetSeconds)}px`;
     }
 
     this.state.seekTo(targetSeconds);

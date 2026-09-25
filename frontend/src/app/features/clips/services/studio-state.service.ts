@@ -59,6 +59,7 @@ export class StudioStateService implements OnDestroy {
   readonly timelineTracks = signal<TrackControlState[]>([
     { id: 'TXT1', name: 'Text', label: 'TXT1', kind: 'text', muted: false, locked: false, visible: true, color: '#10b981' },
     { id: 'IMG1', name: 'Image', label: 'IMG1', kind: 'image', muted: false, locked: false, visible: true, color: '#10b981' },
+    { id: 'V2', name: 'Video Overlay', label: 'V2', kind: 'video', muted: false, locked: false, visible: true, color: '#06b6d4' },
     { id: 'V1', name: 'Primary Video', label: 'V1', kind: 'video', muted: false, locked: false, visible: true, color: '#3b82f6' },
     { id: 'A1', name: 'Voiceover', label: 'A1', kind: 'audio', muted: false, locked: false, visible: true, color: '#8b5cf6' },
     { id: 'A2', name: 'Music Bed', label: 'A2', kind: 'audio', muted: false, locked: false, visible: true, color: '#a855f7' },
@@ -91,7 +92,7 @@ export class StudioStateService implements OnDestroy {
     const directMatch = studioClips.find((c) => c.id === id);
     if (directMatch) return directMatch.assetId || directMatch.id;
 
-    const rowMatch = this.rows().find((r) => r.clip.id === id);
+    const rowMatch = this.rows().find((r) => r.clip.id === id) || this.allMediaRows().find((r) => r.clip.id === id);
     if (rowMatch && rowMatch.clip.assetId) return rowMatch.clip.assetId;
 
     // Check if ID has a split suffix like '_a_123', '_b_123', '_part_123'
@@ -911,6 +912,12 @@ export class StudioStateService implements OnDestroy {
     return false;
   });
 
+  readonly showV2Track = computed(() => {
+    if (this.itemsForTrack('V2').length > 0) return true;
+    if (this.explicitlyShownTracks().has('V2')) return true;
+    return false;
+  });
+
   showTrackManually(trackId: string): void {
     this.explicitlyShownTracks.update((set) => {
       const next = new Set(set);
@@ -944,6 +951,10 @@ export class StudioStateService implements OnDestroy {
       item.src.startsWith('/')
     ) {
       return item.src;
+    }
+    const mediaMatch = this.allMediaRows().find((r) => r.clip.id === item.src);
+    if (mediaMatch) {
+      return this.assetUrl(mediaMatch.clip.assetId || mediaMatch.clip.id);
     }
     return this.assetUrl(item.src);
   }
@@ -2866,9 +2877,14 @@ export class StudioStateService implements OnDestroy {
   }
 
   itemsForTrack(trackId: string): TimelineItem[] {
+    if (trackId === 'V2' || trackId === 'V3') {
+      return this.timelineItems().filter(
+        (item) => item.trackId === 'V2' || item.trackId === 'V3'
+      );
+    }
     if (trackId === 'IMG1' || trackId === 'IMG') {
       return this.timelineItems().filter(
-        (item) => item.trackId === 'IMG1' || item.trackId === 'IMG' || item.trackId === 'V3' || item.trackId === 'V2'
+        (item) => item.trackId === 'IMG1' || item.trackId === 'IMG'
       );
     }
     if (trackId === 'A1' || trackId === 'A2') {
@@ -2975,7 +2991,18 @@ export class StudioStateService implements OnDestroy {
     this.showTrackManually('TXT1');
     const content = text || 'Subtitle Text';
     const start = startTime !== undefined ? Math.max(0, startTime) : this.currentTime();
-    const dur = 4.0;
+    
+    // Auto-fit check: if situated on a clip, adapt compact duration
+    let dur = 3.5;
+    const currentClip = this.clipSchedule().find(
+      (s) => start >= s.startSeconds && start < s.endSeconds
+    );
+    if (currentClip) {
+      const remaining = currentClip.endSeconds - start;
+      if (remaining >= 1.0) {
+        dur = Math.min(remaining, 4.0);
+      }
+    }
     const validStart = this.clampItemCollision('TXT1', start, dur);
     const newItem: TimelineItem = {
       id: `txt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
@@ -3119,11 +3146,6 @@ export class StudioStateService implements OnDestroy {
         this.selectedTimelineItemId.set(null);
       }
     } else {
-      if (this.selectedTimelineItemId() === itemId && this.selectedTimelineItemIds().size <= 1) {
-        this.selectedTimelineItemId.set(null);
-        this.selectedTimelineItemIds.set(new Set());
-        return;
-      }
       this.selectedTimelineItemId.set(itemId);
       this.selectedTimelineItemIds.set(new Set([itemId]));
       this.selectedClipId.set(null);
@@ -3138,6 +3160,71 @@ export class StudioStateService implements OnDestroy {
         this.setInspectorTab('clip');
       }
     }
+  }
+
+  fitTextOverlayToClip(itemId: string): void {
+    const item = this.timelineItems().find((it) => it.id === itemId);
+    if (!item) return;
+    const curTime = this.currentTime();
+    const sched = this.clipSchedule();
+    let targetClip = sched.find((s) => item.startTime >= s.startSeconds && item.startTime < s.endSeconds);
+    if (!targetClip) {
+      targetClip = sched.find((s) => curTime >= s.startSeconds && curTime < s.endSeconds);
+    }
+    if (!targetClip && sched.length > 0) {
+      targetClip = sched.reduce((prev, curr) =>
+        Math.abs(curr.startSeconds - item.startTime) < Math.abs(prev.startSeconds - item.startTime) ? curr : prev
+      );
+    }
+    if (targetClip) {
+      const newStart = targetClip.startSeconds;
+      const newDur = Math.max(0.5, targetClip.endSeconds - targetClip.startSeconds);
+      this.timelineItems.update((items) =>
+        items.map((it) => (it.id === itemId ? { ...it, startTime: newStart, duration: newDur } : it))
+      );
+      this.markDirty();
+      this.status.notify([`Fitted text overlay to clip "${targetClip.clip.name}" (${newDur.toFixed(1)}s).`]);
+    }
+  }
+
+  fitTextOverlayToAudio(itemId: string): void {
+    const item = this.timelineItems().find((it) => it.id === itemId);
+    if (!item) return;
+    const music = this.musicTracks();
+    let target = music.find((m) => item.startTime >= m.startSeconds && item.startTime < (m.startSeconds + (m.trimEndSeconds ?? 10)));
+    if (!target && music.length > 0) target = music[0];
+    if (target) {
+      const dur = target.trimEndSeconds ? Math.max(0.5, target.trimEndSeconds - (target.trimStartSeconds ?? 0)) : 10;
+      this.timelineItems.update((items) =>
+        items.map((it) => (it.id === itemId ? { ...it, startTime: target.startSeconds, duration: dur } : it))
+      );
+      this.markDirty();
+      this.status.notify([`Fitted text overlay to audio track (${dur.toFixed(1)}s).`]);
+    }
+  }
+
+  fitTextOverlayToTimeline(itemId: string): void {
+    const item = this.timelineItems().find((it) => it.id === itemId);
+    if (!item) return;
+    const total = this.totalSeconds() || this.timelineSeconds();
+    if (total > 0) {
+      this.timelineItems.update((items) =>
+        items.map((it) => (it.id === itemId ? { ...it, startTime: 0, duration: total } : it))
+      );
+      this.markDirty();
+      this.status.notify([`Fitted text overlay to entire timeline (${total.toFixed(1)}s).`]);
+    }
+  }
+
+  setTextOverlayDuration(itemId: string, duration: number): void {
+    const item = this.timelineItems().find((it) => it.id === itemId);
+    if (!item) return;
+    const safeDur = Math.max(0.5, duration);
+    this.timelineItems.update((items) =>
+      items.map((it) => (it.id === itemId ? { ...it, duration: safeDur } : it))
+    );
+    this.markDirty();
+    this.status.notify([`Updated text overlay duration to ${safeDur.toFixed(1)}s.`]);
   }
 
   clipTrim(clipId: string): { startSeconds: number; endSeconds: number } | undefined {
@@ -3249,11 +3336,17 @@ export class StudioStateService implements OnDestroy {
       return;
     }
 
-    if (trackId === 'IMG1' || trackId === 'IMG' || trackId === 'V3' || trackId === 'V2') {
+    if (trackId === 'V2' || trackId === 'V3') {
+      if (assetType === 'audio') {
+        this.status.notify(['Audio clips belong on the Audio track (A1).']);
+        return;
+      }
+      targetTrackId = 'V2';
+    } else if (trackId === 'IMG1' || trackId === 'IMG') {
       if (assetType !== 'image') {
         if (assetType === 'video') {
           this.addClipToTimeline(row.clip.id);
-          this.status.notify(['Videos belong on the V1 video track. Added to V1.']);
+          this.status.notify(['Videos belong on the V1 or V2 video tracks. Added to V1.']);
           return;
         } else {
           this.status.notify(['Only image overlays can be placed on Image track (IMG1).']);

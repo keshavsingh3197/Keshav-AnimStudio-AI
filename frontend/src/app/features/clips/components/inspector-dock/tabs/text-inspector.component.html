@@ -6,10 +6,60 @@
           <div style="font-size: 0.82rem; font-weight: 700; color: var(--text);">
             <span style="color: #10b981; margin-right: 4px;">T</span> Timeline Text Overlay (TXT1)
           </div>
-          <button type="button" class="btn btn-outline-danger btn-sm py-0 px-2" style="font-size: 0.7rem;"
-                  (click)="state.removeTimelineItem(txtItem.id)" title="Delete text overlay">
-            ✕ Remove
-          </button>
+          <div class="d-flex gap-1">
+            <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.7rem;"
+                    (click)="state.clearAllSelections()" title="Deselect text overlay (Esc)">
+              ✕ Deselect
+            </button>
+            <button type="button" class="btn btn-outline-danger btn-sm py-0 px-2" style="font-size: 0.7rem;"
+                    (click)="state.removeTimelineItem(txtItem.id)" title="Delete text overlay (Del)">
+              🗑 Remove
+            </button>
+          </div>
+        </div>
+
+        <!-- Timing & Auto-Fit Section -->
+        <div class="mb-2 p-2" style="background: rgba(0,0,0,0.25); border-radius: 6px; border: 1px solid rgba(255,255,255,0.06);">
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <span style="font-size: 0.72rem; font-weight: 700; color: #38bdf8;">⏱ Timing &amp; Auto-Fit</span>
+            <span class="mono" style="font-size: 0.68rem; color: var(--text-muted);">{{ txtItem.startTime | number:'1.1-1' }}s – {{ (txtItem.startTime + txtItem.duration) | number:'1.1-1' }}s ({{ txtItem.duration | number:'1.1-1' }}s)</span>
+          </div>
+
+          <!-- Quick Fit Buttons -->
+          <div class="d-flex gap-1 mb-2">
+            <button type="button" class="btn btn-sm btn-outline-primary flex-fill py-1 px-1"
+                    style="font-size: 0.68rem; font-weight: 600;"
+                    (click)="state.fitTextOverlayToClip(txtItem.id)"
+                    title="Automatically fit start and duration to the video clip under playhead">
+              ⚡ Fit to Clip
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary flex-fill py-1 px-1"
+                    style="font-size: 0.68rem; font-weight: 600;"
+                    (click)="state.fitTextOverlayToAudio(txtItem.id)"
+                    title="Fit text duration to match background audio">
+              🎵 Fit to Audio
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary flex-fill py-1 px-1"
+                    style="font-size: 0.68rem;"
+                    (click)="state.fitTextOverlayToTimeline(txtItem.id)"
+                    title="Extend text duration to full timeline">
+              Full Video
+            </button>
+          </div>
+
+          <!-- Duration Presets -->
+          <div class="d-flex gap-1 align-items-center">
+            <span style="font-size: 0.68rem; color: var(--text-muted); margin-right: 4px;">Preset:</span>
+            @for (d of [2, 3, 4, 5, 8]; track d) {
+              <button type="button" class="btn btn-sm py-0 px-2"
+                      [class.btn-primary]="Math.abs(txtItem.duration - d) < 0.1"
+                      [class.btn-outline-secondary]="Math.abs(txtItem.duration - d) >= 0.1"
+                      style="font-size: 0.67rem; min-width: 26px;"
+                      (click)="state.setTextOverlayDuration(txtItem.id, d)">
+                {{ d }}s
+              </button>
+            }
+          </div>
         </div>
 
         <div class="mb-2">
