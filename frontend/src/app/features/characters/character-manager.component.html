@@ -1,181 +1,782 @@
-<div class="page-head">
-  <div>
-    <h2>Characters</h2>
-    <p class="muted">
-      Two sprites &mdash; mouth closed and mouth open &mdash; give a character the talking
-      effect. One sprite still renders, just without the flap.
-    </p>
-  </div>
-</div>
+<div class="character-studio">
 
-<div class="card">
-  @if (store.characters().length === 0) {
-    <p class="muted">No characters yet.</p>
-  } @else {
-    <table>
-      <thead>
-        <tr><th style="width: 5.5rem">Sprite</th><th>Name</th><th>Answers to</th>
-          <th>Subtitles</th><th></th></tr>
-      </thead>
-      <tbody>
-        @for (character of store.characters(); track character.id) {
-          <tr>
-            <td>
-              @if (getSpriteToDisplay(character); as spriteSrc) {
-                <img class="thumb sprite" [src]="spriteSrc" [alt]="character.name" />
-                @if (character.closedMouthAssetId && character.openMouthAssetId) {
-                  <button type="button" class="secondary icon" style="margin-top: .3rem; font-size: .72rem; width: 100%; white-space: nowrap"
-                          (click)="toggleFlap(character)"
-                          [title]="testingFlapCharacterId() === character.id ? 'Stop mouth flap test' : 'Test mouth flapping animation'">
-                    {{ testingFlapCharacterId() === character.id ? '⏹ Stop' : '👄 Test flap' }}
-                  </button>
+  <!-- ── Studio Header ────────────────────────────────────────────── -->
+  <div class="studio-header">
+    <div class="header-title-group">
+      <div class="studio-icon-badge">🎭</div>
+      <div>
+        <h2>Cast &amp; Character Studio</h2>
+        <p class="header-subtitle">
+          Configure character avatars with animated two-sprite mouth flapping (mouth closed &amp; mouth open)
+          or single-frame stills. Subtitle colors, alias labels, and AI generation prompts are attached directly to each cast member.
+        </p>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <button type="button" class="btn-primary-glow" (click)="scrollToForm()">
+        <span>+</span> Add Character
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Quick Statistics Strip ────────────────────────────────────── -->
+  <div class="stats-strip">
+    <div class="stat-card">
+      <div class="stat-icon">👥</div>
+      <div>
+        <div class="stat-value">{{ store.characters().length }}</div>
+        <div class="stat-label">Total Characters</div>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-icon">🗣️</div>
+      <div>
+        <div class="stat-value">{{ castCount() }}</div>
+        <div class="stat-label">Speaking Cast</div>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-icon">👄</div>
+      <div>
+        <div class="stat-value">{{ animatedCount() }}</div>
+        <div class="stat-label">Lip-Flap Animated</div>
+      </div>
+    </div>
+
+    <div class="stat-card">
+      <div class="stat-icon">🎙️</div>
+      <div>
+        <div class="stat-value">{{ narratorCount() > 0 ? narratorCount() : 'Auto' }}</div>
+        <div class="stat-label">Narrator Assigned</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Cast Directory Card ──────────────────────────────────────── -->
+  <div class="studio-card">
+    <div class="card-topbar">
+      <h3>
+        <span>👥</span>
+        <span>Cast Directory ({{ filteredCharacters().length }})</span>
+      </h3>
+
+      <div class="toolbar-controls">
+        <!-- Search bar -->
+        <div class="search-box">
+          <span class="search-icon">🔍</span>
+          <input
+            type="text"
+            class="search-input"
+            placeholder="Search cast by name, alias, looks..."
+            [ngModel]="searchQuery()"
+            (ngModelChange)="searchQuery.set($event)"
+          />
+        </div>
+
+        <!-- Filter pills -->
+        <div class="filter-pills">
+          <button
+            type="button"
+            class="filter-btn"
+            [class.active]="filterType() === 'all'"
+            (click)="filterType.set('all')"
+          >
+            All
+          </button>
+          <button
+            type="button"
+            class="filter-btn"
+            [class.active]="filterType() === 'animated'"
+            (click)="filterType.set('animated')"
+          >
+            Animated
+          </button>
+          <button
+            type="button"
+            class="filter-btn"
+            [class.active]="filterType() === 'static'"
+            (click)="filterType.set('static')"
+          >
+            Static
+          </button>
+          <button
+            type="button"
+            class="filter-btn"
+            [class.active]="filterType() === 'narrator'"
+            (click)="filterType.set('narrator')"
+          >
+            Narrator
+          </button>
+        </div>
+
+        <!-- View mode toggle -->
+        <div class="view-mode-toggle">
+          <button
+            type="button"
+            class="toggle-btn"
+            [class.active]="viewMode() === 'grid'"
+            (click)="viewMode.set('grid')"
+            title="Card Grid View"
+          >
+            🎴 Cards
+          </button>
+          <button
+            type="button"
+            class="toggle-btn"
+            [class.active]="viewMode() === 'table'"
+            (click)="viewMode.set('table')"
+            title="Table List View"
+          >
+            📋 Table
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Empty State -->
+    @if (filteredCharacters().length === 0) {
+      <div class="empty-cast-state">
+        <div class="empty-icon">🎭</div>
+        @if (store.characters().length === 0) {
+          <h4>No Characters in this Project Yet</h4>
+          <p>
+            Bring your script to life by adding cast members! Upload character sprites with closed and open mouths for realistic lip-syncing talking animations, or choose an archetype preset below.
+          </p>
+          <div class="starter-archetypes">
+            @for (preset of archetypes.slice(0, 4); track preset.id) {
+              <button type="button" class="preset-chip" (click)="applyArchetype(preset)">
+                <span>{{ preset.icon }}</span>
+                <span>Create {{ preset.label }}</span>
+              </button>
+            }
+          </div>
+        } @else {
+          <h4>No characters match "{{ searchQuery() }}"</h4>
+          <p>Try clearing your search query or adjusting your filters to view existing cast members.</p>
+          <button type="button" class="btn-secondary" (click)="searchQuery.set(''); filterType.set('all')">
+            Reset Filters
+          </button>
+        }
+      </div>
+    } @else if (viewMode() === 'grid') {
+      <!-- Character Cards Grid -->
+      <div class="characters-grid">
+        @for (character of filteredCharacters(); track character.id) {
+          <div class="character-card">
+            <!-- Hero Banner & Avatar -->
+            <div class="card-hero-banner">
+              <!-- Top Badges -->
+              <div class="hero-badges-top">
+                @if (character.isNarrator) {
+                  <span class="badge-tag badge-narrator">🎙️ Narrator</span>
                 }
+                @if (character.closedMouthAssetId && character.openMouthAssetId) {
+                  <span class="badge-tag badge-animated">👄 Lip-Flap</span>
+                } @else if (character.closedMouthAssetId || character.openMouthAssetId) {
+                  <span class="badge-tag badge-static">🖼️ Static</span>
+                }
+              </div>
+
+              <!-- Sprite Display -->
+              @if (getSpriteToDisplay(character); as spriteSrc) {
+                <img class="card-avatar-img" [src]="spriteSrc" [alt]="character.name" />
               } @else {
-                <span class="pill">none</span>
-              }
-            </td>
-            <td>
-              <strong>{{ character.name }}</strong>
-              @if (character.isNarrator) { <span class="pill">narrator</span> }
-              @if (character.description) {
-                <div class="muted">{{ character.description }}</div>
-              }
-              @if (appearanceOf(character); as look) {
-                <div class="muted">{{ look }}</div>
-              }
-              @if (isFlatSprite(character.closedMouthAssetId)) {
-                <div class="muted">
-                  That sprite has no transparency, so it will render as a solid rectangle.
+                <div class="card-avatar-placeholder">
+                  {{ character.name.charAt(0).toUpperCase() }}
                 </div>
               }
-            </td>
-            <td class="muted">
+
+              <!-- Flap Test Button -->
+              @if (character.closedMouthAssetId && character.openMouthAssetId) {
+                <div class="hero-flap-action">
+                  <button
+                    type="button"
+                    class="flap-btn"
+                    [class.active]="testingFlapCharacterId() === character.id"
+                    (click)="toggleFlap(character)"
+                    [title]="testingFlapCharacterId() === character.id ? 'Stop mouth flap test' : 'Test live mouth-flap animation'"
+                  >
+                    <span>{{ testingFlapCharacterId() === character.id ? '⏹' : '👄' }}</span>
+                    <span>{{ testingFlapCharacterId() === character.id ? 'Stop' : 'Test Flap' }}</span>
+                  </button>
+                </div>
+              }
+            </div>
+
+            <!-- Card Body -->
+            <div class="card-body">
+              <div class="character-card-name">
+                <span>{{ character.name }}</span>
+                <span
+                  class="color-indicator-dot"
+                  [style.background]="character.subtitleColorHex || '#ffe164'"
+                  [title]="'Subtitle Color: ' + (character.subtitleColorHex || '#ffe164')"
+                ></span>
+              </div>
+
+              <!-- Aliases -->
               @if (character.aliases.length > 0) {
-                {{ character.aliases.join(', ') }}
-              } @else {
-                &mdash;
+                <div class="alias-list">
+                  <span style="opacity: 0.6; margin-right: 4px;">Answers to:</span>
+                  @for (alias of character.aliases; track alias) {
+                    <span class="alias-pill">{{ alias }}</span>
+                  }
+                </div>
               }
-            </td>
-            <td>
-              @if (character.subtitleColorHex; as colour) {
-                <span class="swatch" [style.background]="colour"></span>
-                <span class="mono">{{ colour }}</span>
-              } @else {
-                <span class="muted">default</span>
-              }
-            </td>
-            <td style="text-align: right; white-space: nowrap">
-              <button class="secondary" type="button" (click)="edit(character)">Edit</button>
 
-              @if (!character.isNarrator) {
-                @if (confirming() === character.id) {
-                  <button class="danger" type="button"
-                          (click)="remove(character.id)">Delete</button>
-                  <button class="secondary" type="button"
-                          (click)="confirming.set(null)">Keep</button>
-                } @else {
-                  <button class="secondary" type="button"
-                          (click)="confirming.set(character.id)">Delete</button>
+              <!-- Subtitle Preview Pill -->
+              <div class="card-subtitle-preview">
+                <div class="subtitle-speaker-label" [style.color]="character.subtitleColorHex || '#ffe164'">
+                  {{ character.name }}
+                </div>
+                <div class="subtitle-sample-text" [style.color]="character.subtitleColorHex || '#ffe164'">
+                  &ldquo;{{ sampleDialogue() }}&rdquo;
+                </div>
+              </div>
+
+              <!-- Appearance details -->
+              @if (appearanceOf(character); as look) {
+                <div class="appearance-chips">
+                  @if (character.appearance.age) {
+                    <span class="look-chip">🎂 {{ character.appearance.age }} yrs</span>
+                  }
+                  @if (character.appearance.gender) {
+                    <span class="look-chip">👤 {{ character.appearance.gender }}</span>
+                  }
+                  @if (character.appearance.hair) {
+                    <span class="look-chip">✂️ {{ character.appearance.hair }}</span>
+                  }
+                  @if (character.appearance.clothes) {
+                    <span class="look-chip">👔 {{ character.appearance.clothes }}</span>
+                  }
+                </div>
+              }
+
+              @if (character.appearance.additionalDetails) {
+                <div class="appearance-details-text" [title]="character.appearance.additionalDetails">
+                  {{ character.appearance.additionalDetails }}
+                </div>
+              }
+
+              <!-- Non-alpha warning -->
+              @if (isFlatSprite(character.closedMouthAssetId)) {
+                <div class="non-alpha-warning">
+                  <span>⚠️</span>
+                  <span>Closed-mouth sprite has no transparency (solid backdrop).</span>
+                </div>
+              }
+
+              <!-- Card Action Buttons -->
+              <div class="card-actions-footer">
+                <button
+                  type="button"
+                  class="btn-secondary btn-sm"
+                  (click)="duplicate(character)"
+                  title="Duplicate character settings"
+                >
+                  📋 Duplicate
+                </button>
+
+                <button
+                  type="button"
+                  class="btn-secondary btn-sm"
+                  (click)="edit(character)"
+                  title="Edit character details"
+                >
+                  ✏️ Edit
+                </button>
+
+                @if (!character.isNarrator) {
+                  @if (confirming() === character.id) {
+                    <button
+                      type="button"
+                      class="btn-danger btn-sm"
+                      (click)="remove(character.id)"
+                    >
+                      Confirm Delete
+                    </button>
+                    <button
+                      type="button"
+                      class="btn-secondary btn-sm"
+                      (click)="confirming.set(null)"
+                    >
+                      Keep
+                    </button>
+                  } @else {
+                    <button
+                      type="button"
+                      class="btn-secondary btn-sm"
+                      (click)="confirming.set(character.id)"
+                      title="Delete character"
+                    >
+                      🗑️
+                    </button>
+                  }
                 }
-              }
-            </td>
-          </tr>
+              </div>
+            </div>
+          </div>
         }
-      </tbody>
-    </table>
-  }
-</div>
-
-<div class="card">
-  <h3>{{ editing() === null ? 'Add a character' : 'Edit character' }}</h3>
-
-  <div class="grid">
-    <div>
-      <label for="character-name">Name</label>
-      <input id="character-name" type="text" [(ngModel)]="form.name" placeholder="Rahul" />
-    </div>
-
-    <div>
-      <label for="aliases">Also known as</label>
-      <input id="aliases" type="text" [(ngModel)]="form.aliases"
-             placeholder="Rahul Sharma, RAHUL" />
-      <p class="muted">Comma separated. Used to match speaker labels in a transcript.</p>
-    </div>
-
-    <div>
-      <label for="closed">Sprite &mdash; mouth closed</label>
-      <select id="closed" [(ngModel)]="form.closedMouthAssetId">
-        <option value="">None</option>
-        @for (asset of store.images(); track asset.id) {
-          <option [value]="asset.id">{{ asset.name }}</option>
-        }
-      </select>
-      <p class="muted">The resting face.</p>
-    </div>
-
-    <div>
-      <label for="open">Sprite &mdash; mouth open</label>
-      <select id="open" [(ngModel)]="form.openMouthAssetId">
-        <option value="">None</option>
-        @for (asset of store.images(); track asset.id) {
-          <option [value]="asset.id">{{ asset.name }}</option>
-        }
-      </select>
-      <p class="muted">Shown while speaking. Optional; without it the face stays still.</p>
-    </div>
-
-    <div>
-      <label for="subtitle-colour">Subtitle colour</label>
-      <div class="row">
-        <input id="subtitle-colour" type="color" [(ngModel)]="form.subtitleColorHex" />
-        <span class="mono">{{ form.subtitleColorHex }}</span>
       </div>
-      <p class="muted">Burnt-in subtitles for this character's lines are drawn in this colour.</p>
-    </div>
-  </div>
-
-  <div class="subform">
-    <h4>Appearance &mdash; notes for generation</h4>
-    <p class="muted">
-      The renderer uses the sprites above, not these fields. This is where you record what
-      the character looks like, so an image generator can be given a prompt later.
-    </p>
-
-    <div class="grid">
-      <div>
-        <label for="age">Age</label>
-        <input id="age" type="number" [(ngModel)]="form.age" min="0" max="200" placeholder="e.g. 28" />
+    } @else {
+      <!-- Table View -->
+      <div class="table-wrapper">
+        <table class="studio-table">
+          <thead>
+            <tr>
+              <th style="width: 80px">Avatar</th>
+              <th>Name &amp; Role</th>
+              <th>Aliases</th>
+              <th>Subtitle Color</th>
+              <th>Appearance</th>
+              <th style="text-align: right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (character of filteredCharacters(); track character.id) {
+              <tr>
+                <td>
+                  <div class="table-sprite-box">
+                    @if (getSpriteToDisplay(character); as src) {
+                      <img class="table-sprite-img" [src]="src" [alt]="character.name" />
+                    } @else {
+                      <span style="font-weight: 700; color: #94a3b8;">{{ character.name.charAt(0) }}</span>
+                    }
+                  </div>
+                  @if (character.closedMouthAssetId && character.openMouthAssetId) {
+                    <button
+                      type="button"
+                      class="flap-btn"
+                      style="margin-top: 4px; padding: 2px 6px; font-size: 0.7rem; width: 100%; justify-content: center;"
+                      [class.active]="testingFlapCharacterId() === character.id"
+                      (click)="toggleFlap(character)"
+                    >
+                      {{ testingFlapCharacterId() === character.id ? '⏹' : '👄' }}
+                    </button>
+                  }
+                </td>
+                <td>
+                  <div style="font-weight: 700; font-size: 0.95rem; color: #fff;">
+                    {{ character.name }}
+                    @if (character.isNarrator) {
+                      <span class="badge-tag badge-narrator" style="margin-left: 6px;">Narrator</span>
+                    }
+                  </div>
+                  @if (character.description) {
+                    <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 2px;">{{ character.description }}</div>
+                  }
+                </td>
+                <td>
+                  @if (character.aliases.length > 0) {
+                    <span style="color: #cbd5e1;">{{ character.aliases.join(', ') }}</span>
+                  } @else {
+                    <span style="color: #64748b;">&mdash;</span>
+                  }
+                </td>
+                <td>
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span
+                      class="color-indicator-dot"
+                      [style.background]="character.subtitleColorHex || '#ffe164'"
+                    ></span>
+                    <span style="font-family: monospace; font-size: 0.82rem; color: #e2e8f0;">
+                      {{ character.subtitleColorHex || '#ffe164' }}
+                    </span>
+                  </div>
+                </td>
+                <td>
+                  <span style="font-size: 0.82rem; color: #cbd5e1;">
+                    {{ appearanceOf(character) || '&mdash;' }}
+                  </span>
+                </td>
+                <td style="text-align: right; white-space: nowrap;">
+                  <button type="button" class="btn-secondary btn-sm" (click)="duplicate(character)">📋 Copy</button>
+                  <button type="button" class="btn-secondary btn-sm" (click)="edit(character)" style="margin-left: 6px;">✏️ Edit</button>
+                  @if (!character.isNarrator) {
+                    @if (confirming() === character.id) {
+                      <button type="button" class="btn-danger btn-sm" (click)="remove(character.id)" style="margin-left: 6px;">Delete</button>
+                      <button type="button" class="btn-secondary btn-sm" (click)="confirming.set(null)" style="margin-left: 4px;">Keep</button>
+                    } @else {
+                      <button type="button" class="btn-secondary btn-sm" (click)="confirming.set(character.id)" style="margin-left: 6px;">🗑️</button>
+                    }
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
       </div>
-
-      <div>
-        <label for="gender">Gender</label>
-        <input id="gender" type="text" [(ngModel)]="form.gender" placeholder="e.g. female" />
-      </div>
-
-      <div>
-        <label for="hair">Hair</label>
-        <input id="hair" type="text" [(ngModel)]="form.hair" placeholder="e.g. short black curly" />
-      </div>
-
-      <div>
-        <label for="clothes">Clothes</label>
-        <input id="clothes" type="text" [(ngModel)]="form.clothes" placeholder="e.g. yellow jacket" />
-      </div>
-    </div>
-
-    <div>
-      <label for="details">Additional details</label>
-      <textarea id="details" [(ngModel)]="form.additionalDetails" style="min-height: 4rem"
-                placeholder="Distinctive features, style, expressions"></textarea>
-    </div>
-  </div>
-
-  <div class="row" style="margin-top: .9rem">
-    <button type="button" (click)="save()" [disabled]="status.busy() || !form.name.trim()">
-      {{ editing() === null ? 'Add character' : 'Save character' }}
-    </button>
-    @if (editing() !== null) {
-      <button class="secondary" type="button" (click)="cancel()">Cancel</button>
     }
   </div>
+
+  <!-- ── Character Creator & Editor Card ───────────────────────────── -->
+  <div class="studio-card" id="character-editor-form">
+    <div class="card-topbar">
+      <h3>
+        <span>{{ editing() === null ? '✨' : '✏️' }}</span>
+        <span>{{ editing() === null ? 'Add New Cast Member' : 'Edit Cast Member: ' + form.name }}</span>
+      </h3>
+      @if (editing() !== null) {
+        <button type="button" class="btn-secondary btn-sm" (click)="cancel()">
+          ✕ Cancel Editing
+        </button>
+      }
+    </div>
+
+    <!-- AI Archetype Presets Bar -->
+    <div class="presets-section">
+      <div class="presets-title">
+        <span>⚡ Quick Persona &amp; Archetype Presets (Click to autofill styling &amp; appearance)</span>
+      </div>
+      <div class="presets-chips-grid">
+        @for (preset of archetypes; track preset.id) {
+          <button
+            type="button"
+            class="preset-chip"
+            (click)="applyArchetype(preset)"
+            [title]="preset.description"
+          >
+            <span>{{ preset.icon }}</span>
+            <span>{{ preset.label }}</span>
+            <span class="preset-color-dot" [style.background]="preset.subtitleColor"></span>
+          </button>
+        }
+      </div>
+    </div>
+
+    <!-- Two-Column Form Layout -->
+    <div class="form-layout-grid">
+
+      <!-- Column 1: Identity, Sprites & Lip-Flap Tester -->
+      <div class="form-column-card">
+        <div class="column-section-title">
+          <span>🎭</span>
+          <span>Character Identity &amp; Sprites</span>
+        </div>
+
+        <div class="form-field">
+          <label for="char-name">Character Name *</label>
+          <input
+            id="char-name"
+            type="text"
+            [(ngModel)]="form.name"
+            placeholder="e.g. Rahul, King Sukant, Maya"
+          />
+          <p class="field-hint">The primary screen name displayed in cast lists and scene lineups.</p>
+        </div>
+
+        <div class="form-field">
+          <label for="char-aliases">Also Known As (Aliases)</label>
+          <input
+            id="char-aliases"
+            type="text"
+            [(ngModel)]="form.aliases"
+            placeholder="e.g. Rahul Sharma, RAHUL, Master"
+          />
+          <p class="field-hint">Comma-separated speaker tags used to auto-match script lines during import.</p>
+        </div>
+
+        <!-- Closed Mouth Sprite -->
+        <div class="form-field">
+          <label>Sprite &mdash; Mouth Closed (Resting Face)</label>
+          <div class="sprite-picker-box">
+            <div class="sprite-picker-row">
+              <div class="sprite-preview-thumb">
+                @if (form.closedMouthAssetId) {
+                  <img [src]="assetUrl(form.closedMouthAssetId)" alt="Closed Mouth" />
+                } @else {
+                  <span style="font-size: 1.4rem; opacity: 0.5;">😐</span>
+                }
+              </div>
+
+              <div class="sprite-controls-column">
+                <select [(ngModel)]="form.closedMouthAssetId">
+                  <option value="">None (No sprite selected)</option>
+                  @for (asset of store.images(); track asset.id) {
+                    <option [value]="asset.id">{{ asset.name }}</option>
+                  }
+                </select>
+
+                <div class="upload-button-wrapper">
+                  <label class="btn-upload">
+                    <span>📁 Upload Image</span>
+                    <input
+                      type="file"
+                      class="hidden-file-input"
+                      accept="image/*"
+                      (change)="onUploadClosedSprite($event)"
+                      [disabled]="isUploadingClosed()"
+                    />
+                  </label>
+                  @if (isUploadingClosed()) {
+                    <span style="font-size: 0.78rem; color: #a78bfa;">Uploading...</span>
+                  }
+                  @if (form.closedMouthAssetId) {
+                    <button type="button" class="btn-secondary btn-sm" (click)="clearClosedSprite()">
+                      Clear
+                    </button>
+                  }
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="field-hint">The base avatar shown when listening or idle in scenes.</p>
+        </div>
+
+        <!-- Open Mouth Sprite -->
+        <div class="form-field">
+          <label>Sprite &mdash; Mouth Open (Speaking Face)</label>
+          <div class="sprite-picker-box">
+            <div class="sprite-picker-row">
+              <div class="sprite-preview-thumb">
+                @if (form.openMouthAssetId) {
+                  <img [src]="assetUrl(form.openMouthAssetId)" alt="Open Mouth" />
+                } @else {
+                  <span style="font-size: 1.4rem; opacity: 0.5;">🗣️</span>
+                }
+              </div>
+
+              <div class="sprite-controls-column">
+                <select [(ngModel)]="form.openMouthAssetId">
+                  <option value="">None (Optional)</option>
+                  @for (asset of store.images(); track asset.id) {
+                    <option [value]="asset.id">{{ asset.name }}</option>
+                  }
+                </select>
+
+                <div class="upload-button-wrapper">
+                  <label class="btn-upload">
+                    <span>📁 Upload Image</span>
+                    <input
+                      type="file"
+                      class="hidden-file-input"
+                      accept="image/*"
+                      (change)="onUploadOpenSprite($event)"
+                      [disabled]="isUploadingOpen()"
+                    />
+                  </label>
+                  @if (isUploadingOpen()) {
+                    <span style="font-size: 0.78rem; color: #a78bfa;">Uploading...</span>
+                  }
+                  @if (form.openMouthAssetId) {
+                    <button type="button" class="btn-secondary btn-sm" (click)="clearOpenSprite()">
+                      Clear
+                    </button>
+                  }
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="field-hint">Swapped in during speech to simulate natural lip-syncing movement.</p>
+        </div>
+
+        <!-- Live Lip-Flap Tester Viewport -->
+        <div class="live-flap-viewport-card">
+          <div class="viewport-header">
+            <span>👄 Live Lip-Flap Motion Tester</span>
+            @if (form.closedMouthAssetId && form.openMouthAssetId) {
+              <span style="color: #6ee7b7; font-size: 0.78rem;">✓ 2 Sprites Ready</span>
+            } @else if (form.closedMouthAssetId || form.openMouthAssetId) {
+              <span style="color: #cbd5e1; font-size: 0.78rem;">Single Sprite</span>
+            } @else {
+              <span style="color: #94a3b8; font-size: 0.78rem;">No Sprites</span>
+            }
+          </div>
+
+          <div class="viewport-display">
+            @if (getFormSpriteToDisplay(); as activeSprite) {
+              <img [src]="activeSprite" alt="Form Sprite Preview" />
+            } @else {
+              <div style="color: #64748b; font-size: 0.88rem; font-style: italic;">
+                Select or upload sprites above to preview lip motion
+              </div>
+            }
+          </div>
+
+          <div class="viewport-controls">
+            @if (form.closedMouthAssetId && form.openMouthAssetId) {
+              <button
+                type="button"
+                class="flap-btn"
+                [class.active]="isFormFlapping()"
+                (click)="toggleFormFlap()"
+              >
+                <span>{{ isFormFlapping() ? '⏹' : '▶' }}</span>
+                <span>{{ isFormFlapping() ? 'Stop Motion Flap' : 'Play Motion Flap' }}</span>
+              </button>
+            } @else {
+              <span style="font-size: 0.78rem; color: #94a3b8;">
+                Add both closed and open mouth sprites to test animated talking effect
+              </span>
+            }
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Column 2: Subtitles & Appearance Prompt Notes -->
+      <div class="form-column-card">
+        <div class="column-section-title">
+          <span>🎨</span>
+          <span>Subtitles &amp; AI Appearance Spec</span>
+        </div>
+
+        <!-- Subtitle Styling -->
+        <div class="form-field">
+          <label for="sub-color">Subtitle Text Colour</label>
+          <div class="color-picker-group">
+            <input
+              id="sub-color"
+              type="color"
+              class="color-input-native"
+              [(ngModel)]="form.subtitleColorHex"
+            />
+            <input
+              type="text"
+              style="width: 120px; font-family: monospace;"
+              [(ngModel)]="form.subtitleColorHex"
+              placeholder="#ffe164"
+            />
+          </div>
+
+          <!-- Color Swatches -->
+          <div class="color-swatches-row">
+            @for (hex of presetColors; track hex) {
+              <button
+                type="button"
+                class="color-swatch-btn"
+                [class.selected]="form.subtitleColorHex.toLowerCase() === hex.toLowerCase()"
+                [style.background]="hex"
+                (click)="setSubtitleColor(hex)"
+                [title]="hex"
+              ></button>
+            }
+          </div>
+          <p class="field-hint">Burnt-in subtitles for this character's lines are drawn in this colour.</p>
+
+          <!-- Live Subtitle Theater Box -->
+          <div class="subtitle-theater-box">
+            <div style="font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; margin-bottom: 6px;">
+              Live Subtitle Preview Screen
+            </div>
+            <div
+              class="theater-dialogue-text"
+              [style.color]="form.subtitleColorHex || '#ffe164'"
+            >
+              {{ form.name.trim() || 'Speaker' }}: &ldquo;{{ sampleDialogue() }}&rdquo;
+            </div>
+          </div>
+        </div>
+
+        <!-- Dialogue Sample Tester Input -->
+        <div class="form-field">
+          <label for="sample-dialogue">Custom Subtitle Test Line</label>
+          <input
+            id="sample-dialogue"
+            type="text"
+            [ngModel]="sampleDialogue()"
+            (ngModelChange)="sampleDialogue.set($event)"
+            placeholder="Type any test dialogue..."
+          />
+        </div>
+
+        <!-- Appearance Spec Subgrid -->
+        <div class="appearance-subgrid">
+          <div class="form-field">
+            <label for="char-age">Age</label>
+            <input
+              id="char-age"
+              type="number"
+              min="0"
+              max="200"
+              [(ngModel)]="form.age"
+              placeholder="e.g. 24"
+            />
+          </div>
+
+          <div class="form-field">
+            <label for="char-gender">Gender</label>
+            <input
+              id="char-gender"
+              type="text"
+              [(ngModel)]="form.gender"
+              placeholder="e.g. Male, Female"
+            />
+          </div>
+
+          <div class="form-field">
+            <label for="char-hair">Hair Style &amp; Colour</label>
+            <input
+              id="char-hair"
+              type="text"
+              [(ngModel)]="form.hair"
+              placeholder="e.g. Short curly black"
+            />
+          </div>
+
+          <div class="form-field">
+            <label for="char-clothes">Clothing &amp; Attire</label>
+            <input
+              id="char-clothes"
+              type="text"
+              [(ngModel)]="form.clothes"
+              placeholder="e.g. Saffron draped robe"
+            />
+          </div>
+        </div>
+
+        <div class="form-field">
+          <label for="char-details">Distinctive Features &amp; AI Prompt Notes</label>
+          <textarea
+            id="char-details"
+            rows="3"
+            [(ngModel)]="form.additionalDetails"
+            placeholder="Jewelry, scars, accessories, personality gestures, facial expressions..."
+          ></textarea>
+          <p class="field-hint">
+            Prompt notes passed to the image generation engine when rendering character turnarounds and scenes.
+          </p>
+        </div>
+
+        <div class="form-field">
+          <label for="char-desc">Character Bio &amp; Role Notes</label>
+          <input
+            id="char-desc"
+            type="text"
+            [(ngModel)]="form.description"
+            placeholder="e.g. Loyal disciple to King Sukant"
+          />
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- Form Actions Bar -->
+    <div class="form-actions-bar">
+      @if (editing() !== null) {
+        <button type="button" class="btn-secondary" (click)="cancel()">
+          Cancel
+        </button>
+      } @else {
+        <button type="button" class="btn-secondary" (click)="cancel()">
+          Reset Form
+        </button>
+      }
+
+      <button
+        type="button"
+        class="btn-primary-glow"
+        (click)="save()"
+        [disabled]="status.busy() || !form.name.trim()"
+      >
+        <span>{{ editing() === null ? '✨ Add Character to Cast' : '💾 Save Character Changes' }}</span>
+      </button>
+    </div>
+
+  </div>
+
 </div>

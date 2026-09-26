@@ -1,4 +1,4 @@
-import { Component, OnDestroy, inject, signal } from '@angular/core';
+import { Component, OnDestroy, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
 import { Character } from '../../core/models/api.models';
@@ -6,11 +6,26 @@ import { ApiService } from '../../core/services/api.service';
 import { ProjectStore } from '../../core/services/project-store';
 import { StatusService } from '../../core/services/status.service';
 
+export interface ArchetypePreset {
+  id: string;
+  label: string;
+  icon: string;
+  name: string;
+  description: string;
+  subtitleColor: string;
+  age?: number;
+  gender: string;
+  hair: string;
+  clothes: string;
+  additionalDetails: string;
+}
+
 /** The cast: who appears, what they look like, and what colour their subtitles are. */
 @Component({
   selector: 'app-character-manager',
   imports: [FormsModule],
   templateUrl: './character-manager.component.html',
+  styleUrls: ['./character-manager.component.css'],
 })
 export class CharacterManagerComponent implements OnDestroy {
   private readonly api = inject(ApiService);
@@ -20,11 +35,120 @@ export class CharacterManagerComponent implements OnDestroy {
 
   readonly editing = signal<string | null>(null);
   readonly confirming = signal<string | null>(null);
+  readonly searchQuery = signal<string>('');
+  readonly viewMode = signal<'grid' | 'table'>('grid');
+  readonly filterType = signal<'all' | 'animated' | 'static' | 'narrator'>('all');
 
-  // Lip-Flap animation test
+  // Lip-Flap animation test in card list
   readonly testingFlapCharacterId = signal<string | null>(null);
   readonly mouthOpenState = signal<boolean>(false);
   private flapTimer: ReturnType<typeof setInterval> | null = null;
+
+  // Lip-Flap animation test inside creation/editing form
+  readonly isFormFlapping = signal<boolean>(false);
+  readonly formFlapState = signal<boolean>(false);
+  private formFlapTimer: ReturnType<typeof setInterval> | null = null;
+
+  // Upload progress indicators
+  readonly isUploadingClosed = signal<boolean>(false);
+  readonly isUploadingOpen = signal<boolean>(false);
+
+  // Subtitle preview line
+  readonly sampleDialogue = signal<string>('Welcome to the studio! Let us bring this story to life.');
+
+  // Pre-configured color palette
+  readonly presetColors: string[] = [
+    '#ffe164', // Studio Golden Yellow
+    '#5ce1e6', // Cyber Cyan
+    '#ffffff', // Crisp White
+    '#ffb800', // Warm Amber
+    '#00ff88', // Emerald Mint
+    '#ff66b2', // Radiant Pink
+    '#a78bfa', // Mystic Violet
+    '#f87171', // Coral Red
+  ];
+
+  // AI Archetype Presets
+  readonly archetypes: ArchetypePreset[] = [
+    {
+      id: 'young-hero',
+      label: 'Young Protagonist',
+      icon: '⚡',
+      name: 'Aarav',
+      description: 'The energetic and courageous main character on a journey of discovery.',
+      subtitleColor: '#ffe164',
+      age: 21,
+      gender: 'Male',
+      hair: 'Messy textured black hair',
+      clothes: 'Casual denim jacket over graphic tee and sneakers',
+      additionalDetails: 'Expressive determined eyes, athletic build, confident stance',
+    },
+    {
+      id: 'wise-mentor',
+      label: 'Wise Mentor / Elder',
+      icon: '🧙',
+      name: 'Guru Ji',
+      description: 'A venerable teacher who guides with ancient wisdom and patience.',
+      subtitleColor: '#5ce1e6',
+      age: 68,
+      gender: 'Male',
+      hair: 'Long flowing white hair and neatly trimmed silver beard',
+      clothes: 'Traditional draped saffron and white robes with embroidered borders',
+      additionalDetails: 'Calm and enlightened gaze, wooden prayer beads, gentle posture',
+    },
+    {
+      id: 'narrator',
+      label: 'Master Narrator',
+      icon: '🎙️',
+      name: 'Narrator',
+      description: 'The omniscient storyteller presenting background context and lore.',
+      subtitleColor: '#ffd700',
+      age: 38,
+      gender: 'Neutral',
+      hair: 'Polished sleek dark hair',
+      clothes: 'Formal dark studio blazer with satin lapel',
+      additionalDetails: 'Authoritative presence, clear resonant cadence, neutral background framing',
+    },
+    {
+      id: 'action-hero',
+      label: 'Anime Action Hero',
+      icon: '🦸',
+      name: 'Ren',
+      description: 'A dynamic martial artist with explosive agility and fierce determination.',
+      subtitleColor: '#ff7a00',
+      age: 18,
+      gender: 'Male',
+      hair: 'Spiky anime hairstyle with crimson highlights',
+      clothes: 'Sleeveless martial arts tunic with arm wraps and utility combat belt',
+      additionalDetails: 'Scar across left cheek, intense focused expression, ready combat stance',
+    },
+    {
+      id: 'cyber-hacker',
+      label: 'Cyberpunk Specialist',
+      icon: '💻',
+      name: 'Nyx',
+      description: 'A tech-savvy hacker navigating neon dystopias with quick wit.',
+      subtitleColor: '#00ff88',
+      age: 25,
+      gender: 'Female',
+      hair: 'Asymmetric neon teal bob haircut',
+      clothes: 'High-collar dark techwear jacket with luminous circuit lines',
+      additionalDetails: 'Digital HUD eye implant, fingerless tactile gloves, holographic console',
+    },
+    {
+      id: 'cheerful-friend',
+      label: 'Cheerful Companion',
+      icon: '🌸',
+      name: 'Maya',
+      description: 'The heartwarming, optimistic sidekick who brings laughter and loyalty.',
+      subtitleColor: '#ff66b2',
+      age: 20,
+      gender: 'Female',
+      hair: 'Shoulder-length wavy chestnut hair with cute clips',
+      clothes: 'Bright pastel layered sweater and pleated skirt',
+      additionalDetails: 'Radiant smile, expressive hand gestures, warm compassionate presence',
+    },
+  ];
 
   form = {
     name: '',
@@ -40,10 +164,59 @@ export class CharacterManagerComponent implements OnDestroy {
     additionalDetails: '',
   };
 
+  // Filtered characters list computed from store and current active filters
+  readonly filteredCharacters = computed(() => {
+    let list = this.store.characters();
+    const query = this.searchQuery().trim().toLowerCase();
+    const filter = this.filterType();
+
+    if (query) {
+      list = list.filter((c) => {
+        const matchName = c.name.toLowerCase().includes(query);
+        const matchDesc = (c.description ?? '').toLowerCase().includes(query);
+        const matchAliases = c.aliases.some((a) => a.toLowerCase().includes(query));
+        const matchLook = (
+          (c.appearance.gender ?? '') +
+          ' ' +
+          (c.appearance.hair ?? '') +
+          ' ' +
+          (c.appearance.clothes ?? '') +
+          ' ' +
+          (c.appearance.additionalDetails ?? '')
+        ).toLowerCase().includes(query);
+
+        return matchName || matchDesc || matchAliases || matchLook;
+      });
+    }
+
+    if (filter === 'animated') {
+      list = list.filter((c) => !!c.closedMouthAssetId && !!c.openMouthAssetId);
+    } else if (filter === 'static') {
+      list = list.filter((c) => !c.closedMouthAssetId || !c.openMouthAssetId);
+    } else if (filter === 'narrator') {
+      list = list.filter((c) => c.isNarrator);
+    }
+
+    return list;
+  });
+
+  // Summary counts
+  readonly animatedCount = computed(() =>
+    this.store.characters().filter((c) => !!c.closedMouthAssetId && !!c.openMouthAssetId).length
+  );
+  readonly castCount = computed(() =>
+    this.store.characters().filter((c) => !c.isNarrator).length
+  );
+  readonly narratorCount = computed(() =>
+    this.store.characters().filter((c) => c.isNarrator).length
+  );
+
   ngOnDestroy(): void {
     this.stopFlap();
+    this.stopFormFlap();
   }
 
+  // ── Lip-Flap Animation in Character List ──
   toggleFlap(character: Character): void {
     if (this.testingFlapCharacterId() === character.id) {
       this.stopFlap();
@@ -73,9 +246,115 @@ export class CharacterManagerComponent implements OnDestroy {
     ) {
       return this.assetUrl(character.openMouthAssetId);
     }
-    return character.closedMouthAssetId ? this.assetUrl(character.closedMouthAssetId) : null;
+    return character.closedMouthAssetId
+      ? this.assetUrl(character.closedMouthAssetId)
+      : character.openMouthAssetId
+      ? this.assetUrl(character.openMouthAssetId)
+      : null;
   }
 
+  // ── Lip-Flap Animation in Form Viewport ──
+  toggleFormFlap(): void {
+    if (this.isFormFlapping()) {
+      this.stopFormFlap();
+    } else {
+      this.isFormFlapping.set(true);
+      this.formFlapTimer = setInterval(() => {
+        this.formFlapState.update((prev) => !prev);
+      }, 180);
+    }
+  }
+
+  stopFormFlap(): void {
+    this.isFormFlapping.set(false);
+    this.formFlapState.set(false);
+    if (this.formFlapTimer !== null) {
+      clearInterval(this.formFlapTimer);
+      this.formFlapTimer = null;
+    }
+  }
+
+  getFormSpriteToDisplay(): string | null {
+    if (this.isFormFlapping() && this.formFlapState() && this.form.openMouthAssetId) {
+      return this.assetUrl(this.form.openMouthAssetId);
+    }
+    if (this.form.closedMouthAssetId) {
+      return this.assetUrl(this.form.closedMouthAssetId);
+    }
+    if (this.form.openMouthAssetId) {
+      return this.assetUrl(this.form.openMouthAssetId);
+    }
+    return null;
+  }
+
+  // ── Direct File Uploading ──
+  onUploadClosedSprite(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    if (!input.files || input.files.length === 0) return;
+    const file = input.files[0];
+    const projectId = this.store.projectId();
+    if (!projectId) return;
+
+    this.isUploadingClosed.set(true);
+    this.status.run(
+      this.api.uploadAsset(projectId, file),
+      (asset) => {
+        this.isUploadingClosed.set(false);
+        this.form.closedMouthAssetId = asset.id;
+        this.store.refreshAssets();
+        this.status.notify([`Uploaded closed-mouth sprite: ${asset.name}`]);
+      }
+    );
+    input.value = '';
+  }
+
+  onUploadOpenSprite(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    if (!input.files || input.files.length === 0) return;
+    const file = input.files[0];
+    const projectId = this.store.projectId();
+    if (!projectId) return;
+
+    this.isUploadingOpen.set(true);
+    this.status.run(
+      this.api.uploadAsset(projectId, file),
+      (asset) => {
+        this.isUploadingOpen.set(false);
+        this.form.openMouthAssetId = asset.id;
+        this.store.refreshAssets();
+        this.status.notify([`Uploaded open-mouth sprite: ${asset.name}`]);
+      }
+    );
+    input.value = '';
+  }
+
+  clearClosedSprite(): void {
+    this.form.closedMouthAssetId = '';
+  }
+
+  clearOpenSprite(): void {
+    this.form.openMouthAssetId = '';
+  }
+
+  // ── Archetype Preset Application ──
+  applyArchetype(preset: ArchetypePreset): void {
+    this.form.name = preset.name;
+    this.form.description = preset.description;
+    this.form.subtitleColorHex = preset.subtitleColor;
+    this.form.age = preset.age ?? null;
+    this.form.gender = preset.gender;
+    this.form.hair = preset.hair;
+    this.form.clothes = preset.clothes;
+    this.form.additionalDetails = preset.additionalDetails;
+    this.status.notify([`Applied archetype preset: ${preset.label}`]);
+    this.scrollToForm();
+  }
+
+  setSubtitleColor(hex: string): void {
+    this.form.subtitleColorHex = hex;
+  }
+
+  // ── Edit, Duplicate, Cancel & Save ──
   edit(character: Character): void {
     this.editing.set(character.id);
     this.form = {
@@ -91,10 +370,31 @@ export class CharacterManagerComponent implements OnDestroy {
       clothes: character.appearance.clothes ?? '',
       additionalDetails: character.appearance.additionalDetails ?? '',
     };
+    this.scrollToForm();
+  }
+
+  duplicate(character: Character): void {
+    this.editing.set(null);
+    this.form = {
+      name: `${character.name} (Copy)`,
+      description: character.description ?? '',
+      aliases: character.aliases.join(', '),
+      closedMouthAssetId: character.closedMouthAssetId ?? '',
+      openMouthAssetId: character.openMouthAssetId ?? '',
+      subtitleColorHex: character.subtitleColorHex ?? '#ffe164',
+      age: character.appearance.age ?? null,
+      gender: character.appearance.gender ?? '',
+      hair: character.appearance.hair ?? '',
+      clothes: character.appearance.clothes ?? '',
+      additionalDetails: character.appearance.additionalDetails ?? '',
+    };
+    this.status.notify([`Duplicated "${character.name}" into form.`]);
+    this.scrollToForm();
   }
 
   cancel(): void {
     this.editing.set(null);
+    this.stopFormFlap();
     this.form = {
       name: '',
       description: '',
@@ -138,6 +438,7 @@ export class CharacterManagerComponent implements OnDestroy {
     this.status.run(call, () => {
       this.cancel();
       this.store.refreshCharacters();
+      this.status.notify([id === null ? 'Character created successfully.' : 'Character updated successfully.']);
     });
   }
 
@@ -151,6 +452,8 @@ export class CharacterManagerComponent implements OnDestroy {
         this.status.notify([
           `Its lines in ${scenesTouched} scene(s) were handed to the narrator.`,
         ]);
+      } else {
+        this.status.notify(['Character removed.']);
       }
     });
   }
@@ -158,11 +461,10 @@ export class CharacterManagerComponent implements OnDestroy {
   appearanceOf(character: Character): string | null {
     const look = character.appearance;
     const parts = [
-      look.age === undefined || look.age === null ? null : `${look.age}`,
+      look.age === undefined || look.age === null ? null : `${look.age} yrs`,
       look.gender,
       look.hair,
       look.clothes,
-      look.additionalDetails,
     ].filter((part): part is string => !!part && part.length > 0);
 
     return parts.length > 0 ? parts.join(' · ') : null;
@@ -176,5 +478,12 @@ export class CharacterManagerComponent implements OnDestroy {
     if (!assetId) return false;
     const asset = this.store.assets().find((a) => a.id === assetId);
     return asset !== undefined && !asset.hasAlpha;
+  }
+
+  scrollToForm(): void {
+    const el = document.getElementById('character-editor-form');
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   }
 }
