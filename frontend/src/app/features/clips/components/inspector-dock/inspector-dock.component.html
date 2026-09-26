@@ -69,9 +69,12 @@
                 <polygon points="6 3 20 12 6 21 6 3"></polygon>
               </svg>
               <span class="scope-text">Current playing clip</span>
-            } @else if (state.targetScope() === 'under_music') {
+            } @else if (state.targetScope() === 'under_selected_music') {
               <span class="scope-icon" style="font-size:13px;display:flex;align-items:center;">🎵</span>
-              <span class="scope-text">Clips under music ({{ state.clipsUnderMusic().length }})</span>
+              <span class="scope-text">Clips under track ({{ state.clipsUnderSelectedMusic().length }})</span>
+            } @else if (state.targetScope() === 'under_music') {
+              <span class="scope-icon" style="font-size:13px;display:flex;align-items:center;">🎶</span>
+              <span class="scope-text">Clips under all music ({{ state.clipsUnderMusic().length }})</span>
             } @else if (state.targetScope() === 'selected') {
               <svg class="scope-icon target-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <circle cx="12" cy="12" r="10"></circle>
@@ -139,15 +142,31 @@
               }
             </button>
 
-            <!-- Option 3: All clips (N) -->
-            <!-- Option 3: Clips under music (N) -->
+            <!-- Option 3: Clips under this track (if track is selected) -->
+            @if (state.selectedMusicTrack() && state.clipsUnderSelectedMusic().length > 0) {
+              <button type="button" class="modern-scope-item"
+                      [class.active]="state.targetScope() === 'under_selected_music'"
+                      (click)="state.selectScopeOption('under_selected_music')">
+                <div class="item-left">
+                  <span class="scope-icon" style="font-size:13px;display:flex;align-items:center;">🎵</span>
+                  <span class="item-name">Clips under this track ({{ state.clipsUnderSelectedMusic().length }})</span>
+                </div>
+                @if (state.targetScope() === 'under_selected_music') {
+                  <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>
+                }
+              </button>
+            }
+
+            <!-- Option 4: Clips under all music (N) -->
             @if (state.clipsUnderMusic().length > 0) {
               <button type="button" class="modern-scope-item"
                       [class.active]="state.targetScope() === 'under_music'"
                       (click)="state.selectScopeOption('under_music')">
                 <div class="item-left">
-                  <span class="scope-icon" style="font-size:13px;display:flex;align-items:center;">🎵</span>
-                  <span class="item-name">Clips under music ({{ state.clipsUnderMusic().length }})</span>
+                  <span class="scope-icon" style="font-size:13px;display:flex;align-items:center;">🎶</span>
+                  <span class="item-name">Clips under all music ({{ state.clipsUnderMusic().length }})</span>
                 </div>
                 @if (state.targetScope() === 'under_music') {
                   <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">

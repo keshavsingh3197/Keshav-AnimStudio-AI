@@ -428,6 +428,12 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     let effectiveClipGain = sound.volume;
     if (mode === 'Always') {
       effectiveClipGain = 0;
+    } else if (activeMusicTrack && activeMusicTrack.clipAudioMode === 'MuteUnderMusic') {
+      effectiveClipGain = 0;
+    } else if (activeMusicTrack && activeMusicTrack.clipAudioMode === 'KeepAudio') {
+      effectiveClipGain = sound.volume;
+    } else if (activeMusicTrack && activeMusicTrack.clipAudioMode === 'Ducked') {
+      effectiveClipGain = sound.volume * this.state.videoDuckLevel();
     } else if (mode === 'MuteOnAudio') {
       effectiveClipGain = hasActiveMusicAtTime ? 0 : sound.volume;
     } else {

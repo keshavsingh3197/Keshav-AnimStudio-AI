@@ -43,6 +43,7 @@ export interface MusicTrackRow {
   fadeInSeconds?: number;
   fadeOutSeconds?: number;
   muted?: boolean;
+  clipAudioMode?: 'MuteUnderMusic' | 'KeepAudio' | 'Ducked' | 'Default';
 }
 
 export interface ScheduledClip {

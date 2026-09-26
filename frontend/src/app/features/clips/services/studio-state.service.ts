@@ -69,12 +69,8 @@ export class StudioStateService implements OnDestroy {
 
   readonly selectedMusicTrack = computed<MusicTrackRow | null>(() => {
     const key = this.selectedMusicTrackKey();
-    const tracks = this.musicTracks();
-    if (key) {
-      const found = tracks.find((t) => t.key === key);
-      if (found) return found;
-    }
-    return tracks.length > 0 ? tracks[0] : null;
+    if (!key) return null;
+    return this.musicTracks().find((t) => t.key === key) ?? null;
   });
   readonly musicAssetId = signal<string>('');
   readonly musicVolume = signal<number>(1.0);
@@ -354,7 +350,7 @@ export class StudioStateService implements OnDestroy {
   readonly selectedTimelineItemId = signal<string | null>(null);
   readonly selectedTimelineItemIds = signal<Set<string>>(new Set<string>());
   readonly activeInspectorTab = signal<'clip' | 'color' | 'audio' | 'text' | 'effects' | 'transitions'>('clip');
-  readonly targetScope = signal<'auto' | 'selected' | 'all' | 'current' | 'under_music'>('selected');
+  readonly targetScope = signal<'auto' | 'selected' | 'all' | 'current' | 'under_music' | 'under_selected_music'>('selected');
   readonly scopeDropdownOpen = signal<boolean>(false);
   readonly toolDropdownOpen = signal<boolean>(false);
 
@@ -379,7 +375,7 @@ export class StudioStateService implements OnDestroy {
     if (mode === 'mixer') return 'mixer';
     if (mode === 'clip') return 'clip';
     if (this.targetScope() === 'all') return 'mixer';
-    if (this.selectedClipId() || this.selectedTimelineItemId() || this.selectedTimelineItemIds().size > 0 || this.selectedMusicTrackKey() || this.targetScope() === 'under_music' || (this.targetScope() === 'current' && this.currentScheduledClip())) {
+    if (this.selectedClipId() || this.selectedTimelineItemId() || this.selectedTimelineItemIds().size > 0 || this.selectedMusicTrackKey() || this.targetScope() === 'under_music' || this.targetScope() === 'under_selected_music' || (this.targetScope() === 'current' && this.currentScheduledClip())) {
       return 'clip';
     }
     return 'mixer';
@@ -539,6 +535,18 @@ export class StudioStateService implements OnDestroy {
       .map((s) => s.clip);
   });
 
+  readonly clipsUnderSelectedMusic = computed<Clip[]>(() => {
+    const selTrack = this.selectedMusicTrack();
+    if (!selTrack) return this.clipsUnderMusic();
+    const sched = this.clipSchedule();
+    const dur = this.musicTrackDurationSeconds(selTrack);
+    const tStart = selTrack.startSeconds;
+    const tEnd = tStart + dur;
+    return sched
+      .filter((s) => tStart < s.endSeconds && tEnd > s.startSeconds)
+      .map((s) => s.clip);
+  });
+
   readonly hasMusicOnTimeline = computed<boolean>(() => {
     return this.musicAssetId() !== '' || this.musicTracks().length > 0;
   });
@@ -565,21 +573,27 @@ export class StudioStateService implements OnDestroy {
     if (this.selectedLibraryIds().size > 1) return true;
     if (this.targetScope() === 'all' && this.included().length > 1) return true;
     if (this.targetScope() === 'under_music' && this.clipsUnderMusic().length > 1) return true;
+    if (this.targetScope() === 'under_selected_music' && this.clipsUnderSelectedMusic().length > 1) return true;
     if (this.targetScope() === 'selected' && (this.selectedCount() > 1 || this.selectedTimelineItemIds().size > 1)) return true;
     return false;
   });
 
   readonly multiSelectionCount = computed(() => {
-    if (this.targetScope() === 'under_music') return this.clipsUnderMusic().length;
+    if (this.selectedMusicTrackKey()) return 1;
     if (this.selectedTimelineItemIds().size > 1) return this.selectedTimelineItemIds().size;
     if (this.selectedLibraryIds().size > 1) return this.selectedLibraryIds().size;
     if (this.targetScope() === 'all') return this.included().length;
+    if (this.targetScope() === 'under_music') return this.clipsUnderMusic().length;
+    if (this.targetScope() === 'under_selected_music') return this.clipsUnderSelectedMusic().length;
     if (this.targetScope() === 'selected') return Math.max(this.selectedCount(), this.selectedTimelineItemIds().size);
     return 1;
   });
 
   readonly selectedClipsCount = computed(() => {
     if (this.targetScope() === 'under_music') return this.clipsUnderMusic().length;
+    if (this.targetScope() === 'under_selected_music') return this.clipsUnderSelectedMusic().length;
+    if (this.targetScope() === 'all') return this.included().length;
+    if (this.targetScope() === 'current') return this.currentScheduledClip() ? 1 : 0;
     const libCount = this.selectedLibraryIds().size;
     if (libCount > 0) return libCount;
     const tlCount = this.selectedTimelineItemIds().size;
@@ -826,6 +840,10 @@ export class StudioStateService implements OnDestroy {
       const first = this.included()[0];
       return first ? first.clip : null;
     }
+    if (scope === 'under_music' || scope === 'under_selected_music') {
+      const clips = scope === 'under_selected_music' ? this.clipsUnderSelectedMusic() : this.clipsUnderMusic();
+      return clips[0] ?? null;
+    }
     // 0. Selected image overlay timeline item
     const selItem = this.selectedTimelineItem();
     if (selItem && (selItem.type === 'image' || selItem.trackId === 'IMG1' || selItem.trackId === 'IMG')) {
@@ -846,12 +864,6 @@ export class StudioStateService implements OnDestroy {
       const row = this.allMediaRows().find((r) => r.clip.id === libIds[0]);
       if (row) return row.clip;
     }
-    // 3. Current playhead clip fallback
-    const sched = this.currentScheduledClip();
-    if (sched) return sched.clip;
-    // 4. First included clip fallback
-    const firstInc = this.included()[0];
-    if (firstInc) return firstInc.clip;
     return null;
   });
 
@@ -1650,12 +1662,16 @@ export class StudioStateService implements OnDestroy {
     }
   }
 
-  clearAllSelections(): void {
+  clearVideoAndItemSelections(): void {
     this.selectedTimelineClipIndex.set(null);
     this.selectedClipId.set(null);
     this.selectedLibraryIds.set(new Set());
     this.selectedTimelineItemId.set(null);
     this.selectedTimelineItemIds.set(new Set());
+  }
+
+  clearAllSelections(): void {
+    this.clearVideoAndItemSelections();
     this.selectedMusicTrackKey.set(null);
   }
 
@@ -2321,21 +2337,10 @@ export class StudioStateService implements OnDestroy {
 
   setAudioInspectorView(mode: 'auto' | 'clip' | 'mixer'): void {
     this.audioInspectorViewMode.set(mode);
-    if (mode === 'clip' && !this.selectedClipId() && !this.selectedTimelineItemId() && this.selectedLibraryIds().size === 0) {
-      const sched = this.currentScheduledClip();
-      if (sched) {
-        this.selectedClipId.set(sched.clip.id);
-        this.selectedLibraryIds.set(new Set([sched.clip.id]));
-      } else if (this.included().length > 0) {
-        const first = this.included()[0].clip;
-        this.selectedClipId.set(first.id);
-        this.selectedLibraryIds.set(new Set([first.id]));
-      }
-    }
   }
 
   // Inspector Header Bar Controls
-  setTargetScope(scope: 'selected' | 'current' | 'all' | 'under_music'): void {
+  setTargetScope(scope: 'selected' | 'current' | 'all' | 'under_music' | 'under_selected_music'): void {
     this.targetScope.set(scope);
     if (scope === 'current') {
       const curr = this.currentScheduledClip();
@@ -2344,6 +2349,13 @@ export class StudioStateService implements OnDestroy {
       }
     } else if (scope === 'under_music') {
       const clips = this.clipsUnderMusic();
+      const ids = new Set(clips.map((c) => c.id));
+      this.selectedLibraryIds.set(ids);
+      if (clips.length > 0) {
+        this.selectedClipId.set(clips[0].id);
+      }
+    } else if (scope === 'under_selected_music') {
+      const clips = this.clipsUnderSelectedMusic();
       const ids = new Set(clips.map((c) => c.id));
       this.selectedLibraryIds.set(ids);
       if (clips.length > 0) {
@@ -2364,7 +2376,7 @@ export class StudioStateService implements OnDestroy {
     this.scopeDropdownOpen.set(false);
   }
 
-  selectScopeOption(scope: 'selected' | 'current' | 'all' | 'under_music'): void {
+  selectScopeOption(scope: 'selected' | 'current' | 'all' | 'under_music' | 'under_selected_music'): void {
     this.setTargetScope(scope);
     this.scopeDropdownOpen.set(false);
   }
@@ -2385,33 +2397,28 @@ export class StudioStateService implements OnDestroy {
       const musicClips = this.clipsUnderMusic().map((c) => c.id);
       return musicClips.length > 0 ? musicClips : fallbackList;
     }
+    if (scope === 'under_selected_music') {
+      const musicClips = this.clipsUnderSelectedMusic().map((c) => c.id);
+      return musicClips.length > 0 ? musicClips : fallbackList;
+    }
     if (scope === 'current') {
       const curr = this.currentScheduledClip();
       if (curr?.clip?.id) return [curr.clip.id];
-      if (fallbackClipId) return fallbackList;
-      const first = this.included()[0];
-      return first ? [first.clip.id] : [];
+      return fallbackList;
     }
     if (scope === 'selected') {
       const selIds = Array.from(this.selectedLibraryIds());
       if (selIds.length > 0) return selIds;
       const selId = this.selectedClipId();
       if (selId) return [selId];
-      const curr = this.currentScheduledClip();
-      if (curr?.clip?.id) return [curr.clip.id];
-      if (fallbackClipId) return fallbackList;
-      const all = this.included().map((r) => r.clip.id);
-      return all.length > 0 ? all : [];
+      return fallbackList;
     }
     // 'auto' scope fallback: selected -> current -> all
     const selIds = Array.from(this.selectedLibraryIds());
     if (selIds.length > 0) return selIds;
     const selId = this.selectedClipId();
     if (selId) return [selId];
-    const curr = this.currentScheduledClip();
-    if (curr?.clip?.id) return [curr.clip.id];
-    if (fallbackClipId) return fallbackList;
-    return this.included().map((r) => r.clip.id);
+    return fallbackList;
   }
 
   // Framing, Crop & Pan Methods
@@ -3140,11 +3147,36 @@ export class StudioStateService implements OnDestroy {
   }
 
   selectMusicTrack(key: string): void {
+    this.clearVideoAndItemSelections();
     this.selectedMusicTrackKey.set(key);
-    this.clearAllSelections();
     this.setTargetScope('selected');
     this.setInspectorTab('audio');
     this.setAudioInspectorView('clip');
+  }
+
+  selectClipsUnderSelectedMusic(): void {
+    const track = this.selectedMusicTrack();
+    const name = track ? this.musicTrackName(track) : 'Music Track';
+    const clips = this.clipsUnderSelectedMusic();
+    this.clearVideoAndItemSelections();
+    this.selectedMusicTrackKey.set(null);
+    this.setTargetScope('under_selected_music');
+    this.selectedLibraryIds.set(new Set(clips.map((c) => c.id)));
+    if (clips.length > 0) {
+      this.selectedClipId.set(clips[0].id);
+    }
+    this.setInspectorTab('audio');
+    this.setAudioInspectorView('clip');
+    this.status.notify([`Selected ${clips.length} clip(s) under "${name}".`]);
+  }
+
+  setMusicTrackClipAudioMode(key: string, mode: 'MuteUnderMusic' | 'KeepAudio' | 'Ducked' | 'Default'): void {
+    this.musicTracks.update((tracks) =>
+      tracks.map((t) => (t.key === key ? { ...t, clipAudioMode: mode } : t))
+    );
+    this.markDirty();
+    const modeLabel = mode === 'MuteUnderMusic' ? 'Mute Video Clips' : mode === 'KeepAudio' ? 'Keep Video Sound' : mode === 'Ducked' ? 'Duck Video Clips' : 'Global Default';
+    this.status.notify([`Set video sound under this track to: ${modeLabel}`]);
   }
 
   blockWidthPx(clip: Clip): number {
@@ -4701,8 +4733,8 @@ export class StudioStateService implements OnDestroy {
       trimEndSeconds: dur,
     };
     this.musicTracks.update((t) => [...t, newTrack]);
+    this.clearVideoAndItemSelections();
     this.selectedMusicTrackKey.set(newKey);
-    this.clearAllSelections();
     this.showTrackManually('A1');
     this.setInspectorTab('audio');
     this.setAudioInspectorView('clip');
@@ -5164,11 +5196,12 @@ export class StudioStateService implements OnDestroy {
       const s = schedule.find((x) => x.clip.id === row.clip.id);
 
       if (s) {
-        const hasMusicOverlap = hasBg || this.musicTracks().some((t) => {
+        const overlappingTrack = this.musicTracks().find((t) => {
           const mStart = t.startSeconds;
           const mEnd = t.startSeconds + this.musicTrackDurationSeconds(t);
           return mStart < s.endSeconds && mEnd > s.startSeconds;
         });
+        const hasMusicOverlap = hasBg || Boolean(overlappingTrack);
         const hasTimelineAudioOverlap = audioTimelineItems.some((i) => {
           return i.startTime < s.endSeconds && (i.startTime + i.duration) > s.startSeconds;
         });
@@ -5176,6 +5209,12 @@ export class StudioStateService implements OnDestroy {
 
         if (mode === 'Always') {
           vol = 0;
+        } else if (overlappingTrack && overlappingTrack.clipAudioMode === 'MuteUnderMusic') {
+          vol = 0;
+        } else if (overlappingTrack && overlappingTrack.clipAudioMode === 'KeepAudio') {
+          vol = sound.volume;
+        } else if (overlappingTrack && overlappingTrack.clipAudioMode === 'Ducked') {
+          vol = Math.round(sound.volume * this.videoDuckLevel() * 100) / 100;
         } else if (clipDuck === 'MuteOnAudio') {
           if (isOverlap) vol = 0;
         } else if (clipDuck === 'Ducked') {
