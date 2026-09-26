@@ -1,218 +1,575 @@
-<section class="hero">
-  <h1>Make an animated video from what you already have</h1>
-  <p>
-    Bring a transcript, a cast and some pictures &mdash; AnimStudio stages them into scenes,
-    animates the backgrounds, moves the mouths and renders an MP4. AI is optional
-    throughout: a filled-in spreadsheet is a complete production on its own.
-  </p>
-</section>
-
-<div class="card-grid top-cards">
-  <button type="button" class="start-card" (click)="start('prompt')">
-    <div class="icon">&#10024;</div>
-    <h3>Prompt to Video</h3>
-    <p>AI driven. Type your idea and let AnimStudio generate a script and storyboard.</p>
-    <div class="card-action">Select</div>
-  </button>
-  
-  <button type="button" class="start-card" (click)="start('import')">
-    <div class="icon">&#128172;</div>
-    <h3>Script & Voiceover</h3>
-    <p>Paste text or upload audio, and let us generate timed scenes for your cast.</p>
-    <div class="card-action">Upload</div>
-  </button>
-  
-  <button type="button" class="start-card" (click)="start('scenes')">
-    <div class="icon">&#127917;</div>
-    <h3>Manual Timeline</h3>
-    <p>From Scratch. Empty project to add scenes, cast, and artwork by hand.</p>
-    <div class="card-action">Select</div>
-  </button>
-  
-  <button type="button" class="start-card" (click)="start('bundle')">
-    <div class="icon">&#128230;</div>
-    <h3>Batch CSV Import</h3>
-    <p>Upload a spreadsheet with scenes, dialogue, and artwork links to build instantly.</p>
-    <div class="card-action">Upload</div>
-  </button>
-</div>
-
-@if (starting(); as point) {
-  <div class="card">
-    <div class="section-head">
-      <h3>{{ heading(point) }}</h3>
-      <button class="link" type="button" (click)="cancelStart()">cancel</button>
+<div class="projects-dashboard-page" (click)="closeMenus()">
+  <!-- Studio Header -->
+  <header class="studio-header">
+    <div class="header-left">
+      <div class="title-row">
+        <span class="studio-icon">🎬</span>
+        <h1 class="studio-title">Productions</h1>
+        <span class="project-count-badge">{{ totalCount }} Projects</span>
+      </div>
+      <p class="studio-subtitle">
+        Create, edit, and manage high-quality animated videos, shorts, and social media productions.
+      </p>
     </div>
 
-    <div class="row">
-      <input type="text" style="max-width: 26rem" [(ngModel)]="name"
-             placeholder="What is this video called?" (keyup.enter)="create()" />
-      <button type="button" (click)="create()" [disabled]="status.busy() || !name.trim()">
-        Create and continue
-      </button>
-      <button class="link" type="button" (click)="showDetails.set(!showDetails())">
-        {{ showDetails() ? 'hide' : 'size, frame rate and intended use' }}
+    <div class="header-actions">
+      <button type="button" class="btn-new-project" (click)="start('clips')">
+        <span class="btn-icon">＋</span>
+        <span>New Project</span>
       </button>
     </div>
+  </header>
 
-    @if (showDetails()) {
-      <div class="grid" style="margin-top: .9rem">
-        <div>
-          <label for="preset">What are you making?</label>
-          <select id="preset" [(ngModel)]="presetIndex">
-            @for (preset of presets; track preset.label) {
-              <option [ngValue]="$index">
-                {{ preset.label }} ({{ preset.width }}&times;{{ preset.height }})
-              </option>
-            }
-          </select>
-
-          @let chosen = presets[presetIndex];
-          <p class="muted">
-            <span [class]="formatClass(chosen.width, chosen.height)">
-              {{ format(chosen.width, chosen.height) }}
-            </span>
-            {{ chosen.width }}&times;{{ chosen.height }},
-            {{ aspect(chosen.width, chosen.height) }}.
-            @if (format(chosen.width, chosen.height) === 'Short') {
-              YouTube publishes an upright video of three minutes or less as a Short.
-            } @else if (format(chosen.width, chosen.height) === 'Square') {
-              A square video is accepted as a Short too, but an upright one fills a phone.
-            } @else {
-              The ordinary shape for YouTube, and the wrong one for Shorts.
-            }
-          </p>
-          <p class="muted">Any size can be changed later, on the project's Settings tab.</p>
+  <!-- Quick Start Creation Cards Grid -->
+  <section class="creation-launchpad">
+    <div class="launchpad-grid">
+      <div class="launchpad-card" (click)="start('clips')">
+        <div class="card-icon-wrap icon-purple">
+          <span class="icon">🎞️</span>
         </div>
-
-        <div>
-          <label for="fps">Frame rate</label>
-          <select id="fps" [(ngModel)]="fps">
-            <option [ngValue]="24">24 fps</option>
-            <option [ngValue]="25">25 fps</option>
-            <option [ngValue]="30">30 fps</option>
-            <option [ngValue]="60">60 fps</option>
-          </select>
+        <div class="card-content">
+          <div class="card-tag">NLE Timeline</div>
+          <h3 class="card-title">Multi-Track Video Editor</h3>
+          <p class="card-desc">Start fresh with video, audio, text overlays, and seamless transitions.</p>
         </div>
-
-        <div>
-          <label for="intent">Intended use</label>
-          <select id="intent" [(ngModel)]="intent">
-            @for (option of intents; track option) {
-              <option [ngValue]="option">{{ option }}</option>
-            }
-          </select>
-          <p class="hint">
-            Decides how strictly licensed material is checked before it can be used.
-          </p>
+        <div class="card-footer-cta">
+          <span>Create Project</span>
+          <span class="arrow">➔</span>
         </div>
       </div>
-    }
-  </div>
-}
 
-<div class="section-head" style="margin-top: 1.6rem; align-items: flex-end;">
-  <div style="display: flex; align-items: baseline; gap: 1rem;">
-    <h3>Your projects</h3>
-    <span class="muted">{{ projects().length }}</span>
-  </div>
-  
-  <div class="filters-row">
-    <input type="search" placeholder="Search projects..." [(ngModel)]="searchTerm" />
-    
-    <select [(ngModel)]="statusFilter">
-      <option value="All">All Statuses</option>
-      <option value="Drafts">Drafts</option>
-      <option value="Rendered">Rendered</option>
-    </select>
+      <div class="launchpad-card" (click)="start('prompt')">
+        <div class="card-icon-wrap icon-blue">
+          <span class="icon">✨</span>
+        </div>
+        <div class="card-content">
+          <div class="card-tag">AI Generator</div>
+          <h3 class="card-title">Prompt to Video</h3>
+          <p class="card-desc">Type your concept or script idea and let AI generate full scenes.</p>
+        </div>
+        <div class="card-footer-cta">
+          <span>Launch AI</span>
+          <span class="arrow">➔</span>
+        </div>
+      </div>
 
-    <select [(ngModel)]="aspectFilter">
-      <option value="All">All Formats</option>
-      <option value="9:16 Shorts">9:16 Shorts</option>
-      <option value="16:9 Video">16:9 Video</option>
-    </select>
-  </div>
-</div>
+      <div class="launchpad-card" (click)="start('import')">
+        <div class="card-icon-wrap icon-emerald">
+          <span class="icon">🎙️</span>
+        </div>
+        <div class="card-content">
+          <div class="card-tag">Voice & Subtitles</div>
+          <h3 class="card-title">Script & Voiceover</h3>
+          <p class="card-desc">Bring your audio voiceover or script file to auto-generate timed scenes.</p>
+        </div>
+        <div class="card-footer-cta">
+          <span>Import Audio</span>
+          <span class="arrow">➔</span>
+        </div>
+      </div>
 
-<div class="card list-card">
-  @if (filteredProjects.length === 0) {
-    <div style="padding: 2rem; text-align: center; color: var(--muted);">
-      No projects found.
+      <div class="launchpad-card" (click)="start('bundle')">
+        <div class="card-icon-wrap icon-amber">
+          <span class="icon">📊</span>
+        </div>
+        <div class="card-content">
+          <div class="card-tag">Spreadsheet</div>
+          <h3 class="card-title">Batch CSV Import</h3>
+          <p class="card-desc">Upload a CSV spreadsheet with dialogue, scenes, and media to build bulk cuts.</p>
+        </div>
+        <div class="card-footer-cta">
+          <span>Upload CSV</span>
+          <span class="arrow">➔</span>
+        </div>
+      </div>
     </div>
-  } @else {
-    <table class="project-table">
-      <thead>
-        <tr>
-          <th style="width: 40px"><input type="checkbox" [checked]="isAllSelected()" (change)="toggleAll($event)"></th>
-          <th>Name</th>
-          <th>Kind</th>
-          <th>Canvas</th>
-          <th>Status</th>
-          <th>Updated</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        @for (project of filteredProjects; track project.id) {
-          <tr>
-            <td>
-              <input type="checkbox" [checked]="selectedProjectIds.has(project.id)" (change)="toggleSelection(project.id)">
-            </td>
-            <td>
-              <div class="project-name-cell">
-                                <div class="thumbnail" [class.thumb-short]="format(project.width, project.height) === 'Short'">
-                  @if (project.customThumbnail) {
-                    <img [src]="project.customThumbnail" alt="" />
-                  }
-                  <label class="upload-thumb-btn" title="Upload Thumbnail" (click)="$event.stopPropagation()">
-                    📷
-                    <input type="file" accept="image/*" style="display:none" (change)="onUploadThumbnail($event, project)" />
-                  </label>
+  </section>
+
+  <!-- Interactive Project Creation Drawer / Tray -->
+  @if (starting(); as point) {
+    <section class="creation-drawer-card">
+      <div class="drawer-header">
+        <div class="drawer-title-group">
+          <span class="drawer-icon">⚡</span>
+          <h3>{{ heading(point) }}</h3>
+        </div>
+        <button type="button" class="btn-close-drawer" (click)="cancelStart()" title="Close creation tray">✕</button>
+      </div>
+
+      <div class="drawer-body">
+        <!-- Project Name Input -->
+        <div class="drawer-field-group">
+          <label for="projectNameInput" class="drawer-label">Project Title</label>
+          <div class="input-with-button">
+            <input id="projectNameInput" type="text" class="drawer-input"
+                   [(ngModel)]="name"
+                   placeholder="e.g., My Viral Story Short"
+                   (keyup.enter)="create()"
+                   autofocus />
+          </div>
+        </div>
+
+        <!-- Format & Aspect Ratio Selector -->
+        <div class="drawer-field-group">
+          <label class="drawer-label">Select Canvas Format & Aspect Ratio</label>
+          <div class="format-presets-grid">
+            @for (preset of presets; track preset.label) {
+              <div class="format-preset-card"
+                   [class.active]="presetIndex === $index"
+                   (click)="presetIndex = $index">
+                <div class="preset-box-wrap">
+                  <div class="preset-box-shape" [style.aspect-ratio]="preset.width + '/' + preset.height"></div>
                 </div>
-                <div class="project-info">
-                  <a [routerLink]="['/projects', project.id]"><strong>{{ project.name }}</strong></a>
-                  @if (project.description) {
-                    <div class="muted project-desc" [title]="project.description">{{ project.description }}</div>
-                  }
+                <div class="preset-details">
+                  <span class="preset-name">{{ preset.label }}</span>
+                  <span class="preset-res">{{ preset.width }}&times;{{ preset.height }}</span>
                 </div>
               </div>
-            </td>
-            <td>
-              <span [class]="formatClass(project.width, project.height)">
-                {{ format(project.width, project.height) }}
-              </span>
-            </td>
-            <td class="mono">
-              {{ project.width }}&times;{{ project.height }} &middot;
-              {{ aspect(project.width, project.height) }} &middot; {{ project.fps }}fps
-            </td>
-            <td><span class="pill">{{ project.status }}</span></td>
-            <td class="muted">{{ project.updatedAt | date: 'medium' }}</td>
-            <td class="actions-cell">
-              @if (confirming() === project.id) {
-                <div style="display: flex; gap: 0.5rem; align-items: center;">
-                  <span class="muted" style="white-space: nowrap">Delete?</span>
-                  <button class="danger btn-sm" type="button" (click)="delete(project.id)">Yes</button>
-                  <button class="secondary btn-sm" type="button" (click)="cancelDelete()">No</button>
-                </div>
+            }
+          </div>
+        </div>
+
+        <!-- Advanced Toggle (FPS, Intent) -->
+        <div class="advanced-settings-toggle">
+          <button type="button" class="btn-toggle-advanced" (click)="showDetails.set(!showDetails())">
+            <span>{{ showDetails() ? '▾ Hide Advanced Quality Settings' : '▸ Show Frame Rate & Distribution Settings' }}</span>
+          </button>
+
+          @if (showDetails()) {
+            <div class="advanced-grid">
+              <div class="advanced-col">
+                <label for="fpsSelect" class="drawer-label">Frame Rate</label>
+                <select id="fpsSelect" class="drawer-select" [(ngModel)]="fps">
+                  <option [ngValue]="24">24 fps (Cinematic Film)</option>
+                  <option [ngValue]="25">25 fps (PAL / Europe)</option>
+                  <option [ngValue]="30">30 fps (Standard Web/Social)</option>
+                  <option [ngValue]="60">60 fps (Smooth 60p)</option>
+                </select>
+              </div>
+
+              <div class="advanced-col">
+                <label for="intentSelect" class="drawer-label">Intended Distribution</label>
+                <select id="intentSelect" class="drawer-select" [(ngModel)]="intent">
+                  @for (option of intents; track option) {
+                    <option [ngValue]="option">{{ option }}</option>
+                  }
+                </select>
+              </div>
+            </div>
+          }
+        </div>
+      </div>
+
+      <div class="drawer-footer">
+        <button type="button" class="btn-cancel" (click)="cancelStart()">Cancel</button>
+        <button type="button" class="btn-create-primary" (click)="create()" [disabled]="status.busy() || !name.trim()">
+          <span>Create & Open Editor</span>
+          <span class="arrow">➔</span>
+        </button>
+      </div>
+    </section>
+  }
+
+  <!-- Studio Toolbar: Search, Filters, View Modes -->
+  <section class="studio-toolbar">
+    <div class="toolbar-left">
+      <!-- Search Input -->
+      <div class="search-input-wrap">
+        <span class="search-icon">🔍</span>
+        <input type="search" class="search-field"
+               placeholder="Search projects by title or description..."
+               [(ngModel)]="searchTerm" />
+        @if (searchTerm) {
+          <button type="button" class="search-clear-btn" (click)="searchTerm = ''">✕</button>
+        }
+      </div>
+
+      <!-- Status Filter Segmented Pills -->
+      <div class="status-pills-segment">
+        <button type="button" class="status-pill-btn"
+                [class.active]="statusFilter === 'All'"
+                (click)="statusFilter = 'All'; currentPage.set(1)">
+          All <span class="pill-count">({{ totalCount }})</span>
+        </button>
+        <button type="button" class="status-pill-btn"
+                [class.active]="statusFilter === 'Rendered'"
+                (click)="statusFilter = 'Rendered'; currentPage.set(1)">
+          Rendered <span class="pill-count">({{ totalRendered }})</span>
+        </button>
+        <button type="button" class="status-pill-btn"
+                [class.active]="statusFilter === 'Drafts'"
+                (click)="statusFilter = 'Drafts'; currentPage.set(1)">
+          Drafts <span class="pill-count">({{ totalDrafts }})</span>
+        </button>
+      </div>
+
+      <!-- Format Filter Dropdown -->
+      <select class="toolbar-select" [(ngModel)]="aspectFilter" (change)="currentPage.set(1)">
+        <option value="All">All Formats</option>
+        <option value="9:16 Shorts">9:16 Shorts</option>
+        <option value="16:9 Video">16:9 Video</option>
+      </select>
+    </div>
+
+    <div class="toolbar-right">
+      <!-- Sort Dropdown -->
+      <div class="sort-wrap">
+        <span class="sort-label">Sort by:</span>
+        <select class="toolbar-select" [ngModel]="sortBy()" (ngModelChange)="sortBy.set($event)">
+          <option value="updated">Recently Updated</option>
+          <option value="name">Project Name (A–Z)</option>
+          <option value="newest">Newest Created</option>
+        </select>
+      </div>
+
+      <!-- View Switcher -->
+      <div class="view-switcher-segment">
+        <button type="button" class="view-btn"
+                [class.active]="viewMode() === 'grid'"
+                (click)="saveViewMode('grid')"
+                title="Grid Card View">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+            <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+            <rect x="14" y="14" width="7" height="7" rx="1"></rect>
+            <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+          </svg>
+        </button>
+        <button type="button" class="view-btn"
+                [class.active]="viewMode() === 'table'"
+                (click)="saveViewMode('table')"
+                title="Table List View">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <line x1="8" y1="6" x2="21" y2="6"></line>
+            <line x1="8" y1="12" x2="21" y2="12"></line>
+            <line x1="8" y1="18" x2="21" y2="18"></line>
+            <line x1="3" y1="6" x2="3.01" y2="6"></line>
+            <line x1="3" y1="12" x2="3.01" y2="12"></line>
+            <line x1="3" y1="18" x2="3.01" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Bulk Selection Action Banner -->
+  @if (selectedProjectIds.size > 0) {
+    <div class="bulk-action-bar">
+      <div class="bulk-info">
+        <span class="bulk-badge">{{ selectedProjectIds.size }}</span>
+        <span>project(s) selected</span>
+      </div>
+      <div class="bulk-buttons">
+        <button type="button" class="btn-bulk-danger" (click)="deleteSelected()">
+          🗑️ Delete Selected
+        </button>
+        <button type="button" class="btn-bulk-clear" (click)="clearSelection()">
+          Clear Selection
+        </button>
+      </div>
+    </div>
+  }
+
+  <!-- Empty Search/Filter State -->
+  @if (filteredAndSortedProjects.length === 0) {
+    <div class="empty-projects-card">
+      <div class="empty-icon">🎬</div>
+      <h3 class="empty-title">No projects match your filter</h3>
+      <p class="empty-desc">
+        @if (searchTerm || statusFilter !== 'All' || aspectFilter !== 'All') {
+          Try clearing your search term or resetting filters to see all projects.
+        } @else {
+          You haven't created any productions yet. Click "New Project" above to get started!
+        }
+      </p>
+      @if (searchTerm || statusFilter !== 'All' || aspectFilter !== 'All') {
+        <button type="button" class="btn-empty-reset" (click)="searchTerm = ''; statusFilter = 'All'; aspectFilter = 'All'">
+          Reset All Filters
+        </button>
+      } @else {
+        <button type="button" class="btn-new-project" (click)="start('clips')">
+          + Create First Project
+        </button>
+      }
+    </div>
+  } @else {
+    <!-- VIEW 1: Modern Visual Grid View -->
+    @if (viewMode() === 'grid') {
+      <div class="projects-grid">
+        @for (project of paginatedProjects; track project.id) {
+          <div class="project-card" [class.is-selected]="selectedProjectIds.has(project.id)" (click)="openInClips(project.id)">
+            <!-- Top Card Overlay Buttons: Checkbox & Pin -->
+            <div class="card-overlay-top" (click)="$event.stopPropagation()">
+              <input type="checkbox" class="project-checkbox"
+                     [checked]="selectedProjectIds.has(project.id)"
+                     (change)="toggleSelection(project.id, $event)"
+                     title="Select project" />
+
+              <button type="button" class="btn-pin-star"
+                      [class.pinned]="isPinned(project.id)"
+                      (click)="togglePin(project, $event)"
+                      title="{{ isPinned(project.id) ? 'Unpin project' : 'Pin project to top' }}">
+                {{ isPinned(project.id) ? '⭐' : '☆' }}
+              </button>
+            </div>
+
+            <!-- Thumbnail Visual Area -->
+            <div class="project-thumb-container" [style.background]="getProjectGradient(project)">
+              @if (project.customThumbnail) {
+                <img [src]="project.customThumbnail" class="project-custom-img" alt="" />
               } @else {
-                <div class="action-buttons">
-                  <a class="button primary btn-sm" [routerLink]="['/projects', project.id]">Open Editor</a>
-                  <div class="dropdown">
-                    <button class="secondary btn-sm icon-button">&#8942;</button>
-                    <div class="dropdown-menu">
-                      <button type="button">Duplicate</button>
-                      <button type="button">Export</button>
-                      <button type="button">Rename</button>
-                      <button type="button" class="danger" (click)="confirmDelete(project.id)">Delete</button>
-                    </div>
+                <!-- Procedural Geometric Poster when no custom thumbnail is uploaded -->
+                <div class="thumb-artwork-fallback">
+                  <div class="fallback-glow"></div>
+                  <div class="fallback-center">
+                    <span class="fallback-icon">{{ format(project.width, project.height) === 'Short' ? '📱' : '🎬' }}</span>
+                    <span class="fallback-initials">{{ getProjectInitials(project.name) }}</span>
                   </div>
                 </div>
               }
-            </td>
-          </tr>
+
+              <!-- Badges on Thumbnail -->
+              <div class="thumb-badges-top">
+                <span class="format-badge" [class.short]="format(project.width, project.height) === 'Short'">
+                  {{ format(project.width, project.height) === 'Short' ? '9:16 Short' : '16:9 Video' }}
+                </span>
+                <span class="status-badge" [class.rendered]="project.status === 'Rendered' || project.status === 'completed'">
+                  {{ project.status === 'Rendered' || project.status === 'completed' ? '● Rendered' : '○ Draft' }}
+                </span>
+              </div>
+
+              <div class="thumb-badges-bottom">
+                <span class="res-fps-badge">{{ project.width }}&times;{{ project.height }} &bull; {{ project.fps }}fps</span>
+              </div>
+
+              <!-- Hover Play Overlay -->
+              <div class="thumb-hover-overlay">
+                <div class="play-pill">
+                  <span class="play-icon">▶</span>
+                  <span>Open Video Editor</span>
+                </div>
+              </div>
+
+              <!-- Upload Custom Thumbnail Button -->
+              <label class="btn-upload-thumb" (click)="$event.stopPropagation()" title="Upload Custom Thumbnail Image">
+                📷
+                <input type="file" accept="image/*" style="display: none" (change)="onUploadThumbnail($event, project)" />
+              </label>
+            </div>
+
+            <!-- Project Details Footer -->
+            <div class="project-card-footer">
+              <div class="card-title-row">
+                <h3 class="project-card-title" [title]="project.name">
+                  {{ project.name }}
+                </h3>
+
+                <!-- Context Menu Toggle Button -->
+                <div class="menu-container" (click)="$event.stopPropagation()">
+                  <button type="button" class="btn-menu-dots" (click)="toggleProjectMenu(project.id, $event)">
+                    ⋮
+                  </button>
+
+                  @if (activeMenuProjectId() === project.id) {
+                    <div class="studio-dropdown-menu">
+                      <button type="button" class="dropdown-item" (click)="openInClips(project.id, $event)">
+                        <span>🎞️</span> Open Video Editor
+                      </button>
+                      <button type="button" class="dropdown-item" (click)="openInScenes(project.id, $event)">
+                        <span>🎭</span> Open Scene Editor
+                      </button>
+                      <button type="button" class="dropdown-item" (click)="renameProject(project, $event)">
+                        <span>✏️</span> Rename Project
+                      </button>
+                      <button type="button" class="dropdown-item" (click)="duplicateProject(project, $event)">
+                        <span>📑</span> Duplicate
+                      </button>
+                      <button type="button" class="dropdown-item" (click)="exportProject(project, $event)">
+                        <span>📥</span> Export JSON
+                      </button>
+                      <div class="dropdown-divider"></div>
+                      <button type="button" class="dropdown-item danger" (click)="confirmDelete(project.id, $event)">
+                        <span>🗑️</span> Delete Project
+                      </button>
+                    </div>
+                  }
+                </div>
+              </div>
+
+              @if (project.description) {
+                <p class="project-card-desc" [title]="project.description">{{ project.description }}</p>
+              }
+
+              <div class="card-meta-row">
+                <span class="meta-time">Edited {{ project.updatedAt | date:'mediumDate' }}</span>
+                <span class="meta-aspect">{{ aspect(project.width, project.height) }}</span>
+              </div>
+
+              <!-- Inline Delete Confirmation -->
+              @if (confirming() === project.id) {
+                <div class="inline-delete-box" (click)="$event.stopPropagation()">
+                  <span class="delete-prompt">Delete this project?</span>
+                  <div class="delete-btns">
+                    <button type="button" class="btn-confirm-delete" (click)="delete(project.id, $event)">Delete</button>
+                    <button type="button" class="btn-cancel-delete" (click)="cancelDelete($event)">Cancel</button>
+                  </div>
+                </div>
+              }
+            </div>
+          </div>
         }
-      </tbody>
-    </table>
+      </div>
+    }
+
+    <!-- VIEW 2: Modern Table View -->
+    @if (viewMode() === 'table') {
+      <div class="studio-table-container">
+        <table class="studio-table">
+          <thead>
+            <tr>
+              <th style="width: 44px">
+                <input type="checkbox" class="project-checkbox"
+                       [checked]="isAllSelected()"
+                       (change)="toggleAll($event)" />
+              </th>
+              <th>Production</th>
+              <th>Format</th>
+              <th>Resolution & FPS</th>
+              <th>Status</th>
+              <th>Last Modified</th>
+              <th style="text-align: right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (project of paginatedProjects; track project.id) {
+              <tr class="table-row" [class.is-selected]="selectedProjectIds.has(project.id)">
+                <td>
+                  <input type="checkbox" class="project-checkbox"
+                         [checked]="selectedProjectIds.has(project.id)"
+                         (change)="toggleSelection(project.id, $event)" />
+                </td>
+                <td>
+                  <div class="table-project-cell">
+                    <div class="table-mini-thumb"
+                         [style.background]="getProjectGradient(project)"
+                         [class.short]="format(project.width, project.height) === 'Short'">
+                      @if (project.customThumbnail) {
+                        <img [src]="project.customThumbnail" alt="" />
+                      } @else {
+                        <span>{{ format(project.width, project.height) === 'Short' ? '📱' : '🎬' }}</span>
+                      }
+                      <label class="btn-upload-thumb mini" (click)="$event.stopPropagation()" title="Upload Thumbnail">
+                        📷
+                        <input type="file" accept="image/*" style="display: none" (change)="onUploadThumbnail($event, project)" />
+                      </label>
+                    </div>
+
+                    <div class="table-title-wrap">
+                      <a class="table-title-link" [routerLink]="['/projects', project.id, 'clips']">
+                        {{ project.name }}
+                      </a>
+                      @if (project.description) {
+                        <span class="table-desc-text" [title]="project.description">{{ project.description }}</span>
+                      }
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <span class="format-badge" [class.short]="format(project.width, project.height) === 'Short'">
+                    {{ format(project.width, project.height) === 'Short' ? '9:16 Short' : '16:9 Video' }}
+                  </span>
+                </td>
+                <td class="mono-cell">
+                  {{ project.width }}&times;{{ project.height }} &bull; {{ project.fps }}fps
+                </td>
+                <td>
+                  <span class="status-badge" [class.rendered]="project.status === 'Rendered' || project.status === 'completed'">
+                    {{ project.status === 'Rendered' || project.status === 'completed' ? '● Rendered' : '○ Draft' }}
+                  </span>
+                </td>
+                <td class="time-cell">
+                  {{ project.updatedAt | date:'mediumDate' }}
+                </td>
+                <td class="actions-cell">
+                  @if (confirming() === project.id) {
+                    <div class="inline-delete-box compact" (click)="$event.stopPropagation()">
+                      <button type="button" class="btn-confirm-delete" (click)="delete(project.id, $event)">Delete</button>
+                      <button type="button" class="btn-cancel-delete" (click)="cancelDelete($event)">Cancel</button>
+                    </div>
+                  } @else {
+                    <div class="table-actions-group" (click)="$event.stopPropagation()">
+                      <button type="button" class="btn-table-edit" (click)="openInClips(project.id, $event)">
+                        <span>🎞️</span> Edit
+                      </button>
+
+                      <div class="menu-container">
+                        <button type="button" class="btn-menu-dots" (click)="toggleProjectMenu(project.id, $event)">
+                          ⋮
+                        </button>
+
+                        @if (activeMenuProjectId() === project.id) {
+                          <div class="studio-dropdown-menu">
+                            <button type="button" class="dropdown-item" (click)="openInClips(project.id, $event)">
+                              <span>🎞️</span> Open Video Editor
+                            </button>
+                            <button type="button" class="dropdown-item" (click)="openInScenes(project.id, $event)">
+                              <span>🎭</span> Open Scene Editor
+                            </button>
+                            <button type="button" class="dropdown-item" (click)="renameProject(project, $event)">
+                              <span>✏️</span> Rename Project
+                            </button>
+                            <button type="button" class="dropdown-item" (click)="duplicateProject(project, $event)">
+                              <span>📑</span> Duplicate
+                            </button>
+                            <button type="button" class="dropdown-item" (click)="exportProject(project, $event)">
+                              <span>📥</span> Export JSON
+                            </button>
+                            <div class="dropdown-divider"></div>
+                            <button type="button" class="dropdown-item danger" (click)="confirmDelete(project.id, $event)">
+                              <span>🗑️</span> Delete Project
+                            </button>
+                          </div>
+                        }
+                      </div>
+                    </div>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+
+    <!-- Pagination Controls -->
+    @if (totalPages > 1) {
+      <div class="pagination-bar">
+        <div class="pagination-info">
+          Showing {{ (currentPage() - 1) * pageSize() + 1 }} &ndash;
+          {{ currentPage() * pageSize() > filteredAndSortedProjects.length ? filteredAndSortedProjects.length : currentPage() * pageSize() }}
+          of {{ filteredAndSortedProjects.length }} productions
+        </div>
+
+        <div class="pagination-buttons">
+          <button type="button" class="page-btn" [disabled]="currentPage() === 1" (click)="prevPage()">
+            ‹ Previous
+          </button>
+
+          @for (page of [1, 2, 3, 4, 5]; track page) {
+            @if (page <= totalPages) {
+              <button type="button" class="page-btn num"
+                      [class.active]="currentPage() === page"
+                      (click)="setPage(page)">
+                {{ page }}
+              </button>
+            }
+          }
+
+          <button type="button" class="page-btn" [disabled]="currentPage() === totalPages" (click)="nextPage()">
+            Next ›
+          </button>
+        </div>
+      </div>
+    }
   }
 </div>

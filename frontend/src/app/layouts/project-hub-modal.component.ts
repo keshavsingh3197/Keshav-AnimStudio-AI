@@ -896,7 +896,7 @@ export class ProjectHubModalComponent {
         width: preset.width,
         height: preset.height,
         fps: 30,
-        distributionIntent: 'Social Media',
+        distributionIntent: 'Public',
       }),
       (project) => {
         this.close();
@@ -911,7 +911,7 @@ export class ProjectHubModalComponent {
       this.status.run(
         this.api.updateProject(p.id, {
           name: newName.trim(),
-          distributionIntent: p.distributionIntent,
+          distributionIntent: (p.distributionIntent && p.distributionIntent !== 'Social Media') ? p.distributionIntent : 'Public',
           fps: p.fps,
           width: p.width,
           height: p.height,
@@ -927,13 +927,14 @@ export class ProjectHubModalComponent {
 
   duplicateProject(p: Project) {
     this.status.notify(['Duplicating project...']);
+    const intent = (p.distributionIntent && p.distributionIntent !== 'Social Media') ? p.distributionIntent : 'Public';
     this.status.run(
       this.api.createProject({
         name: p.name + ' (Copy)',
         width: p.width,
         height: p.height,
         fps: p.fps,
-        distributionIntent: p.distributionIntent,
+        distributionIntent: intent,
       }),
       (cloned) => {
         this.projects.update(list => [cloned, ...list]);

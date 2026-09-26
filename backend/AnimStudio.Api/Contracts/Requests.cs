@@ -1,10 +1,47 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using AnimStudio.Application.Clips;
 using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Projects;
 using AnimStudio.Domain.Rendering;
 
 namespace AnimStudio.Api.Contracts;
+
+public sealed class TolerantDistributionIntentConverter : JsonConverter<DistributionIntent>
+{
+    public override DistributionIntent Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.String)
+        {
+            var str = reader.GetString();
+            if (string.IsNullOrWhiteSpace(str)) return DistributionIntent.Personal;
+            if (Enum.TryParse<DistributionIntent>(str, ignoreCase: true, out var result))
+                return result;
+            if (str.Contains("Social", StringComparison.OrdinalIgnoreCase) ||
+                str.Contains("Public", StringComparison.OrdinalIgnoreCase) ||
+                str.Contains("Web", StringComparison.OrdinalIgnoreCase) ||
+                str.Contains("YouTube", StringComparison.OrdinalIgnoreCase) ||
+                str.Contains("TikTok", StringComparison.OrdinalIgnoreCase))
+                return DistributionIntent.Public;
+            if (str.Contains("Monetiz", StringComparison.OrdinalIgnoreCase) ||
+                str.Contains("Commercial", StringComparison.OrdinalIgnoreCase) ||
+                str.Contains("Business", StringComparison.OrdinalIgnoreCase))
+                return DistributionIntent.Monetized;
+            return DistributionIntent.Personal;
+        }
+        if (reader.TokenType == JsonTokenType.Number && reader.TryGetInt32(out var num))
+        {
+            return Enum.IsDefined(typeof(DistributionIntent), num) ? (DistributionIntent)num : DistributionIntent.Personal;
+        }
+        return DistributionIntent.Personal;
+    }
+
+    public override void Write(Utf8JsonWriter writer, DistributionIntent value, JsonSerializerOptions options)
+    {
+        writer.WriteStringValue(value.ToString());
+    }
+}
 
 public sealed record CreateProjectRequest
 {
@@ -18,6 +55,7 @@ public sealed record CreateProjectRequest
     [Range(240, 2160)] public int Height { get; init; } = 1080;
     [Range(1, 60)] public int Fps { get; init; } = 30;
 
+    [JsonConverter(typeof(TolerantDistributionIntentConverter))]
     public DistributionIntent DistributionIntent { get; init; } = DistributionIntent.Personal;
 }
 
@@ -104,6 +142,7 @@ public sealed record UpdateProjectRequest
     [Range(240, 2160)] public int Height { get; init; } = 1080;
     [Range(1, 60)] public int Fps { get; init; } = 30;
 
+    [JsonConverter(typeof(TolerantDistributionIntentConverter))]
     public DistributionIntent DistributionIntent { get; init; } = DistributionIntent.Personal;
     public bool AcceptShareAlikeObligation { get; init; }
 
