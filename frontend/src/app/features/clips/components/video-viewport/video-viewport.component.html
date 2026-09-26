@@ -56,7 +56,7 @@
 
         <!-- Dual Video Monitor Layers: Ping-pong buffering with seamless transitions -->
         <video #videoMonitorA
-               [class]="'pv-monitor-layer ' + (activeLayer() === 'A' ? 'layer-front' : 'layer-back') + ' ' + state.monitorFitClass() + (liveTransitionActive() && activeLayer() === 'A' ? ' ' + liveTransitionClass() : '')"
+               [class]="'pv-monitor-layer ' + getMonitorLayerClass('A') + ' ' + state.monitorFitClass()"
                [style.animation-duration.s]="liveTransitionDuration()"
                [style.filter]="state.computedMonitorFilter()"
                [style.transform]="state.activeClipTransform()"
@@ -65,7 +65,7 @@
                playsinline preload="auto"></video>
 
         <video #videoMonitorB
-               [class]="'pv-monitor-layer ' + (activeLayer() === 'B' ? 'layer-front' : 'layer-back') + ' ' + state.monitorFitClass() + (liveTransitionActive() && activeLayer() === 'B' ? ' ' + liveTransitionClass() : '')"
+               [class]="'pv-monitor-layer ' + getMonitorLayerClass('B') + ' ' + state.monitorFitClass()"
                [style.animation-duration.s]="liveTransitionDuration()"
                [style.filter]="state.computedMonitorFilter()"
                [style.transform]="state.activeClipTransform()"

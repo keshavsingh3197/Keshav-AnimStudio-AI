@@ -97,6 +97,13 @@ a { color: var(--brand); }
 }
 
 /* Widescreen pro layout when inside Video Studio or Render Output */
+.wrap:has(.editor-workspace) {
+  max-width: 100% !important;
+  width: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
 .wrap:has(.program-monitor-card),
 .wrap:has(.render-output-card),
 .wrap:has(.storyboard-grid),

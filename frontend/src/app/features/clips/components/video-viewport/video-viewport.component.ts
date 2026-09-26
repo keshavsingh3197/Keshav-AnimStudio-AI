@@ -27,6 +27,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
   // Dual-layer ping-pong state
   readonly activeLayer = signal<'A' | 'B'>('A');
   readonly liveTransitionActive = signal<boolean>(false);
+  readonly liveTransitionType = signal<string>('Dissolve');
   readonly liveTransitionClass = signal<string>('');
   readonly liveTransitionDuration = signal<number>(0.5);
 
@@ -521,6 +522,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       }
 
       this.liveTransitionActive.set(true);
+      this.liveTransitionType.set(curr.junctionTransition || 'Dissolve');
       this.liveTransitionClass.set(this.pvClassForTransition(curr.junctionTransition));
       this.liveTransitionDuration.set(transSec);
     } else {
@@ -636,6 +638,38 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       case 'CircleOpen': return 'pv-circle-open';
       case 'CircleClose': return 'pv-circle-close';
       default: return 'pv-cut';
+    }
+  }
+
+  getMonitorLayerClass(layer: 'A' | 'B'): string {
+    const isCurrentActive = this.activeLayer() === layer;
+    if (!this.liveTransitionActive()) {
+      return isCurrentActive ? 'layer-front' : 'layer-back';
+    }
+
+    const trans = this.liveTransitionType();
+    if (isCurrentActive) {
+      // Outgoing layer
+      switch (trans) {
+        case 'Fade': return 'trans-outgoing trans-dip-out';
+        case 'SlideLeft': return 'trans-outgoing trans-slide-left-out';
+        case 'SlideRight': return 'trans-outgoing trans-slide-right-out';
+        case 'CircleClose': return 'trans-outgoing trans-circle-close-out';
+        default: return 'trans-outgoing-underneath';
+      }
+    } else {
+      // Incoming layer
+      switch (trans) {
+        case 'Dissolve': return 'trans-incoming trans-dissolve-in';
+        case 'Fade': return 'trans-incoming trans-dip-in';
+        case 'WipeLeft': return 'trans-incoming trans-wipe-left-in';
+        case 'WipeRight': return 'trans-incoming trans-wipe-right-in';
+        case 'SlideLeft': return 'trans-incoming trans-slide-left-in';
+        case 'SlideRight': return 'trans-incoming trans-slide-right-in';
+        case 'CircleOpen': return 'trans-incoming trans-circle-open-in';
+        case 'CircleClose': return 'trans-incoming-underneath';
+        default: return 'trans-incoming trans-dissolve-in';
+      }
     }
   }
 

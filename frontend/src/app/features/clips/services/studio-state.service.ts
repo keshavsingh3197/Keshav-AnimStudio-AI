@@ -3558,18 +3558,20 @@ export class StudioStateService implements OnDestroy {
 
   // Transitions & Junctions
   toggleJunctionEditor(key: string): void {
-    this.openJunctionKey.update((cur) => (cur === key ? null : key));
     this.selectedJunctionKey.set(key);
+    this.openJunctionKey.set(null);
+    this.setInspectorTab('transitions');
   }
 
   selectJunction(key: string | null): void {
     this.selectedJunctionKey.set(key);
+    this.openJunctionKey.set(null);
   }
 
   openTransitionDialog(key?: string): void {
     if (key) {
       this.selectedJunctionKey.set(key);
-      this.openJunctionKey.set(key);
+      this.openJunctionKey.set(null);
     } else if (!this.selectedJunctionKey() && this.junctionsList().length > 0) {
       this.selectedJunctionKey.set(this.junctionsList()[0].key);
     }
@@ -3582,7 +3584,7 @@ export class StudioStateService implements OnDestroy {
 
   onJunctionChipClicked(key: string): void {
     this.selectedJunctionKey.set(key);
-    this.openJunctionKey.set(key);
+    this.openJunctionKey.set(null);
     this.setInspectorTab('transitions');
   }
 
@@ -3740,6 +3742,9 @@ export class StudioStateService implements OnDestroy {
     this.markDirty();
   }
 
+  private previewVideoA: HTMLVideoElement | null = null;
+  private previewVideoB: HTMLVideoElement | null = null;
+
   openPreview(junction: JunctionView): void {
     this.previewJunction.set({
       key: junction.key,
@@ -3748,7 +3753,11 @@ export class StudioStateService implements OnDestroy {
       transition: junction.transition,
       seconds: junction.seconds,
     });
-    this.previewPlaying.set(true);
+    this.previewPlaying.set(false);
+    // Allow video elements to mount and prepare before triggering transition animation
+    setTimeout(() => {
+      this.previewPlaying.set(true);
+    }, 200);
   }
 
   readonly previewPlaying = signal<boolean>(false);
@@ -3756,6 +3765,8 @@ export class StudioStateService implements OnDestroy {
   closePreview(): void {
     this.previewPlaying.set(false);
     this.previewJunction.set(null);
+    this.previewVideoA = null;
+    this.previewVideoB = null;
   }
 
   onPreviewAnimationEnd(): void {
@@ -3763,19 +3774,69 @@ export class StudioStateService implements OnDestroy {
   }
 
   onPreviewVideoReady(event: Event, which: 'A' | 'B'): void {
-    const video = event.target as HTMLVideoElement;
+    const vid = event.target as HTMLVideoElement;
+    if (vid) {
+      this.onPreviewVideoLoaded(vid, which);
+    }
+  }
+
+  onPreviewVideoLoaded(vid: HTMLVideoElement, which: 'A' | 'B'): void {
     if (which === 'A') {
-      video.currentTime = Math.max((video.duration || 1) - 1.4, 0);
+      this.previewVideoA = vid;
+      const dur = vid.duration || 3;
+      const transSec = this.previewJunction()?.seconds ?? 0.5;
+      vid.currentTime = Math.max(0, dur - transSec - 1.0);
     } else {
-      video.currentTime = 0;
+      this.previewVideoB = vid;
+      vid.currentTime = 0;
     }
   }
 
   replayPreview(): void {
     this.previewPlaying.set(false);
+    if (this.previewVideoA) {
+      const dur = this.previewVideoA.duration || 3;
+      const transSec = this.previewJunction()?.seconds ?? 0.5;
+      this.previewVideoA.currentTime = Math.max(0, dur - transSec - 1.0);
+      this.previewVideoA.play().catch(() => {});
+    }
+    if (this.previewVideoB) {
+      this.previewVideoB.currentTime = 0;
+      this.previewVideoB.play().catch(() => {});
+    }
     setTimeout(() => {
       this.previewPlaying.set(true);
-    }, 50);
+    }, 150);
+  }
+
+  previewOutClass(): string {
+    const pj = this.previewJunction();
+    if (!pj) return '';
+    switch (pj.transition) {
+      case 'Fade': return 'anim-pv-dip-out';
+      case 'SlideLeft': return 'anim-pv-slide-left-out';
+      case 'SlideRight': return 'anim-pv-slide-right-out';
+      case 'CircleClose': return 'anim-pv-circle-close-out';
+      case 'None': return 'anim-pv-cut-out';
+      default: return 'anim-pv-stay';
+    }
+  }
+
+  previewInClass(): string {
+    const pj = this.previewJunction();
+    if (!pj) return '';
+    switch (pj.transition) {
+      case 'Dissolve': return 'anim-pv-dissolve-in';
+      case 'Fade': return 'anim-pv-dip-in';
+      case 'WipeLeft': return 'anim-pv-wipe-left-in';
+      case 'WipeRight': return 'anim-pv-wipe-right-in';
+      case 'SlideLeft': return 'anim-pv-slide-left-in';
+      case 'SlideRight': return 'anim-pv-slide-right-in';
+      case 'CircleOpen': return 'anim-pv-circle-open-in';
+      case 'CircleClose': return 'anim-pv-stay';
+      case 'None': return 'anim-pv-cut-in';
+      default: return 'anim-pv-dissolve-in';
+    }
   }
 
   previewClass(): string {

@@ -245,24 +245,32 @@
         </div>
 
         <div class="transition-preview-body">
-          <div class="transition-stage" [class.is-playing]="state.previewPlaying()">
-            <!-- Left Clip View -->
-            <div class="stage-clip stage-left" [class]="state.previewPlaying() ? ('anim-' + state.previewClass() + '-out') : ''">
+          <div class="transition-stage" [class.is-playing]="state.previewPlaying()" [style.--trans-dur]="pj.seconds + 's'">
+            <!-- Left Clip View (Outgoing) -->
+            <div class="stage-clip stage-left"
+                 [class]="state.previewPlaying() ? state.previewOutClass() : ''"
+                 [style.--trans-dur]="pj.seconds + 's'">
               <div class="clip-label-overlay">A: {{ pj.leftClip.name }}</div>
               @if (state.getClipType(pj.leftClip) === 'image') {
                 <img [src]="state.assetUrl(pj.leftClip.id)" alt="Clip A" />
               } @else {
-                <video [src]="state.assetUrl(pj.leftClip.id)" autoplay muted loop playsinline></video>
+                <video #vidA [src]="state.assetUrl(pj.leftClip.id)"
+                       (loadedmetadata)="state.onPreviewVideoLoaded(vidA, 'A')"
+                       autoplay muted loop playsinline></video>
               }
             </div>
 
-            <!-- Right Clip View -->
-            <div class="stage-clip stage-right" [class]="state.previewPlaying() ? ('anim-' + state.previewClass() + '-in') : ''">
+            <!-- Right Clip View (Incoming) -->
+            <div class="stage-clip stage-right"
+                 [class]="state.previewPlaying() ? state.previewInClass() : ''"
+                 [style.--trans-dur]="pj.seconds + 's'">
               <div class="clip-label-overlay">B: {{ pj.rightClip.name }}</div>
               @if (state.getClipType(pj.rightClip) === 'image') {
                 <img [src]="state.assetUrl(pj.rightClip.id)" alt="Clip B" />
               } @else {
-                <video [src]="state.assetUrl(pj.rightClip.id)" autoplay muted loop playsinline></video>
+                <video #vidB [src]="state.assetUrl(pj.rightClip.id)"
+                       (loadedmetadata)="state.onPreviewVideoLoaded(vidB, 'B')"
+                       autoplay muted loop playsinline></video>
               }
             </div>
           </div>

@@ -658,44 +658,7 @@
   </div>
 </div>
 
-<!-- Transition Preview Modal -->
-@if (state.previewJunction(); as pj) {
-  <div class="shortcuts-modal-backdrop" (click)="state.closePreview()">
-    <div class="shortcuts-modal-dialog" style="max-width: 520px;" (click)="$event.stopPropagation()">
-      <div class="shortcuts-modal-header">
-        <h3 style="display:flex; align-items:center; gap:8px; margin:0;">
-          <span>⚡ Transition Preview</span>
-          <span class="badge bg-primary font-monospace" style="font-size:0.75rem;">{{ pj.transition }} ({{ pj.seconds | number:'1.1-1' }}s)</span>
-        </h3>
-        <button class="icon" type="button" (click)="state.closePreview()">&times;</button>
-      </div>
-      <div style="padding: 1.2rem; display: flex; flex-direction: column; align-items: center; gap: 12px;">
-        <div class="pv-stage" [class.playing]="state.previewPlaying()"
-             (animationend)="state.onPreviewAnimationEnd()" (transitionend)="state.onPreviewAnimationEnd()">
-          <video class="pv-layer pv-back" muted preload="metadata" playsinline
-                 [src]="state.assetUrl(pj.rightClip.id)"
-                 (loadedmetadata)="state.onPreviewVideoReady($event, 'B')"></video>
-          <video [class]="'pv-layer pv-front ' + state.previewClass()" muted preload="metadata" playsinline
-                 [src]="state.assetUrl(pj.leftClip.id)"
-                 [style.animation-duration.s]="pj.seconds"
-                 (loadedmetadata)="state.onPreviewVideoReady($event, 'A')"></video>
-        </div>
-        <div style="width: 100%; display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: var(--text-dim);">
-          <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 45%;">🎬 {{ pj.leftClip.name }}</span>
-          <span>➔</span>
-          <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 45%;">🎬 {{ pj.rightClip.name }}</span>
-        </div>
-        <p class="muted text-center" style="font-size: 0.75rem; margin: 0;">
-          In-browser animated style simulation. High-fidelity rendering is processed server-side upon export.
-        </p>
-      </div>
-      <div class="row" style="justify-content: space-between; align-items: center; padding: .8rem 1.2rem; background: var(--surface-2); border-top: 1px solid var(--border);">
-        <button type="button" class="btn btn-primary btn-sm px-3" (click)="state.replayPreview()">▶ Replay Transition</button>
-        <button type="button" class="secondary btn-sm" (click)="state.closePreview()">Close</button>
-      </div>
-    </div>
-  </div>
-}
+
 
 <!-- Add / Manage Tracks Dialog Modal -->
 @if (addTrackDialogOpen()) {

@@ -301,49 +301,132 @@
   object-fit: cover;
 }
 
-/* Seamless Dual-Layer Transition Keyframes */
-@keyframes pvFade {
-  from { opacity: 0; }
-  to { opacity: 1; }
+/* Seamless Dual-Layer Transition Keyframes & Classes */
+.trans-outgoing-underneath {
+  z-index: 1 !important;
+  opacity: 1 !important;
 }
 
-@keyframes pvWipeLeft {
-  from { clip-path: inset(0 0 0 100%); }
-  to { clip-path: inset(0 0 0 0); }
+.trans-incoming-underneath {
+  z-index: 1 !important;
+  opacity: 1 !important;
 }
 
-@keyframes pvWipeRight {
-  from { clip-path: inset(0 100% 0 0); }
-  to { clip-path: inset(0 0 0 0); }
+.trans-incoming {
+  z-index: 3 !important;
+  opacity: 1 !important;
+  animation-duration: inherit;
 }
 
-@keyframes pvSlideLeft {
-  from { transform: translateX(100%); }
-  to { transform: translateX(0); }
+.trans-outgoing {
+  z-index: 2 !important;
+  opacity: 1 !important;
+  animation-duration: inherit;
 }
 
-@keyframes pvSlideRight {
-  from { transform: translateX(-100%); }
-  to { transform: translateX(0); }
+/* Dissolve (Cross-Dissolve) */
+@keyframes pvDissolveIn {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+.trans-dissolve-in {
+  animation: pvDissolveIn linear forwards;
 }
 
-@keyframes pvCircleOpen {
-  from { clip-path: circle(0% at 50% 50%); }
-  to { clip-path: circle(100% at 50% 50%); }
+/* Fade (Dip to Black) */
+@keyframes pvDipOut {
+  0% { opacity: 1; }
+  45% { opacity: 0; }
+  100% { opacity: 0; }
+}
+@keyframes pvDipIn {
+  0% { opacity: 0; }
+  55% { opacity: 0; }
+  100% { opacity: 1; }
+}
+.trans-dip-out {
+  animation: pvDipOut ease-in forwards;
+}
+.trans-dip-in {
+  animation: pvDipIn ease-out forwards;
 }
 
-@keyframes pvCircleClose {
-  from { clip-path: circle(100% at 50% 50%); }
-  to { clip-path: circle(0% at 50% 50%); }
+/* Wipe Left (from right to left) */
+@keyframes pvWipeLeftIn {
+  0% { clip-path: inset(0 0 0 100%); }
+  100% { clip-path: inset(0 0 0 0); }
+}
+.trans-wipe-left-in {
+  animation: pvWipeLeftIn ease-in-out forwards;
 }
 
-.pv-fade { animation: pvFade linear forwards; }
-.pv-wipe-left { animation: pvWipeLeft ease-in-out forwards; }
-.pv-wipe-right { animation: pvWipeRight ease-in-out forwards; }
-.pv-slide-left { animation: pvSlideLeft cubic-bezier(0.4, 0, 0.2, 1) forwards; }
-.pv-slide-right { animation: pvSlideRight cubic-bezier(0.4, 0, 0.2, 1) forwards; }
-.pv-circle-open { animation: pvCircleOpen ease-in-out forwards; }
-.pv-circle-close { animation: pvCircleClose ease-in-out forwards; }
+/* Wipe Right (from left to right) */
+@keyframes pvWipeRightIn {
+  0% { clip-path: inset(0 100% 0 0); }
+  100% { clip-path: inset(0 0 0 0); }
+}
+.trans-wipe-right-in {
+  animation: pvWipeRightIn ease-in-out forwards;
+}
+
+/* Slide Left */
+@keyframes pvSlideLeftOut {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-100%); }
+}
+@keyframes pvSlideLeftIn {
+  0% { transform: translateX(100%); }
+  100% { transform: translateX(0); }
+}
+.trans-slide-left-out {
+  animation: pvSlideLeftOut cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+.trans-slide-left-in {
+  animation: pvSlideLeftIn cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* Slide Right */
+@keyframes pvSlideRightOut {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(100%); }
+}
+@keyframes pvSlideRightIn {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(0); }
+}
+.trans-slide-right-out {
+  animation: pvSlideRightOut cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+.trans-slide-right-in {
+  animation: pvSlideRightIn cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* Circle Open */
+@keyframes pvCircleOpenIn {
+  0% { clip-path: circle(0% at 50% 50%); }
+  100% { clip-path: circle(100% at 50% 50%); }
+}
+.trans-circle-open-in {
+  animation: pvCircleOpenIn ease-in-out forwards;
+}
+
+/* Circle Close */
+@keyframes pvCircleCloseOut {
+  0% { clip-path: circle(100% at 50% 50%); }
+  100% { clip-path: circle(0% at 50% 50%); }
+}
+.trans-circle-close-out {
+  animation: pvCircleCloseOut ease-in-out forwards;
+}
+
+/* Legacy helpers */
+.pv-fade { animation: pvDissolveIn linear forwards; }
+.pv-wipe-left { animation: pvWipeLeftIn ease-in-out forwards; }
+.pv-wipe-right { animation: pvWipeRightIn ease-in-out forwards; }
+.pv-slide-left { animation: pvSlideLeftIn cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+.pv-slide-right { animation: pvSlideRightIn cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+.pv-circle-open { animation: pvCircleOpenIn ease-in-out forwards; }
+.pv-circle-close { animation: pvCircleCloseOut ease-in-out forwards; }
 
 /* Overlays (V2, V3, Text, Watermark, Lower-Third) */
 .monitor-overlay-video,

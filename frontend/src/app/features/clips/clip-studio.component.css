@@ -53,27 +53,35 @@ app-studio-header {
 /* 4-Section NLE Workspace Grid */
 .flowedit-layout {
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr) 340px;
+  grid-template-columns: 320px minmax(0, 1fr) 350px;
   grid-template-rows: minmax(300px, 1fr) 290px;
   gap: 6px;
   flex-grow: 1;
   min-height: 0;
   padding: 0 6px 6px 6px;
   box-sizing: border-box;
+  width: 100%;
 }
 
 /* Big Screen & Ultrawide Display Optimizations */
-@media (min-width: 1800px) {
+@media (min-width: 1500px) {
   .flowedit-layout {
-    grid-template-columns: 420px minmax(0, 1fr) 380px;
-    grid-template-rows: minmax(360px, 1fr) 320px;
+    grid-template-columns: 360px minmax(0, 1fr) 380px;
+    grid-template-rows: minmax(340px, 1fr) 300px;
+  }
+}
+
+@media (min-width: 1900px) {
+  .flowedit-layout {
+    grid-template-columns: 420px minmax(0, 1fr) 420px;
+    grid-template-rows: minmax(380px, 1fr) 320px;
   }
 }
 
 @media (min-width: 2560px) {
   .flowedit-layout {
-    grid-template-columns: 520px minmax(0, 1fr) 420px;
-    grid-template-rows: minmax(420px, 1fr) 360px;
+    grid-template-columns: 500px minmax(0, 1fr) 460px;
+    grid-template-rows: minmax(440px, 1fr) 360px;
   }
 }
 
@@ -766,69 +774,127 @@ app-timeline-dock {
   pointer-events: none;
 }
 
-/* Transition Animations */
-.anim-pv-fade-in {
-  animation: pvFadeIn 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
-}
-@keyframes pvFadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+/* Transition Animations for Preview Modal */
+.anim-pv-stay {
+  opacity: 1 !important;
+  z-index: 1 !important;
 }
 
-.anim-pv-fade-out {
-  animation: pvFadeOut 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+/* Dissolve (Cross-Dissolve) */
+.anim-pv-dissolve-in {
+  z-index: 3 !important;
+  animation: pvDissolveIn var(--trans-dur, 0.5s) linear forwards;
 }
-@keyframes pvFadeOut {
-  from { opacity: 1; }
-  to { opacity: 0; }
+@keyframes pvDissolveIn {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
 }
 
+/* Fade (Dip to Black) */
+.anim-pv-dip-out {
+  z-index: 2 !important;
+  animation: pvDipOut var(--trans-dur, 0.5s) ease-in forwards;
+}
+@keyframes pvDipOut {
+  0% { opacity: 1; }
+  45% { opacity: 0; }
+  100% { opacity: 0; }
+}
+
+.anim-pv-dip-in {
+  z-index: 3 !important;
+  animation: pvDipIn var(--trans-dur, 0.5s) ease-out forwards;
+}
+@keyframes pvDipIn {
+  0% { opacity: 0; }
+  55% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+/* Wipe Left (from right to left) */
 .anim-pv-wipe-left-in {
-  animation: pvWipeLeft 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  z-index: 3 !important;
+  animation: pvWipeLeftIn var(--trans-dur, 0.5s) ease-in-out forwards;
 }
-@keyframes pvWipeLeft {
-  from { clip-path: inset(0 0 0 100%); }
-  to { clip-path: inset(0 0 0 0); }
+@keyframes pvWipeLeftIn {
+  0% { clip-path: inset(0 0 0 100%); }
+  100% { clip-path: inset(0 0 0 0); }
 }
 
+/* Wipe Right (from left to right) */
 .anim-pv-wipe-right-in {
-  animation: pvWipeRight 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  z-index: 3 !important;
+  animation: pvWipeRightIn var(--trans-dur, 0.5s) ease-in-out forwards;
 }
-@keyframes pvWipeRight {
-  from { clip-path: inset(0 100% 0 0); }
-  to { clip-path: inset(0 0 0 0); }
+@keyframes pvWipeRightIn {
+  0% { clip-path: inset(0 100% 0 0); }
+  100% { clip-path: inset(0 0 0 0); }
+}
+
+/* Slide Left */
+.anim-pv-slide-left-out {
+  z-index: 1 !important;
+  animation: pvSlideLeftOut var(--trans-dur, 0.5s) cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+@keyframes pvSlideLeftOut {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-100%); }
 }
 
 .anim-pv-slide-left-in {
-  animation: pvSlideLeftIn 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  z-index: 2 !important;
+  animation: pvSlideLeftIn var(--trans-dur, 0.5s) cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 @keyframes pvSlideLeftIn {
-  from { transform: translateX(100%); }
-  to { transform: translateX(0); }
+  0% { transform: translateX(100%); }
+  100% { transform: translateX(0); }
 }
 
-.anim-pv-slide-left-out {
-  animation: pvSlideLeftOut 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+/* Slide Right */
+.anim-pv-slide-right-out {
+  z-index: 1 !important;
+  animation: pvSlideRightOut var(--trans-dur, 0.5s) cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
-@keyframes pvSlideLeftOut {
-  from { transform: translateX(0); }
-  to { transform: translateX(-100%); }
+@keyframes pvSlideRightOut {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(100%); }
 }
 
 .anim-pv-slide-right-in {
-  animation: pvSlideRightIn 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  z-index: 2 !important;
+  animation: pvSlideRightIn var(--trans-dur, 0.5s) cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 @keyframes pvSlideRightIn {
-  from { transform: translateX(-100%); }
-  to { transform: translateX(0); }
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(0); }
 }
 
-.anim-pv-slide-right-out {
-  animation: pvSlideRightOut 1s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+/* Circle Open */
+.anim-pv-circle-open-in {
+  z-index: 3 !important;
+  animation: pvCircleOpenIn var(--trans-dur, 0.5s) ease-in-out forwards;
 }
-@keyframes pvSlideRightOut {
-  from { transform: translateX(0); }
-  to { transform: translateX(100%); }
+@keyframes pvCircleOpenIn {
+  0% { clip-path: circle(0% at 50% 50%); }
+  100% { clip-path: circle(100% at 50% 50%); }
+}
+
+/* Circle Close */
+.anim-pv-circle-close-out {
+  z-index: 3 !important;
+  animation: pvCircleCloseOut var(--trans-dur, 0.5s) ease-in-out forwards;
+}
+@keyframes pvCircleCloseOut {
+  0% { clip-path: circle(100% at 50% 50%); }
+  100% { clip-path: circle(0% at 50% 50%); }
+}
+
+/* Hard Cut */
+.anim-pv-cut-out {
+  opacity: 0 !important;
+}
+.anim-pv-cut-in {
+  opacity: 1 !important;
 }
 
 /* Responsive Breakpoints */
