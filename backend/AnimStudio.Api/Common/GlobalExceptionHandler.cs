@@ -49,6 +49,7 @@ public sealed class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logge
                 context.Request.Method, context.Request.Path, code);
 
         context.Response.StatusCode = status;
+        context.Response.Headers.AccessControlAllowOrigin = "*";
         try
         {
             await context.Response

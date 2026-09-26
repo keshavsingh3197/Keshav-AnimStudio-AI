@@ -49,7 +49,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       if (req) {
         untracked(() => this.syncSeek(req.time));
       }
-    }, { allowSignalWrites: true });
+    });
 
     // React to Play/Pause
     effect(() => {
@@ -61,7 +61,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
           this.pausePlayback();
         }
       });
-    }, { allowSignalWrites: true });
+    });
 
     // React to Playback Speed
     effect(() => {
@@ -83,7 +83,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       if (!playing && sched.length > 0) {
         untracked(() => this.syncMediaElements(false));
       }
-    }, { allowSignalWrites: true });
+    });
   }
 
   ngOnInit(): void {
@@ -311,6 +311,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       if (type === 'image' && !this.prefetchedAssetIds.has(assetId)) {
         this.prefetchedAssetIds.add(assetId);
         const img = new Image();
+        img.crossOrigin = 'anonymous';
         img.src = this.state.assetUrl(assetId);
       } else if (type === 'video' && offset === 1) {
         const currentActiveIsA = this.activeLayer() === 'A';
@@ -322,6 +323,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
           if (standby.src !== url) {
             if (currentActiveIsA) this.loadedClipIdB = assetId;
             else this.loadedClipIdA = assetId;
+            standby.crossOrigin = 'anonymous';
             standby.src = url;
             standby.currentTime = upcoming.clip.trimStartSeconds ?? 0;
             standby.load();
@@ -334,6 +336,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       if (sound?.audioAssetId && !this.prefetchedAssetIds.has(sound.audioAssetId)) {
         this.prefetchedAssetIds.add(sound.audioAssetId);
         const audio = new Audio();
+        audio.crossOrigin = 'anonymous';
         audio.preload = 'auto';
         audio.src = this.state.assetUrl(sound.audioAssetId);
       }
@@ -345,6 +348,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     if (upcomingV2 && upcomingV2.src && !this.prefetchedAssetIds.has(upcomingV2.src)) {
       this.prefetchedAssetIds.add(upcomingV2.src);
       const v = document.createElement('video');
+      v.crossOrigin = 'anonymous';
       v.preload = 'metadata';
       v.src = this.state.assetUrl(upcomingV2.src);
     }
@@ -355,6 +359,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     if (upcomingV3 && upcomingV3.src && !this.prefetchedAssetIds.has(upcomingV3.src)) {
       this.prefetchedAssetIds.add(upcomingV3.src);
       const img = new Image();
+      img.crossOrigin = 'anonymous';
       img.src = this.state.assetUrl(upcomingV3.src);
     }
   }

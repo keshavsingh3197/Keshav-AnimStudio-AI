@@ -173,7 +173,7 @@ public sealed class AssetsController(
         try
         {
             if (ct.IsCancellationRequested || HttpContext.RequestAborted.IsCancellationRequested)
-                return StatusCode(499);
+                return new EmptyResult();
 
             if (!MetaCache.TryGetValue(id, out var meta))
             {
@@ -183,27 +183,31 @@ public sealed class AssetsController(
                     var baseId = System.Text.RegularExpressions.Regex.Replace(id, @"(_[ab]_\d+|_part.*)$", "");
                     asset = await assets.GetAsync(baseId, ct);
                 }
-                if (asset is null) throw new KeyNotFoundException();
+                if (asset is null) return NotFound();
                 meta = (asset.StorageKey, asset.MimeType, asset.ProjectId);
                 MetaCache.TryAdd(id, meta);
             }
 
             await EnsureOwnedAsync(meta.ProjectId, ct);
 
-            var stream = await store.OpenAsync(meta.StorageKey, ct) ?? throw new KeyNotFoundException();
+            var stream = await store.OpenAsync(meta.StorageKey, ct);
+            if (stream is null) return NotFound();
 
+            Response.Headers.AccessControlAllowOrigin = "*";
+            Response.Headers.AccessControlAllowMethods = "GET, HEAD, OPTIONS";
+            Response.Headers.AccessControlAllowHeaders = "*";
             Response.Headers.XContentTypeOptions = "nosniff";
             Response.Headers.CacheControl = "public, max-age=86400";
             return File(stream, meta.MimeType, enableRangeProcessing: stream.CanSeek);
         }
         catch (OperationCanceledException)
         {
-            return StatusCode(499);
+            return new EmptyResult();
         }
         catch (Exception ex) when (ex.Message.Contains("cancelled", StringComparison.OrdinalIgnoreCase) ||
                                    ex.Message.Contains("aborted", StringComparison.OrdinalIgnoreCase))
         {
-            return StatusCode(499);
+            return new EmptyResult();
         }
     }
 
@@ -267,7 +271,7 @@ public sealed class AssetsController(
         try
         {
             if (ct.IsCancellationRequested || HttpContext.RequestAborted.IsCancellationRequested)
-                return StatusCode(499);
+                return new EmptyResult();
 
             if (!MetaCache.TryGetValue(id, out var meta))
             {
@@ -277,19 +281,23 @@ public sealed class AssetsController(
                     var baseId = System.Text.RegularExpressions.Regex.Replace(id, @"(_[ab]_\d+|_part.*)$", "");
                     asset = await assets.GetAsync(baseId, ct);
                 }
-                if (asset is null) throw new KeyNotFoundException();
+                if (asset is null) return NotFound();
                 meta = (asset.StorageKey, asset.MimeType, asset.ProjectId);
                 MetaCache.TryAdd(id, meta);
             }
 
             await EnsureOwnedAsync(meta.ProjectId, ct);
 
+            Response.Headers.AccessControlAllowOrigin = "*";
+            Response.Headers.AccessControlAllowMethods = "GET, HEAD, OPTIONS";
+            Response.Headers.AccessControlAllowHeaders = "*";
             Response.Headers.XContentTypeOptions = "nosniff";
 
             if (meta.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
             {
                 Response.Headers.CacheControl = "public, max-age=604800";
-                var imgStream = await store.OpenAsync(meta.StorageKey, ct) ?? throw new KeyNotFoundException();
+                var imgStream = await store.OpenAsync(meta.StorageKey, ct);
+                if (imgStream is null) return NotFound();
                 return File(imgStream, meta.MimeType);
             }
 
@@ -371,12 +379,12 @@ public sealed class AssetsController(
         }
         catch (OperationCanceledException)
         {
-            return StatusCode(499);
+            return new EmptyResult();
         }
         catch (Exception ex) when (ex.Message.Contains("cancelled", StringComparison.OrdinalIgnoreCase) ||
                                    ex.Message.Contains("aborted", StringComparison.OrdinalIgnoreCase))
         {
-            return StatusCode(499);
+            return new EmptyResult();
         }
     }
 

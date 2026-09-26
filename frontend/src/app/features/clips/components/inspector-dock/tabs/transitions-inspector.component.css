@@ -1,12 +1,26 @@
-/* ============================================================
-   Transitions Inspector Component Styles
-   AnimStudio AI · Modern Inspector Dock Tab
-   ============================================================ */
+:host {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 100%;
+  width: 100%;
+}
 
 .trans-inspector-wrap {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 100%;
   gap: 10px;
+  width: 100%;
+}
+
+.trans-defaults-card {
+  background: var(--surface-2, #141721);
+  border: 1px solid var(--border, #1e2433);
+  border-radius: 10px;
+  padding: 12px;
+  flex-shrink: 0;
 }
 
 /* Active Cut Seam Highlight Card */
@@ -331,6 +345,10 @@
   border: 1px solid var(--border, #1e2433);
   border-radius: 10px;
   padding: 10px;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 200px;
 }
 
 .cuts-list-header {
@@ -338,6 +356,7 @@
   justify-content: space-between;
   align-items: center;
   margin-bottom: 8px;
+  flex-shrink: 0;
 }
 
 .cuts-list-title {
@@ -363,7 +382,8 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-height: 240px;
+  flex: 1 1 0;
+  min-height: 120px;
   overflow-y: auto;
   padding-right: 2px;
 }
