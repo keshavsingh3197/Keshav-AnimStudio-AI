@@ -606,13 +606,15 @@
                 }
                 @for (track of state.musicTracks(); track track.key) {
                   <div class="tl-music-clip"
+                       [class.selected]="state.selectedMusicTrackKey() === track.key"
+                       [class.muted]="track.muted"
                        [class.has-thumbnails]="state.timelineThumbnailMode() === 'filmstrip'"
                        style="background: var(--ok, #10b981) repeating-linear-gradient(90deg, rgba(255,255,255,0.2) 0px, rgba(255,255,255,0.2) 2px, transparent 2px, transparent 4px) center/100% 60% no-repeat;"
                        [style.left.px]="state.secondsToPx(track.startSeconds)"
                        [style.width.px]="state.secondsToPx(state.musicTrackDurationSeconds(track))"
                        (pointerdown)="onMusicBlockPointerDown(track, $event)"
-                       (click)="$event.stopPropagation(); state.onTimelineAudioClicked()"
-                       title="Click to open Audio Inspector · Drag to move in time">
+                       (click)="$event.stopPropagation(); state.selectMusicTrack(track.key)"
+                       title="Click to select & configure Audio · Drag to move in time">
                     <span class="tl-trim-handle left" (pointerdown)="onMusicTrimPointerDown(track, 'start', $event)"></span>
                     @if (state.timelineThumbnailMode() === 'filmstrip') {
                       <div class="tl-music-inner">

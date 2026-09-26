@@ -251,9 +251,15 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     }
     const bg = this.bgMusicAudioRef?.nativeElement;
     if (bg) {
-      const bgMuted = isMuted || this.state.isTrackMuted('A1');
+      const time = this.state.currentTime();
+      const activeMusic = this.state.musicTracks().find((t) => {
+        const d = this.state.musicTrackDurationSeconds(t);
+        return time >= t.startSeconds && time < (t.startSeconds + d);
+      });
+      const bgMuted = isMuted || this.state.isTrackMuted('A1') || (activeMusic ? !!activeMusic.muted : false);
+      const musicVol = activeMusic ? (activeMusic.volume ?? 1.0) : this.state.musicVolume();
       bg.muted = bgMuted;
-      bg.volume = bgMuted ? 0 : Math.min(1, masterVol * this.state.trackA1Volume() * this.state.musicVolume());
+      bg.volume = bgMuted ? 0 : Math.min(1, masterVol * this.state.trackA1Volume() * musicVol);
     }
     const cs = this.clipSoundAudioRef?.nativeElement;
     if (cs) {
@@ -571,6 +577,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       targetMusicAssetId = activeMusicTrack.assetId;
       targetMusicTime = (time - activeMusicTrack.startSeconds) + (activeMusicTrack.trimStartSeconds ?? 0);
       targetMusicVolume = (activeMusicTrack.volume ?? 1.0) * this.state.trackA1Volume();
+      if (activeMusicTrack.muted) isMusicTrackMuted = true;
     } else if (activeA1Item) {
       targetMusicAssetId = activeA1Item.src;
       targetMusicTime = (time - activeA1Item.startTime) + (activeA1Item.trimStartSeconds ?? 0);

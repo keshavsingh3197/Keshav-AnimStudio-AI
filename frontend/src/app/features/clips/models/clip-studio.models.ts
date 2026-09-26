@@ -40,6 +40,9 @@ export interface MusicTrackRow {
   volume: number;
   trimStartSeconds: number | null;
   trimEndSeconds: number | null;
+  fadeInSeconds?: number;
+  fadeOutSeconds?: number;
+  muted?: boolean;
 }
 
 export interface ScheduledClip {

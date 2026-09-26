@@ -220,10 +220,12 @@
               <span>🔊</span>
               @if (state.isMultiSelection()) {
                 Batch ({{ state.multiSelectionCount() }})
+              } @else if (state.selectedMusicTrack()) {
+                Music Track
               } @else {
                 Clip Inspector
               }
-              @if (state.activeTargetAudioItem() || state.isMultiSelection()) {
+              @if (state.activeTargetAudioItem() || state.isMultiSelection() || state.selectedMusicTrack()) {
                 <span class="nav-active-dot" title="Item Selected"></span>
               }
             </button>

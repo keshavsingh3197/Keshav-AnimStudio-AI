@@ -299,6 +299,7 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
     if ((event.target as HTMLElement).closest('.tl-trim-handle') || (event.target as HTMLElement).closest('.tl-music-remove')) return;
     event.preventDefault();
     event.stopPropagation();
+    this.state.selectMusicTrack(track.key);
     this.musicDrag = { key: track.key, startClientX: event.clientX, startSeconds: track.startSeconds };
   }
 

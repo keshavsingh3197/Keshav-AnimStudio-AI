@@ -12,18 +12,42 @@
   </div>
 
   @if (state.hasMusicOnTimeline()) {
-    <!-- Music Track Summary Line -->
-    <div class="d-flex justify-content-between align-items-center mb-2 px-1">
-      <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.72rem; color: #cbd5e1; max-width: 200px;" [title]="state.activeMusicTrackName()">
-        🎵 <strong style="color: #fff;">{{ state.activeMusicTrackName() }}</strong>
+    <!-- Music Track Selector & Summary Line -->
+    <div class="d-flex justify-content-between align-items-center mb-2 px-1 gap-2">
+      <div class="d-flex align-items-center gap-1 flex-grow-1" style="min-width: 0;">
+        <span style="font-size: 0.8rem; flex-shrink: 0;">🎵</span>
+        @if (state.musicTracks().length > 1) {
+          <select class="form-select form-select-sm py-0" style="font-size: 0.72rem; background: var(--bg-surface); color: var(--text); border-color: rgba(255,255,255,0.15); max-width: 190px;"
+                  [ngModel]="state.selectedMusicTrackKey() ?? state.musicTracks()[0].key"
+                  (ngModelChange)="state.selectMusicTrack($event)">
+            @for (t of state.musicTracks(); track t.key) {
+              <option [value]="t.key">
+                {{ state.musicTrackName(t) }} ({{ t.startSeconds | number:'1.1-1' }}s)
+              </option>
+            }
+          </select>
+        } @else {
+          <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.72rem; color: #cbd5e1; max-width: 180px;" [title]="state.activeMusicTrackName()">
+            <strong style="color: #fff;">{{ state.activeMusicTrackName() }}</strong>
+          </div>
+        }
       </div>
-      @if (state.clipsUnderMusic().length > 0) {
-        <button type="button" class="audio-action-btn" style="font-size: 0.65rem; padding: 2px 7px;"
-                (click)="state.selectClipsUnderMusic()"
-                title="Select only the video clips that overlap with background music">
-          🎯 Select Clips Under Music ({{ state.clipsUnderMusic().length }})
-        </button>
-      }
+      <div class="d-flex gap-1 align-items-center flex-shrink-0">
+        @if (state.selectedMusicTrackKey() === null && state.musicTracks().length > 0) {
+          <button type="button" class="audio-action-btn primary" style="font-size: 0.65rem; padding: 2px 7px;"
+                  (click)="state.selectMusicTrack(state.musicTracks()[0].key)"
+                  title="Configure music track settings (volume, fades, trimming)">
+            ⚙ Settings
+          </button>
+        }
+        @if (state.clipsUnderMusic().length > 0) {
+          <button type="button" class="audio-action-btn" style="font-size: 0.65rem; padding: 2px 7px;"
+                  (click)="state.selectClipsUnderMusic()"
+                  title="Select only the video clips that overlap with background music">
+            🎯 Clips ({{ state.clipsUnderMusic().length }})
+          </button>
+        }
+      </div>
     </div>
 
     <!-- 3 Quick Strategy Buttons -->
@@ -289,6 +313,207 @@
           </button>
         </div>
       }
+    </div>
+  </div>
+}
+<!-- SUB-VIEW C: SELECTED MUSIC TRACK INSPECTOR -->
+@else if (state.selectedMusicTrack(); as musicTrack) {
+  <div class="audio-card clip-inspector-card">
+    <!-- Music Track Identity Header Card -->
+    <div class="clip-inspector-head mb-2 pb-2 border-bottom border-secondary border-opacity-25">
+      <div class="d-flex justify-content-between align-items-start gap-2">
+        <div style="overflow: hidden; flex: 1;">
+          <div class="d-flex align-items-center gap-1">
+            <span style="font-size: 0.85rem;">🎵</span>
+            <div class="clip-name fw-bold" [title]="state.musicTrackName(musicTrack)" style="font-size: 0.82rem; color: #38bdf8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+              {{ state.musicTrackName(musicTrack) }}
+            </div>
+          </div>
+          <div class="muted mono d-flex gap-2 align-items-center mt-1" style="font-size: 0.7rem;">
+            <span>⏱ Start: {{ musicTrack.startSeconds | number:'1.2-2' }}s</span>
+            <span>·</span>
+            <span>Duration: {{ state.musicTrackDurationSeconds(musicTrack) | number:'1.1-1' }}s</span>
+            @if (musicTrack.muted) {
+              <span class="badge bg-danger text-light" style="font-size: 0.6rem; padding: 1px 4px;">MUTED</span>
+            }
+          </div>
+        </div>
+        <div class="d-flex gap-1 align-items-center flex-wrap justify-content-end">
+          <span class="track-badge-pill" style="background: #10b981; color: #fff;">A1</span>
+          <button type="button" class="audio-action-btn" style="font-size: 0.65rem; padding: 2px 7px;" (click)="state.seekToMusicTrack(musicTrack.key)" title="Seek Playhead to track start">
+            ▶ Seek
+          </button>
+          <button type="button" class="audio-action-btn" style="font-size: 0.65rem; padding: 2px 7px;" (click)="state.duplicateMusicTrack(musicTrack.key)" title="Duplicate this music track">
+            ⧉ Copy
+          </button>
+          <button type="button" class="audio-action-btn text-danger" style="font-size: 0.65rem; padding: 2px 7px;" (click)="state.removeMusicTrack(musicTrack.key)" title="Delete music track">
+            🗑
+          </button>
+          <button type="button" class="audio-action-btn" style="font-size: 0.65rem; padding: 2px 8px;" (click)="state.clearAllSelections()" title="Deselect (Esc)">
+            ✕
+          </button>
+        </div>
+      </div>
+
+      <!-- Quick Switch Music Track Asset Dropdown -->
+      @if (state.musicCandidates().length > 1) {
+        <div class="mt-2 d-flex align-items-center gap-2">
+          <span style="font-size: 0.68rem; color: var(--text-dim); white-space: nowrap;">Replace Audio:</span>
+          <select class="form-select form-select-sm" style="font-size: 0.72rem; background: var(--bg-surface); color: var(--text); border-color: rgba(255,255,255,0.15);"
+                  [ngModel]="musicTrack.assetId" (ngModelChange)="state.setMusicTrackAsset(musicTrack.key, $event)">
+            @for (cand of state.musicCandidates(); track cand.id) {
+              <option [value]="cand.id">{{ cand.name }} ({{ cand.durationSeconds | number:'1.1-1' }}s)</option>
+            }
+          </select>
+        </div>
+      }
+    </div>
+
+    <!-- Volume & Mute Row -->
+    <div class="inner-audio-card mb-2">
+      <div class="d-flex justify-content-between align-items-center mb-1">
+        <div class="d-flex align-items-center gap-2">
+          <button type="button" class="btn-mute-toggle" [class.muted]="musicTrack.muted || musicTrack.volume === 0" (click)="state.toggleMusicTrackMute(musicTrack.key)" [title]="musicTrack.muted ? 'Unmute' : 'Mute'">
+            {{ (musicTrack.muted || musicTrack.volume === 0) ? '🔇' : '🔊' }}
+          </button>
+          <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">Track Volume</span>
+        </div>
+        <span class="mono fw-bold" style="font-size: 0.75rem; color: #38bdf8;">
+          {{ musicTrack.muted ? '0% (Muted)' : (Math.round(musicTrack.volume * 100) + '%') }}
+          @if (!musicTrack.muted) {
+            <small class="text-secondary">({{ state.volumeToDb(musicTrack.volume) }})</small>
+          }
+        </span>
+      </div>
+
+      <div class="d-flex gap-1 mb-2 flex-wrap">
+        <button type="button" class="audio-preset-chip"
+                [class.active]="musicTrack.muted || musicTrack.volume === 0" (click)="state.setMusicTrackVolume(musicTrack.key, 0)">0% Mute</button>
+        <button type="button" class="audio-preset-chip"
+                [class.active]="!musicTrack.muted && musicTrack.volume === 0.25" (click)="state.setMusicTrackVolume(musicTrack.key, 0.25)">25%</button>
+        <button type="button" class="audio-preset-chip"
+                [class.active]="!musicTrack.muted && musicTrack.volume === 0.5" (click)="state.setMusicTrackVolume(musicTrack.key, 0.5)">50%</button>
+        <button type="button" class="audio-preset-chip"
+                [class.active]="!musicTrack.muted && musicTrack.volume === 0.8" (click)="state.setMusicTrackVolume(musicTrack.key, 0.8)">80%</button>
+        <button type="button" class="audio-preset-chip"
+                [class.active]="!musicTrack.muted && musicTrack.volume === 1.0" (click)="state.setMusicTrackVolume(musicTrack.key, 1.0)">100%</button>
+        <button type="button" class="audio-preset-chip"
+                [class.active]="!musicTrack.muted && musicTrack.volume === 1.5" (click)="state.setMusicTrackVolume(musicTrack.key, 1.5)">150%</button>
+      </div>
+
+      <input type="range" class="form-range w-100" min="0" max="2.0" step="0.05"
+             [ngModel]="musicTrack.volume" (ngModelChange)="state.setMusicTrackVolume(musicTrack.key, $event)" />
+    </div>
+
+    <!-- Timeline Timing (Start Offset & Position Steppers) -->
+    <div class="inner-audio-card mb-2">
+      <div class="d-flex justify-content-between align-items-center mb-1">
+        <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">Timeline Start Position</span>
+        <span class="mono fw-bold" style="font-size: 0.72rem; color: #38bdf8;">{{ musicTrack.startSeconds | number:'1.2-2' }}s</span>
+      </div>
+      <div class="d-flex gap-1 align-items-center mb-2 flex-wrap">
+        <button type="button" class="audio-preset-chip" (click)="state.setMusicTrackStart(musicTrack.key, musicTrack.startSeconds - 1.0)" [disabled]="musicTrack.startSeconds <= 0">−1.0s</button>
+        <button type="button" class="audio-preset-chip" (click)="state.setMusicTrackStart(musicTrack.key, musicTrack.startSeconds - 0.1)" [disabled]="musicTrack.startSeconds <= 0">−0.1s</button>
+        <button type="button" class="audio-preset-chip" (click)="state.setMusicTrackStart(musicTrack.key, 0)">0.0s</button>
+        <button type="button" class="audio-preset-chip" (click)="state.setMusicTrackStart(musicTrack.key, state.currentTime())" title="Snap to current playhead position">Playhead ({{ state.currentTime() | number:'1.1-1' }}s)</button>
+        <button type="button" class="audio-preset-chip" (click)="state.setMusicTrackStart(musicTrack.key, musicTrack.startSeconds + 0.1)">+0.1s</button>
+        <button type="button" class="audio-preset-chip" (click)="state.setMusicTrackStart(musicTrack.key, musicTrack.startSeconds + 1.0)">+1.0s</button>
+      </div>
+      <input type="range" class="form-range w-100" min="0" [max]="Math.max(10, state.contentDurationSeconds())" step="0.1"
+             [ngModel]="musicTrack.startSeconds" (ngModelChange)="state.setMusicTrackStart(musicTrack.key, +$event)" />
+    </div>
+
+    <!-- Trimming (Trim Start / Trim End) -->
+    <div class="inner-audio-card mb-2">
+      <div class="d-flex justify-content-between align-items-center mb-1">
+        <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">Audio Clip Trimming</span>
+        <small class="muted mono" style="font-size: 0.65rem;">
+          Asset Total: {{ (state.musicTrackAsset(musicTrack)?.durationSeconds ?? 0) | number:'1.1-1' }}s
+        </small>
+      </div>
+      <div class="row g-2">
+        <div class="col-6">
+          <label class="fade-stepper-label">
+            <span>✂ Trim In</span>
+            <span class="mono">{{ (musicTrack.trimStartSeconds ?? 0) | number:'1.1-1' }}s</span>
+          </label>
+          <div class="fade-stepper-group">
+            <button type="button" class="stepper-btn" (click)="state.setMusicTrackTrimStart(musicTrack.key, (musicTrack.trimStartSeconds ?? 0) - 0.5)" [disabled]="(musicTrack.trimStartSeconds ?? 0) <= 0">−</button>
+            <input type="number" class="stepper-input" min="0" [max]="(musicTrack.trimEndSeconds ?? (state.musicTrackAsset(musicTrack)?.durationSeconds ?? 10)) - 0.5" step="0.1"
+                   [ngModel]="musicTrack.trimStartSeconds ?? 0" (ngModelChange)="state.setMusicTrackTrimStart(musicTrack.key, +$event)" />
+            <button type="button" class="stepper-btn" (click)="state.setMusicTrackTrimStart(musicTrack.key, (musicTrack.trimStartSeconds ?? 0) + 0.5)">+</button>
+          </div>
+        </div>
+        <div class="col-6">
+          <label class="fade-stepper-label">
+            <span>✂ Trim Out</span>
+            <span class="mono">{{ (musicTrack.trimEndSeconds ?? (state.musicTrackAsset(musicTrack)?.durationSeconds ?? 0)) | number:'1.1-1' }}s</span>
+          </label>
+          <div class="fade-stepper-group">
+            <button type="button" class="stepper-btn" (click)="state.setMusicTrackTrimEnd(musicTrack.key, (musicTrack.trimEndSeconds ?? (state.musicTrackAsset(musicTrack)?.durationSeconds ?? 10)) - 0.5)">−</button>
+            <input type="number" class="stepper-input" min="0.5" [max]="state.musicTrackAsset(musicTrack)?.durationSeconds ?? 999" step="0.1"
+                   [ngModel]="musicTrack.trimEndSeconds ?? (state.musicTrackAsset(musicTrack)?.durationSeconds ?? 0)" (ngModelChange)="state.setMusicTrackTrimEnd(musicTrack.key, +$event)" />
+            <button type="button" class="stepper-btn" (click)="state.setMusicTrackTrimEnd(musicTrack.key, (musicTrack.trimEndSeconds ?? (state.musicTrackAsset(musicTrack)?.durationSeconds ?? 10)) + 0.5)">+</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Acoustic Fades (Fade-In / Fade-Out) -->
+    <div class="inner-audio-card mb-2">
+      <div class="d-flex justify-content-between align-items-center mb-1">
+        <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">Acoustic Fades</span>
+        <small class="muted mono" style="font-size: 0.65rem;">Smooth In/Out</small>
+      </div>
+      <div class="row g-2 mb-2">
+        <div class="col-6">
+          <label class="fade-stepper-label">
+            <span>📈 Fade-In</span>
+            <span class="mono">{{ (musicTrack.fadeInSeconds ?? 0) | number:'1.1-1' }}s</span>
+          </label>
+          <div class="fade-stepper-group">
+            <button type="button" class="stepper-btn" (click)="state.setMusicTrackFadeIn(musicTrack.key, (musicTrack.fadeInSeconds ?? 0) - 0.5)" [disabled]="(musicTrack.fadeInSeconds ?? 0) <= 0">−</button>
+            <input type="number" class="stepper-input" min="0" max="10" step="0.5"
+                   [ngModel]="musicTrack.fadeInSeconds ?? 0" (ngModelChange)="state.setMusicTrackFadeIn(musicTrack.key, +$event)" />
+            <button type="button" class="stepper-btn" (click)="state.setMusicTrackFadeIn(musicTrack.key, (musicTrack.fadeInSeconds ?? 0) + 0.5)">+</button>
+          </div>
+        </div>
+        <div class="col-6">
+          <label class="fade-stepper-label">
+            <span>📉 Fade-Out</span>
+            <span class="mono">{{ (musicTrack.fadeOutSeconds ?? 0) | number:'1.1-1' }}s</span>
+          </label>
+          <div class="fade-stepper-group">
+            <button type="button" class="stepper-btn" (click)="state.setMusicTrackFadeOut(musicTrack.key, (musicTrack.fadeOutSeconds ?? 0) - 0.5)" [disabled]="(musicTrack.fadeOutSeconds ?? 0) <= 0">−</button>
+            <input type="number" class="stepper-input" min="0" max="10" step="0.5"
+                   [ngModel]="musicTrack.fadeOutSeconds ?? 0" (ngModelChange)="state.setMusicTrackFadeOut(musicTrack.key, +$event)" />
+            <button type="button" class="stepper-btn" (click)="state.setMusicTrackFadeOut(musicTrack.key, (musicTrack.fadeOutSeconds ?? 0) + 0.5)">+</button>
+          </div>
+        </div>
+      </div>
+      <div class="d-flex gap-1">
+        <button type="button" class="audio-preset-chip"
+                [class.active]="!musicTrack.fadeInSeconds && !musicTrack.fadeOutSeconds"
+                (click)="state.setMusicTrackFadeIn(musicTrack.key, 0); state.setMusicTrackFadeOut(musicTrack.key, 0)">0s (Off)</button>
+        <button type="button" class="audio-preset-chip"
+                (click)="state.setMusicTrackFadeIn(musicTrack.key, 1.0); state.setMusicTrackFadeOut(musicTrack.key, 1.0)">1.0s</button>
+        <button type="button" class="audio-preset-chip"
+                (click)="state.setMusicTrackFadeIn(musicTrack.key, 2.0); state.setMusicTrackFadeOut(musicTrack.key, 2.0)">2.0s</button>
+        <button type="button" class="audio-preset-chip"
+                (click)="state.setMusicTrackFadeIn(musicTrack.key, 3.0); state.setMusicTrackFadeOut(musicTrack.key, 3.0)">3.0s</button>
+      </div>
+    </div>
+
+    <!-- Related Video Clips Actions -->
+    <div class="inner-audio-card">
+      <div class="d-flex justify-content-between align-items-center">
+        <span style="font-size: 0.72rem; color: var(--text-dim);">Overlapping Video Clips:</span>
+        <button type="button" class="audio-action-btn primary" style="font-size: 0.68rem; padding: 3px 9px;"
+                (click)="state.selectClipsUnderMusic()"
+                title="Select all video clips overlapping background music">
+          🎯 Select Video Clips Under Music
+        </button>
+      </div>
     </div>
   </div>
 } @else {

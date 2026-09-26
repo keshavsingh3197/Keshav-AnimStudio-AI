@@ -65,8 +65,20 @@ export class StudioStateService implements OnDestroy {
     { id: 'A2', name: 'Music Bed', label: 'A2', kind: 'audio', muted: false, locked: false, visible: true, color: '#a855f7' },
   ]);
   readonly musicTracks = signal<MusicTrackRow[]>([]);
+  readonly selectedMusicTrackKey = signal<string | null>(null);
+
+  readonly selectedMusicTrack = computed<MusicTrackRow | null>(() => {
+    const key = this.selectedMusicTrackKey();
+    const tracks = this.musicTracks();
+    if (key) {
+      const found = tracks.find((t) => t.key === key);
+      if (found) return found;
+    }
+    return tracks.length > 0 ? tracks[0] : null;
+  });
   readonly musicAssetId = signal<string>('');
   readonly musicVolume = signal<number>(1.0);
+  readonly musicCandidates = computed(() => this.studio()?.musicCandidates ?? []);
   readonly watermark = signal<WatermarkBody | null>(null);
 
   readonly watermarkSource = signal<'project' | 'custom' | 'none'>('project');
@@ -367,7 +379,7 @@ export class StudioStateService implements OnDestroy {
     if (mode === 'mixer') return 'mixer';
     if (mode === 'clip') return 'clip';
     if (this.targetScope() === 'all') return 'mixer';
-    if (this.selectedClipId() || this.selectedTimelineItemId() || this.selectedTimelineItemIds().size > 0 || this.targetScope() === 'under_music' || (this.targetScope() === 'current' && this.currentScheduledClip())) {
+    if (this.selectedClipId() || this.selectedTimelineItemId() || this.selectedTimelineItemIds().size > 0 || this.selectedMusicTrackKey() || this.targetScope() === 'under_music' || (this.targetScope() === 'current' && this.currentScheduledClip())) {
       return 'clip';
     }
     return 'mixer';
@@ -532,6 +544,10 @@ export class StudioStateService implements OnDestroy {
   });
 
   readonly activeMusicTrackName = computed<string>(() => {
+    const sel = this.selectedMusicTrack();
+    if (sel) {
+      return this.musicTrackName(sel);
+    }
     const tracks = this.musicTracks();
     if (tracks.length > 0) {
       return this.musicTrackName(tracks[0]);
@@ -544,6 +560,7 @@ export class StudioStateService implements OnDestroy {
   });
 
   readonly isMultiSelection = computed(() => {
+    if (this.selectedMusicTrackKey()) return false;
     if (this.selectedTimelineItemIds().size > 1) return true;
     if (this.selectedLibraryIds().size > 1) return true;
     if (this.targetScope() === 'all' && this.included().length > 1) return true;
@@ -1486,6 +1503,7 @@ export class StudioStateService implements OnDestroy {
         this.selectedLibraryIds.set(new Set());
         return;
       }
+      this.selectedMusicTrackKey.set(null);
       this.selectedClipId.set(clipId);
       this.selectedLibraryIds.set(new Set([clipId]));
       this.selectedTimelineItemId.set(null);
@@ -1513,6 +1531,7 @@ export class StudioStateService implements OnDestroy {
 
   selectTimelineClip(index: number, clipId: string, event?: Event): void {
     event?.stopPropagation();
+    this.selectedMusicTrackKey.set(null);
     this.selectedTimelineClipIndex.set(index);
     this.selectedClipId.set(clipId);
     this.selectedLibraryIds.set(new Set([clipId]));
@@ -1637,6 +1656,7 @@ export class StudioStateService implements OnDestroy {
     this.selectedLibraryIds.set(new Set());
     this.selectedTimelineItemId.set(null);
     this.selectedTimelineItemIds.set(new Set());
+    this.selectedMusicTrackKey.set(null);
   }
 
   toggleSelectAll(): void {
@@ -3106,11 +3126,25 @@ export class StudioStateService implements OnDestroy {
   }
 
   onTimelineAudioClicked(): void {
+    this.clearAllSelections();
+    this.setTargetScope('selected');
     this.setInspectorTab('audio');
     this.setAudioInspectorView('clip');
-    if (this.clipsUnderMusic().length > 0) {
-      this.selectClipsUnderMusic();
+    const tracks = this.musicTracks();
+    if (tracks.length > 0) {
+      const current = this.selectedMusicTrackKey();
+      if (!current || !tracks.some((t) => t.key === current)) {
+        this.selectedMusicTrackKey.set(tracks[0].key);
+      }
     }
+  }
+
+  selectMusicTrack(key: string): void {
+    this.selectedMusicTrackKey.set(key);
+    this.clearAllSelections();
+    this.setTargetScope('selected');
+    this.setInspectorTab('audio');
+    this.setAudioInspectorView('clip');
   }
 
   blockWidthPx(clip: Clip): number {
@@ -3263,6 +3297,7 @@ export class StudioStateService implements OnDestroy {
 
   selectTimelineItem(itemId: string, event?: Event): void {
     event?.stopPropagation();
+    this.selectedMusicTrackKey.set(null);
     this.selectedTimelineItemId.set(itemId);
     const mouseEv = event as MouseEvent | undefined;
     const isMulti = !!(mouseEv?.ctrlKey || mouseEv?.metaKey || mouseEv?.shiftKey);
@@ -3400,7 +3435,113 @@ export class StudioStateService implements OnDestroy {
 
   removeMusicTrack(key: string): void {
     this.musicTracks.update((tracks) => tracks.filter((t) => t.key !== key));
+    if (this.selectedMusicTrackKey() === key) {
+      const remaining = this.musicTracks();
+      this.selectedMusicTrackKey.set(remaining.length > 0 ? remaining[0].key : null);
+    }
     this.markDirty();
+    this.status.notify(['Music track removed from timeline.']);
+  }
+
+  setMusicTrackVolume(key: string, volume: number): void {
+    const clamped = Math.max(0, Math.min(2.0, volume));
+    this.musicTracks.update((tracks) =>
+      tracks.map((t) => (t.key === key ? { ...t, volume: clamped } : t))
+    );
+    this.markDirty();
+  }
+
+  toggleMusicTrackMute(key: string): void {
+    this.musicTracks.update((tracks) =>
+      tracks.map((t) => (t.key === key ? { ...t, muted: !t.muted } : t))
+    );
+    this.markDirty();
+  }
+
+  setMusicTrackStart(key: string, startSeconds: number): void {
+    const clamped = Math.max(0, Number(startSeconds) || 0);
+    this.musicTracks.update((tracks) =>
+      tracks.map((t) => (t.key === key ? { ...t, startSeconds: clamped } : t))
+    );
+    this.markDirty();
+  }
+
+  setMusicTrackTrimStart(key: string, trimStart: number): void {
+    const track = this.musicTracks().find((t) => t.key === key);
+    if (!track) return;
+    const total = this.musicTrackAsset(track)?.durationSeconds ?? 3600;
+    const end = track.trimEndSeconds ?? total;
+    const clamped = Math.max(0, Math.min(Number(trimStart) || 0, end - 0.25));
+    this.musicTracks.update((tracks) =>
+      tracks.map((t) => (t.key === key ? { ...t, trimStartSeconds: clamped } : t))
+    );
+    this.markDirty();
+  }
+
+  setMusicTrackTrimEnd(key: string, trimEnd: number): void {
+    const track = this.musicTracks().find((t) => t.key === key);
+    if (!track) return;
+    const total = this.musicTrackAsset(track)?.durationSeconds ?? 3600;
+    const start = track.trimStartSeconds ?? 0;
+    const clamped = Math.min(total, Math.max(Number(trimEnd) || total, start + 0.25));
+    this.musicTracks.update((tracks) =>
+      tracks.map((t) => (t.key === key ? { ...t, trimEndSeconds: clamped } : t))
+    );
+    this.markDirty();
+  }
+
+  setMusicTrackFadeIn(key: string, seconds: number): void {
+    const clamped = Math.max(0, Number(seconds) || 0);
+    this.musicTracks.update((tracks) =>
+      tracks.map((t) => (t.key === key ? { ...t, fadeInSeconds: clamped } : t))
+    );
+    this.markDirty();
+  }
+
+  setMusicTrackFadeOut(key: string, seconds: number): void {
+    const clamped = Math.max(0, Number(seconds) || 0);
+    this.musicTracks.update((tracks) =>
+      tracks.map((t) => (t.key === key ? { ...t, fadeOutSeconds: clamped } : t))
+    );
+    this.markDirty();
+  }
+
+  setMusicTrackAsset(key: string, newAssetId: string): void {
+    const cand = this.studio()?.musicCandidates?.find((m) => m.id === newAssetId);
+    const dur = cand?.durationSeconds ?? 10.0;
+    this.musicTracks.update((tracks) =>
+      tracks.map((t) => (t.key === key ? {
+        ...t,
+        assetId: newAssetId,
+        trimStartSeconds: 0,
+        trimEndSeconds: dur
+      } : t))
+    );
+    this.markDirty();
+    this.status.notify([`Swapped audio to ${cand?.name || 'new asset'}`]);
+  }
+
+  duplicateMusicTrack(key: string): void {
+    const track = this.musicTracks().find((t) => t.key === key);
+    if (!track) return;
+    const dur = this.musicTrackDurationSeconds(track);
+    const newKey = `music_${Date.now()}`;
+    const newTrack: MusicTrackRow = {
+      ...track,
+      key: newKey,
+      startSeconds: Number((track.startSeconds + dur + 0.5).toFixed(2)),
+    };
+    this.musicTracks.update((tracks) => [...tracks, newTrack]);
+    this.selectedMusicTrackKey.set(newKey);
+    this.markDirty();
+    this.status.notify([`Duplicated music track at ${newTrack.startSeconds.toFixed(1)}s.`]);
+  }
+
+  seekToMusicTrack(key: string): void {
+    const track = this.musicTracks().find((t) => t.key === key);
+    if (track) {
+      this.seekTo(track.startSeconds);
+    }
   }
 
   clampItemCollision(trackId: string, startTime: number, duration: number, excludeItemId?: string): number {
@@ -3506,6 +3647,10 @@ export class StudioStateService implements OnDestroy {
           this.status.notify(['Only audio clips can be placed on audio lanes.']);
           return;
         }
+      } else {
+        this.addMusicTrackFromAsset(row.clip.id, dropTime);
+        this.status.notify([`Added audio "${assetName}" to A1 at ${dropTime.toFixed(1)}s.`]);
+        return;
       }
     }
 
@@ -4522,20 +4667,45 @@ export class StudioStateService implements OnDestroy {
   }
 
   // Music Tracks
-  addMusicTrackFromAsset(assetId: string): void {
+  addMusicTrackFromAsset(assetId: string, customStartSeconds?: number): void {
     const studio = this.studio();
     const candidate = studio?.musicCandidates?.find((m) => m.id === assetId);
     const dur = candidate?.durationSeconds ?? 10.0;
+
+    let startSec = 0;
+    if (customStartSeconds !== undefined) {
+      startSec = Math.max(0, customStartSeconds);
+    } else {
+      const tracks = this.musicTracks();
+      if (tracks.length > 0) {
+        const latestEnd = Math.max(...tracks.map((t) => t.startSeconds + this.musicTrackDurationSeconds(t)));
+        const curTime = this.currentTime();
+        const isInsideTrack = tracks.some((t) => curTime >= t.startSeconds && curTime < (t.startSeconds + this.musicTrackDurationSeconds(t)));
+        if (curTime > 0 && !isInsideTrack) {
+          startSec = curTime;
+        } else {
+          startSec = latestEnd;
+        }
+      } else {
+        startSec = this.currentTime();
+      }
+    }
+
+    const newKey = `music_${Date.now()}`;
     const newTrack: MusicTrackRow = {
-      key: `music_${Date.now()}`,
+      key: newKey,
       assetId,
-      startSeconds: 0,
+      startSeconds: Number(startSec.toFixed(2)),
       volume: 1.0,
       trimStartSeconds: 0,
       trimEndSeconds: dur,
     };
     this.musicTracks.update((t) => [...t, newTrack]);
+    this.selectedMusicTrackKey.set(newKey);
+    this.clearAllSelections();
     this.showTrackManually('A1');
+    this.setInspectorTab('audio');
+    this.setAudioInspectorView('clip');
     this.markDirty();
   }
 
@@ -5123,7 +5293,7 @@ export class StudioStateService implements OnDestroy {
         musicTracks: this.musicTracks().map((t) => ({
           assetId: t.assetId,
           startSeconds: t.startSeconds,
-          volume: t.volume,
+          volume: t.muted ? 0 : t.volume,
           trimStartSeconds: t.trimStartSeconds,
           trimEndSeconds: t.trimEndSeconds,
         })),
@@ -5177,7 +5347,7 @@ export class StudioStateService implements OnDestroy {
         musicTracks: this.musicTracks().map((t) => ({
           assetId: t.assetId,
           startSeconds: t.startSeconds,
-          volume: t.volume,
+          volume: t.muted ? 0 : t.volume,
           trimStartSeconds: t.trimStartSeconds,
           trimEndSeconds: t.trimEndSeconds,
         })),

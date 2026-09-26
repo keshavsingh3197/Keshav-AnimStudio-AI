@@ -1453,6 +1453,19 @@
   cursor: pointer;
   overflow: hidden;
   z-index: 6;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.tl-music-clip.selected {
+  border-color: #38bdf8 !important;
+  outline: none !important;
+  box-shadow: 0 0 0 2px #38bdf8, 0 4px 16px rgba(56, 189, 248, 0.45) !important;
+  z-index: 12 !important;
+}
+
+.tl-music-clip.muted {
+  opacity: 0.6;
+  filter: grayscale(40%);
 }
 
 .tl-music-inner {
