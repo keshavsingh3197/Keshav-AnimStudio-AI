@@ -16,6 +16,7 @@ import { StatusService } from '../../core/services/status.service';
   selector: 'app-project-settings',
   imports: [FormsModule, DecimalPipe, RouterLink],
   templateUrl: './project-settings.component.html',
+  styleUrls: ['./project-settings.component.css'],
 })
 export class ProjectSettingsComponent {
   readonly api = inject(ApiService);
@@ -34,6 +35,9 @@ export class ProjectSettingsComponent {
   ];
   readonly confirmingDelete = signal(false);
   readonly globalWatermark = signal<WatermarkBody | null>(null);
+  readonly saveSuccess = signal<boolean>(false);
+  readonly isPlayingAudio = signal<boolean>(false);
+  private previewAudioEl: HTMLAudioElement | null = null;
 
   /** -1 while the canvas does not match any preset. */
   presetIndex = -1;
@@ -167,6 +171,83 @@ export class ProjectSettingsComponent {
     return this.api.assetUrl(id);
   }
 
+  readonly getAspect = aspectRatioLabel;
+
+  getPresetShortLabel(preset: { label: string; width: number; height: number }): string {
+    if (preset.width === 1920 && preset.height === 1080) return '16:9 Landscape (1080p)';
+    if (preset.width === 1280 && preset.height === 720) return '16:9 Landscape (720p)';
+    if (preset.width === 1080 && preset.height === 1920) return '9:16 Shorts / Reels';
+    if (preset.width === 1080 && preset.height === 1080) return '1:1 Square';
+    return preset.label;
+  }
+
+  formatPosLabel(pos: WatermarkPosition): string {
+    switch (pos) {
+      case 'TopLeft': return '↖ Top-Left';
+      case 'TopCenter': return '↑ Top-Center';
+      case 'TopRight': return '↗ Top-Right';
+      case 'BottomLeft': return '↙ Bottom-Left';
+      case 'BottomCenter': return '↓ Bottom-Center';
+      case 'BottomRight': return '↘ Bottom-Right';
+      default: return pos;
+    }
+  }
+
+  onDimensionChange(): void {
+    this.presetIndex = this.matchPreset(this.form.width, this.form.height);
+  }
+
+  selectPreset(index: number): void {
+    this.presetIndex = index;
+    if (index >= 0) {
+      this.applyPreset(index);
+    }
+  }
+
+  setFps(fps: number): void {
+    this.form.fps = fps;
+  }
+
+  setDistributionIntent(intent: string): void {
+    this.form.distributionIntent = intent;
+  }
+
+  setWatermarkKind(kind: WatermarkKind): void {
+    this.form.defaultWatermarkKind = kind;
+  }
+
+  setWatermarkPosition(pos: WatermarkPosition): void {
+    this.form.defaultWatermarkPosition = pos;
+  }
+
+  toggleAudioPreview(): void {
+    if (!this.form.backgroundMusicAssetId) return;
+    if (this.isPlayingAudio()) {
+      this.stopAudioPreview();
+    } else {
+      const url = this.api.assetUrl(this.form.backgroundMusicAssetId);
+      const audio = new Audio(url);
+      audio.volume = Math.max(0.01, this.form.musicVolumePercent / 100);
+      audio.onended = () => this.isPlayingAudio.set(false);
+      audio.onerror = () => this.isPlayingAudio.set(false);
+      audio.play().then(() => {
+        this.previewAudioEl = audio;
+        this.isPlayingAudio.set(true);
+      }).catch(() => {
+        this.isPlayingAudio.set(false);
+      });
+    }
+  }
+
+  stopAudioPreview(): void {
+    if (this.previewAudioEl) {
+      this.previewAudioEl.pause();
+      this.previewAudioEl.currentTime = 0;
+      this.previewAudioEl = null;
+    }
+    this.isPlayingAudio.set(false);
+  }
+
   save(): void {
     const projectId = this.store.projectId();
     if (!projectId) return;
@@ -198,6 +279,8 @@ export class ProjectSettingsComponent {
         this.store.project.set(project);
         // A frame-rate change rewrites every scene's frame counts server-side.
         this.store.refreshScenes();
+        this.saveSuccess.set(true);
+        setTimeout(() => this.saveSuccess.set(false), 3000);
       });
   }
 
@@ -208,5 +291,9 @@ export class ProjectSettingsComponent {
     this.status.run(this.api.deleteProject(projectId), () => {
       void this.router.navigate(['/projects']);
     });
+  }
+
+  ngOnDestroy(): void {
+    this.stopAudioPreview();
   }
 }

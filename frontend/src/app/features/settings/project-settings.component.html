@@ -1,272 +1,420 @@
-<div class="page-head">
-  <div>
-    <h2>Settings</h2>
-    <p class="muted">Canvas, frame rate, intended use and the music that plays under everything.</p>
-  </div>
-</div>
-
-<div class="card">
-  <div class="grid">
-    <div>
-      <label for="project-name">Name</label>
-      <input id="project-name" type="text" [(ngModel)]="form.name" />
-    </div>
-
-    <div>
-      <label for="preset">Canvas preset</label>
-      <select id="preset" [(ngModel)]="presetIndex" (ngModelChange)="applyPreset($event)">
-        <option [ngValue]="-1">Custom&hellip;</option>
-        @for (preset of presets; track preset.label) {
-          <option [ngValue]="$index">
-            {{ preset.label }} ({{ preset.width }}&times;{{ preset.height }})
-          </option>
-        }
-      </select>
-
-      <!-- Reads off the width and height below, so a custom size is described the same
-           way a preset is - the format follows the numbers, not the dropdown. -->
-      <p class="muted">
-        <span [class]="formatClass()">{{ format() }}</span>
-        {{ aspect() }}.
-        @if (format() === 'Short') {
-          Upright, the shape YouTube Shorts, Reels and TikTok expect - published as a
-          Short when it runs three minutes or less.
-        } @else if (format() === 'Square') {
-          Square. YouTube accepts this as a Short as well, but upright fills a phone.
-        } @else {
-          Landscape, the ordinary YouTube shape. Turn it upright for a Short.
-        }
-      </p>
-      <p class="muted">
-        Changing the shape re-fits existing clips to the new canvas on the next render; it
-        does not crop anything that is already there.
-      </p>
-    </div>
-
-    <div>
-      <label for="width">Width</label>
-      <input id="width" type="number" [(ngModel)]="form.width" min="320" max="3840" step="2" />
-    </div>
-
-    <div>
-      <label for="height">Height</label>
-      <input id="height" type="number" [(ngModel)]="form.height" min="240" max="2160" step="2" />
-    </div>
-
-    <div>
-      <label for="fps">Frame rate</label>
-      <select id="fps" [(ngModel)]="form.fps">
-        <option [ngValue]="24">24 fps</option>
-        <option [ngValue]="25">25 fps</option>
-        <option [ngValue]="30">30 fps</option>
-        <option [ngValue]="60">60 fps</option>
-      </select>
-      <p class="muted">
-        Changing this rescales every scene, so nothing changes length in seconds.
-      </p>
-    </div>
-
-    <div>
-      <label for="intent">Intended use</label>
-      <select id="intent" [(ngModel)]="form.distributionIntent">
-        @for (option of intents; track option) {
-          <option [value]="option">{{ option }}</option>
-        }
-      </select>
-    </div>
-
-    <div>
-      <label for="music">Background music</label>
-      <select id="music" [(ngModel)]="form.backgroundMusicAssetId">
-        <option value="">None</option>
-        @for (asset of store.audioOnly(); track asset.id) {
-          <option [value]="asset.id">{{ asset.name }}</option>
-        }
-      </select>
-    </div>
-
-    @if (form.backgroundMusicAssetId) {
+<div class="settings-container">
+  <!-- Header -->
+  <div class="settings-header">
+    <div class="settings-header-title">
+      <div class="settings-header-icon">⚙️</div>
       <div>
-        <label for="volume">Music volume ({{ form.musicVolumePercent }}%)</label>
-        <input id="volume" type="range" [(ngModel)]="form.musicVolumePercent"
-               min="0" max="100" step="1" />
-        <p class="muted">The bed loops to fill the video and ducks under nothing else.</p>
+        <h2>Project Settings &amp; Canvas</h2>
+        <p>Configure canvas resolution, framerate, background soundtrack, and video hallmarks.</p>
       </div>
-    }
-  </div>
-
-  <label for="project-description">Description</label>
-  <textarea id="project-description" [(ngModel)]="form.description"
-            style="min-height: 4rem"></textarea>
-
-  <label style="font-weight: 400; margin-top: .6rem">
-    <input type="checkbox" [(ngModel)]="form.acceptShareAlikeObligation" />
-    Accept share-alike obligations, so share-alike material may be used
-  </label>
-
-  <div class="row" style="margin-top: .9rem">
-    <button type="button" (click)="save()" [disabled]="status.busy() || !form.name.trim()">
-      Save settings
-    </button>
-  </div>
-</div>
-
-<div class="card">
-  <h3>Project Brand Watermark & Logo</h3>
-  <p class="muted">
-    Set a global logo or watermark for this project. Videos made in the Video Studio inherit this branding automatically, keeping your clips clean and consistent without repeating settings.
-  </p>
-
-  <div style="margin-bottom: 1.25rem; padding: .75rem 1rem; border-radius: var(--radius); background: var(--surface-2); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: .75rem">
-    @if (globalWatermark() && globalWatermark()?.kind !== 'None') {
-      <div style="display: flex; align-items: center; gap: .6rem">
-        <span class="pill ok">Server Hallmark Active</span>
-        <span style="font-size: .85rem">
-          Server default: <strong>{{ globalWatermark()?.kind }}</strong> ({{ globalWatermark()?.position }})
-        </span>
-      </div>
-      <button type="button" class="secondary" (click)="applyGlobalBranding()" style="font-size: .85rem; padding: .35rem .75rem">
-        Sync from Global Hallmark
+    </div>
+    <div class="settings-top-actions">
+      @if (saveSuccess()) {
+        <div class="save-toast-pill">
+          <span>✓</span> Settings Saved
+        </div>
+      }
+      <button type="button" class="btn-primary-glow" (click)="save()" [disabled]="status.busy() || !form.name.trim()">
+        Save Changes
       </button>
-    } @else {
-      <div style="font-size: .85rem; color: var(--text-muted)">
-        <span>No server-wide studio hallmark configured yet.</span>
-      </div>
-      <a routerLink="/admin/branding" style="font-size: .85rem; color: var(--brand); text-decoration: none; font-weight: 500">
-        Configure Global Hallmark in Server Settings &rarr;
-      </a>
-    }
+    </div>
   </div>
 
-  <div class="grid">
-    <div>
-      <label for="wm-kind">Watermark style</label>
-      <select id="wm-kind" [(ngModel)]="form.defaultWatermarkKind">
-        @for (k of watermarkKinds; track k.kind) {
-          <option [value]="k.kind">{{ k.label }}</option>
-        }
-      </select>
+  <!-- Section 1: Canvas & Composition -->
+  <div class="settings-card">
+    <div class="card-section-head">
+      <div>
+        <h3>📐 Canvas Dimensions &amp; Aspect Ratio</h3>
+        <p>Choose an industry standard aspect ratio or set custom width and height in pixels.</p>
+      </div>
     </div>
 
-    @if (form.defaultWatermarkKind !== 'None') {
+    <!-- Visual Preset Cards -->
+    <div class="preset-grid">
+      @for (preset of presets; track preset.label) {
+        <button type="button" class="preset-card-btn"
+                [class.active]="presetIndex === $index"
+                (click)="selectPreset($index)">
+          <div class="preset-card-head">
+            <span class="preset-title">{{ getPresetShortLabel(preset) }}</span>
+            <span class="preset-aspect-pill">{{ getAspect(preset.width, preset.height) }}</span>
+          </div>
+          <span class="preset-res">{{ preset.width }} &times; {{ preset.height }} px</span>
+        </button>
+      }
+
+      <button type="button" class="preset-card-btn"
+              [class.active]="presetIndex === -1"
+              (click)="selectPreset(-1)">
+        <div class="preset-card-head">
+          <span class="preset-title">Custom Dimension</span>
+          <span class="preset-aspect-pill">CUSTOM</span>
+        </div>
+        <span class="preset-res">Freeform Resolution</span>
+      </button>
+    </div>
+
+    <!-- Dimension Controls -->
+    <div class="dimension-row">
       <div>
-        <label for="wm-pos">Position</label>
-        <select id="wm-pos" [(ngModel)]="form.defaultWatermarkPosition">
-          @for (p of watermarkPositions; track p) {
-            <option [value]="p">{{ p }}</option>
+        <label class="form-label" for="width">Width <span class="sub">(px)</span></label>
+        <input class="form-input" id="width" type="number" [(ngModel)]="form.width"
+               (ngModelChange)="onDimensionChange()" min="320" max="3840" step="2" />
+      </div>
+
+      <div class="dim-separator">&times;</div>
+
+      <div>
+        <label class="form-label" for="height">Height <span class="sub">(px)</span></label>
+        <input class="form-input" id="height" type="number" [(ngModel)]="form.height"
+               (ngModelChange)="onDimensionChange()" min="240" max="2160" step="2" />
+      </div>
+
+      <div class="dim-aspect-summary">
+        <span [class]="'badge-format ' + (format() === 'Short' ? 'short' : format() === 'Square' ? 'square' : '')">
+          {{ format() }}
+        </span>
+        <span style="font-weight: 600; color: #fff; font-size: 0.9rem;">{{ aspect() }}</span>
+      </div>
+    </div>
+
+    <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1.25rem;">
+      <p style="margin: 0; font-size: 0.83rem; color: #8b9bb4; line-height: 1.5;">
+        @if (format() === 'Short') {
+          📱 <strong>Upright 9:16 format</strong>: Ideal for YouTube Shorts, Instagram Reels, and TikTok (3 minutes or less).
+        } @else if (format() === 'Square') {
+          ⬛ <strong>Square 1:1 format</strong>: Ideal for standard Instagram feeds and universal square previews.
+        } @else {
+          🖥️ <strong>Landscape 16:9 format</strong>: Standard cinematic aspect ratio for desktop monitors, TV screens, and standard YouTube videos.
+        }
+        Existing scene clips are automatically refitted non-destructively upon rendering.
+      </p>
+    </div>
+
+    <!-- Frame Rate Selection -->
+    <div class="form-group" style="margin-bottom: 0;">
+      <label class="form-label">Frame Rate (FPS)</label>
+      <div class="segmented-row">
+        <button type="button" class="segment-btn" [class.active]="form.fps === 24" (click)="setFps(24)">
+          24 fps <span style="font-weight: 400; color: #8b9bb4; font-size: 0.75rem;">(Cinema)</span>
+        </button>
+        <button type="button" class="segment-btn" [class.active]="form.fps === 25" (click)="setFps(25)">
+          25 fps <span style="font-weight: 400; color: #8b9bb4; font-size: 0.75rem;">(PAL / Broadcast)</span>
+        </button>
+        <button type="button" class="segment-btn" [class.active]="form.fps === 30" (click)="setFps(30)">
+          30 fps <span style="font-weight: 400; color: #8b9bb4; font-size: 0.75rem;">(Standard Web)</span>
+        </button>
+        <button type="button" class="segment-btn" [class.active]="form.fps === 60" (click)="setFps(60)">
+          60 fps <span style="font-weight: 400; color: #8b9bb4; font-size: 0.75rem;">(High Smoothness)</span>
+        </button>
+      </div>
+      <p style="margin: 0.35rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
+        Changing frame rate rescales scene frame counts server-side without altering real-world scene duration.
+      </p>
+    </div>
+  </div>
+
+  <!-- Section 2: Project Metadata & Soundtrack Bed -->
+  <div class="settings-card">
+    <div class="card-section-head">
+      <div>
+        <h3>📝 Project Metadata &amp; Soundtrack</h3>
+        <p>Basic naming, commercial distribution intention, and background music bed.</p>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; margin-bottom: 1.25rem;">
+      <div class="form-group">
+        <label class="form-label" for="project-name">Project Title <span style="color: #f87171;">*</span></label>
+        <input class="form-input" id="project-name" type="text" [(ngModel)]="form.name" placeholder="Enter project name..." />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Distribution Intent</label>
+        <div class="segmented-row">
+          @for (option of intents; track option) {
+            <button type="button" class="segment-btn"
+                    [class.active]="form.distributionIntent === option"
+                    (click)="setDistributionIntent(option)">
+              {{ option }}
+            </button>
+          }
+        </div>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label" for="project-description">Project Description</label>
+      <textarea class="form-textarea" id="project-description" [(ngModel)]="form.description"
+                placeholder="Optional notes, script premise, or production details..." rows="3"></textarea>
+    </div>
+
+    <!-- Background Music Track -->
+    <div style="background: #0d1117; border: 1px solid var(--border); border-radius: 10px; padding: 1.1rem; margin-bottom: 1.25rem;">
+      <div class="form-group" style="margin-bottom: form.backgroundMusicAssetId ? '1rem' : '0'">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.45rem;">
+          <label class="form-label" style="margin-bottom: 0;">🎵 Background Music Soundtrack Bed</label>
+          @if (form.backgroundMusicAssetId) {
+            <button type="button" class="btn-outline" style="padding: 3px 10px; font-size: 0.78rem; display: flex; align-items: center; gap: 5px;"
+                    (click)="toggleAudioPreview()">
+              @if (isPlayingAudio()) {
+                <span>⏹ Stop Preview</span>
+              } @else {
+                <span>▶ Play Audio</span>
+              }
+            </button>
+          }
+        </div>
+        <select class="form-select" [(ngModel)]="form.backgroundMusicAssetId" (change)="stopAudioPreview()">
+          <option value="">None (Silent bed)</option>
+          @for (asset of store.audioOnly(); track asset.id) {
+            <option [value]="asset.id">{{ asset.name }}</option>
           }
         </select>
       </div>
 
-      @if (form.defaultWatermarkKind === 'Text') {
-        <div>
-          <label for="wm-text">Watermark text</label>
-          <input id="wm-text" type="text" [(ngModel)]="form.defaultWatermarkText"
-                 placeholder="e.g. @MyChannel or channel.example.com" />
-        </div>
-
-        <div>
-          <label for="wm-color">Text color</label>
-          <input id="wm-color" type="color" [(ngModel)]="form.defaultWatermarkColor" />
-        </div>
-
-        <div>
-          <label for="wm-backplate">Backplate shading ({{ (form.defaultWatermarkBackplate * 100) | number: '1.0-0' }}%)</label>
-          <input id="wm-backplate" type="range" min="0" max="0.9" step="0.05"
-                 [(ngModel)]="form.defaultWatermarkBackplate" />
-        </div>
-      }
-
-      @if (form.defaultWatermarkKind === 'Logo') {
-        <div>
-          <label for="wm-logo">Logo image</label>
-          <select id="wm-logo" [(ngModel)]="form.defaultWatermarkLogoId">
-            <option value="">Choose an image&hellip;</option>
-            @for (asset of store.imagesOnly(); track asset.id) {
-              <option [value]="asset.id">{{ asset.name }}</option>
-            }
-          </select>
-          <div style="margin-top: .5rem">
-            <label class="link-button">
-              <input type="file" accept="image/png,image/jpeg,image/webp" (change)="onPickLogo($event)" />
-              <span>Upload new logo PNG</span>
-            </label>
+      @if (form.backgroundMusicAssetId) {
+        <div class="slider-container" style="margin-top: 0.85rem;">
+          <div class="slider-meta">
+            <label class="form-label" style="margin-bottom: 0;">Soundtrack Volume</label>
+            <span class="slider-val-badge">{{ form.musicVolumePercent }}%</span>
           </div>
+          <input class="form-range" type="range" [(ngModel)]="form.musicVolumePercent" min="0" max="100" step="1" />
+          <p style="margin: 0.25rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
+            The soundtrack loops seamlessly across scenes and automatically ducks beneath voiceovers.
+          </p>
         </div>
       }
+    </div>
 
-      <div>
-        <label for="wm-opac">Opacity ({{ (form.defaultWatermarkOpacity * 100) | number: '1.0-0' }}%)</label>
-        <input id="wm-opac" type="range" min="0.15" max="1" step="0.05"
-               [(ngModel)]="form.defaultWatermarkOpacity" />
+    <!-- Modern Switch for Share-Alike -->
+    <label class="toggle-switch-label">
+      <input class="toggle-switch-input" type="checkbox" [(ngModel)]="form.acceptShareAlikeObligation" />
+      <div class="toggle-switch-track">
+        <div class="toggle-switch-thumb"></div>
       </div>
-
-      <div>
-        <label for="wm-height">Size ({{ form.defaultWatermarkHeight }}% of height)</label>
-        <input id="wm-height" type="range" min="2" max="20" step="0.5"
-               [(ngModel)]="form.defaultWatermarkHeight" />
+      <div class="toggle-text-block">
+        <span class="toggle-title">Accept Creative Commons Share-Alike (CC-BY-SA) Obligations</span>
+        <span class="toggle-desc">
+          Enables usage of CC-BY-SA shared community media in this project. Final exports will include proper attribution tags.
+        </span>
       </div>
-
-      <div>
-        <label for="wm-margin">Margin from edge ({{ form.defaultWatermarkMargin }}%)</label>
-        <input id="wm-margin" type="range" min="1" max="15" step="0.5"
-               [(ngModel)]="form.defaultWatermarkMargin" />
-      </div>
-    }
+    </label>
   </div>
 
-  @if (form.defaultWatermarkKind !== 'None') {
-    <div style="margin-top: 1rem; padding: 1rem; border-radius: var(--radius); background: var(--surface-2)">
-      <span class="muted" style="font-size: .85rem; display: block; margin-bottom: .5rem">Watermark preview:</span>
-      <div style="position: relative; width: 280px; height: 157px; background: #0f172a; border-radius: 6px; overflow: hidden; display: flex;"
-           [style.padding.px]="(form.defaultWatermarkMargin / 100) * 157"
-           [style.align-items]="form.defaultWatermarkPosition.startsWith('Top') ? 'flex-start' : 'flex-end'"
-           [style.justify-content]="form.defaultWatermarkPosition.endsWith('Left') ? 'flex-start' : form.defaultWatermarkPosition.endsWith('Right') ? 'flex-end' : 'center'">
-        @if (form.defaultWatermarkKind === 'Logo') {
-          @if (logoUrl(); as url) {
-            <img [src]="url" alt="" [style.height.px]="(form.defaultWatermarkHeight / 100) * 157"
-                 [style.opacity]="form.defaultWatermarkOpacity" style="object-fit: contain" />
-          } @else {
-            <span class="muted" style="font-size: .75rem">No logo selected</span>
-          }
-        } @else {
-          <span [style.font-size.px]="(form.defaultWatermarkHeight / 100) * 157"
-                [style.color]="form.defaultWatermarkColor"
-                [style.opacity]="form.defaultWatermarkOpacity"
-                [style.background]="'rgba(0,0,0,' + form.defaultWatermarkBackplate + ')'"
-                style="padding: 2px 6px; border-radius: 3px; font-weight: 500">
-            {{ form.defaultWatermarkText || '@MyChannel' }}
+  <!-- Section 3: Project Brand Watermark & Studio Hallmark -->
+  <div class="settings-card">
+    <div class="card-section-head">
+      <div>
+        <h3>🛡️ Project Brand Watermark &amp; Hallmark</h3>
+        <p>Burn an attribution hallmark or channel badge into every rendered video clip automatically.</p>
+      </div>
+    </div>
+
+    <!-- Server Hallmark Status Banner -->
+    <div class="hallmark-status-banner">
+      @if (globalWatermark() && globalWatermark()?.kind !== 'None') {
+        <div class="hallmark-badge-group">
+          <div class="status-dot-pulse"></div>
+          <span style="font-size: 0.85rem; color: #fff; font-weight: 500;">
+            Global Studio Hallmark configured: <strong>{{ globalWatermark()?.kind }}</strong> ({{ globalWatermark()?.position }})
           </span>
+        </div>
+        <button type="button" class="btn-outline" (click)="applyGlobalBranding()" style="font-size: 0.82rem; padding: 4px 12px;">
+          Sync from Global Hallmark
+        </button>
+      } @else {
+        <div style="font-size: 0.84rem; color: #8b9bb4;">
+          No global server-wide hallmark configured yet.
+        </div>
+        <a routerLink="/admin/branding" style="font-size: 0.84rem; color: var(--brand, #6c8cff); text-decoration: none; font-weight: 600;">
+          Configure Global Studio Hallmark &rarr;
+        </a>
+      }
+    </div>
+
+    <!-- Watermark Style Segmented Controls -->
+    <div class="form-group">
+      <label class="form-label">Watermark Style</label>
+      <div class="segmented-row">
+        @for (k of watermarkKinds; track k.kind) {
+          <button type="button" class="segment-btn"
+                  [class.active]="form.defaultWatermarkKind === k.kind"
+                  (click)="setWatermarkKind(k.kind)">
+            {{ k.label }}
+          </button>
         }
       </div>
     </div>
-  }
 
-  <div class="row" style="margin-top: 1rem">
-    <button type="button" (click)="save()" [disabled]="status.busy() || !form.name.trim()">
-      Save settings &amp; branding
-    </button>
-  </div>
-</div>
+    @if (form.defaultWatermarkKind !== 'None') {
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; margin-bottom: 1.25rem;">
+        <!-- Left: Controls -->
+        <div>
+          @if (form.defaultWatermarkKind === 'Text') {
+            <div class="form-group">
+              <label class="form-label" for="wm-text">Watermark Text</label>
+              <input class="form-input" id="wm-text" type="text" [(ngModel)]="form.defaultWatermarkText"
+                     placeholder="e.g. @MyChannel or channel.example.com" />
+            </div>
 
-<div class="card">
-  <h3>Delete this project</h3>
-  <p class="muted">
-    Removes its scenes, characters and every uploaded file. This cannot be undone.
-  </p>
+            <div style="display: grid; grid-template-columns: 80px 1fr; gap: 0.75rem; margin-bottom: 1.25rem;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label" for="wm-color">Color</label>
+                <input class="form-input" id="wm-color" type="color" [(ngModel)]="form.defaultWatermarkColor"
+                       style="height: 38px; padding: 2px 4px; cursor: pointer;" />
+              </div>
+              <div class="slider-container">
+                <div class="slider-meta">
+                  <label class="form-label" style="margin-bottom: 0;">Backplate Shading</label>
+                  <span class="slider-val-badge">{{ (form.defaultWatermarkBackplate * 100) | number: '1.0-0' }}%</span>
+                </div>
+                <input class="form-range" id="wm-backplate" type="range" min="0" max="0.9" step="0.05"
+                       [(ngModel)]="form.defaultWatermarkBackplate" />
+              </div>
+            </div>
+          }
 
-  @if (confirmingDelete()) {
-    <div class="row">
-      <button class="danger" type="button" (click)="deleteProject()">
-        Yes, delete everything
-      </button>
-      <button class="secondary" type="button" (click)="confirmingDelete.set(false)">
-        Cancel
+          @if (form.defaultWatermarkKind === 'Logo') {
+            <div class="form-group">
+              <label class="form-label" for="wm-logo">Logo Asset</label>
+              <select class="form-select" id="wm-logo" [(ngModel)]="form.defaultWatermarkLogoId">
+                <option value="">Select an image from library...</option>
+                @for (asset of store.imagesOnly(); track asset.id) {
+                  <option [value]="asset.id">{{ asset.name }}</option>
+                }
+              </select>
+              <div style="margin-top: 0.5rem;">
+                <label class="btn-outline" style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.8rem; padding: 4px 10px;">
+                  <input type="file" accept="image/png,image/jpeg,image/webp" (change)="onPickLogo($event)" style="display: none;" />
+                  <span>⬆ Upload New Transparent PNG</span>
+                </label>
+              </div>
+            </div>
+          }
+
+          <!-- Position Picker Grid -->
+          <div class="form-group">
+            <label class="form-label">Position Placement</label>
+            <div class="position-grid">
+              @for (p of watermarkPositions; track p) {
+                <button type="button" class="pos-btn"
+                        [class.active]="form.defaultWatermarkPosition === p"
+                        (click)="setWatermarkPosition(p)">
+                  {{ formatPosLabel(p) }}
+                </button>
+              }
+            </div>
+          </div>
+
+          <!-- Fine Tuning Sliders -->
+          <div class="slider-container" style="margin-bottom: 1rem;">
+            <div class="slider-meta">
+              <label class="form-label" style="margin-bottom: 0;">Opacity</label>
+              <span class="slider-val-badge">{{ (form.defaultWatermarkOpacity * 100) | number: '1.0-0' }}%</span>
+            </div>
+            <input class="form-range" type="range" min="0.15" max="1" step="0.05"
+                   [(ngModel)]="form.defaultWatermarkOpacity" />
+          </div>
+
+          <div class="slider-container" style="margin-bottom: 1rem;">
+            <div class="slider-meta">
+              <label class="form-label" style="margin-bottom: 0;">Size (Relative to height)</label>
+              <span class="slider-val-badge">{{ form.defaultWatermarkHeight }}%</span>
+            </div>
+            <input class="form-range" type="range" min="2" max="20" step="0.5"
+                   [(ngModel)]="form.defaultWatermarkHeight" />
+          </div>
+
+          <div class="slider-container">
+            <div class="slider-meta">
+              <label class="form-label" style="margin-bottom: 0;">Margin from Edge</label>
+              <span class="slider-val-badge">{{ form.defaultWatermarkMargin }}%</span>
+            </div>
+            <input class="form-range" type="range" min="1" max="15" step="0.5"
+                   [(ngModel)]="form.defaultWatermarkMargin" />
+          </div>
+        </div>
+
+        <!-- Right: Interactive Live Canvas Mockup -->
+        <div>
+          <label class="form-label">Live Canvas Mockup</label>
+          <div class="watermark-mockup-wrapper">
+            <div class="mockup-header-row">
+              <span>Preview Viewport (16:9 Ratio)</span>
+              <span style="color: #93c5fd; font-family: ui-monospace, monospace;">{{ form.defaultWatermarkPosition }}</span>
+            </div>
+
+            <div class="watermark-viewport"
+                 [style.padding.px]="(form.defaultWatermarkMargin / 100) * 292"
+                 [style.align-items]="form.defaultWatermarkPosition.startsWith('Top') ? 'flex-start' : 'flex-end'"
+                 [style.justify-content]="form.defaultWatermarkPosition.endsWith('Left') ? 'flex-start' : form.defaultWatermarkPosition.endsWith('Right') ? 'flex-end' : 'center'">
+              <div class="watermark-viewport-grid"></div>
+              <div class="viewport-center-cross"></div>
+
+              @if (form.defaultWatermarkKind === 'Logo') {
+                @if (logoUrl(); as url) {
+                  <img class="mockup-watermark-item" [src]="url" alt="Watermark Logo"
+                       [style.height.px]="(form.defaultWatermarkHeight / 100) * 292"
+                       [style.opacity]="form.defaultWatermarkOpacity"
+                       style="object-fit: contain; max-width: 180px;" />
+                } @else {
+                  <div class="mockup-watermark-item" style="padding: 6px 12px; background: rgba(0,0,0,0.6); border-radius: 4px; font-size: 0.75rem; color: #8b9bb4; border: 1px dashed #374151;">
+                    No logo image selected
+                  </div>
+                }
+              } @else {
+                <div class="mockup-watermark-item"
+                     [style.font-size.px]="((form.defaultWatermarkHeight / 100) * 292 * 0.75)"
+                     [style.color]="form.defaultWatermarkColor"
+                     [style.opacity]="form.defaultWatermarkOpacity"
+                     [style.background]="'rgba(0,0,0,' + form.defaultWatermarkBackplate + ')'"
+                     style="padding: 4px 10px; border-radius: 4px; font-weight: 600; letter-spacing: 0.02em; border: 1px solid rgba(255,255,255,0.08); backdrop-filter: blur(2px);">
+                  {{ form.defaultWatermarkText || '@MyStudio' }}
+                </div>
+              }
+            </div>
+          </div>
+        </div>
+      </div>
+    }
+
+    <div style="display: flex; justify-content: flex-end; margin-top: 1rem;">
+      <button type="button" class="btn-primary-glow" (click)="save()" [disabled]="status.busy() || !form.name.trim()">
+        Save Settings &amp; Branding
       </button>
     </div>
-  } @else {
-    <button class="secondary" type="button" (click)="confirmingDelete.set(true)">
-      Delete project
-    </button>
-  }
+  </div>
+
+  <!-- Section 4: Danger Zone -->
+  <div class="settings-card danger-card">
+    <div class="card-section-head" style="border-bottom-color: rgba(239, 68, 68, 0.2);">
+      <div>
+        <h3>⚠️ Danger Zone: Delete Project</h3>
+        <p>Permanently removes this project along with all scenes, video tracks, audio bindings, and assets.</p>
+      </div>
+    </div>
+
+    @if (confirmingDelete()) {
+      <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; padding: 1rem; margin-bottom: 1rem;">
+        <p style="margin: 0 0 0.75rem; color: #fca5a5; font-size: 0.88rem; font-weight: 600;">
+          Are you completely sure? This action cannot be reversed.
+        </p>
+        <div style="display: flex; gap: 0.75rem;">
+          <button class="btn-danger-solid" type="button" (click)="deleteProject()">
+            Yes, Permanently Delete Everything
+          </button>
+          <button class="btn-outline" type="button" (click)="confirmingDelete.set(false)">
+            Cancel
+          </button>
+        </div>
+      </div>
+    } @else {
+      <div>
+        <button class="btn-danger-outline" type="button" (click)="confirmingDelete.set(true)">
+          Delete Project...
+        </button>
+      </div>
+    }
+  </div>
 </div>

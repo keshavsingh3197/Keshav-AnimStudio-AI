@@ -1,0 +1,640 @@
+/* ── Obsidian Project Settings Theme ────────────────────────────── */
+.settings-container {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding-bottom: 4rem;
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.settings-header-title {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.settings-header-icon {
+  font-size: 1.8rem;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--brand, #6c8cff) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--brand, #6c8cff) 30%, transparent);
+}
+
+.settings-header h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0;
+  color: #fff;
+  letter-spacing: -0.02em;
+}
+
+.settings-header p {
+  margin: 0.25rem 0 0;
+  font-size: 0.88rem;
+  color: #8b9bb4;
+}
+
+.settings-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* ── Section Cards ──────────────────────────────────────────────── */
+.settings-card {
+  background: var(--surface-2, #141923);
+  border: 1px solid var(--border, #21293a);
+  border-radius: 14px;
+  padding: 1.5rem 1.75rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.settings-card:hover {
+  border-color: color-mix(in srgb, var(--brand, #6c8cff) 35%, var(--border, #21293a));
+}
+
+.card-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid var(--border, #21293a);
+}
+
+.card-section-head h3 {
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin: 0;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.card-section-head p {
+  margin: 0.2rem 0 0;
+  font-size: 0.84rem;
+  color: #8b9bb4;
+}
+
+/* ── Form Controls & Inputs ─────────────────────────────────────── */
+.form-group {
+  margin-bottom: 1.25rem;
+}
+
+.form-label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #c9d1d9;
+  margin-bottom: 0.45rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.form-label .sub {
+  font-weight: 400;
+  color: #8b9bb4;
+  text-transform: none;
+  letter-spacing: normal;
+  margin-left: 0.35rem;
+}
+
+.form-input,
+.form-select,
+.form-textarea {
+  width: 100%;
+  background: #0d1117;
+  border: 1px solid var(--border, #21293a);
+  border-radius: 8px;
+  padding: 0.65rem 0.85rem;
+  color: #fff;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.form-input:focus,
+.form-select:focus,
+.form-textarea:focus {
+  border-color: var(--brand, #6c8cff);
+  box-shadow: 0 0 0 3px rgba(108, 140, 255, 0.25);
+  outline: none;
+}
+
+.form-input::placeholder,
+.form-textarea::placeholder {
+  color: #4b5563;
+}
+
+/* ── Visual Preset Cards ────────────────────────────────────────── */
+.preset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.preset-card-btn {
+  background: #0d1117;
+  border: 1px solid var(--border, #21293a);
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  user-select: none;
+}
+
+.preset-card-btn:hover {
+  border-color: color-mix(in srgb, var(--brand, #6c8cff) 50%, var(--border, #21293a));
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+
+.preset-card-btn.active {
+  background: color-mix(in srgb, var(--brand, #6c8cff) 12%, #0d1117);
+  border-color: var(--brand, #6c8cff);
+  box-shadow: 0 0 0 1px var(--brand, #6c8cff), 0 6px 20px rgba(108, 140, 255, 0.2);
+}
+
+.preset-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.preset-aspect-pill {
+  font-family: ui-monospace, monospace;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #93c5fd;
+}
+
+.preset-card-btn.active .preset-aspect-pill {
+  background: var(--brand, #6c8cff);
+  color: #fff;
+}
+
+.preset-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.preset-res {
+  font-size: 0.75rem;
+  color: #8b9bb4;
+  font-family: ui-monospace, monospace;
+}
+
+/* ── Custom Dimension Row ───────────────────────────────────────── */
+.dimension-row {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr auto;
+  align-items: center;
+  gap: 0.85rem;
+  background: #0d1117;
+  padding: 0.85rem 1.1rem;
+  border-radius: 10px;
+  border: 1px solid var(--border, #21293a);
+  margin-bottom: 1.25rem;
+}
+
+.dim-separator {
+  color: #8b9bb4;
+  font-size: 1.2rem;
+  font-weight: 300;
+}
+
+.dim-aspect-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.badge-format {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 99px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  background: rgba(108, 140, 255, 0.15);
+  border: 1px solid rgba(108, 140, 255, 0.35);
+  color: #93c5fd;
+}
+
+.badge-format.short {
+  background: rgba(34, 197, 94, 0.15);
+  border-color: rgba(34, 197, 94, 0.35);
+  color: #86efac;
+}
+
+.badge-format.square {
+  background: rgba(234, 179, 8, 0.15);
+  border-color: rgba(234, 179, 8, 0.35);
+  color: #fde047;
+}
+
+/* ── Segmented Button Rows ──────────────────────────────────────── */
+.segmented-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.segment-btn {
+  background: #0d1117;
+  border: 1px solid var(--border, #21293a);
+  border-radius: 8px;
+  padding: 0.55rem 1rem;
+  color: #c9d1d9;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.segment-btn:hover {
+  background: var(--surface-2, #141923);
+  border-color: color-mix(in srgb, var(--brand, #6c8cff) 40%, var(--border, #21293a));
+  color: #fff;
+}
+
+.segment-btn.active {
+  background: color-mix(in srgb, var(--brand, #6c8cff) 20%, transparent);
+  border-color: var(--brand, #6c8cff);
+  color: #fff;
+  box-shadow: 0 0 0 1px var(--brand, #6c8cff);
+}
+
+/* ── Range Slider with Glowing Track ────────────────────────────── */
+.slider-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.slider-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.slider-val-badge {
+  font-family: ui-monospace, monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  padding: 2px 8px;
+  border-radius: 99px;
+}
+
+.form-range {
+  width: 100%;
+  height: 6px;
+  background: #0d1117;
+  border-radius: 99px;
+  outline: none;
+  cursor: pointer;
+  border: 1px solid var(--border, #21293a);
+}
+
+/* ── Brand Hallmark & Watermark Section ─────────────────────────── */
+.hallmark-status-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.85rem 1.1rem;
+  border-radius: 10px;
+  background: #0d1117;
+  border: 1px solid var(--border, #21293a);
+  margin-bottom: 1.25rem;
+}
+
+.hallmark-badge-group {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.status-dot-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981;
+}
+
+/* 2x3 Position Picker Grid */
+.position-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  max-width: 480px;
+  margin-bottom: 1.25rem;
+}
+
+.pos-btn {
+  background: #0d1117;
+  border: 1px solid var(--border, #21293a);
+  border-radius: 6px;
+  padding: 0.5rem 0.65rem;
+  color: #8b9bb4;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+}
+
+.pos-btn:hover {
+  background: var(--surface-2, #141923);
+  color: #fff;
+  border-color: color-mix(in srgb, var(--brand, #6c8cff) 40%, var(--border, #21293a));
+}
+
+.pos-btn.active {
+  background: color-mix(in srgb, var(--brand, #6c8cff) 20%, transparent);
+  border-color: var(--brand, #6c8cff);
+  color: #fff;
+}
+
+/* ── Interactive Live Watermark Canvas Mockup ───────────────────── */
+.watermark-mockup-wrapper {
+  background: #090c13;
+  border: 1px solid var(--border, #21293a);
+  border-radius: 12px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.mockup-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 520px;
+  font-size: 0.8rem;
+  color: #8b9bb4;
+}
+
+.watermark-viewport {
+  position: relative;
+  width: 100%;
+  max-width: 520px;
+  aspect-ratio: 16 / 9;
+  background: radial-gradient(circle at center, #172033 0%, #080b12 100%);
+  border-radius: 8px;
+  overflow: hidden;
+  border: 2px solid #232c40;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.8);
+  display: flex;
+  transition: all 0.2s ease;
+}
+
+.watermark-viewport-grid {
+  position: absolute;
+  inset: 0;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 24px 24px;
+  pointer-events: none;
+}
+
+.viewport-center-cross {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+  pointer-events: none;
+}
+
+.mockup-watermark-item {
+  position: relative;
+  z-index: 5;
+  transition: all 0.15s ease;
+}
+
+/* ── Modern Switch Toggle ───────────────────────────────────────── */
+.toggle-switch-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle-switch-input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-switch-track {
+  width: 44px;
+  height: 24px;
+  border-radius: 99px;
+  background: #0d1117;
+  border: 1px solid var(--border, #21293a);
+  position: relative;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.toggle-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #8b9bb4;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.toggle-switch-input:checked + .toggle-switch-track {
+  background: var(--brand, #6c8cff);
+  border-color: var(--brand, #6c8cff);
+}
+
+.toggle-switch-input:checked + .toggle-switch-track .toggle-switch-thumb {
+  transform: translateX(20px);
+  background: #fff;
+}
+
+.toggle-text-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.toggle-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.toggle-desc {
+  font-size: 0.82rem;
+  color: #8b9bb4;
+  line-height: 1.4;
+}
+
+/* ── Danger Zone Card ───────────────────────────────────────────── */
+.danger-card {
+  border-color: rgba(239, 68, 68, 0.35);
+  background: color-mix(in srgb, #ef4444 4%, var(--surface-2, #141923));
+}
+
+.danger-card:hover {
+  border-color: rgba(239, 68, 68, 0.6);
+}
+
+.danger-card h3 {
+  color: #fca5a5;
+}
+
+/* ── Save Notification Toast / Pill ─────────────────────────────── */
+.save-toast-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(34, 197, 94, 0.18);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  color: #86efac;
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 6px 14px;
+  border-radius: 99px;
+  animation: fadeIn 0.2s ease;
+}
+
+/* ── Buttons ────────────────────────────────────────────────────── */
+.btn-primary-glow {
+  background: linear-gradient(135deg, #4f46e5, #6366f1);
+  color: #fff;
+  font-size: 0.88rem;
+  font-weight: 600;
+  padding: 8px 18px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(79, 70, 229, 0.35);
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn-primary-glow:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 22px rgba(79, 70, 229, 0.5);
+}
+
+.btn-primary-glow:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-outline {
+  background: transparent;
+  border: 1px solid var(--border, #21293a);
+  border-radius: 8px;
+  color: #c9d1d9;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-outline:hover {
+  border-color: var(--brand, #6c8cff);
+  background: var(--surface-2, #141923);
+  color: #fff;
+}
+
+.btn-danger-solid {
+  background: #dc2626;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-danger-solid:hover {
+  background: #b91c1c;
+}
+
+.btn-danger-outline {
+  background: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #f87171;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-danger-outline:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: #ef4444;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (max-width: 768px) {
+  .dimension-row {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+  .dim-separator {
+    display: none;
+  }
+}
