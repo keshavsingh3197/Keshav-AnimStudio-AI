@@ -235,51 +235,123 @@
       <div class="transition-preview-dialog" (click)="$event.stopPropagation()">
         <div class="transition-dialog-header">
           <div class="transition-dialog-title">
-            <span class="trans-dialog-icon">▶</span>
+            <span class="trans-dialog-icon">⚡</span>
             <div>
               <h3>Transition Preview: {{ pj.transition === 'None' ? 'Hard Cut' : pj.transition }} ({{ pj.seconds | number:'1.1-1' }}s)</h3>
-              <p class="trans-dialog-subtitle">{{ pj.leftClip.name }} ➔ {{ pj.rightClip.name }}</p>
+              <p class="trans-dialog-subtitle">
+                5s Clip A ({{ pj.leftClip.name }}) ➔ {{ pj.transition }} ({{ pj.seconds | number:'1.1-1' }}s) ➔ 5s Clip B ({{ pj.rightClip.name }})
+              </p>
             </div>
           </div>
           <button class="close-btn" type="button" (click)="state.closePreview()" title="Close">&times;</button>
         </div>
 
         <div class="transition-preview-body">
-          <div class="transition-stage" [class.is-playing]="state.previewPlaying()" [style.--trans-dur]="pj.seconds + 's'">
+          <div class="transition-stage" [style.--trans-p]="state.previewTransitionProgress()">
             <!-- Left Clip View (Outgoing) -->
             <div class="stage-clip stage-left"
-                 [class]="state.previewPlaying() ? state.previewOutClass() : ''"
-                 [style.--trans-dur]="pj.seconds + 's'">
+                 [style.opacity]="state.previewClipAOpacity()"
+                 [style.transform]="state.previewClipATransform()"
+                 [style.clip-path]="state.previewClipAClipPath()"
+                 [style.z-index]="state.previewClipAZIndex()">
               <div class="clip-label-overlay">A: {{ pj.leftClip.name }}</div>
               @if (state.getClipType(pj.leftClip) === 'image') {
                 <img [src]="state.assetUrl(pj.leftClip.id)" alt="Clip A" />
               } @else {
                 <video #vidA [src]="state.assetUrl(pj.leftClip.id)"
                        (loadedmetadata)="state.onPreviewVideoLoaded(vidA, 'A')"
-                       autoplay muted loop playsinline></video>
+                       playsinline></video>
               }
             </div>
 
             <!-- Right Clip View (Incoming) -->
             <div class="stage-clip stage-right"
-                 [class]="state.previewPlaying() ? state.previewInClass() : ''"
-                 [style.--trans-dur]="pj.seconds + 's'">
+                 [style.opacity]="state.previewClipBOpacity()"
+                 [style.transform]="state.previewClipBTransform()"
+                 [style.clip-path]="state.previewClipBClipPath()"
+                 [style.z-index]="state.previewClipBZIndex()">
               <div class="clip-label-overlay">B: {{ pj.rightClip.name }}</div>
               @if (state.getClipType(pj.rightClip) === 'image') {
                 <img [src]="state.assetUrl(pj.rightClip.id)" alt="Clip B" />
               } @else {
                 <video #vidB [src]="state.assetUrl(pj.rightClip.id)"
                        (loadedmetadata)="state.onPreviewVideoLoaded(vidB, 'B')"
-                       autoplay muted loop playsinline></video>
+                       playsinline></video>
               }
+            </div>
+
+            <!-- Sequence Finished Overlay -->
+            @if (state.previewPhase() === 'finished') {
+              <div class="preview-finished-overlay" (click)="state.replayPreview()">
+                <div class="finished-modal-card">
+                  <span class="replay-big-icon">↺</span>
+                  <h4>Preview Complete</h4>
+                  <p>Finished playing 5s before, {{ pj.seconds | number:'1.1-1' }}s transition, and 5s after.</p>
+                  <button type="button" class="btn btn-primary btn-sm mt-2" (click)="state.replayPreview(); $event.stopPropagation()">
+                    ▶ Play Again
+                  </button>
+                </div>
+              </div>
+            }
+          </div>
+
+          <!-- Timeline Scrubber & Phase Indicator -->
+          <div class="preview-timeline-container">
+            <div class="preview-phase-strip">
+              <div class="phase-segment pre" [style.flex]="state.previewPreSeconds" title="5s Pre-roll Clip A">
+                <span>Clip A ({{ state.previewPreSeconds | number:'1.1-1' }}s)</span>
+              </div>
+              <div class="phase-segment mid" [style.flex]="pj.seconds" [title]="'Transition: ' + pj.transition">
+                <span>⚡ {{ pj.transition }} ({{ pj.seconds | number:'1.1-1' }}s)</span>
+              </div>
+              <div class="phase-segment post" [style.flex]="state.previewPostSeconds" title="5s Post-roll Clip B">
+                <span>Clip B ({{ state.previewPostSeconds | number:'1.1-1' }}s)</span>
+              </div>
+            </div>
+
+            <!-- Scrubber Track -->
+            <div class="preview-scrubber-track" (click)="state.onPreviewScrubberClick($event)" title="Click to jump / scrub">
+              <div class="preview-scrubber-fill" [style.width.%]="state.previewProgress() * 100"></div>
+              <div class="preview-scrubber-thumb" [style.left.%]="state.previewProgress() * 100"></div>
+            </div>
+
+            <!-- Phase Info & Audio Controls Row -->
+            <div class="preview-meta-row">
+              <div class="d-flex align-items-center gap-2">
+                <span class="preview-status-pill" [attr.data-phase]="state.previewPhase()">
+                  @switch (state.previewPhase()) {
+                    @case ('preroll') { 🔵 Clip A • 5s Pre-roll ({{ (state.previewPreSeconds - state.previewElapsed()) | number:'1.1-1' }}s left) }
+                    @case ('transition') { ⚡ In Transition: {{ pj.transition }} ({{ (state.previewTransitionProgress() * 100) | number:'1.0-0' }}%) }
+                    @case ('postroll') { 🟢 Clip B • 5s Post-roll }
+                    @case ('finished') { ✓ Preview Finished }
+                  }
+                </span>
+                <span class="mono text-muted small">
+                  {{ state.previewElapsed() | number:'1.1-1' }}s / {{ state.previewDuration() | number:'1.1-1' }}s
+                </span>
+              </div>
+
+              <div class="d-flex align-items-center gap-2">
+                <button type="button" class="preview-btn-icon" (click)="state.togglePreviewMute()" [title]="state.previewMuted() ? 'Unmute Sound' : 'Mute Sound'">
+                  {{ state.previewMuted() ? '🔇' : '🔊' }}
+                </button>
+              </div>
             </div>
           </div>
         </div>
 
         <div class="transition-dialog-footer">
-          <button type="button" class="btn btn-outline-secondary btn-sm" (click)="state.replayPreview()">
-            ↺ Replay Preview
-          </button>
+          <div class="d-flex align-items-center gap-2">
+            <button type="button" class="btn btn-outline-primary btn-sm" (click)="state.replayPreview()">
+              ↺ Replay Preview
+            </button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" (click)="state.togglePreviewPlay()">
+              {{ state.previewPlaying() ? '⏸ Pause' : '▶ Play' }}
+            </button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" (click)="state.jumpToTransition()">
+              ⚡ Jump to Cut
+            </button>
+          </div>
           <button type="button" class="btn btn-primary btn-sm" (click)="state.closePreview()">
             Done
           </button>

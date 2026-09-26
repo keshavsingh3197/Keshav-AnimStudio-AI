@@ -1,36 +1,52 @@
 <div class="page-head">
   <div>
-    <h2>Assets</h2>
+    <div class="d-flex align-items-center gap-2 mb-1">
+      <span class="page-icon">📁</span>
+      <h2>Assets Library</h2>
+    </div>
     <p class="muted">
-      PNG, JPEG or WEBP images; WAV, MP3 or M4A audio; MP4 video; SRT or WebVTT subtitles.
-      Up to 25MB each &mdash; 512MB for video, 2MB for a subtitle file.
+      High-performance media vault. Videos, images, audio, and subtitles for timeline composition and animation rendering.
     </p>
+  </div>
+  <div class="library-header-stats">
+    <span class="stat-pill"><span class="dot"></span> {{ store.assets().length }} Items</span>
+    <span class="stat-pill"><span class="icon">💾</span> {{ formatFileSize(totalStorageBytes()) }} Storage</span>
   </div>
 </div>
 
 <div class="library-layout">
-  <div class="sidebar">
-    <h3>Library</h3>
+  <!-- Left Media Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-section-title">Library Categories</div>
     <div class="folder-list">
-      <div class="folder-item" [class.active]="selectedFolderId() === 'all'"
-           (click)="selectFolder('all')" (dragover)="onDragOver($event, null)" (dragleave)="onDragLeave($event)" (drop)="onDropToFolder($event, null)">
-        <span class="folder-name">All Assets</span>
-      </div>
-      <div class="folder-item" [class.active]="selectedFolderId() === 'images'" (click)="selectFolder('images')">
-        <span class="folder-name">Images</span>
-      </div>
-      <div class="folder-item" [class.active]="selectedFolderId() === 'videos'" (click)="selectFolder('videos')">
-        <span class="folder-name">Videos</span>
-      </div>
-      <div class="folder-item" [class.active]="selectedFolderId() === 'audio'" (click)="selectFolder('audio')">
-        <span class="folder-name">Audio</span>
-      </div>
-      <div class="folder-item" [class.active]="selectedFolderId() === 'subtitles'" (click)="selectFolder('subtitles')">
-        <span class="folder-name">Subtitles</span>
-      </div>
+      <button type="button" class="folder-item" [class.active]="selectedFolderId() === 'all'"
+              (click)="selectFolder('all')" (dragover)="onDragOver($event, null)" (dragleave)="onDragLeave($event)" (drop)="onDropToFolder($event, null)">
+        <span class="folder-name"><span class="f-icon">🌐</span> All Assets</span>
+        <span class="folder-count">{{ store.assets().length }}</span>
+      </button>
+
+      <button type="button" class="folder-item" [class.active]="selectedFolderId() === 'videos'" (click)="selectFolder('videos')">
+        <span class="folder-name"><span class="f-icon">🎬</span> Videos</span>
+        <span class="folder-count">{{ videoCount() }}</span>
+      </button>
+
+      <button type="button" class="folder-item" [class.active]="selectedFolderId() === 'images'" (click)="selectFolder('images')">
+        <span class="folder-name"><span class="f-icon">🖼️</span> Images</span>
+        <span class="folder-count">{{ imageCount() }}</span>
+      </button>
+
+      <button type="button" class="folder-item" [class.active]="selectedFolderId() === 'audio'" (click)="selectFolder('audio')">
+        <span class="folder-name"><span class="f-icon">🎵</span> Audio</span>
+        <span class="folder-count">{{ audioCount() }}</span>
+      </button>
+
+      <button type="button" class="folder-item" [class.active]="selectedFolderId() === 'subtitles'" (click)="selectFolder('subtitles')">
+        <span class="folder-name"><span class="f-icon">📝</span> Subtitles</span>
+        <span class="folder-count">{{ subtitleCount() }}</span>
+      </button>
     </div>
 
-    <h3 style="margin-top: 1rem;">Folders</h3>
+    <div class="sidebar-section-title" style="margin-top: 1.25rem;">Custom Folders</div>
     <div class="folder-list">
       @for (folder of store.folders(); track folder.id) {
         <div class="folder-item"
@@ -41,13 +57,12 @@
              (dragleave)="onDragLeave($event)"
              (drop)="onDropToFolder($event, folder.id)">
           <span class="folder-name">
-            @if (folder.name === 'Exports') { }
-            @else { }
+            <span class="f-icon">📂</span>
             {{ folder.name }}
           </span>
           @if (folder.name !== 'Exports') {
             <div class="folder-actions">
-              <button class="danger" (click)="deleteFolder(folder.id); $event.stopPropagation()">×</button>
+              <button type="button" class="danger-icon-btn" (click)="deleteFolder(folder.id); $event.stopPropagation()" title="Delete folder">×</button>
             </div>
           }
         </div>
@@ -57,54 +72,192 @@
     @if (isCreatingFolder()) {
       <div class="new-folder-form">
         <input type="text" [(ngModel)]="newFolderName" placeholder="Folder name..." (keyup.enter)="createFolder()" />
-        <button class="primary" (click)="createFolder()">Add</button>
-        <button class="secondary" (click)="isCreatingFolder.set(false)">Cancel</button>
+        <div class="d-flex gap-1 mt-1">
+          <button type="button" class="primary-sm" (click)="createFolder()">Add</button>
+          <button type="button" class="secondary-sm" (click)="isCreatingFolder.set(false)">Cancel</button>
+        </div>
       </div>
     } @else {
-      <button class="secondary" (click)="isCreatingFolder.set(true)" style="margin-top: 0.5rem">
+      <button type="button" class="add-folder-btn" (click)="isCreatingFolder.set(true)">
         + New Folder
       </button>
     }
-  </div>
 
-  <div class="main-content">
-    <div class="toolbar card" style="margin-bottom: 1rem; display: flex; gap: 1rem; align-items: center; justify-content: space-between;">
-      <div style="display: flex; gap: 1rem; align-items: center; flex: 1;">
-        <label for="upload" class="primary button" style="cursor: pointer; padding: 6px 12px; display: inline-block;">
-          Upload Files
+    <!-- Quick Dropzone Hint -->
+    <div class="sidebar-dropzone-hint">
+      <span class="hint-icon">📥</span>
+      <span>Drag & drop media files anywhere to upload instantly</span>
+    </div>
+  </aside>
+
+  <!-- Main Content Area -->
+  <main class="main-content">
+    <!-- Toolbar -->
+    <div class="toolbar card">
+      <div class="toolbar-left">
+        <label for="upload" class="upload-btn" title="Upload video, audio, image or subtitle files">
+          <span class="btn-icon">⬆</span> Upload Media
         </label>
         <input id="upload" type="file" multiple style="display: none"
                accept="image/png,image/jpeg,image/webp,audio/wav,audio/mpeg,audio/mp4,video/mp4,.srt,.vtt"
                (change)="upload($event)" />
-        <span class="muted" style="font-size: 0.9em;">
-          @if (selectedFolderId() === 'all' || selectedFolderId() === 'images' || selectedFolderId() === 'videos' || selectedFolderId() === 'audio' || selectedFolderId() === 'subtitles') {
-            Uploading to Root
-          } @else {
-            Uploading to Folder
-          }
-        </span>
+
+        <div class="upload-target-info">
+          <span class="target-label">Target:</span>
+          <span class="target-val">
+            @if (selectedFolderId() === 'all' || selectedFolderId() === 'images' || selectedFolderId() === 'videos' || selectedFolderId() === 'audio' || selectedFolderId() === 'subtitles') {
+              Root Library
+            } @else {
+              Selected Folder
+            }
+          </span>
+        </div>
       </div>
-      <div style="flex: 1; text-align: right;">
-        <input type="text" [(ngModel)]="searchQuery" placeholder="Search assets..." style="width: 250px;" />
+
+      <div class="toolbar-right">
+        <!-- Search Box -->
+        <div class="search-box">
+          <span class="search-icon">🔍</span>
+          <input type="text" [(ngModel)]="searchQuery" placeholder="Search assets by name..." />
+          @if (searchQuery()) {
+            <button type="button" class="search-clear-btn" (click)="searchQuery.set('')">&times;</button>
+          }
+        </div>
+
+        <!-- Sort Control -->
+        <div class="sort-control">
+          <select [ngModel]="sortBy()" (ngModelChange)="toggleSort($event)" class="form-select form-select-sm">
+            <option value="order">Sort: Timeline Order</option>
+            <option value="name">Sort: Name (A-Z)</option>
+            <option value="size">Sort: File Size</option>
+            <option value="duration">Sort: Duration</option>
+            <option value="type">Sort: Media Type</option>
+          </select>
+        </div>
+
+        <!-- View Mode Switcher -->
+        <div class="view-mode-toggle">
+          <button type="button" class="view-btn" [class.active]="viewMode() === 'grid'"
+                  (click)="viewMode.set('grid')" title="Visual Grid View">
+            ⊞
+          </button>
+          <button type="button" class="view-btn" [class.active]="viewMode() === 'table'"
+                  (click)="viewMode.set('table')" title="Detailed Table View">
+            ☰
+          </button>
+        </div>
       </div>
     </div>
 
+    <!-- Assets View Container -->
     @if (filteredAssets().length === 0) {
-      <div class="card muted" style="text-align: center; padding: 3rem;">
-        No assets found in this view.
+      <div class="card empty-state">
+        <div class="empty-icon">📁</div>
+        <h3>No media assets found</h3>
+        <p class="muted">Upload video clips, images, sound effects, or subtitles to begin.</p>
+        <label for="upload" class="primary button" style="cursor: pointer; padding: 6px 16px; margin-top: 8px;">
+          Choose Files to Upload
+        </label>
+      </div>
+    } @else if (viewMode() === 'grid') {
+      <!-- ── Visual Grid View ──────────────────────────────────────── -->
+      <div class="asset-grid">
+        @for (asset of filteredAssets(); track asset.id; let i = $index) {
+          <div class="asset-card" [class.confirming]="confirming() === asset.id">
+            <!-- Media Thumbnail Container -->
+            <div class="asset-thumb-container" (click)="openPreview(asset)">
+              @if (isImage(asset)) {
+                <img class="asset-thumb-img" [src]="assetUrl(asset.id)" [alt]="asset.name" loading="lazy" />
+                @if (asset.hasAlpha) {
+                  <span class="alpha-tag" title="Transparent alpha channel">RGBA</span>
+                }
+                @if (asset.width && asset.height) {
+                  <span class="res-tag">{{ asset.width }}&times;{{ asset.height }}</span>
+                }
+              } @else if (isVideo(asset)) {
+                <img class="asset-thumb-img" [src]="assetThumbnailUrl(asset.id)" [alt]="asset.name" loading="lazy" />
+                <div class="play-overlay">
+                  <span class="play-icon">▶</span>
+                </div>
+                @if (asset.durationSeconds) {
+                  <span class="dur-tag">{{ formatDuration(asset.durationSeconds) }}</span>
+                }
+                @if (asset.width && asset.height) {
+                  <span class="res-tag">{{ asset.width }}&times;{{ asset.height }}</span>
+                }
+                <span class="format-tag">MP4</span>
+              } @else if (isAudio(asset)) {
+                <div class="audio-waveform-card">
+                  <div class="waveform-anim">
+                    <span class="bar"></span><span class="bar"></span><span class="bar"></span>
+                    <span class="bar"></span><span class="bar"></span><span class="bar"></span>
+                    <span class="bar"></span><span class="bar"></span><span class="bar"></span>
+                  </div>
+                  <span class="audio-play-btn">▶</span>
+                  @if (asset.durationSeconds) {
+                    <span class="dur-tag">{{ formatDuration(asset.durationSeconds) }}</span>
+                  }
+                  <span class="format-tag">AUDIO</span>
+                </div>
+              } @else {
+                <div class="subtitle-card-view">
+                  <span class="sub-icon">📝</span>
+                  <span class="format-tag">SUBTITLE</span>
+                </div>
+              }
+            </div>
+
+            <!-- Card Body & Metadata -->
+            <div class="asset-card-body">
+              <div class="asset-card-title-row">
+                <span class="asset-name" [title]="asset.name">{{ asset.name }}</span>
+              </div>
+
+              <div class="asset-card-meta">
+                <span class="kind-badge" [attr.data-kind]="asset.kind">{{ asset.kind }}</span>
+                <span class="size-badge">{{ formatFileSize(asset.fileSizeBytes) }}</span>
+                @if (asset.reviewStatus !== 'NotRequired') {
+                  <span class="review-badge">{{ asset.reviewStatus }}</span>
+                }
+              </div>
+
+              <!-- Quick Actions -->
+              <div class="asset-card-actions">
+                <button type="button" class="action-btn" (click)="openPreview(asset)" title="Preview / Inspect Media">
+                  ▶ Inspect
+                </button>
+                <button type="button" class="action-btn" (click)="copyAssetId(asset.id)" [title]="copiedAssetId() === asset.id ? 'Copied!' : 'Copy Asset ID'">
+                  {{ copiedAssetId() === asset.id ? '✓ Copied' : '📋 ID' }}
+                </button>
+
+                @if (confirming() === asset.id) {
+                  <div class="confirm-delete-box">
+                    <button type="button" class="btn-delete-confirm" (click)="remove(asset.id)">Confirm</button>
+                    <button type="button" class="btn-cancel" (click)="confirming.set(null)">✕</button>
+                  </div>
+                } @else {
+                  <button type="button" class="action-btn danger" (click)="confirming.set(asset.id)" title="Delete asset">
+                    🗑
+                  </button>
+                }
+              </div>
+            </div>
+          </div>
+        }
       </div>
     } @else {
-      <div class="card p-0">
+      <!-- ── Refined Table View ────────────────────────────────────── -->
+      <div class="card p-0 overflow-hidden">
         <table class="data-table">
           <thead>
             <tr>
-              <th style="width: 2rem;"></th>
-              <th style="width: 8rem;">Preview</th>
+              <th style="width: 2.5rem; text-align: center;">#</th>
+              <th style="width: 6.5rem;">Preview</th>
               <th>Name</th>
-              <th style="width: 6rem;">Kind</th>
+              <th style="width: 6.5rem;">Kind</th>
               <th>Details</th>
               <th>Size</th>
-              <th style="text-align: right;">Actions</th>
+              <th style="text-align: right; width: 10rem;">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -116,36 +269,45 @@
                   (drop)="onDropRow($event, i)"
                   [class.drag-over-row]="dragOverIndex() === i"
                   style="cursor: grab">
-                <td class="muted" style="cursor: grab; text-align: center;">&#9776;</td>
+                <td class="muted" style="cursor: grab; text-align: center; font-size: 1.1rem;" title="Drag to reorder">&#9776;</td>
                 <td>
                   @if (isImage(asset)) {
-                    <img class="thumb" [src]="assetUrl(asset.id)" [alt]="asset.name" draggable="false" />
-                  } @else if (isAudible(asset)) {
-                    <audio controls preload="none" [src]="assetUrl(asset.id)"
-                           style="max-width: 12rem; height: 30px;"></audio>
+                    <div class="table-thumb-wrap" (click)="openPreview(asset)">
+                      <img class="table-thumb" [src]="assetUrl(asset.id)" [alt]="asset.name" draggable="false" />
+                    </div>
+                  } @else if (isVideo(asset)) {
+                    <div class="table-thumb-wrap video" (click)="openPreview(asset)" title="Click to preview video">
+                      <img class="table-thumb" [src]="assetThumbnailUrl(asset.id)" [alt]="asset.name" draggable="false" />
+                      <span class="table-play-badge">▶</span>
+                    </div>
+                  } @else if (isAudio(asset)) {
+                    <audio controls preload="none" [src]="assetUrl(asset.id)" style="max-width: 11rem; height: 28px;"></audio>
                   } @else if (asset.kind === 'Subtitle') {
-                    <span class="muted mono">captions</span>
+                    <span class="badge-subtitle">SRT / VTT</span>
                   }
                 </td>
-                <td style="word-break: break-all;">{{ asset.name }}</td>
+                <td style="word-break: break-all;">
+                  <strong class="asset-table-name" (click)="openPreview(asset)">{{ asset.name }}</strong>
+                </td>
                 <td>
-                  <span class="pill">{{ asset.kind }}</span>
+                  <span class="kind-badge" [attr.data-kind]="asset.kind">{{ asset.kind }}</span>
                   @if (asset.reviewStatus !== 'NotRequired') {
-                    <span class="pill warn">{{ asset.reviewStatus }}</span>
+                    <span class="review-badge">{{ asset.reviewStatus }}</span>
                   }
                 </td>
-                <td class="mono muted">
-                  @if (asset.width) { {{ asset.width }}&times;{{ asset.height }} }
-                  @if (asset.durationSeconds) { {{ asset.durationSeconds | number: '1.1-1' }}s }
+                <td class="mono muted small">
+                  @if (asset.width && asset.height) { <div>{{ asset.width }}&times;{{ asset.height }}</div> }
+                  @if (asset.durationSeconds) { <div>{{ formatDuration(asset.durationSeconds) }}</div> }
                 </td>
-                <td class="mono">{{ asset.fileSizeBytes / 1024 | number: '1.0-0' }} KB</td>
+                <td class="mono">{{ formatFileSize(asset.fileSizeBytes) }}</td>
                 <td style="text-align: right; white-space: nowrap">
                   @if (confirming() === asset.id) {
-                    <button class="danger" type="button" (click)="remove(asset.id)">Delete</button>
-                    <button class="secondary" type="button" (click)="confirming.set(null)">Keep</button>
+                    <button class="danger btn-sm" type="button" (click)="remove(asset.id)">Confirm</button>
+                    <button class="secondary btn-sm" type="button" (click)="confirming.set(null)">Keep</button>
                   } @else {
-                    <button class="secondary" type="button"
-                            (click)="confirming.set(asset.id)">Delete</button>
+                    <button class="action-btn btn-sm" type="button" (click)="openPreview(asset)" title="Inspect">▶</button>
+                    <button class="action-btn btn-sm" type="button" (click)="copyAssetId(asset.id)" title="Copy ID">📋</button>
+                    <button class="action-btn danger btn-sm" type="button" (click)="confirming.set(asset.id)" title="Delete">🗑</button>
                   }
                 </td>
               </tr>
@@ -154,5 +316,88 @@
         </table>
       </div>
     }
-  </div>
+  </main>
 </div>
+
+<!-- ── Asset Inspector / Lightbox Modal ────────────────────────────── -->
+@if (previewAsset(); as pa) {
+  <div class="modal-backdrop" (click)="closePreview()">
+    <div class="asset-inspector-dialog" (click)="$event.stopPropagation()">
+      <div class="inspector-header">
+        <div class="d-flex align-items-center gap-2">
+          <span class="kind-badge" [attr.data-kind]="pa.kind">{{ pa.kind }}</span>
+          <h3 class="inspector-title" [title]="pa.name">{{ pa.name }}</h3>
+        </div>
+        <button type="button" class="close-btn" (click)="closePreview()" title="Close">&times;</button>
+      </div>
+
+      <div class="inspector-body">
+        <div class="inspector-media-stage">
+          @if (isImage(pa)) {
+            <div class="lightbox-img-wrap">
+              <img [src]="assetUrl(pa.id)" [alt]="pa.name" />
+            </div>
+          } @else if (isVideo(pa)) {
+            <div class="lightbox-video-wrap">
+              <video [src]="assetUrl(pa.id)" controls autoplay playsinline></video>
+            </div>
+          } @else if (isAudio(pa)) {
+            <div class="lightbox-audio-wrap">
+              <div class="audio-avatar">🎵</div>
+              <h4>{{ pa.name }}</h4>
+              <audio [src]="assetUrl(pa.id)" controls autoplay class="w-100 mt-3"></audio>
+            </div>
+          } @else {
+            <div class="lightbox-generic-wrap">
+              <span class="generic-icon">📝</span>
+              <h4>Subtitle Document</h4>
+              <p class="muted small">{{ pa.name }}</p>
+            </div>
+          }
+        </div>
+
+        <div class="inspector-meta-sidebar">
+          <h4>Asset Information</h4>
+          <dl class="meta-dl">
+            <dt>Filename</dt>
+            <dd class="mono text-break">{{ pa.name }}</dd>
+
+            <dt>Asset ID</dt>
+            <dd class="mono text-break">
+              {{ pa.id }}
+              <button type="button" class="copy-mini-btn" (click)="copyAssetId(pa.id)">Copy</button>
+            </dd>
+
+            <dt>Media Type</dt>
+            <dd>{{ pa.kind }}</dd>
+
+            @if (pa.width && pa.height) {
+              <dt>Resolution</dt>
+              <dd class="mono">{{ pa.width }} &times; {{ pa.height }}</dd>
+            }
+
+            @if (pa.durationSeconds) {
+              <dt>Duration</dt>
+              <dd class="mono">{{ formatDuration(pa.durationSeconds) }} ({{ pa.durationSeconds | number:'1.2-2' }}s)</dd>
+            }
+
+            <dt>File Size</dt>
+            <dd class="mono">{{ formatFileSize(pa.fileSizeBytes) }} ({{ pa.fileSizeBytes | number:'1.0-0' }} bytes)</dd>
+
+            <dt>MIME Type</dt>
+            <dd class="mono">{{ pa.mimeType }}</dd>
+          </dl>
+
+          <div class="inspector-actions mt-3">
+            <a [href]="assetUrl(pa.id)" [download]="pa.name" class="btn btn-outline-secondary w-100 btn-sm mb-2" target="_blank">
+              💾 Download Asset
+            </a>
+            <button type="button" class="btn btn-outline-danger w-100 btn-sm" (click)="remove(pa.id); closePreview()">
+              🗑 Delete Asset
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+}

@@ -19,7 +19,14 @@ export class AssetLibraryComponent {
   readonly status = inject(StatusService);
 
   readonly confirming = signal<string | null>(null);
+  readonly previewAsset = signal<Asset | null>(null);
+  readonly copiedAssetId = signal<string | null>(null);
   
+  // View mode & sorting
+  readonly viewMode = signal<'grid' | 'table'>('grid');
+  readonly sortBy = signal<'order' | 'name' | 'size' | 'duration' | 'type'>('order');
+  readonly sortAsc = signal<boolean>(true);
+
   // Virtual folders: 'all', 'images', 'videos', 'audio', 'subtitles', 'exports'
   // Custom folders: folder ID string.
   readonly selectedFolderId = signal<string>('all');
@@ -33,11 +40,17 @@ export class AssetLibraryComponent {
   readonly dragAssetIndex = signal<number | null>(null);
   readonly dragOverIndex = signal<number | null>(null);
 
+  // Storage and type statistics
+  readonly totalStorageBytes = computed(() => {
+    return this.store.assets().reduce((acc, a) => acc + (a.fileSizeBytes || 0), 0);
+  });
+  readonly videoCount = computed(() => this.store.assets().filter(a => a.kind === 'Video').length);
+  readonly audioCount = computed(() => this.store.assets().filter(a => a.kind === 'Audio').length);
+  readonly imageCount = computed(() => this.store.assets().filter(a => a.kind === 'Image').length);
+  readonly subtitleCount = computed(() => this.store.assets().filter(a => a.kind === 'Subtitle').length);
+
   readonly filteredAssets = computed(() => {
     let assets = [...this.store.assets()];
-    
-    // Sort by orderIndex
-    assets.sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
 
     const folderId = this.selectedFolderId();
     if (folderId === 'images') assets = assets.filter(a => a.kind === 'Image');
@@ -54,6 +67,24 @@ export class AssetLibraryComponent {
     if (query) {
       assets = assets.filter(a => a.name.toLowerCase().includes(query));
     }
+
+    const sort = this.sortBy();
+    const asc = this.sortAsc();
+    assets.sort((a, b) => {
+      let cmp = 0;
+      if (sort === 'name') {
+        cmp = a.name.localeCompare(b.name);
+      } else if (sort === 'size') {
+        cmp = (a.fileSizeBytes || 0) - (b.fileSizeBytes || 0);
+      } else if (sort === 'duration') {
+        cmp = (a.durationSeconds || 0) - (b.durationSeconds || 0);
+      } else if (sort === 'type') {
+        cmp = a.kind.localeCompare(b.kind);
+      } else {
+        cmp = (a.orderIndex || 0) - (b.orderIndex || 0);
+      }
+      return asc ? cmp : -cmp;
+    });
 
     return assets;
   });
@@ -200,11 +231,72 @@ export class AssetLibraryComponent {
     return this.api.assetUrl(assetId);
   }
 
+  assetThumbnailUrl(assetId: string): string {
+    return this.api.assetThumbnailUrl(assetId);
+  }
+
   isImage(asset: Asset): boolean {
     return asset.kind === 'Image';
   }
 
+  isVideo(asset: Asset): boolean {
+    return asset.kind === 'Video';
+  }
+
+  isAudio(asset: Asset): boolean {
+    return asset.kind === 'Audio';
+  }
+
+  isSubtitle(asset: Asset): boolean {
+    return asset.kind === 'Subtitle';
+  }
+
   isAudible(asset: Asset): boolean {
-    return asset.kind === 'Audio' || asset.kind === 'Video';
+    // Only genuine audio assets use the audio player inline! Videos have video thumbnails.
+    return asset.kind === 'Audio';
+  }
+
+  formatDuration(sec?: number | null): string {
+    if (sec == null || isNaN(sec) || sec <= 0) return '--';
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    const ms = Math.floor((sec % 1) * 10);
+    if (m > 0) {
+      return `${m}:${s.toString().padStart(2, '0')}`;
+    }
+    return `${s}.${ms}s`;
+  }
+
+  formatFileSize(bytes?: number | null): string {
+    if (bytes == null || isNaN(bytes) || bytes <= 0) return '0 B';
+    if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+    if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    if (bytes >= 1024) return (bytes / 1024).toFixed(0) + ' KB';
+    return bytes + ' B';
+  }
+
+  openPreview(asset: Asset): void {
+    this.previewAsset.set(asset);
+  }
+
+  closePreview(): void {
+    this.previewAsset.set(null);
+  }
+
+  copyAssetId(id: string): void {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(id);
+      this.copiedAssetId.set(id);
+      setTimeout(() => this.copiedAssetId.set(null), 2000);
+    }
+  }
+
+  toggleSort(type: 'order' | 'name' | 'size' | 'duration' | 'type'): void {
+    if (this.sortBy() === type) {
+      this.sortAsc.update(a => !a);
+    } else {
+      this.sortBy.set(type);
+      this.sortAsc.set(type === 'order' || type === 'name');
+    }
   }
 }

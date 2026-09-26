@@ -1324,6 +1324,7 @@ export class StudioStateService implements OnDestroy {
       }
     }
     this.stopPolling();
+    this.closePreview();
     this.audioEngine.dispose();
   }
 
@@ -3744,33 +3745,315 @@ export class StudioStateService implements OnDestroy {
 
   private previewVideoA: HTMLVideoElement | null = null;
   private previewVideoB: HTMLVideoElement | null = null;
+  private previewRafId: number | null = null;
+  private previewStartTime: number = 0;
+  private previewPausedAtElapsed: number = 0;
+  previewPreSeconds: number = 5.0;
+  previewPostSeconds: number = 5.0;
+  previewClipAStartSec: number = 0;
+
+  readonly previewPlaying = signal<boolean>(false);
+  readonly previewPhase = signal<'preroll' | 'transition' | 'postroll' | 'finished'>('preroll');
+  readonly previewElapsed = signal<number>(0);
+  readonly previewDuration = signal<number>(11);
+  readonly previewProgress = signal<number>(0);
+  readonly previewTransitionProgress = signal<number>(0);
+  readonly previewMuted = signal<boolean>(false);
+  readonly previewVolume = signal<number>(1.0);
 
   openPreview(junction: JunctionView): void {
+    // Immediately stop studio timeline playback to prevent audio collision
+    this.isPlaying.set(false);
+
+    if (this.previewRafId) {
+      cancelAnimationFrame(this.previewRafId);
+      this.previewRafId = null;
+    }
+
+    const leftDur = junction.left.durationSeconds || 5.0;
+    const rightDur = junction.right.durationSeconds || 5.0;
+    const transSec = Math.max(0.1, junction.seconds || 0.5);
+
+    // 5 seconds pre-roll before the cut, exact transition, 5 seconds post-roll after the cut
+    const preSec = Math.max(0.5, Math.min(5.0, leftDur - transSec));
+    const postSec = Math.max(0.5, Math.min(5.0, rightDur));
+    const totalSec = preSec + transSec + postSec;
+    const startA = Math.max(0, leftDur - transSec - preSec);
+
+    this.previewPreSeconds = preSec;
+    this.previewPostSeconds = postSec;
+    this.previewClipAStartSec = startA;
+    this.previewDuration.set(totalSec);
+    this.previewElapsed.set(0);
+    this.previewProgress.set(0);
+    this.previewTransitionProgress.set(0);
+    this.previewPhase.set('preroll');
+    this.previewPlaying.set(false);
+    this.previewPausedAtElapsed = 0;
+
     this.previewJunction.set({
       key: junction.key,
       leftClip: junction.left,
       rightClip: junction.right,
       transition: junction.transition,
-      seconds: junction.seconds,
+      seconds: transSec,
     });
-    this.previewPlaying.set(false);
-    // Allow video elements to mount and prepare before triggering transition animation
+
+    // Allow DOM elements to mount and initialize before beginning playback sequence
     setTimeout(() => {
-      this.previewPlaying.set(true);
-    }, 200);
+      this.startPreviewSequence(0);
+    }, 120);
   }
 
-  readonly previewPlaying = signal<boolean>(false);
+  startPreviewSequence(startFromElapsed = 0): void {
+    if (this.previewRafId) {
+      cancelAnimationFrame(this.previewRafId);
+      this.previewRafId = null;
+    }
+
+    const totalSec = this.previewDuration();
+    if (startFromElapsed >= totalSec) {
+      this.previewElapsed.set(totalSec);
+      this.previewProgress.set(1.0);
+      this.previewTransitionProgress.set(1.0);
+      this.previewPhase.set('finished');
+      this.previewPlaying.set(false);
+      this.previewVideoA?.pause();
+      this.previewVideoB?.pause();
+      return;
+    }
+
+    const preSec = this.previewPreSeconds;
+    const transSec = this.previewJunction()?.seconds ?? 0.5;
+    const transEnd = preSec + transSec;
+    const vol = this.previewMuted() ? 0 : this.previewVolume();
+
+    // Prepare Clip A
+    if (this.previewVideoA) {
+      this.previewVideoA.currentTime = this.previewClipAStartSec + startFromElapsed;
+      if (startFromElapsed < transEnd) {
+        this.previewVideoA.muted = this.previewMuted();
+        this.previewVideoA.volume = startFromElapsed < preSec ? vol : vol * Math.max(0, 1 - (startFromElapsed - preSec) / transSec);
+        this.previewVideoA.play().catch(() => {});
+      } else {
+        this.previewVideoA.muted = true;
+        this.previewVideoA.volume = 0;
+        this.previewVideoA.pause();
+      }
+    }
+
+    // Prepare Clip B
+    if (this.previewVideoB) {
+      if (startFromElapsed >= preSec) {
+        this.previewVideoB.currentTime = Math.max(0, startFromElapsed - preSec);
+        this.previewVideoB.muted = this.previewMuted();
+        this.previewVideoB.volume = startFromElapsed >= transEnd ? vol : vol * Math.min(1, (startFromElapsed - preSec) / transSec);
+        this.previewVideoB.play().catch(() => {});
+      } else {
+        this.previewVideoB.currentTime = 0;
+        this.previewVideoB.muted = true;
+        this.previewVideoB.volume = 0;
+        this.previewVideoB.pause();
+      }
+    }
+
+    this.previewStartTime = performance.now() - (startFromElapsed * 1000);
+    this.previewPlaying.set(true);
+    this.runPreviewTick();
+  }
+
+  private runPreviewTick(): void {
+    if (!this.previewPlaying()) return;
+
+    const now = performance.now();
+    const elapsed = Math.max(0, (now - this.previewStartTime) / 1000);
+    const totalSec = this.previewDuration();
+    const preSec = this.previewPreSeconds;
+    const transSec = this.previewJunction()?.seconds ?? 0.5;
+    const transEnd = preSec + transSec;
+
+    if (elapsed >= totalSec) {
+      // Sequence completed: Stop cleanly, no endless looping
+      this.previewElapsed.set(totalSec);
+      this.previewProgress.set(1.0);
+      this.previewTransitionProgress.set(1.0);
+      this.previewPhase.set('finished');
+      this.previewPlaying.set(false);
+      this.previewPausedAtElapsed = totalSec;
+      if (this.previewVideoA) {
+        this.previewVideoA.pause();
+        this.previewVideoA.volume = 0;
+      }
+      if (this.previewVideoB) {
+        this.previewVideoB.pause();
+      }
+      return;
+    }
+
+    this.previewElapsed.set(elapsed);
+    this.previewProgress.set(Math.min(1.0, elapsed / totalSec));
+    const vol = this.previewMuted() ? 0 : this.previewVolume();
+
+    if (elapsed < preSec) {
+      // --- PHASE 1: PRE-ROLL (Clip A playing exclusively) ---
+      this.previewPhase.set('preroll');
+      this.previewTransitionProgress.set(0);
+
+      if (this.previewVideoA) {
+        this.previewVideoA.muted = this.previewMuted();
+        this.previewVideoA.volume = vol;
+        if (this.previewVideoA.paused) {
+          this.previewVideoA.play().catch(() => {});
+        }
+      }
+      if (this.previewVideoB) {
+        this.previewVideoB.muted = true;
+        this.previewVideoB.volume = 0;
+        if (!this.previewVideoB.paused) {
+          this.previewVideoB.pause();
+        }
+      }
+    } else if (elapsed < transEnd) {
+      // --- PHASE 2: IN TRANSITION (Both clips blending, smooth audio crossfade) ---
+      this.previewPhase.set('transition');
+      const p = Math.max(0, Math.min(1, (elapsed - preSec) / transSec));
+      this.previewTransitionProgress.set(p);
+
+      if (this.previewVideoB) {
+        if (this.previewVideoB.paused) {
+          this.previewVideoB.currentTime = Math.max(0, elapsed - preSec);
+          this.previewVideoB.play().catch(() => {});
+        }
+      }
+
+      // Smooth audio crossfading between clips
+      if (this.previewVideoA && this.previewVideoB) {
+        const transType = this.previewJunction()?.transition;
+        if (transType === 'Fade') {
+          if (p < 0.5) {
+            this.previewVideoA.muted = this.previewMuted();
+            this.previewVideoA.volume = vol * Math.max(0, 1 - 2 * p);
+            this.previewVideoB.muted = true;
+            this.previewVideoB.volume = 0;
+          } else {
+            this.previewVideoA.muted = true;
+            this.previewVideoA.volume = 0;
+            this.previewVideoB.muted = this.previewMuted();
+            this.previewVideoB.volume = vol * Math.min(1, 2 * (p - 0.5));
+          }
+        } else {
+          this.previewVideoA.muted = this.previewMuted();
+          this.previewVideoA.volume = vol * (1 - p);
+          this.previewVideoB.muted = this.previewMuted();
+          this.previewVideoB.volume = vol * p;
+        }
+      }
+    } else {
+      // --- PHASE 3: POST-ROLL (Clip B playing exclusively) ---
+      this.previewPhase.set('postroll');
+      this.previewTransitionProgress.set(1.0);
+
+      if (this.previewVideoA) {
+        this.previewVideoA.muted = true;
+        this.previewVideoA.volume = 0;
+        if (!this.previewVideoA.paused) {
+          this.previewVideoA.pause();
+        }
+      }
+      if (this.previewVideoB) {
+        this.previewVideoB.muted = this.previewMuted();
+        this.previewVideoB.volume = vol;
+        if (this.previewVideoB.paused) {
+          this.previewVideoB.play().catch(() => {});
+        }
+      }
+    }
+
+    if (this.previewPlaying()) {
+      this.previewRafId = requestAnimationFrame(() => this.runPreviewTick());
+    }
+  }
+
+  togglePreviewPlay(): void {
+    if (this.previewPhase() === 'finished') {
+      this.replayPreview();
+      return;
+    }
+    if (this.previewPlaying()) {
+      this.previewPlaying.set(false);
+      if (this.previewRafId) {
+        cancelAnimationFrame(this.previewRafId);
+        this.previewRafId = null;
+      }
+      this.previewPausedAtElapsed = this.previewElapsed();
+      this.previewVideoA?.pause();
+      this.previewVideoB?.pause();
+    } else {
+      this.startPreviewSequence(this.previewPausedAtElapsed);
+    }
+  }
+
+  replayPreview(): void {
+    if (this.previewRafId) {
+      cancelAnimationFrame(this.previewRafId);
+      this.previewRafId = null;
+    }
+    this.previewElapsed.set(0);
+    this.previewProgress.set(0);
+    this.previewTransitionProgress.set(0);
+    this.previewPhase.set('preroll');
+    this.previewPausedAtElapsed = 0;
+    this.startPreviewSequence(0);
+  }
+
+  jumpToTransition(): void {
+    const target = Math.max(0, this.previewPreSeconds - 0.5);
+    this.seekPreview(target / this.previewDuration());
+  }
+
+  seekPreview(percent: number): void {
+    const targetElapsed = Math.max(0, Math.min(this.previewDuration(), percent * this.previewDuration()));
+    this.previewPausedAtElapsed = targetElapsed;
+    this.previewElapsed.set(targetElapsed);
+    this.previewProgress.set(targetElapsed / this.previewDuration());
+    this.startPreviewSequence(targetElapsed);
+  }
+
+  onPreviewScrubberClick(event: MouseEvent): void {
+    const bar = event.currentTarget as HTMLElement;
+    if (!bar) return;
+    const rect = bar.getBoundingClientRect();
+    const clickX = event.clientX - rect.left;
+    const percent = Math.max(0, Math.min(1, clickX / rect.width));
+    this.seekPreview(percent);
+  }
+
+  togglePreviewMute(): void {
+    const newMuted = !this.previewMuted();
+    this.previewMuted.set(newMuted);
+    if (this.previewVideoA) {
+      this.previewVideoA.muted = newMuted;
+    }
+    if (this.previewVideoB) {
+      this.previewVideoB.muted = newMuted;
+    }
+  }
 
   closePreview(): void {
+    if (this.previewRafId) {
+      cancelAnimationFrame(this.previewRafId);
+      this.previewRafId = null;
+    }
     this.previewPlaying.set(false);
-    this.previewJunction.set(null);
+    this.previewVideoA?.pause();
+    this.previewVideoB?.pause();
     this.previewVideoA = null;
     this.previewVideoB = null;
+    this.previewJunction.set(null);
   }
 
   onPreviewAnimationEnd(): void {
-    this.previewPlaying.set(false);
+    // Retained for backwards compatibility
   }
 
   onPreviewVideoReady(event: Event, which: 'A' | 'B'): void {
@@ -3783,60 +4066,106 @@ export class StudioStateService implements OnDestroy {
   onPreviewVideoLoaded(vid: HTMLVideoElement, which: 'A' | 'B'): void {
     if (which === 'A') {
       this.previewVideoA = vid;
-      const dur = vid.duration || 3;
-      const transSec = this.previewJunction()?.seconds ?? 0.5;
-      vid.currentTime = Math.max(0, dur - transSec - 1.0);
+      vid.currentTime = this.previewClipAStartSec;
     } else {
       this.previewVideoB = vid;
       vid.currentTime = 0;
     }
   }
 
-  replayPreview(): void {
-    this.previewPlaying.set(false);
-    if (this.previewVideoA) {
-      const dur = this.previewVideoA.duration || 3;
-      const transSec = this.previewJunction()?.seconds ?? 0.5;
-      this.previewVideoA.currentTime = Math.max(0, dur - transSec - 1.0);
-      this.previewVideoA.play().catch(() => {});
+  // Dynamic visual transition styles
+  previewClipAOpacity(): string {
+    const phase = this.previewPhase();
+    if (phase === 'preroll') return '1';
+    if (phase === 'postroll' || phase === 'finished') return '0';
+    const p = this.previewTransitionProgress();
+    const trans = this.previewJunction()?.transition;
+    if (trans === 'Dissolve') return (1 - p).toFixed(3);
+    if (trans === 'Fade') return p <= 0.5 ? (1 - 2 * p).toFixed(3) : '0';
+    if (trans === 'None') return p < 0.5 ? '1' : '0';
+    return '1';
+  }
+
+  previewClipBOpacity(): string {
+    const phase = this.previewPhase();
+    if (phase === 'preroll') return '0';
+    if (phase === 'postroll' || phase === 'finished') return '1';
+    const p = this.previewTransitionProgress();
+    const trans = this.previewJunction()?.transition;
+    if (trans === 'Dissolve') return p.toFixed(3);
+    if (trans === 'Fade') return p > 0.5 ? (2 * (p - 0.5)).toFixed(3) : '0';
+    if (trans === 'None') return p >= 0.5 ? '1' : '0';
+    return '1';
+  }
+
+  previewClipATransform(): string {
+    const phase = this.previewPhase();
+    if (phase !== 'transition') return 'none';
+    const p = this.previewTransitionProgress();
+    const trans = this.previewJunction()?.transition;
+    if (trans === 'SlideLeft') return `translateX(${(-100 * p).toFixed(2)}%)`;
+    if (trans === 'SlideRight') return `translateX(${(100 * p).toFixed(2)}%)`;
+    return 'none';
+  }
+
+  previewClipBTransform(): string {
+    const phase = this.previewPhase();
+    if (phase !== 'transition') return 'none';
+    const p = this.previewTransitionProgress();
+    const trans = this.previewJunction()?.transition;
+    if (trans === 'SlideLeft') return `translateX(${(100 * (1 - p)).toFixed(2)}%)`;
+    if (trans === 'SlideRight') return `translateX(${(-100 * (1 - p)).toFixed(2)}%)`;
+    return 'none';
+  }
+
+  previewClipAClipPath(): string {
+    const phase = this.previewPhase();
+    if (phase !== 'transition') return 'none';
+    const p = this.previewTransitionProgress();
+    const trans = this.previewJunction()?.transition;
+    if (trans === 'CircleClose') return `circle(${Math.max(0, (1 - p) * 150).toFixed(2)}% at 50% 50%)`;
+    return 'none';
+  }
+
+  previewClipBClipPath(): string {
+    const phase = this.previewPhase();
+    if (phase !== 'transition') return 'none';
+    const p = this.previewTransitionProgress();
+    const trans = this.previewJunction()?.transition;
+    if (trans === 'WipeLeft') return `inset(0 0 0 ${Math.max(0, (1 - p) * 100).toFixed(2)}%)`;
+    if (trans === 'WipeRight') return `inset(0 ${Math.max(0, (1 - p) * 100).toFixed(2)}% 0 0)`;
+    if (trans === 'CircleOpen') return `circle(${Math.min(150, p * 150).toFixed(2)}% at 50% 50%)`;
+    return 'none';
+  }
+
+  previewClipAZIndex(): number {
+    const phase = this.previewPhase();
+    if (phase === 'preroll') return 2;
+    if (phase === 'transition') {
+      const trans = this.previewJunction()?.transition;
+      if (trans === 'CircleClose') return 3;
+      return 1;
     }
-    if (this.previewVideoB) {
-      this.previewVideoB.currentTime = 0;
-      this.previewVideoB.play().catch(() => {});
+    return 1;
+  }
+
+  previewClipBZIndex(): number {
+    const phase = this.previewPhase();
+    if (phase === 'postroll' || phase === 'finished') return 2;
+    if (phase === 'transition') {
+      const trans = this.previewJunction()?.transition;
+      if (trans === 'CircleClose') return 1;
+      return 2;
     }
-    setTimeout(() => {
-      this.previewPlaying.set(true);
-    }, 150);
+    return 1;
   }
 
   previewOutClass(): string {
-    const pj = this.previewJunction();
-    if (!pj) return '';
-    switch (pj.transition) {
-      case 'Fade': return 'anim-pv-dip-out';
-      case 'SlideLeft': return 'anim-pv-slide-left-out';
-      case 'SlideRight': return 'anim-pv-slide-right-out';
-      case 'CircleClose': return 'anim-pv-circle-close-out';
-      case 'None': return 'anim-pv-cut-out';
-      default: return 'anim-pv-stay';
-    }
+    return '';
   }
 
   previewInClass(): string {
-    const pj = this.previewJunction();
-    if (!pj) return '';
-    switch (pj.transition) {
-      case 'Dissolve': return 'anim-pv-dissolve-in';
-      case 'Fade': return 'anim-pv-dip-in';
-      case 'WipeLeft': return 'anim-pv-wipe-left-in';
-      case 'WipeRight': return 'anim-pv-wipe-right-in';
-      case 'SlideLeft': return 'anim-pv-slide-left-in';
-      case 'SlideRight': return 'anim-pv-slide-right-in';
-      case 'CircleOpen': return 'anim-pv-circle-open-in';
-      case 'CircleClose': return 'anim-pv-stay';
-      case 'None': return 'anim-pv-cut-in';
-      default: return 'anim-pv-dissolve-in';
-    }
+    return '';
   }
 
   previewClass(): string {
