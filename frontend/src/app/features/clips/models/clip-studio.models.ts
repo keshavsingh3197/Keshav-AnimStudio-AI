@@ -31,6 +31,7 @@ export interface ClipAudioSetting {
   audioTrimStartSeconds?: number;
   audioTrimEndSeconds?: number;
   duckMode?: 'Normal' | 'Ducked' | 'MuteOnAudio' | 'LeadVoice';
+  musicVolumeOverride?: number | null;
 }
 
 export interface MusicTrackRow {

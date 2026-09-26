@@ -546,6 +546,7 @@ export interface TimelineItem {
   trimStartSeconds?: number;
   trimEndSeconds?: number;
   duckMode?: 'Normal' | 'Ducked' | 'MuteOnAudio' | 'LeadVoice';
+  musicVolumeOverride?: number | null;
 }
 
 export interface TrackControlState {

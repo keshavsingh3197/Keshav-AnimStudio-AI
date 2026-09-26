@@ -69,11 +69,22 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       untracked(() => this.updatePlaybackSpeed(speed));
     });
 
-    // React to Volume & Mute Changes
+    // React to Volume & Mute Changes (Live acoustic feedback for video and audio sliders)
     effect(() => {
-      const vol = this.state.monitorVolume();
-      const muted = this.state.isMonitorMuted();
-      untracked(() => this.updateVolumes(vol, muted));
+      this.state.monitorVolume();
+      this.state.isMonitorMuted();
+      this.state.trackV1Volume();
+      this.state.trackA1Volume();
+      this.state.isTrackMuted('V1');
+      this.state.isTrackMuted('A1');
+      this.state.clipSounds();
+      this.state.musicTracks();
+      this.state.v1AudioMode();
+      this.state.videoDuckLevel();
+
+      untracked(() => {
+        this.syncMediaElements(this.state.isPlaying());
+      });
     });
 
     // React to Schedule or Clip Layout changes while paused to render current frame
@@ -238,36 +249,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     if (this.clipSoundAudioRef?.nativeElement) this.clipSoundAudioRef.nativeElement.playbackRate = speed;
   }
 
-  private updateVolumes(masterVol: number, isMuted: boolean): void {
-    const videoA = this.videoMonitorARef?.nativeElement;
-    const videoB = this.videoMonitorBRef?.nativeElement;
-    if (videoA) {
-      videoA.muted = isMuted;
-      videoA.volume = isMuted ? 0 : Math.min(1, masterVol);
-    }
-    if (videoB) {
-      videoB.muted = isMuted;
-      videoB.volume = isMuted ? 0 : Math.min(1, masterVol);
-    }
-    const bg = this.bgMusicAudioRef?.nativeElement;
-    if (bg) {
-      const time = this.state.currentTime();
-      const activeMusic = this.state.musicTracks().find((t) => {
-        const d = this.state.musicTrackDurationSeconds(t);
-        return time >= t.startSeconds && time < (t.startSeconds + d);
-      });
-      const bgMuted = isMuted || this.state.isTrackMuted('A1') || (activeMusic ? !!activeMusic.muted : false);
-      const musicVol = activeMusic ? (activeMusic.volume ?? 1.0) : this.state.musicVolume();
-      bg.muted = bgMuted;
-      bg.volume = bgMuted ? 0 : Math.min(1, masterVol * this.state.trackA1Volume() * musicVol);
-    }
-    const cs = this.clipSoundAudioRef?.nativeElement;
-    if (cs) {
-      const csMuted = isMuted || this.state.isTrackMuted('V1');
-      cs.muted = csMuted;
-      cs.volume = csMuted ? 0 : Math.min(1, masterVol * this.state.trackV1Volume());
-    }
-  }
+
 
   togglePlayback(): void {
     this.state.audioEngine.ensureContext();
@@ -425,23 +407,22 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     // - 'Always': Mute ALL clip sound (Music Only)
     // - 'MuteOnAudio': Mute clip sound whenever music/audio is playing; keep sound if no music
     // - 'Never': Keep all audio (Never mute clip camera sound)
+    const isCustom = this.state.isClipSoundCustom(curr.clip.id);
     let effectiveClipGain = sound.volume;
-    if (mode === 'Always') {
+    if (mode === 'Always' && !isCustom) {
       effectiveClipGain = 0;
-    } else if (activeMusicTrack && activeMusicTrack.clipAudioMode === 'MuteUnderMusic') {
+    } else if (activeMusicTrack && activeMusicTrack.clipAudioMode === 'MuteUnderMusic' && !isCustom) {
       effectiveClipGain = 0;
     } else if (activeMusicTrack && activeMusicTrack.clipAudioMode === 'KeepAudio') {
       effectiveClipGain = sound.volume;
     } else if (activeMusicTrack && activeMusicTrack.clipAudioMode === 'Ducked') {
       effectiveClipGain = sound.volume * this.state.videoDuckLevel();
-    } else if (mode === 'MuteOnAudio') {
+    } else if (mode === 'MuteOnAudio' && !isCustom) {
       effectiveClipGain = hasActiveMusicAtTime ? 0 : sound.volume;
     } else {
-      // 'Never' (or any custom ducking if configured)
+      // 'Never' (default) or custom clip setting:
       if (sound.duckMode === 'MuteOnAudio' && hasActiveMusicAtTime) {
         effectiveClipGain = 0;
-      } else if (sound.duckMode === 'Ducked' && hasActiveMusicAtTime) {
-        effectiveClipGain = sound.volume * this.state.videoDuckLevel();
       } else {
         effectiveClipGain = sound.volume;
       }
@@ -593,6 +574,13 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       targetMusicAssetId = this.state.musicAssetId();
       targetMusicTime = time;
       targetMusicVolume = this.state.musicVolume() * this.state.trackA1Volume();
+    }
+
+    // Per-clip ducking or music volume override during this clip:
+    if (sound.musicVolumeOverride !== null && sound.musicVolumeOverride !== undefined) {
+      targetMusicVolume *= Math.max(0, sound.musicVolumeOverride);
+    } else if (sound.duckMode === 'Ducked' || sound.duckMode === 'LeadVoice') {
+      targetMusicVolume *= this.state.videoDuckLevel();
     }
 
     if (bgAudio && targetMusicAssetId) {

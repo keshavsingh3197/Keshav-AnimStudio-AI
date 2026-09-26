@@ -835,18 +835,28 @@ export class StudioStateService implements OnDestroy {
   }
 
   readonly activeTargetClip = computed<Clip | null>(() => {
+    const direct = this.selectedClip();
     const scope = this.targetScope();
+    if (scope === 'selected') {
+      if (direct) return direct;
+      const libIds = Array.from(this.selectedLibraryIds());
+      if (libIds.length > 0) {
+        const row = this.allMediaRows().find((r) => r.clip.id === libIds[0]);
+        if (row) return row.clip;
+      }
+      return null;
+    }
     if (scope === 'current') {
       const current = this.currentScheduledClip();
       if (current) return current.clip;
-      return null;
+      return direct;
     }
     if (scope === 'all') {
-      const first = this.included()[0];
-      return first ? first.clip : null;
+      return direct || this.included()[0]?.clip || null;
     }
     if (scope === 'under_music' || scope === 'under_selected_music') {
       const clips = scope === 'under_selected_music' ? this.clipsUnderSelectedMusic() : this.clipsUnderMusic();
+      if (direct && clips.some((c) => c.id === direct.id)) return direct;
       return clips[0] ?? null;
     }
     // 0. Selected image overlay timeline item
@@ -860,10 +870,8 @@ export class StudioStateService implements OnDestroy {
         hasAudio: false,
       };
     }
-    // 1. Direct selected clip
-    const direct = this.selectedClip();
+    // Fallbacks
     if (direct) return direct;
-    // 2. First selected from library
     const libIds = Array.from(this.selectedLibraryIds());
     if (libIds.length > 0) {
       const row = this.allMediaRows().find((r) => r.clip.id === libIds[0]);
@@ -886,6 +894,7 @@ export class StudioStateService implements OnDestroy {
     isTimelineItem: boolean;
     volume: number;
     duckMode: 'Normal' | 'Ducked' | 'MuteOnAudio' | 'LeadVoice';
+    musicVolumeOverride: number | null;
     fadeInSeconds: number;
     fadeOutSeconds: number;
   } | null>(() => {
@@ -899,6 +908,7 @@ export class StudioStateService implements OnDestroy {
         isTimelineItem: true,
         volume: tlItem.volume ?? 1.0,
         duckMode: tlItem.duckMode ?? 'Normal',
+        musicVolumeOverride: tlItem.musicVolumeOverride ?? null,
         fadeInSeconds: 0,
         fadeOutSeconds: 0,
       };
@@ -915,6 +925,7 @@ export class StudioStateService implements OnDestroy {
         isTimelineItem: false,
         volume: sound.volume,
         duckMode: sound.duckMode ?? 'Normal',
+        musicVolumeOverride: sound.musicVolumeOverride ?? null,
         fadeInSeconds: fade.fadeInSeconds,
         fadeOutSeconds: fade.fadeOutSeconds,
       };
@@ -1525,6 +1536,7 @@ export class StudioStateService implements OnDestroy {
       this.selectedLibraryIds.set(new Set([clipId]));
       this.selectedTimelineItemId.set(null);
       this.selectedTimelineItemIds.set(new Set());
+      this.targetScope.set('selected');
     }
   }
 
@@ -1554,6 +1566,7 @@ export class StudioStateService implements OnDestroy {
     this.selectedLibraryIds.set(new Set([clipId]));
     this.selectedTimelineItemId.set(null);
     this.selectedTimelineItemIds.set(new Set());
+    this.targetScope.set('selected');
   }
 
   removeTimelineClipAtIndex(clipIdOrIndex: string | number, timelineIndex?: number): void {
@@ -2176,6 +2189,7 @@ export class StudioStateService implements OnDestroy {
       audioTrimStartSeconds: 0,
       audioTrimEndSeconds: 0,
       duckMode: 'Normal',
+      musicVolumeOverride: null,
     };
   }
 
@@ -2200,6 +2214,35 @@ export class StudioStateService implements OnDestroy {
       }
     }
     this.markDirty();
+  }
+
+  setClipMusicVolumeOverride(clipId: string, override: number | null): void {
+    const clamped = override !== null && override !== undefined ? Math.max(0, Math.min(2.0, override)) : null;
+    const isTlItem = this.timelineItems().some((it) => it.id === clipId);
+    if (isTlItem) {
+      this.timelineItems.update((items) =>
+        items.map((it) => (it.id === clipId ? { ...it, musicVolumeOverride: clamped } : it))
+      );
+    } else {
+      const targetIds = this.getTargetClipIds(clipId);
+      for (const id of targetIds) {
+        this.updateClipAudioSetting(id, { musicVolumeOverride: clamped });
+      }
+    }
+    this.markDirty();
+  }
+
+  clipMusicVolumeOverride(clipId: string): number | null {
+    const isTlItem = this.timelineItems().find((it) => it.id === clipId);
+    if (isTlItem) return (isTlItem as any).musicVolumeOverride ?? null;
+    return this.clipSound(clipId).musicVolumeOverride ?? null;
+  }
+
+  setBatchMusicVolumeOverride(override: number | null): void {
+    const targetIds = this.getTargetClipIds();
+    for (const id of targetIds) {
+      this.setClipMusicVolumeOverride(id, override);
+    }
   }
 
   private previousClipVolumes = new Map<string, number>();
@@ -3359,6 +3402,7 @@ export class StudioStateService implements OnDestroy {
       this.selectedTimelineItemIds.set(new Set([itemId]));
       this.selectedClipId.set(null);
       this.selectedTimelineClipIndex.set(null);
+      this.targetScope.set('selected');
       const item = this.timelineItems().find((it) => it.id === itemId);
       if (item && item.type === 'audio') {
         this.setInspectorTab('audio');
@@ -5109,7 +5153,7 @@ export class StudioStateService implements OnDestroy {
   isClipSoundCustom(clipId: string): boolean {
     const s = this.clipSounds()[clipId];
     if (!s) return false;
-    return s.volume !== 1 || !!s.audioAssetId || s.audioVolume !== 1 || !s.keepOriginalAudio || Boolean(s.duckMode && s.duckMode !== 'Normal');
+    return s.volume !== 1 || !!s.audioAssetId || s.audioVolume !== 1 || !s.keepOriginalAudio || Boolean(s.duckMode && s.duckMode !== 'Normal') || (s.musicVolumeOverride !== null && s.musicVolumeOverride !== undefined);
   }
 
   timelineItemsPayload(): TimelineItem[] | null {
