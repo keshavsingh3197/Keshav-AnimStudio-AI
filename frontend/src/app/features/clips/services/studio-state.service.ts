@@ -415,6 +415,7 @@ export class StudioStateService implements OnDestroy {
   }
 
   readonly clipSchedule = computed<ScheduledClip[]>(() => {
+    const allRows = this.rows();
     const rows = this.included();
     const junctionsMap = this.junctionOverrides();
     const defaultTrans = this.transition();
@@ -424,8 +425,10 @@ export class StudioStateService implements OnDestroy {
     const schedule: ScheduledClip[] = [];
 
     for (let i = 0; i < rows.length; i++) {
-      const clip = rows[i].clip;
+      const row = rows[i];
+      const clip = row.clip;
       const dur = clip.durationSeconds ?? 5.0;
+      const rowIndex = allRows.indexOf(row);
 
       let jTrans = 'None';
       let jSecs = 0;
@@ -444,6 +447,8 @@ export class StudioStateService implements OnDestroy {
 
       schedule.push({
         clip,
+        row,
+        rowIndex: rowIndex >= 0 ? rowIndex : i,
         index: i,
         startSeconds: curStart,
         endSeconds: curStart + dur,
@@ -3035,8 +3040,8 @@ export class StudioStateService implements OnDestroy {
 
   fitTimelineToScreen(containerWidth: number): void {
     const total = this.timelineSeconds();
-    if (total <= 0 || containerWidth <= 100) return;
-    const targetPx = (containerWidth - 100) / total;
+    if (total <= 0 || containerWidth <= 150) return;
+    const targetPx = Math.max(2, (containerWidth - 104 - 36) / total);
     this.setZoom(targetPx);
   }
 
@@ -3180,8 +3185,8 @@ export class StudioStateService implements OnDestroy {
   }
 
   blockWidthPx(clip: Clip): number {
-    const dur = clip.durationSeconds ?? 3;
-    return Math.max(24, dur * this.pxPerSecond());
+    const dur = clip.durationSeconds ?? 5.0;
+    return this.secondsToPx(dur);
   }
 
   selectAndSeekClip(clip: Clip): void {

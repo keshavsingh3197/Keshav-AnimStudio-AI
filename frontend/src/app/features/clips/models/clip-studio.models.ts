@@ -54,6 +54,8 @@ export interface ScheduledClip {
   durationSeconds: number;
   junctionTransition: string;
   junctionSeconds: number;
+  row?: ClipRow;
+  rowIndex?: number;
 }
 
 export interface FilterPreset {

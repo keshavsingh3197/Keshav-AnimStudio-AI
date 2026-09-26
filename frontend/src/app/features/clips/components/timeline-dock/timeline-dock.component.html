@@ -344,53 +344,56 @@
                  [style.width.px]="state.secondsToPx(state.timelineSeconds())"
                  (dragover)="$event.preventDefault()"
                  (drop)="onTrackDrop('V1', $event)">
-              @for (entry of state.includedWithIndex(); track entry.row.clip.id; let i = $index) {
+              @for (sched of state.clipSchedule(); track sched.clip.id; let i = $index) {
                 <div class="tl-clip"
                      [class.has-thumbnail]="state.timelineThumbnailMode() === 'filmstrip'"
-                     [class.selected]="state.selectedTimelineClipIndex() === i || state.selectedClipId() === entry.row.clip.id"
-                     [class.dragging]="state.dragIndex() === i"
-                     [class.drag-over]="state.dragOverIndex() === i && state.dragIndex() !== i"
-                     [style.width.px]="state.blockWidthPx(entry.row.clip)"
+                     [class.selected]="state.selectedTimelineClipIndex() === i || state.selectedClipId() === sched.clip.id"
+                     [class.dragging]="state.dragIndex() === (sched.rowIndex ?? i)"
+                     [class.drag-over]="state.dragOverIndex() === (sched.rowIndex ?? i) && state.dragIndex() !== (sched.rowIndex ?? i)"
+                     [style.left.px]="state.secondsToPx(sched.startSeconds)"
+                     [style.width.px]="state.secondsToPx(sched.durationSeconds)"
                      draggable="true"
-                     (click)="state.selectTimelineClip(i, entry.row.clip.id, $event)"
-                     (dblclick)="$event.stopPropagation(); state.selectAndSeekClip(entry.row.clip)"
-                     (dragstart)="state.onRowDragStart(i, entry.row)"
-                     (dragover)="state.onRowDragOver(i, $event)"
-                     (drop)="state.onRowDrop(i, $event)"
+                     (click)="state.selectTimelineClip(i, sched.clip.id, $event)"
+                     (dblclick)="$event.stopPropagation(); state.selectAndSeekClip(sched.clip)"
+                     (dragstart)="state.onRowDragStart(sched.rowIndex ?? i, sched.row)"
+                     (dragover)="state.onRowDragOver(sched.rowIndex ?? i, $event)"
+                     (drop)="state.onRowDrop(sched.rowIndex ?? i, $event)"
                      (dragend)="state.onRowDragEnd()"
-                     [title]="entry.row.clip.name">
-                  <button class="tl-clip-remove" type="button" (pointerdown)="$event.stopPropagation(); state.removeTimelineClipAtIndex(entry.row.clip.id, i)" (click)="$event.stopPropagation(); state.removeTimelineClipAtIndex(entry.row.clip.id, i)" title="Remove clip from timeline cut">×</button>
+                     [title]="sched.clip.name">
+                  <button class="tl-clip-remove" type="button" (pointerdown)="$event.stopPropagation(); state.removeTimelineClipAtIndex(sched.clip.id, i)" (click)="$event.stopPropagation(); state.removeTimelineClipAtIndex(sched.clip.id, i)" title="Remove clip from timeline cut">×</button>
                   @if (state.timelineThumbnailMode() === 'filmstrip') {
                     <div class="tl-clip-backdrop-thumb">
-                      <img [src]="state.assetThumbnailUrl(entry.row.clip.id)" loading="lazy" class="tl-clip-thumb-media backdrop" alt="" (error)="$any($event.target).style.display='none'" />
+                      <img [src]="state.assetThumbnailUrl(sched.clip.id)" loading="lazy" class="tl-clip-thumb-media backdrop" alt="" (error)="$any($event.target).style.display='none'" />
                     </div>
                     <div class="tl-clip-content">
                       <div class="tl-clip-mini-thumb">
-                        <img [src]="state.assetThumbnailUrl(entry.row.clip.id)" loading="lazy" class="tl-clip-thumb-media" alt="" (error)="$any($event.target).style.display='none'" />
+                        <img [src]="state.assetThumbnailUrl(sched.clip.id)" loading="lazy" class="tl-clip-thumb-media" alt="" (error)="$any($event.target).style.display='none'" />
                         <span class="tl-clip-thumb-badge">#{{ i + 1 }}</span>
                       </div>
                       <div class="tl-clip-details">
-                        <span class="tl-clip-name">{{ entry.row.clip.name }}</span>
+                        <span class="tl-clip-name">{{ sched.clip.name }}</span>
                         <div class="tl-clip-subline">
-                          <span class="tl-clip-dur mono">{{ entry.row.clip.durationSeconds ?? 0 | number:'1.0-1' }}s</span>
-                          @if (state.clipTrim(entry.row.clip.id)) {
+                          <span class="tl-clip-dur mono">{{ sched.clip.durationSeconds ?? 0 | number:'1.0-1' }}s</span>
+                          @if (state.clipTrim(sched.clip.id)) {
                             <span class="tl-clip-tag">Trim</span>
                           }
                         </div>
                       </div>
                     </div>
                   } @else {
-                    <span class="tl-clip-seq">#{{ i + 1 }}</span>
-                    @if (state.getClipType(entry.row.clip) === 'image') {
-                      <img [src]="state.assetThumbnailUrl(entry.row.clip.id)" loading="lazy" class="tl-clip-mini-thumb-img" alt="" (error)="$any($event.target).style.display='none'" />
-                    }
-                    <span class="tl-clip-name">{{ entry.row.clip.name }}</span>
-                    <span class="tl-clip-dur mono">{{ entry.row.clip.durationSeconds ?? 0 | number:'1.0-1' }}s</span>
+                    <div class="tl-clip-compact-content">
+                      <span class="tl-clip-seq">#{{ i + 1 }}</span>
+                      @if (state.getClipType(sched.clip) === 'image') {
+                        <img [src]="state.assetThumbnailUrl(sched.clip.id)" loading="lazy" class="tl-clip-mini-thumb-img" alt="" (error)="$any($event.target).style.display='none'" />
+                      }
+                      <span class="tl-clip-name">{{ sched.clip.name }}</span>
+                      <span class="tl-clip-dur mono">{{ sched.clip.durationSeconds ?? 0 | number:'1.0-1' }}s</span>
+                    </div>
                   }
-                  @let cSound = state.clipSound(entry.row.clip.id);
+                  @let cSound = state.clipSound(sched.clip.id);
                   @if (cSound.audioAssetId) {
-                    @let cAssetDur = state.clipSoundAsset(entry.row.clip.id)?.durationSeconds ?? entry.row.clip.durationSeconds ?? 1;
-                    @let offsets = state.clipSoundRunOffset(entry.row.clip.id);
+                    @let cAssetDur = state.clipSoundAsset(sched.clip.id)?.durationSeconds ?? sched.clip.durationSeconds ?? 1;
+                    @let offsets = state.clipSoundRunOffset(sched.clip.id);
                     @let cStart = offsets.startOffset;
                     @let cEnd = state.Math.min(offsets.endOffset, cAssetDur);
                     @let cLeft = (cAssetDur > 0 ? (cStart / cAssetDur) * 100 : 0);
@@ -405,13 +408,22 @@
                 <!-- Junction / Cut Seam Point -->
                 @if (i < state.junctionsList().length) {
                   @let junction = state.junctionsList()[i];
+                  @let seamStartSec = state.clipSchedule()[i + 1].startSeconds;
+                  @let seamSec = junction.transition !== 'None' ? seamStartSec + (junction.seconds / 2) : seamStartSec;
                   <div class="tl-junction"
                        [class.is-hard-cut]="junction.transition === 'None'"
                        [class.has-transition]="junction.transition !== 'None'"
                        [class.custom]="state.isJunctionCustom(junction.key)"
                        [class.in-scope]="state.targetJunctionKeys().has(junction.key)"
                        [class.selected]="state.selectedJunctionKey() === junction.key"
-                       [class.open]="state.openJunctionKey() === junction.key">
+                       [class.open]="state.openJunctionKey() === junction.key"
+                       [style.left.px]="state.secondsToPx(seamSec)">
+                    @if (junction.transition !== 'None' && junction.seconds > 0) {
+                      <div class="tl-junction-zone"
+                           [style.left.px]="-state.secondsToPx(junction.seconds / 2)"
+                           [style.width.px]="state.secondsToPx(junction.seconds)"
+                           [title]="junction.transition + ' (' + (junction.seconds | number:'1.1-1') + 's)'"></div>
+                    }
                     <button class="tl-junction-chip" type="button"
                             [class.has-trans]="junction.transition !== 'None'"
                             [class.selected]="state.selectedJunctionKey() === junction.key"

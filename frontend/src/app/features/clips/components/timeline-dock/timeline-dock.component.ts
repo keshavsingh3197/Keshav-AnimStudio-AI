@@ -251,10 +251,10 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
     if (!el) return;
     const rect = el.getBoundingClientRect();
     const x = Math.max(0, event.clientX - rect.left - this.trackHeaderWidth);
-    let targetSeconds = x / this.state.pxPerSecond();
+    let targetSeconds = Math.max(0, Math.min(x / this.state.pxPerSecond(), this.state.timelineSeconds()));
 
     if (this.state.snapEnabled()) {
-      targetSeconds = this.state.applySnap(targetSeconds);
+      targetSeconds = Math.max(0, Math.min(this.state.applySnap(targetSeconds), this.state.timelineSeconds()));
     } else {
       this.state.snapLineLeftPx.set(null);
     }

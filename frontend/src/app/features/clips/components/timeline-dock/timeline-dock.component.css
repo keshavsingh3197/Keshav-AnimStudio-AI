@@ -771,28 +771,31 @@
 
 /* ── V1 Base Sequence Clips ──────────────────────────────────── */
 .tl-lane-v1 {
-  display: flex !important;
-  align-items: center !important;
+  position: relative !important;
+  display: block !important;
   padding: 0 !important;
 }
 
 .tl-lane-v1 .tl-clip {
-  position: relative !important;
-  top: auto !important;
-  bottom: auto !important;
-  height: calc(100% - 8px) !important;
+  position: absolute !important;
+  top: 3px !important;
+  bottom: 3px !important;
+  height: auto !important;
   margin: 0 !important;
   flex-shrink: 0 !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
   background: #131824 !important;
   border: 1px solid #232c3e !important;
   border-radius: 6px !important;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35) !important;
-  padding-right: 24px !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  z-index: 5 !important;
 }
 
 .tl-lane-v1 .tl-clip:hover {
   border-color: rgba(108, 140, 255, 0.6) !important;
-  transform: translateY(-1px) !important;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45) !important;
 }
 
@@ -863,9 +866,14 @@
   align-items: center;
   gap: 7px;
   width: 100%;
+  height: 100%;
   position: relative;
   z-index: 2;
+  padding: 0 4px 0 6px;
   padding-right: 22px;
+  box-sizing: border-box;
+  overflow: hidden;
+  min-width: 0;
 }
 
 .tl-clip-mini-thumb {
@@ -903,6 +911,7 @@
   flex-direction: column;
   overflow: hidden;
   flex: 1;
+  min-width: 0;
 }
 
 .tl-clip-name {
@@ -937,16 +946,35 @@
 }
 
 /* Compact Mode (No Filmstrip) */
+.tl-clip-compact-content {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  height: 100%;
+  position: relative;
+  z-index: 2;
+  padding: 0 6px;
+  padding-right: 20px;
+  box-sizing: border-box;
+  overflow: hidden;
+  min-width: 0;
+  white-space: nowrap;
+}
+
 .tl-clip-seq {
   font-size: 0.68rem;
   font-weight: 800;
   color: var(--brand, #6c8cff);
-  margin-right: 6px;
+  margin-right: 4px;
+  flex-shrink: 0;
 }
 
 /* ── Transition Junction Chips (The Cut Point / Joint) ─────── */
 .tl-junction {
-  position: relative !important;
+  position: absolute !important;
+  top: 0 !important;
+  bottom: 0 !important;
   width: 0 !important;
   min-width: 0 !important;
   max-width: 0 !important;
@@ -958,14 +986,29 @@
   justify-content: center !important;
   z-index: 25 !important;
   overflow: visible !important;
-  flex: 0 0 0px !important;
+  pointer-events: auto !important;
+}
+
+/* Transition Overlap Visual Zone (Highlights the blend duration across adjacent clips) */
+.tl-junction-zone {
+  position: absolute !important;
+  top: 4px !important;
+  bottom: 4px !important;
+  background: rgba(108, 140, 255, 0.16) !important;
+  border-left: 1px dashed rgba(108, 140, 255, 0.6) !important;
+  border-right: 1px dashed rgba(108, 140, 255, 0.6) !important;
+  border-top: 1px solid rgba(108, 140, 255, 0.25) !important;
+  border-bottom: 1px solid rgba(108, 140, 255, 0.25) !important;
+  border-radius: 4px !important;
+  pointer-events: none !important;
+  z-index: 10 !important;
 }
 
 /* Hard Cut: Zero gap between clips, hairline seam + hover-revealed cut tool */
 .tl-junction.is-hard-cut {
+  position: absolute !important;
   width: 0 !important;
   margin: 0 !important;
-  position: relative !important;
 }
 
 /* Subtle hairline seam indicator between adjacent clips */
@@ -1038,7 +1081,7 @@
 .tl-junction.has-transition {
   width: 0 !important;
   margin: 0 !important;
-  position: relative !important;
+  position: absolute !important;
 }
 
 .tl-junction.has-transition .tl-junction-chip {
