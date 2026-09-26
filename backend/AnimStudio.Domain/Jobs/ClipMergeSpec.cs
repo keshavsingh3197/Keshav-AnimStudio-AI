@@ -52,6 +52,7 @@ public sealed class ClipMergeSpec
     public int? OutputHeight { get; set; }
 
     public WatermarkSettings Watermark { get; set; } = new();
+    public OutroSettings Outro { get; set; } = new();
 
     /// <summary>None joins the clips as hard cuts, which is also the only stream-copy path.</summary>
     public SceneTransition Transition { get; set; } = SceneTransition.None;

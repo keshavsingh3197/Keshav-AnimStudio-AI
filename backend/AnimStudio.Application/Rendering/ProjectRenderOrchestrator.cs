@@ -126,6 +126,50 @@ public sealed class ProjectRenderOrchestrator(
                 reporter.SceneCompleted(index + 1);
             }
 
+            // --- optional outro bumper / end-card
+            if (project.Settings.DefaultOutro.IsEnabled
+                && !string.IsNullOrEmpty(project.Settings.DefaultOutro.AssetId)
+                && materialized.TryGetValue(project.Settings.DefaultOutro.AssetId, out var outroSourcePath)
+                && assetMap.TryGetValue(project.Settings.DefaultOutro.AssetId, out var outroAsset))
+            {
+                var isImage = outroAsset.Kind == AssetKind.Image;
+                var outroDurationSec = isImage
+                    ? project.Settings.DefaultOutro.DurationSeconds
+                    : (outroAsset.Probe.DurationSeconds ?? 4.0);
+                var outroFrames = new FrameCount((int)Math.Max(1, Math.Round(outroDurationSec * canvas.FrameRate.AsDouble)));
+
+                var outroPlan = new ClipRenderPlan
+                {
+                    ClipIndex = sceneList.Count,
+                    SourceRelativePath = outroSourcePath,
+                    Canvas = canvas,
+                    OutputRelativePath = "scenes/scene_outro.mp4",
+                    ExpectedFrames = outroFrames,
+                    Fit = ClipFit.Contain,
+                    SourceIsImage = isImage,
+                    ImageDurationSeconds = project.Settings.DefaultOutro.DurationSeconds,
+                    SourceHasAudio = !isImage && !string.IsNullOrEmpty(outroAsset.Probe.AudioCodec),
+                    MuteAudio = false,
+                    Watermark = null,
+                    Encoder = EncoderProfile.Default,
+                    EncoderThreads = 0
+                };
+
+                var outroResult = await renderer
+                    .RenderClipAsync(outroPlan, workspace, reporter, token).ConfigureAwait(false);
+
+                if (rendered.Count > 0 && project.Settings.DefaultOutro.Transition != SceneTransition.None)
+                {
+                    var transDuration = new FrameCount(project.Settings.DefaultOutro.TransitionDurationFrames);
+                    rendered[^1] = rendered[^1] with
+                    {
+                        TransitionToNext = new TransitionSettings(project.Settings.DefaultOutro.Transition, transDuration)
+                    };
+                }
+
+                rendered.Add(new MergeSceneInput(outroResult.RelativePath, outroResult.Frames, TransitionSettings.None));
+            }
+
             // --- merge
             token.ThrowIfCancellationRequested();
             reporter.Report(new RenderProgress(
@@ -222,6 +266,9 @@ public sealed class ProjectRenderOrchestrator(
 
         if (!string.IsNullOrEmpty(project.Settings.BackgroundMusicAssetId))
             ids.Add(project.Settings.BackgroundMusicAssetId!);
+
+        if (project.Settings.DefaultOutro.IsEnabled && !string.IsNullOrEmpty(project.Settings.DefaultOutro.AssetId))
+            ids.Add(project.Settings.DefaultOutro.AssetId!);
 
         var loaded = await assets.GetManyAsync(ids, ct).ConfigureAwait(false);
         return loaded.ToDictionary(a => a.Id);

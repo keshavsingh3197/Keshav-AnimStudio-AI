@@ -21,6 +21,7 @@ public sealed class ProjectSettings
     public double BackgroundMusicVolume { get; set; } = 0.18;
 
     public WatermarkSettings DefaultWatermark { get; set; } = new();
+    public OutroSettings DefaultOutro { get; set; } = new();
 
     public List<string> ClipOrderAssetIds { get; set; } = [];
 

@@ -1,0 +1,449 @@
+/* ── Obsidian Studio Global Branding & Hallmark Theme ──────────────── */
+.branding-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding-bottom: 4rem;
+}
+
+.branding-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.branding-header-title {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.branding-header-icon {
+  font-size: 1.8rem;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--brand, #6c8cff) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--brand, #6c8cff) 30%, transparent);
+}
+
+.branding-header h2 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0;
+  color: #fff;
+  letter-spacing: -0.02em;
+}
+
+.branding-header p {
+  margin: 0.25rem 0 0;
+  font-size: 0.88rem;
+  color: #8b9bb4;
+}
+
+.branding-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* ── Section Cards ──────────────────────────────────────────────── */
+.branding-card {
+  background: var(--surface-2, #141923);
+  border: 1px solid var(--border, #21293a);
+  border-radius: 14px;
+  padding: 1.5rem 1.75rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.branding-card:hover {
+  border-color: color-mix(in srgb, var(--brand, #6c8cff) 35%, var(--border, #21293a));
+}
+
+.card-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid var(--border, #21293a);
+}
+
+.card-section-head h3 {
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin: 0;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.card-section-head p {
+  margin: 0.2rem 0 0;
+  font-size: 0.84rem;
+  color: #8b9bb4;
+}
+
+/* ── Form Controls & Inputs ─────────────────────────────────────── */
+.form-group {
+  margin-bottom: 1.25rem;
+}
+
+.form-label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #c9d1d9;
+  margin-bottom: 0.45rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.form-input,
+.form-select,
+.form-textarea {
+  width: 100%;
+  background: #0d1117;
+  border: 1px solid var(--border, #21293a);
+  border-radius: 8px;
+  padding: 0.65rem 0.85rem;
+  color: #fff;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.form-input:focus,
+.form-select:focus,
+.form-textarea:focus {
+  border-color: var(--brand, #6c8cff);
+  box-shadow: 0 0 0 3px rgba(108, 140, 255, 0.25);
+  outline: none;
+}
+
+.form-input::placeholder {
+  color: #4b5563;
+}
+
+/* ── Segmented Button Rows ──────────────────────────────────────── */
+.segmented-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.segment-btn {
+  background: #0d1117;
+  border: 1px solid var(--border, #21293a);
+  border-radius: 8px;
+  padding: 0.55rem 1rem;
+  color: #c9d1d9;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.segment-btn:hover {
+  background: var(--surface-2, #141923);
+  border-color: color-mix(in srgb, var(--brand, #6c8cff) 40%, var(--border, #21293a));
+  color: #fff;
+}
+
+.segment-btn.active {
+  background: color-mix(in srgb, var(--brand, #6c8cff) 20%, transparent);
+  border-color: var(--brand, #6c8cff);
+  color: #fff;
+  box-shadow: 0 0 0 1px var(--brand, #6c8cff);
+}
+
+/* ── 2x3 Position Picker Grid ───────────────────────────────────── */
+.position-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  max-width: 440px;
+  margin-bottom: 1rem;
+}
+
+.pos-btn {
+  background: #0d1117;
+  border: 1px solid var(--border, #21293a);
+  border-radius: 6px;
+  padding: 0.5rem 0.65rem;
+  color: #8b9bb4;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+}
+
+.pos-btn:hover {
+  background: var(--surface-2, #141923);
+  color: #fff;
+  border-color: color-mix(in srgb, var(--brand, #6c8cff) 40%, var(--border, #21293a));
+}
+
+.pos-btn.active {
+  background: color-mix(in srgb, var(--brand, #6c8cff) 20%, transparent);
+  border-color: var(--brand, #6c8cff);
+  color: #fff;
+}
+
+/* ── Range Slider with Glowing Track ────────────────────────────── */
+.slider-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.slider-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.slider-val-badge {
+  font-family: ui-monospace, monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  padding: 2px 8px;
+  border-radius: 99px;
+}
+
+.form-range {
+  width: 100%;
+  height: 6px;
+  background: #0d1117;
+  border-radius: 99px;
+  outline: none;
+  cursor: pointer;
+  border: 1px solid var(--border, #21293a);
+}
+
+/* ── Interactive Live Hallmark Canvas Mockup ────────────────────── */
+.mockup-wrapper {
+  background: #090c13;
+  border: 1px solid var(--border, #21293a);
+  border-radius: 12px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.mockup-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 500px;
+  font-size: 0.8rem;
+  color: #8b9bb4;
+}
+
+.watermark-viewport {
+  position: relative;
+  width: 100%;
+  max-width: 500px;
+  aspect-ratio: 16 / 9;
+  background: radial-gradient(circle at center, #172033 0%, #080b12 100%);
+  border-radius: 8px;
+  overflow: hidden;
+  border: 2px solid #232c40;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.8);
+  display: flex;
+  transition: all 0.2s ease;
+}
+
+.watermark-viewport-grid {
+  position: absolute;
+  inset: 0;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 24px 24px;
+  pointer-events: none;
+}
+
+.viewport-center-cross {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+  pointer-events: none;
+}
+
+.mockup-watermark-item {
+  position: relative;
+  z-index: 5;
+  transition: all 0.15s ease;
+}
+
+/* ── Outro Player & End-Card Preview ────────────────────────────── */
+.outro-preview-box {
+  position: relative;
+  width: 100%;
+  max-width: 500px;
+  aspect-ratio: 16 / 9;
+  background: #080b12;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 2px solid #232c40;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.outro-preview-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+.outro-preview-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.outro-badge-overlay {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #93c5fd;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  z-index: 10;
+}
+
+/* ── Preset Chips for Video Chunking ────────────────────────────── */
+.chunk-presets-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.chunk-preset-chip {
+  background: #0d1117;
+  border: 1px solid var(--border, #21293a);
+  border-radius: 99px;
+  padding: 0.4rem 0.9rem;
+  color: #c9d1d9;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.chunk-preset-chip:hover {
+  background: var(--surface-2, #141923);
+  border-color: color-mix(in srgb, var(--brand, #6c8cff) 40%, var(--border, #21293a));
+  color: #fff;
+}
+
+.chunk-preset-chip.active {
+  background: color-mix(in srgb, var(--brand, #6c8cff) 20%, transparent);
+  border-color: var(--brand, #6c8cff);
+  color: #93c5fd;
+  box-shadow: 0 0 0 1px var(--brand, #6c8cff);
+}
+
+/* ── Buttons & Indicators ───────────────────────────────────────── */
+.btn-primary-glow {
+  background: linear-gradient(135deg, #4f46e5, #6366f1);
+  color: #fff;
+  font-size: 0.88rem;
+  font-weight: 600;
+  padding: 8px 18px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(79, 70, 229, 0.35);
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-primary-glow:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 22px rgba(79, 70, 229, 0.5);
+}
+
+.btn-primary-glow:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-outline {
+  background: transparent;
+  border: 1px solid var(--border, #21293a);
+  border-radius: 8px;
+  color: #c9d1d9;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-outline:hover {
+  border-color: var(--brand, #6c8cff);
+  background: var(--surface-2, #141923);
+  color: #fff;
+}
+
+.save-toast-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(34, 197, 94, 0.18);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  color: #86efac;
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 6px 14px;
+  border-radius: 99px;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

@@ -152,6 +152,7 @@ public sealed record UpdateProjectRequest
     [Range(0, 2)] public double BackgroundMusicVolume { get; init; } = 0.18;
 
     public WatermarkRequest? DefaultWatermark { get; init; }
+    public OutroRequest? DefaultOutro { get; init; }
 }
 
 public sealed record CreateSceneRequest
@@ -286,6 +287,31 @@ public sealed record WatermarkRequest
     };
 }
 
+public sealed record OutroRequest
+{
+    public OutroKind Kind { get; init; } = OutroKind.None;
+
+    [StringLength(64)]
+    public string? AssetId { get; init; }
+
+    [Range(1.0, 30.0)]
+    public double DurationSeconds { get; init; } = 4.0;
+
+    public SceneTransition Transition { get; init; } = SceneTransition.Fade;
+
+    [Range(0, 120)]
+    public int TransitionDurationFrames { get; init; } = 15;
+
+    public OutroSettings ToSettings() => new()
+    {
+        Kind = Kind,
+        AssetId = AssetId,
+        DurationSeconds = DurationSeconds,
+        Transition = Transition,
+        TransitionDurationFrames = TransitionDurationFrames
+    };
+}
+
 /// <summary>
 /// A running order to check. <c>AssetIds</c> is the current selection, in its current
 /// order; <c>Text</c> is what the user pasted. Sending the selection matters: the point is
@@ -408,6 +434,7 @@ public sealed record ClipMergeRequest
     public List<ClipAudioRequest>? ClipAudio { get; init; }
 
     public WatermarkRequest Watermark { get; init; } = new();
+    public OutroRequest Outro { get; init; } = new();
 
     public List<TimelineItemRequest>? TimelineItems { get; init; }
 }

@@ -2,7 +2,9 @@ import { DecimalPipe } from '@angular/common';
 import { Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
-import { WATERMARK_POSITIONS, WatermarkBody, WatermarkKind, WatermarkPosition } from '../../core/models/api.models';
+import {
+  OUTRO_KINDS, OutroBody, OutroKind, WATERMARK_POSITIONS, WatermarkBody, WatermarkKind, WatermarkPosition,
+} from '../../core/models/api.models';
 import { ApiService } from '../../core/services/api.service';
 import { MediaToolsService } from '../../core/services/media-tools.service';
 import { StatusService } from '../../core/services/status.service';
@@ -12,6 +14,7 @@ import { StatusService } from '../../core/services/status.service';
   standalone: true,
   imports: [FormsModule, DecimalPipe],
   templateUrl: './admin-branding.component.html',
+  styleUrls: ['./admin-branding.component.css'],
 })
 export class AdminBrandingComponent {
   private readonly api = inject(ApiService);
@@ -25,8 +28,20 @@ export class AdminBrandingComponent {
     { kind: 'Logo', label: 'Studio Hallmark Logo (PNG / JPG / WEBP)' },
   ];
 
+  readonly outroKinds: readonly { kind: OutroKind; label: string }[] = [
+    { kind: 'None', label: 'No Channel Outro' },
+    { kind: 'Video', label: 'Outro Video Bumper (MP4 / WebM / MOV)' },
+    { kind: 'Image', label: 'End-Card Graphic (PNG / JPG / WEBP)' },
+  ];
+
+  readonly outroTransitions: readonly string[] = ['Fade', 'Dissolve', 'None', 'WipeLeft', 'WipeRight'];
+
+  readonly chunkPresets: readonly number[] = [5, 10, 15, 30, 60, 120];
+
   readonly logoPreviewUrl = signal<string | null>(null);
   readonly saveSuccess = signal(false);
+  readonly outroMediaUrl = signal<string | null>(null);
+  readonly saveOutroSuccess = signal(false);
   readonly defaultChunkDuration = signal<number>(10);
   readonly chunkDurationSaved = signal<boolean>(false);
 
@@ -42,12 +57,23 @@ export class AdminBrandingComponent {
     backplate: 0.3,
   };
 
+  outroForm = {
+    kind: 'None' as OutroKind,
+    assetId: '',
+    durationSeconds: 4,
+    transition: 'Fade',
+    transitionDurationFrames: 15,
+  };
+
   constructor() {
     this.reload();
   }
 
   reload(): void {
     this.saveSuccess.set(false);
+    this.saveOutroSuccess.set(false);
+
+    // 1. Watermark / Hallmark
     this.status.run(this.api.getGlobalBranding(), (wm) => {
       if (wm) {
         this.form = {
@@ -69,6 +95,28 @@ export class AdminBrandingComponent {
       }
     });
 
+    // 2. Outro Bumper
+    this.api.getGlobalOutro().subscribe({
+      next: (outro) => {
+        if (outro) {
+          this.outroForm = {
+            kind: (outro.kind as OutroKind) ?? 'None',
+            assetId: outro.assetId ?? '',
+            durationSeconds: outro.durationSeconds || 4,
+            transition: outro.transition || 'Fade',
+            transitionDurationFrames: outro.transitionDurationFrames || 15,
+          };
+          if (outro.kind !== 'None' && outro.assetId) {
+            this.outroMediaUrl.set(this.api.globalOutroMediaUrl() + '?t=' + Date.now());
+          } else {
+            this.outroMediaUrl.set(null);
+          }
+        }
+      },
+      error: () => {},
+    });
+
+    // 3. Media Chunking
     this.mediaTools.getMediaSettings().subscribe({
       next: (settings) => {
         this.defaultChunkDuration.set(settings.defaultChunkDurationSeconds || 10);
@@ -77,16 +125,24 @@ export class AdminBrandingComponent {
     });
   }
 
-  saveChunkDuration(): void {
-    const dur = this.defaultChunkDuration();
-    if (dur <= 0) return;
+  setWatermarkKind(kind: WatermarkKind): void {
+    this.form.kind = kind;
+  }
 
-    this.chunkDurationSaved.set(false);
-    this.status.run(this.mediaTools.updateChunkDuration(dur), (val) => {
-      this.defaultChunkDuration.set(val);
-      this.chunkDurationSaved.set(true);
-      setTimeout(() => this.chunkDurationSaved.set(false), 4000);
-    });
+  setWatermarkPosition(pos: WatermarkPosition): void {
+    this.form.position = pos;
+  }
+
+  formatPosLabel(pos: WatermarkPosition): string {
+    switch (pos) {
+      case 'TopLeft': return '↖ Top-Left';
+      case 'TopCenter': return '↑ Top-Center';
+      case 'TopRight': return '↗ Top-Right';
+      case 'BottomLeft': return '↙ Bottom-Left';
+      case 'BottomCenter': return '↓ Bottom-Center';
+      case 'BottomRight': return '↘ Bottom-Right';
+      default: return pos;
+    }
   }
 
   onUploadLogo(event: Event): void {
@@ -132,5 +188,70 @@ export class AdminBrandingComponent {
       setTimeout(() => this.saveSuccess.set(false), 4000);
     });
   }
-}
 
+  // --- Outro management ---
+
+  setOutroKind(kind: OutroKind): void {
+    this.outroForm.kind = kind;
+  }
+
+  setOutroTransition(trans: string): void {
+    this.outroForm.transition = trans;
+  }
+
+  onUploadOutro(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+
+    this.saveOutroSuccess.set(false);
+    this.status.run(this.api.uploadGlobalOutro(file), (res) => {
+      if (res) {
+        this.outroForm.kind = res.kind;
+        this.outroForm.assetId = res.assetId ?? '';
+        this.outroMediaUrl.set(this.api.globalOutroMediaUrl() + '?t=' + Date.now());
+      }
+      input.value = '';
+    });
+  }
+
+  clearOutro(): void {
+    this.outroForm.assetId = '';
+    this.outroMediaUrl.set(null);
+    this.outroForm.kind = 'None';
+  }
+
+  saveOutro(): void {
+    this.saveOutroSuccess.set(false);
+    const body: OutroBody = {
+      kind: this.outroForm.kind,
+      assetId: this.outroForm.assetId || null,
+      durationSeconds: this.outroForm.durationSeconds,
+      transition: this.outroForm.transition,
+      transitionDurationFrames: this.outroForm.transitionDurationFrames,
+    };
+
+    this.status.run(this.api.updateGlobalOutro(body), () => {
+      this.saveOutroSuccess.set(true);
+      setTimeout(() => this.saveOutroSuccess.set(false), 4000);
+    });
+  }
+
+  // --- Chunk Duration ---
+
+  setChunkDurationPreset(sec: number): void {
+    this.defaultChunkDuration.set(sec);
+  }
+
+  saveChunkDuration(): void {
+    const dur = this.defaultChunkDuration();
+    if (dur <= 0) return;
+
+    this.chunkDurationSaved.set(false);
+    this.status.run(this.mediaTools.updateChunkDuration(dur), (val) => {
+      this.defaultChunkDuration.set(val);
+      this.chunkDurationSaved.set(true);
+      setTimeout(() => this.chunkDurationSaved.set(false), 4000);
+    });
+  }
+}

@@ -11,7 +11,7 @@ import {
   CreateSceneBody, DialogueBody, IngestCapabilities, IngestResult, IngestSummary,
   PlacementBody, Project, RenderJob, RendererStatus, Scene, SceneAudioBody, SceneDetail,
   SceneGenerationResult, ScriptDetail, ScriptSummary, UpdateProjectBody, UpdateSceneBody,
-  WatermarkBody,
+  WatermarkBody, OutroBody,
 } from '../models/api.models';
 
 /**
@@ -77,6 +77,15 @@ export class ApiService {
 
   globalLogoUrl(): string {
     return `${this.base}/api/system/branding/logo`;
+  }
+
+  getGlobalOutro(): Observable<OutroBody | null> {
+    return this.unwrap(
+      this.http.get<ApiResponse<OutroBody | null>>(`${this.base}/api/system/branding/outro`));
+  }
+
+  globalOutroMediaUrl(): string {
+    return `${this.base}/api/system/branding/outro/media`;
   }
 
   // --- projects
@@ -500,6 +509,18 @@ export class ApiService {
     form.append('file', file, file.name);
     return this.unwrap(
       this.http.post<ApiResponse<WatermarkBody | null>>(`${this.admin}/branding/logo`, form));
+  }
+
+  updateGlobalOutro(body: OutroBody): Observable<OutroBody | null> {
+    return this.unwrap(
+      this.http.put<ApiResponse<OutroBody | null>>(`${this.admin}/branding/outro`, body));
+  }
+
+  uploadGlobalOutro(file: File): Observable<OutroBody | null> {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return this.unwrap(
+      this.http.post<ApiResponse<OutroBody | null>>(`${this.admin}/branding/outro/upload`, form));
   }
 
   private unwrap<T>(source: Observable<ApiResponse<T>>): Observable<T> {

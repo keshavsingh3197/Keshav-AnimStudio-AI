@@ -144,6 +144,45 @@ public sealed class SystemController(
     }
 
     /// <summary>
+    /// Global branding &amp; channel outro bumper configuration.
+    /// </summary>
+    [HttpGet("branding/outro")]
+    public async Task<ActionResult<ApiResponse<OutroResponse?>>> GetBrandingOutro(CancellationToken ct)
+    {
+        var settings = await aiSettingsRepo.GetAsync(ct);
+        return Ok(ApiResponse<OutroResponse?>.Ok(settings?.DefaultOutro.ToResponse()));
+    }
+
+    /// <summary>
+    /// Serves or streams the global outro video or image file.
+    /// </summary>
+    [HttpGet("branding/outro/media")]
+    public async Task<IActionResult> GetBrandingOutroMedia(CancellationToken ct)
+    {
+        var settings = await aiSettingsRepo.GetAsync(ct);
+        var outroAssetId = settings?.DefaultOutro?.AssetId;
+        if (string.IsNullOrWhiteSpace(outroAssetId))
+            return NotFound();
+
+        string storageKey = outroAssetId;
+        string mimeType = "video/mp4";
+
+        var asset = await assets.GetAsync(outroAssetId, ct);
+        if (asset is not null)
+        {
+            storageKey = asset.StorageKey;
+            mimeType = asset.MimeType;
+        }
+
+        var stream = await store.OpenAsync(storageKey, ct);
+        if (stream is null)
+            return NotFound();
+
+        Response.Headers.XContentTypeOptions = "nosniff";
+        return File(stream, mimeType, enableRangeProcessing: true);
+    }
+
+    /// <summary>
     /// Returns global media settings such as default chunk duration and availability.
     /// </summary>
     [HttpGet("media-settings")]

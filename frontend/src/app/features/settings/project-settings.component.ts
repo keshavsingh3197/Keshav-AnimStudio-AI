@@ -5,7 +5,7 @@ import { Router, RouterLink } from '@angular/router';
 
 import {
   CANVAS_PRESETS, DISTRIBUTION_INTENTS, WATERMARK_POSITIONS, WatermarkBody, WatermarkKind, WatermarkPosition,
-  aspectRatioLabel, videoFormat,
+  OutroBody, OutroKind, aspectRatioLabel, videoFormat,
 } from '../../core/models/api.models';
 import { ApiService } from '../../core/services/api.service';
 import { ProjectStore } from '../../core/services/project-store';
@@ -35,6 +35,13 @@ export class ProjectSettingsComponent {
   ];
   readonly confirmingDelete = signal(false);
   readonly globalWatermark = signal<WatermarkBody | null>(null);
+  readonly globalOutro = signal<OutroBody | null>(null);
+  readonly outroKinds: readonly { kind: OutroKind; label: string }[] = [
+    { kind: 'None', label: 'No Outro Bumper' },
+    { kind: 'Video', label: 'Outro Video Bumper' },
+    { kind: 'Image', label: 'End-Card Graphic' },
+  ];
+  readonly outroTransitions: readonly string[] = ['Fade', 'Dissolve', 'None', 'WipeLeft', 'WipeRight'];
   readonly saveSuccess = signal<boolean>(false);
   readonly isPlayingAudio = signal<boolean>(false);
   private previewAudioEl: HTMLAudioElement | null = null;
@@ -61,6 +68,11 @@ export class ProjectSettingsComponent {
     defaultWatermarkMargin: 4,
     defaultWatermarkColor: '#ffffff',
     defaultWatermarkBackplate: 0.3,
+    defaultOutroKind: 'None' as OutroKind,
+    defaultOutroAssetId: '',
+    defaultOutroDurationSeconds: 4,
+    defaultOutroTransition: 'Fade',
+    defaultOutroTransitionDurationFrames: 15,
   };
 
   constructor() {
@@ -89,6 +101,11 @@ export class ProjectSettingsComponent {
         defaultWatermarkMargin: wm ? Math.round(wm.marginFraction * 1000) / 10 : 4,
         defaultWatermarkColor: wm?.colorHex ?? '#ffffff',
         defaultWatermarkBackplate: wm?.backplateOpacity ?? 0.3,
+        defaultOutroKind: (project.defaultOutro?.kind as OutroKind) ?? 'None',
+        defaultOutroAssetId: project.defaultOutro?.assetId ?? '',
+        defaultOutroDurationSeconds: project.defaultOutro?.durationSeconds || 4,
+        defaultOutroTransition: project.defaultOutro?.transition || 'Fade',
+        defaultOutroTransitionDurationFrames: project.defaultOutro?.transitionDurationFrames || 15,
       };
 
       this.presetIndex = this.matchPreset(project.width, project.height);
@@ -96,6 +113,11 @@ export class ProjectSettingsComponent {
 
     this.api.getGlobalBranding().subscribe({
       next: (wm) => this.globalWatermark.set(wm),
+      error: () => {},
+    });
+
+    this.api.getGlobalOutro().subscribe({
+      next: (o) => this.globalOutro.set(o),
       error: () => {},
     });
   }
@@ -220,6 +242,56 @@ export class ProjectSettingsComponent {
     this.form.defaultWatermarkPosition = pos;
   }
 
+  applyGlobalOutro(): void {
+    const o = this.globalOutro();
+    if (!o || o.kind === 'None') return;
+    this.form.defaultOutroKind = (o.kind as OutroKind) ?? 'None';
+    this.form.defaultOutroAssetId = o.assetId ?? '';
+    this.form.defaultOutroDurationSeconds = o.durationSeconds || 4;
+    this.form.defaultOutroTransition = o.transition || 'Fade';
+    this.form.defaultOutroTransitionDurationFrames = o.transitionDurationFrames || 15;
+  }
+
+  setOutroKind(kind: OutroKind): void {
+    this.form.defaultOutroKind = kind;
+  }
+
+  setOutroTransition(trans: string): void {
+    this.form.defaultOutroTransition = trans;
+  }
+
+  onPickOutroMedia(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    const projectId = this.store.projectId();
+    if (!file || !projectId) return;
+
+    this.status.run(this.api.uploadAsset(projectId, file), (asset) => {
+      this.store.refreshAssets();
+      this.form.defaultOutroAssetId = asset.id;
+      if (asset.kind === 'Video') {
+        this.form.defaultOutroKind = 'Video';
+      } else if (asset.kind === 'Image') {
+        this.form.defaultOutroKind = 'Image';
+      }
+    });
+  }
+
+  clearOutroMedia(): void {
+    this.form.defaultOutroAssetId = '';
+    this.form.defaultOutroKind = 'None';
+  }
+
+  outroMediaUrl(): string | null {
+    const id = this.form.defaultOutroAssetId;
+    if (!id) return null;
+    if (id === this.globalOutro()?.assetId) {
+      return this.api.globalOutroMediaUrl();
+    }
+    return this.api.assetUrl(id);
+  }
+
   toggleAudioPreview(): void {
     if (!this.form.backgroundMusicAssetId) return;
     if (this.isPlayingAudio()) {
@@ -273,6 +345,13 @@ export class ProjectSettingsComponent {
           marginFraction: this.form.defaultWatermarkMargin / 100,
           colorHex: this.form.defaultWatermarkColor,
           backplateOpacity: this.form.defaultWatermarkBackplate,
+        },
+        defaultOutro: {
+          kind: this.form.defaultOutroKind,
+          assetId: this.form.defaultOutroAssetId || null,
+          durationSeconds: this.form.defaultOutroDurationSeconds,
+          transition: this.form.defaultOutroTransition,
+          transitionDurationFrames: this.form.defaultOutroTransitionDurationFrames,
         },
       }),
       (project) => {

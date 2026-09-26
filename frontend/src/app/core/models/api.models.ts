@@ -29,6 +29,7 @@ export interface Project {
   isPinned?: boolean;
   customThumbnail?: string | null;
   defaultWatermark?: any;
+  defaultOutro?: OutroBody | null;
 }
 
 export interface CreateProjectBody {
@@ -45,6 +46,7 @@ export interface UpdateProjectBody extends CreateProjectBody {
   backgroundMusicAssetId?: string | null;
   backgroundMusicVolume: number;
   defaultWatermark?: WatermarkBody | null;
+  defaultOutro?: OutroBody | null;
   isPinned?: boolean;
   customThumbnail?: string | null;
 }
@@ -438,6 +440,17 @@ export interface WatermarkBody {
   marginFraction: number;
   colorHex?: string | null;
   backplateOpacity: number;
+}
+
+export const OUTRO_KINDS = ['None', 'Video', 'Image'] as const;
+export type OutroKind = (typeof OUTRO_KINDS)[number];
+
+export interface OutroBody {
+  kind: OutroKind;
+  assetId?: string | null;
+  durationSeconds: number;
+  transition: string;
+  transitionDurationFrames: number;
 }
 
 export const CLIP_FITS = ['Contain', 'Cover', 'BlurredBackdrop'] as const;

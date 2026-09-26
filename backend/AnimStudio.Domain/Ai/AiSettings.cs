@@ -80,6 +80,11 @@ public sealed class AiSettings
     public WatermarkSettings? DefaultWatermark { get; set; }
 
     /// <summary>
+    /// Global default studio outro video or end-card bumper attached at the end of finished videos.
+    /// </summary>
+    public OutroSettings? DefaultOutro { get; set; }
+
+    /// <summary>
     /// Global default duration in seconds when chunking or splitting videos (default: 10.0s).
     /// </summary>
     public double DefaultChunkDurationSeconds { get; set; } = 10.0;

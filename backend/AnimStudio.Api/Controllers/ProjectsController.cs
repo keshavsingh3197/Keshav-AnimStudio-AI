@@ -103,7 +103,8 @@ public sealed class ProjectsController(
             BackgroundMusicVolume = request.BackgroundMusicVolume,
             IsPinned = request.IsPinned,
             CustomThumbnail = request.CustomThumbnail,
-            DefaultWatermark = request.DefaultWatermark?.ToSettings()
+            DefaultWatermark = request.DefaultWatermark?.ToSettings(),
+            DefaultOutro = request.DefaultOutro?.ToSettings()
         }, ct);
 
         return Ok(ApiResponse<ProjectResponse>.Ok(project.ToResponse()));

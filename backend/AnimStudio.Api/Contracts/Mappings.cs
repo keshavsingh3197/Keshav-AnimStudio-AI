@@ -30,7 +30,8 @@ public static class Mappings
         p.CreatedAt, p.UpdatedAt,
         p.IsPinned,
         p.CustomThumbnail,
-        p.Settings.DefaultWatermark.ToResponse());
+        p.Settings.DefaultWatermark.ToResponse(),
+        p.Settings.DefaultOutro.ToResponse());
 
     public static WatermarkResponse? ToResponse(this WatermarkSettings? w) =>
         w is null ? null : new WatermarkResponse(
@@ -43,6 +44,14 @@ public static class Mappings
             w.MarginFraction,
             w.ColorHex,
             w.BackplateOpacity);
+
+    public static OutroResponse? ToResponse(this OutroSettings? o) =>
+        o is null ? null : new OutroResponse(
+            o.Kind.ToString(),
+            o.AssetId,
+            o.DurationSeconds,
+            o.Transition.ToString(),
+            o.TransitionDurationFrames);
 
     public static CharacterResponse ToResponse(this Character c) => new(
         c.Id, c.Name, c.Description, c.Aliases,

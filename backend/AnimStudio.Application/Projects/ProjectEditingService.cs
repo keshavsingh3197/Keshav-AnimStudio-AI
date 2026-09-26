@@ -28,6 +28,7 @@ public sealed record UpdateProjectCommand
     public double BackgroundMusicVolume { get; init; } = 0.18;
 
     public WatermarkSettings? DefaultWatermark { get; init; }
+    public OutroSettings? DefaultOutro { get; init; }
     public bool? IsPinned { get; init; }
     public string? CustomThumbnail { get; init; }
 }
@@ -111,6 +112,12 @@ public sealed class ProjectEditingService(
         {
             command.DefaultWatermark.Clamp();
             project.Settings.DefaultWatermark = command.DefaultWatermark;
+        }
+
+        if (command.DefaultOutro is not null)
+        {
+            command.DefaultOutro.Clamp();
+            project.Settings.DefaultOutro = command.DefaultOutro;
         }
 
         project.UpdatedAt = clock.GetUtcNow().UtcDateTime;

@@ -11,6 +11,13 @@ public sealed record WatermarkResponse(
     string ColorHex,
     double BackplateOpacity);
 
+public sealed record OutroResponse(
+    string Kind,
+    string? AssetId,
+    double DurationSeconds,
+    string Transition,
+    int TransitionDurationFrames);
+
 public sealed record ProjectResponse(
     string Id, string Name, string? Description, string Status,
     int Width, int Height, int Fps, string DistributionIntent,
@@ -19,7 +26,8 @@ public sealed record ProjectResponse(
     DateTime CreatedAt, DateTime UpdatedAt,
     bool IsPinned = false,
     string? CustomThumbnail = null,
-    WatermarkResponse? DefaultWatermark = null);
+    WatermarkResponse? DefaultWatermark = null,
+    OutroResponse? DefaultOutro = null);
 
 public sealed record CharacterResponse(
     string Id, string Name, string? Description, IReadOnlyList<string> Aliases,

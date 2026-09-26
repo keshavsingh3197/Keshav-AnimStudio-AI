@@ -562,6 +562,112 @@ public sealed class AdminController(
         return Ok(ApiResponse<WatermarkResponse?>.Ok(stored.DefaultWatermark.ToResponse()));
     }
 
+    [HttpGet("branding/outro")]
+    public async Task<ActionResult<ApiResponse<OutroResponse?>>> GetOutro(CancellationToken ct)
+    {
+        var stored = await aiSettingsRepo.GetAsync(ct);
+        return Ok(ApiResponse<OutroResponse?>.Ok(stored?.DefaultOutro.ToResponse()));
+    }
+
+    [HttpPut("branding/outro")]
+    public async Task<ActionResult<ApiResponse<OutroResponse?>>> UpdateOutro(
+        [FromBody] OutroRequest request, CancellationToken ct)
+    {
+        var stored = await aiSettingsRepo.GetAsync(ct) ?? new AiSettings();
+        var outro = request.ToSettings();
+        outro.Clamp();
+        stored.DefaultOutro = outro;
+
+        await aiSettingsRepo.SaveAsync(stored, ct);
+
+        await audit.RecordAsync(
+            "branding.outro-updated",
+            "global-branding",
+            "Updated global outro bumper",
+            $"Kind: {outro.Kind}, Asset: {outro.AssetId}, Duration: {outro.DurationSeconds}s",
+            RemoteAddress(),
+            ct);
+
+        return Ok(ApiResponse<OutroResponse?>.Ok(stored.DefaultOutro.ToResponse()));
+    }
+
+    [HttpPost("branding/outro/upload")]
+    [RequestSizeLimit(AssetsController.MaxUploadBytes)]
+    [RequestFormLimits(MultipartBodyLengthLimit = AssetsController.MaxUploadBytes)]
+    public async Task<ActionResult<ApiResponse<OutroResponse?>>> UploadBrandingOutro(
+        IFormFile file, CancellationToken ct)
+    {
+        if (file is null || file.Length == 0)
+        {
+            return BadRequest(ApiResponse<OutroResponse?>.Fail(
+                "Choose a video or image file to upload.",
+                new ApiError("file-required", "Choose a video or image file to upload.")));
+        }
+
+        var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+        var isVideo = ext is ".mp4" or ".webm" or ".mov";
+        var isImage = ext is ".png" or ".jpg" or ".jpeg" or ".webp";
+
+        if (!isVideo && !isImage)
+        {
+            return BadRequest(ApiResponse<OutroResponse?>.Fail(
+                "Outro bumper must be a video (MP4, WebM, MOV) or an image (PNG, JPG, WEBP).",
+                new ApiError("invalid-media-type", "Only MP4, WebM, MOV, PNG, JPG, and WEBP files are supported.")));
+        }
+
+        var mimeType = ext switch
+        {
+            ".mp4" => "video/mp4",
+            ".webm" => "video/webm",
+            ".mov" => "video/quicktime",
+            ".png" => "image/png",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".webp" => "image/webp",
+            _ => isVideo ? "video/mp4" : "image/png"
+        };
+
+        var assetId = MongoDB.Bson.ObjectId.GenerateNewId().ToString();
+        var storageKey = $"branding/global-outro-{assetId}{ext}";
+
+        await using (var stream = file.OpenReadStream())
+        {
+            await store.SaveAsync(storageKey, stream, mimeType, ct);
+        }
+
+        var now = clock.GetUtcNow().UtcDateTime;
+        var asset = new Asset
+        {
+            Id = assetId,
+            ProjectId = "global",
+            Name = Path.GetFileName(file.FileName),
+            Kind = isVideo ? AssetKind.Video : AssetKind.Image,
+            StorageKey = storageKey,
+            MimeType = mimeType,
+            FileSizeBytes = file.Length,
+            CreatedAt = now
+        };
+
+        await assets.InsertAsync(asset, ct);
+
+        var stored = await aiSettingsRepo.GetAsync(ct) ?? new AiSettings();
+        stored.DefaultOutro ??= new OutroSettings();
+        stored.DefaultOutro.Kind = isVideo ? OutroKind.Video : OutroKind.Image;
+        stored.DefaultOutro.AssetId = assetId;
+        stored.DefaultOutro.Clamp();
+
+        await aiSettingsRepo.SaveAsync(stored, ct);
+
+        await audit.RecordAsync(
+            "branding.outro-uploaded",
+            "global-branding",
+            "Uploaded global studio outro media",
+            asset.Name,
+            RemoteAddress(),
+            ct);
+
+        return Ok(ApiResponse<OutroResponse?>.Ok(stored.DefaultOutro.ToResponse()));
+    }
+
     // --- helpers -------------------------------------------------------------------------
 
     private static AiProviderId Parse(string providerId) =>

@@ -386,7 +386,178 @@
     </div>
   </div>
 
-  <!-- Section 4: Danger Zone -->
+  <!-- Section 4: Channel Outro Bumper & End-Card -->
+  <div class="settings-card">
+    <div class="card-section-head">
+      <div>
+        <h3>🎬 Channel Outro Bumper &amp; End-Card</h3>
+        <p>Append a small video (e.g. subscribe animation, channel stinger) or static end-card graphic at the end of the video.</p>
+      </div>
+    </div>
+
+    <!-- Server Outro Status Banner -->
+    <div class="hallmark-status-banner">
+      @if (globalOutro() && globalOutro()?.kind !== 'None') {
+        <div class="hallmark-badge-group">
+          <div class="status-dot-pulse"></div>
+          <span style="font-size: 0.85rem; color: #fff; font-weight: 500;">
+            Global Studio Outro active: <strong>{{ globalOutro()?.kind }}</strong> ({{ globalOutro()?.transition }} transition)
+          </span>
+        </div>
+        <button type="button" class="btn-outline" (click)="applyGlobalOutro()" style="font-size: 0.82rem; padding: 4px 12px;">
+          Sync from Global Outro
+        </button>
+      } @else {
+        <div style="font-size: 0.84rem; color: #8b9bb4;">
+          No global studio outro configured on server.
+        </div>
+        <a routerLink="/admin/branding" style="font-size: 0.84rem; color: var(--brand, #6c8cff); text-decoration: none; font-weight: 600;">
+          Configure Global Studio Outro &rarr;
+        </a>
+      }
+    </div>
+
+    <!-- Outro Kind Selector -->
+    <div class="form-group">
+      <label class="form-label">Outro Bumper Type</label>
+      <div class="segmented-row">
+        @for (k of outroKinds; track k.kind) {
+          <button type="button" class="segment-btn"
+                  [class.active]="form.defaultOutroKind === k.kind"
+                  (click)="setOutroKind(k.kind)">
+            {{ k.label }}
+          </button>
+        }
+      </div>
+    </div>
+
+    @if (form.defaultOutroKind !== 'None') {
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; margin-bottom: 1.25rem;">
+        <!-- Left: Outro Asset & Transition Configuration -->
+        <div>
+          @if (form.defaultOutroKind === 'Video') {
+            <div class="form-group">
+              <label class="form-label" for="outro-video-asset">Outro Video Clip</label>
+              <select class="form-select" id="outro-video-asset" [(ngModel)]="form.defaultOutroAssetId">
+                <option value="">Select a video from library...</option>
+                @for (asset of store.videos(); track asset.id) {
+                  <option [value]="asset.id">🎬 {{ asset.name }} ({{ asset.durationSeconds | number: '1.1-1' }}s)</option>
+                }
+              </select>
+              <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem; align-items: center;">
+                <label class="btn-outline" style="cursor: pointer; font-size: 0.8rem; padding: 4px 10px;">
+                  <input type="file" accept="video/mp4,video/webm,video/quicktime" (change)="onPickOutroMedia($event)" style="display: none;" />
+                  <span>⬆ Upload New Outro MP4</span>
+                </label>
+                @if (form.defaultOutroAssetId) {
+                  <button type="button" class="btn-outline" style="color: #f87171; border-color: rgba(239,68,68,0.3); font-size: 0.8rem; padding: 4px 10px;" (click)="clearOutroMedia()">
+                    ✕ Clear
+                  </button>
+                }
+              </div>
+            </div>
+          }
+
+          @if (form.defaultOutroKind === 'Image') {
+            <div class="form-group">
+              <label class="form-label" for="outro-image-asset">End-Card Graphic</label>
+              <select class="form-select" id="outro-image-asset" [(ngModel)]="form.defaultOutroAssetId">
+                <option value="">Select an image from library...</option>
+                @for (asset of store.imagesOnly(); track asset.id) {
+                  <option [value]="asset.id">🖼️ {{ asset.name }}</option>
+                }
+              </select>
+              <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem; align-items: center;">
+                <label class="btn-outline" style="cursor: pointer; font-size: 0.8rem; padding: 4px 10px;">
+                  <input type="file" accept="image/png,image/jpeg,image/webp" (change)="onPickOutroMedia($event)" style="display: none;" />
+                  <span>⬆ Upload New End-Card PNG</span>
+                </label>
+                @if (form.defaultOutroAssetId) {
+                  <button type="button" class="btn-outline" style="color: #f87171; border-color: rgba(239,68,68,0.3); font-size: 0.8rem; padding: 4px 10px;" (click)="clearOutroMedia()">
+                    ✕ Clear
+                  </button>
+                }
+              </div>
+            </div>
+
+            <div class="slider-container" style="margin-bottom: 1.25rem;">
+              <div class="slider-meta">
+                <label class="form-label" style="margin-bottom: 0;">Display Duration</label>
+                <span class="slider-val-badge">{{ form.defaultOutroDurationSeconds }}s</span>
+              </div>
+              <input class="form-range" type="range" min="1" max="15" step="0.5"
+                     [(ngModel)]="form.defaultOutroDurationSeconds" />
+              <p style="margin: 0.25rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
+                Duration this graphic holds at the end of the video.
+              </p>
+            </div>
+          }
+
+          <div class="form-group">
+            <label class="form-label">Transition Into Outro</label>
+            <div class="segmented-row">
+              @for (t of outroTransitions; track t) {
+                <button type="button" class="segment-btn"
+                        [class.active]="form.defaultOutroTransition === t"
+                        (click)="setOutroTransition(t)">
+                  {{ t }}
+                </button>
+              }
+            </div>
+            <p style="margin: 0.35rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
+              Transition style connecting the final scene to this outro bumper.
+            </p>
+          </div>
+        </div>
+
+        <!-- Right: Outro Media Player / Preview -->
+        <div>
+          <label class="form-label">Outro Bumper Player / Preview</label>
+          <div class="watermark-mockup-wrapper">
+            <div class="mockup-header-row">
+              <span>Channel Bumper Preview (16:9)</span>
+              <span style="color: #93c5fd; font-family: ui-monospace, monospace;">{{ form.defaultOutroTransition }} Transition</span>
+            </div>
+
+            <div class="outro-preview-box">
+              @if (outroMediaUrl(); as url) {
+                @if (form.defaultOutroKind === 'Video') {
+                  <video class="outro-preview-video" [src]="url" controls playsinline preload="metadata"></video>
+                  <div class="outro-badge-overlay">
+                    <span>▶ Outro Video</span>
+                  </div>
+                } @else {
+                  <img class="outro-preview-image" [src]="url" alt="End-card graphic" />
+                  <div class="outro-badge-overlay">
+                    <span>⏱ {{ form.defaultOutroDurationSeconds }}s End-Card</span>
+                  </div>
+                }
+              } @else {
+                <div style="text-align: center; padding: 2rem 1rem; color: #8b9bb4;">
+                  <div style="font-size: 2.2rem; margin-bottom: 0.5rem; opacity: 0.6;">📺</div>
+                  <div style="font-size: 0.88rem; font-weight: 600; color: #c9d1d9;">No outro media selected</div>
+                  <div style="font-size: 0.78rem; margin-top: 0.25rem;">
+                    Select an outro clip or end-card from the left to preview it here.
+                  </div>
+                </div>
+              }
+            </div>
+            <p style="margin: 0; font-size: 0.78rem; color: #8b9bb4; text-align: center;">
+              Appended at the end of the video during project rendering.
+            </p>
+          </div>
+        </div>
+      </div>
+    }
+
+    <div style="display: flex; justify-content: flex-end; margin-top: 1rem;">
+      <button type="button" class="btn-primary-glow" (click)="save()" [disabled]="status.busy() || !form.name.trim()">
+        Save Settings &amp; Outro
+      </button>
+    </div>
+  </div>
+
+  <!-- Section 5: Danger Zone -->
   <div class="settings-card danger-card">
     <div class="card-section-head" style="border-bottom-color: rgba(239, 68, 68, 0.2);">
       <div>

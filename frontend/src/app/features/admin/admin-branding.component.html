@@ -1,177 +1,391 @@
-<div class="card">
-  <div class="row" style="justify-content: space-between; align-items: flex-start; margin-bottom: 1rem">
-    <div>
-      <h2 style="margin: 0">Global Studio Branding & Hallmark</h2>
-      <p class="muted" style="margin: .3rem 0 0; font-size: .9rem">
-        Set a server-wide studio hallmark or logo watermark. All projects and clip renders can inherit this branding automatically, ensuring consistent credits without duplicating settings.
-      </p>
+<div class="branding-container">
+  <!-- Header -->
+  <div class="branding-header">
+    <div class="branding-header-title">
+      <div class="branding-header-icon">🎨</div>
+      <div>
+        <h2>Server Studio Branding &amp; Video Defaults</h2>
+        <p>Configure server-wide hallmark watermarks, outro bumpers/end-cards, and video segmentation.</p>
+      </div>
     </div>
-    <button type="button" class="secondary" (click)="reload()" [disabled]="status.busy()">
-      Reload
-    </button>
+    <div class="branding-top-actions">
+      <button type="button" class="btn-outline" (click)="reload()" [disabled]="status.busy()">
+        ↻ Reload Settings
+      </button>
+    </div>
   </div>
 
-  @if (saveSuccess()) {
-    <div class="notice ok" style="margin-bottom: 1rem">
-      Global branding and hallmark updated successfully! New projects will inherit these settings.
+  <!-- Card 1: Studio Hallmark & Watermark -->
+  <div class="branding-card">
+    <div class="card-section-head">
+      <div>
+        <h3>🛡️ Global Studio Hallmark &amp; Watermark</h3>
+        <p>Set a server-wide hallmark or logo watermark. All projects can inherit this branding automatically for consistent attribution.</p>
+      </div>
+      @if (saveSuccess()) {
+        <div class="save-toast-pill">
+          <span>✓</span> Hallmark Saved
+        </div>
+      }
     </div>
-  }
 
-  <div class="grid" style="margin-bottom: 1.5rem">
-    <div>
-      <label for="admin-wm-kind">Hallmark Style</label>
-      <select id="admin-wm-kind" [(ngModel)]="form.kind">
+    <!-- Style Selector -->
+    <div class="form-group">
+      <label class="form-label">Hallmark Style</label>
+      <div class="segmented-row">
         @for (k of watermarkKinds; track k.kind) {
-          <option [value]="k.kind">{{ k.label }}</option>
+          <button type="button" class="segment-btn"
+                  [class.active]="form.kind === k.kind"
+                  (click)="setWatermarkKind(k.kind)">
+            {{ k.label }}
+          </button>
         }
-      </select>
+      </div>
     </div>
 
     @if (form.kind !== 'None') {
-      <div>
-        <label for="admin-wm-pos">Position</label>
-        <select id="admin-wm-pos" [(ngModel)]="form.position">
-          @for (p of watermarkPositions; track p) {
-            <option [value]="p">{{ p }}</option>
-          }
-        </select>
-      </div>
-
-      @if (form.kind === 'Text') {
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 1.5rem; margin-bottom: 1.25rem;">
+        <!-- Left Column: Controls -->
         <div>
-          <label for="admin-wm-text">Hallmark text / brand name</label>
-          <input id="admin-wm-text" type="text" [(ngModel)]="form.text"
-                 placeholder="e.g. AnimStudio AI or © 2026 Keshav Studios" maxlength="200" />
-        </div>
+          @if (form.kind === 'Text') {
+            <div class="form-group">
+              <label class="form-label" for="admin-wm-text">Hallmark Text / Brand Name</label>
+              <input class="form-input" id="admin-wm-text" type="text" [(ngModel)]="form.text"
+                     placeholder="e.g. AnimStudio AI or © 2026 Keshav Studios" maxlength="200" />
+            </div>
 
-        <div>
-          <label for="admin-wm-color">Text color</label>
-          <input id="admin-wm-color" type="color" [(ngModel)]="form.color" />
-        </div>
-
-        <div>
-          <label for="admin-wm-backplate">Backplate shading ({{ (form.backplate * 100) | number: '1.0-0' }}%)</label>
-          <input id="admin-wm-backplate" type="range" min="0" max="0.9" step="0.05"
-                 [(ngModel)]="form.backplate" />
-        </div>
-      }
-
-      @if (form.kind === 'Logo') {
-        <div>
-          <label>Studio Logo Image</label>
-          <div style="display: flex; gap: .75rem; align-items: center; margin-top: .3rem">
-            <label class="button link-button" style="cursor: pointer; margin: 0">
-              <input type="file" accept="image/png,image/jpeg,image/webp" (change)="onUploadLogo($event)" style="display: none" />
-              <span>Upload new logo (PNG / JPG / WEBP)</span>
-            </label>
-            @if (form.logoAssetId) {
-              <button type="button" class="secondary" (click)="clearLogo()" style="padding: .4rem .8rem">
-                Remove Logo
-              </button>
-            }
-          </div>
-          @if (form.logoAssetId) {
-            <p class="muted" style="margin: .4rem 0 0; font-size: .8rem">
-              Logo uploaded and stored in server storage.
-            </p>
-          }
-        </div>
-      }
-
-      <div>
-        <label for="admin-wm-opac">Opacity ({{ (form.opacity * 100) | number: '1.0-0' }}%)</label>
-        <input id="admin-wm-opac" type="range" min="0.15" max="1" step="0.05"
-               [(ngModel)]="form.opacity" />
-      </div>
-
-      <div>
-        <label for="admin-wm-height">Size ({{ form.height }}% of canvas height)</label>
-        <input id="admin-wm-height" type="range" min="2" max="20" step="0.5"
-               [(ngModel)]="form.height" />
-      </div>
-
-      <div>
-        <label for="admin-wm-margin">Margin from edge ({{ form.margin }}%)</label>
-        <input id="admin-wm-margin" type="range" min="1" max="15" step="0.5"
-               [(ngModel)]="form.margin" />
-      </div>
-    }
-  </div>
-
-  @if (form.kind !== 'None') {
-    <div style="margin-top: 1rem; padding: 1.25rem; border-radius: var(--radius); background: var(--surface-2)">
-      <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: .75rem">
-        <strong style="font-size: .85rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted)">
-          Live Hallmark Preview (16:9 Video Simulation)
-        </strong>
-        <span class="pill">{{ form.position }} &bull; {{ (form.opacity * 100) | number: '1.0-0' }}% opacity</span>
-      </div>
-
-      <div style="position: relative; width: 360px; max-width: 100%; height: 202px; background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #334155 100%); border-radius: 8px; overflow: hidden; display: flex; box-shadow: 0 4px 14px rgba(0,0,0,.4); border: 1px solid rgba(255,255,255,.1);"
-           [style.padding.px]="(form.margin / 100) * 202"
-           [style.align-items]="form.position.startsWith('Top') ? 'flex-start' : 'flex-end'"
-           [style.justify-content]="form.position.endsWith('Left') ? 'flex-start' : form.position.endsWith('Right') ? 'flex-end' : 'center'">
-        @if (form.kind === 'Logo') {
-          @if (logoPreviewUrl(); as url) {
-            <img [src]="url" alt="Hallmark logo" [style.height.px]="(form.height / 100) * 202"
-                 [style.opacity]="form.opacity" style="object-fit: contain; max-width: 60%; display: block;" />
-          } @else {
-            <div style="background: rgba(0,0,0,.6); padding: .5rem .8rem; border-radius: 4px; font-size: .75rem; color: #94a3b8">
-              No logo image uploaded yet
+            <div style="display: grid; grid-template-columns: 80px 1fr; gap: 0.75rem; margin-bottom: 1.25rem;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label" for="admin-wm-color">Color</label>
+                <input class="form-input" id="admin-wm-color" type="color" [(ngModel)]="form.color"
+                       style="height: 38px; padding: 2px 4px; cursor: pointer;" />
+              </div>
+              <div class="slider-container">
+                <div class="slider-meta">
+                  <label class="form-label" style="margin-bottom: 0;">Backplate Shading</label>
+                  <span class="slider-val-badge">{{ (form.backplate * 100) | number: '1.0-0' }}%</span>
+                </div>
+                <input class="form-range" id="admin-wm-backplate" type="range" min="0" max="0.9" step="0.05"
+                       [(ngModel)]="form.backplate" />
+              </div>
             </div>
           }
-        } @else {
-          <span [style.font-size.px]="(form.height / 100) * 202"
-                [style.color]="form.color"
-                [style.opacity]="form.opacity"
-                [style.background]="'rgba(0,0,0,' + form.backplate + ')'"
-                style="padding: 2px 8px; border-radius: 4px; font-weight: 600; line-height: 1.2; letter-spacing: 0.02em;">
-            {{ form.text || 'AnimStudio AI' }}
-          </span>
+
+          @if (form.kind === 'Logo') {
+            <div class="form-group">
+              <label class="form-label">Studio Logo Image</label>
+              <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+                <label class="btn-outline" style="cursor: pointer;">
+                  <input type="file" accept="image/png,image/jpeg,image/webp" (change)="onUploadLogo($event)" style="display: none;" />
+                  <span>⬆ Upload New Logo (PNG / JPG / WEBP)</span>
+                </label>
+                @if (form.logoAssetId) {
+                  <button type="button" class="btn-outline" style="color: #f87171; border-color: rgba(239,68,68,0.3);" (click)="clearLogo()">
+                    ✕ Remove Logo
+                  </button>
+                }
+              </div>
+              @if (form.logoAssetId) {
+                <p style="margin: 0.35rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
+                  Logo stored securely in server storage. Transparent PNG recommended.
+                </p>
+              }
+            </div>
+          }
+
+          <!-- Position Picker Grid -->
+          <div class="form-group">
+            <label class="form-label">Position Placement</label>
+            <div class="position-grid">
+              @for (p of watermarkPositions; track p) {
+                <button type="button" class="pos-btn"
+                        [class.active]="form.position === p"
+                        (click)="setWatermarkPosition(p)">
+                  {{ formatPosLabel(p) }}
+                </button>
+              }
+            </div>
+          </div>
+
+          <!-- Fine Tuning Sliders -->
+          <div class="slider-container" style="margin-bottom: 1rem;">
+            <div class="slider-meta">
+              <label class="form-label" style="margin-bottom: 0;">Opacity</label>
+              <span class="slider-val-badge">{{ (form.opacity * 100) | number: '1.0-0' }}%</span>
+            </div>
+            <input class="form-range" id="admin-wm-opac" type="range" min="0.15" max="1" step="0.05"
+                   [(ngModel)]="form.opacity" />
+          </div>
+
+          <div class="slider-container" style="margin-bottom: 1rem;">
+            <div class="slider-meta">
+              <label class="form-label" style="margin-bottom: 0;">Size (% of canvas height)</label>
+              <span class="slider-val-badge">{{ form.height }}%</span>
+            </div>
+            <input class="form-range" id="admin-wm-height" type="range" min="2" max="20" step="0.5"
+                   [(ngModel)]="form.height" />
+          </div>
+
+          <div class="slider-container">
+            <div class="slider-meta">
+              <label class="form-label" style="margin-bottom: 0;">Margin from Edge</label>
+              <span class="slider-val-badge">{{ form.margin }}%</span>
+            </div>
+            <input class="form-range" id="admin-wm-margin" type="range" min="1" max="15" step="0.5"
+                   [(ngModel)]="form.margin" />
+          </div>
+        </div>
+
+        <!-- Right Column: Interactive 16:9 Canvas Mockup -->
+        <div>
+          <label class="form-label">Live Hallmark Simulation</label>
+          <div class="mockup-wrapper">
+            <div class="mockup-header-row">
+              <span>Preview Viewport (16:9 Ratio)</span>
+              <span style="color: #93c5fd; font-family: ui-monospace, monospace;">{{ form.position }} &bull; {{ (form.opacity * 100) | number: '1.0-0' }}%</span>
+            </div>
+
+            <div class="watermark-viewport"
+                 [style.padding.px]="(form.margin / 100) * 280"
+                 [style.align-items]="form.position.startsWith('Top') ? 'flex-start' : 'flex-end'"
+                 [style.justify-content]="form.position.endsWith('Left') ? 'flex-start' : form.position.endsWith('Right') ? 'flex-end' : 'center'">
+              <div class="watermark-viewport-grid"></div>
+              <div class="viewport-center-cross"></div>
+
+              @if (form.kind === 'Logo') {
+                @if (logoPreviewUrl(); as url) {
+                  <img class="mockup-watermark-item" [src]="url" alt="Hallmark logo"
+                       [style.height.px]="(form.height / 100) * 280"
+                       [style.opacity]="form.opacity"
+                       style="object-fit: contain; max-width: 180px; display: block;" />
+                } @else {
+                  <div class="mockup-watermark-item" style="padding: 6px 12px; background: rgba(0,0,0,0.6); border-radius: 4px; font-size: 0.75rem; color: #8b9bb4; border: 1px dashed #374151;">
+                    No logo image uploaded yet
+                  </div>
+                }
+              } @else {
+                <div class="mockup-watermark-item"
+                     [style.font-size.px]="((form.height / 100) * 280 * 0.75)"
+                     [style.color]="form.color"
+                     [style.opacity]="form.opacity"
+                     [style.background]="'rgba(0,0,0,' + form.backplate + ')'"
+                     style="padding: 4px 10px; border-radius: 4px; font-weight: 600; line-height: 1.2; letter-spacing: 0.02em; border: 1px solid rgba(255,255,255,0.08); backdrop-filter: blur(2px);">
+                  {{ form.text || 'AnimStudio AI' }}
+                </div>
+              }
+            </div>
+            <p style="margin: 0; font-size: 0.78rem; color: #8b9bb4; text-align: center;">
+              This watermark is automatically composited over finished video frames.
+            </p>
+          </div>
+        </div>
+      </div>
+    }
+
+    <div style="display: flex; justify-content: flex-end; margin-top: 1rem;">
+      <button type="button" class="btn-primary-glow" (click)="save()" [disabled]="status.busy()">
+        Save Global Hallmark
+      </button>
+    </div>
+  </div>
+
+  <!-- Card 2: Global Channel Outro & End-Card Bumper -->
+  <div class="branding-card">
+    <div class="card-section-head">
+      <div>
+        <h3>🎬 Global Channel Outro &amp; End-Card Bumper</h3>
+        <p>Attach a small channel outro video (e.g. subscribe animation, channel stinger) or static end-card graphic at the end of every video.</p>
+      </div>
+      @if (saveOutroSuccess()) {
+        <div class="save-toast-pill">
+          <span>✓</span> Outro Settings Saved
+        </div>
+      }
+    </div>
+
+    <!-- Outro Kind Selector -->
+    <div class="form-group">
+      <label class="form-label">Outro Bumper Type</label>
+      <div class="segmented-row">
+        @for (k of outroKinds; track k.kind) {
+          <button type="button" class="segment-btn"
+                  [class.active]="outroForm.kind === k.kind"
+                  (click)="setOutroKind(k.kind)">
+            {{ k.label }}
+          </button>
         }
       </div>
-      <p class="muted" style="margin: .6rem 0 0; font-size: .8rem">
-        This watermark will be overlaid seamlessly on your renders.
+    </div>
+
+    @if (outroForm.kind !== 'None') {
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 1.5rem; margin-bottom: 1.25rem;">
+        <!-- Left: Upload & Config -->
+        <div>
+          <div class="form-group">
+            <label class="form-label">
+              Upload Outro {{ outroForm.kind === 'Video' ? 'Video (MP4 / WebM / MOV)' : 'Graphic (PNG / JPG / WEBP)' }}
+            </label>
+            <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+              <label class="btn-outline" style="cursor: pointer;">
+                <input type="file"
+                       [accept]="outroForm.kind === 'Video' ? 'video/mp4,video/webm,video/quicktime' : 'image/png,image/jpeg,image/webp'"
+                       (change)="onUploadOutro($event)" style="display: none;" />
+                <span>⬆ Upload Channel Outro File</span>
+              </label>
+              @if (outroForm.assetId) {
+                <button type="button" class="btn-outline" style="color: #f87171; border-color: rgba(239,68,68,0.3);" (click)="clearOutro()">
+                  ✕ Remove Outro
+                </button>
+              }
+            </div>
+            <p style="margin: 0.35rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
+              @if (outroForm.kind === 'Video') {
+                Short 3 to 10 second outro stingers with channel branding or call-to-actions work best.
+              } @else {
+                High-resolution end-screen cards (1920&times;1080) for YouTube end cards or social handles.
+              }
+            </p>
+          </div>
+
+          @if (outroForm.kind === 'Image') {
+            <div class="slider-container" style="margin-bottom: 1.25rem;">
+              <div class="slider-meta">
+                <label class="form-label" style="margin-bottom: 0;">End-Card Display Duration</label>
+                <span class="slider-val-badge">{{ outroForm.durationSeconds }}s</span>
+              </div>
+              <input class="form-range" type="range" min="1" max="15" step="0.5"
+                     [(ngModel)]="outroForm.durationSeconds" />
+              <p style="margin: 0.25rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
+                Duration the graphic stays visible at the end of the video before completion.
+              </p>
+            </div>
+          }
+
+          <div class="form-group">
+            <label class="form-label">Transition Into Outro</label>
+            <div class="segmented-row">
+              @for (t of outroTransitions; track t) {
+                <button type="button" class="segment-btn"
+                        [class.active]="outroForm.transition === t"
+                        (click)="setOutroTransition(t)">
+                  {{ t }}
+                </button>
+              }
+            </div>
+            <p style="margin: 0.35rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
+              Crossfade or dissolve between the final video scene and the channel outro bumper.
+            </p>
+          </div>
+        </div>
+
+        <!-- Right: Outro Media Preview -->
+        <div>
+          <label class="form-label">Outro Bumper Player / Preview</label>
+          <div class="mockup-wrapper">
+            <div class="mockup-header-row">
+              <span>Channel Bumper Preview (16:9)</span>
+              <span style="color: #93c5fd; font-family: ui-monospace, monospace;">Transition: {{ outroForm.transition }}</span>
+            </div>
+
+            <div class="outro-preview-box">
+              @if (outroMediaUrl(); as url) {
+                @if (outroForm.kind === 'Video') {
+                  <video class="outro-preview-video" [src]="url" controls playsinline preload="metadata"></video>
+                  <div class="outro-badge-overlay">
+                    <span>▶ Outro Video</span>
+                  </div>
+                } @else {
+                  <img class="outro-preview-image" [src]="url" alt="End-card graphic" />
+                  <div class="outro-badge-overlay">
+                    <span>⏱ {{ outroForm.durationSeconds }}s End-Card</span>
+                  </div>
+                }
+              } @else {
+                <div style="text-align: center; padding: 2rem 1rem; color: #8b9bb4;">
+                  <div style="font-size: 2.2rem; margin-bottom: 0.5rem; opacity: 0.6;">📺</div>
+                  <div style="font-size: 0.88rem; font-weight: 600; color: #c9d1d9;">No outro media uploaded yet</div>
+                  <div style="font-size: 0.78rem; margin-top: 0.25rem;">
+                    Upload an MP4 video or PNG end-card on the left to preview it here.
+                  </div>
+                </div>
+              }
+            </div>
+            <p style="margin: 0; font-size: 0.78rem; color: #8b9bb4; text-align: center;">
+              Appended smoothly at the tail end of exported videos.
+            </p>
+          </div>
+        </div>
+      </div>
+    }
+
+    <div style="display: flex; justify-content: flex-end; margin-top: 1rem;">
+      <button type="button" class="btn-primary-glow" (click)="saveOutro()" [disabled]="status.busy()">
+        Save Global Outro Settings
+      </button>
+    </div>
+  </div>
+
+  <!-- Card 3: Global Video Chunking & Splitting -->
+  <div class="branding-card">
+    <div class="card-section-head">
+      <div>
+        <h3>✂️ Global Video Chunking &amp; Splitting</h3>
+        <p>Set default segment duration when chopping long videos, podcast recordings, or YouTube Shorts into clips.</p>
+      </div>
+      @if (chunkDurationSaved()) {
+        <div class="save-toast-pill">
+          <span>✓</span> Chunk Duration Updated
+        </div>
+      }
+    </div>
+
+    <!-- Quick Presets -->
+    <div class="form-group">
+      <label class="form-label">Quick Duration Presets</label>
+      <div class="chunk-presets-grid">
+        @for (sec of chunkPresets; track sec) {
+          <button type="button" class="chunk-preset-chip"
+                  [class.active]="defaultChunkDuration() === sec"
+                  (click)="setChunkDurationPreset(sec)">
+            {{ sec }} Seconds
+            @if (sec === 10) {
+              <span style="font-size: 0.7rem; opacity: 0.8;">(Recommended)</span>
+            } @else if (sec === 60) {
+              <span style="font-size: 0.7rem; opacity: 0.8;">(Shorts Cap)</span>
+            }
+          </button>
+        }
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.5rem; align-items: center; margin-bottom: 1.25rem;">
+      <div class="slider-container">
+        <div class="slider-meta">
+          <label class="form-label" style="margin-bottom: 0;">Custom Duration (Seconds)</label>
+          <span class="slider-val-badge">{{ defaultChunkDuration() }}s</span>
+        </div>
+        <input class="form-range" type="range" min="3" max="180" step="1"
+               [ngModel]="defaultChunkDuration()" (ngModelChange)="defaultChunkDuration.set($event)" />
+      </div>
+
+      <div>
+        <label class="form-label" for="default-chunk-sec">Exact Seconds</label>
+        <input class="form-input" id="default-chunk-sec" type="number" min="1" max="600" step="1"
+               style="max-width: 180px; font-weight: 700; font-family: ui-monospace, monospace;"
+               [ngModel]="defaultChunkDuration()" (ngModelChange)="defaultChunkDuration.set($event)" />
+      </div>
+    </div>
+
+    <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 8px; padding: 0.85rem 1.1rem; margin-bottom: 1.25rem;">
+      <p style="margin: 0; font-size: 0.82rem; color: #8b9bb4; line-height: 1.5;">
+        💡 <strong>How chunk duration works</strong>: When splitting videos in Media Tools or during automated ingest, videos are divided into consecutive chunks matching this length. 10&ndash;15 seconds is optimal for AI prompt generation and rapid scene editing, while 60 seconds targets full-length mobile reels.
       </p>
     </div>
-  }
 
-  <div class="row" style="margin-top: 1.5rem">
-    <button type="button" (click)="save()" [disabled]="status.busy()">
-      Save Global Hallmark
-    </button>
+    <div style="display: flex; justify-content: flex-end;">
+      <button type="button" class="btn-primary-glow" (click)="saveChunkDuration()" [disabled]="status.busy()">
+        Save Default Chunk Duration
+      </button>
+    </div>
   </div>
 </div>
-
-<div class="card" style="margin-top: 1.5rem">
-  <div class="row" style="justify-content: space-between; align-items: flex-start; margin-bottom: 1rem">
-    <div>
-      <h2 style="margin: 0">Global Video Chunking & Splitting</h2>
-      <p class="muted" style="margin: .3rem 0 0; font-size: .9rem">
-        Set the default segment duration when splitting long videos or YouTube Shorts into clips.
-      </p>
-    </div>
-  </div>
-
-  @if (chunkDurationSaved()) {
-    <div class="notice ok" style="margin-bottom: 1rem">
-      Global chunk duration updated successfully to {{ defaultChunkDuration() }} seconds!
-    </div>
-  }
-
-  <div class="row" style="gap: 1rem; align-items: center; margin-bottom: 1rem;">
-    <div>
-      <label for="default-chunk-sec">Default Chunk Duration (Seconds)</label>
-      <input id="default-chunk-sec" type="number" min="1" max="300" step="1" style="max-width: 160px; font-size: 1.1rem; font-weight: 700;"
-             [ngModel]="defaultChunkDuration()" (ngModelChange)="defaultChunkDuration.set($event)" />
-    </div>
-  </div>
-
-  <div class="row">
-    <button type="button" (click)="saveChunkDuration()" [disabled]="status.busy()">
-      Save Default Chunk Duration
-    </button>
-  </div>
-</div>
-
-
