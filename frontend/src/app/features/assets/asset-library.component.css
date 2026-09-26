@@ -741,15 +741,130 @@
   border-top: 2px solid var(--brand, #6c8cff);
 }
 
-/* ── Asset Inspector Modal ──────────────────────────────────────── */
+/* ── Card Drag & Drop States ────────────────────────────────────── */
+.asset-card.is-dragging {
+  opacity: 0.35;
+  border-style: dashed;
+  border-color: var(--brand, #6c8cff);
+}
+.asset-card.drag-over-card {
+  border-color: var(--brand, #6c8cff) !important;
+  transform: scale(1.03) !important;
+  box-shadow: 0 0 0 2px var(--brand, #6c8cff), 0 14px 34px rgba(0, 0, 0, 0.65) !important;
+}
+
+.card-drag-handle {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #d1d5db;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  cursor: grab;
+  z-index: 6;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.asset-card:hover .card-drag-handle {
+  opacity: 1;
+}
+
+/* ── Full-Page File Dropzone Overlay ────────────────────────────── */
+.file-drop-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(11, 16, 32, 0.88);
+  backdrop-filter: blur(10px);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.drop-modal-box {
+  background: var(--surface-2, #141923);
+  border: 2px dashed var(--brand, #6c8cff);
+  border-radius: 16px;
+  padding: 2.5rem 3.5rem;
+  text-align: center;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.85), 0 0 35px rgba(108, 140, 255, 0.3);
+  transform: scale(1.02);
+}
+
+.drop-modal-box .drop-icon {
+  font-size: 3.2rem;
+  display: block;
+  margin-bottom: 0.75rem;
+}
+
+.drop-modal-box h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.drop-modal-box p {
+  margin: 0;
+  font-size: 0.92rem;
+  color: #93c5fd;
+}
+
+/* ── Centered Modal Backdrop & Asset Inspector Dialog ────────────── */
+.modal-backdrop {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  background: rgba(0, 0, 0, 0.82) !important;
+  backdrop-filter: blur(8px) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  z-index: 9999 !important;
+  padding: 1.5rem !important;
+  box-sizing: border-box !important;
+  animation: fadeIn 0.15s ease-out;
+}
+
 .asset-inspector-dialog {
   background: var(--surface, #0f1117);
-  border: 1px solid color-mix(in srgb, var(--brand, #6c8cff) 35%, var(--border, #21293a));
-  border-radius: 14px;
-  width: 90%;
-  max-width: 860px;
+  border: 1px solid color-mix(in srgb, var(--brand, #6c8cff) 40%, var(--border, #21293a));
+  border-radius: 16px;
+  width: 92vw;
+  max-width: 920px;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.9);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.95), 0 0 1px 1px color-mix(in srgb, var(--brand, #6c8cff) 35%, transparent);
+  animation: modalScaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  margin: auto;
+}
+
+@keyframes modalScaleIn {
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .inspector-header {
@@ -773,8 +888,10 @@
 
 .inspector-body {
   display: grid;
-  grid-template-columns: 1fr 280px;
+  grid-template-columns: 1fr 300px;
   background: #06080d;
+  overflow-y: auto;
+  max-height: calc(88vh - 55px);
 }
 
 .inspector-media-stage {
@@ -786,11 +903,24 @@
   min-height: 380px;
 }
 
-.lightbox-video-wrap video,
+.lightbox-video-wrap {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lightbox-video-wrap video {
+  width: 100%;
+  max-height: 520px;
+  border-radius: 8px;
+  outline: none;
+}
+
 .lightbox-img-wrap img {
   max-width: 100%;
-  max-height: 480px;
-  border-radius: 6px;
+  max-height: 520px;
+  border-radius: 8px;
   object-fit: contain;
 }
 

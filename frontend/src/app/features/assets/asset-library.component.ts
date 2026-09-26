@@ -21,6 +21,7 @@ export class AssetLibraryComponent {
   readonly confirming = signal<string | null>(null);
   readonly previewAsset = signal<Asset | null>(null);
   readonly copiedAssetId = signal<string | null>(null);
+  readonly isDraggingFiles = signal<boolean>(false);
   
   // View mode & sorting
   readonly viewMode = signal<'grid' | 'table'>('grid');
@@ -91,10 +92,14 @@ export class AssetLibraryComponent {
 
   upload(event: Event): void {
     const input = event.target as HTMLInputElement;
+    if (input.files) {
+      this.processUploadFiles(input.files);
+    }
+    input.value = '';
+  }
+
+  processUploadFiles(files: FileList | File[]): void {
     const projectId = this.store.projectId();
-    const files = input.files;
-    
-    // If a custom folder is selected, upload to it. Otherwise upload to root.
     const currentFolder = this.selectedFolderId();
     const folderId = (['all', 'images', 'videos', 'audio', 'subtitles'].includes(currentFolder)) ? null : currentFolder;
 
@@ -112,8 +117,46 @@ export class AssetLibraryComponent {
         }
       });
     }
+  }
 
-    input.value = '';
+  onFileDragOver(event: DragEvent): void {
+    if (event.dataTransfer?.types?.includes('Files')) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = 'copy';
+      }
+      this.isDraggingFiles.set(true);
+    }
+  }
+
+  onFileDragLeave(event: DragEvent): void {
+    const rect = (event.currentTarget as HTMLElement)?.getBoundingClientRect();
+    if (rect) {
+      if (
+        event.clientX <= rect.left ||
+        event.clientX >= rect.right ||
+        event.clientY <= rect.top ||
+        event.clientY >= rect.bottom
+      ) {
+        this.isDraggingFiles.set(false);
+      }
+    } else {
+      this.isDraggingFiles.set(false);
+    }
+  }
+
+  onFileDrop(event: DragEvent): void {
+    if (event.dataTransfer?.types?.includes('Files')) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.isDraggingFiles.set(false);
+
+      const files = event.dataTransfer.files;
+      if (files && files.length > 0) {
+        this.processUploadFiles(files);
+      }
+    }
   }
 
   remove(assetId: string): void {

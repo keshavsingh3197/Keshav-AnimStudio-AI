@@ -14,7 +14,21 @@
   </div>
 </div>
 
-<div class="library-layout">
+<div class="library-layout"
+     (dragover)="onFileDragOver($event)"
+     (dragleave)="onFileDragLeave($event)"
+     (drop)="onFileDrop($event)">
+  <!-- Full-Page File Dropzone Overlay -->
+  @if (isDraggingFiles()) {
+    <div class="file-drop-overlay">
+      <div class="drop-modal-box">
+        <span class="drop-icon">📥</span>
+        <h3>Drop media files here to upload</h3>
+        <p>Adding to: <strong>{{ selectedFolderId() === 'all' || selectedFolderId() === 'images' || selectedFolderId() === 'videos' || selectedFolderId() === 'audio' || selectedFolderId() === 'subtitles' ? 'Root Library' : 'Current Folder' }}</strong></p>
+      </div>
+    </div>
+  }
+
   <!-- Left Media Sidebar -->
   <aside class="sidebar">
     <div class="sidebar-section-title">Library Categories</div>
@@ -163,9 +177,18 @@
       <!-- ── Visual Grid View ──────────────────────────────────────── -->
       <div class="asset-grid">
         @for (asset of filteredAssets(); track asset.id; let i = $index) {
-          <div class="asset-card" [class.confirming]="confirming() === asset.id">
+          <div class="asset-card"
+               draggable="true"
+               (dragstart)="onDragStart($event, asset, i)"
+               (dragover)="onDragOverRow($event, i)"
+               (dragleave)="onDragLeave($event)"
+               (drop)="onDropRow($event, i)"
+               [class.drag-over-card]="dragOverIndex() === i"
+               [class.is-dragging]="dragAssetIndex() === i"
+               [class.confirming]="confirming() === asset.id">
             <!-- Media Thumbnail Container -->
             <div class="asset-thumb-container" (click)="openPreview(asset)">
+              <div class="card-drag-handle" (click)="$event.stopPropagation()" title="Drag to reorder or move to folder">&#9776;</div>
               @if (isImage(asset)) {
                 <img class="asset-thumb-img" [src]="assetUrl(asset.id)" [alt]="asset.name" loading="lazy" />
                 @if (asset.hasAlpha) {
