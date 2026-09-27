@@ -64,13 +64,16 @@ public class TransitionDurationTests
             LeadInSeconds = 0.25,
             TailOutSeconds = 0.25,
             FreezeHead = true,
-            FreezeTail = true
+            FreezeTail = true,
+            SourceHasAudio = true
         };
 
         var clipBuilt = builder.BuildClip(clipPlan);
 
         // Check that tpad was emitted with start_mode and stop_mode:
         Assert.Contains("tpad=start_mode=clone:start_duration=0.25:stop_mode=clone:stop_duration=0.25", clipBuilt.FilterComplex);
+        // Check that audio is delayed by LeadInSeconds (250ms) to maintain A/V sync during head freeze:
+        Assert.Contains("adelay=250|250", clipBuilt.FilterComplex);
 
         // When merged downstream, the padded clips give the exact intended 600 frames:
         var mergePlan = new MergePlan

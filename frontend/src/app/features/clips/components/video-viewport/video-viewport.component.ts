@@ -417,8 +417,36 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       effectiveClipGain *= this.state.trackV1Volume();
     }
 
-    const isVideoMuted = this.state.isMonitorMuted() || effectiveClipGain === 0;
-    const clipVol = isVideoMuted ? 0 : Math.min(1, effectiveClipGain);
+    const nextSched = curr.index < schedule.length - 1 ? schedule[curr.index + 1] : null;
+    const isNextImage = nextSched ? this.state.getClipType(nextSched.clip) === 'image' : false;
+
+    const progress = inTransition && transSec > 0 ? Math.min(1, Math.max(0, (time - transStart) / transSec)) : 0;
+    const offsetBeforeStart = Math.max(0, curr.endSeconds - time);
+    const nextTrimStart = nextSched ? (nextSched.clip.trimStartSeconds ?? 0) : 0;
+    const canBorrowHead = inTransition && !nextSched?.freezeHead && nextTrimStart >= offsetBeforeStart && offsetBeforeStart > 0;
+
+    let nextClipVol = 0;
+    let isNextVideoMuted = true;
+    if (inTransition && nextSched && !isNextImage) {
+      const nextSound = this.state.clipSound(nextSched.clip.id);
+      const nextOverlap = this.state.resolveOverlap(nextSched.clip.id);
+      let nextEffectiveGain = nextSound.volume * (hasActiveMusicAtTime ? nextOverlap.videoGain : 1);
+      if (nextSound.audioAssetId && !nextSound.keepOriginalAudio) {
+        nextEffectiveGain = 0;
+      }
+      if (this.state.isTrackMuted('V1')) {
+        nextEffectiveGain = 0;
+      } else {
+        nextEffectiveGain *= this.state.trackV1Volume();
+      }
+      isNextVideoMuted = this.state.isMonitorMuted() || nextEffectiveGain <= 0.001;
+      nextClipVol = isNextVideoMuted ? 0 : Math.min(1, nextEffectiveGain);
+    }
+
+    const activeVolumeFactor = (inTransition && canBorrowHead) ? (1 - progress) : 1;
+    const effectiveActiveGain = effectiveClipGain * activeVolumeFactor;
+    const isVideoMuted = this.state.isMonitorMuted() || effectiveActiveGain <= 0.001;
+    const clipVol = isVideoMuted ? 0 : Math.min(1, effectiveActiveGain);
     const speed = this.state.playbackSpeed();
 
     // 1. Sync active video
@@ -467,16 +495,16 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     }
 
     // 2. Sync standby video (transitions / preloading)
-    const nextSched = curr.index < schedule.length - 1 ? schedule[curr.index + 1] : null;
-    const isNextImage = nextSched ? this.state.getClipType(nextSched.clip) === 'image' : false;
-
     if (inTransition && nextSched && currentStandbyVideo) {
       if (isNextImage) {
         if (!currentStandbyVideo.paused) currentStandbyVideo.pause();
+        currentStandbyVideo.volume = 0;
+        currentStandbyVideo.muted = true;
       } else {
         const nextAssetId = this.state.resolveAssetId(nextSched.clip);
-        const nextTrimStart = nextSched.clip.trimStartSeconds ?? 0;
-        const nextLocalTime = Math.max(0.05, nextTrimStart + (time - transStart));
+        const nextLocalTime = canBorrowHead
+          ? Math.max(0, nextTrimStart - offsetBeforeStart)
+          : Math.max(0.05, nextTrimStart);
         const standbyLoadedId = currentActiveIsA ? this.loadedClipIdB : this.loadedClipIdA;
         if (standbyLoadedId !== nextAssetId) {
           if (currentActiveIsA) this.loadedClipIdB = nextAssetId;
@@ -486,12 +514,21 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
         } else if (!playing || (Math.abs(currentStandbyVideo.currentTime - nextLocalTime) > 0.4 && !currentStandbyVideo.seeking)) {
           currentStandbyVideo.currentTime = nextLocalTime;
         }
-        currentStandbyVideo.volume = 0;
-        currentStandbyVideo.muted = true;
-        currentStandbyVideo.playbackRate = speed;
-        if (playing) {
-          if (currentStandbyVideo.paused) currentStandbyVideo.play().catch(() => undefined);
+
+        if (canBorrowHead) {
+          const standbyGain = progress * nextClipVol;
+          currentStandbyVideo.volume = this.state.isMonitorMuted() ? 0 : Math.min(1, this.state.monitorVolume() * standbyGain);
+          currentStandbyVideo.muted = isNextVideoMuted || standbyGain <= 0.001;
+          currentStandbyVideo.playbackRate = speed;
+          if (playing) {
+            if (currentStandbyVideo.paused) currentStandbyVideo.play().catch(() => undefined);
+          } else {
+            if (!currentStandbyVideo.paused) currentStandbyVideo.pause();
+          }
         } else {
+          currentStandbyVideo.volume = 0;
+          currentStandbyVideo.muted = true;
+          currentStandbyVideo.playbackRate = speed;
           if (!currentStandbyVideo.paused) currentStandbyVideo.pause();
         }
       }
@@ -502,6 +539,11 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       this.liveTransitionDuration.set(transSec);
     } else {
       this.liveTransitionActive.set(false);
+      if (currentStandbyVideo) {
+        currentStandbyVideo.volume = 0;
+        currentStandbyVideo.muted = true;
+        if (!currentStandbyVideo.paused) currentStandbyVideo.pause();
+      }
       // Preload next incoming clip
       if (nextSched && !isNextImage && currentStandbyVideo) {
         const nextAssetId = this.state.resolveAssetId(nextSched.clip);

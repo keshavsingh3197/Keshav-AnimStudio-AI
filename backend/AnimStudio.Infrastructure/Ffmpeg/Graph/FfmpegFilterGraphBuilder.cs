@@ -417,6 +417,13 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         var extraVolume = Math.Clamp(plan.ExtraAudioVolume, 0, ClipAudioSpec.MaxGain);
         var hasExtra = plan.ExtraAudioRelativePath is { Length: > 0 } && extraVolume > 0;
 
+        var headDelayMs = plan.FreezeHead && plan.LeadInSeconds > 0
+            ? (int)Math.Round(plan.LeadInSeconds * 1000)
+            : 0;
+        var headDelay = headDelayMs > 0
+            ? $",adelay={headDelayMs}|{headDelayMs}"
+            : string.Empty;
+
         if (hasExtra)
         {
             var extraArgs = new List<string>();
@@ -436,14 +443,14 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
 
             // Not looped: a ten-second sting on a two-minute clip plays once and stops,
             // which is what "a sound for this clip" means. Looping is the music bed's job.
-            var extra = $"[{extraIndex}:a]{format},asetpts=N/SR/TB,"
+            var extra = $"[{extraIndex}:a]{format},asetpts=N/SR/TB{headDelay},"
                         + $"volume={FilterExpr.N(extraVolume)},apad";
 
             if (!usesOwn || !plan.KeepOwnAudio) return $"{extra}[aout]";
 
             // normalize=0 inside Mix is what makes the two levels mean what they say;
             // amix's default would halve both the moment a second input appeared.
-            var own = $"[0:a]{format},asetpts=N/SR/TB,volume={FilterExpr.N(ownVolume)},apad";
+            var own = $"[0:a]{format},asetpts=N/SR/TB{headDelay},volume={FilterExpr.N(ownVolume)},apad";
             var limiter = capabilities.Supports(RenderFeature.AudioLimiter);
 
             return $"{own}[a0];\n{extra}[a1];\n[a0][a1]{AudioFilters.Mix(2, limiter)}[aout]";
@@ -462,7 +469,7 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
                 ? string.Empty
                 : $",volume={FilterExpr.N(ownVolume)}{guard}";
 
-            return $"[0:a]{format},asetpts=N/SR/TB{level},apad[aout]";
+            return $"[0:a]{format},asetpts=N/SR/TB{headDelay}{level},apad[aout]";
         }
 
         var silence = inputs.Count;
