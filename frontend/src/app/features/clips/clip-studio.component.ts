@@ -2,7 +2,7 @@ import { Component, ElementRef, HostListener, OnInit, ViewChild, effect, inject,
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
-import { Clip } from '../../../core/models/api.models';
+import { Clip } from '../../core/models/api.models';
 import { StudioStateService } from './services/studio-state.service';
 import { StudioHeaderComponent } from './components/studio-header/studio-header.component';
 import { MediaDockComponent } from './components/media-dock/media-dock.component';
