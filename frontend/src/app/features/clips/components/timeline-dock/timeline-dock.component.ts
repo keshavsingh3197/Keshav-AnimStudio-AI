@@ -243,19 +243,29 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  // Scrubbing Handlers
-  onTimelineScrubDown(event: PointerEvent): void {
-    const target = event.target as HTMLElement;
-    if (
-      target.closest('.tl-clip') ||
-      target.closest('.tl-junction') ||
-      target.closest('.tl-music-clip') ||
-      target.closest('.tl-header-col') ||
-      target.closest('.tl-header-76') ||
-      target.closest('.tl-ruler-corner')
-    ) {
+  onTimelineWheel(event: WheelEvent): void {
+    const area = this.timelineAreaRef?.nativeElement;
+    if (!area) return;
+
+    if (event.ctrlKey || event.metaKey) {
+      event.preventDefault();
+      // Zoom in / out with Ctrl+Wheel
+      this.state.zoom(event.deltaY < 0 ? 8 : -8);
       return;
     }
+
+    // Scroll horizontally with wheel (trackpad swipe or mouse wheel)
+    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    if (Math.abs(delta) > 0) {
+      event.preventDefault();
+      area.scrollLeft += delta;
+    }
+  }
+
+  // Scrubbing Handlers
+  onRulerPointerDown(event: PointerEvent): void {
+    const target = event.target as HTMLElement;
+    if (target.closest('.tl-ruler-corner') || target.closest('.tl-ruler-add-track-btn')) return;
     this.state.clearAllSelections();
     event.preventDefault();
     this.isScrubbing.set(true);
@@ -263,6 +273,43 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
       target.setPointerCapture?.(event.pointerId);
     } catch {}
     this.handleTimelineScrubEvent(event);
+  }
+
+  onPlayheadPointerDown(event: PointerEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.isScrubbing.set(true);
+    const target = event.target as HTMLElement;
+    try {
+      target.setPointerCapture?.(event.pointerId);
+    } catch {}
+    this.handleTimelineScrubEvent(event);
+  }
+
+  onTimelineLaneClick(event: MouseEvent): void {
+    const target = event.target as HTMLElement;
+    if (
+      target.closest('.tl-clip') ||
+      target.closest('.tl-junction') ||
+      target.closest('.tl-music-clip') ||
+      target.closest('.tl-header-col') ||
+      target.closest('.tl-header-76') ||
+      target.closest('.tl-ruler-row')
+    ) {
+      return;
+    }
+    // Clicking empty lane seeks to that timestamp without locking drag/scroll
+    this.state.clearAllSelections();
+    const el = this.timelineInnerRef?.nativeElement;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const x = Math.max(0, event.clientX - rect.left - this.trackHeaderWidth);
+    const targetSeconds = Math.max(0, Math.min(x / this.state.pxPerSecond(), this.state.timelineSeconds()));
+    this.state.seekTo(targetSeconds);
+  }
+
+  onTimelineScrubDown(event: PointerEvent): void {
+    this.onRulerPointerDown(event);
   }
 
   onTimelineScrubMove(event: PointerEvent): void {

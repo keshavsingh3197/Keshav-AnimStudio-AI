@@ -594,8 +594,116 @@ export class StudioStateService implements OnDestroy {
     this.performSplitAt(p.clip, this.splitPromptSeconds());
   }
 
+  confirmSplitKeepPart(partToKeep: 1 | 2): void {
+    const p = this.splitPrompt();
+    if (!p || this.splitPromptInvalid()) return;
+    this.splitPrompt.set(null);
+    this.performSplitTrimAt(p.clip, this.splitPromptSeconds(), partToKeep);
+  }
+
   cancelSplitPrompt(): void {
     this.splitPrompt.set(null);
+  }
+
+  /**
+   * True when either two adjacent clips from the same asset are selected,
+   * or a single clip with an adjacent part from the same asset is selected.
+   */
+  readonly canMergeClips = computed<boolean>(() => {
+    const selectedIndices = this.selectedCutIndices();
+    const sched = this.clipSchedule();
+    if (selectedIndices.length === 2) {
+      const [i1, i2] = [...selectedIndices].sort((a, b) => a - b);
+      if (i2 === i1 + 1 && i1 >= 0 && i2 < sched.length) {
+        const a = sched[i1].clip;
+        const b = sched[i2].clip;
+        return this.resolveAssetId(a) === this.resolveAssetId(b);
+      }
+    } else if (selectedIndices.length === 1 || this.selectedTimelineClipIndex() !== null) {
+      const idx = selectedIndices.length === 1 ? selectedIndices[0] : this.selectedTimelineClipIndex()!;
+      if (idx >= 0 && idx < sched.length) {
+        const curr = sched[idx].clip;
+        const currAsset = this.resolveAssetId(curr);
+        const prev = idx > 0 ? sched[idx - 1].clip : null;
+        const next = idx < sched.length - 1 ? sched[idx + 1].clip : null;
+        return Boolean((prev && this.resolveAssetId(prev) === currAsset) || (next && this.resolveAssetId(next) === currAsset));
+      }
+    }
+    return false;
+  });
+
+  mergeSelectedOrAdjacentClips(): void {
+    const sched = this.clipSchedule();
+    if (sched.length < 2) return;
+
+    let leftIdx = -1;
+    let rightIdx = -1;
+
+    const selectedIndices = this.selectedCutIndices();
+    if (selectedIndices.length === 2) {
+      const [i1, i2] = [...selectedIndices].sort((a, b) => a - b);
+      if (i2 === i1 + 1 && this.resolveAssetId(sched[i1].clip) === this.resolveAssetId(sched[i2].clip)) {
+        leftIdx = i1;
+        rightIdx = i2;
+      }
+    } else {
+      const idx = selectedIndices.length === 1 ? selectedIndices[0] : (this.selectedTimelineClipIndex() ?? -1);
+      if (idx >= 0 && idx < sched.length) {
+        const currAsset = this.resolveAssetId(sched[idx].clip);
+        if (idx < sched.length - 1 && this.resolveAssetId(sched[idx + 1].clip) === currAsset) {
+          leftIdx = idx;
+          rightIdx = idx + 1;
+        } else if (idx > 0 && this.resolveAssetId(sched[idx - 1].clip) === currAsset) {
+          leftIdx = idx - 1;
+          rightIdx = idx;
+        }
+      }
+    }
+
+    if (leftIdx < 0 || rightIdx < 0) {
+      this.status.notify(['Select two adjacent parts of the same clip to merge.']);
+      return;
+    }
+
+    const leftClip = sched[leftIdx].clip;
+    const rightClip = sched[rightIdx].clip;
+
+    const origTrimStart = leftClip.trimStartSeconds ?? 0;
+    const rightTrimEnd = rightClip.trimEndSeconds ?? ((rightClip.trimStartSeconds ?? 0) + (rightClip.durationSeconds ?? 5.0));
+    const mergedDur = (leftClip.durationSeconds ?? 5.0) + (rightClip.durationSeconds ?? 5.0);
+    const baseName = leftClip.name.replace(/ \(Part \d+\)$/, '');
+
+    const mergedClip: Clip = {
+      ...leftClip,
+      name: baseName,
+      durationSeconds: mergedDur,
+      trimStartSeconds: origTrimStart,
+      trimEndSeconds: rightTrimEnd,
+    };
+
+    const rows = [...this.rows()];
+    const rowLeft = rows.findIndex((r) => r.clip.id === leftClip.id);
+    const rowRight = rows.findIndex((r) => r.clip.id === rightClip.id);
+
+    if (rowLeft >= 0 && rowRight >= 0) {
+      const firstRowIdx = Math.min(rowLeft, rowRight);
+      const secondRowIdx = Math.max(rowLeft, rowRight);
+      rows.splice(secondRowIdx, 1);
+      rows[firstRowIdx] = { clip: mergedClip, included: true };
+      this.rows.set(rows);
+
+      // Clean up junction override between them
+      const overrides = new Map(this.junctionOverrides());
+      overrides.delete(this.junctionKey(leftClip.id, rightClip.id));
+      overrides.delete(this.junctionKey(rightClip.id, leftClip.id));
+      this.junctionOverrides.set(overrides);
+
+      this.selectedTimelineClipIndex.set(firstRowIdx);
+      this.selectedClipId.set(mergedClip.id);
+      this.markDirty();
+      this.saveOrder();
+      this.status.notify([`Merged "${mergedClip.name}" into a single continuous clip (${mergedDur.toFixed(2)}s).`]);
+    }
   }
 
   nudgeSplitPrompt(delta: number): void {
@@ -3857,6 +3965,63 @@ export class StudioStateService implements OnDestroy {
       this.saveOrder();
       this.status.notify(['Split clip into two parts.']);
     }
+  }
+
+  /**
+   * Trims the clip at splitTimeSeconds, keeping only Part 1 (trimming tail) or Part 2 (trimming head).
+   */
+  private performSplitTrimAt(origClip: Clip, splitTimeSeconds: number, partToKeep: 1 | 2): void {
+    const sched = this.clipSchedule();
+    const hit = sched.find((c) => c.clip.id === origClip.id);
+    if (!hit) return;
+
+    const splitOffset = splitTimeSeconds - hit.startSeconds;
+    const origTrimStart = origClip.trimStartSeconds ?? 0;
+    const origDur = origClip.durationSeconds ?? (origClip.trimEndSeconds ? origClip.trimEndSeconds - origTrimStart : 5.0);
+
+    const rows = [...this.rows()];
+    const rowIdx = rows.findIndex((r) => r.clip.id === origClip.id);
+    if (rowIdx < 0) return;
+
+    let updatedClip: Clip;
+    if (partToKeep === 1) {
+      // Keep Part 1 only (discard everything after split point)
+      updatedClip = {
+        ...origClip,
+        durationSeconds: splitOffset,
+        trimStartSeconds: origTrimStart,
+        trimEndSeconds: origTrimStart + splitOffset,
+      };
+      this.status.notify([`Trimmed clip "${origClip.name}" — kept Part 1 (${splitOffset.toFixed(2)}s).`]);
+    } else {
+      // Keep Part 2 only (discard everything before split point)
+      const remainingDur = origDur - splitOffset;
+      updatedClip = {
+        ...origClip,
+        durationSeconds: remainingDur,
+        trimStartSeconds: origTrimStart + splitOffset,
+        trimEndSeconds: origTrimStart + origDur,
+      };
+      this.status.notify([`Trimmed clip "${origClip.name}" — kept Part 2 (${remainingDur.toFixed(2)}s).`]);
+    }
+
+    rows[rowIdx] = { ...rows[rowIdx], clip: updatedClip };
+    this.rows.set(rows);
+    this.selectedTimelineClipIndex.set(hit.index);
+    this.selectedClipId.set(updatedClip.id);
+    this.markDirty();
+    this.saveOrder();
+  }
+
+  isClipSplit(clip: Clip): boolean {
+    return clip.name.includes('(Part ') || clip.id.includes('_part_');
+  }
+
+  getClipPartBadge(clip: Clip): string | null {
+    const match = clip.name.match(/\(Part (\d+)\)$/);
+    if (match) return `Part ${match[1]}`;
+    if (clip.id.includes('_part_')) return 'Split';
+    return null;
   }
 
 

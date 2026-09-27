@@ -32,6 +32,10 @@
           <span class="tool-btn-icon">✂</span>
           <span>Split</span>
         </button>
+        <button class="tool-btn" type="button" [disabled]="!state.canMergeClips()" (click)="state.mergeSelectedOrAdjacentClips()" title="Merge adjacent parts of the same clip back together (Join)">
+          <span class="tool-btn-icon">🔗</span>
+          <span>Merge</span>
+        </button>
         <button class="tool-btn" type="button" [disabled]="!state.hasAnySelection()" (click)="state.duplicateSelectedTimelineItem()" title="Duplicate selected timeline clip or overlay (Ctrl+D)">
           <span class="tool-btn-icon">⧉</span>
           <span>Duplicate</span>
@@ -136,9 +140,8 @@
     <!-- Timeline Body: Sticky Headers + Scrollable Tracks -->
     <div class="tl-body">
       <div #timelineArea class="timeline-interactive-area"
-           (pointerdown)="onTimelineScrubDown($event)"
-           (pointermove)="onTimelineScrubMove($event)"
-           (pointerup)="onTimelineScrubUp($event)">
+           (wheel)="onTimelineWheel($event)"
+           (click)="onTimelineLaneClick($event)">
         <div #timelineInner class="timeline-inner" [style.width.px]="trackHeaderWidth + state.secondsToPx(state.timelineSeconds())">
           
           <!-- Playhead Needle (Declarative binding + 60fps RAF translation loop) -->
@@ -146,7 +149,9 @@
                [class.is-scrubbing]="isScrubbing()"
                [style.left.px]="trackHeaderWidth + state.secondsToPx(state.currentTime())"
                style="will-change: left;">
-            <div class="tl-playhead-head" title="Drag to scrub timeline"></div>
+            <div class="tl-playhead-head"
+                 (pointerdown)="onPlayheadPointerDown($event)"
+                 title="Drag to scrub timeline"></div>
             <div class="tl-playhead-bubble">{{ state.formattedPlayheadTime() }}</div>
           </div>
 
@@ -156,7 +161,8 @@
           }
 
           <!-- Ruler Row -->
-          <div class="tl-row tl-ruler-row">
+          <div class="tl-row tl-ruler-row"
+               (pointerdown)="onRulerPointerDown($event)">
             <div class="tl-ruler-corner">
               <button class="tl-ruler-add-track-btn" type="button" (click)="openAddTrackDialog($event)" title="Add &amp; Manage Tracks">
                 <svg class="add-track-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
@@ -423,7 +429,10 @@
                         <div class="tl-clip-subline">
                           <span class="tl-clip-dur mono">{{ sched.clip.durationSeconds ?? 0 | number:'1.0-1' }}s</span>
                           @if (state.clipTrim(sched.clip.id)) {
-                            <span class="tl-clip-tag">Trim</span>
+                            <span class="tl-clip-tag trim-tag">Trim</span>
+                          }
+                          @if (state.isClipSplit(sched.clip)) {
+                            <span class="tl-clip-tag split-tag" [title]="'Split part: ' + sched.clip.name">✂ {{ state.getClipPartBadge(sched.clip) }}</span>
                           }
                         </div>
                       </div>
@@ -435,6 +444,9 @@
                         <img [src]="state.assetThumbnailUrl(sched.clip.id)" loading="lazy" class="tl-clip-mini-thumb-img" alt="" (error)="$any($event.target).style.display='none'" />
                       }
                       <span class="tl-clip-name">{{ sched.clip.name }}</span>
+                      @if (state.isClipSplit(sched.clip)) {
+                        <span class="tl-clip-tag split-tag">✂ {{ state.getClipPartBadge(sched.clip) }}</span>
+                      }
                       <span class="tl-clip-dur mono">{{ sched.clip.durationSeconds ?? 0 | number:'1.0-1' }}s</span>
                     </div>
                   }

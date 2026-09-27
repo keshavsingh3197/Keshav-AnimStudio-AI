@@ -116,7 +116,7 @@
           <button class="close-btn" type="button" (click)="cancelSplit()">&times;</button>
         </div>
 
-        <p class="split-dialog-sub">Scrub or nudge to choose where to split this clip into two parts.</p>
+        <p class="split-dialog-sub">Scrub or nudge to choose where to split this clip into two parts, or trim out unwanted footage.</p>
 
         <!-- Time & Nudge Controls -->
         <div class="split-time-controls">
@@ -138,12 +138,24 @@
           </div>
 
           <div class="split-nudge-group">
-            <label class="split-dialog-label">Nudge</label>
+            <label class="split-dialog-label">Nudge (Frames / Sec)</label>
             <div class="split-nudge-btns">
-              <button type="button" class="split-nudge-btn" (click)="state.nudgeSplitPrompt(-1.0)" title="Back 1 second">-1s</button>
-              <button type="button" class="split-nudge-btn" (click)="state.nudgeSplitPrompt(-1/30)" title="Back 1 frame">-1f</button>
-              <button type="button" class="split-nudge-btn" (click)="state.nudgeSplitPrompt(1/30)" title="Forward 1 frame">+1f</button>
-              <button type="button" class="split-nudge-btn" (click)="state.nudgeSplitPrompt(1.0)" title="Forward 1 second">+1s</button>
+              <button type="button" class="split-nudge-btn" (click)="state.nudgeSplitPrompt(-1.0)" title="Step back 1 second">
+                <span class="nudge-icon">⏮</span>
+                <span>-1s</span>
+              </button>
+              <button type="button" class="split-nudge-btn" (click)="state.nudgeSplitPrompt(-1/30)" title="Step back 1 frame (1/30s)">
+                <span class="nudge-icon">◀</span>
+                <span>-1f</span>
+              </button>
+              <button type="button" class="split-nudge-btn" (click)="state.nudgeSplitPrompt(1/30)" title="Step forward 1 frame (1/30s)">
+                <span>+1f</span>
+                <span class="nudge-icon">▶</span>
+              </button>
+              <button type="button" class="split-nudge-btn" (click)="state.nudgeSplitPrompt(1.0)" title="Step forward 1 second">
+                <span>+1s</span>
+                <span class="nudge-icon">⏭</span>
+              </button>
             </div>
           </div>
         </div>
@@ -171,26 +183,38 @@
           <!-- Part 1 Pane -->
           <div class="split-half-card">
             <div class="split-half-header">
-              <span class="split-half-title">Part 1</span>
+              <span class="split-half-title">Part 1 (Head)</span>
               <span class="split-half-dur">{{ state.splitPromptPart1Duration() | number:'1.2-2' }}s</span>
             </div>
             <div class="split-preview-media-box">
-              <img
-                class="split-thumb-img"
-                [src]="state.assetThumbnailUrl(prompt.clip.id)"
-                alt="Part 1 thumbnail"
-              />
+              <video
+                #part1Video
+                class="split-preview-video"
+                [src]="state.assetUrl(prompt.clip.id)"
+                preload="auto"
+                playsinline
+                (timeupdate)="onSplitVideoTimeUpdate(1, prompt)"
+                (ended)="stopSplitPreview()"
+              ></video>
               <button
                 type="button"
                 class="split-preview-play-btn"
                 (click)="toggleSplitPreviewPart(1, prompt)"
-                [title]="splitPreviewingPart() === 1 ? 'Pause' : 'Play Part 1'"
+                [title]="splitPreviewingPart() === 1 ? 'Pause Part 1' : 'Play Part 1'"
               >
                 {{ splitPreviewingPart() === 1 ? '⏸' : '▶' }}
               </button>
+              @if (splitPreviewingPart() === 1) {
+                <span class="split-preview-live-indicator">▶ Playing</span>
+              }
             </div>
-            <div class="split-half-meta">
-              {{ (prompt.clip.trimStartSeconds ?? 0) | number:'1.2-2' }}s → {{ ((prompt.clip.trimStartSeconds ?? 0) + state.splitPromptPart1Duration()) | number:'1.2-2' }}s
+            <div class="split-half-footer">
+              <div class="split-half-meta">
+                {{ (prompt.clip.trimStartSeconds ?? 0) | number:'1.2-2' }}s → {{ ((prompt.clip.trimStartSeconds ?? 0) + state.splitPromptPart1Duration()) | number:'1.2-2' }}s
+              </div>
+              <button type="button" class="split-keep-only-btn" (click)="confirmSplitKeepPart(1)" title="Keep Part 1 only (discard Part 2)">
+                Keep Part 1
+              </button>
             </div>
           </div>
 
@@ -201,26 +225,38 @@
           <!-- Part 2 Pane -->
           <div class="split-half-card">
             <div class="split-half-header">
-              <span class="split-half-title">Part 2</span>
+              <span class="split-half-title">Part 2 (Tail)</span>
               <span class="split-half-dur">{{ state.splitPromptPart2Duration() | number:'1.2-2' }}s</span>
             </div>
             <div class="split-preview-media-box">
-              <img
-                class="split-thumb-img"
-                [src]="state.assetThumbnailUrl(prompt.clip.id)"
-                alt="Part 2 thumbnail"
-              />
+              <video
+                #part2Video
+                class="split-preview-video"
+                [src]="state.assetUrl(prompt.clip.id)"
+                preload="auto"
+                playsinline
+                (timeupdate)="onSplitVideoTimeUpdate(2, prompt)"
+                (ended)="stopSplitPreview()"
+              ></video>
               <button
                 type="button"
                 class="split-preview-play-btn"
                 (click)="toggleSplitPreviewPart(2, prompt)"
-                [title]="splitPreviewingPart() === 2 ? 'Pause' : 'Play Part 2'"
+                [title]="splitPreviewingPart() === 2 ? 'Pause Part 2' : 'Play Part 2'"
               >
                 {{ splitPreviewingPart() === 2 ? '⏸' : '▶' }}
               </button>
+              @if (splitPreviewingPart() === 2) {
+                <span class="split-preview-live-indicator">▶ Playing</span>
+              }
             </div>
-            <div class="split-half-meta">
-              {{ ((prompt.clip.trimStartSeconds ?? 0) + state.splitPromptPart1Duration()) | number:'1.2-2' }}s → {{ ((prompt.clip.trimStartSeconds ?? 0) + (prompt.clip.durationSeconds ?? 5.0)) | number:'1.2-2' }}s
+            <div class="split-half-footer">
+              <div class="split-half-meta">
+                {{ ((prompt.clip.trimStartSeconds ?? 0) + state.splitPromptPart1Duration()) | number:'1.2-2' }}s → {{ ((prompt.clip.trimStartSeconds ?? 0) + (prompt.clip.durationSeconds ?? 5.0)) | number:'1.2-2' }}s
+              </div>
+              <button type="button" class="split-keep-only-btn" (click)="confirmSplitKeepPart(2)" title="Keep Part 2 only (discard Part 1)">
+                Keep Part 2
+              </button>
             </div>
           </div>
         </div>
@@ -233,11 +269,30 @@
           <button type="button" class="split-btn-secondary" (click)="cancelSplit()">Cancel</button>
           <button
             type="button"
+            class="split-btn-option"
+            [disabled]="!!state.splitPromptInvalid()"
+            (click)="confirmSplitKeepPart(1)"
+            title="Cut off Part 2 and keep Part 1"
+          >
+            ✂ Cut Tail (Keep Part 1)
+          </button>
+          <button
+            type="button"
+            class="split-btn-option"
+            [disabled]="!!state.splitPromptInvalid()"
+            (click)="confirmSplitKeepPart(2)"
+            title="Cut off Part 1 and keep Part 2"
+          >
+            ✂ Cut Head (Keep Part 2)
+          </button>
+          <button
+            type="button"
             class="split-btn-primary"
             [disabled]="!!state.splitPromptInvalid()"
             (click)="confirmSplit()"
+            title="Split clip into two separate clips on the timeline"
           >
-            Split here
+            ✂ Split into 2 Clips
           </button>
         </div>
       </div>

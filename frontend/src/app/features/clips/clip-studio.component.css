@@ -1310,6 +1310,24 @@ app-timeline-dock {
   color: var(--text, #f0f4fc);
 }
 
+.split-dialog-header .close-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--muted, #94a3b8);
+  font-size: 1.3rem;
+  line-height: 1;
+  padding: 2px 7px;
+  cursor: pointer;
+  border-radius: 5px;
+  transition: all 0.15s ease;
+}
+
+.split-dialog-header .close-btn:hover {
+  color: var(--text, #fff);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--border, #1e293b);
+}
+
 .split-dialog-sub {
   margin: 0 0 14px;
   font-size: 0.78rem;
@@ -1371,23 +1389,33 @@ app-timeline-dock {
 
 .split-nudge-btns {
   display: flex;
-  gap: 4px;
+  gap: 5px;
 }
 
 .split-nudge-btn {
-  padding: 6px 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 10px;
   border-radius: 6px;
   border: 1px solid var(--border, #1e293b);
   background: var(--surface-2, #161b27);
   color: var(--text, #f0f4fc);
   font-size: 0.74rem;
+  font-weight: 600;
   cursor: pointer;
   transition: all 0.12s ease;
+}
+
+.split-nudge-btn .nudge-icon {
+  font-size: 0.7rem;
+  opacity: 0.85;
 }
 
 .split-nudge-btn:hover {
   border-color: var(--brand, #6c8cff);
   color: var(--brand, #6c8cff);
+  background: rgba(108, 140, 255, 0.08);
 }
 
 .split-scrubber-wrap {
@@ -1467,6 +1495,34 @@ app-timeline-dock {
   margin-bottom: 8px;
 }
 
+.split-preview-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+  display: block;
+}
+
+.split-preview-live-indicator {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  background: rgba(16, 185, 129, 0.9);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.03em;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  animation: pulse-dot 1.5s infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
 .split-thumb-img {
   width: 100%;
   height: 100%;
@@ -1490,6 +1546,7 @@ app-timeline-dock {
   justify-content: center;
   cursor: pointer;
   transition: all 0.12s ease;
+  z-index: 5;
 }
 
 .split-preview-play-btn:hover {
@@ -1498,11 +1555,37 @@ app-timeline-dock {
   border-color: var(--brand, #6c8cff);
 }
 
+.split-half-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 4px;
+}
+
 .split-half-meta {
   font-size: 0.7rem;
   color: var(--muted, #94a3b8);
   font-family: monospace;
-  text-align: center;
+}
+
+.split-keep-only-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border, #1e293b);
+  color: var(--muted, #94a3b8);
+  font-size: 0.68rem;
+  font-weight: 500;
+  padding: 3px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.12s ease;
+}
+
+.split-keep-only-btn:hover {
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.12);
 }
 
 .split-halves-divider {
@@ -1527,15 +1610,18 @@ app-timeline-dock {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .split-btn-secondary,
+.split-btn-option,
 .split-btn-primary {
-  padding: 7px 15px;
+  padding: 7px 13px;
   border-radius: 6px;
-  font-size: 0.79rem;
+  font-size: 0.78rem;
   cursor: pointer;
   border: 1px solid var(--border, #1e293b);
+  transition: all 0.15s ease;
 }
 
 .split-btn-secondary {
@@ -1545,6 +1631,24 @@ app-timeline-dock {
 
 .split-btn-secondary:hover {
   color: var(--text, #f0f4fc);
+}
+
+.split-btn-option {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #f87171;
+  font-weight: 500;
+}
+
+.split-btn-option:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: #ef4444;
+  color: #fff;
+}
+
+.split-btn-option:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .split-btn-primary {

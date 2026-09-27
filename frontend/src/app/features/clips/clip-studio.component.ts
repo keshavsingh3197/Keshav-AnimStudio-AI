@@ -1,7 +1,8 @@
-import { Component, HostListener, OnInit, inject, signal } from '@angular/core';
+import { Component, ElementRef, HostListener, OnInit, ViewChild, effect, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
+import { Clip } from '../../../core/models/api.models';
 import { StudioStateService } from './services/studio-state.service';
 import { StudioHeaderComponent } from './components/studio-header/studio-header.component';
 import { MediaDockComponent } from './components/media-dock/media-dock.component';
@@ -30,7 +31,19 @@ export class ClipStudioComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
 
   readonly splitPreviewingPart = signal<number | null>(null);
-  private splitPreviewMedia?: HTMLVideoElement;
+  @ViewChild('part1Video') part1VideoRef?: ElementRef<HTMLVideoElement>;
+  @ViewChild('part2Video') part2VideoRef?: ElementRef<HTMLVideoElement>;
+
+  constructor() {
+    effect(() => {
+      // Sync frame preview when split point changes
+      const prompt = this.state.splitPrompt();
+      const sec = this.state.splitPromptSeconds();
+      if (prompt) {
+        setTimeout(() => this.updateSplitVideoFrames(), 30);
+      }
+    });
+  }
 
   ngOnInit(): void {
     this.route.paramMap.subscribe(() => {
@@ -38,45 +51,76 @@ export class ClipStudioComponent implements OnInit {
     });
   }
 
-  toggleSplitPreviewPart(part: 1 | 2, prompt: { clip: any; clipStart: number; clipEnd: number }): void {
+  updateSplitVideoFrames(): void {
+    const prompt = this.state.splitPrompt();
+    if (!prompt) return;
+    const origTrimStart = prompt.clip.trimStartSeconds ?? 0;
+    const splitPoint = origTrimStart + this.state.splitPromptPart1Duration();
+
+    const v1 = this.part1VideoRef?.nativeElement;
+    if (v1 && this.splitPreviewingPart() !== 1) {
+      if (Math.abs(v1.currentTime - splitPoint) > 0.05) {
+        v1.currentTime = Math.max(0, splitPoint);
+      }
+    }
+    const v2 = this.part2VideoRef?.nativeElement;
+    if (v2 && this.splitPreviewingPart() !== 2) {
+      if (Math.abs(v2.currentTime - splitPoint) > 0.05) {
+        v2.currentTime = Math.max(0, splitPoint);
+      }
+    }
+  }
+
+  toggleSplitPreviewPart(part: 1 | 2, prompt: { clip: Clip; clipStart: number; clipEnd: number }): void {
+    const v1 = this.part1VideoRef?.nativeElement;
+    const v2 = this.part2VideoRef?.nativeElement;
+    const targetVideo = part === 1 ? v1 : v2;
+    const otherVideo = part === 1 ? v2 : v1;
+
+    if (otherVideo && !otherVideo.paused) {
+      otherVideo.pause();
+    }
+
     if (this.splitPreviewingPart() === part) {
       this.stopSplitPreview();
       return;
     }
 
-    this.stopSplitPreview();
+    if (!targetVideo) return;
 
     const origTrimStart = prompt.clip.trimStartSeconds ?? 0;
     const p1Dur = this.state.splitPromptPart1Duration();
     const startSec = part === 1 ? origTrimStart : origTrimStart + p1Dur;
+
+    targetVideo.currentTime = Math.max(0, startSec);
+    targetVideo.volume = 1.0;
+    this.splitPreviewingPart.set(part);
+
+    targetVideo.play().catch(() => this.stopSplitPreview());
+  }
+
+  onSplitVideoTimeUpdate(part: 1 | 2, prompt: { clip: Clip; clipStart: number; clipEnd: number }): void {
+    if (this.splitPreviewingPart() !== part) return;
+    const targetVideo = part === 1 ? this.part1VideoRef?.nativeElement : this.part2VideoRef?.nativeElement;
+    if (!targetVideo) return;
+
+    const origTrimStart = prompt.clip.trimStartSeconds ?? 0;
+    const p1Dur = this.state.splitPromptPart1Duration();
     const endSec = part === 1
       ? origTrimStart + p1Dur
       : origTrimStart + (prompt.clip.durationSeconds ?? 5.0);
 
-    const vid = document.createElement('video');
-    vid.src = this.state.assetUrl(prompt.clip.id);
-    vid.currentTime = Math.max(0, startSec);
-    vid.volume = 1.0;
-    this.splitPreviewMedia = vid;
-    this.splitPreviewingPart.set(part);
-
-    vid.ontimeupdate = () => {
-      if (vid.currentTime >= endSec) {
-        this.stopSplitPreview();
-      }
-    };
-    vid.onended = () => this.stopSplitPreview();
-    vid.onerror = () => this.stopSplitPreview();
-
-    vid.play().catch(() => this.stopSplitPreview());
+    if (targetVideo.currentTime >= endSec) {
+      this.stopSplitPreview();
+      targetVideo.currentTime = origTrimStart + p1Dur;
+    }
   }
 
   stopSplitPreview(): void {
-    if (this.splitPreviewMedia) {
-      this.splitPreviewMedia.pause();
-      this.splitPreviewMedia.src = '';
-      this.splitPreviewMedia = undefined;
-    }
+    const v1 = this.part1VideoRef?.nativeElement;
+    if (v1 && !v1.paused) v1.pause();
+    const v2 = this.part2VideoRef?.nativeElement;
+    if (v2 && !v2.paused) v2.pause();
     this.splitPreviewingPart.set(null);
   }
 
@@ -88,6 +132,11 @@ export class ClipStudioComponent implements OnInit {
   confirmSplit(): void {
     this.stopSplitPreview();
     this.state.confirmSplitPrompt();
+  }
+
+  confirmSplitKeepPart(part: 1 | 2): void {
+    this.stopSplitPreview();
+    this.state.confirmSplitKeepPart(part);
   }
 
 
