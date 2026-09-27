@@ -96,6 +96,28 @@ export interface ScheduledClip {
   junctionSeconds: number;
   row?: ClipRow;
   rowIndex?: number;
+  /**
+   * Extra seconds borrowed from spare footage BEFORE trimStart (head extension for the
+   * incoming transition from the previous clip). Zero when this is the first clip or when
+   * the junction has no transition.
+   */
+  leadInSeconds: number;
+  /**
+   * Extra seconds borrowed from spare footage AFTER trimEnd (tail extension for the
+   * outgoing transition to the next clip). Zero when this is the last clip or when the
+   * junction has no transition.
+   */
+  tailOutSeconds: number;
+  /**
+   * True when leadInSeconds could not be satisfied from spare media and the conform pass
+   * must freeze the first frame instead of reading real footage.
+   */
+  freezeHead: boolean;
+  /**
+   * True when tailOutSeconds could not be satisfied from spare media and the conform pass
+   * must freeze the last frame instead of reading real footage.
+   */
+  freezeTail: boolean;
 }
 
 export interface FilterPreset {

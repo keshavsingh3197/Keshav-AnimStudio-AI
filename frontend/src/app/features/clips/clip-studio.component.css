@@ -1281,3 +1281,285 @@ app-timeline-dock {
 .insert-btn-primary:hover {
   filter: brightness(1.08);
 }
+
+/* -------------------------------------------------------------------------
+   Split Dialog (Task 2 — HANDOFF_TRANSITIONS_AND_SPLIT.md)
+   ------------------------------------------------------------------------- */
+
+.split-dialog {
+  width: min(580px, calc(100vw - 32px));
+  background: var(--surface, #0f1422);
+  border: 1px solid var(--border, #1e293b);
+  border-radius: 10px;
+  padding: 16px 18px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+}
+
+.split-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 2px;
+}
+
+.split-dialog-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text, #f0f4fc);
+}
+
+.split-dialog-sub {
+  margin: 0 0 14px;
+  font-size: 0.78rem;
+  color: var(--muted, #94a3b8);
+}
+
+.split-time-controls {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.split-time-field-wrap {
+  flex: 1;
+}
+
+.split-dialog-label {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--muted, #94a3b8);
+  margin-bottom: 4px;
+}
+
+.split-time-input-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.split-dialog-input {
+  width: 110px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #1e293b);
+  background: var(--surface-2, #161b27);
+  color: var(--text, #f0f4fc);
+  font-size: 0.82rem;
+  font-family: monospace;
+}
+
+.split-time-formatted {
+  font-size: 0.8rem;
+  font-family: monospace;
+  font-weight: 600;
+  color: var(--brand, #6c8cff);
+  background: color-mix(in srgb, var(--brand, #6c8cff) 12%, transparent);
+  padding: 5px 8px;
+  border-radius: 5px;
+  border: 1px solid color-mix(in srgb, var(--brand, #6c8cff) 30%, transparent);
+}
+
+.split-nudge-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.split-nudge-btns {
+  display: flex;
+  gap: 4px;
+}
+
+.split-nudge-btn {
+  padding: 6px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #1e293b);
+  background: var(--surface-2, #161b27);
+  color: var(--text, #f0f4fc);
+  font-size: 0.74rem;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.split-nudge-btn:hover {
+  border-color: var(--brand, #6c8cff);
+  color: var(--brand, #6c8cff);
+}
+
+.split-scrubber-wrap {
+  margin-bottom: 14px;
+  background: var(--surface-2, #161b27);
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #1e293b);
+}
+
+.split-scrubber-slider {
+  width: 100%;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--brand, #6c8cff);
+}
+
+.split-scrubber-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: var(--muted, #94a3b8);
+  font-family: monospace;
+  margin-top: 4px;
+}
+
+.split-scrubber-mid {
+  color: var(--text, #f0f4fc);
+  font-weight: 600;
+}
+
+.split-halves-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.split-half-card {
+  flex: 1;
+  background: var(--surface-2, #161b27);
+  border: 1px solid var(--border, #1e293b);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.split-half-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.split-half-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text, #f0f4fc);
+}
+
+.split-half-dur {
+  font-size: 0.76rem;
+  font-family: monospace;
+  font-weight: 600;
+  color: var(--ok, #10b981);
+  background: rgba(16, 185, 129, 0.12);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.split-preview-media-box {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.split-thumb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.split-preview-play-btn {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(15, 20, 34, 0.85);
+  border: 1px solid var(--border, #1e293b);
+  color: var(--text, #f0f4fc);
+  font-size: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.split-preview-play-btn:hover {
+  background: var(--brand, #6c8cff);
+  color: #0a0f1c;
+  border-color: var(--brand, #6c8cff);
+}
+
+.split-half-meta {
+  font-size: 0.7rem;
+  color: var(--muted, #94a3b8);
+  font-family: monospace;
+  text-align: center;
+}
+
+.split-halves-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--brand, #6c8cff);
+  font-size: 1.2rem;
+}
+
+.split-dialog-error {
+  margin: 0 0 12px;
+  font-size: 0.75rem;
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 6px;
+  padding: 7px 10px;
+}
+
+.split-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.split-btn-secondary,
+.split-btn-primary {
+  padding: 7px 15px;
+  border-radius: 6px;
+  font-size: 0.79rem;
+  cursor: pointer;
+  border: 1px solid var(--border, #1e293b);
+}
+
+.split-btn-secondary {
+  background: transparent;
+  color: var(--muted, #94a3b8);
+}
+
+.split-btn-secondary:hover {
+  color: var(--text, #f0f4fc);
+}
+
+.split-btn-primary {
+  background: var(--brand, #6c8cff);
+  border-color: var(--brand, #6c8cff);
+  color: #0a0f1c;
+  font-weight: 700;
+}
+
+.split-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.split-btn-primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+

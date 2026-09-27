@@ -461,6 +461,20 @@ export type ClipFit = (typeof CLIP_FITS)[number];
 export interface ClipJunctionBody {
   transition: string;
   transitionSeconds: number;
+  /**
+   * Seconds the RIGHT clip (clip k+1) extends before its trimStart to supply material for
+   * the dissolve. When freezeTail is true the backend freezes the first real frame instead.
+   */
+  leadInSeconds?: number;
+  /**
+   * Seconds the LEFT clip (clip k) extends after its trimEnd to supply material for the
+   * dissolve. When freezeHead is true the backend freezes the last real frame instead.
+   */
+  tailOutSeconds?: number;
+  /** True → the backend must freeze the RIGHT clip's first frame for the leadIn window. */
+  freezeHead?: boolean;
+  /** True → the backend must freeze the LEFT clip's last frame for the tailOut window. */
+  freezeTail?: boolean;
 }
 
 /** One music (or other audio) clip, placed at its own point on the timeline. */

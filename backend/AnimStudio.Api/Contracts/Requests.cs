@@ -353,7 +353,13 @@ public sealed record ClipJunctionRequest
     public SceneTransition Transition { get; init; } = SceneTransition.None;
 
     [Range(0, 3)] public double TransitionSeconds { get; init; }
+
+    [Range(0, 3)] public double LeadInSeconds { get; init; }
+    [Range(0, 3)] public double TailOutSeconds { get; init; }
+    public bool FreezeHead { get; init; }
+    public bool FreezeTail { get; init; }
 }
+
 
 /// <summary>One music (or other audio) clip placed at its own point on the timeline.</summary>
 public sealed record TimedMusicClipRequest

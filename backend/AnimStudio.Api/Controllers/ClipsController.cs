@@ -151,7 +151,8 @@ public sealed class ClipsController(
             Transition = request.Transition,
             TransitionSeconds = request.TransitionSeconds,
             Junctions = request.Junctions?
-                .Select(j => new ClipJunctionOverride(j.Transition, j.TransitionSeconds))
+                .Select(j => new ClipJunctionOverride(
+                    j.Transition, j.TransitionSeconds, j.LeadInSeconds, j.TailOutSeconds, j.FreezeHead, j.FreezeTail))
                 .ToList(),
             MuteClipAudio = request.MuteClipAudio,
             BackgroundMusicAssetId = request.BackgroundMusicAssetId,

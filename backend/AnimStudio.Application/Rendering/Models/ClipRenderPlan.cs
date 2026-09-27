@@ -100,6 +100,34 @@ public sealed record ClipRenderPlan
     /// <summary>Optional custom duration override for this clip in the edit.</summary>
     public double? DurationSeconds { get; init; }
 
+    /// <summary>
+    /// Seconds of frozen head material to prepend before the trimmed clip, supplying
+    /// the first half of the incoming transition's dissolve window without touching the
+    /// clip's own visible content. Zero for the first clip or when there is no transition.
+    /// </summary>
+    public double LeadInSeconds { get; init; }
+
+    /// <summary>
+    /// Seconds of frozen tail material to append after the trimmed clip, supplying the
+    /// second half of the outgoing transition's dissolve window. Zero for the last clip or
+    /// when there is no transition.
+    /// </summary>
+    public double TailOutSeconds { get; init; }
+
+    /// <summary>
+    /// True when <see cref="LeadInSeconds"/> is supplied via a frozen first frame (tpad)
+    /// rather than real footage before the trim in-point.
+    /// Always true in the current frontend; kept as a flag so spare-media borrowing can
+    /// be introduced later without a protocol change.
+    /// </summary>
+    public bool FreezeHead { get; init; }
+
+    /// <summary>
+    /// True when <see cref="TailOutSeconds"/> is supplied via a frozen last frame (tpad)
+    /// rather than real footage after the trim out-point.
+    /// </summary>
+    public bool FreezeTail { get; init; }
+
     /// <summary>False when the source is silent, in which case silence is generated.</summary>
     public bool SourceHasAudio { get; init; } = true;
 

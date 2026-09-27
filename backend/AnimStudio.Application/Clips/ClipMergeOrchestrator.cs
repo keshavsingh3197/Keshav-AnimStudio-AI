@@ -178,6 +178,11 @@ public sealed class ClipMergeOrchestrator(
             var prepared = new SceneRenderResult[spec.AssetIds.Count];
             var completedCount = 0;
 
+            // Per-junction overrides win when the timeline supplied exactly one per gap;
+            // otherwise every gap falls back to the single Transition/TransitionFrames
+            // pair, which is the entire behaviour this had before junctions existed.
+            var hasJunctionOverrides = spec.Junctions.Count > 0 && spec.Junctions.Count == spec.AssetIds.Count - 1;
+
             using var throttle = new SemaphoreSlim(concurrency);
 
             var clipTasks = Enumerable.Range(0, spec.AssetIds.Count).Select(async index =>
@@ -214,19 +219,77 @@ public sealed class ClipMergeOrchestrator(
                             it => it.TrackId is "V1" or "video" && it.Src == asset.Id);
                     var v1Transform = v1Item?.Transform;
 
+                    var prevJunction = hasJunctionOverrides && index > 0
+                        ? spec.Junctions[index - 1]
+                        : null;
+                    var nextJunction = hasJunctionOverrides && index < spec.Junctions.Count
+                        ? spec.Junctions[index]
+                        : null;
+
+                    var uniformJunctionSecs = spec.Transition != SceneTransition.None && spec.TransitionFrames > 0
+                        ? spec.TransitionFrames / canvas.FrameRate.AsDouble
+                        : 0.0;
+
+                    var requestedLeadIn = prevJunction != null
+                        ? prevJunction.LeadInSeconds
+                        : (index > 0 ? uniformJunctionSecs / 2.0 : 0.0);
+                    var requestedTailOut = nextJunction != null
+                        ? nextJunction.TailOutSeconds
+                        : (index < spec.AssetIds.Count - 1 ? uniformJunctionSecs / 2.0 : 0.0);
+
+                    var origTrimStart = v1Item?.TrimStartSeconds;
+                    var origTrimEnd = v1Item?.TrimEndSeconds;
+                    var origDuration = v1Item?.Duration;
+
+                    double? finalTrimStart = origTrimStart;
+                    double? finalTrimEnd = origTrimEnd;
+                    bool freezeHead = requestedLeadIn > 0;
+                    bool freezeTail = requestedTailOut > 0;
+
+                    if (!isImage && requestedLeadIn > 0)
+                    {
+                        // Preferred: borrow from spare media before trimStart if available.
+                        if (origTrimStart.HasValue && origTrimStart.Value >= requestedLeadIn)
+                        {
+                            finalTrimStart = origTrimStart.Value - requestedLeadIn;
+                            freezeHead = false;
+                        }
+                    }
+
+                    if (!isImage && requestedTailOut > 0)
+                    {
+                        // Preferred: borrow from spare media after trimEnd if available.
+                        var fileDuration = asset.Probe.DurationSeconds;
+                        if (fileDuration.HasValue && origTrimEnd.HasValue
+                            && (origTrimEnd.Value + requestedTailOut <= fileDuration.Value + 0.001))
+                        {
+                            finalTrimEnd = origTrimEnd.Value + requestedTailOut;
+                            freezeTail = false;
+                        }
+                    }
+
+                    var imageDur = (origDuration ?? 5.0) + (isImage ? (requestedLeadIn + requestedTailOut) : 0);
+                    var expectedFrames = isImage
+                        ? FrameCount.FromSeconds(imageDur, canvas.FrameRate)
+                        : estimates[index];
+
                     var plan = new ClipRenderPlan
                     {
                         ClipIndex = index,
                         SourceRelativePath = materialized[asset.Id],
                         Canvas = canvas,
                         OutputRelativePath = $"clips/clip_{index + 1:D3}.mp4",
-                        ExpectedFrames = estimates[index],
+                        ExpectedFrames = expectedFrames,
                         Fit = spec.Fit,
                         SourceIsImage = isImage,
-                        ImageDurationSeconds = 5.0,
-                        TrimStartSeconds = v1Item?.TrimStartSeconds,
-                        TrimEndSeconds = v1Item?.TrimEndSeconds,
-                        DurationSeconds = v1Item?.Duration,
+                        ImageDurationSeconds = imageDur,
+                        TrimStartSeconds = finalTrimStart,
+                        TrimEndSeconds = finalTrimEnd,
+                        DurationSeconds = origDuration,
+                        LeadInSeconds = requestedLeadIn,
+                        TailOutSeconds = requestedTailOut,
+                        FreezeHead = !isImage && freezeHead,
+                        FreezeTail = !isImage && freezeTail,
                         // A clip with no audio track needs generated silence, or the join
                         // produces a file that stops at the first silent clip.
                         SourceHasAudio = !isImage && !string.IsNullOrEmpty(asset.Probe.AudioCodec),
@@ -246,6 +309,7 @@ public sealed class ClipMergeOrchestrator(
                         CropTop = v1Transform?.CropTop ?? 0,
                         CropBottom = v1Transform?.CropBottom ?? 0,
                     };
+
 
 
                     var result = await renderer
@@ -271,7 +335,7 @@ public sealed class ClipMergeOrchestrator(
             // Per-junction overrides win when the timeline supplied exactly one per gap;
             // otherwise every gap falls back to the single Transition/TransitionFrames
             // pair, which is the entire behaviour this had before junctions existed.
-            var hasJunctionOverrides = spec.Junctions.Count > 0 && spec.Junctions.Count == lengths.Count - 1;
+            hasJunctionOverrides = spec.Junctions.Count > 0 && spec.Junctions.Count == lengths.Count - 1;
 
             var requestedFrames = hasJunctionOverrides
                 ? spec.Junctions.Select(j => new FrameCount(j.TransitionFrames)).ToList()

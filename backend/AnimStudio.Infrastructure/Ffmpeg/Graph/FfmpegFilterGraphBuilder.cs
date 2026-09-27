@@ -348,6 +348,33 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
             current = next;
         }
 
+        // Freeze-frame padding for transition overlap. xfade needs extra frames at each
+        // clip boundary so the dissolve has real material to work with rather than stealing
+        // from the clip's own visible content. tpad=stop_mode=clone repeats the last decoded
+        // frame; tpad=start_mode=clone prepends copies of the first frame. Both happen BEFORE
+        // the final format= so the padded region is already in the delivery pixel format when
+        // xfade reads it. The video is padded first, then audio extends to match via apad
+        // (-shortest in the output args ends the file at the video's last frame, which now
+        // includes the frozen tail, so audio pads to exactly that length and no further).
+        var needsTailFreeze = plan.FreezeTail && plan.TailOutSeconds > 0;
+        var needsHeadFreeze = plan.FreezeHead && plan.LeadInSeconds > 0;
+
+        if (needsHeadFreeze || needsTailFreeze)
+        {
+            var startPad = needsHeadFreeze
+                ? $"start_mode=clone:start_duration={FilterExpr.N(plan.LeadInSeconds)}:"
+                : string.Empty;
+            var stopPad = needsTailFreeze
+                ? $"stop_mode=clone:stop_duration={FilterExpr.N(plan.TailOutSeconds)}"
+                : string.Empty;
+            var padArgs = startPad + stopPad;
+            // Trim trailing ':' if only one side is set.
+            padArgs = padArgs.TrimEnd(':');
+            var padLabel = $"p{++stage}";
+            graph.Append($"[{current}]tpad={padArgs}[{padLabel}];\n");
+            current = padLabel;
+        }
+
         graph.Append($"[{current}]format={plan.Encoder.PixelFormat}[vout];\n");
 
         // --- audio.

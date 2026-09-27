@@ -168,6 +168,32 @@ public sealed class ClipJunctionSpec
 
     /// <summary>Clamped against the measured neighbouring clip lengths at render time.</summary>
     public int TransitionFrames { get; set; }
+
+    /// <summary>
+    /// Seconds the right clip (clip k+1) contributes at its head for the dissolve overlap.
+    /// The conform pass freezes the first real frame for this window when
+    /// <see cref="FreezeHead"/> is true, or widens the decode window when false.
+    /// </summary>
+    public double LeadInSeconds { get; set; }
+
+    /// <summary>
+    /// Seconds the left clip (clip k) contributes at its tail for the dissolve overlap.
+    /// The conform pass freezes the last real frame for this window when
+    /// <see cref="FreezeTail"/> is true, or widens the decode window when false.
+    /// </summary>
+    public double TailOutSeconds { get; set; }
+
+    /// <summary>
+    /// True when <see cref="LeadInSeconds"/> must be satisfied with a frozen first frame
+    /// rather than real footage before the trim in-point.
+    /// </summary>
+    public bool FreezeHead { get; set; }
+
+    /// <summary>
+    /// True when <see cref="TailOutSeconds"/> must be satisfied with a frozen last frame
+    /// rather than real footage after the trim out-point.
+    /// </summary>
+    public bool FreezeTail { get; set; }
 }
 
 /// <summary>

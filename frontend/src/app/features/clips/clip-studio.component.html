@@ -108,6 +108,142 @@
     </div>
   }
 
+  @if (state.splitPrompt(); as prompt) {
+    <div class="modal-backdrop" (click)="cancelSplit()">
+      <div class="split-dialog" (click)="$event.stopPropagation()">
+        <div class="split-dialog-header">
+          <h3>Split "{{ prompt.clip.name }}"</h3>
+          <button class="close-btn" type="button" (click)="cancelSplit()">&times;</button>
+        </div>
+
+        <p class="split-dialog-sub">Scrub or nudge to choose where to split this clip into two parts.</p>
+
+        <!-- Time & Nudge Controls -->
+        <div class="split-time-controls">
+          <div class="split-time-field-wrap">
+            <label class="split-dialog-label" for="splitTimeInput">Split point</label>
+            <div class="split-time-input-group">
+              <input
+                id="splitTimeInput"
+                type="number"
+                class="split-dialog-input"
+                [min]="prompt.clipStart + 0.05"
+                [max]="prompt.clipEnd - 0.05"
+                step="0.01"
+                [ngModel]="state.splitPromptSeconds()"
+                (ngModelChange)="state.setSplitPromptSeconds(+$event)"
+              />
+              <span class="split-time-formatted">{{ state.formatTimecode(state.splitPromptSeconds()) }}</span>
+            </div>
+          </div>
+
+          <div class="split-nudge-group">
+            <label class="split-dialog-label">Nudge</label>
+            <div class="split-nudge-btns">
+              <button type="button" class="split-nudge-btn" (click)="state.nudgeSplitPrompt(-1.0)" title="Back 1 second">-1s</button>
+              <button type="button" class="split-nudge-btn" (click)="state.nudgeSplitPrompt(-1/30)" title="Back 1 frame">-1f</button>
+              <button type="button" class="split-nudge-btn" (click)="state.nudgeSplitPrompt(1/30)" title="Forward 1 frame">+1f</button>
+              <button type="button" class="split-nudge-btn" (click)="state.nudgeSplitPrompt(1.0)" title="Forward 1 second">+1s</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Scrubber slider across the clip -->
+        <div class="split-scrubber-wrap">
+          <input
+            type="range"
+            class="split-scrubber-slider"
+            [min]="prompt.clipStart"
+            [max]="prompt.clipEnd"
+            step="0.01"
+            [ngModel]="state.splitPromptSeconds()"
+            (ngModelChange)="state.setSplitPromptSeconds(+$event)"
+          />
+          <div class="split-scrubber-labels">
+            <span>{{ state.formatTimecode(prompt.clipStart) }}</span>
+            <span class="split-scrubber-mid">Split: {{ (state.splitPromptSeconds() - prompt.clipStart) | number:'1.2-2' }}s into clip</span>
+            <span>{{ state.formatTimecode(prompt.clipEnd) }}</span>
+          </div>
+        </div>
+
+        <!-- Side-by-side Part 1 & Part 2 Preview Panes -->
+        <div class="split-halves-row">
+          <!-- Part 1 Pane -->
+          <div class="split-half-card">
+            <div class="split-half-header">
+              <span class="split-half-title">Part 1</span>
+              <span class="split-half-dur">{{ state.splitPromptPart1Duration() | number:'1.2-2' }}s</span>
+            </div>
+            <div class="split-preview-media-box">
+              <img
+                class="split-thumb-img"
+                [src]="state.assetThumbnailUrl(prompt.clip.id)"
+                alt="Part 1 thumbnail"
+              />
+              <button
+                type="button"
+                class="split-preview-play-btn"
+                (click)="toggleSplitPreviewPart(1, prompt)"
+                [title]="splitPreviewingPart() === 1 ? 'Pause' : 'Play Part 1'"
+              >
+                {{ splitPreviewingPart() === 1 ? '⏸' : '▶' }}
+              </button>
+            </div>
+            <div class="split-half-meta">
+              {{ (prompt.clip.trimStartSeconds ?? 0) | number:'1.2-2' }}s → {{ ((prompt.clip.trimStartSeconds ?? 0) + state.splitPromptPart1Duration()) | number:'1.2-2' }}s
+            </div>
+          </div>
+
+          <div class="split-halves-divider">
+            <span class="split-scissors-icon">✂</span>
+          </div>
+
+          <!-- Part 2 Pane -->
+          <div class="split-half-card">
+            <div class="split-half-header">
+              <span class="split-half-title">Part 2</span>
+              <span class="split-half-dur">{{ state.splitPromptPart2Duration() | number:'1.2-2' }}s</span>
+            </div>
+            <div class="split-preview-media-box">
+              <img
+                class="split-thumb-img"
+                [src]="state.assetThumbnailUrl(prompt.clip.id)"
+                alt="Part 2 thumbnail"
+              />
+              <button
+                type="button"
+                class="split-preview-play-btn"
+                (click)="toggleSplitPreviewPart(2, prompt)"
+                [title]="splitPreviewingPart() === 2 ? 'Pause' : 'Play Part 2'"
+              >
+                {{ splitPreviewingPart() === 2 ? '⏸' : '▶' }}
+              </button>
+            </div>
+            <div class="split-half-meta">
+              {{ ((prompt.clip.trimStartSeconds ?? 0) + state.splitPromptPart1Duration()) | number:'1.2-2' }}s → {{ ((prompt.clip.trimStartSeconds ?? 0) + (prompt.clip.durationSeconds ?? 5.0)) | number:'1.2-2' }}s
+            </div>
+          </div>
+        </div>
+
+        @if (state.splitPromptInvalid(); as reason) {
+          <p class="split-dialog-error">{{ reason }}</p>
+        }
+
+        <div class="split-dialog-actions">
+          <button type="button" class="split-btn-secondary" (click)="cancelSplit()">Cancel</button>
+          <button
+            type="button"
+            class="split-btn-primary"
+            [disabled]="!!state.splitPromptInvalid()"
+            (click)="confirmSplit()"
+          >
+            Split here
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+
   <!-- Shortcuts Cheat-Sheet Modal -->
   @if (state.showShortcutsModal()) {
     <div class="modal-backdrop" (click)="state.showShortcutsModal.set(false)">

@@ -546,6 +546,74 @@ export class StudioStateService implements OnDestroy {
     this.insertPrompt.set(null);
   }
 
+  // ---------------------------------------------------------------------------
+  // Split dialog (Task 2 — HANDOFF_TRANSITIONS_AND_SPLIT.md)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * The clip currently staged for splitting, plus its schedule entry so the dialog can
+   * derive start/end bounds. Null when the dialog is closed.
+   */
+  readonly splitPrompt = signal<{
+    clip: Clip;
+    /** Schedule start of the clip on the timeline (seconds). */
+    clipStart: number;
+    /** Schedule end of the clip (= clipStart + clip.durationSeconds). */
+    clipEnd: number;
+  } | null>(null);
+
+  /** Where the split will happen, in TIMELINE seconds (not clip-local time). */
+  readonly splitPromptSeconds = signal<number>(0);
+
+  /** Resulting duration of Part 1, derived live from splitPromptSeconds. */
+  readonly splitPromptPart1Duration = computed<number>(() => {
+    const p = this.splitPrompt();
+    if (!p) return 0;
+    return Math.max(0, this.splitPromptSeconds() - p.clipStart);
+  });
+
+  /** Resulting duration of Part 2, derived live from splitPromptSeconds. */
+  readonly splitPromptPart2Duration = computed<number>(() => {
+    const p = this.splitPrompt();
+    if (!p) return 0;
+    return Math.max(0, p.clipEnd - this.splitPromptSeconds());
+  });
+
+  /** True when the split point is too close to either end to produce two usable clips. */
+  readonly splitPromptInvalid = computed<string | null>(() => {
+    const MIN = 0.05;
+    if (this.splitPromptPart1Duration() < MIN) return 'Split point is too close to the start of the clip.';
+    if (this.splitPromptPart2Duration() < MIN) return 'Split point is too close to the end of the clip.';
+    return null;
+  });
+
+  confirmSplitPrompt(): void {
+    const p = this.splitPrompt();
+    if (!p || this.splitPromptInvalid()) return;
+    this.splitPrompt.set(null);
+    this.performSplitAt(p.clip, this.splitPromptSeconds());
+  }
+
+  cancelSplitPrompt(): void {
+    this.splitPrompt.set(null);
+  }
+
+  nudgeSplitPrompt(delta: number): void {
+    const p = this.splitPrompt();
+    if (!p) return;
+    const current = this.splitPromptSeconds();
+    const clamped = Math.max(p.clipStart, Math.min(p.clipEnd, current + delta));
+    this.splitPromptSeconds.set(Math.round(clamped * 1000) / 1000);
+  }
+
+  setSplitPromptSeconds(val: number): void {
+    const p = this.splitPrompt();
+    if (!p) return;
+    const clamped = Math.max(p.clipStart, Math.min(p.clipEnd, val));
+    this.splitPromptSeconds.set(Math.round(clamped * 1000) / 1000);
+  }
+
+
   setInsertIndex(index: number | null): void {
     this.insertIndex.set(index);
   }
@@ -880,6 +948,7 @@ export class StudioStateService implements OnDestroy {
       const dur = clip.durationSeconds ?? 5.0;
       const rowIndex = allRows.indexOf(row);
 
+      // Junction AFTER this clip (to the next one).
       let jTrans = 'None';
       let jSecs = 0;
 
@@ -895,6 +964,26 @@ export class StudioStateService implements OnDestroy {
         if (jTrans === 'None') jSecs = 0;
       }
 
+      // Junction INTO this clip (from the previous one) — used for leadInSeconds.
+      let prevJSecs = 0;
+      if (i > 0) {
+        const prevClip = rows[i - 1].clip;
+        const key = this.junctionKey(prevClip.id, clip.id);
+        const custom = junctionsMap.get(key);
+        const isSplitAdjacent = this.resolveAssetId(prevClip) === this.resolveAssetId(clip);
+        const defaultTransToUse = isSplitAdjacent ? 'None' : defaultTrans;
+        const defaultSecsToUse = isSplitAdjacent ? 0 : defaultSecs;
+        let prevJTrans = custom ? custom.transition : defaultTransToUse;
+        prevJSecs = custom ? custom.seconds : defaultSecsToUse;
+        if (prevJTrans === 'None') prevJSecs = 0;
+      }
+
+      // Half the transition length is borrowed from each neighbouring clip.
+      // The frontend never knows the raw file duration, so we cannot verify spare media;
+      // the backend will use freeze-frame padding for the full borrow on both sides.
+      const leadIn = prevJSecs / 2;
+      const tailOut = jSecs / 2;
+
       schedule.push({
         clip,
         row,
@@ -905,13 +994,24 @@ export class StudioStateService implements OnDestroy {
         durationSeconds: dur,
         junctionTransition: jTrans,
         junctionSeconds: jSecs,
+        leadInSeconds: leadIn,
+        tailOutSeconds: tailOut,
+        // Frontend cannot verify spare media — always signal freeze so the backend applies
+        // tpad rather than trying to read footage that may not exist beyond the trim points.
+        freezeHead: leadIn > 0,
+        freezeTail: tailOut > 0,
       });
 
-      curStart += Math.max(0, dur - jSecs);
+      // Full clip duration advances the cursor — no subtraction for transitions.
+      // The borrowed/frozen frames are presentation detail; the layout shows what the user
+      // chose to keep. Total render length stays sum(durations) because the conform pass
+      // adds leadIn+tailOut frames per clip and xfade consumes exactly that many.
+      curStart += dur;
     }
 
     return schedule;
   });
+
 
   readonly totalSeconds = computed(() => {
     const sched = this.clipSchedule();
@@ -3663,6 +3763,8 @@ export class StudioStateService implements OnDestroy {
   }
 
   // Timeline Operations
+
+  /** Opens the Split dialog at the current playhead position rather than splitting immediately. */
   splitClipAtPlayhead(): void {
     const t = this.currentTime();
     const sched = this.clipSchedule();
@@ -3671,9 +3773,27 @@ export class StudioStateService implements OnDestroy {
       this.status.notify(['No clip under playhead to split.']);
       return;
     }
+    // Open the dialog; nothing is changed until Confirm.
+    this.splitPromptSeconds.set(t);
+    this.splitPrompt.set({
+      clip: hit.clip,
+      clipStart: hit.startSeconds,
+      clipEnd: hit.endSeconds,
+    });
+  }
 
-    const splitOffset = t - hit.startSeconds;
-    const origClip = hit.clip;
+  /**
+   * Executes the split at `splitTimeSeconds` (a TIMELINE time, not clip-local).
+   * Called by `confirmSplitPrompt()`; reused verbatim so Confirm produces exactly what
+   * the old instant-split produced for the same time — no divergence between dialog and
+   * direct invocation.
+   */
+  private performSplitAt(origClip: Clip, splitTimeSeconds: number): void {
+    const sched = this.clipSchedule();
+    const hit = sched.find((c) => c.clip.id === origClip.id);
+    if (!hit) return;
+
+    const splitOffset = splitTimeSeconds - hit.startSeconds;
     const realAssetId = this.resolveAssetId(origClip);
     const origTrimStart = origClip.trimStartSeconds ?? 0;
     const origDur = origClip.durationSeconds ?? (origClip.trimEndSeconds ? origClip.trimEndSeconds - origTrimStart : 5.0);
@@ -3738,6 +3858,7 @@ export class StudioStateService implements OnDestroy {
       this.status.notify(['Split clip into two parts.']);
     }
   }
+
 
   updateItem(id: string, patch: Partial<TimelineItem>): void {
     this.timelineItems.update((items) =>
@@ -6012,10 +6133,17 @@ export class StudioStateService implements OnDestroy {
         fit: this.fit(),
         transition: this.transition(),
         transitionSeconds: this.transition() === 'None' ? 0 : this.transitionSeconds(),
-        junctions: this.junctionsList().map((j) => ({
-          transition: j.transition,
-          transitionSeconds: j.transition === 'None' ? 0 : j.seconds,
-        })),
+        junctions: this.junctionsList().map((j, k) => {
+          const sched = this.clipSchedule();
+          return {
+            transition: j.transition,
+            transitionSeconds: j.transition === 'None' ? 0 : j.seconds,
+            tailOutSeconds: sched[k]?.tailOutSeconds ?? 0,
+            leadInSeconds: sched[k + 1]?.leadInSeconds ?? 0,
+            freezeTail: sched[k]?.freezeTail ?? false,
+            freezeHead: sched[k + 1]?.freezeHead ?? false,
+          };
+        }),
         muteClipAudio: this.trackV1Muted(),
         backgroundMusicAssetId: this.musicAssetId() || null,
         backgroundMusicVolume: this.musicVolume(),
@@ -6067,10 +6195,17 @@ export class StudioStateService implements OnDestroy {
         outputHeight: 1920,
         transition: this.transition(),
         transitionSeconds: this.transition() === 'None' ? 0 : this.transitionSeconds(),
-        junctions: this.junctionsList().map((j) => ({
-          transition: j.transition,
-          transitionSeconds: j.transition === 'None' ? 0 : j.seconds,
-        })),
+        junctions: this.junctionsList().map((j, k) => {
+          const sched = this.clipSchedule();
+          return {
+            transition: j.transition,
+            transitionSeconds: j.transition === 'None' ? 0 : j.seconds,
+            tailOutSeconds: sched[k]?.tailOutSeconds ?? 0,
+            leadInSeconds: sched[k + 1]?.leadInSeconds ?? 0,
+            freezeTail: sched[k]?.freezeTail ?? false,
+            freezeHead: sched[k + 1]?.freezeHead ?? false,
+          };
+        }),
         muteClipAudio: this.trackV1Muted(),
         backgroundMusicAssetId: this.musicAssetId() || null,
         backgroundMusicVolume: this.musicVolume(),

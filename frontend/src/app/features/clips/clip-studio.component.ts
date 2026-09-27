@@ -1,4 +1,4 @@
-import { Component, HostListener, OnInit, inject } from '@angular/core';
+import { Component, HostListener, OnInit, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
@@ -29,11 +29,67 @@ export class ClipStudioComponent implements OnInit {
   readonly state = inject(StudioStateService);
   private readonly route = inject(ActivatedRoute);
 
+  readonly splitPreviewingPart = signal<number | null>(null);
+  private splitPreviewMedia?: HTMLVideoElement;
+
   ngOnInit(): void {
     this.route.paramMap.subscribe(() => {
       this.state.loadStudio();
     });
   }
+
+  toggleSplitPreviewPart(part: 1 | 2, prompt: { clip: any; clipStart: number; clipEnd: number }): void {
+    if (this.splitPreviewingPart() === part) {
+      this.stopSplitPreview();
+      return;
+    }
+
+    this.stopSplitPreview();
+
+    const origTrimStart = prompt.clip.trimStartSeconds ?? 0;
+    const p1Dur = this.state.splitPromptPart1Duration();
+    const startSec = part === 1 ? origTrimStart : origTrimStart + p1Dur;
+    const endSec = part === 1
+      ? origTrimStart + p1Dur
+      : origTrimStart + (prompt.clip.durationSeconds ?? 5.0);
+
+    const vid = document.createElement('video');
+    vid.src = this.state.assetUrl(prompt.clip.id);
+    vid.currentTime = Math.max(0, startSec);
+    vid.volume = 1.0;
+    this.splitPreviewMedia = vid;
+    this.splitPreviewingPart.set(part);
+
+    vid.ontimeupdate = () => {
+      if (vid.currentTime >= endSec) {
+        this.stopSplitPreview();
+      }
+    };
+    vid.onended = () => this.stopSplitPreview();
+    vid.onerror = () => this.stopSplitPreview();
+
+    vid.play().catch(() => this.stopSplitPreview());
+  }
+
+  stopSplitPreview(): void {
+    if (this.splitPreviewMedia) {
+      this.splitPreviewMedia.pause();
+      this.splitPreviewMedia.src = '';
+      this.splitPreviewMedia = undefined;
+    }
+    this.splitPreviewingPart.set(null);
+  }
+
+  cancelSplit(): void {
+    this.stopSplitPreview();
+    this.state.cancelSplitPrompt();
+  }
+
+  confirmSplit(): void {
+    this.stopSplitPreview();
+    this.state.confirmSplitPrompt();
+  }
+
 
   // Global Keyboard Shortcuts Guardrail (Guardrail 5)
   @HostListener('window:keydown', ['$event'])
@@ -116,7 +172,19 @@ export class ClipStudioComponent implements OnInit {
         break;
       case 'Escape':
         event.preventDefault();
-        this.state.clearAllSelections();
+        // Cancel split dialog first; if it was not open, fall through to clear selections.
+        if (this.state.splitPrompt()) {
+          this.cancelSplit();
+        } else {
+          this.state.clearAllSelections();
+        }
+        break;
+      case 'Enter':
+        // Confirm split dialog if it is open and the split point is valid.
+        if (this.state.splitPrompt() && !this.state.splitPromptInvalid()) {
+          event.preventDefault();
+          this.confirmSplit();
+        }
         break;
       case 'KeyF':
         event.preventDefault();

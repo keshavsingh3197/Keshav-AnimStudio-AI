@@ -11,7 +11,14 @@ using AnimStudio.Domain.Rendering;
 namespace AnimStudio.Application.Clips;
 
 /// <summary>One junction override, in seconds - not yet converted to frames.</summary>
-public sealed record ClipJunctionOverride(SceneTransition Transition, double TransitionSeconds);
+public sealed record ClipJunctionOverride(
+    SceneTransition Transition,
+    double TransitionSeconds,
+    double LeadInSeconds = 0,
+    double TailOutSeconds = 0,
+    bool FreezeHead = false,
+    bool FreezeTail = false);
+
 
 /// <summary>One music (or other audio) clip placed at its own point on the timeline.</summary>
 public sealed record TimedMusicClip(
@@ -436,7 +443,11 @@ public sealed class ClipMergeService(
                 Transition = j.Transition,
                 TransitionFrames = j.Transition == SceneTransition.None
                     ? 0
-                    : FrameCount.FromSeconds(j.TransitionSeconds, rate).Value
+                    : FrameCount.FromSeconds(j.TransitionSeconds, rate).Value,
+                LeadInSeconds = j.LeadInSeconds,
+                TailOutSeconds = j.TailOutSeconds,
+                FreezeHead = j.FreezeHead,
+                FreezeTail = j.FreezeTail
             })
             .ToList() ?? [];
 
