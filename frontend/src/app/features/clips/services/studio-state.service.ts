@@ -1300,8 +1300,8 @@ export class StudioStateService implements OnDestroy {
       case 'color': return '🎨 Color';
       case 'audio': return '🎵 Audio';
       case 'text': return 'T Text';
-      case 'effects': return '✨ FX';
-      case 'transitions': return '⚡ Trans';
+      case 'effects': return '✨ Effects';
+      case 'transitions': return '⚡ Transitions';
       default: return '📐 Framing';
     }
   });
@@ -2532,28 +2532,104 @@ export class StudioStateService implements OnDestroy {
   }
 
   // Inspector Header Bar Controls
+  /**
+   * The apply-to choices, with live counts. One list so the chooser, the label and the
+   * disabled states cannot drift apart.
+   */
+  readonly scopeOptions = computed<{
+    id: 'selected' | 'current' | 'all' | 'under_music' | 'under_selected_music';
+    label: string;
+    icon: string;
+    count: number;
+  }[]>(() => {
+    const options: {
+      id: 'selected' | 'current' | 'all' | 'under_music' | 'under_selected_music';
+      label: string;
+      icon: string;
+      count: number;
+    }[] = [
+      {
+        id: 'selected',
+        label: `Selected clips (${this.explicitSelectionCount()})`,
+        icon: '🎯',
+        count: this.explicitSelectionCount(),
+      },
+      {
+        id: 'current',
+        label: 'Clip under the playhead',
+        icon: '▶',
+        count: this.currentScheduledClip() ? 1 : 0,
+      },
+    ];
+
+    // Only worth offering when there is music to be under.
+    if (this.clipsUnderMusic().length > 0) {
+      options.push({
+        id: 'under_music',
+        label: `Clips under music (${this.clipsUnderMusic().length})`,
+        icon: '🎵',
+        count: this.clipsUnderMusic().length,
+      });
+    }
+    if (this.selectedMusicTrackKey() && this.clipsUnderSelectedMusic().length > 0) {
+      options.push({
+        id: 'under_selected_music',
+        label: `Clips under this music track (${this.clipsUnderSelectedMusic().length})`,
+        icon: '🎶',
+        count: this.clipsUnderSelectedMusic().length,
+      });
+    }
+
+    options.push({
+      id: 'all',
+      label: `All clips (${this.included().length})`,
+      icon: '☰',
+      count: this.included().length,
+    });
+
+    return options;
+  });
+
+  readonly targetScopeLabel = computed<string>(() => {
+    const scope = this.targetScope();
+    const match = this.scopeOptions().find((o) => o.id === scope);
+    return match?.label ?? `Selected clips (${this.explicitSelectionCount()})`;
+  });
+
+  /**
+   * How many clips the user picked by hand, ignoring the scope. Distinct from
+   * selectedClipsCount(), which reports whatever the CURRENT scope resolves to - using that
+   * here would make the "Selected clips" option label report the size of a different scope.
+   */
+  readonly explicitSelectionCount = computed<number>(() => {
+    const lib = this.selectedLibraryIds().size;
+    if (lib > 0) return lib;
+    const tl = this.selectedTimelineItemIds().size;
+    if (tl > 0) return tl;
+    return this.selectedClipId() || this.selectedTimelineItemId() ? 1 : 0;
+  });
+
   setTargetScope(scope: 'selected' | 'current' | 'all' | 'under_music' | 'under_selected_music'): void {
     this.targetScope.set(scope);
+
+    // Each scope makes its own clips the selection, so the timeline highlight and the
+    // panel agree about what is being edited.
     if (scope === 'current') {
       const curr = this.currentScheduledClip();
       if (curr) {
+        this.selectedLibraryIds.set(new Set([curr.clip.id]));
         this.selectedClipId.set(curr.clip.id);
       }
-    } else if (scope === 'under_music') {
-      const clips = this.clipsUnderMusic();
-      const ids = new Set(clips.map((c) => c.id));
-      this.selectedLibraryIds.set(ids);
-      if (clips.length > 0) {
-        this.selectedClipId.set(clips[0].id);
-      }
-    } else if (scope === 'under_selected_music') {
-      const clips = this.clipsUnderSelectedMusic();
-      const ids = new Set(clips.map((c) => c.id));
-      this.selectedLibraryIds.set(ids);
-      if (clips.length > 0) {
-        this.selectedClipId.set(clips[0].id);
-      }
+    } else if (scope === 'all') {
+      const ids = this.included().map((r) => r.clip.id);
+      this.selectedLibraryIds.set(new Set(ids));
+      if (ids.length > 0) this.selectedClipId.set(ids[0]);
+    } else if (scope === 'under_music' || scope === 'under_selected_music') {
+      const clips = scope === 'under_music' ? this.clipsUnderMusic() : this.clipsUnderSelectedMusic();
+      this.selectedLibraryIds.set(new Set(clips.map((c) => c.id)));
+      if (clips.length > 0) this.selectedClipId.set(clips[0].id);
     }
+    this.markDirty();
   }
 
   toggleScopeDropdown(event?: MouseEvent): void {

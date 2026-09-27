@@ -1,38 +1,9 @@
-@if (state.targetScope() === 'selected' && state.getTargetClipIds().length === 0) {
-  <div class="p-4 text-center text-secondary">
-    <div style="font-size: 1.8rem; margin-bottom: 8px;">✨</div>
-    <div style="font-size: 0.85rem; font-weight: 600; color: var(--text);">No Clip Selected</div>
-    <div style="font-size: 0.75rem; margin-top: 4px;">Select clips on the timeline or in the media library to apply visual effects, or switch target scope to "All clips" or "Current clip".</div>
-  </div>
-} @else {
-  <div class="effects-container">
-    <!-- Scope Notification Banner -->
-    @if (state.targetScope() === 'all') {
-      <div class="scope-alert alert-batch">
-        <span>🌐</span>
-        <span><strong>Batch Mode:</strong> Visual effects apply to all <strong>{{ state.included().length }} clips</strong> across the timeline.</span>
-      </div>
-    } @else if (state.targetScope() === 'under_music') {
-      <div class="scope-alert alert-music">
-        <span>🎵</span>
-        <span><strong>Music Scope:</strong> Visual effects apply to <strong>{{ state.clipsUnderMusic().length }} clips under music</strong>.</span>
-      </div>
-    } @else if (state.targetScope() === 'selected' && state.selectedClipsCount() > 1) {
-      <div class="scope-alert alert-multi">
-        <span>🎯</span>
-        <span><strong>Multi-Clip Scope:</strong> Visual effects apply to <strong>{{ state.selectedClipsCount() }} selected clips</strong>.</span>
-      </div>
-    } @else if (state.targetScope() === 'current') {
-      <div class="scope-alert alert-single">
-        <span>⏱️</span>
-        <span><strong>Current Clip Scope:</strong> Visual effects apply to <strong>{{ state.currentScheduledClip()?.clip?.name ?? 'current playing clip' }}</strong>.</span>
-      </div>
-    } @else if (state.targetScope() === 'selected' && state.selectedClipsCount() === 1) {
-      <div class="scope-alert alert-single">
-        <span>🎯</span>
-        <span><strong>Single Clip Scope:</strong> Visual effects apply to <strong>{{ state.selectedClip()?.name ?? 'selected clip' }}</strong>.</span>
-      </div>
-    }
+<div class="effects-container">
+  <app-scope-bar what="Visual effects" verb="style" />
+
+  <!-- Controls stay hidden while the scope resolves to no clips: they would
+       otherwise look editable but write to nothing. -->
+  @if (state.getTargetClipIds().length > 0) {
 
     <!-- Visual Effects Card -->
     <div class="effects-card">
@@ -139,6 +110,5 @@
         </div>
       </div>
     </div>
-  </div>
-}
-
+  }
+</div>

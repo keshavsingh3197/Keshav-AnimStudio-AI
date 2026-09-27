@@ -116,11 +116,45 @@ default overlap rule, the duck depth. Nothing that belongs to one clip.
 | nothing | what to click, plus shortcuts |
 | a music track | level → rule → fades → trim |
 | one clip | level → rule (+ resolved line) → fades |
-| several clips | *Apply to* → level → rule |
+| several clips | level → rule, applied to whatever **Apply to** names |
 
-The scope chooser (`targetScope`) used to sit in the header and was ignored by half the panels.
-It now appears only in the multi-selection card, labelled **Apply changes to**, because that
-is the only place it changes anything.
+### The Apply-to chooser
+
+`targetScope` is **cross-tab state** — framing, colour, text and effects all resolve their
+targets through `getTargetClipIds()`. So it lives in the dock header, labelled **Apply to**,
+and is rendered for every tab except Transitions (which edits cut seams, not clips).
+
+It was briefly moved inside the audio multi-selection card. That was wrong twice over:
+
+- Picking a single-clip scope collapses the selection, which unmounts the card the chooser
+  was inside — so it could be used exactly **once** per page load.
+- The other four tabs read the same scope and had no way to set it. Their empty states still
+  read *"switch target scope to 'All clips' or 'Current clip'"*, naming a control that had
+  been deleted.
+
+The original complaint it was meant to fix — that the chooser did nothing on half the audio
+panels — is addressed by making every panel honour it, not by hiding it.
+
+Choosing a scope now also *makes that scope the selection*, so the timeline highlight and the
+panel never disagree about what is being edited.
+
+---
+
+## 4a. One scope bar for every tab
+
+`<app-scope-bar what="Colour grading" verb="grade">` replaced four hand-rolled banners that
+each branched five ways on `targetScope` and had drifted apart in wording, plus four empty
+states that described a control instead of offering one. It renders either:
+
+- **the targets, as buttons**, when the scope resolves to no clips, or
+- **one line** — "Visual effects applies to all 89 clips."
+
+A tab's controls stay hidden while the scope resolves to nothing, so nothing looks editable
+that would write to zero clips.
+
+Transitions has its own version of the problem and its own answer: it cannot follow a clip
+selection because it edits seams, so when a clip *is* selected it offers that clip's two
+adjacent cuts by name rather than saying "select a cut seam" with 88 to choose from.
 
 ---
 

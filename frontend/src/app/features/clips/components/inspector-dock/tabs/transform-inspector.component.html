@@ -2,18 +2,7 @@
 @let clip = state.activeTargetClip();
 
 @if (clip) {
-  <!-- Scope badge -->
-  @if (state.targetScope() === 'all') {
-    <div class="scope-badge">
-      <span>🌐</span>
-      <span><strong>All Clips</strong> · {{ state.included().length }} clips</span>
-    </div>
-  } @else if (state.targetScope() === 'selected' && state.selectedClipsCount() > 1) {
-    <div class="scope-badge">
-      <span>🎯</span>
-      <span><strong>{{ state.selectedClipsCount() }} Selected</strong></span>
-    </div>
-  }
+  <app-scope-bar what="Framing and crop" verb="frame" />
 
   <!-- ── TRANSFORM section ───────────────────────────────────────── -->
   <div class="inspector-section">

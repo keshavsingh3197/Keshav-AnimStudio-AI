@@ -151,15 +151,35 @@
     <!-- Empty Cut Selection Prompt -->
     <div class="trans-empty-card">
       <div class="trans-empty-icon">⚡</div>
-      <div class="trans-empty-title">Select a Cut Seam</div>
-      <p class="trans-empty-desc">
-        Click any cut point (✂/⚡) on the timeline or click a cut in the list below to adjust transitions with full precision.
-      </p>
-      @if (state.junctionsList().length > 0) {
-        <button type="button" class="btn-trans-primary" style="margin: 0 auto;"
-                (click)="state.selectJunction(state.junctionsList()[0].key)">
-          <span>⚡</span> Edit First Cut (#1 ➔ #2)
-        </button>
+      <div class="trans-empty-title">Pick a cut to edit</div>
+
+      <!--
+        This tab works on the seams BETWEEN clips, so it cannot follow the clip selection.
+        When a clip is selected, offer its own two cuts rather than leaving the user to find
+        them among all the others.
+      -->
+      @if (adjacentJunctions().length > 0) {
+        <p class="trans-empty-desc">
+          Cuts touching <strong>{{ selectedClipName() }}</strong>:
+        </p>
+        @for (entry of adjacentJunctions(); track entry.junction.key) {
+          <button type="button" class="btn-trans-primary" style="margin: 0 auto 6px;"
+                  (click)="state.selectJunction(entry.junction.key)">
+            <span>⚡</span>
+            {{ entry.side === 'before' ? 'Cut before' : 'Cut after' }} this clip
+            <span class="muted">({{ entry.junction.transition === 'None' ? 'Hard cut' : entry.junction.transition }})</span>
+          </button>
+        }
+      } @else {
+        <p class="trans-empty-desc">
+          Click a cut point (✂/⚡) on the timeline, or pick one from the list below.
+        </p>
+        @if (state.junctionsList().length > 0) {
+          <button type="button" class="btn-trans-primary" style="margin: 0 auto;"
+                  (click)="state.selectJunction(state.junctionsList()[0].key)">
+            <span>⚡</span> Edit the first cut (#1 ➔ #2)
+          </button>
+        }
       }
     </div>
   }

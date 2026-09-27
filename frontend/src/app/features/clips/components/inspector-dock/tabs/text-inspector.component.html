@@ -191,35 +191,14 @@
   <div class="p-4 text-center text-secondary">
     <div style="font-size: 1.8rem; margin-bottom: 8px;">T</div>
     <div style="font-size: 0.85rem; font-weight: 600; color: var(--text);">No Clip or Text Item Selected</div>
-    <div style="font-size: 0.75rem; margin-top: 4px; margin-bottom: 12px;">Select clips on the timeline or in the media library to configure lower-third text, or place a text overlay on TXT1.</div>
+    <div style="font-size: 0.75rem; margin-top: 4px; margin-bottom: 12px;">Pick clips with the Apply to chooser above to add a title card to them, or place a text overlay on the TXT1 track.</div>
     <button type="button" class="btn btn-primary btn-sm" (click)="state.addTextOverlay()">
       + Add Text Overlay on TXT1
     </button>
   </div>
 } @else if (state.getTargetClipIds().length > 0 || state.targetScope() !== 'selected') {
   <div style="display: flex; flex-direction: column; gap: 8px;">
-    <!-- Scope Notification Banner -->
-    @if (state.targetScope() === 'all') {
-      <div class="alert alert-info py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: color-mix(in srgb, var(--brand) 15%, transparent); border: 1px solid var(--brand); color: #93c5fd; border-radius: 6px;">
-        <span>🌐</span>
-        <span><strong>Batch Mode:</strong> Title card applies to all <strong>{{ state.included().length }} clips</strong> across the timeline.</span>
-      </div>
-    } @else if (state.targetScope() === 'selected' && state.selectedClipsCount() > 1) {
-      <div class="alert alert-primary py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: color-mix(in srgb, var(--brand) 15%, transparent); border: 1px solid var(--brand); color: #93c5fd; border-radius: 6px;">
-        <span>🎯</span>
-        <span><strong>Multi-Clip Scope:</strong> Title card applies to <strong>{{ state.selectedClipsCount() }} selected clips</strong>.</span>
-      </div>
-    } @else if (state.targetScope() === 'current') {
-      <div class="alert alert-secondary py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: var(--surface-3); border: 1px solid var(--border); color: var(--text); border-radius: 6px;">
-        <span>⏱️</span>
-        <span><strong>Current Clip Scope:</strong> Title card applies to <strong>{{ state.currentScheduledClip()?.clip?.name ?? 'current playing clip' }}</strong>.</span>
-      </div>
-    } @else if (state.targetScope() === 'selected' && state.selectedClipsCount() === 1) {
-      <div class="alert alert-secondary py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: var(--surface-3); border: 1px solid var(--border); color: var(--text); border-radius: 6px;">
-        <span>🎯</span>
-        <span><strong>Single Clip Scope:</strong> Title card applies to <strong>{{ state.selectedClip()?.name ?? 'selected clip' }}</strong>.</span>
-      </div>
-    }
+    <app-scope-bar what="The title card" verb="title" />
 
     <div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px;">
       <div class="d-flex justify-content-between align-items-center mb-1">

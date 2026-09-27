@@ -1,33 +1,9 @@
-@if (state.targetScope() === 'selected' && state.getTargetClipIds().length === 0) {
-  <div class="p-4 text-center text-secondary">
-    <div style="font-size: 1.8rem; margin-bottom: 8px;">🎨</div>
-    <div style="font-size: 0.85rem; font-weight: 600; color: var(--text);">No Clip Selected</div>
-    <div style="font-size: 0.75rem; margin-top: 4px;">Select clips on the timeline or in the media library to adjust color grading, or switch target scope to "All clips" or "Current clip".</div>
-  </div>
-} @else {
-  <div style="display: flex; flex-direction: column; gap: 8px;">
-    <!-- Scope Notification Banner -->
-    @if (state.targetScope() === 'all') {
-      <div class="alert alert-info py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: color-mix(in srgb, var(--brand) 15%, transparent); border: 1px solid var(--brand); color: #93c5fd; border-radius: 6px;">
-        <span>🌐</span>
-        <span><strong>Batch Mode:</strong> Color grading applies to all <strong>{{ state.included().length }} clips</strong> across the timeline.</span>
-      </div>
-    } @else if (state.targetScope() === 'selected' && state.selectedClipsCount() > 1) {
-      <div class="alert alert-primary py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: color-mix(in srgb, var(--brand) 15%, transparent); border: 1px solid var(--brand); color: #93c5fd; border-radius: 6px;">
-        <span>🎯</span>
-        <span><strong>Multi-Clip Scope:</strong> Color grading applies to <strong>{{ state.selectedClipsCount() }} selected clips</strong>.</span>
-      </div>
-    } @else if (state.targetScope() === 'current') {
-      <div class="alert alert-secondary py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: var(--surface-3); border: 1px solid var(--border); color: var(--text); border-radius: 6px;">
-        <span>⏱️</span>
-        <span><strong>Current Clip Scope:</strong> Color grading applies to <strong>{{ state.currentScheduledClip()?.clip?.name ?? 'current playing clip' }}</strong>.</span>
-      </div>
-    } @else if (state.targetScope() === 'selected' && state.selectedClipsCount() === 1) {
-      <div class="alert alert-secondary py-1 px-2 mb-0 d-flex align-items-center gap-2" style="font-size: 0.74rem; background: var(--surface-3); border: 1px solid var(--border); color: var(--text); border-radius: 6px;">
-        <span>🎯</span>
-        <span><strong>Single Clip Scope:</strong> Color grading applies to <strong>{{ state.selectedClip()?.name ?? 'selected clip' }}</strong>.</span>
-      </div>
-    }
+<div style="display: flex; flex-direction: column; gap: 8px;">
+  <app-scope-bar what="Color grading" verb="grade" />
+
+  <!-- Controls stay hidden while the scope resolves to no clips: they would
+       otherwise look editable but write to nothing. -->
+  @if (state.getTargetClipIds().length > 0) {
 
     <!-- Color Grading & Look Presets -->
     <div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px;">
@@ -90,6 +66,5 @@
         </div>
       </div>
     </div>
-  </div>
-}
-
+  }
+</div>

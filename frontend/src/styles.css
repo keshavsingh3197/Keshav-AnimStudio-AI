@@ -5153,3 +5153,95 @@ audio { height: 2.2rem; vertical-align: middle; }
   cursor: not-allowed;
 }
 
+
+/* ============================================================
+   Scope bar — the shared "what am I about to change?" line.
+   One implementation for every clip-scoped inspector tab; the
+   four hand-rolled copies it replaced each branched five ways
+   and drifted apart in wording.
+   ============================================================ */
+.scope-bar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  background: var(--surface-3, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border);
+  font-size: 0.73rem;
+  color: var(--text);
+  line-height: 1.35;
+}
+
+/* A batch edit is worth flagging: it is the one that can undo a lot of work at once. */
+.scope-bar-batch {
+  background: color-mix(in srgb, var(--brand) 14%, transparent);
+  border-color: var(--brand);
+  color: #cbd5f5;
+}
+
+.scope-bar-icon {
+  flex: 0 0 auto;
+  font-size: 0.8rem;
+}
+
+.scope-bar-text {
+  min-width: 0;
+}
+
+/* Empty state: offers the targets rather than describing a control elsewhere. */
+.scope-bar-empty {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 14px 12px;
+  text-align: center;
+}
+
+.scope-empty-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.scope-empty-hint {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.scope-empty-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.scope-empty-btn {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.73rem;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.scope-empty-btn:hover {
+  border-color: var(--brand);
+  background: var(--surface);
+}
+
+/* "Apply to" prefix inside the dock header button. */
+.scope-apply-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-right: 5px;
+}
+
+.modern-scope-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

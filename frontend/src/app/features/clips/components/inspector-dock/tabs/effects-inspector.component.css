@@ -4,30 +4,6 @@
   gap: 8px;
 }
 
-.scope-alert {
-  padding: 6px 10px;
-  border-radius: 6px;
-  font-size: 0.74rem;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 0;
-}
-
-.alert-batch,
-.alert-music,
-.alert-multi {
-  background: color-mix(in srgb, var(--brand, #6c8cff) 15%, transparent);
-  border: 1px solid var(--brand, #6c8cff);
-  color: #93c5fd;
-}
-
-.alert-single {
-  background: var(--surface-2, #161b27);
-  border: 1px solid var(--border, #1e2433);
-  color: var(--text, #f0f4fc);
-}
-
 .effects-card {
   background: var(--surface-2, #161b27);
   border: 1px solid var(--border, #1e2433);

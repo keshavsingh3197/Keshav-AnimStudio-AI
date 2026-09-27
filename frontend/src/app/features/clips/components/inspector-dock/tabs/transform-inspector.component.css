@@ -7,20 +7,6 @@
   color: var(--text, #d1d5db);
 }
 
-/* ── Scope badge ──────────────────────────────────────────────────────────── */
-.scope-badge {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.74rem;
-  padding: 4px 8px;
-  border-radius: 5px;
-  margin-bottom: 8px;
-  background: color-mix(in srgb, var(--brand, #6c8cff) 14%, transparent);
-  border: 1px solid color-mix(in srgb, var(--brand, #6c8cff) 35%, transparent);
-  color: #93c5fd;
-}
-
 /* ── Section Card ─────────────────────────────────────────────────────────── */
 .inspector-section {
   background: var(--surface-2, #161b27);

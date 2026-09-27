@@ -203,20 +203,10 @@
       <button type="button" class="audio-action-btn" (click)="state.clearAllSelections()" title="Deselect all (Esc)">✕ Deselect</button>
     </div>
 
-    <!-- APPLY TO -->
-    <div class="inner-audio-card mb-2">
-      <label class="d-block mb-1" style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">Apply changes to</label>
-      <select class="form-select form-select-sm" style="font-size: 0.72rem; background: var(--bg-surface); color: var(--text); border-color: rgba(255,255,255,0.15);"
-              [ngModel]="state.targetScope()" (ngModelChange)="state.selectScopeOption($event)">
-        <option value="selected">Selected clips ({{ state.selectedClipsCount() }})</option>
-        <option value="current">Clip under the playhead</option>
-        <option value="under_music">Clips under any music ({{ state.clipsUnderMusic().length }})</option>
-        <option value="all">Every clip ({{ state.included().length }})</option>
-      </select>
-      <p class="muted mb-0 mt-1" style="font-size: 0.66rem;">
-        Every control below writes to {{ scopeLabel() }}.
-      </p>
-    </div>
+    <p class="muted mb-2" style="font-size: 0.68rem;">
+      Every control below writes to {{ scopeLabel() }} — change that with
+      <strong>Apply to</strong> at the top of the panel.
+    </p>
 
     <!-- 1. LEVEL -->
     <div class="inner-audio-card mb-2">
