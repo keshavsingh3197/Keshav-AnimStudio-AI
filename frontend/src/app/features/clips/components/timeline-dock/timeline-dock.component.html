@@ -585,9 +585,9 @@
                   <button class="tl-h-btn" type="button" (click)="$event.stopPropagation(); state.toggleTrackVisibility('A1')" [title]="state.isTrackVisible('A1') ? 'Mute A1' : 'Unmute A1'">
                     {{ state.isTrackVisible('A1') ? '🔊' : '🔇' }}
                   </button>
-                  <button class="tl-h-btn" type="button" (click)="$event.stopPropagation(); state.cycleV1AudioMode()"
-                          [title]="'Video Sound Strategy: ' + (state.v1AudioMode() === 'MuteOnAudio' ? 'Mute Under Music' : state.v1AudioMode() === 'Always' ? 'Mute All Clips' : 'Keep All Audio') + ' — Click to cycle'">
-                    {{ state.v1AudioMode() === 'MuteOnAudio' ? '🎵' : state.v1AudioMode() === 'Always' ? '🔇' : '🔊' }}
+                  <button class="tl-h-btn" type="button" (click)="$event.stopPropagation(); state.cycleProjectOverlapRule()"
+                          [title]="'Project default when video sound and music overlap: ' + state.overlapRuleLabel(state.projectOverlapRule()) + ' — click to cycle'">
+                    {{ state.projectOverlapRule() === 'MusicOnly' ? '🎵' : state.projectOverlapRule() === 'DuckVideo' ? '🔉' : state.projectOverlapRule() === 'DuckMusic' ? '🗣' : '🔊' }}
                   </button>
                 </div>
               </div>

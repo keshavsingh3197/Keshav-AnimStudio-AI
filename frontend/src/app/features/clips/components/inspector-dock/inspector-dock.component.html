@@ -1,6 +1,6 @@
 <div class="fe-panel fe-inspector">
   <div class="studio-inspector">
-    <!-- Modern Inspector Header Bar: Tool Picker + Target Scope Dropdown -->
+    <!-- Inspector header: which category of tool is showing. -->
     <div class="inspector-header-bar">
       <!-- Tool Dropdown Selector -->
       <div class="tool-dropdown-wrap">
@@ -60,146 +60,6 @@
         }
       </div>
 
-      <!-- Modern Target Scope Dropdown -->
-      <div class="scope-dropdown-wrap">
-        <button type="button" class="modern-scope-btn" (click)="state.toggleScopeDropdown($event)" title="Select Target Scope">
-          <span class="scope-btn-content">
-            @if (state.targetScope() === 'current') {
-              <svg class="scope-icon play-icon" width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                <polygon points="6 3 20 12 6 21 6 3"></polygon>
-              </svg>
-              <span class="scope-text">Current playing clip</span>
-            } @else if (state.targetScope() === 'under_selected_music') {
-              <span class="scope-icon" style="font-size:13px;display:flex;align-items:center;">🎵</span>
-              <span class="scope-text">Clips under track ({{ state.clipsUnderSelectedMusic().length }})</span>
-            } @else if (state.targetScope() === 'under_music') {
-              <span class="scope-icon" style="font-size:13px;display:flex;align-items:center;">🎶</span>
-              <span class="scope-text">Clips under all music ({{ state.clipsUnderMusic().length }})</span>
-            } @else if (state.targetScope() === 'selected') {
-              <svg class="scope-icon target-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10"></circle>
-                <circle cx="12" cy="12" r="3"></circle>
-              </svg>
-              <span class="scope-text">Selected clips ({{ state.selectedClipsCount() }})</span>
-            } @else if (state.targetScope() === 'all') {
-              <svg class="scope-icon list-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-                <line x1="8" y1="6" x2="21" y2="6"></line>
-                <line x1="8" y1="12" x2="21" y2="12"></line>
-                <line x1="8" y1="18" x2="21" y2="18"></line>
-                <circle cx="3" cy="6" r="1" fill="currentColor"></circle>
-                <circle cx="3" cy="12" r="1" fill="currentColor"></circle>
-                <circle cx="3" cy="18" r="1" fill="currentColor"></circle>
-              </svg>
-              <span class="scope-text">All clips ({{ state.included().length }})</span>
-            } @else {
-              <svg class="scope-icon target-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10"></circle>
-                <circle cx="12" cy="12" r="3"></circle>
-              </svg>
-              <span class="scope-text">Selected clips ({{ state.selectedClipsCount() }})</span>
-            }
-          </span>
-          <svg class="dropdown-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="6 9 12 15 18 9"></polyline>
-          </svg>
-        </button>
-
-        @if (state.scopeDropdownOpen()) {
-          <div class="scope-backdrop" (click)="state.scopeDropdownOpen.set(false)"></div>
-          <div class="modern-scope-menu" (click)="$event.stopPropagation()">
-            <!-- Option 1: Current playing clip -->
-            <button type="button" class="modern-scope-item"
-                    [class.active]="state.targetScope() === 'current'"
-                    (click)="state.selectScopeOption('current')">
-              <div class="item-left">
-                <svg class="scope-icon play-icon" width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                  <polygon points="6 3 20 12 6 21 6 3"></polygon>
-                </svg>
-                <span class="item-name">Current playing clip</span>
-              </div>
-              @if (state.targetScope() === 'current') {
-                <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="20 6 9 17 4 12"></polyline>
-                </svg>
-              }
-            </button>
-
-            <!-- Option 2: Selected clips (N) -->
-            <button type="button" class="modern-scope-item"
-                    [class.active]="state.targetScope() === 'selected'"
-                    (click)="state.selectScopeOption('selected')">
-              <div class="item-left">
-                <svg class="scope-icon target-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <circle cx="12" cy="12" r="10"></circle>
-                  <circle cx="12" cy="12" r="3"></circle>
-                </svg>
-                <span class="item-name">Selected clips ({{ state.selectedClipsCount() }})</span>
-              </div>
-              @if (state.targetScope() === 'selected') {
-                <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="20 6 9 17 4 12"></polyline>
-                </svg>
-              }
-            </button>
-
-            <!-- Option 3: Clips under this track (if track is selected) -->
-            @if (state.selectedMusicTrack() && state.clipsUnderSelectedMusic().length > 0) {
-              <button type="button" class="modern-scope-item"
-                      [class.active]="state.targetScope() === 'under_selected_music'"
-                      (click)="state.selectScopeOption('under_selected_music')">
-                <div class="item-left">
-                  <span class="scope-icon" style="font-size:13px;display:flex;align-items:center;">🎵</span>
-                  <span class="item-name">Clips under this track ({{ state.clipsUnderSelectedMusic().length }})</span>
-                </div>
-                @if (state.targetScope() === 'under_selected_music') {
-                  <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="20 6 9 17 4 12"></polyline>
-                  </svg>
-                }
-              </button>
-            }
-
-            <!-- Option 4: Clips under all music (N) -->
-            @if (state.clipsUnderMusic().length > 0) {
-              <button type="button" class="modern-scope-item"
-                      [class.active]="state.targetScope() === 'under_music'"
-                      (click)="state.selectScopeOption('under_music')">
-                <div class="item-left">
-                  <span class="scope-icon" style="font-size:13px;display:flex;align-items:center;">🎶</span>
-                  <span class="item-name">Clips under all music ({{ state.clipsUnderMusic().length }})</span>
-                </div>
-                @if (state.targetScope() === 'under_music') {
-                  <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="20 6 9 17 4 12"></polyline>
-                  </svg>
-                }
-              </button>
-            }
-
-            <!-- Option 4: All clips (N) -->
-            <button type="button" class="modern-scope-item"
-                    [class.active]="state.targetScope() === 'all'"
-                    (click)="state.selectScopeOption('all')">
-              <div class="item-left">
-                <svg class="scope-icon list-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-                  <line x1="8" y1="6" x2="21" y2="6"></line>
-                  <line x1="8" y1="12" x2="21" y2="12"></line>
-                  <line x1="8" y1="18" x2="21" y2="18"></line>
-                  <circle cx="3" cy="6" r="1" fill="currentColor"></circle>
-                  <circle cx="3" cy="12" r="1" fill="currentColor"></circle>
-                  <circle cx="3" cy="18" r="1" fill="currentColor"></circle>
-                </svg>
-                <span class="item-name">All clips ({{ state.included().length }})</span>
-              </div>
-              @if (state.targetScope() === 'all') {
-                <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="20 6 9 17 4 12"></polyline>
-                </svg>
-              }
-            </button>
-          </div>
-        }
-      </div>
     </div>
 
     <!-- Inspector Content Area hosting modular tab sub-components -->
@@ -230,22 +90,17 @@
           <div class="audio-nav-segment">
             <button type="button" class="audio-nav-btn"
                     [class.active]="state.effectiveAudioInspectorView() === 'mixer'"
-                    (click)="state.setAudioInspectorView('mixer')">
-              <span>🎚 Master Mixer</span>
+                    (click)="state.setAudioInspectorView('mixer')"
+                    title="Levels and defaults for the whole project">
+              <span>🎚 Mix</span>
             </button>
             <button type="button" class="audio-nav-btn"
                     [class.active]="state.effectiveAudioInspectorView() === 'clip'"
-                    (click)="state.setAudioInspectorView('clip')">
-              <span>🔊</span>
-              @if (state.isMultiSelection()) {
-                Batch ({{ state.multiSelectionCount() }})
-              } @else if (state.selectedMusicTrack()) {
-                Music Track
-              } @else {
-                Clip Inspector
-              }
-              @if (state.activeTargetAudioItem() || state.isMultiSelection() || state.selectedMusicTrack()) {
-                <span class="nav-active-dot" title="Item Selected"></span>
+                    (click)="state.setAudioInspectorView('clip')"
+                    title="Settings for whatever is selected on the timeline">
+              <span>🔊 Selection</span>
+              @if (state.hasAudioSelection()) {
+                <span class="nav-active-dot" title="Something is selected"></span>
               }
             </button>
           </div>

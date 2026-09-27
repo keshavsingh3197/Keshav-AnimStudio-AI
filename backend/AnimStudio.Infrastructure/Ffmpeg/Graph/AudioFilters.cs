@@ -75,6 +75,49 @@ internal static class AudioFilters
     }
 
     /// <summary>
+    /// A gain envelope over the music, so it steps back where the edit says the clips above
+    /// it should be heard and returns afterwards.
+    /// <para>
+    /// One <c>volume</c> filter with a per-frame expression does the whole thing, which keeps
+    /// the graph flat no matter how many windows there are. Each window contributes a term
+    /// that ramps down over <c>Ramp</c> seconds and back up again: a hard step would click,
+    /// and a click is far more audible than the duck itself. Windows are multiplied together
+    /// rather than chained through nested ifs, so overlapping ones compose instead of the
+    /// first match winning.
+    /// </para>
+    /// <para>
+    /// Returns an empty string when there is nothing to duck, and the caller appends
+    /// nothing - an unducked render produces exactly the filtergraph it did before.
+    /// </para>
+    /// </summary>
+    public static string DuckEnvelope(IReadOnlyList<(double Start, double End, double Level)> windows)
+    {
+        if (windows.Count == 0) return string.Empty;
+
+        const double ramp = 0.18;
+        var terms = new List<string>();
+
+        foreach (var (start, end, level) in windows)
+        {
+            if (end <= start || level >= 1.0) continue;
+
+            // Never ramp for longer than half the window, or the duck never reaches depth.
+            var r = Math.Max(0.01, Math.Min(ramp, (end - start) / 2));
+            var clamped = Math.Clamp(level, 0.0, 1.0);
+
+            // Rises 0->1 across the opening ramp, falls 1->0 across the closing one; the
+            // smaller of the two is the depth in force at t.
+            var attack = $"min(max((t-{FilterExpr.N(start)})/{FilterExpr.N(r)},0),1)";
+            var release = $"min(max(({FilterExpr.N(end)}-t)/{FilterExpr.N(r)},0),1)";
+            terms.Add($"(1+({FilterExpr.N(clamped)}-1)*min({attack},{release}))");
+        }
+
+        if (terms.Count == 0) return string.Empty;
+
+        return $"volume={FilterExpr.Quote(string.Join('*', terms))}:eval=frame";
+    }
+
+    /// <summary>
     /// Mixes dialogue with the music bed.
     /// <para>
     /// <c>normalize=0</c> is essential: amix divides by the input count by default, which

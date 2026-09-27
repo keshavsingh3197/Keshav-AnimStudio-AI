@@ -761,6 +761,12 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         {
             var mixLabels = new List<string> { audioLabel };
 
+            // Built once and appended to every music source, so the bed and the timed tracks
+            // duck together rather than one of them holding its level through the dialogue.
+            var duckEnvelope = AudioFilters.DuckEnvelope(
+                [.. plan.MusicDuckWindows.Select(w => (w.StartSeconds, w.EndSeconds, w.Level))]);
+            var duckSuffix = duckEnvelope.Length > 0 ? "," + duckEnvelope : string.Empty;
+
             if (plan.BackgroundMusicRelativePath is { Length: > 0 } bedPath)
             {
                 var musicInput = inputs.Count;
@@ -768,6 +774,7 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
 
                 graph.Append($"[{musicInput}:a]")
                      .Append(AudioFilters.MusicBed(plan.BackgroundMusicVolume, total, rate, plan.Encoder))
+                     .Append(duckSuffix)
                      .Append("[music];\n");
                 mixLabels.Add("music");
             }
@@ -783,6 +790,7 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
                      .Append(AudioFilters.TimedTrack(
                          track.Volume, track.StartSeconds, track.TrimStartSeconds,
                          track.TrimEndSeconds, plan.Encoder))
+                     .Append(duckSuffix)
                      .Append($"[{label}];\n");
                 mixLabels.Add(label);
             }

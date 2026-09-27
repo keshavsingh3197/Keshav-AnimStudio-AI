@@ -40,6 +40,12 @@ public sealed class ClipMergeSpec
     /// </summary>
     public const int MaxMusicTracks = 12;
 
+    /// <summary>
+    /// Ceiling on the duck envelope. Each window adds a term to one ffmpeg expression, and a
+    /// runaway list would build a filtergraph too long for the command line.
+    /// </summary>
+    public const int MaxDuckWindows = 200;
+
     /// <summary>Video asset ids in playback order.</summary>
     public string? ExportName { get; set; }
     public List<string> AssetIds { get; set; } = [];
@@ -91,6 +97,12 @@ public sealed class ClipMergeSpec
     /// one-bed path most stitches still use.
     /// </summary>
     public List<TimedMusicClipSpec> MusicTracks { get; set; } = [];
+
+    /// <summary>
+    /// Stretches where the music drops under the clips above it, already merged and in
+    /// timeline order. Empty means the music holds one level throughout.
+    /// </summary>
+    public List<MusicDuckWindowSpec> MusicDuckWindows { get; set; } = [];
 
     /// <summary>
     /// Per-clip sound: one entry per clip, in the same order as <see cref="AssetIds"/>
@@ -174,6 +186,19 @@ public sealed class TimedMusicClipSpec
     /// <summary>Optional window on the SOURCE file. Null on either end plays from/to the end.</summary>
     public double? TrimStartSeconds { get; set; }
     public double? TrimEndSeconds { get; set; }
+}
+
+/// <summary>One stretch of the finished timeline over which the music plays quieter.</summary>
+public sealed class MusicDuckWindowSpec
+{
+    /// <summary>Start on the FINISHED timeline, in seconds.</summary>
+    public double StartSeconds { get; set; }
+
+    /// <summary>End on the FINISHED timeline, in seconds.</summary>
+    public double EndSeconds { get; set; }
+
+    /// <summary>Multiplier applied across the window. 1 is no duck, 0 silence.</summary>
+    public double Level { get; set; } = 1.0;
 }
 
 public sealed class TimelineItemTextStyleSpec

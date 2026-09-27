@@ -8,13 +8,30 @@ import {
   TimelineItem, TimelineItemType, TrackControlState, TimelineItemTransform, TimelineItemTextStyle,
 } from '../../../core/models/api.models';
 import { ApiService } from '../../../core/services/api.service';
-import { AudioEngineService } from '../../../core/services/audio-engine.service';
 import { ProjectStore } from '../../../core/services/project-store';
 import { StatusService } from '../../../core/services/status.service';
 import {
+  AudioOverlapRule, AudioOverlapRuleOrInherit, AudioOverlapSource,
   ClipAudioSetting, ClipColorSetting, ClipRow, ClipTextSetting, FILTER_PRESETS,
   FileUploadConflict, FilterPreset, JunctionSetting, JunctionView, MusicTrackRow, ScheduledClip, SideUploadTarget, TRACK_COLORS
 } from '../models/clip-studio.models';
+
+/** What the precedence chain decided for one clip, and the gains that follow from it. */
+export interface ResolvedOverlap {
+  rule: AudioOverlapRule;
+  /** Which level won, so the inspector can say so instead of leaving the user guessing. */
+  source: AudioOverlapSource;
+  /** Name of the winning music track, when source is 'track'. */
+  sourceLabel: string;
+  /** Duck depth actually applied, 0-1. */
+  level: number;
+  /** Multiplier for the clip's own sound where music overlaps it. */
+  videoGain: number;
+  /** Multiplier for the music where this clip overlaps it. */
+  musicGain: number;
+  /** False when no music plays under this clip, in which case the rule is moot. */
+  hasMusicUnder: boolean;
+}
 
 const DRAFT_KEY_PREFIX = 'animstudio_studio_draft_';
 
@@ -23,7 +40,6 @@ export class StudioStateService implements OnDestroy {
   readonly api = inject(ApiService);
   readonly store = inject(ProjectStore);
   readonly status = inject(StatusService);
-  readonly audioEngine = inject(AudioEngineService);
 
   readonly Math = Math;
   readonly trackColors = TRACK_COLORS;
@@ -363,23 +379,38 @@ export class StudioStateService implements OnDestroy {
   readonly trackV2Muted = signal<boolean>(false);
   readonly trackA1Muted = signal<boolean>(false);
   readonly trackA2Muted = signal<boolean>(false);
-  readonly v1AudioMode = signal<'Never' | 'Always' | 'Overlap' | 'MuteOnAudio'>('Never');
-  readonly muteClipAudio = this.v1AudioMode;
-  readonly isGlobalDuckingEnabled = signal<boolean>(true);
-  readonly isGlobalDuckingBypassed = computed(() => !this.isGlobalDuckingEnabled());
+  /**
+   * Project-wide default for how clip sound and music share the mix. The bottom of the
+   * precedence chain: a music track or an individual clip may override it, nothing else.
+   */
+  readonly projectOverlapRule = signal<AudioOverlapRule>('PlayBoth');
+  /** How far the ducked side drops, 0-1. Shared by DuckMusic and DuckVideo. */
+  readonly duckLevel = signal<number>(0.25);
+  /** @deprecated Kept as an alias while older call sites are migrated. */
+  readonly videoDuckLevel = this.duckLevel;
   readonly audioInspectorViewMode = signal<'auto' | 'clip' | 'mixer'>('auto');
-  readonly videoDuckLevel = signal<number>(0.25);
 
+  /**
+   * Which of the two audio views is showing. Timeline selection is the only thing that
+   * decides it automatically - the scope chooser no longer swaps panels behind the user's
+   * back, it only widens what an edit applies to.
+   */
   readonly effectiveAudioInspectorView = computed<'clip' | 'mixer'>(() => {
     const mode = this.audioInspectorViewMode();
     if (mode === 'mixer') return 'mixer';
     if (mode === 'clip') return 'clip';
-    if (this.targetScope() === 'all') return 'mixer';
-    if (this.selectedClipId() || this.selectedTimelineItemId() || this.selectedTimelineItemIds().size > 0 || this.selectedMusicTrackKey() || this.targetScope() === 'under_music' || this.targetScope() === 'under_selected_music' || (this.targetScope() === 'current' && this.currentScheduledClip())) {
-      return 'clip';
-    }
-    return 'mixer';
+    return this.hasAudioSelection() ? 'clip' : 'mixer';
   });
+
+  /** True when something on the timeline is selected for the Selection view to describe. */
+  readonly hasAudioSelection = computed<boolean>(() =>
+    Boolean(
+      this.selectedClipId() ||
+      this.selectedTimelineItemId() ||
+      this.selectedTimelineItemIds().size > 0 ||
+      this.selectedMusicTrackKey()
+    )
+  );
 
   // Project Aspect and Format
   readonly format = computed(() => {
@@ -893,8 +924,8 @@ export class StudioStateService implements OnDestroy {
     clipId: string;
     isTimelineItem: boolean;
     volume: number;
-    duckMode: 'Normal' | 'Ducked' | 'MuteOnAudio' | 'LeadVoice';
-    musicVolumeOverride: number | null;
+    overlapRule: AudioOverlapRuleOrInherit;
+    duckLevelOverride: number | null;
     fadeInSeconds: number;
     fadeOutSeconds: number;
   } | null>(() => {
@@ -907,8 +938,8 @@ export class StudioStateService implements OnDestroy {
         clipId: tlItem.id,
         isTimelineItem: true,
         volume: tlItem.volume ?? 1.0,
-        duckMode: tlItem.duckMode ?? 'Normal',
-        musicVolumeOverride: tlItem.musicVolumeOverride ?? null,
+        overlapRule: this.clipOverlapRule(tlItem.id),
+        duckLevelOverride: this.clipDuckLevelOverride(tlItem.id),
         fadeInSeconds: 0,
         fadeOutSeconds: 0,
       };
@@ -924,8 +955,8 @@ export class StudioStateService implements OnDestroy {
         clipId: clip.id,
         isTimelineItem: false,
         volume: sound.volume,
-        duckMode: sound.duckMode ?? 'Normal',
-        musicVolumeOverride: sound.musicVolumeOverride ?? null,
+        overlapRule: sound.overlapRule ?? 'Inherit',
+        duckLevelOverride: sound.duckLevelOverride ?? null,
         fadeInSeconds: fade.fadeInSeconds,
         fadeOutSeconds: fade.fadeOutSeconds,
       };
@@ -1370,7 +1401,6 @@ export class StudioStateService implements OnDestroy {
     }
     this.stopPolling();
     this.closePreview();
-    this.audioEngine.dispose();
   }
 
   // Exact continuous time getter for isolated 60fps RAF loops (Guardrail 2)
@@ -2021,13 +2051,11 @@ export class StudioStateService implements OnDestroy {
     if (this.currentTime() >= this.contentDurationSeconds() && this.contentDurationSeconds() > 0) {
       this.seekTo(0);
     }
-    this.audioEngine.ensureContext();
     this.isPlaying.set(true);
   }
 
   pause(): void {
     this.isPlaying.set(false);
-    this.audioEngine.pauseAll();
   }
 
   togglePlayback(): void {
@@ -2109,13 +2137,11 @@ export class StudioStateService implements OnDestroy {
   setMonitorVolume(vol: number): void {
     const clamped = Math.max(0, Math.min(vol, 2.0));
     this.monitorVolume.set(clamped);
-    this.audioEngine.setMasterVolume(clamped, this.isMonitorMuted());
   }
 
   toggleMonitorMute(): void {
     const next = !this.isMonitorMuted();
     this.isMonitorMuted.set(next);
-    this.audioEngine.setMasterVolume(this.monitorVolume(), next);
   }
 
   // Audio Mixer Methods
@@ -2128,7 +2154,6 @@ export class StudioStateService implements OnDestroy {
     else if (trackId === 'Master') this.setMonitorVolume(clamped);
 
     if (trackId !== 'Master') {
-      this.audioEngine.setTrackVolume(trackId, clamped);
     }
     this.markDirty();
   }
@@ -2142,7 +2167,6 @@ export class StudioStateService implements OnDestroy {
     if (trackId === 'V1') {
       nextMuted = !this.trackV1Muted();
       this.trackV1Muted.set(nextMuted);
-      this.v1AudioMode.set(nextMuted ? 'Always' : 'Never');
     } else if (trackId === 'V2') {
       nextMuted = !this.trackV2Muted();
       this.trackV2Muted.set(nextMuted);
@@ -2153,7 +2177,6 @@ export class StudioStateService implements OnDestroy {
       nextMuted = !this.trackA2Muted();
       this.trackA2Muted.set(nextMuted);
     }
-    this.audioEngine.setTrackMute(trackId, nextMuted);
     this.markDirty();
   }
 
@@ -2163,13 +2186,6 @@ export class StudioStateService implements OnDestroy {
     if (trackId === 'A1') return this.trackA1Muted();
     if (trackId === 'A2') return this.trackA2Muted();
     return this.isMonitorMuted();
-  }
-
-  toggleGlobalDucking(enable?: boolean): void {
-    const next = enable !== undefined ? enable : !this.isGlobalDuckingEnabled();
-    this.isGlobalDuckingEnabled.set(next);
-    this.audioEngine.setGlobalDuckingEnabled(next);
-    this.markDirty();
   }
 
   volumeToDb(vol: number): string {
@@ -2188,8 +2204,8 @@ export class StudioStateService implements OnDestroy {
       keepOriginalAudio: true,
       audioTrimStartSeconds: 0,
       audioTrimEndSeconds: 0,
-      duckMode: 'Normal',
-      musicVolumeOverride: null,
+      overlapRule: 'Inherit',
+      duckLevelOverride: null,
     };
   }
 
@@ -2216,33 +2232,60 @@ export class StudioStateService implements OnDestroy {
     this.markDirty();
   }
 
-  setClipMusicVolumeOverride(clipId: string, override: number | null): void {
-    const clamped = override !== null && override !== undefined ? Math.max(0, Math.min(2.0, override)) : null;
-    const isTlItem = this.timelineItems().some((it) => it.id === clipId);
-    if (isTlItem) {
-      this.timelineItems.update((items) =>
-        items.map((it) => (it.id === clipId ? { ...it, musicVolumeOverride: clamped } : it))
-      );
-    } else {
-      const targetIds = this.getTargetClipIds(clipId);
-      for (const id of targetIds) {
-        this.updateClipAudioSetting(id, { musicVolumeOverride: clamped });
+  /**
+   * Folds the four old settings into the single rule. Runs once per draft load; anything
+   * already carrying an overlapRule is left alone so a migrated draft is never re-mapped.
+   */
+  private migrateLegacyOverlapSettings(): void {
+    this.clipSounds.update((sounds) => {
+      const next: Record<string, ClipAudioSetting> = {};
+      let changed = false;
+      for (const [id, sound] of Object.entries(sounds)) {
+        if (sound.overlapRule !== undefined || (sound.duckMode === undefined && sound.musicVolumeOverride === undefined)) {
+          next[id] = sound;
+          continue;
+        }
+        // 'LeadVoice' and 'Ducked' both meant "lower the music under this clip".
+        let rule: AudioOverlapRuleOrInherit = 'Inherit';
+        if (sound.duckMode === 'Ducked' || sound.duckMode === 'LeadVoice') rule = 'DuckMusic';
+        else if (sound.duckMode === 'MuteOnAudio') rule = 'MusicOnly';
+
+        // An explicit music level was its own way of saying "duck the music this far".
+        let duckLevelOverride = sound.duckLevelOverride ?? null;
+        if (sound.musicVolumeOverride !== null && sound.musicVolumeOverride !== undefined) {
+          rule = sound.musicVolumeOverride === 0 ? 'MusicOnly' : 'DuckMusic';
+          if (sound.musicVolumeOverride > 0) duckLevelOverride = sound.musicVolumeOverride;
+        }
+
+        next[id] = { ...sound, overlapRule: rule, duckLevelOverride };
+        changed = true;
       }
-    }
-    this.markDirty();
+      return changed ? next : sounds;
+    });
+
+    this.musicTracks.update((tracks) => {
+      let changed = false;
+      const next = tracks.map((t) => {
+        if (t.overlapRule !== undefined || t.clipAudioMode === undefined) return t;
+        const rule: AudioOverlapRuleOrInherit =
+          t.clipAudioMode === 'MuteUnderMusic' ? 'MusicOnly'
+          : t.clipAudioMode === 'Ducked' ? 'DuckVideo'
+          : t.clipAudioMode === 'KeepAudio' ? 'PlayBoth'
+          : 'Inherit';
+        changed = true;
+        return { ...t, overlapRule: rule };
+      });
+      return changed ? next : tracks;
+    });
   }
 
-  clipMusicVolumeOverride(clipId: string): number | null {
-    const isTlItem = this.timelineItems().find((it) => it.id === clipId);
-    if (isTlItem) return (isTlItem as any).musicVolumeOverride ?? null;
-    return this.clipSound(clipId).musicVolumeOverride ?? null;
-  }
-
-  setBatchMusicVolumeOverride(override: number | null): void {
-    const targetIds = this.getTargetClipIds();
-    for (const id of targetIds) {
-      this.setClipMusicVolumeOverride(id, override);
-    }
+  /** Every clip an "apply to" edit should touch: explicit selection plus the chosen scope. */
+  batchTargetIds(): Set<string> {
+    return new Set([
+      ...this.selectedTimelineItemIds(),
+      ...this.selectedLibraryIds(),
+      ...this.getTargetClipIds(),
+    ]);
   }
 
   private previousClipVolumes = new Map<string, number>();
@@ -2267,21 +2310,147 @@ export class StudioStateService implements OnDestroy {
     this.setClipVolume(clipId, nextVol);
   }
 
-  setClipDuckMode(clipId: string, mode: 'Normal' | 'Ducked' | 'MuteOnAudio' | 'LeadVoice'): void {
+  /** Reads a clip's own overlap rule, before precedence - 'Inherit' means it defers upward. */
+  clipOverlapRule(clipId: string): AudioOverlapRuleOrInherit {
+    const tlItem = this.timelineItems().find((it) => it.id === clipId);
+    if (tlItem) return (tlItem as { overlapRule?: AudioOverlapRuleOrInherit }).overlapRule ?? 'Inherit';
+    return this.clipSound(clipId).overlapRule ?? 'Inherit';
+  }
+
+  setClipOverlapRule(clipId: string, rule: AudioOverlapRuleOrInherit): void {
     const isTlItem = this.timelineItems().some((it) => it.id === clipId);
     if (isTlItem) {
       this.timelineItems.update((items) =>
-        items.map((it) => (it.id === clipId ? { ...it, duckMode: mode } : it))
+        items.map((it) => (it.id === clipId ? { ...it, overlapRule: rule } : it))
       );
       this.markDirty();
       return;
     }
 
-    const targetIds = this.getTargetClipIds(clipId);
-    for (const id of targetIds) {
-      this.updateClipAudioSetting(id, { duckMode: mode });
+    for (const id of this.getTargetClipIds(clipId)) {
+      this.updateClipAudioSetting(id, { overlapRule: rule });
     }
     this.markDirty();
+  }
+
+  /** Applies one rule to every clip in the current "apply to" scope. */
+  setBatchOverlapRule(rule: AudioOverlapRuleOrInherit): void {
+    const targetIds = this.batchTargetIds();
+    if (targetIds.size === 0) return;
+
+    this.timelineItems.update((items) =>
+      items.map((it) => (targetIds.has(it.id) ? { ...it, overlapRule: rule } : it))
+    );
+    this.clipSounds.update((currentSounds) => {
+      const next = { ...currentSounds };
+      for (const id of targetIds) {
+        next[id] = { ...this.clipSound(id), ...(next[id] ?? {}), overlapRule: rule };
+      }
+      return next;
+    });
+    this.markDirty();
+  }
+
+  /** Per-clip duck depth, or null to follow the project duck level. */
+  clipDuckLevelOverride(clipId: string): number | null {
+    const tlItem = this.timelineItems().find((it) => it.id === clipId);
+    if (tlItem) return (tlItem as { duckLevelOverride?: number | null }).duckLevelOverride ?? null;
+    return this.clipSound(clipId).duckLevelOverride ?? null;
+  }
+
+  setClipDuckLevelOverride(clipId: string, level: number | null): void {
+    const clamped = level === null || level === undefined ? null : Math.max(0, Math.min(1, level));
+    const isTlItem = this.timelineItems().some((it) => it.id === clipId);
+    if (isTlItem) {
+      this.timelineItems.update((items) =>
+        items.map((it) => (it.id === clipId ? { ...it, duckLevelOverride: clamped } : it))
+      );
+      this.markDirty();
+      return;
+    }
+
+    for (const id of this.getTargetClipIds(clipId)) {
+      this.updateClipAudioSetting(id, { duckLevelOverride: clamped });
+    }
+    this.markDirty();
+  }
+
+  setProjectOverlapRule(rule: AudioOverlapRule): void {
+    this.projectOverlapRule.set(rule);
+    this.markDirty();
+    this.status.notify([`Project default: ${this.overlapRuleLabel(rule)}.`]);
+  }
+
+  /** Steps the project default through the four rules - used by the timeline header button. */
+  cycleProjectOverlapRule(): void {
+    const order: AudioOverlapRule[] = ['PlayBoth', 'DuckMusic', 'DuckVideo', 'MusicOnly'];
+    const idx = order.indexOf(this.projectOverlapRule());
+    this.setProjectOverlapRule(order[(idx + 1) % order.length]);
+  }
+
+  overlapRuleLabel(rule: AudioOverlapRuleOrInherit): string {
+    if (rule === 'DuckMusic') return 'Duck music';
+    if (rule === 'DuckVideo') return 'Duck video';
+    if (rule === 'MusicOnly') return 'Music only';
+    if (rule === 'Inherit') return 'Inherit';
+    return 'Play both';
+  }
+
+  setMusicTrackOverlapRule(key: string, rule: AudioOverlapRuleOrInherit): void {
+    this.musicTracks.update((tracks) =>
+      tracks.map((t) => (t.key === key ? { ...t, overlapRule: rule } : t))
+    );
+    this.markDirty();
+  }
+
+  /** The music track, if any, playing under the clip that occupies this stretch of timeline. */
+  private musicTrackUnderClip(clipId: string): MusicTrackRow | null {
+    const sched = this.clipSchedule().find((x) => x.clip.id === clipId);
+    if (!sched) return null;
+    return this.musicTracks().find((t) => {
+      const start = t.startSeconds;
+      const end = start + this.musicTrackDurationSeconds(t);
+      return start < sched.endSeconds && end > sched.startSeconds && !t.muted;
+    }) ?? null;
+  }
+
+  /**
+   * THE precedence chain, in one place: clip beats music track beats project default.
+   * Preview and export both call this, so what you hear is what gets rendered.
+   */
+  resolveOverlap(clipId: string): ResolvedOverlap {
+    const track = this.musicTrackUnderClip(clipId);
+    const hasMusicUnder = Boolean(track) || (this.musicAssetId() !== '' && this.musicVolume() > 0);
+
+    const clipRule = this.clipOverlapRule(clipId);
+    const trackRule = track?.overlapRule ?? 'Inherit';
+
+    let rule: AudioOverlapRule;
+    let source: AudioOverlapSource;
+    let sourceLabel = '';
+    if (clipRule !== 'Inherit') {
+      rule = clipRule;
+      source = 'clip';
+    } else if (trackRule !== 'Inherit') {
+      rule = trackRule;
+      source = 'track';
+      sourceLabel = track ? this.musicTrackName(track) : '';
+    } else {
+      rule = this.projectOverlapRule();
+      source = 'project';
+    }
+
+    const level = this.clipDuckLevelOverride(clipId) ?? this.duckLevel();
+
+    let videoGain = 1;
+    let musicGain = 1;
+    if (hasMusicUnder) {
+      if (rule === 'DuckMusic') musicGain = level;
+      else if (rule === 'DuckVideo') videoGain = level;
+      else if (rule === 'MusicOnly') videoGain = 0;
+    }
+
+    return { rule, source, sourceLabel, level, videoGain, musicGain, hasMusicUnder };
   }
 
   clipAudioFadeSetting(clipId: string): { fadeInSeconds: number; fadeOutSeconds: number } {
@@ -2345,7 +2514,7 @@ export class StudioStateService implements OnDestroy {
           audioAssetId: '',
           audioVolume: 1.0,
           keepOriginalAudio: true,
-          duckMode: 'Normal',
+          overlapRule: 'Inherit',
         };
         next[id] = { ...curr, volume: clamped };
       }
@@ -2356,31 +2525,6 @@ export class StudioStateService implements OnDestroy {
 
   setBatchMute(muted: boolean): void {
     this.setBatchVolume(muted ? 0.0 : 1.0);
-  }
-
-  setBatchDuckMode(mode: 'Normal' | 'Ducked' | 'MuteOnAudio' | 'LeadVoice'): void {
-    const selTlIds = this.selectedTimelineItemIds();
-    const selLibIds = this.selectedLibraryIds();
-    const targetScopeIds = this.getTargetClipIds();
-    const targetIds = new Set([...selTlIds, ...selLibIds, ...targetScopeIds]);
-
-    if (targetIds.size === 0) return;
-
-    this.clipSounds.update((currentSounds) => {
-      const next = { ...currentSounds };
-      for (const id of targetIds) {
-        const curr = next[id] || {
-          volume: 1.0,
-          audioAssetId: '',
-          audioVolume: 1.0,
-          keepOriginalAudio: true,
-          duckMode: 'Normal',
-        };
-        next[id] = { ...curr, duckMode: mode };
-      }
-      return next;
-    });
-    this.markDirty();
   }
 
   setAudioInspectorView(mode: 'auto' | 'clip' | 'mixer'): void {
@@ -3129,7 +3273,6 @@ export class StudioStateService implements OnDestroy {
         if (t.id !== trackId) return t;
         if (t.kind === 'audio') {
           const nextMuted = !t.muted;
-          this.audioEngine.setTrackMute(t.id as 'A1' | 'A2', nextMuted);
           return { ...t, muted: nextMuted };
         }
         return { ...t, visible: !t.visible };
@@ -3141,30 +3284,6 @@ export class StudioStateService implements OnDestroy {
     const t = this.timelineTracks().find((tr) => tr.id === trackId);
     if (!t) return true;
     return t.kind === 'audio' ? !t.muted : t.visible;
-  }
-
-  setV1AudioMode(mode: 'Never' | 'MuteOnAudio' | 'Always'): void {
-    this.v1AudioMode.set(mode);
-    if (mode === 'Always') {
-      this.trackV1Muted.set(true);
-      this.status.notify(['All video clips muted (Music Only).']);
-    } else if (mode === 'MuteOnAudio') {
-      this.trackV1Muted.set(false);
-      this.status.notify(['Video audio muted under background music (Auto-Duck).']);
-    } else {
-      this.trackV1Muted.set(false);
-      this.status.notify(['All video audio active (Full Mix).']);
-    }
-    this.markDirty();
-  }
-
-  cycleV1AudioMode(): void {
-    const current = this.v1AudioMode();
-    const next = current === 'Never' ? 'MuteOnAudio' : current === 'MuteOnAudio' ? 'Always' : 'Never';
-    this.v1AudioMode.set(next);
-    this.markDirty();
-    this.status.notify([`V1 Audio Mode: ${next}`]);
-    this.setV1AudioMode(next);
   }
 
   selectClipsUnderMusic(): void {
@@ -3216,15 +3335,6 @@ export class StudioStateService implements OnDestroy {
     this.setInspectorTab('audio');
     this.setAudioInspectorView('clip');
     this.status.notify([`Selected ${clips.length} clip(s) under "${name}".`]);
-  }
-
-  setMusicTrackClipAudioMode(key: string, mode: 'MuteUnderMusic' | 'KeepAudio' | 'Ducked' | 'Default'): void {
-    this.musicTracks.update((tracks) =>
-      tracks.map((t) => (t.key === key ? { ...t, clipAudioMode: mode } : t))
-    );
-    this.markDirty();
-    const modeLabel = mode === 'MuteUnderMusic' ? 'Mute Video Clips' : mode === 'KeepAudio' ? 'Keep Video Sound' : mode === 'Ducked' ? 'Duck Video Clips' : 'Global Default';
-    this.status.notify([`Set video sound under this track to: ${modeLabel}`]);
   }
 
   blockWidthPx(clip: Clip): number {
@@ -4882,10 +4992,9 @@ export class StudioStateService implements OnDestroy {
       clipTexts: this.clipTexts(),
       junctions: this.junctions(),
       trackV1Volume: this.trackV1Volume(),
-      trackV2Volume: this.trackV2Volume(),
       trackA1Volume: this.trackA1Volume(),
-      trackA2Volume: this.trackA2Volume(),
-      v1AudioMode: this.v1AudioMode(),
+      projectOverlapRule: this.projectOverlapRule(),
+      duckLevel: this.duckLevel(),
       fit: this.fit(),
       clipFraming: Array.from(this.clipFraming().entries()),
       clipAudioFade: Array.from(this.clipAudioFade().entries()),
@@ -4984,10 +5093,26 @@ export class StudioStateService implements OnDestroy {
     if (draft.clipTexts) this.clipTexts.set(draft.clipTexts);
     if (draft.junctions) this.junctions.set(draft.junctions);
     if (draft.trackV1Volume !== undefined) this.trackV1Volume.set(draft.trackV1Volume);
-    if (draft.trackV2Volume !== undefined) this.trackV2Volume.set(draft.trackV2Volume);
+
     if (draft.trackA1Volume !== undefined) this.trackA1Volume.set(draft.trackA1Volume);
-    if (draft.trackA2Volume !== undefined) this.trackA2Volume.set(draft.trackA2Volume);
-    if (draft.v1AudioMode !== undefined) this.v1AudioMode.set(draft.v1AudioMode);
+
+    if (draft.projectOverlapRule !== undefined) {
+      this.projectOverlapRule.set(draft.projectOverlapRule);
+    } else if (draft.v1AudioMode !== undefined) {
+      // Drafts saved before the rules were unified. 'Always' meant "mute every clip",
+      // which is now simply a muted V1 bus rather than an overlap rule.
+      if (draft.v1AudioMode === 'Always') {
+        this.projectOverlapRule.set('MusicOnly');
+        this.trackV1Muted.set(true);
+      } else if (draft.v1AudioMode === 'MuteOnAudio') {
+        this.projectOverlapRule.set('MusicOnly');
+      } else {
+        this.projectOverlapRule.set('PlayBoth');
+      }
+    }
+    if (draft.duckLevel !== undefined) this.duckLevel.set(draft.duckLevel);
+    else if (draft.videoDuckLevel !== undefined) this.duckLevel.set(draft.videoDuckLevel);
+    this.migrateLegacyOverlapSettings();
     if (draft.fit !== undefined) this.fit.set(draft.fit);
     if (Array.isArray(draft.clipFraming)) this.clipFraming.set(new Map(draft.clipFraming));
     if (Array.isArray(draft.clipAudioFade)) this.clipAudioFade.set(new Map(draft.clipAudioFade));
@@ -5153,7 +5278,7 @@ export class StudioStateService implements OnDestroy {
   isClipSoundCustom(clipId: string): boolean {
     const s = this.clipSounds()[clipId];
     if (!s) return false;
-    return s.volume !== 1 || !!s.audioAssetId || s.audioVolume !== 1 || !s.keepOriginalAudio || Boolean(s.duckMode && s.duckMode !== 'Normal') || (s.musicVolumeOverride !== null && s.musicVolumeOverride !== undefined);
+    return s.volume !== 1 || !!s.audioAssetId || s.audioVolume !== 1 || !s.keepOriginalAudio || Boolean(s.overlapRule && s.overlapRule !== 'Inherit') || (s.duckLevelOverride !== null && s.duckLevelOverride !== undefined);
   }
 
   timelineItemsPayload(): TimelineItem[] | null {
@@ -5215,24 +5340,19 @@ export class StudioStateService implements OnDestroy {
       volume: item.volume,
       trimStartSeconds: item.trimStartSeconds,
       trimEndSeconds: item.trimEndSeconds,
-      duckMode: item.duckMode,
     }));
   }
 
   clipAudioPayload(): ClipAudioBody[] | null {
     const clips = this.included();
-    const mode = this.v1AudioMode();
-    const hasPerClipMuteOnAudio = clips.some((r) => {
-      const d = this.clipSound(r.clip.id).duckMode;
-      return d === 'MuteOnAudio' || d === 'Ducked';
-    });
-    const needsOverlapCheck = mode === 'MuteOnAudio' || hasPerClipMuteOnAudio;
-    if (!needsOverlapCheck && !clips.some((r) => this.isClipSoundCustom(r.clip.id))) return null;
+    const anyRule = clips.some((r) => this.clipOverlapRule(r.clip.id) !== 'Inherit');
+    const projectDucks = this.projectOverlapRule() !== 'PlayBoth';
+    const trackDucks = this.musicTracks().some((t) => (t.overlapRule ?? 'Inherit') !== 'Inherit');
+    const anyCustom = clips.some((r) => this.isClipSoundCustom(r.clip.id));
+    if (!anyRule && !projectDucks && !trackDucks && !anyCustom) return null;
 
     const schedule = this.clipSchedule();
-    const hasBg = this.musicAssetId() !== '';
     const available = new Set(this.studio()?.musicCandidates.map((a) => a.id) ?? []);
-    const audioTimelineItems = this.timelineItems().filter((i) => i.type === 'audio' && !i.muted && (i.volume ?? 1.0) > 0);
 
     return clips.map((row) => {
       const sound = this.clipSound(row.clip.id);
@@ -5240,40 +5360,9 @@ export class StudioStateService implements OnDestroy {
         ? sound.audioAssetId
         : null;
 
-      let vol = sound.volume;
-      const clipDuck = sound.duckMode ?? 'Normal';
-      const s = schedule.find((x) => x.clip.id === row.clip.id);
-
-      if (s) {
-        const overlappingTrack = this.musicTracks().find((t) => {
-          const mStart = t.startSeconds;
-          const mEnd = t.startSeconds + this.musicTrackDurationSeconds(t);
-          return mStart < s.endSeconds && mEnd > s.startSeconds;
-        });
-        const hasMusicOverlap = hasBg || Boolean(overlappingTrack);
-        const hasTimelineAudioOverlap = audioTimelineItems.some((i) => {
-          return i.startTime < s.endSeconds && (i.startTime + i.duration) > s.startSeconds;
-        });
-        const isOverlap = hasMusicOverlap || hasTimelineAudioOverlap;
-
-        if (mode === 'Always') {
-          vol = 0;
-        } else if (overlappingTrack && overlappingTrack.clipAudioMode === 'MuteUnderMusic') {
-          vol = 0;
-        } else if (overlappingTrack && overlappingTrack.clipAudioMode === 'KeepAudio') {
-          vol = sound.volume;
-        } else if (overlappingTrack && overlappingTrack.clipAudioMode === 'Ducked') {
-          vol = Math.round(sound.volume * this.videoDuckLevel() * 100) / 100;
-        } else if (clipDuck === 'MuteOnAudio') {
-          if (isOverlap) vol = 0;
-        } else if (clipDuck === 'Ducked') {
-          vol = Math.round(sound.volume * this.videoDuckLevel() * 100) / 100;
-        } else if (clipDuck === 'LeadVoice') {
-          vol = sound.volume;
-        } else if (mode === 'MuteOnAudio' && isOverlap) {
-          vol = 0;
-        }
-      }
+      // One resolver for preview and export, so a mix that sounds right also renders right.
+      const resolved = this.resolveOverlap(row.clip.id);
+      const vol = Math.round(sound.volume * resolved.videoGain * 100) / 100;
 
       let trimStart = sound.audioTrimStartSeconds ?? null;
       let trimEnd = sound.audioTrimEndSeconds ?? null;
@@ -5305,9 +5394,32 @@ export class StudioStateService implements OnDestroy {
         keepOriginalAudio: sound.keepOriginalAudio,
         trimStartSeconds: trimStart,
         trimEndSeconds: trimEnd,
-        duckMode: sound.duckMode === 'MuteOnAudio' ? undefined : sound.duckMode,
       };
     });
+  }
+
+  /**
+   * Stretches of the finished timeline where the music must drop, and how far. Ducking the
+   * music cannot be baked into a clip's own volume, so the server needs the windows to build
+   * a gain envelope over the music bed.
+   */
+  musicDuckWindowsPayload(): { startSeconds: number; endSeconds: number; level: number }[] {
+    const windows: { startSeconds: number; endSeconds: number; level: number }[] = [];
+    for (const entry of this.clipSchedule()) {
+      const resolved = this.resolveOverlap(entry.clip.id);
+      if (!resolved.hasMusicUnder || resolved.musicGain >= 1) continue;
+
+      const level = Math.round(resolved.musicGain * 1000) / 1000;
+      const last = windows[windows.length - 1];
+      // Neighbouring clips that duck by the same amount become one window, so a run of
+      // dialogue does not make the music pump between every cut.
+      if (last && last.level === level && Math.abs(last.endSeconds - entry.startSeconds) < 0.001) {
+        last.endSeconds = entry.endSeconds;
+      } else {
+        windows.push({ startSeconds: entry.startSeconds, endSeconds: entry.endSeconds, level });
+      }
+    }
+    return windows;
   }
 
   private pollHandle: any = null;
@@ -5375,7 +5487,7 @@ export class StudioStateService implements OnDestroy {
           transition: j.transition,
           transitionSeconds: j.transition === 'None' ? 0 : j.seconds,
         })),
-        muteClipAudio: this.v1AudioMode() === 'Always' || this.trackV1Muted(),
+        muteClipAudio: this.trackV1Muted(),
         backgroundMusicAssetId: this.musicAssetId() || null,
         backgroundMusicVolume: this.musicVolume(),
         musicTracks: this.musicTracks().map((t) => ({
@@ -5387,6 +5499,7 @@ export class StudioStateService implements OnDestroy {
         })),
         timelineItems: this.timelineItemsPayload(),
         clipAudio: this.clipAudioPayload(),
+        musicDuckWindows: this.musicDuckWindowsPayload(),
         watermark: wm,
       }),
       (job: RenderJob) => {
@@ -5429,7 +5542,7 @@ export class StudioStateService implements OnDestroy {
           transition: j.transition,
           transitionSeconds: j.transition === 'None' ? 0 : j.seconds,
         })),
-        muteClipAudio: this.v1AudioMode() === 'Always' || this.trackV1Muted(),
+        muteClipAudio: this.trackV1Muted(),
         backgroundMusicAssetId: this.musicAssetId() || null,
         backgroundMusicVolume: this.musicVolume(),
         musicTracks: this.musicTracks().map((t) => ({
@@ -5441,6 +5554,7 @@ export class StudioStateService implements OnDestroy {
         })),
         timelineItems: this.timelineItemsPayload(),
         clipAudio: this.clipAudioPayload(),
+        musicDuckWindows: this.musicDuckWindowsPayload(),
         watermark: wm,
       }),
       (job: RenderJob) => {

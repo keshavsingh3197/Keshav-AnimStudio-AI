@@ -19,6 +19,12 @@ public sealed record TimedMusicClip(
     double? TrimStartSeconds, double? TrimEndSeconds);
 
 /// <summary>
+/// One stretch of the finished timeline over which the music plays at a reduced level,
+/// as resolved by the client's overlap rules.
+/// </summary>
+public sealed record MusicDuckWindow(double StartSeconds, double EndSeconds, double Level);
+
+/// <summary>
 /// One clip's sound: the level of its own audio, and optionally a sound of its own that
 /// either replaces that audio or plays over it. Position in the list IS the clip it names.
 /// </summary>
@@ -55,6 +61,12 @@ public sealed record ClipMergeCommand
 
     /// <summary>Extra music clips, each starting at its own point on the finished timeline.</summary>
     public IReadOnlyList<TimedMusicClip> MusicTracks { get; init; } = [];
+
+    /// <summary>
+    /// Where the music steps back under the clips above it, as resolved by the client's
+    /// overlap rules. Empty means the music holds one level throughout.
+    /// </summary>
+    public IReadOnlyList<MusicDuckWindow> MusicDuckWindows { get; init; } = [];
 
     /// <summary>
     /// One entry per clip in <see cref="AssetIds"/>, or null for "every clip as recorded".
@@ -428,6 +440,8 @@ public sealed class ClipMergeService(
             })
             .ToList() ?? [];
 
+        var duckWindowSpecs = BuildDuckWindows(command.MusicDuckWindows);
+
         var musicTrackSpecs = command.MusicTracks
             .Select(t => new TimedMusicClipSpec
             {
@@ -487,6 +501,7 @@ public sealed class ClipMergeService(
                 BackgroundMusicAssetId = command.BackgroundMusicAssetId,
                 BackgroundMusicVolume = command.BackgroundMusicVolume,
                 MusicTracks = musicTrackSpecs,
+                MusicDuckWindows = duckWindowSpecs,
                 ClipAudio = clipAudioSpecs,
                 Watermark = watermark,
                 TimelineItems = command.TimelineItems?.ToList() ?? []
@@ -604,6 +619,39 @@ public sealed class ClipMergeService(
 
         return project;
     }
+    /// <summary>
+    /// Drops windows that would do nothing, clamps the rest into range and merges ones that
+    /// touch at the same level, so a long dialogue run is one envelope step rather than a
+    /// separate duck per cut.
+    /// </summary>
+    private static List<MusicDuckWindowSpec> BuildDuckWindows(IReadOnlyList<MusicDuckWindow> windows)
+    {
+        var result = new List<MusicDuckWindowSpec>();
+
+        foreach (var w in windows.OrderBy(w => w.StartSeconds))
+        {
+            var level = Math.Clamp(w.Level, 0.0, 1.0);
+            var start = Math.Max(0.0, w.StartSeconds);
+            var end = w.EndSeconds;
+            if (end <= start || level >= 1.0) continue;
+
+            var last = result.Count > 0 ? result[^1] : null;
+            if (last is not null
+                && Math.Abs(last.Level - level) < 0.0005
+                && start <= last.EndSeconds + 0.001)
+            {
+                last.EndSeconds = Math.Max(last.EndSeconds, end);
+                continue;
+            }
+
+            if (result.Count >= ClipMergeSpec.MaxDuckWindows) break;
+            result.Add(new MusicDuckWindowSpec { StartSeconds = start, EndSeconds = end, Level = level });
+        }
+
+        return result;
+    }
+
+
 }
 
 

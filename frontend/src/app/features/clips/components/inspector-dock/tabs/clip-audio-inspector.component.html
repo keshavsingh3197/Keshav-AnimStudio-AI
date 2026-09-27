@@ -1,95 +1,12 @@
 <!-- ══════════════════════════════════════════════════════════════ -->
-<!-- AUDIO & VOICE INSPECTOR: ADAPTIVE SCOPE-AWARE WORKFLOW      -->
+<!-- SELECTION: one card for whatever is selected on the timeline.  -->
+<!-- Order is always the same: identity, level, overlap rule,       -->
+<!-- fades, trim. Project-wide settings live in the Mix view.       -->
 <!-- ══════════════════════════════════════════════════════════════ -->
 
-<!-- ── CASE A: MULTI-SELECTION BATCH INSPECTOR ────────────────── -->
-@if (state.isMultiSelection()) {
-  <div class="audio-card batch-inspector-card">
-    <div class="d-flex justify-content-between align-items-center mb-2 pb-1 border-bottom border-secondary border-opacity-25">
-      <div class="d-flex align-items-center gap-1">
-        <span class="badge bg-primary font-monospace" style="font-size: 0.72rem;">
-          {{ scopeBadgeLabel() }}
-        </span>
-      </div>
-      <button type="button" class="audio-action-btn" (click)="state.clearAllSelections()" title="Deselect all (Esc)">
-        ✕ Deselect
-      </button>
-    </div>
-
-    <p class="muted mb-2" style="font-size: 0.72rem;">
-      Bulk-adjust video sound levels, ducking, and background music attenuation across all {{ state.multiSelectionCount() }} target clips simultaneously.
-    </p>
-
-    <!-- Bulk Channel 1: Video Sound Volume -->
-    <div class="inner-audio-card mb-2">
-      <div class="d-flex justify-content-between align-items-center mb-1">
-        <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">🎥 Bulk Video Sound Level:</span>
-        <div class="d-flex gap-1">
-          <button type="button" class="audio-action-btn" style="font-size: 0.65rem; padding: 2px 7px;" (click)="state.setBatchMute(true)">
-            🔇 Mute All
-          </button>
-          <button type="button" class="audio-action-btn" style="font-size: 0.65rem; padding: 2px 7px;" (click)="state.setBatchMute(false)">
-            🔊 Unmute All
-          </button>
-        </div>
-      </div>
-      <div class="d-flex gap-1 mb-2">
-        <button type="button" class="audio-preset-chip" (click)="state.setBatchVolume(0)">0% Mute</button>
-        <button type="button" class="audio-preset-chip" (click)="state.setBatchVolume(0.5)">50%</button>
-        <button type="button" class="audio-preset-chip" (click)="state.setBatchVolume(1.0)">100%</button>
-        <button type="button" class="audio-preset-chip" (click)="state.setBatchVolume(1.5)">150%</button>
-        <button type="button" class="audio-preset-chip" (click)="state.setBatchVolume(2.0)">200%</button>
-      </div>
-    </div>
-
-    <!-- Bulk Channel 2: Background Music Level During Selected Clips -->
-    @if (state.hasMusicOnTimeline()) {
-      <div class="inner-audio-card mb-2" style="border-left: 3px solid #8b5cf6;">
-        <div class="d-flex justify-content-between align-items-center mb-1">
-          <span style="font-size: 0.72rem; color: #a78bfa; font-weight: 600;">🎵 Music Level During Target Clips:</span>
-          <span class="badge" style="font-size: 0.62rem; background: rgba(139, 92, 246, 0.2); color: #c4b5fd;">
-            Audio Ducking
-          </span>
-        </div>
-        <p class="muted mb-2" style="font-size: 0.68rem; line-height: 1.3;">
-          Automatically lower or mute background music whenever the playhead passes through these clips.
-        </p>
-        <div class="d-flex gap-1 mb-1">
-          <button type="button" class="audio-preset-chip" (click)="state.setBatchMusicVolumeOverride(null)">Track Default</button>
-          <button type="button" class="audio-preset-chip" (click)="state.setBatchMusicVolumeOverride(0.25)">25% Ducked</button>
-          <button type="button" class="audio-preset-chip" (click)="state.setBatchMusicVolumeOverride(0.5)">50% Soft</button>
-          <button type="button" class="audio-preset-chip" (click)="state.setBatchMusicVolumeOverride(0)">0% Mute Music</button>
-        </div>
-      </div>
-    }
-
-    <!-- Bulk Background Audio Interaction -->
-    <div class="inner-audio-card mb-2">
-      <span style="font-size: 0.72rem; color: var(--text-dim); display: block; margin-bottom: 4px; font-weight: 600;">
-        Background Audio Interaction:
-      </span>
-      <div class="duck-seg-group">
-        <button type="button" class="duck-seg-btn" (click)="state.setBatchDuckMode('Normal')" title="Both video audio and music play normally">
-          <span>🎵</span> Normal
-        </button>
-        <button type="button" class="duck-seg-btn" (click)="state.setBatchDuckMode('Ducked')" title="Automatically duck background music during these clips">
-          <span>🔉</span> Ducked Music
-        </button>
-        <button type="button" class="duck-seg-btn" (click)="state.setBatchDuckMode('MuteOnAudio')" title="Mutes video audio when other audio is active">
-          <span>🔇</span> Mute on Audio
-        </button>
-        <button type="button" class="duck-seg-btn" (click)="state.setBatchDuckMode('LeadVoice')" title="Lead Voice (prioritizes speech on these clips)">
-          <span>🎙</span> Lead Voice
-        </button>
-      </div>
-    </div>
-  </div>
-}
-
-<!-- ── CASE B: SELECTED MUSIC TRACK INSPECTOR ──────────────────── -->
-@else if (state.selectedMusicTrack(); as musicTrack) {
+<!-- ── A MUSIC TRACK IS SELECTED ───────────────────────────────── -->
+@if (state.selectedMusicTrack(); as musicTrack) {
   <div class="audio-card clip-inspector-card">
-    <!-- Music Track Header -->
     <div class="clip-inspector-head mb-2 pb-2 border-bottom border-secondary border-opacity-25">
       <div class="d-flex justify-content-between align-items-start gap-2">
         <div style="overflow: hidden; flex: 1;">
@@ -100,35 +17,26 @@
             </div>
           </div>
           <div class="muted mono d-flex gap-2 align-items-center mt-1" style="font-size: 0.7rem;">
-            <span>⏱ Start: {{ musicTrack.startSeconds | number:'1.2-2' }}s</span>
+            <span>Start {{ musicTrack.startSeconds | number:'1.2-2' }}s</span>
             <span>·</span>
-            <span>Dur: {{ state.musicTrackDurationSeconds(musicTrack) | number:'1.1-1' }}s</span>
+            <span>{{ state.musicTrackDurationSeconds(musicTrack) | number:'1.1-1' }}s</span>
             @if (musicTrack.muted) {
               <span class="badge bg-danger text-light" style="font-size: 0.6rem; padding: 1px 4px;">MUTED</span>
             }
           </div>
         </div>
         <div class="d-flex gap-1 align-items-center flex-wrap justify-content-end">
-          <span class="track-badge-pill" style="background: #10b981; color: #fff;">A1</span>
-          <button type="button" class="audio-action-btn" style="font-size: 0.65rem; padding: 2px 7px;" (click)="state.seekToMusicTrack(musicTrack.key)" title="Seek Playhead to track start">
-            ▶ Seek
-          </button>
-          <button type="button" class="audio-action-btn" style="font-size: 0.65rem; padding: 2px 7px;" (click)="state.duplicateMusicTrack(musicTrack.key)" title="Duplicate this music track">
-            ⧉ Copy
-          </button>
-          <button type="button" class="audio-action-btn text-danger" style="font-size: 0.65rem; padding: 2px 7px;" (click)="state.removeMusicTrack(musicTrack.key)" title="Delete music track">
-            🗑
-          </button>
-          <button type="button" class="audio-action-btn" style="font-size: 0.65rem; padding: 2px 8px;" (click)="state.clearAllSelections()" title="Deselect (Esc)">
-            ✕
-          </button>
+          <span class="track-badge-pill" style="background: #8b5cf6; color: #fff;">A1</span>
+          <button type="button" class="audio-action-btn" style="font-size: 0.65rem; padding: 2px 7px;" (click)="state.seekToMusicTrack(musicTrack.key)" title="Move the playhead to this track">▶ Seek</button>
+          <button type="button" class="audio-action-btn" style="font-size: 0.65rem; padding: 2px 7px;" (click)="state.duplicateMusicTrack(musicTrack.key)" title="Duplicate this music track">⧉ Copy</button>
+          <button type="button" class="audio-action-btn text-danger" style="font-size: 0.65rem; padding: 2px 7px;" (click)="state.removeMusicTrack(musicTrack.key)" title="Delete this music track">🗑</button>
+          <button type="button" class="audio-action-btn" style="font-size: 0.65rem; padding: 2px 8px;" (click)="state.clearAllSelections()" title="Deselect (Esc)">✕</button>
         </div>
       </div>
 
-      <!-- Quick Switch Music Track Asset -->
       @if (state.musicCandidates().length > 1) {
         <div class="mt-2 d-flex align-items-center gap-2">
-          <span style="font-size: 0.68rem; color: var(--text-dim); white-space: nowrap;">Replace Audio:</span>
+          <span style="font-size: 0.68rem; color: var(--text-dim); white-space: nowrap;">Audio file:</span>
           <select class="form-select form-select-sm" style="font-size: 0.72rem; background: var(--bg-surface); color: var(--text); border-color: rgba(255,255,255,0.15);"
                   [ngModel]="musicTrack.assetId" (ngModelChange)="state.setMusicTrackAsset(musicTrack.key, $event)">
             @for (cand of state.musicCandidates(); track cand.id) {
@@ -139,103 +47,82 @@
       }
     </div>
 
-    <!-- Live Track Volume & Mute Row -->
+    <!-- 1. LEVEL -->
     <div class="inner-audio-card mb-2">
       <div class="d-flex justify-content-between align-items-center mb-1">
         <div class="d-flex align-items-center gap-2">
-          <button type="button" class="btn-mute-toggle" [class.muted]="musicTrack.muted || musicTrack.volume === 0" (click)="state.toggleMusicTrackMute(musicTrack.key)" [title]="musicTrack.muted ? 'Unmute' : 'Mute'">
-            {{ (musicTrack.muted || musicTrack.volume === 0) ? '🔇' : '🔊' }}
+          <button type="button" class="btn-mute-toggle" [class.muted]="musicTrack.muted" (click)="state.toggleMusicTrackMute(musicTrack.key)" [title]="musicTrack.muted ? 'Unmute this track' : 'Mute this track'">
+            {{ musicTrack.muted ? '🔇' : '🔊' }}
           </button>
-          <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">Track Volume</span>
+          <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">Track level</span>
         </div>
-        <span class="mono fw-bold" style="font-size: 0.75rem; color: #38bdf8;">
-          {{ musicTrack.muted ? '0% (Muted)' : (Math.round(musicTrack.volume * 100) + '%') }}
-          @if (!musicTrack.muted) {
-            <small class="text-secondary">({{ state.volumeToDb(musicTrack.volume) }})</small>
-          }
+        <span class="mono fw-bold" style="font-size: 0.72rem; color: var(--brand);">
+          {{ Math.round(musicTrack.volume * 100) }}% ({{ state.volumeToDb(musicTrack.volume) }})
         </span>
       </div>
-
-      <div class="d-flex gap-1 mb-2 flex-wrap">
-        <button type="button" class="audio-preset-chip"
-                [class.active]="musicTrack.muted || musicTrack.volume === 0" (click)="state.setMusicTrackVolume(musicTrack.key, 0)">0% Mute</button>
-        <button type="button" class="audio-preset-chip"
-                [class.active]="!musicTrack.muted && musicTrack.volume === 0.25" (click)="state.setMusicTrackVolume(musicTrack.key, 0.25)">25%</button>
-        <button type="button" class="audio-preset-chip"
-                [class.active]="!musicTrack.muted && musicTrack.volume === 0.5" (click)="state.setMusicTrackVolume(musicTrack.key, 0.5)">50%</button>
-        <button type="button" class="audio-preset-chip"
-                [class.active]="!musicTrack.muted && musicTrack.volume === 0.8" (click)="state.setMusicTrackVolume(musicTrack.key, 0.8)">80%</button>
-        <button type="button" class="audio-preset-chip"
-                [class.active]="!musicTrack.muted && musicTrack.volume === 1.0" (click)="state.setMusicTrackVolume(musicTrack.key, 1.0)">100%</button>
-        <button type="button" class="audio-preset-chip"
-                [class.active]="!musicTrack.muted && musicTrack.volume === 1.5" (click)="state.setMusicTrackVolume(musicTrack.key, 1.5)">150%</button>
-      </div>
-
-      <input type="range" class="form-range w-100" min="0" max="2.0" step="0.05"
+      <input type="range" class="form-range w-100" min="0" max="1.5" step="0.01"
              [ngModel]="musicTrack.volume" (ngModelChange)="state.setMusicTrackVolume(musicTrack.key, $event)" />
+      <p class="muted mb-0 mt-1" style="font-size: 0.66rem;">
+        This track alone. The A1 fader in the Mix view scales every music track together.
+      </p>
     </div>
 
-    <!-- Default Video Sound Policy Under This Track -->
-    <div class="inner-audio-card mb-2" style="border-left: 3px solid #38bdf8;">
+    <!-- 2. OVERLAP RULE -->
+    <div class="inner-audio-card mb-2" style="border-left: 3px solid #8b5cf6;">
       <div class="d-flex justify-content-between align-items-center mb-1">
         <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">
-          Video Sound Under This Track:
+          When video sound and this track overlap:
         </span>
-        <span class="badge"
-              [class.bg-secondary]="!musicTrack.clipAudioMode || musicTrack.clipAudioMode === 'Default'"
-              [class.bg-danger]="musicTrack.clipAudioMode === 'MuteUnderMusic'"
-              [class.bg-success]="musicTrack.clipAudioMode === 'KeepAudio'"
-              [class.bg-warning]="musicTrack.clipAudioMode === 'Ducked'"
-              style="font-size: 0.65rem;">
-          {{ !musicTrack.clipAudioMode || musicTrack.clipAudioMode === 'Default' ? 'Keep Sound (Default)' : (musicTrack.clipAudioMode === 'MuteUnderMusic' ? 'Mute Video' : (musicTrack.clipAudioMode === 'KeepAudio' ? 'Keep Video Sound' : 'Duck (25%)')) }}
-        </span>
+        <span class="badge bg-secondary font-monospace" style="font-size: 0.65rem;">Track rule</span>
       </div>
-      <p class="muted mb-2" style="font-size: 0.68rem; line-height: 1.3;">
-        Default policy for video clips overlapping this music track (can be customized per clip):
+
+      <div class="duck-seg-grid mb-1">
+        <button type="button" class="duck-seg-btn"
+                [class.active]="(musicTrack.overlapRule ?? 'Inherit') === 'Inherit'"
+                (click)="state.setMusicTrackOverlapRule(musicTrack.key, 'Inherit')"
+                title="Follow the project default set in the Mix view">
+          Inherit
+        </button>
+        @for (choice of overlapChoices; track choice.id) {
+          <button type="button" class="duck-seg-btn"
+                  [class.active]="musicTrack.overlapRule === choice.id"
+                  (click)="state.setMusicTrackOverlapRule(musicTrack.key, choice.id)"
+                  [title]="choice.hint">
+            {{ choice.label }}
+          </button>
+        }
+      </div>
+
+      <p class="muted mb-2" style="font-size: 0.68rem;">
+        @if ((musicTrack.overlapRule ?? 'Inherit') === 'Inherit') {
+          Following the project default: <strong>{{ state.overlapRuleLabel(state.projectOverlapRule()) }}</strong>.
+        } @else {
+          Applies to every clip under this track, unless that clip sets its own rule.
+        }
       </p>
-      <div class="d-flex gap-1 flex-wrap mb-2">
-        <button type="button" class="duck-seg-btn flex-fill"
-                [class.active]="!musicTrack.clipAudioMode || musicTrack.clipAudioMode === 'Default' || musicTrack.clipAudioMode === 'KeepAudio'"
-                (click)="state.setMusicTrackClipAudioMode(musicTrack.key, 'KeepAudio')"
-                title="Play both video camera sound and background music together">
-          <span>🔊</span> Play Both
-        </button>
-        <button type="button" class="duck-seg-btn flex-fill"
-                [class.active]="musicTrack.clipAudioMode === 'Ducked'"
-                (click)="state.setMusicTrackClipAudioMode(musicTrack.key, 'Ducked')"
-                title="Lower video clip audio to 25% while this music plays">
-          <span>🔉</span> Duck Video (25%)
-        </button>
-        <button type="button" class="duck-seg-btn flex-fill"
-                [class.active]="musicTrack.clipAudioMode === 'MuteUnderMusic'"
-                (click)="state.setMusicTrackClipAudioMode(musicTrack.key, 'MuteUnderMusic')"
-                title="Mute video audio completely while this music plays">
-          <span>🔇</span> Music Only
-        </button>
-      </div>
-      <div class="d-flex justify-content-between align-items-center pt-1 border-top border-secondary border-opacity-10">
-        <small class="muted" style="font-size: 0.68rem;">
+
+      <div class="d-flex justify-content-between align-items-center">
+        <span class="muted" style="font-size: 0.68rem;">
           {{ state.clipsUnderSelectedMusic().length }} clip(s) under this track
-        </small>
-        <button type="button" class="audio-action-btn primary" style="font-size: 0.68rem; padding: 2px 8px;"
+        </span>
+        <button type="button" class="audio-action-btn primary" style="font-size: 0.65rem; padding: 2px 8px;"
                 (click)="state.selectClipsUnderSelectedMusic()"
-                [disabled]="state.clipsUnderSelectedMusic().length === 0"
-                title="Select only the video clips that overlap with this music track">
-          🎯 Select These ({{ state.clipsUnderSelectedMusic().length }}) Clips
+                title="Select those clips so you can edit them together">
+          Select them
         </button>
       </div>
     </div>
 
-    <!-- Acoustic Fades (Fade-In / Fade-Out) -->
+    <!-- 3. FADES -->
     <div class="inner-audio-card mb-2">
       <div class="d-flex justify-content-between align-items-center mb-1">
-        <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">Acoustic Fades</span>
-        <small class="muted mono" style="font-size: 0.65rem;">Smooth In/Out</small>
+        <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">Fades</span>
+        <small class="muted mono" style="font-size: 0.65rem;">In / Out</small>
       </div>
       <div class="row g-2 mb-2">
         <div class="col-6">
           <label class="fade-stepper-label">
-            <span>📈 Fade-In</span>
+            <span>📈 Fade in</span>
             <span class="mono">{{ (musicTrack.fadeInSeconds ?? 0) | number:'1.1-1' }}s</span>
           </label>
           <div class="fade-stepper-group">
@@ -247,7 +134,7 @@
         </div>
         <div class="col-6">
           <label class="fade-stepper-label">
-            <span>📉 Fade-Out</span>
+            <span>📉 Fade out</span>
             <span class="mono">{{ (musicTrack.fadeOutSeconds ?? 0) | number:'1.1-1' }}s</span>
           </label>
           <div class="fade-stepper-group">
@@ -261,28 +148,25 @@
       <div class="d-flex gap-1">
         <button type="button" class="audio-preset-chip"
                 [class.active]="!musicTrack.fadeInSeconds && !musicTrack.fadeOutSeconds"
-                (click)="state.setMusicTrackFadeIn(musicTrack.key, 0); state.setMusicTrackFadeOut(musicTrack.key, 0)">0s (Off)</button>
-        <button type="button" class="audio-preset-chip"
-                (click)="state.setMusicTrackFadeIn(musicTrack.key, 1.0); state.setMusicTrackFadeOut(musicTrack.key, 1.0)">1.0s</button>
-        <button type="button" class="audio-preset-chip"
-                (click)="state.setMusicTrackFadeIn(musicTrack.key, 2.0); state.setMusicTrackFadeOut(musicTrack.key, 2.0)">2.0s</button>
-        <button type="button" class="audio-preset-chip"
-                (click)="state.setMusicTrackFadeIn(musicTrack.key, 3.0); state.setMusicTrackFadeOut(musicTrack.key, 3.0)">3.0s</button>
+                (click)="state.setMusicTrackFadeIn(musicTrack.key, 0); state.setMusicTrackFadeOut(musicTrack.key, 0)">Off</button>
+        <button type="button" class="audio-preset-chip" (click)="state.setMusicTrackFadeIn(musicTrack.key, 1.0); state.setMusicTrackFadeOut(musicTrack.key, 1.0)">1.0s</button>
+        <button type="button" class="audio-preset-chip" (click)="state.setMusicTrackFadeIn(musicTrack.key, 2.0); state.setMusicTrackFadeOut(musicTrack.key, 2.0)">2.0s</button>
+        <button type="button" class="audio-preset-chip" (click)="state.setMusicTrackFadeIn(musicTrack.key, 3.0); state.setMusicTrackFadeOut(musicTrack.key, 3.0)">3.0s</button>
       </div>
     </div>
 
-    <!-- Audio Clip Trimming -->
-    <div class="inner-audio-card mb-2">
+    <!-- 4. TRIM -->
+    <div class="inner-audio-card">
       <div class="d-flex justify-content-between align-items-center mb-1">
-        <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">Audio Clip Trimming</span>
+        <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">Trim</span>
         <small class="muted mono" style="font-size: 0.65rem;">
-          Asset Total: {{ (state.musicTrackAsset(musicTrack)?.durationSeconds ?? 0) | number:'1.1-1' }}s
+          File is {{ (state.musicTrackAsset(musicTrack)?.durationSeconds ?? 0) | number:'1.1-1' }}s
         </small>
       </div>
       <div class="row g-2">
         <div class="col-6">
           <label class="fade-stepper-label">
-            <span>✂ Trim In</span>
+            <span>✂ Start</span>
             <span class="mono">{{ (musicTrack.trimStartSeconds ?? 0) | number:'1.1-1' }}s</span>
           </label>
           <div class="fade-stepper-group">
@@ -294,7 +178,7 @@
         </div>
         <div class="col-6">
           <label class="fade-stepper-label">
-            <span>✂ Trim Out</span>
+            <span>✂ End</span>
             <span class="mono">{{ (musicTrack.trimEndSeconds ?? (state.musicTrackAsset(musicTrack)?.durationSeconds ?? 0)) | number:'1.1-1' }}s</span>
           </label>
           <div class="fade-stepper-group">
@@ -309,340 +193,262 @@
   </div>
 }
 
-<!-- ── CASE C: SINGLE CLIP AUDIO INSPECTOR & LIVE DUAL BALANCER ── -->
+<!-- ── SEVERAL CLIPS ARE SELECTED ──────────────────────────────── -->
+@else if (state.isMultiSelection()) {
+  <div class="audio-card batch-inspector-card">
+    <div class="d-flex justify-content-between align-items-center mb-2 pb-1 border-bottom border-secondary border-opacity-25">
+      <span class="badge bg-primary font-monospace" style="font-size: 0.72rem;">
+        {{ state.multiSelectionCount() }} clips selected
+      </span>
+      <button type="button" class="audio-action-btn" (click)="state.clearAllSelections()" title="Deselect all (Esc)">✕ Deselect</button>
+    </div>
+
+    <!-- APPLY TO -->
+    <div class="inner-audio-card mb-2">
+      <label class="d-block mb-1" style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">Apply changes to</label>
+      <select class="form-select form-select-sm" style="font-size: 0.72rem; background: var(--bg-surface); color: var(--text); border-color: rgba(255,255,255,0.15);"
+              [ngModel]="state.targetScope()" (ngModelChange)="state.selectScopeOption($event)">
+        <option value="selected">Selected clips ({{ state.selectedClipsCount() }})</option>
+        <option value="current">Clip under the playhead</option>
+        <option value="under_music">Clips under any music ({{ state.clipsUnderMusic().length }})</option>
+        <option value="all">Every clip ({{ state.included().length }})</option>
+      </select>
+      <p class="muted mb-0 mt-1" style="font-size: 0.66rem;">
+        Every control below writes to {{ scopeLabel() }}.
+      </p>
+    </div>
+
+    <!-- 1. LEVEL -->
+    <div class="inner-audio-card mb-2">
+      <div class="d-flex justify-content-between align-items-center mb-1">
+        <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">Video sound level</span>
+        <div class="d-flex gap-1">
+          <button type="button" class="audio-action-btn" style="font-size: 0.65rem; padding: 2px 7px;" (click)="state.setBatchMute(true)">🔇 Mute</button>
+          <button type="button" class="audio-action-btn" style="font-size: 0.65rem; padding: 2px 7px;" (click)="state.setBatchMute(false)">🔊 Unmute</button>
+        </div>
+      </div>
+      <div class="d-flex gap-1">
+        <button type="button" class="audio-preset-chip" (click)="state.setBatchVolume(0)">0%</button>
+        <button type="button" class="audio-preset-chip" (click)="state.setBatchVolume(0.5)">50%</button>
+        <button type="button" class="audio-preset-chip" (click)="state.setBatchVolume(1.0)">100%</button>
+        <button type="button" class="audio-preset-chip" (click)="state.setBatchVolume(1.5)">150%</button>
+        <button type="button" class="audio-preset-chip" (click)="state.setBatchVolume(2.0)">200%</button>
+      </div>
+    </div>
+
+    <!-- 2. OVERLAP RULE -->
+    <div class="inner-audio-card" style="border-left: 3px solid #8b5cf6;">
+      <div class="d-flex justify-content-between align-items-center mb-1">
+        <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">
+          When video sound and music overlap:
+        </span>
+        <span class="badge bg-secondary font-monospace" style="font-size: 0.65rem;">
+          {{ batchRule() === null ? 'Mixed' : state.overlapRuleLabel($any(batchRule())) }}
+        </span>
+      </div>
+
+      <div class="duck-seg-grid mb-1">
+        <button type="button" class="duck-seg-btn"
+                [class.active]="batchRule() === 'Inherit'"
+                (click)="state.setBatchOverlapRule('Inherit')"
+                title="Follow the music track, or the project default">
+          Inherit
+        </button>
+        @for (choice of overlapChoices; track choice.id) {
+          <button type="button" class="duck-seg-btn"
+                  [class.active]="batchRule() === choice.id"
+                  (click)="state.setBatchOverlapRule(choice.id)"
+                  [title]="choice.hint">
+            {{ choice.label }}
+          </button>
+        }
+      </div>
+
+      <p class="muted mb-0" style="font-size: 0.68rem;">
+        A rule set here beats the music track and the project default. Choose Inherit to hand
+        the decision back.
+      </p>
+    </div>
+  </div>
+}
+
+<!-- ── ONE CLIP IS SELECTED ────────────────────────────────────── -->
 @else if (state.activeTargetAudioItem(); as target) {
   <div class="audio-card clip-inspector-card">
-    <!-- Clip Identity & Scope Header -->
     <div class="clip-inspector-head mb-2 pb-2 border-bottom border-secondary border-opacity-25">
       <div class="d-flex justify-content-between align-items-start gap-2">
         <div style="overflow: hidden; flex: 1;">
           <div class="clip-name fw-bold" [title]="target.name" style="font-size: 0.82rem; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
             {{ target.name }}
           </div>
-          <div class="muted mono d-flex gap-2 align-items-center mt-1" style="font-size: 0.7rem;">
-            <span>Dur: {{ target.duration | number:'1.1-1' }}s</span>
-            <span>·</span>
-            <span class="badge" style="background: rgba(255,255,255,0.08); font-size: 0.65rem; color: var(--text-dim);">
-              {{ scopeBadgeLabel() }}
-            </span>
+          <div class="muted mono mt-1" style="font-size: 0.7rem;">
+            {{ target.duration | number:'1.1-1' }}s
           </div>
         </div>
         <div class="d-flex gap-1 align-items-center">
           <span class="track-badge-pill"
-                [style.background]="target.trackId === 'V1' ? '#3b82f6' : (target.trackId === 'V2' ? '#06b6d4' : (target.trackId === 'A1' ? '#8b5cf6' : '#a855f7'))">
+                [style.background]="target.trackId === 'V1' ? '#3b82f6' : (target.trackId === 'V2' ? '#06b6d4' : '#8b5cf6')">
             {{ target.trackId }}
           </span>
-          <button type="button" class="audio-action-btn" style="font-size: 0.65rem; padding: 2px 8px;" (click)="state.clearAllSelections()" title="Deselect clip (Esc)">
-            ✕ Deselect
-          </button>
+          <button type="button" class="audio-action-btn" style="font-size: 0.65rem; padding: 2px 8px;" (click)="state.clearAllSelections()" title="Deselect (Esc)">✕ Deselect</button>
         </div>
       </div>
     </div>
 
-    <!-- ══ LIVE AUDIO BALANCER: DUAL CHANNEL MIXER ══ -->
-
-    <!-- CHANNEL 1: VIDEO SOUND (CAMERA AUDIO / SFX) -->
+    <!-- 1. LEVEL -->
     <div class="inner-audio-card mb-2" style="border-left: 3px solid #3b82f6;">
       <div class="d-flex justify-content-between align-items-center mb-1">
         <div class="d-flex align-items-center gap-2">
           <button type="button" class="btn-mute-toggle" [class.muted]="target.volume === 0" (click)="state.toggleClipMute(target.clipId)" [title]="target.volume === 0 ? 'Unmute' : 'Mute'">
             {{ target.volume === 0 ? '🔇' : '🔊' }}
           </button>
-          <span style="font-size: 0.72rem; color: #93c5fd; font-weight: 700;">🎥 Video Sound (Camera Audio)</span>
+          <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">Video sound</span>
         </div>
-        <span class="mono fw-bold" style="font-size: 0.75rem; color: var(--brand);">
-          {{ Math.round(target.volume * 100) }}% <small class="text-secondary">({{ state.volumeToDb(target.volume) }})</small>
+        <span class="mono fw-bold" style="font-size: 0.72rem; color: var(--brand);">
+          {{ Math.round(target.volume * 100) }}% ({{ state.volumeToDb(target.volume) }})
         </span>
       </div>
-
       <div class="d-flex gap-1 mb-2">
-        <button type="button" class="audio-preset-chip"
-                [class.active]="target.volume === 0" (click)="state.setClipVolume(target.clipId, 0)">0% Mute</button>
-        <button type="button" class="audio-preset-chip"
-                [class.active]="target.volume === 0.5" (click)="state.setClipVolume(target.clipId, 0.5)">50%</button>
-        <button type="button" class="audio-preset-chip"
-                [class.active]="target.volume === 1.0" (click)="state.setClipVolume(target.clipId, 1.0)">100%</button>
-        <button type="button" class="audio-preset-chip"
-                [class.active]="target.volume === 1.5" (click)="state.setClipVolume(target.clipId, 1.5)">150%</button>
-        <button type="button" class="audio-preset-chip"
-                [class.active]="target.volume === 2.0" (click)="state.setClipVolume(target.clipId, 2.0)">200%</button>
+        <button type="button" class="audio-preset-chip" [class.active]="target.volume === 0" (click)="state.setClipVolume(target.clipId, 0)">0%</button>
+        <button type="button" class="audio-preset-chip" [class.active]="target.volume === 0.5" (click)="state.setClipVolume(target.clipId, 0.5)">50%</button>
+        <button type="button" class="audio-preset-chip" [class.active]="target.volume === 1" (click)="state.setClipVolume(target.clipId, 1)">100%</button>
+        <button type="button" class="audio-preset-chip" [class.active]="target.volume === 1.5" (click)="state.setClipVolume(target.clipId, 1.5)">150%</button>
+        <button type="button" class="audio-preset-chip" [class.active]="target.volume === 2" (click)="state.setClipVolume(target.clipId, 2)">200%</button>
       </div>
-
-      <input type="range" class="form-range w-100" min="0" max="2.0" step="0.05"
-             [ngModel]="target.volume" (ngModelChange)="state.setClipVolume(target.clipId, $event)"
-             title="Adjust video camera sound live" />
-
-      <!-- Playback Mode for This Clip -->
-      <div class="d-flex gap-1 mt-2 pt-2 border-top border-secondary border-opacity-10">
-        <button type="button" class="duck-seg-btn flex-fill"
-                [class.active]="target.volume > 0 && target.duckMode !== 'MuteOnAudio'"
-                (click)="state.setClipVolume(target.clipId, target.volume > 0 ? target.volume : 1.0); state.setClipDuckMode(target.clipId, 'Normal')"
-                title="Play both original video camera sound and background music together">
-          <span>🔊</span> Play Both Sounds
-        </button>
-        <button type="button" class="duck-seg-btn flex-fill"
-                [class.active]="target.volume === 0"
-                (click)="state.setClipVolume(target.clipId, 0)"
-                title="Mute this clip's camera sound (Music Only)">
-          <span>🔇</span> Music Only
-        </button>
-        <button type="button" class="duck-seg-btn flex-fill"
-                [class.active]="target.duckMode === 'MuteOnAudio'"
-                (click)="state.setClipDuckMode(target.clipId, 'MuteOnAudio')"
-                title="Auto-mute camera sound when music or voiceover is playing">
-          <span>⚡</span> Auto-Mute
-        </button>
-      </div>
+      <input type="range" class="form-range w-100" min="0" max="2" step="0.01"
+             [ngModel]="target.volume" (ngModelChange)="state.setClipVolume(target.clipId, $event)" />
     </div>
 
-    <!-- CHANNEL 2: BACKGROUND MUSIC LEVEL DURING THIS CLIP (AUDIO DUCKING) -->
+    <!-- 2. OVERLAP RULE + WHAT ACTUALLY WON -->
     <div class="inner-audio-card mb-2" style="border-left: 3px solid #8b5cf6;">
       <div class="d-flex justify-content-between align-items-center mb-1">
-        <div class="d-flex align-items-center gap-1">
-          <span style="font-size: 0.8rem;">🎵</span>
-          <span style="font-size: 0.72rem; color: #c4b5fd; font-weight: 700;">Background Music During This Clip</span>
-        </div>
-        <span class="mono fw-bold" style="font-size: 0.75rem; color: #a78bfa;">
-          {{ getMusicVolumeDisplay(target.musicVolumeOverride) }}
+        <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">
+          When video sound and music overlap:
         </span>
+        <span class="badge bg-secondary font-monospace" style="font-size: 0.65rem;">Clip rule</span>
       </div>
 
-      <p class="muted mb-2" style="font-size: 0.68rem; line-height: 1.3;">
-        Lower or duck background music while speech occurs on this clip. Music automatically returns to normal when this clip ends.
-      </p>
-
-      <!-- Preset Ducking Levels -->
-      <div class="d-flex gap-1 mb-2">
-        <button type="button" class="audio-preset-chip"
-                [class.active]="target.musicVolumeOverride === null || target.musicVolumeOverride === undefined"
-                (click)="state.setClipMusicVolumeOverride(target.clipId, null)"
-                title="Use track default music level without ducking">
-          Track Default
+      <div class="duck-seg-grid mb-1">
+        <button type="button" class="duck-seg-btn"
+                [class.active]="target.overlapRule === 'Inherit'"
+                (click)="state.setClipOverlapRule(target.clipId, 'Inherit')"
+                title="Follow the music track above this clip, or the project default">
+          Inherit
         </button>
-        <button type="button" class="audio-preset-chip"
-                [class.active]="target.musicVolumeOverride === 0.25"
-                (click)="state.setClipMusicVolumeOverride(target.clipId, 0.25)"
-                title="Duck music down to 25% so video voice is loud and clear">
-          25% Ducked
-        </button>
-        <button type="button" class="audio-preset-chip"
-                [class.active]="target.musicVolumeOverride === 0.5"
-                (click)="state.setClipMusicVolumeOverride(target.clipId, 0.5)"
-                title="Lower music to 50%">
-          50% Soft
-        </button>
-        <button type="button" class="audio-preset-chip"
-                [class.active]="target.musicVolumeOverride === 0"
-                (click)="state.setClipMusicVolumeOverride(target.clipId, 0)"
-                title="Silence music completely during this clip">
-          0% Mute Music
-        </button>
-      </div>
-
-      <!-- Live Slider for Background Music During This Clip -->
-      <input type="range" class="form-range w-100" min="0" max="1.5" step="0.05"
-             [ngModel]="target.musicVolumeOverride !== null && target.musicVolumeOverride !== undefined ? target.musicVolumeOverride : 1.0"
-             (ngModelChange)="state.setClipMusicVolumeOverride(target.clipId, $event)"
-             title="Adjust background music volume live during this clip" />
-
-      <!-- Music Status Indicator for This Clip -->
-      <div class="d-flex align-items-center gap-1 mt-2 pt-1 border-top border-secondary border-opacity-10" style="font-size: 0.68rem;">
-        @if (isMusicActiveForClip(target.clipId)) {
-          <span style="color: #34d399;">●</span>
-          <span style="color: #cbd5e1;">Background music active during this clip</span>
-        } @else {
-          <span style="color: var(--text-dim);">○</span>
-          <span class="muted">No background music overlapping this clip on timeline</span>
+        @for (choice of overlapChoices; track choice.id) {
+          <button type="button" class="duck-seg-btn"
+                  [class.active]="target.overlapRule === choice.id"
+                  (click)="state.setClipOverlapRule(target.clipId, choice.id)"
+                  [title]="choice.hint">
+            {{ choice.label }}
+          </button>
         }
       </div>
+
+      <!-- The line that makes precedence visible instead of guessable. -->
+      <div class="resolved-rule-line">
+        <span class="resolved-dot" [class.inactive]="!resolved()?.hasMusicUnder"></span>
+        <span>{{ resolvedLine() }}</span>
+      </div>
+
+      @if (showsDuckDepth()) {
+        <div class="mt-2">
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <span style="font-size: 0.68rem; color: var(--text-dim);">
+              Drop the {{ duckDepthTarget() }} to
+            </span>
+            <span class="mono fw-bold" style="font-size: 0.7rem; color: var(--brand);">
+              {{ effectiveDuckLevel(target.clipId) * 100 | number:'1.0-0' }}%
+              @if (target.duckLevelOverride === null) { <span class="muted">(project)</span> }
+            </span>
+          </div>
+          <div class="d-flex gap-1">
+            <button type="button" class="audio-preset-chip"
+                    [class.active]="target.duckLevelOverride === null"
+                    (click)="state.setClipDuckLevelOverride(target.clipId, null)">Project</button>
+            @for (preset of duckPresets; track preset) {
+              <button type="button" class="audio-preset-chip"
+                      [class.active]="target.duckLevelOverride === preset"
+                      (click)="state.setClipDuckLevelOverride(target.clipId, preset)">
+                {{ preset * 100 | number:'1.0-0' }}%
+              </button>
+            }
+          </div>
+        </div>
+      }
     </div>
 
-    <!-- Acoustic Fades (Exponential Curves) -->
-    @if (!target.isTimelineItem) {
-      <div class="inner-audio-card mb-2">
-        <div class="d-flex justify-content-between align-items-center mb-1">
-          <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">Acoustic Fades (Exponential Curves)</span>
-          <small class="muted mono" style="font-size: 0.65rem;">Max: {{ target.duration | number:'1.1-1' }}s</small>
-        </div>
-
-        <div class="row g-2 mb-2">
-          <!-- Fade-In Stepper -->
-          <div class="col-6">
-            <label class="fade-stepper-label">
-              <span>📈 Fade-In</span>
-              <span class="mono">{{ target.fadeInSeconds | number:'1.1-1' }}s</span>
-            </label>
-            <div class="fade-stepper-group">
-              <button type="button" class="stepper-btn" (click)="state.adjustClipFadeIn(target.clipId, -0.1)" [disabled]="target.fadeInSeconds <= 0">−</button>
-              <input type="number" class="stepper-input" min="0" [max]="Math.max(0, target.duration - target.fadeOutSeconds)" step="0.1"
-                     [ngModel]="target.fadeInSeconds" (ngModelChange)="state.setClipFadeIn(target.clipId, +$event)" />
-              <button type="button" class="stepper-btn" (click)="state.adjustClipFadeIn(target.clipId, 0.1)" [disabled]="target.fadeInSeconds + target.fadeOutSeconds >= target.duration">+</button>
-            </div>
-          </div>
-
-          <!-- Fade-Out Stepper -->
-          <div class="col-6">
-            <label class="fade-stepper-label">
-              <span>📉 Fade-Out</span>
-              <span class="mono">{{ target.fadeOutSeconds | number:'1.1-1' }}s</span>
-            </label>
-            <div class="fade-stepper-group">
-              <button type="button" class="stepper-btn" (click)="state.adjustClipFadeOut(target.clipId, -0.1)" [disabled]="target.fadeOutSeconds <= 0">−</button>
-              <input type="number" class="stepper-input" min="0" [max]="Math.max(0, target.duration - target.fadeInSeconds)" step="0.1"
-                     [ngModel]="target.fadeOutSeconds" (ngModelChange)="state.setClipFadeOut(target.clipId, +$event)" />
-              <button type="button" class="stepper-btn" (click)="state.adjustClipFadeOut(target.clipId, 0.1)" [disabled]="target.fadeInSeconds + target.fadeOutSeconds >= target.duration">+</button>
-            </div>
-          </div>
-        </div>
-
-        <div class="d-flex gap-1">
-          <button type="button" class="audio-preset-chip"
-                  (click)="state.setClipFadeIn(target.clipId, 0); state.setClipFadeOut(target.clipId, 0)">0s (Off)</button>
-          <button type="button" class="audio-preset-chip"
-                  (click)="state.setClipFadeIn(target.clipId, 0.5); state.setClipFadeOut(target.clipId, 0.5)">0.5s</button>
-          <button type="button" class="audio-preset-chip"
-                  (click)="state.setClipFadeIn(target.clipId, 1.0); state.setClipFadeOut(target.clipId, 1.0)">1.0s</button>
-          <button type="button" class="audio-preset-chip"
-                  (click)="state.setClipFadeIn(target.clipId, 2.0); state.setClipFadeOut(target.clipId, 2.0)">2.0s</button>
-        </div>
-      </div>
-    }
-
-    <!-- Voice Interaction & Ducking Role -->
-    <div class="inner-audio-card mb-2">
+    <!-- 3. FADES -->
+    <div class="inner-audio-card">
       <div class="d-flex justify-content-between align-items-center mb-1">
-        <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">Voice Ducking Role:</span>
-        <span class="badge"
-              [class.bg-success]="target.duckMode === 'Normal'"
-              [class.bg-warning]="target.duckMode === 'Ducked'"
-              [class.bg-danger]="target.duckMode === 'MuteOnAudio'"
-              [class.bg-primary]="target.duckMode === 'LeadVoice'"
-              style="font-size: 0.65rem;">
-          {{ target.duckMode === 'LeadVoice' ? 'Lead Voice' : (target.duckMode === 'MuteOnAudio' ? 'Mute on Audio' : (target.duckMode === 'Ducked' ? 'Ducked by Speech' : 'Normal')) }}
-        </span>
+        <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">Fades</span>
+        <small class="muted mono" style="font-size: 0.65rem;">Max {{ target.duration | number:'1.1-1' }}s</small>
       </div>
-
-      <div class="duck-seg-group mb-1">
-        <button type="button" class="duck-seg-btn" [class.active]="target.duckMode === 'Normal'" (click)="state.setClipDuckMode(target.clipId, 'Normal')">
-          <span class="icon">🎵</span>
-          <span>Normal</span>
-        </button>
-        <button type="button" class="duck-seg-btn" [class.active]="target.duckMode === 'Ducked'" (click)="state.setClipDuckMode(target.clipId, 'Ducked')">
-          <span class="icon">🔉</span>
-          <span>Ducked</span>
-        </button>
-        <button type="button" class="duck-seg-btn" [class.active]="target.duckMode === 'MuteOnAudio'" (click)="state.setClipDuckMode(target.clipId, 'MuteOnAudio')">
-          <span class="icon">🔇</span>
-          <span>Mute on Audio</span>
-        </button>
-        <button type="button" class="duck-seg-btn" [class.active]="target.duckMode === 'LeadVoice'" (click)="state.setClipDuckMode(target.clipId, 'LeadVoice')">
-          <span class="icon">🎙</span>
-          <span>Lead Voice</span>
-        </button>
+      <div class="row g-2 mb-2">
+        <div class="col-6">
+          <label class="fade-stepper-label">
+            <span>📈 Fade in</span>
+            <span class="mono">{{ target.fadeInSeconds | number:'1.1-1' }}s</span>
+          </label>
+          <div class="fade-stepper-group">
+            <button type="button" class="stepper-btn" (click)="state.adjustClipFadeIn(target.clipId, -0.5)" [disabled]="target.fadeInSeconds <= 0">−</button>
+            <input type="number" class="stepper-input" min="0" [max]="target.duration" step="0.5"
+                   [ngModel]="target.fadeInSeconds" (ngModelChange)="state.setClipFadeIn(target.clipId, +$event)" />
+            <button type="button" class="stepper-btn" (click)="state.adjustClipFadeIn(target.clipId, 0.5)">+</button>
+          </div>
+        </div>
+        <div class="col-6">
+          <label class="fade-stepper-label">
+            <span>📉 Fade out</span>
+            <span class="mono">{{ target.fadeOutSeconds | number:'1.1-1' }}s</span>
+          </label>
+          <div class="fade-stepper-group">
+            <button type="button" class="stepper-btn" (click)="state.adjustClipFadeOut(target.clipId, -0.5)" [disabled]="target.fadeOutSeconds <= 0">−</button>
+            <input type="number" class="stepper-input" min="0" [max]="target.duration" step="0.5"
+                   [ngModel]="target.fadeOutSeconds" (ngModelChange)="state.setClipFadeOut(target.clipId, +$event)" />
+            <button type="button" class="stepper-btn" (click)="state.adjustClipFadeOut(target.clipId, 0.5)">+</button>
+          </div>
+        </div>
+      </div>
+      <div class="d-flex gap-1">
+        <button type="button" class="audio-preset-chip"
+                [class.active]="!target.fadeInSeconds && !target.fadeOutSeconds"
+                (click)="state.setClipFadeIn(target.clipId, 0); state.setClipFadeOut(target.clipId, 0)">Off</button>
+        <button type="button" class="audio-preset-chip" (click)="state.setClipFadeIn(target.clipId, 0.5); state.setClipFadeOut(target.clipId, 0.5)">0.5s</button>
+        <button type="button" class="audio-preset-chip" (click)="state.setClipFadeIn(target.clipId, 1.0); state.setClipFadeOut(target.clipId, 1.0)">1.0s</button>
+        <button type="button" class="audio-preset-chip" (click)="state.setClipFadeIn(target.clipId, 2.0); state.setClipFadeOut(target.clipId, 2.0)">2.0s</button>
       </div>
     </div>
   </div>
 }
 
-<!-- ── CASE D: PROJECT AUDIO OVERVIEW & EMPTY STATE ────────────── -->
+<!-- ── NOTHING IS SELECTED ─────────────────────────────────────── -->
 @else {
   <div class="audio-card">
-    <div class="d-flex justify-content-between align-items-center mb-2 pb-1 border-bottom border-secondary border-opacity-25">
-      <span style="font-size: 0.8rem; font-weight: 700; color: var(--text);">
-        🎵 Project Audio & Master Tracks
-      </span>
-      <span class="badge" style="font-size: 0.65rem; background: rgba(255,255,255,0.08); color: var(--text-dim);">
-        {{ state.included().length }} Clips
-      </span>
+    <div class="mb-2 pb-1 border-bottom border-secondary border-opacity-25">
+      <span style="font-size: 0.8rem; font-weight: 700; color: var(--text);">Nothing selected</span>
     </div>
 
-    <!-- Master Track V1 & A1 Volume Sliders -->
-    <div class="inner-audio-card mb-2">
-      <!-- V1 Video Sound Master -->
-      <div class="mb-3">
-        <div class="d-flex justify-content-between align-items-center mb-1">
-          <div class="d-flex align-items-center gap-2">
-            <span class="track-badge-pill" style="background: #3b82f6;">V1</span>
-            <span style="font-size: 0.72rem; color: var(--text); font-weight: 600;">Video Sound Track</span>
-          </div>
-          <div class="d-flex align-items-center gap-2">
-            <button type="button" class="btn-mute-toggle" [class.muted]="state.isTrackMuted('V1')" (click)="state.toggleTrackMute('V1')" title="Mute/Unmute Video Track">
-              {{ state.isTrackMuted('V1') ? '🔇' : '🔊' }}
-            </button>
-            <span class="mono fw-bold" style="font-size: 0.72rem; color: #60a5fa;">
-              {{ state.isTrackMuted('V1') ? 'Muted' : (Math.round(state.trackV1Volume() * 100) + '%') }}
-            </span>
-          </div>
-        </div>
-        <input type="range" class="form-range w-100" min="0" max="2.0" step="0.05"
-               [ngModel]="state.trackV1Volume()" (ngModelChange)="state.setTrackVolume('V1', $event)" />
-      </div>
+    <p class="muted mb-3" style="font-size: 0.72rem;">
+      Click a clip or a music track on the timeline to edit its sound. Project-wide levels and
+      the default overlap rule are in the <strong>Mix</strong> view.
+    </p>
 
-      <!-- A1 Background Music Master -->
-      <div>
-        <div class="d-flex justify-content-between align-items-center mb-1">
-          <div class="d-flex align-items-center gap-2">
-            <span class="track-badge-pill" style="background: #10b981;">A1</span>
-            <span style="font-size: 0.72rem; color: var(--text); font-weight: 600;">Background Music Track</span>
-          </div>
-          <div class="d-flex align-items-center gap-2">
-            <button type="button" class="btn-mute-toggle" [class.muted]="state.isTrackMuted('A1')" (click)="state.toggleTrackMute('A1')" title="Mute/Unmute Music Track">
-              {{ state.isTrackMuted('A1') ? '🔇' : '🔊' }}
-            </button>
-            <span class="mono fw-bold" style="font-size: 0.72rem; color: #34d399;">
-              {{ state.isTrackMuted('A1') ? 'Muted' : (Math.round(state.trackA1Volume() * 100) + '%') }}
-            </span>
-          </div>
-        </div>
-        <input type="range" class="form-range w-100" min="0" max="2.0" step="0.05"
-               [ngModel]="state.trackA1Volume()" (ngModelChange)="state.setTrackVolume('A1', $event)" />
-      </div>
-    </div>
-
-    <!-- Global Video Sound Strategy -->
-    <div class="inner-audio-card mb-2">
-      <div class="d-flex justify-content-between align-items-center mb-1">
-        <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">Global Video Sound Policy:</span>
-      </div>
-      <div class="duck-seg-group mb-1">
-        <button type="button" class="duck-seg-btn"
-                [class.active]="state.v1AudioMode() === 'Never'"
-                (click)="state.setV1AudioMode('Never')"
-                title="Play both video camera audio and background music simultaneously">
-          <span>🔊</span> Play Both Sounds
-        </button>
-        <button type="button" class="duck-seg-btn"
-                [class.active]="state.v1AudioMode() === 'MuteOnAudio'"
-                (click)="state.setV1AudioMode('MuteOnAudio')"
-                title="Mute video audio only under music">
-          <span>🎵</span> Mute Under Music
-        </button>
-        <button type="button" class="duck-seg-btn"
-                [class.active]="state.v1AudioMode() === 'Always'"
-                (click)="state.setV1AudioMode('Always')"
-                title="Mute all video clips (music only)">
-          <span>🔇</span> Mute ALL Clips
-        </button>
-      </div>
-    </div>
-
-    <!-- Quick Target Actions -->
-    <div class="d-flex flex-wrap gap-2 justify-content-center pt-2">
+    <div class="d-flex flex-column gap-1">
       @if (state.currentScheduledClip()) {
         <button type="button" class="audio-action-btn primary" (click)="state.selectScopeOption('current')">
-          ▶ Inspect Current Playing Clip
+          ▶ Select the clip under the playhead
         </button>
       }
+      <!-- hasMusicOnTimeline() is also true for a legacy single bed, which has no track row. -->
       @if (state.musicTracks().length > 0) {
         <button type="button" class="audio-action-btn" (click)="state.selectMusicTrack(state.musicTracks()[0].key)">
-          🎵 Configure Music Track
+          🎵 Select the first music track
         </button>
       }
-      @if (state.included().length > 0) {
-        <button type="button" class="audio-action-btn" (click)="state.selectAllTimelineClips()">
-          ☑ Select All Clips ({{ state.included().length }})
-        </button>
-      }
+      <button type="button" class="audio-action-btn" (click)="state.selectAllTimelineClips()">
+        ☰ Select all clips ({{ state.included().length }})
+      </button>
     </div>
   </div>
 }

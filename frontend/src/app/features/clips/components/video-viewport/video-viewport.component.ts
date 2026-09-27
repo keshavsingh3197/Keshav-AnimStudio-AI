@@ -79,8 +79,8 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       this.state.isTrackMuted('A1');
       this.state.clipSounds();
       this.state.musicTracks();
-      this.state.v1AudioMode();
-      this.state.videoDuckLevel();
+      this.state.projectOverlapRule();
+      this.state.duckLevel();
 
       untracked(() => {
         this.syncMediaElements(this.state.isPlaying());
@@ -252,7 +252,6 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
 
 
   togglePlayback(): void {
-    this.state.audioEngine.ensureContext();
     // Synchronously initiate playback on media elements within user gesture to unlock audio
     if (!this.state.isPlaying()) {
       this.syncMediaElements(true);
@@ -387,7 +386,8 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     const inTransition = hasTrans && time >= transStart && curr.index < schedule.length - 1;
 
     const sound = this.state.clipSound(curr.clip.id);
-    const mode = this.state.muteClipAudio();
+    // Same call the export path makes, so the preview is not a separate opinion.
+    const overlap = this.state.resolveOverlap(curr.clip.id);
 
     // Check active audio sources on timeline at playhead time
     const a1Items = this.state.timelineItems().filter((i) => (i.trackId === 'A1' || i.trackId === 'A2') && i.type === 'audio');
@@ -403,30 +403,8 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     // Is any music or soundtrack cue active at THIS playhead time?
     const hasActiveMusicAtTime = Boolean(activeMusicTrack) || Boolean(activeA1Item) || hasGlobalMusic;
 
-    // Determine effective gain for the current V1 video clip based on muteClipAudio mode:
-    // - 'Always': Mute ALL clip sound (Music Only)
-    // - 'MuteOnAudio': Mute clip sound whenever music/audio is playing; keep sound if no music
-    // - 'Never': Keep all audio (Never mute clip camera sound)
-    const isCustom = this.state.isClipSoundCustom(curr.clip.id);
-    let effectiveClipGain = sound.volume;
-    if (mode === 'Always' && !isCustom) {
-      effectiveClipGain = 0;
-    } else if (activeMusicTrack && activeMusicTrack.clipAudioMode === 'MuteUnderMusic' && !isCustom) {
-      effectiveClipGain = 0;
-    } else if (activeMusicTrack && activeMusicTrack.clipAudioMode === 'KeepAudio') {
-      effectiveClipGain = sound.volume;
-    } else if (activeMusicTrack && activeMusicTrack.clipAudioMode === 'Ducked') {
-      effectiveClipGain = sound.volume * this.state.videoDuckLevel();
-    } else if (mode === 'MuteOnAudio' && !isCustom) {
-      effectiveClipGain = hasActiveMusicAtTime ? 0 : sound.volume;
-    } else {
-      // 'Never' (default) or custom clip setting:
-      if (sound.duckMode === 'MuteOnAudio' && hasActiveMusicAtTime) {
-        effectiveClipGain = 0;
-      } else {
-        effectiveClipGain = sound.volume;
-      }
-    }
+    // The clip's own level, attenuated only where music actually overlaps it.
+    let effectiveClipGain = sound.volume * (hasActiveMusicAtTime ? overlap.videoGain : 1);
 
     // If replacement voiceover is active and user unchecked keepOriginalAudio
     if (sound.audioAssetId && !sound.keepOriginalAudio) {
@@ -445,7 +423,6 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
 
     // 1. Sync active video
     const isCurrImage = this.state.getClipType(curr.clip) === 'image';
-    this.state.audioEngine.setTrackActive('V1', playing && !isCurrImage && !isVideoMuted && clipVol > 0);
 
     if (isCurrImage) {
       if (currentActiveVideo && !currentActiveVideo.paused) {
@@ -576,12 +553,8 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       targetMusicVolume = this.state.musicVolume() * this.state.trackA1Volume();
     }
 
-    // Per-clip ducking or music volume override during this clip:
-    if (sound.musicVolumeOverride !== null && sound.musicVolumeOverride !== undefined) {
-      targetMusicVolume *= Math.max(0, sound.musicVolumeOverride);
-    } else if (sound.duckMode === 'Ducked' || sound.duckMode === 'LeadVoice') {
-      targetMusicVolume *= this.state.videoDuckLevel();
-    }
+    // The resolved rule may ask the music to step back under this clip.
+    targetMusicVolume *= overlap.musicGain;
 
     if (bgAudio && targetMusicAssetId) {
       const musicUrl = this.state.assetUrl(targetMusicAssetId);

@@ -386,8 +386,23 @@ public sealed record ClipAudioRequest
 
     /// <summary>Plays that sound OVER the clip's own audio rather than instead of it.</summary>
     public bool KeepOriginalAudio { get; init; }
+}
 
-    [StringLength(32)] public string? DuckMode { get; init; } = "Normal";
+/// <summary>
+/// One stretch of the finished timeline over which the music plays at a reduced level.
+/// <para>
+/// Ducking the MUSIC cannot be folded into a clip's own volume the way ducking the clip can,
+/// so the client sends the windows its overlap rules resolved to and the graph builds a gain
+/// envelope from them. Windows arrive already merged and in timeline order.
+/// </para>
+/// </summary>
+public sealed record MusicDuckWindowRequest
+{
+    [Range(0, 86400)] public double StartSeconds { get; init; }
+    [Range(0, 86400)] public double EndSeconds { get; init; }
+
+    /// <summary>Multiplier applied to the music across the window. 1 is no duck, 0 silence.</summary>
+    [Range(0, 1)] public double Level { get; init; } = 1.0;
 }
 
 /// <summary>
@@ -425,6 +440,13 @@ public sealed record ClipMergeRequest
     /// <summary>Extra music clips, each starting at its own point on the finished timeline.</summary>
     [MaxLength(ClipMergeSpec.MaxMusicTracks)]
     public List<TimedMusicClipRequest> MusicTracks { get; init; } = [];
+
+    /// <summary>
+    /// Where the music steps back under the clips above it. Empty means the music holds one
+    /// level throughout.
+    /// </summary>
+    [MaxLength(ClipMergeSpec.MaxDuckWindows)]
+    public List<MusicDuckWindowRequest> MusicDuckWindows { get; init; } = [];
 
     /// <summary>
     /// One entry per clip, setting how loud each clip's own sound is and giving any of
@@ -495,5 +517,4 @@ public sealed record TimelineItemRequest
     public double? Volume { get; init; }
     public double? TrimStartSeconds { get; init; }
     public double? TrimEndSeconds { get; init; }
-    [StringLength(32)] public string? DuckMode { get; init; } = "Normal";
 }

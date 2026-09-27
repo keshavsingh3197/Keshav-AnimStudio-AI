@@ -486,7 +486,6 @@ export interface ClipAudioBody {
   keepOriginalAudio: boolean;
   trimStartSeconds?: number | null;
   trimEndSeconds?: number | null;
-  duckMode?: 'Normal' | 'Ducked' | 'LeadVoice';
 }
 
 /** Loudest anything may be lifted. Mirrors ClipAudioSpec.MaxGain on the server. */
@@ -577,6 +576,19 @@ export interface ClipMergeBody {
   clipAudio?: ClipAudioBody[] | null;
   watermark: WatermarkBody;
   timelineItems?: TimelineItem[] | null;
+  /**
+   * Stretches where the music must drop under the clips above it. Ducking the music cannot be
+   * folded into a clip's own volume, so the server builds a gain envelope from these.
+   */
+  musicDuckWindows?: MusicDuckWindowBody[] | null;
+}
+
+/** One stretch of the finished timeline over which the music plays at a reduced level. */
+export interface MusicDuckWindowBody {
+  startSeconds: number;
+  endSeconds: number;
+  /** Multiplier applied to the music across the window, 0-1. */
+  level: number;
 }
 // --- option lists, kept beside the models so a select and its API value cannot drift ---
 

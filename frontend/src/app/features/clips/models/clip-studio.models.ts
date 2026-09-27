@@ -23,6 +23,33 @@ export type SideUploadTarget =
   | { kind: 'music' }
   | { kind: 'clip'; clipId: string };
 
+/**
+ * How a video clip's own sound and the music underneath it share the mix while they
+ * overlap. One vocabulary, used identically at project, music-track and clip level;
+ * `resolveOverlap()` in StudioStateService is the only place precedence is decided.
+ */
+export type AudioOverlapRule = 'PlayBoth' | 'DuckMusic' | 'DuckVideo' | 'MusicOnly';
+
+/** The same rule where a lower level may defer to the one above it. */
+export type AudioOverlapRuleOrInherit = AudioOverlapRule | 'Inherit';
+
+/** Which level of the precedence chain actually decided the rule in force. */
+export type AudioOverlapSource = 'clip' | 'track' | 'project';
+
+export interface AudioOverlapChoice {
+  id: AudioOverlapRule;
+  label: string;
+  hint: string;
+}
+
+/** Presented in this order everywhere the rule is offered, so the control never moves. */
+export const AUDIO_OVERLAP_CHOICES: readonly AudioOverlapChoice[] = [
+  { id: 'PlayBoth', label: 'Play both', hint: 'Clip sound and music both stay at their own level.' },
+  { id: 'DuckMusic', label: 'Duck music', hint: 'Music drops to the duck level so the clip is heard over it.' },
+  { id: 'DuckVideo', label: 'Duck video', hint: 'Clip sound drops to the duck level so the music leads.' },
+  { id: 'MusicOnly', label: 'Music only', hint: 'Clip sound is silenced wherever music plays under it.' },
+];
+
 export interface ClipAudioSetting {
   volume: number;
   audioAssetId: string;
@@ -30,7 +57,16 @@ export interface ClipAudioSetting {
   keepOriginalAudio: boolean;
   audioTrimStartSeconds?: number;
   audioTrimEndSeconds?: number;
+  /** How this clip shares the mix with music under it. Absent or 'Inherit' defers upward. */
+  overlapRule?: AudioOverlapRuleOrInherit;
+  /**
+   * Duck depth for this clip alone, 0-1, overriding the project duck level. Only read
+   * when the resolved rule is DuckMusic or DuckVideo.
+   */
+  duckLevelOverride?: number | null;
+  /** @deprecated Superseded by overlapRule; read once on load to migrate old drafts. */
   duckMode?: 'Normal' | 'Ducked' | 'MuteOnAudio' | 'LeadVoice';
+  /** @deprecated Superseded by overlapRule + duckLevelOverride. */
   musicVolumeOverride?: number | null;
 }
 
@@ -44,6 +80,9 @@ export interface MusicTrackRow {
   fadeInSeconds?: number;
   fadeOutSeconds?: number;
   muted?: boolean;
+  /** How clips under this track share the mix with it. Absent or 'Inherit' defers to the project. */
+  overlapRule?: AudioOverlapRuleOrInherit;
+  /** @deprecated Superseded by overlapRule; read once on load to migrate old drafts. */
   clipAudioMode?: 'MuteUnderMusic' | 'KeepAudio' | 'Ducked' | 'Default';
 }
 

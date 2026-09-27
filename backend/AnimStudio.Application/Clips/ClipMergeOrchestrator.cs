@@ -376,6 +376,9 @@ public sealed class ClipMergeOrchestrator(
                 BackgroundMusicRelativePath = musicPath,
                 BackgroundMusicVolume = spec.BackgroundMusicVolume,
                 MusicTracks = timedTracks,
+                MusicDuckWindows = spec.MusicDuckWindows
+                    .Select(w => new MergeDuckWindow(w.StartSeconds, w.EndSeconds, w.Level))
+                    .ToList(),
                 Overlays = overlays,
                 OutputRelativePath = "out/final.mp4",
                 // Always the delivery profile: whether this re-encodes or stream-copies,

@@ -1,186 +1,146 @@
-<div class="audio-card master-mixer-card">
-  <div class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom border-secondary border-opacity-25">
-    <div>
-      <span style="font-size: 0.82rem; font-weight: 800; color: var(--text); letter-spacing: 0.3px;">🎚 5-BUS MASTER CONSOLE</span>
-      <span style="font-size: 0.82rem; font-weight: 800; color: var(--text); letter-spacing: 0.3px;">🎚 MASTER AUDIO CONSOLE</span>
-      <div class="muted" style="font-size: 0.68rem; margin-top: 1px;">Hardware-grade level faders & real-time VU peak metering</div>
-    </div>
-    <span class="badge bg-secondary font-monospace" style="font-size: 0.65rem;">5 ACTIVE BUSES</span>
-    <span class="badge bg-secondary font-monospace" style="font-size: 0.65rem;">ACTIVE BUSES</span>
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!-- MIX: everything that applies to the whole project.            -->
+<!-- Per-clip and per-music-track settings live in the Selection    -->
+<!-- view; nothing is offered in both places.                       -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div class="audio-card">
+  <div class="d-flex justify-content-between align-items-center mb-2 pb-1 border-bottom border-secondary border-opacity-25">
+    <span style="font-size: 0.8rem; font-weight: 700; color: var(--text);">🎚 Project Mix</span>
+    <span class="badge" style="font-size: 0.65rem; background: rgba(255,255,255,0.08); color: var(--text-dim);">
+      {{ state.included().length }} clips
+    </span>
   </div>
 
-  <!-- BUS 1: V1 (Primary Video Track) -->
-  <div class="mixer-bus-row mb-2">
-    <div class="bus-meta-line">
-      <div class="d-flex align-items-center gap-2">
-        <span class="track-badge-pill" style="background: #3b82f6;">V1</span>
-        <span class="bus-name">Primary Video</span>
-      </div>
-      <div class="d-flex align-items-center gap-2">
-        <button type="button" class="btn-mute-toggle" [class.muted]="state.isTrackMuted('V1')" (click)="state.toggleTrackMute('V1')" [title]="state.isTrackMuted('V1') ? 'Unmute V1' : 'Mute V1'">
-          {{ state.isTrackMuted('V1') ? '🔇' : '🔊' }}
-        </button>
-        <span class="mono fw-bold bus-db" [class.muted-text]="state.isTrackMuted('V1')">
-          {{ state.isTrackMuted('V1') ? '-∞ dB' : Math.round(state.trackV1Volume() * 100) + '% (' + state.volumeToDb(state.trackV1Volume()) + ')' }}
-        </span>
-      </div>
-    </div>
-    <div class="bus-fader-container">
-      <input type="range" class="form-range bus-slider" min="0" max="2.0" step="0.02"
-             [disabled]="state.isTrackMuted('V1')"
-             [ngModel]="state.trackV1Volume()" (ngModelChange)="state.setTrackVolume('V1', $event)" />
-    </div>
-    <!-- Reactive VU Peak Meter Bar -->
-    <div class="vu-meter-track">
-      <div #meterBarV1 class="vu-meter-fill"></div>
-    </div>
-  </div>
+  <!-- ── LEVELS ──────────────────────────────────────────────── -->
+  <div class="inner-audio-card mb-2">
+    <div class="mb-2" style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">Levels</div>
 
-  <!-- BUS 2: A1 (Voiceover & Dialogue Track) -->
-  <!-- BUS 2: A1 (Audio & Music Track) -->
-  <div class="mixer-bus-row mb-2">
-    <div class="bus-meta-line">
-      <div class="d-flex align-items-center gap-2">
-        <span class="track-badge-pill" style="background: #8b5cf6;">A1</span>
-        <span class="bus-name">Voiceover Track</span>
-        <span class="bus-name">Audio & Music Track</span>
-      </div>
-      <div class="d-flex align-items-center gap-2">
-        <button type="button" class="btn-mute-toggle" [class.muted]="state.isTrackMuted('A1')" (click)="state.toggleTrackMute('A1')" [title]="state.isTrackMuted('A1') ? 'Unmute A1' : 'Mute A1'">
-          {{ state.isTrackMuted('A1') ? '🔇' : '🔊' }}
-        </button>
-        <span class="mono fw-bold bus-db" [class.muted-text]="state.isTrackMuted('A1')">
-          {{ state.isTrackMuted('A1') ? '-∞ dB' : Math.round(state.trackA1Volume() * 100) + '% (' + state.volumeToDb(state.trackA1Volume()) + ')' }}
-        </span>
-      </div>
-    </div>
-    <div class="bus-fader-container">
-      <input type="range" class="form-range bus-slider" min="0" max="2.0" step="0.02"
-             [disabled]="state.isTrackMuted('A1')"
-             [ngModel]="state.trackA1Volume()" (ngModelChange)="state.setTrackVolume('A1', $event)" />
-    </div>
-    <!-- Reactive VU Peak Meter Bar -->
-    <div class="vu-meter-track">
-      <div #meterBarA1 class="vu-meter-fill"></div>
-    </div>
-  </div>
-
-  <!-- BUS 3: A2 (Music Bed & SFX Track) -->
-  <div class="mixer-bus-row mb-2">
-    <div class="bus-meta-line">
-      <div class="d-flex align-items-center gap-2">
-        <span class="track-badge-pill" style="background: #a855f7;">A2</span>
-        <span class="bus-name">Music Bed & SFX</span>
-      </div>
-      <div class="d-flex align-items-center gap-2">
-        <button type="button" class="btn-mute-toggle" [class.muted]="state.isTrackMuted('A2')" (click)="state.toggleTrackMute('A2')" [title]="state.isTrackMuted('A2') ? 'Unmute A2' : 'Mute A2'">
-          {{ state.isTrackMuted('A2') ? '🔇' : '🔊' }}
-        </button>
-        <span class="mono fw-bold bus-db" [class.muted-text]="state.isTrackMuted('A2')">
-          {{ state.isTrackMuted('A2') ? '-∞ dB' : Math.round(state.trackA2Volume() * 100) + '% (' + state.volumeToDb(state.trackA2Volume()) + ')' }}
-        </span>
-      </div>
-    </div>
-    <div class="bus-fader-container">
-      <input type="range" class="form-range bus-slider" min="0" max="2.0" step="0.02"
-             [disabled]="state.isTrackMuted('A2')"
-             [ngModel]="state.trackA2Volume()" (ngModelChange)="state.setTrackVolume('A2', $event)" />
-    </div>
-    <!-- Reactive VU Peak Meter Bar -->
-    <div class="vu-meter-track">
-      <div #meterBarA2 class="vu-meter-fill"></div>
-    </div>
-  </div>
-
-  <!-- BUS 4: MASTER OUTPUT BUS -->
-  <!-- BUS 3: MASTER OUTPUT BUS -->
-  <div class="mixer-bus-row mb-3 master-bus-highlight">
-    <div class="bus-meta-line">
-      <div class="d-flex align-items-center gap-2">
-        <span class="track-badge-pill" style="background: #6c8cff; font-weight: 800;">MST</span>
-        <span class="bus-name fw-bold" style="color: #fff;">Master Output</span>
-      </div>
-      <div class="d-flex align-items-center gap-2">
-        <button type="button" class="btn-mute-toggle" [class.muted]="state.isMonitorMuted()" (click)="state.toggleTrackMute('Master')" [title]="state.isMonitorMuted() ? 'Unmute Master' : 'Mute Master'">
-          {{ state.isMonitorMuted() ? '🔇' : '🔊' }}
-        </button>
-        <span class="mono fw-bold bus-db" style="color: var(--brand);" [class.muted-text]="state.isMonitorMuted()">
-          {{ state.isMonitorMuted() ? '-∞ dB' : Math.round(state.monitorVolume() * 100) + '% (' + state.volumeToDb(state.monitorVolume()) + ')' }}
-        </span>
-      </div>
-    </div>
-    <div class="bus-fader-container">
-      <input type="range" class="form-range bus-slider" min="0" max="2.0" step="0.02"
-             [disabled]="state.isMonitorMuted()"
-             [ngModel]="state.monitorVolume()" (ngModelChange)="state.setTrackVolume('Master', $event)" />
-    </div>
-    <!-- Reactive VU Peak Meter Bar -->
-    <div class="vu-meter-track">
-      <div #meterBarMaster class="vu-meter-fill"></div>
-    </div>
-  </div>
-
-  <!-- GLOBAL AUTO-DUCKING & MASTER BYPASS SECTION -->
-  <div class="inner-audio-card auto-ducking-console">
-    <div class="d-flex justify-content-between align-items-center mb-2">
-      <div class="d-flex align-items-center gap-2">
-        <span style="font-size: 0.76rem; font-weight: 700; color: var(--text);">Dialogue Auto-Ducking (Master Bypass)</span>
-      </div>
-      <div class="form-check form-switch m-0">
-        <input class="form-check-input" type="checkbox" role="switch" id="globalDuckingSwitch"
-               [checked]="!state.isGlobalDuckingBypassed()"
-               (change)="state.toggleGlobalDucking($any($event.target).checked)">
-      </div>
-    </div>
-
-    @if (!state.isGlobalDuckingBypassed()) {
-      <div class="mb-2">
-        <div class="d-flex justify-content-between align-items-center mb-1">
-          <span style="font-size: 0.7rem; color: var(--text-dim);">Background Ducking Attenuation:</span>
-          <span class="mono fw-bold" style="font-size: 0.72rem; color: var(--brand);">
-            {{ state.videoDuckLevel() * 100 | number:'1.0-0' }}% nominal (-{{ ((1 - state.videoDuckLevel()) * 18) | number:'1.0-0' }} dB)
+    <!-- V1: every video clip's own sound -->
+    <div class="mixer-bus-row mb-2">
+      <div class="bus-meta-line">
+        <div class="d-flex align-items-center gap-2">
+          <span class="track-badge-pill" style="background: #3b82f6;">V1</span>
+          <span class="bus-name">Video sound</span>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <button type="button" class="btn-mute-toggle" [class.muted]="state.isTrackMuted('V1')"
+                  (click)="state.toggleTrackMute('V1')"
+                  [title]="state.isTrackMuted('V1') ? 'Unmute all video sound' : 'Mute all video sound'">
+            {{ state.isTrackMuted('V1') ? '🔇' : '🔊' }}
+          </button>
+          <span class="mono fw-bold bus-db" [class.muted-text]="state.isTrackMuted('V1')">
+            {{ state.isTrackMuted('V1') ? '-∞ dB' : Math.round(state.trackV1Volume() * 100) + '% (' + state.volumeToDb(state.trackV1Volume()) + ')' }}
           </span>
         </div>
-        <div class="d-flex gap-1 mb-1">
-          <button type="button" class="audio-preset-chip"
-                  [class.active]="state.videoDuckLevel() === 0.1" (click)="state.videoDuckLevel.set(0.1); state.markDirty()">10% Subtle</button>
-          <button type="button" class="audio-preset-chip"
-                  [class.active]="state.videoDuckLevel() === 0.2" (click)="state.videoDuckLevel.set(0.2); state.markDirty()">20% Rec.</button>
-          <button type="button" class="audio-preset-chip"
-                  [class.active]="state.videoDuckLevel() === 0.35" (click)="state.videoDuckLevel.set(0.35); state.markDirty()">35% Mid</button>
-          <button type="button" class="audio-preset-chip"
-                  [class.active]="state.videoDuckLevel() === 0.5" (click)="state.videoDuckLevel.set(0.5); state.markDirty()">50% Half</button>
-        </div>
-        <input type="range" class="form-range w-100" min="0.05" max="0.80" step="0.05"
-               [ngModel]="state.videoDuckLevel()" (ngModelChange)="state.videoDuckLevel.set($event); state.markDirty()" />
       </div>
-    } @else {
-      <div class="alert alert-secondary py-1 px-2 mb-2" style="font-size: 0.7rem; background: rgba(255,255,255,0.04); border: 1px solid var(--border); color: var(--muted); border-radius: 6px;">
-        Ducking engine bypassed. All tracks play at full nominal volume without automatic voiceover attenuation.
+      <div class="bus-fader-container">
+        <input type="range" class="form-range bus-slider" min="0" max="2.0" step="0.02"
+               [disabled]="state.isTrackMuted('V1')"
+               [ngModel]="state.trackV1Volume()" (ngModelChange)="state.setTrackVolume('V1', $event)" />
       </div>
-    }
+    </div>
 
-    <!-- Hold & Release Envelope Readout -->
-    <div class="envelope-info-grid">
-      <div class="envelope-stat">
-        <span class="lbl">⚡ Attack</span>
-        <span class="val mono">50ms</span>
+    <!-- A1: every music track -->
+    <div class="mixer-bus-row mb-2">
+      <div class="bus-meta-line">
+        <div class="d-flex align-items-center gap-2">
+          <span class="track-badge-pill" style="background: #8b5cf6;">A1</span>
+          <span class="bus-name">Music</span>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <button type="button" class="btn-mute-toggle" [class.muted]="state.isTrackMuted('A1')"
+                  (click)="state.toggleTrackMute('A1')"
+                  [title]="state.isTrackMuted('A1') ? 'Unmute all music' : 'Mute all music'">
+            {{ state.isTrackMuted('A1') ? '🔇' : '🔊' }}
+          </button>
+          <span class="mono fw-bold bus-db" [class.muted-text]="state.isTrackMuted('A1')">
+            {{ state.isTrackMuted('A1') ? '-∞ dB' : Math.round(state.trackA1Volume() * 100) + '% (' + state.volumeToDb(state.trackA1Volume()) + ')' }}
+          </span>
+        </div>
       </div>
-      <div class="envelope-stat">
-        <span class="lbl">⏱ Hold</span>
-        <span class="val mono">250ms</span>
+      <div class="bus-fader-container">
+        <input type="range" class="form-range bus-slider" min="0" max="2.0" step="0.02"
+               [disabled]="state.isTrackMuted('A1')"
+               [ngModel]="state.trackA1Volume()" (ngModelChange)="state.setTrackVolume('A1', $event)" />
       </div>
-      <div class="envelope-stat">
-        <span class="lbl">📈 Release</span>
-        <span class="val mono">150ms</span>
+    </div>
+
+    <!-- Master -->
+    <div class="mixer-bus-row master-bus-highlight">
+      <div class="bus-meta-line">
+        <div class="d-flex align-items-center gap-2">
+          <span class="track-badge-pill" style="background: #6c8cff; font-weight: 800;">MST</span>
+          <span class="bus-name fw-bold" style="color: #fff;">Master</span>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <button type="button" class="btn-mute-toggle" [class.muted]="state.isMonitorMuted()"
+                  (click)="state.toggleTrackMute('Master')"
+                  [title]="state.isMonitorMuted() ? 'Unmute master' : 'Mute master'">
+            {{ state.isMonitorMuted() ? '🔇' : '🔊' }}
+          </button>
+          <span class="mono fw-bold bus-db" style="color: var(--brand);" [class.muted-text]="state.isMonitorMuted()">
+            {{ state.isMonitorMuted() ? '-∞ dB' : Math.round(state.monitorVolume() * 100) + '% (' + state.volumeToDb(state.monitorVolume()) + ')' }}
+          </span>
+        </div>
       </div>
-      <div class="envelope-stat">
-        <span class="lbl">Mode</span>
-        <span class="val mono" [style.color]="!state.isGlobalDuckingBypassed() ? 'var(--ok)' : 'var(--muted)'">
-          {{ !state.isGlobalDuckingBypassed() ? 'Active' : 'Bypassed' }}
-        </span>
+      <div class="bus-fader-container">
+        <input type="range" class="form-range bus-slider" min="0" max="2.0" step="0.02"
+               [disabled]="state.isMonitorMuted()"
+               [ngModel]="state.monitorVolume()" (ngModelChange)="state.setTrackVolume('Master', $event)" />
       </div>
     </div>
   </div>
-</div>
 
+  <!-- ── THE ONE OVERLAP RULE, AT PROJECT LEVEL ──────────────── -->
+  <div class="inner-audio-card mb-2" style="border-left: 3px solid #8b5cf6;">
+    <div class="d-flex justify-content-between align-items-center mb-1">
+      <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">
+        When video sound and music overlap:
+      </span>
+      <span class="badge bg-secondary font-monospace" style="font-size: 0.65rem;">Project default</span>
+    </div>
+
+    <div class="duck-seg-grid mb-1">
+      @for (choice of overlapChoices; track choice.id) {
+        <button type="button" class="duck-seg-btn"
+                [class.active]="state.projectOverlapRule() === choice.id"
+                (click)="state.setProjectOverlapRule(choice.id)"
+                [title]="choice.hint">
+          {{ choice.label }}
+        </button>
+      }
+    </div>
+
+    <p class="muted mb-0" style="font-size: 0.68rem;">
+      {{ projectRuleHint() }}
+      A music track or a single clip can override this — the Selection view says which one won.
+    </p>
+  </div>
+
+  <!-- ── DUCK DEPTH: one number, used by every Duck rule ──────── -->
+  <div class="inner-audio-card">
+    <div class="d-flex justify-content-between align-items-center mb-1">
+      <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">Duck depth</span>
+      <span class="mono fw-bold" style="font-size: 0.72rem; color: var(--brand);">
+        {{ state.duckLevel() * 100 | number:'1.0-0' }}% ({{ state.volumeToDb(state.duckLevel()) }})
+      </span>
+    </div>
+
+    <div class="d-flex gap-1 mb-1">
+      @for (preset of duckPresets; track preset) {
+        <button type="button" class="audio-preset-chip"
+                [class.active]="state.duckLevel() === preset"
+                (click)="setDuckLevel(preset)">
+          {{ preset * 100 | number:'1.0-0' }}%
+        </button>
+      }
+    </div>
+
+    <input type="range" class="form-range w-100" min="0.05" max="0.80" step="0.05"
+           [ngModel]="state.duckLevel()" (ngModelChange)="setDuckLevel($event)" />
+
+    <p class="muted mb-0 mt-1" style="font-size: 0.68rem;">
+      How far the ducked side drops wherever a Duck rule applies. A clip can set its own depth.
+    </p>
+  </div>
+</div>

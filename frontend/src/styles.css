@@ -4912,6 +4912,52 @@ audio { height: 2.2rem; vertical-align: middle; }
   margin: 0;
 }
 
+/* Overlap rule chooser. Five buttons, so they wrap rather than shrinking to nothing. */
+.duck-seg-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  background: var(--surface-2);
+  padding: 3px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.duck-seg-grid .duck-seg-btn {
+  flex: 1 1 calc(33.333% - 4px);
+}
+
+/*
+ * The line that makes precedence visible: which level of clip > track > project actually
+ * decided the rule in force. Without it the four-way chooser is a guess.
+ */
+.resolved-rule-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 5px 7px;
+  border-radius: 5px;
+  background: rgba(139, 92, 246, 0.08);
+  border: 1px solid rgba(139, 92, 246, 0.25);
+  font-size: 0.68rem;
+  color: var(--text);
+  line-height: 1.35;
+}
+
+.resolved-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: var(--ok, #10b981);
+}
+
+.resolved-dot.inactive {
+  background: var(--muted, #6b7280);
+}
+
 /* Ducking Segmented Control */
 .duck-seg-group {
   display: flex;
@@ -5058,63 +5104,6 @@ audio { height: 2.2rem; vertical-align: middle; }
   padding: 0;
 }
 
-/* Reactive VU Peak Meter Bar */
-.vu-meter-track {
-  height: 5px;
-  background: rgba(0, 0, 0, 0.45);
-  border-radius: 3px;
-  overflow: hidden;
-  position: relative;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5);
-}
-
-.vu-meter-fill {
-  height: 100%;
-  width: 0%;
-  background: linear-gradient(
-    90deg,
-    #10b981 0%,
-    #10b981 70%,
-    #eab308 70%,
-    #eab308 85%,
-    #ef4444 85%,
-    #ef4444 100%
-  );
-  border-radius: 3px;
-  transition: width 0.05s linear;
-}
-
-/* Envelope Info Grid */
-.envelope-info-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 6px;
-  background: var(--surface-2);
-  padding: 6px 8px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  margin-top: 4px;
-}
-
-.envelope-stat {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-}
-
-.envelope-stat .lbl {
-  font-size: 0.62rem;
-  color: var(--text-dim);
-  margin-bottom: 1px;
-}
-
-.envelope-stat .val {
-  font-size: 0.7rem;
-  font-weight: 700;
-  color: var(--text);
-}
-
 /* ============================================================
    Shared Editor Tokens & Track Color Badges
    ============================================================ */
@@ -5163,15 +5152,4 @@ audio { height: 2.2rem; vertical-align: middle; }
   opacity: 0.5;
   cursor: not-allowed;
 }
-
-/* Shared VU meter direct styling */
-.direct-vu-meter-bar {
-  height: 100%;
-  width: 0%;
-  background: linear-gradient(90deg, #10b981 0%, #10b981 70%, #eab308 70%, #eab308 85%, #ef4444 85%, #ef4444 100%);
-  border-radius: 3px;
-  pointer-events: none;
-}
-
-
 

@@ -160,6 +160,9 @@ public sealed class ClipsController(
                 .Select(t => new TimedMusicClip(
                     t.AssetId, t.StartSeconds, t.Volume, t.TrimStartSeconds, t.TrimEndSeconds))
                 .ToList(),
+            MusicDuckWindows = request.MusicDuckWindows
+                .Select(w => new MusicDuckWindow(w.StartSeconds, w.EndSeconds, w.Level))
+                .ToList(),
             ClipAudio = request.ClipAudio?
                 .Select(c => new ClipAudioTrack(
                     c.Volume, c.AudioAssetId, c.AudioVolume, c.KeepOriginalAudio, c.TrimStartSeconds, c.TrimEndSeconds))

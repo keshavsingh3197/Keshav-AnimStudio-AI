@@ -12,6 +12,11 @@ public sealed record MergeMusicTrack(
     string RelativePath, double StartSeconds, double Volume,
     double? TrimStartSeconds, double? TrimEndSeconds);
 
+/// <summary>
+/// One stretch of the finished timeline over which the music plays at a reduced level.
+/// </summary>
+public sealed record MergeDuckWindow(double StartSeconds, double EndSeconds, double Level);
+
 public sealed record MergeOverlayItem(
     string Type,
     string? RelativePath,
@@ -45,6 +50,12 @@ public sealed record MergePlan
     /// built.
     /// </summary>
     public IReadOnlyList<MergeMusicTrack> MusicTracks { get; init; } = [];
+
+    /// <summary>
+    /// Where the music steps back under the clips above it. Empty - the common case - leaves
+    /// the music holding one level throughout, exactly as it always did.
+    /// </summary>
+    public IReadOnlyList<MergeDuckWindow> MusicDuckWindows { get; init; } = [];
 
     public IReadOnlyList<MergeOverlayItem> Overlays { get; init; } = [];
 
