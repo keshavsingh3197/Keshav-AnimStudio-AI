@@ -1120,3 +1120,164 @@ app-timeline-dock {
     grid-row: 2 !important;
   }
 }
+
+/* ============================================================
+   Where-to-insert dialog. Asked on every add and paste, since
+   a wrong answer silently reorders the edit and is tedious to
+   undo; the preview row makes the answer checkable first.
+   ============================================================ */
+.insert-dialog {
+  width: min(520px, calc(100vw - 32px));
+  background: var(--surface, #0f1422);
+  border: 1px solid var(--border, #1e293b);
+  border-radius: 10px;
+  padding: 16px 18px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+}
+
+.insert-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 2px;
+}
+
+.insert-dialog-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text, #f0f4fc);
+}
+
+.insert-dialog-sub {
+  margin: 0 0 12px;
+  font-size: 0.78rem;
+  color: var(--muted, #94a3b8);
+}
+
+.insert-quick-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.insert-quick-btn {
+  flex: 1;
+  padding: 7px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #1e293b);
+  background: var(--surface-2, #161b27);
+  color: var(--text, #f0f4fc);
+  font-size: 0.76rem;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.insert-quick-btn:hover {
+  border-color: var(--brand, #6c8cff);
+}
+
+.insert-quick-btn.active {
+  background: color-mix(in srgb, var(--brand, #6c8cff) 22%, transparent);
+  border-color: var(--brand, #6c8cff);
+  font-weight: 600;
+}
+
+.insert-dialog-label {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--muted, #94a3b8);
+  margin-bottom: 4px;
+}
+
+.insert-dialog-select {
+  width: 100%;
+  padding: 7px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #1e293b);
+  background: var(--surface-2, #161b27);
+  color: var(--text, #f0f4fc);
+  font-size: 0.78rem;
+}
+
+/* The resulting order, so the choice is verified rather than trusted. */
+.insert-preview {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin: 14px 0;
+  padding: 9px 11px;
+  border-radius: 7px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  font-size: 0.73rem;
+  color: var(--text, #f0f4fc);
+}
+
+.insert-preview-side {
+  color: var(--muted, #94a3b8);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 170px;
+}
+
+.insert-preview-arrow {
+  color: var(--ok, #10b981);
+}
+
+.insert-preview-new {
+  font-weight: 700;
+  color: var(--ok, #10b981);
+  background: rgba(16, 185, 129, 0.16);
+  border-radius: 4px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+
+.insert-dialog-remember {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.73rem;
+  color: var(--muted, #94a3b8);
+  cursor: pointer;
+  margin-bottom: 14px;
+}
+
+.insert-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.insert-btn-secondary,
+.insert-btn-primary {
+  padding: 7px 15px;
+  border-radius: 6px;
+  font-size: 0.79rem;
+  cursor: pointer;
+  border: 1px solid var(--border, #1e293b);
+}
+
+.insert-btn-secondary {
+  background: transparent;
+  color: var(--muted, #94a3b8);
+}
+
+.insert-btn-secondary:hover {
+  color: var(--text, #f0f4fc);
+}
+
+.insert-btn-primary {
+  background: var(--brand, #6c8cff);
+  border-color: var(--brand, #6c8cff);
+  color: #0a0f1c;
+  font-weight: 700;
+}
+
+.insert-btn-primary:hover {
+  filter: brightness(1.08);
+}

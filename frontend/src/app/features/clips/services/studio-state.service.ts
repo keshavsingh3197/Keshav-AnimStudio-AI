@@ -437,6 +437,425 @@ export class StudioStateService implements OnDestroy {
     return result;
   });
 
+  // ────────────────────────────────────────────────────────────────
+  // THE INSERT CARET
+  //
+  // The V1 cut is an ordered list, so it gets a cursor, exactly like text. Everything that
+  // adds clips - the library "Add to Cut", a drag from the media dock, a paste - lands at
+  // the caret instead of being appended to the end, and the caret is drawn on the timeline
+  // so the landing spot is visible BEFORE the action rather than explained after it.
+  // ────────────────────────────────────────────────────────────────
+
+  /** Position in the CUT order where new clips land. null means "at the end". */
+  readonly insertIndex = signal<number | null>(null);
+
+  /** The caret clamped to the cut as it stands now; clips may have been removed under it. */
+  readonly effectiveInsertIndex = computed<number>(() => {
+    const count = this.included().length;
+    const raw = this.insertIndex();
+    if (raw === null) return count;
+    return Math.max(0, Math.min(count, raw));
+  });
+
+  /** Plain words for the caret, for the media dock and the paste toast. */
+  readonly insertPointLabel = computed<string>(() => {
+    const cut = this.included();
+    const at = this.effectiveInsertIndex();
+    if (cut.length === 0) return 'as the first clip';
+    if (at >= cut.length) return `at the end (after ${cut[cut.length - 1].clip.name})`;
+    if (at === 0) return `at the start (before ${cut[0].clip.name})`;
+    return `after ${cut[at - 1].clip.name}`;
+  });
+
+  /**
+   * The pending "where should these go?" question, or null when nothing is being placed.
+   * The caret supplies the default, but the user asked to be asked, so adding and pasting
+   * both stop here first and show the resulting order before committing to it.
+   */
+  readonly insertPrompt = signal<{
+    kind: 'add' | 'paste';
+    /** Library clips waiting to be added; empty for a paste, which reads the clipboard. */
+    clipIds: string[];
+    count: number;
+  } | null>(null);
+
+  /** The cut position the dialog currently proposes. */
+  readonly insertPromptIndex = signal<number>(0);
+
+  /** Ticked in the dialog to stop it appearing again until the page is reloaded. */
+  readonly skipInsertPrompt = signal<boolean>(false);
+
+  /** The cut, as choices for the dialog's "after which clip" list. */
+  readonly insertPromptOptions = computed<{ index: number; label: string }[]>(() => {
+    const cut = this.included();
+    const options: { index: number; label: string }[] = [
+      { index: 0, label: cut.length === 0 ? 'As the first clip' : `At the start — before #1 ${cut[0].clip.name}` },
+    ];
+    cut.forEach((row, i) => {
+      options.push({ index: i + 1, label: `After #${i + 1} ${row.clip.name}` });
+    });
+    return options;
+  });
+
+  /** Cut position nearest the playhead, offered as its own choice in the dialog. */
+  readonly playheadCutIndex = computed<number>(() => {
+    const time = this.currentTime();
+    const schedule = this.clipSchedule();
+    for (let i = 0; i < schedule.length; i++) {
+      if (time < schedule[i].endSeconds) {
+        const mid = (schedule[i].startSeconds + schedule[i].endSeconds) / 2;
+        return time < mid ? i : i + 1;
+      }
+    }
+    return schedule.length;
+  });
+
+  /** "… #6 Sage Dancing → [4 new clips] → #7 Narada Walking …" for the dialog preview. */
+  readonly insertPromptPreview = computed<{ before: string; after: string }>(() => {
+    const cut = this.included();
+    const at = Math.max(0, Math.min(cut.length, this.insertPromptIndex()));
+    return {
+      before: at > 0 ? `#${at} ${cut[at - 1].clip.name}` : 'start of the timeline',
+      after: at < cut.length ? `#${at + 1} ${cut[at].clip.name}` : 'end of the timeline',
+    };
+  });
+
+  /**
+   * Opens the placement dialog, or places straight away when the user has said not to ask.
+   * Returns true when the caller should stop and wait for the dialog.
+   */
+  private askWhereToInsert(kind: 'add' | 'paste', clipIds: string[], count: number): boolean {
+    if (this.skipInsertPrompt()) return false;
+    this.insertPromptIndex.set(this.effectiveInsertIndex());
+    this.insertPrompt.set({ kind, clipIds, count });
+    return true;
+  }
+
+  confirmInsertPrompt(): void {
+    const prompt = this.insertPrompt();
+    if (!prompt) return;
+
+    this.insertIndex.set(this.insertPromptIndex());
+    this.insertPrompt.set(null);
+
+    if (prompt.kind === 'paste') this.performPaste();
+    else this.performAddToCut(prompt.clipIds);
+  }
+
+  cancelInsertPrompt(): void {
+    this.insertPrompt.set(null);
+  }
+
+  setInsertIndex(index: number | null): void {
+    this.insertIndex.set(index);
+  }
+
+  /** Puts the caret on one side of a clip - what clicking a cut seam does. */
+  moveInsertCaretToClip(clipId: string, side: 'before' | 'after' = 'after'): void {
+    const at = this.included().findIndex((r) => r.clip.id === clipId);
+    if (at < 0) return;
+    this.insertIndex.set(side === 'before' ? at : at + 1);
+  }
+
+  /** Puts the caret at the cut nearest the playhead. */
+  moveInsertCaretToPlayhead(): void {
+    const time = this.currentTime();
+    const schedule = this.clipSchedule();
+    for (let i = 0; i < schedule.length; i++) {
+      if (time < schedule[i].endSeconds) {
+        // Snap to whichever end of this clip the playhead is closer to.
+        const entry = schedule[i];
+        const mid = (entry.startSeconds + entry.endSeconds) / 2;
+        this.insertIndex.set(time < mid ? i : i + 1);
+        return;
+      }
+    }
+    this.insertIndex.set(schedule.length);
+  }
+
+  /**
+   * Where a cut position sits in the backing `rows` array, which also holds the clips that
+   * are NOT in the cut. Returns rows.length for a caret past the last included clip.
+   */
+  private rowsIndexForCutIndex(cutIndex: number): number {
+    const marked = this.includedWithIndex();
+    if (cutIndex >= marked.length) return this.rows().length;
+    return marked[Math.max(0, cutIndex)].index;
+  }
+
+  /** Splices rows in at the caret and leaves the caret after what was just inserted. */
+  private insertRowsAtCaret(newRows: ClipRow[]): void {
+    if (newRows.length === 0) return;
+    const at = this.effectiveInsertIndex();
+    const rows = [...this.rows()];
+    rows.splice(this.rowsIndexForCutIndex(at), 0, ...newRows);
+    this.rows.set(rows);
+    // Typing behaviour: the caret follows what you just added, so a second paste lands
+    // after the first rather than on top of it.
+    this.insertIndex.set(at + newRows.length);
+    this.markDirty();
+  }
+
+  // ────────────────────────────────────────────────────────────────
+  // KEYBOARD SELECTION OVER THE CUT
+  // ────────────────────────────────────────────────────────────────
+
+  /** Where a Shift-extended selection started, so it can grow and shrink from one end. */
+  readonly selectionAnchorIndex = signal<number | null>(null);
+
+  /** Cut positions currently selected, derived from the id-based selection. */
+  readonly selectedCutIndices = computed<number[]>(() => {
+    const selected = this.selectedLibraryIds();
+    const out: number[] = [];
+    this.included().forEach((row, i) => {
+      if (selected.has(row.clip.id)) out.push(i);
+    });
+    return out;
+  });
+
+  private applyCutSelection(indices: number[]): void {
+    const cut = this.included();
+    const ids = new Set(indices.map((i) => cut[i]?.clip.id).filter((id): id is string => Boolean(id)));
+    this.selectedLibraryIds.set(ids);
+    this.selectedMusicTrackKey.set(null);
+    if (indices.length > 0) {
+      const first = cut[indices[0]];
+      if (first) this.selectedClipId.set(first.clip.id);
+    }
+    this.markDirty();
+  }
+
+  /**
+   * Shift+Arrow. Grows the selection away from the anchor, or shrinks it back toward the
+   * anchor when reversing - the behaviour of a text selection rather than a plain "add one
+   * more", so overshooting is undone by pressing the other arrow.
+   */
+  extendClipSelection(direction: 1 | -1): void {
+    const cut = this.included();
+    if (cut.length === 0) return;
+
+    const current = this.selectedCutIndices();
+    if (current.length === 0) {
+      const start = direction === 1 ? 0 : cut.length - 1;
+      this.selectionAnchorIndex.set(start);
+      this.applyCutSelection([start]);
+      this.scrollCutIndexIntoView(start);
+      return;
+    }
+
+    let anchor = this.selectionAnchorIndex();
+    if (anchor === null || !current.includes(anchor)) {
+      anchor = direction === 1 ? current[0] : current[current.length - 1];
+      this.selectionAnchorIndex.set(anchor);
+    }
+
+    const head = direction === 1 ? current[current.length - 1] : current[0];
+    const next = Math.max(0, Math.min(cut.length - 1, head + direction));
+    if (next === head) return;
+
+    const lo = Math.min(anchor, next);
+    const hi = Math.max(anchor, next);
+    const range: number[] = [];
+    for (let i = lo; i <= hi; i++) range.push(i);
+
+    this.applyCutSelection(range);
+    this.scrollCutIndexIntoView(next);
+  }
+
+  /** Shift+Click: everything between the anchor and this clip. */
+  selectClipRangeTo(clipId: string): void {
+    const cut = this.included();
+    const to = cut.findIndex((r) => r.clip.id === clipId);
+    if (to < 0) return;
+
+    const anchor = this.selectionAnchorIndex() ?? this.selectedCutIndices()[0] ?? to;
+    const lo = Math.min(anchor, to);
+    const hi = Math.max(anchor, to);
+    const range: number[] = [];
+    for (let i = lo; i <= hi; i++) range.push(i);
+
+    this.selectionAnchorIndex.set(anchor);
+    this.applyCutSelection(range);
+  }
+
+  /** Ctrl/Cmd+Click: add or remove one clip without disturbing the rest. */
+  toggleClipInSelection(clipId: string): void {
+    const at = this.included().findIndex((r) => r.clip.id === clipId);
+    if (at < 0) return;
+
+    const current = new Set(this.selectedCutIndices());
+    if (current.has(at)) current.delete(at);
+    else current.add(at);
+
+    this.selectionAnchorIndex.set(at);
+    this.applyCutSelection([...current].sort((a, b) => a - b));
+  }
+
+  /** Keeps the newly selected clip on screen when the selection is driven from the keyboard. */
+  private scrollCutIndexIntoView(cutIndex: number): void {
+    const entry = this.clipSchedule()[cutIndex];
+    if (entry) this.timelineScrollRequest.set({ seconds: entry.startSeconds, nonce: Date.now() });
+  }
+
+  /** Consumed by the timeline dock to bring a time into view. */
+  readonly timelineScrollRequest = signal<{ seconds: number; nonce: number } | null>(null);
+
+  // ────────────────────────────────────────────────────────────────
+  // COPY / CUT / PASTE AND REORDERING
+  // ────────────────────────────────────────────────────────────────
+
+  /**
+   * Copied clips. These are asset references, not deep copies - a pasted clip is the same
+   * footage appearing twice, which is what `duplicateClip` has always produced.
+   */
+  readonly clipboard = signal<{ clips: Clip[]; wasCut: boolean } | null>(null);
+
+  readonly clipboardCount = computed<number>(() => this.clipboard()?.clips.length ?? 0);
+
+  copySelectedClips(): void {
+    const indices = this.selectedCutIndices();
+    if (indices.length === 0) {
+      this.status.notify(['Select one or more clips on the timeline first.']);
+      return;
+    }
+    const cut = this.included();
+    this.clipboard.set({ clips: indices.map((i) => cut[i].clip), wasCut: false });
+    this.status.notify([`Copied ${indices.length} clip(s). Ctrl+V pastes ${this.insertPointLabel()}.`]);
+  }
+
+  cutSelectedClips(): void {
+    const indices = this.selectedCutIndices();
+    if (indices.length === 0) {
+      this.status.notify(['Select one or more clips on the timeline first.']);
+      return;
+    }
+    const cut = this.included();
+    const clips = indices.map((i) => cut[i].clip);
+    const removing = new Set(indices);
+
+    // The caret follows the hole the clips left, so Ctrl+X then Ctrl+V somewhere else reads
+    // as a move rather than a delete followed by a guess.
+    const caretTarget = indices[0];
+
+    const keep: ClipRow[] = [];
+    let cutPos = 0;
+    for (const row of this.rows()) {
+      if (row.included) {
+        const isRemoved = removing.has(cutPos);
+        cutPos++;
+        if (isRemoved) continue;
+      }
+      keep.push(row);
+    }
+
+    this.rows.set(keep);
+    this.clipboard.set({ clips, wasCut: true });
+    this.selectedLibraryIds.set(new Set());
+    this.selectionAnchorIndex.set(null);
+    this.insertIndex.set(caretTarget);
+    this.markDirty();
+    this.status.notify([`Cut ${clips.length} clip(s). Move the caret and press Ctrl+V.`]);
+  }
+
+  pasteClips(): void {
+    const board = this.clipboard();
+    if (!board || board.clips.length === 0) {
+      this.status.notify(['Nothing to paste.']);
+      return;
+    }
+    if (this.askWhereToInsert('paste', [], board.clips.length)) return;
+    this.performPaste();
+  }
+
+  private performPaste(): void {
+    const board = this.clipboard();
+    if (!board || board.clips.length === 0) return;
+
+    const where = this.insertPointLabel();
+    this.insertRowsAtCaret(board.clips.map((clip) => ({ clip, included: true })));
+
+    // A cut is consumed by its paste; a copy stays on the clipboard to be pasted again.
+    if (board.wasCut) this.clipboard.set(null);
+
+    this.saveOrder();
+    this.status.notify([`Pasted ${board.clips.length} clip(s) ${where}.`]);
+  }
+
+  /**
+   * Alt+Arrow. Moves the selected clips one slot through the cut, as one block, so a
+   * multi-selection keeps its internal order and stays contiguous.
+   */
+  moveSelectedClips(direction: 1 | -1): void {
+    const indices = this.selectedCutIndices();
+    if (indices.length === 0) {
+      this.status.notify(['Select a clip on the timeline first.']);
+      return;
+    }
+
+    const cut = this.included();
+    if (direction === -1 && indices[0] === 0) return;
+    if (direction === 1 && indices[indices.length - 1] === cut.length - 1) return;
+
+    const moving = new Set(indices);
+    const order: ClipRow[] = [];
+    const block: ClipRow[] = [];
+    cut.forEach((row, i) => {
+      if (moving.has(i)) block.push(row);
+      else order.push(row);
+    });
+
+    // Where the block lands among the clips that did not move. Every clip before the
+    // block's first index stayed put, so that index IS the count of them.
+    const target = Math.max(0, Math.min(order.length, indices[0] + direction));
+    order.splice(target, 0, ...block);
+
+    this.replaceCutOrder(order);
+    this.applyCutSelection(
+      block.map((_, offset) => target + offset)
+    );
+    this.selectionAnchorIndex.set(target);
+    this.saveOrder();
+  }
+
+  /**
+   * Writes a new cut order back into `rows`, leaving the clips that are not in the cut
+   * where they are so the media library does not reshuffle under the user.
+   */
+  private replaceCutOrder(newCut: ClipRow[]): void {
+    const rows = this.rows();
+    const next: ClipRow[] = [];
+    let take = 0;
+    for (const row of rows) {
+      if (row.included) {
+        next.push(newCut[take]);
+        take++;
+      } else {
+        next.push(row);
+      }
+    }
+    this.rows.set(next);
+    this.markDirty();
+  }
+
+  /** Drag a V1 clip to a new slot: `to` is a CUT position, not a rows index. */
+  moveClipToCutIndex(clipId: string, to: number): void {
+    const cut = this.included();
+    const from = cut.findIndex((r) => r.clip.id === clipId);
+    if (from < 0) return;
+
+    const order = [...cut];
+    const [moved] = order.splice(from, 1);
+    // Removing the clip shifts everything after it down by one.
+    const target = Math.max(0, Math.min(order.length, from < to ? to - 1 : to));
+    order.splice(target, 0, moved);
+
+    this.replaceCutOrder(order);
+    this.selectionAnchorIndex.set(target);
+    this.applyCutSelection([target]);
+    this.saveOrder();
+    this.status.notify([`Moved "${moved.clip.name}" to position ${target + 1}.`]);
+  }
+
   junctionKey(leftId: string, rightId: string): string {
     return `${leftId}:${rightId}`;
   }
@@ -1591,12 +2010,32 @@ export class StudioStateService implements OnDestroy {
   selectTimelineClip(index: number, clipId: string, event?: Event): void {
     event?.stopPropagation();
     this.selectedMusicTrackKey.set(null);
-    this.selectedTimelineClipIndex.set(index);
-    this.selectedClipId.set(clipId);
-    this.selectedLibraryIds.set(new Set([clipId]));
     this.selectedTimelineItemId.set(null);
     this.selectedTimelineItemIds.set(new Set());
     this.targetScope.set('selected');
+
+    const mouse = event as MouseEvent | undefined;
+
+    // Shift extends from the anchor, Ctrl/Cmd toggles one clip - the conventions from
+    // every file list, so they need no explaining.
+    if (mouse?.shiftKey) {
+      this.selectedTimelineClipIndex.set(index);
+      this.selectClipRangeTo(clipId);
+      return;
+    }
+    if (mouse?.ctrlKey || mouse?.metaKey) {
+      this.selectedTimelineClipIndex.set(index);
+      this.toggleClipInSelection(clipId);
+      return;
+    }
+
+    this.selectedTimelineClipIndex.set(index);
+    this.selectedClipId.set(clipId);
+    this.selectedLibraryIds.set(new Set([clipId]));
+    this.selectionAnchorIndex.set(index);
+    // Clicking a clip parks the caret just after it, so "add" and "paste" land where the
+    // user is looking rather than at the far end of the timeline.
+    this.insertIndex.set(index + 1);
   }
 
   removeTimelineClipAtIndex(clipIdOrIndex: string | number, timelineIndex?: number): void {
@@ -1851,18 +2290,20 @@ export class StudioStateService implements OnDestroy {
       return;
     }
 
-    // Video clips route strictly to V1 Base Video track
+    // Video clips route strictly to V1 Base Video track, at the insert caret.
+    const where = this.insertPointLabel();
     const rows = [...this.rows()];
-    const existingIdx = rows.findIndex((r) => r.clip.id === clipId);
+    const existingIdx = rows.findIndex((r) => r.clip.id === clipId && !r.included);
     if (existingIdx >= 0) {
-      rows[existingIdx] = { ...rows[existingIdx], included: true };
+      // Already in the library but out of the cut: move it to the caret rather than
+      // switching it on wherever it happens to sit in the library order.
+      const [existing] = rows.splice(existingIdx, 1);
       this.rows.set(rows);
+      this.insertRowsAtCaret([{ ...existing, included: true }]);
     } else {
-      rows.push({ clip, included: true });
-      this.rows.set(rows);
+      this.insertRowsAtCaret([{ clip, included: true }]);
     }
-    this.markDirty();
-    this.status.notify([`Added video "${clip.name}" to V1 sequence cut.`]);
+    this.status.notify([`Added "${clip.name}" ${where}.`]);
   }
 
   removeClipFromTimeline(clipOrAssetId: string): void {
@@ -1906,29 +2347,41 @@ export class StudioStateService implements OnDestroy {
   }
 
   addSelectedToTimeline(): void {
-    const selectedIds = this.selectedLibraryIds();
-    if (selectedIds.size === 0) return;
+    const unplaced = [...this.selectedLibraryIds()].filter((id) => !this.isClipOnTimeline(id));
+    if (unplaced.length === 0) {
+      this.status.notify(['The selected media is already on the timeline.']);
+      return;
+    }
+    if (this.askWhereToInsert('add', unplaced, unplaced.length)) return;
+    this.performAddToCut(unplaced);
+  }
 
-    let addedCount = 0;
-    let skippedCount = 0;
+  /** The per-clip "Add to Cut" button. Asks where, exactly like the bulk button. */
+  addClipToCutWithPrompt(clipId: string): void {
+    if (this.isClipOnTimeline(clipId)) {
+      this.status.notify(['That clip is already in the cut.']);
+      return;
+    }
+    if (this.askWhereToInsert('add', [clipId], 1)) return;
+    this.performAddToCut([clipId]);
+  }
 
-    for (const clipId of selectedIds) {
-      if (this.isClipOnTimeline(clipId)) {
-        skippedCount++;
-        continue;
-      }
+  private performAddToCut(clipIds: string[]): void {
+    const ordered = this.rows()
+      .filter((r) => clipIds.includes(r.clip.id) && !r.included)
+      .map((r) => r.clip.id);
+    const targets = ordered.length > 0 ? ordered : clipIds;
+
+    let added = 0;
+    for (const clipId of targets) {
+      if (this.isClipOnTimeline(clipId)) continue;
       this.addClipToTimeline(clipId);
-      addedCount++;
+      added++;
     }
 
-    this.markDirty();
-
-    if (addedCount > 0 && skippedCount > 0) {
-      this.status.notify([`Added ${addedCount} new clip${addedCount > 1 ? 's' : ''} to timeline (skipped ${skippedCount} already in cut).`]);
-    } else if (addedCount > 0) {
-      this.status.notify([`Added ${addedCount} clip${addedCount > 1 ? 's' : ''} to timeline.`]);
-    } else if (skippedCount > 0) {
-      this.status.notify([`Selected media (${skippedCount} item${skippedCount > 1 ? 's' : ''}) is already on the timeline.`]);
+    this.saveOrder();
+    if (added > 0) {
+      this.status.notify([`Added ${added} clip${added > 1 ? 's' : ''} to the cut.`]);
     }
   }
 
@@ -4653,7 +5106,7 @@ export class StudioStateService implements OnDestroy {
         }
         return next;
       });
-      this.markDirty();
+      this.saveOrder();
     }
     this.dragIndex.set(null);
     this.dragOverIndex.set(null);

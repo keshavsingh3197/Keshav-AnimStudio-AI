@@ -58,7 +58,31 @@ export class ClipStudioComponent implements OnInit {
       } else if (event.key.toLowerCase() === 'd') {
         event.preventDefault();
         this.state.duplicateSelectedTimelineItem();
+      } else if (event.key.toLowerCase() === 'c') {
+        event.preventDefault();
+        this.state.copySelectedClips();
+      } else if (event.key.toLowerCase() === 'x') {
+        event.preventDefault();
+        this.state.cutSelectedClips();
+      } else if (event.key.toLowerCase() === 'v') {
+        event.preventDefault();
+        this.state.pasteClips();
+      } else if (event.code === 'ArrowLeft') {
+        // The one-second jog used to live on Shift+Arrow; Shift now extends the
+        // clip selection, which is the more useful thing to have on the easier chord.
+        event.preventDefault();
+        this.state.step(-1.0);
+      } else if (event.code === 'ArrowRight') {
+        event.preventDefault();
+        this.state.step(1.0);
       }
+      return;
+    }
+
+    // Alt+Arrow shuffles the selected clips through the cut order.
+    if (event.altKey && (event.code === 'ArrowLeft' || event.code === 'ArrowRight')) {
+      event.preventDefault();
+      this.state.moveSelectedClips(event.code === 'ArrowRight' ? 1 : -1);
       return;
     }
 
@@ -78,11 +102,13 @@ export class ClipStudioComponent implements OnInit {
         break;
       case 'ArrowLeft':
         event.preventDefault();
-        this.state.step(event.shiftKey ? -1.0 : -1 / 30);
+        if (event.shiftKey) this.state.extendClipSelection(-1);
+        else this.state.step(-1 / 30);
         break;
       case 'ArrowRight':
         event.preventDefault();
-        this.state.step(event.shiftKey ? 1.0 : 1 / 30);
+        if (event.shiftKey) this.state.extendClipSelection(1);
+        else this.state.step(1 / 30);
         break;
       case 'KeyM':
         event.preventDefault();

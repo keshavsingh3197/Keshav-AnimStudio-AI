@@ -36,6 +36,78 @@
     </div>
   }
 
+  <!--
+    Where-to-insert dialog. The green caret on the timeline still shows the default, but
+    adding and pasting both confirm here, with a preview of the resulting order so the
+    answer is checkable before it is committed.
+  -->
+  @if (state.insertPrompt(); as prompt) {
+    <div class="modal-backdrop" (click)="state.cancelInsertPrompt()">
+      <div class="insert-dialog" (click)="$event.stopPropagation()">
+        <div class="insert-dialog-header">
+          <h3>
+            {{ prompt.kind === 'paste' ? 'Paste' : 'Add' }}
+            {{ prompt.count }} clip{{ prompt.count > 1 ? 's' : '' }}
+          </h3>
+          <button class="close-btn" type="button" (click)="state.cancelInsertPrompt()">&times;</button>
+        </div>
+
+        <p class="insert-dialog-sub">Where should they go?</p>
+
+        <div class="insert-quick-row">
+          <button type="button" class="insert-quick-btn"
+                  [class.active]="state.insertPromptIndex() === 0"
+                  (click)="state.insertPromptIndex.set(0)">
+            At the start
+          </button>
+          <button type="button" class="insert-quick-btn"
+                  [class.active]="state.insertPromptIndex() === state.playheadCutIndex()"
+                  (click)="state.insertPromptIndex.set(state.playheadCutIndex())">
+            At the playhead
+          </button>
+          <button type="button" class="insert-quick-btn"
+                  [class.active]="state.insertPromptIndex() === state.included().length"
+                  (click)="state.insertPromptIndex.set(state.included().length)">
+            At the end
+          </button>
+        </div>
+
+        <label class="insert-dialog-label" for="insertPositionSelect">Or pick the exact spot</label>
+        <select id="insertPositionSelect" class="insert-dialog-select"
+                [ngModel]="state.insertPromptIndex()"
+                (ngModelChange)="state.insertPromptIndex.set(+$event)">
+          @for (option of state.insertPromptOptions(); track option.index) {
+            <option [value]="option.index">{{ option.label }}</option>
+          }
+        </select>
+
+        <div class="insert-preview">
+          <span class="insert-preview-side">{{ state.insertPromptPreview().before }}</span>
+          <span class="insert-preview-arrow">→</span>
+          <span class="insert-preview-new">
+            {{ prompt.count }} new clip{{ prompt.count > 1 ? 's' : '' }}
+          </span>
+          <span class="insert-preview-arrow">→</span>
+          <span class="insert-preview-side">{{ state.insertPromptPreview().after }}</span>
+        </div>
+
+        <label class="insert-dialog-remember">
+          <input type="checkbox"
+                 [ngModel]="state.skipInsertPrompt()"
+                 (ngModelChange)="state.skipInsertPrompt.set($event)" />
+          <span>Don't ask again — use the green caret from now on</span>
+        </label>
+
+        <div class="insert-dialog-actions">
+          <button type="button" class="insert-btn-secondary" (click)="state.cancelInsertPrompt()">Cancel</button>
+          <button type="button" class="insert-btn-primary" (click)="state.confirmInsertPrompt()">
+            {{ prompt.kind === 'paste' ? 'Paste here' : 'Add here' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+
   <!-- Shortcuts Cheat-Sheet Modal -->
   @if (state.showShortcutsModal()) {
     <div class="modal-backdrop" (click)="state.showShortcutsModal.set(false)">
@@ -48,7 +120,12 @@
           <div class="shortcut-item"><kbd>Space</kbd> <span>Play / Pause</span></div>
           <div class="shortcut-item"><kbd>J</kbd> / <kbd>K</kbd> / <kbd>L</kbd> <span>Rewind / Stop / Forward</span></div>
           <div class="shortcut-item"><kbd>←</kbd> / <kbd>→</kbd> <span>Step 1 frame</span></div>
-          <div class="shortcut-item"><kbd>Shift</kbd> + <kbd>←</kbd> / <kbd>→</kbd> <span>Step 1 second</span></div>
+          <div class="shortcut-item"><kbd>Ctrl</kbd> + <kbd>←</kbd> / <kbd>→</kbd> <span>Step 1 second</span></div>
+          <div class="shortcut-item"><kbd>Shift</kbd> + <kbd>←</kbd> / <kbd>→</kbd> <span>Extend / shrink clip selection</span></div>
+          <div class="shortcut-item"><kbd>Shift</kbd> + click <span>Select a range of clips</span></div>
+          <div class="shortcut-item"><kbd>Ctrl</kbd> + click <span>Add / remove one clip</span></div>
+          <div class="shortcut-item"><kbd>Alt</kbd> + <kbd>←</kbd> / <kbd>→</kbd> <span>Move selected clips in the cut</span></div>
+          <div class="shortcut-item"><kbd>Ctrl</kbd> + <kbd>C</kbd> / <kbd>X</kbd> / <kbd>V</kbd> <span>Copy / cut / paste at the caret</span></div>
           <div class="shortcut-item"><kbd>Home</kbd> / <kbd>End</kbd> <span>Jump to Start / End</span></div>
           <div class="shortcut-item"><kbd>S</kbd> <span>Split Clip at Playhead</span></div>
           <div class="shortcut-item"><kbd>B</kbd> <span>Blade / Split Tool</span></div>

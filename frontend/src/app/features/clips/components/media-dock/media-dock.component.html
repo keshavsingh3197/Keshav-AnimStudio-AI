@@ -140,7 +140,8 @@
       </div>
       <div class="media-bulk-actions">
         @if (state.selectedUnplacedCount() > 0) {
-          <button class="bulk-action-btn bulk-btn-add" type="button" (click)="state.addSelectedToTimeline()" title="Add {{ state.selectedUnplacedCount() }} unplaced media to timeline cut">
+          <button class="bulk-action-btn bulk-btn-add" type="button" (click)="state.addSelectedToTimeline()"
+                  [title]="'Add ' + state.selectedUnplacedCount() + ' clip(s) ' + state.insertPointLabel()">
             <span class="bulk-btn-icon">+</span>
             <span>Add to Cut ({{ state.selectedUnplacedCount() }})</span>
           </button>
@@ -301,8 +302,8 @@
                 </button>
               } @else {
                 <button class="thumb-hover-btn btn-add-cut" type="button"
-                        (click)="state.addClipToTimeline(row.clip.id)"
-                        title="Add clip to timeline cut">
+                        (click)="state.addClipToCutWithPrompt(row.clip.id)"
+                        title="Add this clip to the cut — you choose where">
                   <span class="hover-btn-icon">+</span>
                   <span>Add to Cut</span>
                 </button>

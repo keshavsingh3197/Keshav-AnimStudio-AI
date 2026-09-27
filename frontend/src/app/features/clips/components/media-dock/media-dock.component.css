@@ -342,6 +342,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  /* The action buttons are the point of this bar, so they never get squeezed out by a
+     long clip name on the left: the count wraps instead. */
+  flex-wrap: wrap;
+  row-gap: 4px;
   background: #0f1422;
   border: 1px solid #1e293b;
   border-radius: 6px;
@@ -355,6 +359,8 @@
   display: flex;
   align-items: center;
   gap: 5px;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .bulk-dot {
@@ -395,6 +401,9 @@
 .media-bulk-actions {
   display: flex;
   align-items: center;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 4px;
 }
 
@@ -985,4 +994,19 @@
 .stepper-arrow-btn:disabled {
   opacity: 0.3 !important;
   cursor: not-allowed !important;
+}
+
+/* Where the "Add to Cut" button will actually put things — the same words the
+   caret's own tooltip uses, so the two cannot describe different places. */
+.bulk-insert-hint {
+  font-size: 0.68rem;
+  color: var(--ok, #10b981);
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  border-radius: 4px;
+  padding: 1px 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }

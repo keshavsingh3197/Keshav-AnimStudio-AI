@@ -1,6 +1,6 @@
 import {
   AfterViewInit,
-  Component, ElementRef, HostListener, OnDestroy, OnInit, ViewChild, inject, signal
+  Component, ElementRef, HostListener, OnDestroy, OnInit, ViewChild, computed, effect, inject, signal
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -17,6 +17,18 @@ import { ClipRow, JunctionView, MusicTrackRow } from '../../models/clip-studio.m
 })
 export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
   readonly state = inject(StudioStateService);
+
+  /**
+   * Where to draw the insert caret, in seconds. It sits on the START of the clip the caret
+   * points at, or at the very end of the cut when the caret is past the last clip.
+   */
+  readonly insertCaretSeconds = computed<number>(() => {
+    const schedule = this.state.clipSchedule();
+    const at = this.state.effectiveInsertIndex();
+    if (schedule.length === 0) return 0;
+    if (at >= schedule.length) return schedule[schedule.length - 1].endSeconds;
+    return schedule[at].startSeconds;
+  });
 
   @ViewChild('playheadNeedle') playheadNeedleRef?: ElementRef<HTMLElement>;
   @ViewChild('timelineArea') timelineAreaRef?: ElementRef<HTMLElement>;
@@ -150,6 +162,27 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   // Guardrail 2: Isolated 60fps playhead translation RAF loop
+  /**
+   * Brings a clip into view when the selection is driven from the keyboard. Shift+Arrow can
+   * walk the selection past the edge of the viewport, and a selection you cannot see is
+   * indistinguishable from one that did not happen.
+   */
+  private readonly scrollToSelection = effect(() => {
+    const request = this.state.timelineScrollRequest();
+    if (!request) return;
+
+    const area = this.timelineAreaRef?.nativeElement;
+    if (!area) return;
+
+    const px = this.trackHeaderWidth + this.state.secondsToPx(request.seconds);
+    const margin = 120;
+    if (px > area.scrollLeft + area.clientWidth - margin) {
+      area.scrollLeft = px - area.clientWidth + margin;
+    } else if (px < area.scrollLeft + this.trackHeaderWidth + margin) {
+      area.scrollLeft = Math.max(0, px - this.trackHeaderWidth - margin);
+    }
+  });
+
   private startPlayheadRaf(): void {
     const loop = () => {
       const el = this.playheadNeedleRef?.nativeElement;

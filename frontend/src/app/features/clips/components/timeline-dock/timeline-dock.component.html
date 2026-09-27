@@ -36,6 +36,44 @@
           <span class="tool-btn-icon">⧉</span>
           <span>Duplicate</span>
         </button>
+      </div>
+
+      <div class="tl-toolbar-sep"></div>
+
+      <!-- Cut order: move, copy, paste. All of these act on the insert caret. -->
+      <div class="tool-group">
+        <button class="tool-btn" type="button"
+                [disabled]="state.selectedCutIndices().length === 0"
+                (click)="state.moveSelectedClips(-1)"
+                title="Move the selected clips one slot earlier (Alt+←)">
+          <span class="tool-btn-icon">◀</span>
+        </button>
+        <button class="tool-btn" type="button"
+                [disabled]="state.selectedCutIndices().length === 0"
+                (click)="state.moveSelectedClips(1)"
+                title="Move the selected clips one slot later (Alt+→)">
+          <span class="tool-btn-icon">▶</span>
+        </button>
+        <button class="tool-btn" type="button"
+                [disabled]="state.selectedCutIndices().length === 0"
+                (click)="state.copySelectedClips()"
+                title="Copy the selected clips (Ctrl+C)">
+          <span class="tool-btn-icon">⧉</span>
+          <span>Copy</span>
+        </button>
+        <button class="tool-btn" type="button"
+                [disabled]="state.clipboardCount() === 0"
+                (click)="state.pasteClips()"
+                [title]="state.clipboardCount() === 0 ? 'Nothing copied yet' : 'Paste ' + state.clipboardCount() + ' clip(s) ' + state.insertPointLabel() + ' (Ctrl+V)'">
+          <span class="tool-btn-icon">📋</span>
+          <span>Paste{{ state.clipboardCount() > 0 ? ' (' + state.clipboardCount() + ')' : '' }}</span>
+        </button>
+        <button class="tool-btn tool-btn-subtle" type="button"
+                (click)="state.moveInsertCaretToPlayhead()"
+                [title]="'Insert caret is ' + state.insertPointLabel() + ' — click to move it to the playhead'">
+          <span class="tool-btn-icon">⌶</span>
+          <span>Caret</span>
+        </button>
         <button class="tool-btn" type="button" [class.active]="state.activeInspectorTab() === 'clip'" [disabled]="!state.selectedClip()" (click)="state.activeInspectorTab.set('clip')" title="Crop, Framing & Clip Settings (C)">
           <span class="tool-btn-icon">⬜</span>
           <span>Crop</span>
@@ -344,10 +382,20 @@
                  [style.width.px]="state.secondsToPx(state.timelineSeconds())"
                  (dragover)="$event.preventDefault()"
                  (drop)="onTrackDrop('V1', $event)">
+              <!--
+                The insert caret. Everything that adds clips lands here, so it is drawn
+                rather than described: the landing spot is visible before the action.
+              -->
+              <div class="tl-insert-caret"
+                   [style.left.px]="state.secondsToPx(insertCaretSeconds())"
+                   [title]="'New and pasted clips land ' + state.insertPointLabel()">
+                <span class="tl-insert-caret-flag">{{ state.effectiveInsertIndex() + 1 }}</span>
+              </div>
+
               @for (sched of state.clipSchedule(); track sched.clip.id; let i = $index) {
                 <div class="tl-clip"
                      [class.has-thumbnail]="state.timelineThumbnailMode() === 'filmstrip'"
-                     [class.selected]="state.selectedTimelineClipIndex() === i || state.selectedClipId() === sched.clip.id"
+                     [class.selected]="state.selectedLibraryIds().has(sched.clip.id) || state.selectedTimelineClipIndex() === i || state.selectedClipId() === sched.clip.id"
                      [class.dragging]="state.dragIndex() === (sched.rowIndex ?? i)"
                      [class.drag-over]="state.dragOverIndex() === (sched.rowIndex ?? i) && state.dragIndex() !== (sched.rowIndex ?? i)"
                      [style.left.px]="state.secondsToPx(sched.startSeconds)"
@@ -410,6 +458,10 @@
                   @let junction = state.junctionsList()[i];
                   @let seamStartSec = state.clipSchedule()[i + 1].startSeconds;
                   @let seamSec = junction.transition !== 'None' ? seamStartSec + (junction.seconds / 2) : seamStartSec;
+                  <button type="button" class="tl-caret-drop"
+                          [style.left.px]="state.secondsToPx(state.clipSchedule()[i + 1].startSeconds)"
+                          (click)="$event.stopPropagation(); state.setInsertIndex(i + 1)"
+                          title="Put the insert caret here"></button>
                   <div class="tl-junction"
                        [class.is-hard-cut]="junction.transition === 'None'"
                        [class.has-transition]="junction.transition !== 'None'"
