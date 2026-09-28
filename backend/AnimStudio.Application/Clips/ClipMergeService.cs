@@ -138,6 +138,26 @@ public sealed class ClipMergeService(
     /// Stores the complete running order from the Video editor. The list includes clips
     /// outside the current cut too, so ticking one back in later never loses its position.
     /// </summary>
+    /// <summary>
+    /// Strips synthetic clip suffixes (such as _dup_..., _part_..., _a_..., _b_...) to return the canonical base asset ID.
+    /// </summary>
+    public static string CleanClipId(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
+        var trimmed = raw.Trim();
+        var underscoreIdx = trimmed.IndexOf('_');
+        if (underscoreIdx >= 24)
+        {
+            return trimmed[..underscoreIdx];
+        }
+
+        return System.Text.RegularExpressions.Regex.Replace(
+            trimmed,
+            @"(_(dup|part|[ab]|copy|split).*)$",
+            "",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+    }
+
     public async Task SaveOrderAsync(
         string projectId, IReadOnlyList<string> assetIds, CancellationToken ct)
     {
@@ -157,10 +177,7 @@ public sealed class ClipMergeService(
             .Select(a => a.Id)
             .ToHashSet(StringComparer.Ordinal);
 
-        static string CleanId(string raw) =>
-            System.Text.RegularExpressions.Regex.Replace(raw, @"(_[ab]_\d+|_part.*)$", "");
-
-        var cleanedDistinctIds = distinctIds.Select(CleanId).Distinct().ToList();
+        var cleanedDistinctIds = distinctIds.Select(CleanClipId).Distinct().ToList();
         if (cleanedDistinctIds.Any(id => !usableIds.Contains(id)))
         {
             throw EditingException.Invalid("clip-not-found",
@@ -193,9 +210,6 @@ public sealed class ClipMergeService(
 
         var clips = await ListClipsAsync(projectId, ct).ConfigureAwait(false);
         var byId = clips.ToDictionary(c => c.Id, StringComparer.Ordinal);
-
-        static string CleanId(string raw) =>
-            System.Text.RegularExpressions.Regex.Replace(raw, @"(_[ab]_\d+|_part.*)$", "");
 
         // Unknown ids are dropped rather than rejected: a clip deleted in another tab
         // should not make the whole paste fail.
@@ -265,15 +279,12 @@ public sealed class ClipMergeService(
             .Distinct(StringComparer.Ordinal)
             .ToList();
 
-        static string CleanId(string raw) =>
-            System.Text.RegularExpressions.Regex.Replace(raw, @"(_[ab]_\d+|_part.*)$", "");
-
         var queryIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var id in referenced)
         {
             queryIds.Add(id);
-            var clean = CleanId(id);
-            if (clean != id) queryIds.Add(clean);
+            var clean = CleanClipId(id);
+            if (!string.IsNullOrEmpty(clean)) queryIds.Add(clean);
         }
 
         var loaded = await assets.GetManyAsync(queryIds, ct).ConfigureAwait(false);
@@ -283,7 +294,7 @@ public sealed class ClipMergeService(
             byId[a.Id] = a;
             foreach (var origId in referenced)
             {
-                if (CleanId(origId) == a.Id)
+                if (string.Equals(origId, a.Id, StringComparison.Ordinal) || CleanClipId(origId) == a.Id)
                 {
                     byId[origId] = a;
                 }
@@ -597,7 +608,7 @@ public sealed class ClipMergeService(
     {
         if (!byId.TryGetValue(assetId, out var asset))
         {
-            var clean = System.Text.RegularExpressions.Regex.Replace(assetId, @"(_[ab]_\d+|_part.*)$", "");
+            var clean = CleanClipId(assetId);
             byId.TryGetValue(clean, out asset);
         }
 

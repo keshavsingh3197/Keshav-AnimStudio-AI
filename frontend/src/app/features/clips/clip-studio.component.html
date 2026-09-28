@@ -716,4 +716,222 @@
       </div>
     </div>
   }
+
+  <!-- Export & Render Settings Modal -->
+  @if (state.exportModalOpen()) {
+    <div class="modal-backdrop" (click)="state.closeExportModal()">
+      <div class="export-dialog" (click)="$event.stopPropagation()">
+        <!-- Header -->
+        <div class="export-dialog-header">
+          <div class="export-dialog-title">
+            <span class="export-dialog-icon">🚀</span>
+            <div>
+              <h3>Export Video & Render Settings</h3>
+              <p class="export-dialog-subtitle">Configure resolution, framing, transitions, and audio before rendering.</p>
+            </div>
+          </div>
+          <button class="close-btn" type="button" (click)="state.closeExportModal()" title="Close">&times;</button>
+        </div>
+
+        <!-- Body -->
+        <div class="export-dialog-body">
+          <!-- Timeline Summary Card -->
+          <div class="export-summary-card">
+            <div class="export-stat">
+              <span class="export-stat-value">{{ state.included().length }}</span>
+              <span class="export-stat-label">Timeline Clips</span>
+            </div>
+            <div class="export-stat-divider"></div>
+            <div class="export-stat">
+              <span class="export-stat-value">{{ state.formatTimecode(state.contentDurationSeconds()) }}</span>
+              <span class="export-stat-label">Total Duration</span>
+            </div>
+            <div class="export-stat-divider"></div>
+            <div class="export-stat">
+              <span class="export-stat-value">{{ state.musicTracks().length }}</span>
+              <span class="export-stat-label">Audio Tracks</span>
+            </div>
+            <div class="export-stat-divider"></div>
+            <div class="export-stat">
+              <span class="export-stat-badge">Capacity: 1,000 Clips</span>
+              <span class="export-stat-label">Engine Ready ✓</span>
+            </div>
+          </div>
+
+          <!-- Section: Export File Name -->
+          <div class="export-sec">
+            <label class="export-sec-label" for="exportNameInput">Export Video Name</label>
+            <div class="export-input-wrap">
+              <input
+                id="exportNameInput"
+                type="text"
+                class="export-text-input"
+                placeholder="Enter export video name..."
+                [ngModel]="state.exportName()"
+                (ngModelChange)="state.exportName.set($event)"
+              />
+              <span class="export-input-ext">.mp4</span>
+            </div>
+          </div>
+
+          <!-- Section: Resolution & Aspect Ratio Preset -->
+          <div class="export-sec">
+            <label class="export-sec-label">Output Format & Resolution</label>
+            <div class="export-res-grid">
+              <div class="export-res-card"
+                   [class.active]="state.exportResolution() === '1080p'"
+                   (click)="state.exportResolution.set('1080p')">
+                <div class="res-card-radio">
+                  <span class="res-radio-dot" [class.selected]="state.exportResolution() === '1080p'"></span>
+                </div>
+                <div class="res-card-info">
+                  <div class="res-card-title">1080p Full HD (16:9)</div>
+                  <div class="res-card-dim">1920 × 1080 · Standard Landscape</div>
+                </div>
+                <span class="res-card-tag popular">Recommended</span>
+              </div>
+
+              <div class="export-res-card"
+                   [class.active]="state.exportResolution() === 'short_9_16'"
+                   (click)="state.exportResolution.set('short_9_16')">
+                <div class="res-card-radio">
+                  <span class="res-radio-dot" [class.selected]="state.exportResolution() === 'short_9_16'"></span>
+                </div>
+                <div class="res-card-info">
+                  <div class="res-card-title">Short / Reel (9:16)</div>
+                  <div class="res-card-dim">1080 × 1920 · Vertical Video</div>
+                </div>
+                <span class="res-card-tag viral">Shorts/TikTok</span>
+              </div>
+
+              <div class="export-res-card"
+                   [class.active]="state.exportResolution() === '4k'"
+                   (click)="state.exportResolution.set('4k')">
+                <div class="res-card-radio">
+                  <span class="res-radio-dot" [class.selected]="state.exportResolution() === '4k'"></span>
+                </div>
+                <div class="res-card-info">
+                  <div class="res-card-title">4K Ultra HD (16:9)</div>
+                  <div class="res-card-dim">3840 × 2160 · Cinematic Master</div>
+                </div>
+                <span class="res-card-tag">UHD</span>
+              </div>
+
+              <div class="export-res-card"
+                   [class.active]="state.exportResolution() === '720p'"
+                   (click)="state.exportResolution.set('720p')">
+                <div class="res-card-radio">
+                  <span class="res-radio-dot" [class.selected]="state.exportResolution() === '720p'"></span>
+                </div>
+                <div class="res-card-info">
+                  <div class="res-card-title">720p HD (16:9)</div>
+                  <div class="res-card-dim">1280 × 720 · Fast Web Draft</div>
+                </div>
+                <span class="res-card-tag">Light</span>
+              </div>
+
+              <div class="export-res-card"
+                   [class.active]="state.exportResolution() === 'square_1_1'"
+                   (click)="state.exportResolution.set('square_1_1')">
+                <div class="res-card-radio">
+                  <span class="res-radio-dot" [class.selected]="state.exportResolution() === 'square_1_1'"></span>
+                </div>
+                <div class="res-card-info">
+                  <div class="res-card-title">Square (1:1)</div>
+                  <div class="res-card-dim">1080 × 1080 · Social Feed Post</div>
+                </div>
+                <span class="res-card-tag">Square</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section: Aspect Ratio Fit Mode -->
+          <div class="export-sec">
+            <label class="export-sec-label">Framing & Aspect Fit</label>
+            <div class="export-pills">
+              <button type="button" class="export-pill"
+                      [class.active]="state.fit() === 'Contain'"
+                      (click)="state.fit.set('Contain')">
+                <span>⬛ Contain (Letterbox/Pillarbox)</span>
+              </button>
+              <button type="button" class="export-pill"
+                      [class.active]="state.fit() === 'Cover'"
+                      (click)="state.fit.set('Cover')">
+                <span>🔍 Cover (Zoom & Fill)</span>
+              </button>
+              <button type="button" class="export-pill"
+                      [class.active]="state.fit() === 'BlurredBackdrop'"
+                      (click)="state.fit.set('BlurredBackdrop')">
+                <span>✨ Blurred Backdrop (Smart)</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Section: Transitions & Mixing Row -->
+          <div class="export-row-two-col">
+            <!-- Col 1: Default Transition -->
+            <div class="export-sec">
+              <label class="export-sec-label">Default Transition</label>
+              <div class="export-trans-controls">
+                <select class="export-select" [ngModel]="state.transition()" (ngModelChange)="state.transition.set($event)">
+                  <option value="None">None (Hard Cut)</option>
+                  <option value="Dissolve">Dissolve / Crossfade</option>
+                  <option value="Fade">Fade to Black</option>
+                  <option value="WipeLeft">Wipe Left</option>
+                  <option value="WipeRight">Wipe Right</option>
+                  <option value="SlideLeft">Slide Left</option>
+                  <option value="SlideRight">Slide Right</option>
+                </select>
+                <div class="export-trans-duration">
+                  <label>Duration: {{ state.transitionSeconds() | number:'1.1-1' }}s</label>
+                  <input type="range" min="0.2" max="2.0" step="0.1"
+                         [ngModel]="state.transitionSeconds()"
+                         (ngModelChange)="state.transitionSeconds.set(+$event)"
+                         class="export-slider" />
+                </div>
+              </div>
+            </div>
+
+            <!-- Col 2: Audio & Ducking -->
+            <div class="export-sec">
+              <label class="export-sec-label">Audio & Ducking</label>
+              <div class="export-audio-toggles">
+                <label class="export-check-item">
+                  <input type="checkbox" [ngModel]="state.trackV1Muted()" (ngModelChange)="state.trackV1Muted.set($event)" />
+                  <span>Mute original clip audio</span>
+                </label>
+                <label class="export-check-item">
+                  <input type="checkbox" [ngModel]="state.exportIncludeWatermark()" (ngModelChange)="state.exportIncludeWatermark.set($event)" />
+                  <span>Include Watermark / Logo</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- System & Engine Capacity Info Footer -->
+          <div class="export-limits-info">
+            <span class="limits-icon">⚙</span>
+            <span>Max clips supported: <strong>1,000</strong> (timeline: <strong>{{ state.included().length }}</strong>) · Max music tracks: <strong>100</strong> · Duck windows: <strong>2,000</strong></span>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="export-dialog-footer">
+          <button class="btn btn-outline-secondary" type="button" (click)="state.closeExportModal()">Cancel</button>
+          <div class="export-footer-right">
+            <button class="btn btn-outline-info" type="button" (click)="state.confirmExport('short_9_16')" title="Export vertical Short (9:16)">
+              📱 Export as Short (9:16)
+            </button>
+            <button class="btn btn-primary export-cta-btn" type="button" (click)="state.confirmExport()" [disabled]="state.running()">
+              @if (state.running()) {
+                <span class="spinner-sm"></span> Starting...
+              } @else {
+                🚀 Start Export Video
+              }
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  }
 </div>

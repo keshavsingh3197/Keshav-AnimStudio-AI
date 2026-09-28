@@ -101,7 +101,7 @@
       }
     </div>
     <button class="hdr-btn hdr-btn-cta" type="button"
-            (click)="state.build()"
+            (click)="state.openExportModal()"
             [disabled]="state.status.busy() || state.uploading() || state.sideUpload() !== null || state.running() || state.blockedReason() !== null">
       ↑ Export
     </button>

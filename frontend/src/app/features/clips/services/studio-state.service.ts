@@ -119,8 +119,14 @@ export class StudioStateService implements OnDestroy {
     const rowMatch = this.rows().find((r) => r.clip.id === id) || this.allMediaRows().find((r) => r.clip.id === id);
     if (rowMatch && rowMatch.clip.assetId) return rowMatch.clip.assetId;
 
-    // Check if ID has a split suffix like '_a_123', '_b_123', '_part_123'
-    const cleaned = id.replace(/_[ab]_\d+.*$/, '').replace(/_part.*$/, '');
+    // Check if ID has a split or duplicate suffix like '_dup_123', '_part_123', '_a_123', '_b_123'
+    const underscoreIdx = id.indexOf('_');
+    let cleaned = id;
+    if (underscoreIdx >= 24) {
+      cleaned = id.slice(0, underscoreIdx);
+    } else {
+      cleaned = id.replace(/_(dup|part|[ab]|copy|split).*$/i, '');
+    }
     if (cleaned !== id) {
       return this.resolveAssetId(cleaned);
     }
@@ -292,6 +298,9 @@ export class StudioStateService implements OnDestroy {
   readonly exportName = signal<string>('');
   readonly exportFormat = signal<'mp4' | 'webm'>('mp4');
   readonly exportQuality = signal<'high' | 'medium' | 'fast'>('high');
+  readonly exportModalOpen = signal<boolean>(false);
+  readonly exportResolution = signal<'1080p' | '720p' | '4k' | 'short_9_16' | 'square_1_1'>('1080p');
+  readonly exportIncludeWatermark = signal<boolean>(true);
 
   // Edit Settings
   readonly orderText = signal<string>('');
@@ -6277,6 +6286,31 @@ export class StudioStateService implements OnDestroy {
     }
   }
 
+  openExportModal(): void {
+    if (!this.exportName()) {
+      const projName = this.store.project()?.name || 'AnimStudio';
+      const now = new Date();
+      const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      this.exportName.set(`${projName} - Export ${dateStr}`);
+    }
+    this.exportModalOpen.set(true);
+  }
+
+  closeExportModal(): void {
+    this.exportModalOpen.set(false);
+  }
+
+  confirmExport(preset?: 'current' | 'short_9_16'): void {
+    if (preset === 'short_9_16') {
+      this.exportResolution.set('short_9_16');
+      this.closeExportModal();
+      this.buildShort();
+      return;
+    }
+    this.closeExportModal();
+    this.build();
+  }
+
   build(): void {
     const projectId = this.store.projectId();
     if (!projectId || this.blockedReason() !== null) return;
@@ -6292,10 +6326,24 @@ export class StudioStateService implements OnDestroy {
 
     const wm: WatermarkBody = this.effectiveWatermark();
 
+    let outW: number | undefined = undefined;
+    let outH: number | undefined = undefined;
+    const res = this.exportResolution();
+    if (res === '4k') { outW = 3840; outH = 2160; }
+    else if (res === '720p') { outW = 1280; outH = 720; }
+    else if (res === 'short_9_16') { outW = 1080; outH = 1920; }
+    else if (res === 'square_1_1') { outW = 1080; outH = 1080; }
+    else if (res === '1080p') { outW = 1920; outH = 1080; }
+
+    const fitMode = res === 'short_9_16' && this.fit() === 'Contain' ? 'BlurredBackdrop' : this.fit();
+
     this.status.run(
       this.api.mergeClips(projectId, {
+        exportName: this.exportName() || undefined,
         assetIds: includedClips,
-        fit: this.fit(),
+        fit: fitMode,
+        outputWidth: outW,
+        outputHeight: outH,
         transition: this.transition(),
         transitionSeconds: this.transition() === 'None' ? 0 : this.transitionSeconds(),
         junctions: this.junctionsList().map((j, k) => {
@@ -6322,7 +6370,7 @@ export class StudioStateService implements OnDestroy {
         timelineItems: this.timelineItemsPayload(),
         clipAudio: this.clipAudioPayload(),
         musicDuckWindows: this.musicDuckWindowsPayload(),
-        watermark: wm,
+        watermark: this.exportIncludeWatermark() ? wm : { ...wm, kind: "None" as any },
       }),
       (job: RenderJob) => {
         this.job.set(job);
@@ -6384,7 +6432,7 @@ export class StudioStateService implements OnDestroy {
         timelineItems: this.timelineItemsPayload(),
         clipAudio: this.clipAudioPayload(),
         musicDuckWindows: this.musicDuckWindowsPayload(),
-        watermark: wm,
+        watermark: this.exportIncludeWatermark() ? wm : { ...wm, kind: "None" as any },
       }),
       (job: RenderJob) => {
         this.job.set(job);

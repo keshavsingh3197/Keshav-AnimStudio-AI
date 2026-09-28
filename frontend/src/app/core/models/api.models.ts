@@ -574,6 +574,7 @@ export interface TrackControlState {
 }
 
 export interface ClipMergeBody {
+  exportName?: string;
   assetIds: string[];
   fit: ClipFit;
   outputWidth?: number;

@@ -93,7 +93,7 @@ public sealed class ClipMergeOrchestrator(
 
         var assetMap = await LoadAssetsAsync(spec, job.ProjectId, ct).ConfigureAwait(false);
 
-        var missing = spec.AssetIds.FirstOrDefault(id => !assetMap.ContainsKey(id));
+        var missing = spec.AssetIds.FirstOrDefault(id => !assetMap.ContainsKey(id) && !assetMap.ContainsKey(ClipMergeService.CleanClipId(id)));
         if (missing is not null)
         {
             await FailAsync(job, RenderErrorCode.AssetMissing,
@@ -192,7 +192,7 @@ public sealed class ClipMergeOrchestrator(
                 {
                     token.ThrowIfCancellationRequested();
 
-                    var asset = assetMap[spec.AssetIds[index]];
+                    var asset = assetMap.TryGetValue(spec.AssetIds[index], out var found) ? found : assetMap[ClipMergeService.CleanClipId(spec.AssetIds[index])];
 
                     // Positional, and only when there is exactly one entry per clip -
                     // the same tolerance junctions have, so a spec written before
@@ -588,14 +588,12 @@ public sealed class ClipMergeOrchestrator(
             }
         }
 
-        static string CleanId(string raw) =>
-            System.Text.RegularExpressions.Regex.Replace(raw, @"(_[ab]_\d+|_part.*)$", "");
-
         var queryIds = new HashSet<string>(ids, StringComparer.Ordinal);
         foreach (var id in ids)
         {
-            var clean = CleanId(id);
-            if (clean != id) queryIds.Add(clean);
+            queryIds.Add(id);
+            var clean = ClipMergeService.CleanClipId(id);
+            if (!string.IsNullOrEmpty(clean)) queryIds.Add(clean);
         }
 
         var loaded = await assets.GetManyAsync(queryIds, ct).ConfigureAwait(false);
@@ -611,7 +609,7 @@ public sealed class ClipMergeOrchestrator(
                 result[a.Id] = a;
                 foreach (var origId in ids)
                 {
-                    if (CleanId(origId) == a.Id)
+                    if (string.Equals(origId, a.Id, StringComparison.Ordinal) || ClipMergeService.CleanClipId(origId) == a.Id)
                     {
                         result[origId] = a;
                     }
