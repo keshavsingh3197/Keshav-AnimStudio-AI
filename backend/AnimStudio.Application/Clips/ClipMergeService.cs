@@ -347,10 +347,10 @@ public sealed class ClipMergeService(
                 $"A transition must be between 0 and {MaxTransitionSeconds:0.#} seconds.");
         }
 
-        if (command.BackgroundMusicVolume is < 0 or > 1)
+        if (command.BackgroundMusicVolume is < 0 or > ClipAudioSpec.MaxGain)
         {
             throw EditingException.Invalid("volume-out-of-range",
-                "Music volume must be between 0 and 1.");
+                $"Music volume must be between 0 and {ClipAudioSpec.MaxGain:0.#}.");
         }
 
         if (command.Junctions is { } junctions && junctions.Count != clipIds.Count - 1)
@@ -387,10 +387,10 @@ public sealed class ClipMergeService(
                     $"'{asset.Name}' has no sound in it.");
             }
 
-            if (track.Volume is < 0 or > 1)
+            if (track.Volume is < 0 or > ClipAudioSpec.MaxGain)
             {
                 throw EditingException.Invalid("volume-out-of-range",
-                    "Music volume must be between 0 and 1.");
+                    $"Music volume must be between 0 and {ClipAudioSpec.MaxGain:0.#}.");
             }
 
             if (track.StartSeconds < 0)

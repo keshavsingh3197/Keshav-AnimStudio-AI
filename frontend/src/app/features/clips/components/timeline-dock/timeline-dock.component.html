@@ -141,7 +141,9 @@
     <div class="tl-body">
       <div #timelineArea class="timeline-interactive-area"
            (wheel)="onTimelineWheel($event)"
-           (click)="onTimelineLaneClick($event)">
+           (pointerdown)="onTimelineLanePointerDown($event)"
+           (click)="onTimelineLaneClick($event)"
+           (scroll)="onTimelineScroll()">
         <div #timelineInner class="timeline-inner" [style.width.px]="trackHeaderWidth + state.secondsToPx(state.timelineSeconds())">
           
           <!-- Playhead Needle (Declarative binding + 60fps RAF translation loop) -->
@@ -730,6 +732,52 @@
             </div>
           }
 
+        </div>
+      </div>
+    </div>
+
+    <!-- Dedicated Horizontal Scrollbar & View Navigator Footer -->
+    <div class="tl-footer-scrollbar">
+      <!-- Left step scroll button -->
+      <button type="button" class="tl-scroll-step-btn" (click)="scrollTimelineBy(-300)" title="Scroll Left (◀)">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="15 18 9 12 15 6"></polyline>
+        </svg>
+      </button>
+
+      <!-- Scrollbar Track & Thumb -->
+      <div #scrollbarTrack class="tl-scroll-track" (click)="onScrollbarTrackClick($event)" title="Click anywhere to jump view or drag thumb to pan">
+        <div class="tl-scroll-thumb"
+             [style.width.px]="scrollThumbWidth()"
+             [style.left.px]="scrollThumbLeft()"
+             [class.is-dragging]="isCustomScrollDragging()"
+             (pointerdown)="onScrollbarThumbPointerDown($event)"
+             title="Drag to pan timeline left/right">
+          <div class="tl-thumb-grip">
+            <span></span><span></span><span></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right step scroll button -->
+      <button type="button" class="tl-scroll-step-btn" (click)="scrollTimelineBy(300)" title="Scroll Right (▶)">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="9 18 15 12 9 6"></polyline>
+        </svg>
+      </button>
+
+      <!-- Quick Scroll & View Utility Controls -->
+      <div class="tl-scroll-actions">
+        <button type="button" class="tl-scroll-action-pill" (click)="scrollTimelineToStart()" title="Scroll view to beginning (00:00)">
+          ⏮ 0:00
+        </button>
+        <button type="button" class="tl-scroll-action-pill" (click)="fitTimeline()" title="Fit entire timeline horizontally into window">
+          ⊡ Fit View
+        </button>
+        <div class="tl-scroll-info mono" title="Current Playhead / Total Timeline Duration">
+          <span class="tl-scroll-time-now">{{ state.formattedPlayheadTime() }}</span>
+          <span class="tl-scroll-time-sep">/</span>
+          <span class="tl-scroll-time-total">{{ state.formatRulerTimestamp(state.timelineSeconds()) }}</span>
         </div>
       </div>
     </div>

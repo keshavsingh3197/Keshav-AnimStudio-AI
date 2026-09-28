@@ -1,4 +1,5 @@
 using AnimStudio.Application.Rendering.Models;
+using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Rendering;
 
 namespace AnimStudio.Infrastructure.Ffmpeg.Graph;
@@ -67,8 +68,9 @@ internal static class AudioFilters
         var seconds = totalLength.ToSeconds(rate);
         var fadeIn = Math.Min(1.5, seconds / 4);
         var fadeOut = Math.Min(2.0, seconds / 4);
+        var clampedVolume = Math.Clamp(volume, 0, ClipAudioSpec.MaxGain);
 
-        return $"{Format(encoder)},volume={FilterExpr.N(volume)},"
+        return $"{Format(encoder)},volume={FilterExpr.N(clampedVolume)},"
              + $"atrim=start=0:end={FilterExpr.N(seconds)},asetpts=N/SR/TB,"
              + $"afade=t=in:st=0:d={FilterExpr.N(fadeIn)},"
              + $"afade=t=out:st={FilterExpr.N(seconds - fadeOut)}:d={FilterExpr.N(fadeOut)}";
@@ -167,7 +169,7 @@ internal static class AudioFilters
 
         const double clickGuard = 0.15;
         parts.Add($"afade=t=in:st=0:d={FilterExpr.N(clickGuard)}");
-        parts.Add($"volume={FilterExpr.N(Math.Clamp(volume, 0, 1))}");
+        parts.Add($"volume={FilterExpr.N(Math.Clamp(volume, 0, ClipAudioSpec.MaxGain))}");
 
         var delayMs = Math.Max(0, (int)Math.Round(Math.Max(startSeconds, 0) * 1000));
         if (delayMs > 0) parts.Add($"adelay={FilterExpr.N(delayMs)}:all=1");

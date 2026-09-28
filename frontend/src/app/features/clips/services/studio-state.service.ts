@@ -6233,7 +6233,9 @@ export class StudioStateService implements OnDestroy {
       const resolved = this.resolveOverlap(entry.clip.id);
       if (!resolved.hasMusicUnder || resolved.musicGain >= 1) continue;
 
-      const level = Math.round(resolved.musicGain * 1000) / 1000;
+      const rawLevel = Math.round(resolved.musicGain * 1000) / 1000;
+      const level = Math.max(0, Math.min(1.0, rawLevel));
+      if (level >= 1.0) continue;
       const last = windows[windows.length - 1];
       // Neighbouring clips that duck by the same amount become one window, so a run of
       // dialogue does not make the music pump between every cut.
@@ -6359,11 +6361,11 @@ export class StudioStateService implements OnDestroy {
         }),
         muteClipAudio: this.trackV1Muted(),
         backgroundMusicAssetId: this.musicAssetId() || null,
-        backgroundMusicVolume: this.musicVolume(),
+        backgroundMusicVolume: Math.max(0, Math.min(2.0, Number(this.musicVolume()) || 0)),
         musicTracks: this.musicTracks().map((t) => ({
           assetId: t.assetId,
           startSeconds: t.startSeconds,
-          volume: t.muted ? 0 : t.volume,
+          volume: Math.max(0, Math.min(2.0, t.muted ? 0 : (Number(t.volume) || 0))),
           trimStartSeconds: t.trimStartSeconds,
           trimEndSeconds: t.trimEndSeconds,
         })),
@@ -6421,11 +6423,11 @@ export class StudioStateService implements OnDestroy {
         }),
         muteClipAudio: this.trackV1Muted(),
         backgroundMusicAssetId: this.musicAssetId() || null,
-        backgroundMusicVolume: this.musicVolume(),
+        backgroundMusicVolume: Math.max(0, Math.min(2.0, Number(this.musicVolume()) || 0)),
         musicTracks: this.musicTracks().map((t) => ({
           assetId: t.assetId,
           startSeconds: t.startSeconds,
-          volume: t.muted ? 0 : t.volume,
+          volume: Math.max(0, Math.min(2.0, t.muted ? 0 : (Number(t.volume) || 0))),
           trimStartSeconds: t.trimStartSeconds,
           trimEndSeconds: t.trimEndSeconds,
         })),

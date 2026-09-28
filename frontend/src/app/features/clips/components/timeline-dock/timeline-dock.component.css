@@ -2071,3 +2071,156 @@
     transparent 100%
   );
 }
+
+/* ── Dedicated Horizontal Scrollbar & View Navigator Footer ───────── */
+.tl-footer-scrollbar {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  min-height: 28px;
+  background: #0a0e17;
+  border-top: 1px solid #1e293b;
+  padding: 0 8px;
+  gap: 8px;
+  flex-shrink: 0;
+  user-select: none;
+  z-index: 80;
+  box-sizing: border-box;
+}
+
+.tl-scroll-step-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 20px;
+  background: #151d2c;
+  border: 1px solid #283548;
+  border-radius: 4px;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.tl-scroll-step-btn:hover {
+  background: #223046;
+  border-color: #3b82f6;
+  color: #60a5fa;
+}
+
+.tl-scroll-step-btn:active {
+  background: #1e40af;
+  color: #ffffff;
+}
+
+.tl-scroll-track {
+  flex: 1;
+  height: 12px;
+  background: #0f1623;
+  border: 1px solid #1e293b;
+  border-radius: 6px;
+  position: relative;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.tl-scroll-track:hover {
+  border-color: #334155;
+}
+
+.tl-scroll-thumb {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  min-width: 36px;
+  background: #334155;
+  border: 1px solid #475569;
+  border-radius: 5px;
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s ease, border-color 0.12s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.tl-scroll-thumb:hover {
+  background: #475569;
+  border-color: #64748b;
+}
+
+.tl-scroll-thumb.is-dragging,
+.tl-scroll-thumb:active {
+  background: #4f46e5;
+  border-color: #818cf8;
+  cursor: grabbing;
+}
+
+.tl-thumb-grip {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0.6;
+}
+
+.tl-thumb-grip span {
+  display: block;
+  width: 2px;
+  height: 6px;
+  background: #cbd5e1;
+  border-radius: 1px;
+}
+
+.tl-scroll-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.tl-scroll-action-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 20px;
+  padding: 0 8px;
+  background: #141c2b;
+  border: 1px solid #233044;
+  border-radius: 4px;
+  color: #94a3b8;
+  font-size: 0.68rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.tl-scroll-action-pill:hover {
+  background: #1e2a3f;
+  border-color: #38bdf8;
+  color: #e0f2fe;
+}
+
+.tl-scroll-info {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 0.68rem;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+
+.tl-scroll-time-now {
+  color: #38bdf8;
+  font-weight: 600;
+}
+
+.tl-scroll-time-sep {
+  color: #475569;
+}
+
+.tl-scroll-time-total {
+  color: #94a3b8;
+}

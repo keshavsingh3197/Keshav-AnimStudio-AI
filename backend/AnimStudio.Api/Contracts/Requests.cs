@@ -367,7 +367,7 @@ public sealed record TimedMusicClipRequest
     [Required, StringLength(64)] public string AssetId { get; init; } = string.Empty;
 
     [Range(0, 86400)] public double StartSeconds { get; init; }
-    [Range(0, 1)] public double Volume { get; init; } = 0.5;
+    [Range(0, ClipAudioSpec.MaxGain)] public double Volume { get; init; } = 0.5;
     [Range(0, 86400)] public double? TrimStartSeconds { get; init; }
     [Range(0, 86400)] public double? TrimEndSeconds { get; init; }
 }
@@ -441,7 +441,7 @@ public sealed record ClipMergeRequest
 
     [StringLength(64)] public string? BackgroundMusicAssetId { get; init; }
 
-    [Range(0, 1)] public double BackgroundMusicVolume { get; init; } = 0.18;
+    [Range(0, ClipAudioSpec.MaxGain)] public double BackgroundMusicVolume { get; init; } = 0.18;
 
     /// <summary>Extra music clips, each starting at its own point on the finished timeline.</summary>
     [MaxLength(ClipMergeSpec.MaxMusicTracks)]

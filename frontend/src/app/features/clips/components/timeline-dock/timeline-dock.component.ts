@@ -33,8 +33,16 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
   @ViewChild('playheadNeedle') playheadNeedleRef?: ElementRef<HTMLElement>;
   @ViewChild('timelineArea') timelineAreaRef?: ElementRef<HTMLElement>;
   @ViewChild('timelineInner') timelineInnerRef?: ElementRef<HTMLElement>;
+  @ViewChild('scrollbarTrack') scrollbarTrackRef?: ElementRef<HTMLElement>;
 
   readonly trackHeaderWidth = 104;
+
+  // Custom Horizontal Scrollbar State
+  readonly scrollThumbWidth = signal<number>(80);
+  readonly scrollThumbLeft = signal<number>(0);
+  readonly isCustomScrollDragging = signal<boolean>(false);
+  private scrollbarDragStart: { clientX: number; scrollLeft: number } | null = null;
+  private laneDownPos: { x: number; y: number } | null = null;
 
   // Scrubbing & Dragging Pointer State
   readonly isScrubbing = signal<boolean>(false);
@@ -47,6 +55,12 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
   private musicDrag: { key: string; startClientX: number; startSeconds: number } | null = null;
   private musicTrim: { key: string; edge: 'start' | 'end'; startClientX: number; startValue: number } | null = null;
 
+  private readonly syncScrollbarEffect = effect(() => {
+    this.state.timelineSeconds();
+    this.state.pxPerSecond();
+    setTimeout(() => this.updateScrollbarMetrics(), 40);
+  });
+
   ngOnInit(): void {
     this.startPlayheadRaf();
   }
@@ -54,6 +68,7 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
   ngAfterViewInit(): void {
     setTimeout(() => {
       this.fitTimeline();
+      this.updateScrollbarMetrics();
     }, 150);
 
     const area = this.timelineAreaRef?.nativeElement;
@@ -64,6 +79,7 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
           initialFitDone = true;
           this.fitTimeline();
         }
+        this.updateScrollbarMetrics();
       });
       this.resizeObserver.observe(area);
     }
@@ -213,6 +229,7 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
   fitTimeline(): void {
     const width = this.timelineAreaRef?.nativeElement.clientWidth ?? 800;
     this.state.fitTimelineToScreen(width);
+    setTimeout(() => this.updateScrollbarMetrics(), 50);
   }
 
   // Guardrail 4: Dropzone for draggingAsset Contract
@@ -251,6 +268,7 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
       event.preventDefault();
       // Zoom in / out with Ctrl+Wheel
       this.state.zoom(event.deltaY < 0 ? 8 : -8);
+      setTimeout(() => this.updateScrollbarMetrics(), 40);
       return;
     }
 
@@ -259,6 +277,7 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
     if (Math.abs(delta) > 0) {
       event.preventDefault();
       area.scrollLeft += delta;
+      this.updateScrollbarMetrics();
     }
   }
 
@@ -286,6 +305,10 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
     this.handleTimelineScrubEvent(event);
   }
 
+  onTimelineLanePointerDown(event: PointerEvent): void {
+    this.laneDownPos = { x: event.clientX, y: event.clientY };
+  }
+
   onTimelineLaneClick(event: MouseEvent): void {
     const target = event.target as HTMLElement;
     if (
@@ -294,16 +317,37 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
       target.closest('.tl-music-clip') ||
       target.closest('.tl-header-col') ||
       target.closest('.tl-header-76') ||
-      target.closest('.tl-ruler-row')
+      target.closest('.tl-ruler-row') ||
+      target.closest('.tl-footer-scrollbar')
     ) {
       return;
     }
-    // Clicking empty lane seeks to that timestamp without locking drag/scroll
-    this.state.clearAllSelections();
+
+    const area = this.timelineAreaRef?.nativeElement;
+    if (!area) return;
+    const areaRect = area.getBoundingClientRect();
+
+    // Guard 1: Ignore clicks on or near the native horizontal scrollbar region
+    if (event.clientY >= areaRect.bottom - 18) {
+      return;
+    }
+
+    // Guard 2: If the pointer was dragged or scrolled (> 5px), do NOT seek timer
+    if (this.laneDownPos) {
+      const dist = Math.hypot(event.clientX - this.laneDownPos.x, event.clientY - this.laneDownPos.y);
+      if (dist > 5) {
+        return;
+      }
+    }
+
+    // Guard 3: Only seek if clicking inside the track lane area (past the sticky track headers)
     const el = this.timelineInnerRef?.nativeElement;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    const x = Math.max(0, event.clientX - rect.left - this.trackHeaderWidth);
+    const x = event.clientX - rect.left - this.trackHeaderWidth;
+    if (x < 0) return;
+
+    this.state.clearAllSelections();
     const targetSeconds = Math.max(0, Math.min(x / this.state.pxPerSecond(), this.state.timelineSeconds()));
     this.state.seekTo(targetSeconds);
   }
@@ -392,6 +436,11 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   onTimelinePointerMove(event: PointerEvent): void {
+    if (this.isCustomScrollDragging()) {
+      this.onScrollbarThumbPointerMove(event);
+      return;
+    }
+
     if (this.isScrubbing()) {
       this.handleTimelineScrubEvent(event);
       return;
@@ -483,6 +532,9 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   onTimelinePointerUp(): void {
+    if (this.isCustomScrollDragging()) {
+      this.onScrollbarThumbPointerUp();
+    }
     if (this.itemDrag || this.itemTrim || this.musicDrag || this.musicTrim) {
       this.itemDrag = null;
       this.itemTrim = null;
@@ -494,6 +546,98 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
       this.isScrubbing.set(false);
       this.state.snapLineLeftPx.set(null);
     }
+  }
+
+  // Horizontal Scrollbar Methods
+  onTimelineScroll(): void {
+    this.updateScrollbarMetrics();
+  }
+
+  updateScrollbarMetrics(): void {
+    const area = this.timelineAreaRef?.nativeElement;
+    const track = this.scrollbarTrackRef?.nativeElement;
+    if (!area || !track) return;
+    const total = area.scrollWidth;
+    const client = area.clientWidth;
+    const trackWidth = track.clientWidth;
+    if (total <= client || trackWidth <= 0) {
+      this.scrollThumbWidth.set(trackWidth);
+      this.scrollThumbLeft.set(0);
+      return;
+    }
+    const ratio = client / total;
+    const thumbW = Math.max(36, Math.min(trackWidth, ratio * trackWidth));
+    const maxScroll = total - client;
+    const travel = Math.max(0, trackWidth - thumbW);
+    const thumbL = maxScroll > 0 ? (area.scrollLeft / maxScroll) * travel : 0;
+    this.scrollThumbWidth.set(thumbW);
+    this.scrollThumbLeft.set(Math.min(travel, Math.max(0, thumbL)));
+  }
+
+  onScrollbarThumbPointerDown(event: PointerEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    const target = event.target as HTMLElement;
+    try {
+      target.setPointerCapture?.(event.pointerId);
+    } catch {}
+    this.isCustomScrollDragging.set(true);
+    this.scrollbarDragStart = {
+      clientX: event.clientX,
+      scrollLeft: this.timelineAreaRef?.nativeElement?.scrollLeft ?? 0,
+    };
+  }
+
+  onScrollbarThumbPointerMove(event: PointerEvent): void {
+    if (!this.isCustomScrollDragging() || !this.scrollbarDragStart) return;
+    const area = this.timelineAreaRef?.nativeElement;
+    const track = this.scrollbarTrackRef?.nativeElement;
+    if (!area || !track) return;
+    const maxScroll = area.scrollWidth - area.clientWidth;
+    if (maxScroll <= 0) return;
+    const trackWidth = track.clientWidth;
+    const thumbWidth = this.scrollThumbWidth();
+    const travel = Math.max(1, trackWidth - thumbWidth);
+    const delta = event.clientX - this.scrollbarDragStart.clientX;
+    const deltaScroll = (delta / travel) * maxScroll;
+    area.scrollLeft = Math.max(0, Math.min(maxScroll, this.scrollbarDragStart.scrollLeft + deltaScroll));
+    this.updateScrollbarMetrics();
+  }
+
+  onScrollbarThumbPointerUp(): void {
+    if (this.isCustomScrollDragging()) {
+      this.isCustomScrollDragging.set(false);
+      this.scrollbarDragStart = null;
+    }
+  }
+
+  onScrollbarTrackClick(event: MouseEvent): void {
+    const target = event.target as HTMLElement;
+    if (target.closest('.tl-scroll-thumb')) return;
+    const area = this.timelineAreaRef?.nativeElement;
+    const track = this.scrollbarTrackRef?.nativeElement;
+    if (!area || !track) return;
+    const maxScroll = area.scrollWidth - area.clientWidth;
+    if (maxScroll <= 0) return;
+    const rect = track.getBoundingClientRect();
+    const clickX = event.clientX - rect.left;
+    const ratio = Math.max(0, Math.min(1, clickX / rect.width));
+    area.scrollTo({ left: ratio * maxScroll, behavior: 'smooth' });
+    setTimeout(() => this.updateScrollbarMetrics(), 50);
+  }
+
+  scrollTimelineBy(deltaPx: number): void {
+    const area = this.timelineAreaRef?.nativeElement;
+    if (!area) return;
+    area.scrollBy({ left: deltaPx, behavior: 'smooth' });
+    setTimeout(() => this.updateScrollbarMetrics(), 80);
+  }
+
+  scrollTimelineToStart(): void {
+    const area = this.timelineAreaRef?.nativeElement;
+    if (!area) return;
+    area.scrollTo({ left: 0, behavior: 'smooth' });
+    setTimeout(() => this.updateScrollbarMetrics(), 80);
   }
 }
 
