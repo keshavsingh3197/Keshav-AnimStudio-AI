@@ -217,7 +217,7 @@ public sealed class ClipMergeService(
             .Select(id =>
             {
                 if (byId.TryGetValue(id, out var c)) return new ClipCandidate(id, c.Name);
-                var clean = CleanId(id);
+                var clean = CleanClipId(id);
                 if (byId.TryGetValue(clean, out c)) return new ClipCandidate(id, c.Name);
                 return null;
             })
