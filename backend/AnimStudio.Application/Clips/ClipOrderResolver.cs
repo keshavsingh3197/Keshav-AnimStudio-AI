@@ -301,7 +301,7 @@ public static class ClipOrderResolver
 public static class ClipOrderLimits
 {
     /// <summary>Bounds the work one paste can cause. Well above any real running order.</summary>
-    public const int MaxLines = 500;
+    public const int MaxLines = 1000;
 
-    public const int MaxTextLength = 20_000;
+    public const int MaxTextLength = 100_000;
 }

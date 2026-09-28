@@ -32,19 +32,19 @@ public sealed class ClipMergeSpec
     /// join then opens all of them at once, so an unbounded list is a way to run a machine
     /// out of file handles from a single HTTP request.
     /// </summary>
-    public const int MaxClips = 60;
+    public const int MaxClips = 1000;
 
     /// <summary>
     /// A ceiling on timed music clips, matching the practical limit of what a timeline can
     /// show and what one amix filter chain should be asked to mix at once.
     /// </summary>
-    public const int MaxMusicTracks = 12;
+    public const int MaxMusicTracks = 100;
 
     /// <summary>
     /// Ceiling on the duck envelope. Each window adds a term to one ffmpeg expression, and a
     /// runaway list would build a filtergraph too long for the command line.
     /// </summary>
-    public const int MaxDuckWindows = 200;
+    public const int MaxDuckWindows = 2000;
 
     /// <summary>Video asset ids in playback order.</summary>
     public string? ExportName { get; set; }

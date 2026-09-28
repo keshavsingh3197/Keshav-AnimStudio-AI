@@ -418,7 +418,7 @@ public sealed record MusicDuckWindowRequest
 public sealed record ClipMergeRequest
 {
     public string? ExportName { get; init; }
-    [Required, MinLength(1)]
+    [Required, MinLength(1), MaxLength(ClipMergeSpec.MaxClips)]
     public List<string> AssetIds { get; init; } = [];
 
     public ClipFit Fit { get; init; } = ClipFit.Contain;
