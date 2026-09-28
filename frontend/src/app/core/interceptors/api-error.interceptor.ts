@@ -32,12 +32,30 @@ function describe(error: unknown): ApiFailure {
       'Could not reach the API. Is the backend running?', 'offline', 0);
   }
 
-  const body = error.error as ApiResponse<unknown> | string | null;
+  const body = error.error as ApiResponse<unknown> | any;
 
   if (body && typeof body === 'object') {
-    const first = body.errors?.[0];
-    if (first) return new ApiFailure(first.message, first.code, error.status);
+    // Standard ApiResponse<T> where errors is an array of { message, code }
+    if (Array.isArray(body.errors) && body.errors.length > 0) {
+      const first = body.errors[0];
+      return new ApiFailure(first.message || 'Request failed.', first.code || 'error', error.status);
+    }
+    // Standard ASP.NET Core ValidationProblemDetails: { errors: { field: [msg, ...] } }
+    if (body.errors && typeof body.errors === 'object' && !Array.isArray(body.errors)) {
+      const entries = Object.entries(body.errors);
+      if (entries.length > 0) {
+        const [, val] = entries[0];
+        const msg = Array.isArray(val) && val.length > 0 ? val[0] : String(val);
+        return new ApiFailure(msg, 'validation_error', error.status);
+      }
+    }
     if (body.message) return new ApiFailure(body.message, 'error', error.status);
+    if (body.title) return new ApiFailure(body.title, 'error', error.status);
+    if (body.detail) return new ApiFailure(body.detail, 'error', error.status);
+  }
+
+  if (typeof body === 'string' && body.trim()) {
+    return new ApiFailure(body.trim(), 'error', error.status);
   }
 
   return new ApiFailure('Something went wrong.', 'error', error.status);

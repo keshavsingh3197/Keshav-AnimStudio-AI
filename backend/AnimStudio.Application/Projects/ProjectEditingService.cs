@@ -107,7 +107,7 @@ public sealed class ProjectEditingService(
             project.IsPinned = command.IsPinned.Value;
             
         if (command.CustomThumbnail is not null)
-            project.CustomThumbnail = command.CustomThumbnail;
+            project.CustomThumbnail = string.IsNullOrWhiteSpace(command.CustomThumbnail) ? null : command.CustomThumbnail.Trim();
         if (command.DefaultWatermark is not null)
         {
             command.DefaultWatermark.Clamp();

@@ -4,6 +4,7 @@ import { DatePipe, DecimalPipe, NgClass } from '@angular/common';
 import { ApiService } from '../core/services/api.service';
 import { Project, HubConfig } from '../core/models/api.models';
 import { StatusService } from '../core/services/status.service';
+import { optimizeThumbnailImage } from '../core/utils/image-utils';
 
 @Component({
   selector: 'app-project-hub-modal',
@@ -797,28 +798,35 @@ export class ProjectHubModalComponent {
     return p?.customThumbnail || null;
   }
 
-  onUploadThumbnail(event: Event, p: Project) {
+  async onUploadThumbnail(event: Event, p: Project): Promise<void> {
     const input = event.target as HTMLInputElement;
-    if (input.files && input.files[0]) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        if (e.target?.result) {
-          const b64 = e.target.result as string;
-          this.status.run(
-            this.api.updateProject(p.id, {
-              name: p.name, width: p.width, height: p.height, fps: p.fps,
-              customThumbnail: b64,
-              distributionIntent: p.distributionIntent,
-              acceptShareAlikeObligation: p.acceptShareAlikeObligation,
-              backgroundMusicVolume: p.backgroundMusicVolume
-            }),
-            (updated) => {
-              this.projects.update(list => list.map(x => x.id === p.id ? updated : x));
-            }
-          );
+    const file = input.files?.[0];
+    if (!file) return;
+
+    try {
+      const b64 = await optimizeThumbnailImage(file);
+      this.status.run(
+        this.api.updateProject(p.id, {
+          name: p.name,
+          description: p.description,
+          width: p.width,
+          height: p.height,
+          fps: p.fps,
+          isPinned: p.isPinned,
+          customThumbnail: b64,
+          distributionIntent: p.distributionIntent,
+          acceptShareAlikeObligation: p.acceptShareAlikeObligation,
+          backgroundMusicVolume: p.backgroundMusicVolume
+        }),
+        (updated) => {
+          this.projects.update(list => list.map(x => x.id === p.id ? updated : x));
+          this.status.notify(['Thumbnail updated successfully.']);
         }
-      };
-      reader.readAsDataURL(input.files[0]);
+      );
+    } catch {
+      this.status.notify(['Failed to process image for thumbnail.']);
+    } finally {
+      input.value = '';
     }
   }
 

@@ -131,7 +131,7 @@ public sealed record AssignSceneBackgroundRequest
 public sealed record UpdateProjectRequest
 {
     public bool? IsPinned { get; init; }
-    [StringLength(400_000)] public string? CustomThumbnail { get; init; }
+    [StringLength(3_000_000)] public string? CustomThumbnail { get; init; }
     [Required, StringLength(120, MinimumLength = 1)]
     public string Name { get; init; } = string.Empty;
 

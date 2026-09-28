@@ -387,6 +387,11 @@
                       <button type="button" class="dropdown-item" (click)="exportProject(project, $event)">
                         <span>📥</span> Export JSON
                       </button>
+                      @if (project.customThumbnail) {
+                        <button type="button" class="dropdown-item" (click)="removeThumbnail(project, $event)">
+                          <span>🖼️</span> Reset Thumbnail
+                        </button>
+                      }
                       <div class="dropdown-divider"></div>
                       <button type="button" class="dropdown-item danger" (click)="confirmDelete(project.id, $event)">
                         <span>🗑️</span> Delete Project
@@ -524,6 +529,11 @@
                             <button type="button" class="dropdown-item" (click)="exportProject(project, $event)">
                               <span>📥</span> Export JSON
                             </button>
+                            @if (project.customThumbnail) {
+                              <button type="button" class="dropdown-item" (click)="removeThumbnail(project, $event)">
+                                <span>🖼️</span> Reset Thumbnail
+                              </button>
+                            }
                             <div class="dropdown-divider"></div>
                             <button type="button" class="dropdown-item danger" (click)="confirmDelete(project.id, $event)">
                               <span>🗑️</span> Delete Project

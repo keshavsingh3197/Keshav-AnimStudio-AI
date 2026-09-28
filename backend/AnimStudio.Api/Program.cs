@@ -4,6 +4,7 @@ using AnimStudio.Api.Security;
 using AnimStudio.Application.Security;
 using AnimStudio.Infrastructure;
 using KeshavSingh.Core;
+using Microsoft.AspNetCore.Mvc;
 
 // Ensure AI_STUDIO directories exist on startup
 Directory.CreateDirectory("D:/AI_STUDIO/objects");
@@ -31,6 +32,22 @@ builder.Services.AddScoped<ICurrentUser, HttpContextCurrentUser>();
 // so without this a client would have to READ "Fade" and WRITE 1 - and a reordered enum
 // would silently change what an old client's number meant.
 builder.Services.AddControllers()
+    .ConfigureApiBehaviorOptions(options =>
+    {
+        options.InvalidModelStateResponseFactory = context =>
+        {
+            var errors = context.ModelState
+                .Where(e => e.Value?.Errors.Count > 0)
+                .SelectMany(e => e.Value!.Errors.Select(err => new ApiError(
+                    e.Key.ToLowerInvariant(),
+                    !string.IsNullOrWhiteSpace(err.ErrorMessage) ? err.ErrorMessage : "Invalid field value",
+                    e.Key)))
+                .ToArray();
+
+            var firstMsg = errors.FirstOrDefault()?.Message ?? "Validation failed.";
+            return new BadRequestObjectResult(ApiResponse<EmptyPayload>.Fail(firstMsg, errors));
+        };
+    })
     .AddJsonOptions(options =>
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddOpenApi();

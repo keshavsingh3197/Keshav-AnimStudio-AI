@@ -34,7 +34,7 @@ export interface Project {
 
 export interface CreateProjectBody {
   name: string;
-  description?: string;
+  description?: string | null;
   width: number;
   height: number;
   fps: number;
