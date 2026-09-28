@@ -203,11 +203,12 @@ public sealed class FfmpegVideoRenderingService(
         var graph = graphBuilder.BuildMerge(plan);
 
         string? scriptPath = null;
-        if (graph.IsStreamCopy)
+        if (!string.IsNullOrEmpty(plan.ConcatListRelativePath) && (graph.IsStreamCopy || graph.Inputs.Any(i => i.RelativePath == plan.ConcatListRelativePath)))
         {
             await WriteConcatListAsync(plan, workspace, ct).ConfigureAwait(false);
         }
-        else
+
+        if (!string.IsNullOrEmpty(graph.FilterComplex))
         {
             scriptPath = $"graph/{logName}.fcs";
             await workspace.WriteTextAsync(scriptPath, graph.FilterComplex, ct).ConfigureAwait(false);

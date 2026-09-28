@@ -271,13 +271,22 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
             {
                 inputArgsList.AddRange(["-ss", FilterExpr.N(plan.TrimStartSeconds.Value)]);
             }
+
+            // Using -t (duration to extract) instead of -to is bulletproof across FFmpeg versions:
+            // -to as an input option can prematurely stop depending on container start timestamps or keyframe seeking.
+            double? durationToExtract = null;
             if (plan.TrimEndSeconds.HasValue && plan.TrimEndSeconds.Value > (plan.TrimStartSeconds ?? 0))
             {
-                inputArgsList.AddRange(["-to", FilterExpr.N(plan.TrimEndSeconds.Value)]);
+                durationToExtract = plan.TrimEndSeconds.Value - (plan.TrimStartSeconds ?? 0);
             }
             else if (plan.DurationSeconds.HasValue && plan.DurationSeconds.Value > 0)
             {
-                inputArgsList.AddRange(["-t", FilterExpr.N(plan.DurationSeconds.Value)]);
+                durationToExtract = plan.DurationSeconds.Value;
+            }
+
+            if (durationToExtract.HasValue && durationToExtract.Value > 0)
+            {
+                inputArgsList.AddRange(["-t", FilterExpr.N(durationToExtract.Value)]);
             }
         }
         var inputs = new List<FfmpegInputSpec> { new(inputArgsList, plan.SourceRelativePath) };
@@ -608,13 +617,17 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         var hasMusic = plan.BackgroundMusicRelativePath is not null || plan.MusicTracks.Count > 0;
         var total = RenderTimeline.TotalLength(lengths, durations);
 
-        var canCopy = plan.Overlays.Count == 0 && (RenderTimeline.CanStreamCopy(durations, hasMusic)
-                      || (durations.All(d => d.Value == 0)
-                          && !capabilities.Supports(RenderFeature.CrossFadeTransitions)));
+        var isHardCutOnly = durations.All(d => d.Value == 0);
+        var canStreamCopyVideo = plan.Overlays.Count == 0 && isHardCutOnly;
 
-        return canCopy
-            ? BuildConcatMerge(plan, total)
-            : BuildXfadeMerge(plan, lengths, durations, total, hasMusic);
+        if (canStreamCopyVideo)
+        {
+            return hasMusic
+                ? BuildConcatWithAudioMerge(plan, total)
+                : BuildConcatMerge(plan, total);
+        }
+
+        return BuildXfadeMerge(plan, lengths, durations, total, hasMusic);
     }
 
     /// <summary>
@@ -631,6 +644,87 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
             OutputRelativePath = plan.OutputRelativePath,
             ExpectedFrames = total
         };
+
+    /// <summary>
+    /// Stream-copies the concatenated video while mixing audio (music bed, timed music tracks, ducking).
+    /// Avoids re-encoding the entire video when all transitions are cuts and there are no overlays.
+    /// Runs in seconds rather than minutes.
+    /// </summary>
+    private FilterGraphPlan BuildConcatWithAudioMerge(MergePlan plan, FrameCount total)
+    {
+        var rate = plan.Canvas.FrameRate;
+        var inputs = new List<FfmpegInputSpec>
+        {
+            new(["-f", "concat", "-safe", "0"], plan.ConcatListRelativePath)
+        };
+
+        var graph = new StringBuilder();
+        var audioFormat = AudioFilters.Format(plan.Encoder);
+
+        // Normalize the concatenated clip audio stream
+        graph.Append($"[0:a]{audioFormat},asetpts=N/SR/TB[clipaudio];\n");
+        var mixLabels = new List<string> { "clipaudio" };
+
+        var duckEnvelope = AudioFilters.DuckEnvelope(
+            [.. plan.MusicDuckWindows.Select(w => (w.StartSeconds, w.EndSeconds, w.Level))]);
+        var duckSuffix = duckEnvelope.Length > 0 ? "," + duckEnvelope : string.Empty;
+
+        if (plan.BackgroundMusicRelativePath is { Length: > 0 } bedPath)
+        {
+            var musicInput = inputs.Count;
+            inputs.Add(new FfmpegInputSpec(["-stream_loop", "-1"], bedPath));
+
+            graph.Append($"[{musicInput}:a]")
+                 .Append(AudioFilters.MusicBed(plan.BackgroundMusicVolume, total, rate, plan.Encoder))
+                 .Append(duckSuffix)
+                 .Append("[music];\n");
+            mixLabels.Add("music");
+        }
+
+        for (var t = 0; t < plan.MusicTracks.Count; t++)
+        {
+            var track = plan.MusicTracks[t];
+            var trackInput = inputs.Count;
+            inputs.Add(new FfmpegInputSpec([], track.RelativePath));
+
+            var label = $"mtrack{t}";
+            graph.Append($"[{trackInput}:a]")
+                 .Append(AudioFilters.TimedTrack(
+                     track.Volume, track.StartSeconds, track.TrimStartSeconds,
+                     track.TrimEndSeconds, plan.Encoder))
+                 .Append(duckSuffix)
+                 .Append($"[{label}];\n");
+            mixLabels.Add(label);
+        }
+
+        graph.Append('[').Append(string.Join("][", mixLabels)).Append(']')
+             .Append(AudioFilters.Mix(mixLabels.Count, capabilities.Supports(RenderFeature.AudioLimiter)))
+             .Append("[afinal]");
+
+        var outputArguments = new List<string>
+        {
+            "-map", "0:v",
+            "-c:v", "copy",
+            "-map", "[afinal]",
+            "-frames:v", FilterExpr.N(total.Value),
+            "-c:a", plan.Encoder.AudioCodec,
+            "-b:a", $"{plan.Encoder.AudioBitrateKbps}k",
+            "-ar", FilterExpr.N(plan.Encoder.AudioSampleRate),
+            "-ac", FilterExpr.N(plan.Encoder.AudioChannels),
+            "-shortest",
+            "-movflags", "+faststart"
+        };
+
+        return new FilterGraphPlan
+        {
+            Inputs = inputs,
+            FilterComplex = graph.ToString(),
+            IsStreamCopy = true,
+            OutputArguments = outputArguments,
+            OutputRelativePath = plan.OutputRelativePath,
+            ExpectedFrames = total
+        };
+    }
 
     private FilterGraphPlan BuildXfadeMerge(
         MergePlan plan, IReadOnlyList<FrameCount> lengths, IReadOnlyList<FrameCount> durations,

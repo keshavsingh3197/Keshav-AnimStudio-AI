@@ -948,7 +948,7 @@
             <div>
               <h3>Export &amp; Render Diagnostics</h3>
               <p class="monitor-subtitle">
-                Project: <strong>{{ state.exportName() || 'AnimStudio Video' }}</strong> &middot; Target: <strong>{{ state.exportResolution() }}</strong>
+                Project: <strong>{{ state.exportName() || 'AnimStudio Video' }}</strong> &middot; Target: <strong>{{ state.exportResolution() }}</strong> &middot; Timeline: <strong>{{ state.timelineDurationFormatted() }}</strong>
               </p>
             </div>
           </div>
@@ -991,6 +991,63 @@
                    [class.bar-completed]="state.exportIsCompleted()"
                    [class.bar-failed]="state.exportIsFailed()">
                 <div class="bar-shimmer"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Active Item & Live Pipeline Status Card -->
+          <div class="monitor-active-card">
+            <div class="active-card-header">
+              <div class="active-badge" [class.badge-completed]="state.exportIsCompleted()">
+                <span class="active-indicator-pulse" [class.pulse-done]="state.exportIsCompleted()"></span>
+                <span>{{ state.exportIsCompleted() ? 'EXPORT FINISHED' : (state.running() ? 'ACTIVE COMPONENT' : 'STANDBY') }}</span>
+              </div>
+              <span class="active-pipeline-mode mono">{{ state.exportPipelineMode() }}</span>
+            </div>
+            <div class="active-card-content">
+              <div class="active-clip-details">
+                <span class="active-clip-label">Currently Processing:</span>
+                <span class="active-clip-title" [title]="state.currentProcessingClipName()">
+                  #{{ state.currentProcessingClipIndex() }} &middot; {{ state.currentProcessingClipName() || 'Timeline Intermediate Streams' }}
+                </span>
+              </div>
+              <div class="active-meta-badges">
+                <span class="meta-pill">⏱ Timeline: {{ state.timelineDurationFormatted() }}</span>
+                <span class="meta-pill">🎞 {{ state.scenesDone() }} / {{ state.scenesTotal() }} Clips</span>
+                <span class="meta-pill">⚡ Concurrency: 8 workers</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Visual Timeline Clips Progress Strip / Matrix -->
+          <div class="monitor-section">
+            <div class="section-title-row">
+              <h4>Timeline Items Status ({{ state.scenesTotal() }} Clips)</h4>
+              <div class="matrix-legend">
+                <span class="legend-item"><span class="legend-dot dot-done"></span> Completed ({{ state.scenesDone() }})</span>
+                <span class="legend-item"><span class="legend-dot dot-active"></span> Active ({{ state.running() && !state.exportIsCompleted() ? 1 : 0 }})</span>
+                <span class="legend-item"><span class="legend-dot dot-queued"></span> Queued ({{ state.scenesRemaining() }})</span>
+              </div>
+            </div>
+
+            <div class="timeline-clip-matrix-container">
+              <div class="timeline-clip-matrix">
+                @for (item of state.timelineMatrixItems(); track item.index) {
+                  <div class="matrix-clip-pill"
+                       [class.matrix-done]="item.status === 'completed'"
+                       [class.matrix-active]="item.status === 'active'"
+                       [class.matrix-queued]="item.status === 'queued'"
+                       [title]="'#' + item.index + ' ' + item.name + ' (' + (item.duration | number:'1.1-1') + 's) - ' + item.status">
+                    <span class="matrix-pill-idx">{{ item.index }}</span>
+                    @if (item.status === 'completed') {
+                      <span class="matrix-pill-icon">✓</span>
+                    } @else if (item.status === 'active') {
+                      <span class="matrix-pill-icon pulse-fast">⚡</span>
+                    } @else {
+                      <span class="matrix-pill-icon">·</span>
+                    }
+                  </div>
+                }
               </div>
             </div>
           </div>

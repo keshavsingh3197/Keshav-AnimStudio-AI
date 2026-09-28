@@ -101,20 +101,40 @@ public sealed class ClipMergeOrchestrator(
             return;
         }
 
-        // Estimates only, and only to weight the progress bar. Real lengths are measured
-        // clip by clip below, because that is the number the join arithmetic needs.
+        // Estimates based on timeline items duration or probe length to weight the progress bar accurately.
+        var v1ItemsList = spec.TimelineItems.Where(it => it.TrackId is "V1" or "video").ToList();
         var estimates = spec.AssetIds
-            .Select(id =>
+            .Select((id, idx) =>
             {
-                var a = assetMap[id];
-                return a.Kind == AssetKind.Image
-                    ? FrameCount.FromSeconds(5.0, canvas.FrameRate)
-                    : ClipPlanFactory.EstimateLength(a.Probe, canvas.FrameRate);
+                var a = assetMap.TryGetValue(id, out var found) ? found : assetMap[ClipMergeService.CleanClipId(id)];
+                var v1 = v1ItemsList.ElementAtOrDefault(idx)
+                    ?? spec.TimelineItems.FirstOrDefault(
+                        it => it.TrackId is "V1" or "video" && (it.Src == a.Id || it.Src == id));
+
+                if (a.Kind == AssetKind.Image)
+                {
+                    var dur = v1?.Duration ?? 5.0;
+                    return FrameCount.FromSeconds(dur, canvas.FrameRate);
+                }
+
+                if (v1?.Duration is > 0)
+                {
+                    return FrameCount.FromSeconds(v1.Duration, canvas.FrameRate);
+                }
+
+                if (v1?.TrimEndSeconds is > 0 && v1.TrimEndSeconds > (v1.TrimStartSeconds ?? 0))
+                {
+                    return FrameCount.FromSeconds(v1.TrimEndSeconds.Value - (v1.TrimStartSeconds ?? 0), canvas.FrameRate);
+                }
+
+                return ClipPlanFactory.EstimateLength(a.Probe, canvas.FrameRate);
             })
             .ToList();
 
-        var hasMusic = !string.IsNullOrEmpty(spec.BackgroundMusicAssetId);
-        var willStreamCopy = spec.TransitionFrames == 0 && !hasMusic;
+        var hasMusic = !string.IsNullOrEmpty(spec.BackgroundMusicAssetId) || spec.MusicTracks.Count > 0;
+        var hasTransitions = spec.TransitionFrames > 0
+            || spec.Junctions.Any(j => j.Transition != SceneTransition.None && j.TransitionFrames > 0);
+        var willStreamCopy = !hasTransitions && !hasMusic && spec.TimelineItems.All(it => it.TrackId is "V1" or "video");
 
         // Per-clip sound costs the join nothing: it is mixed in pass one, so every
         // conformed clip still comes out with the same single audio stream and the join
@@ -170,7 +190,7 @@ public sealed class ClipMergeOrchestrator(
             // match, so a run of these does not turn into every process fighting the others
             // for every core; on a multi-core machine it still finishes the whole batch
             // sooner than encoding one clip at a time ever could.
-            var concurrency = Math.Clamp(Environment.ProcessorCount / 2, 2, 6);
+            var concurrency = Math.Clamp(Environment.ProcessorCount, 2, 8);
             var perClipThreads = concurrency > 1
                 ? Math.Max(1, Environment.ProcessorCount / concurrency)
                 : 0;
@@ -211,12 +231,10 @@ public sealed class ClipMergeOrchestrator(
                     var isImage = asset.Kind == AssetKind.Image;
 
                     // Find the matching V1 timeline item for this asset to get transform/crop.
-                    // TimelineItems are keyed by asset src (asset ID), so look for V1 track item
-                    var v1Item = spec.TimelineItems
-                        .Where(it => it.TrackId is "V1" or "video")
-                        .ElementAtOrDefault(index)
+                    // Positional index matches 1:1 with timeline cut schedule.
+                    var v1Item = v1ItemsList.ElementAtOrDefault(index)
                         ?? spec.TimelineItems.FirstOrDefault(
-                            it => it.TrackId is "V1" or "video" && it.Src == asset.Id);
+                            it => it.TrackId is "V1" or "video" && (it.Src == asset.Id || it.Src == spec.AssetIds[index]));
                     var v1Transform = v1Item?.Transform;
 
                     var prevJunction = hasJunctionOverrides && index > 0
@@ -268,10 +286,13 @@ public sealed class ClipMergeOrchestrator(
                         }
                     }
 
+                    var clipDurationSec = origDuration
+                        ?? (origTrimEnd.HasValue && origTrimStart.HasValue && origTrimEnd > origTrimStart ? origTrimEnd.Value - origTrimStart.Value : (double?)null)
+                        ?? (isImage ? 5.0 : asset.Probe.DurationSeconds ?? 5.0);
+
+                    var totalClipDur = clipDurationSec + (requestedLeadIn + requestedTailOut);
                     var imageDur = (origDuration ?? 5.0) + (isImage ? (requestedLeadIn + requestedTailOut) : 0);
-                    var expectedFrames = isImage
-                        ? FrameCount.FromSeconds(imageDur, canvas.FrameRate)
-                        : estimates[index];
+                    var expectedFrames = FrameCount.FromSeconds(totalClipDur, canvas.FrameRate);
 
                     var plan = new ClipRenderPlan
                     {

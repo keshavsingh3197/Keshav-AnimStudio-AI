@@ -38,13 +38,15 @@ public sealed class RenderProgressAggregator
 
     private int TotalWork => Math.Max(_sceneWork + _mergeWork, 1);
 
-    public int Percent(RenderStage stage, int sceneIndex, FrameCount stageFramesDone)
+    public int Percent(RenderStage stage, int sceneIndex, FrameCount stageFramesDone, int? concurrentSceneFrames = null)
     {
         var done = stage switch
         {
             RenderStage.Preparing => 0,
             RenderStage.RenderingScene =>
-                _sceneLengths.Take(sceneIndex).Sum(l => l.Value) + stageFramesDone.Value,
+                concurrentSceneFrames.HasValue && concurrentSceneFrames.Value > 0
+                    ? concurrentSceneFrames.Value
+                    : _sceneLengths.Take(sceneIndex).Sum(l => l.Value) + stageFramesDone.Value,
             RenderStage.Merging => _sceneWork + stageFramesDone.Value,
             RenderStage.Publishing or RenderStage.Completed => TotalWork,
             _ => 0

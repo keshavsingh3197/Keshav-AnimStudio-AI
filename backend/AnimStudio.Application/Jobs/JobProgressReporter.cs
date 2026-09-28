@@ -45,6 +45,7 @@ public sealed class JobProgressReporter : IProgress<RenderProgress>, IAsyncDispo
     private int _lastWrittenScene = -1;
     private DateTimeOffset _lastWriteAt = DateTimeOffset.MinValue;
     private int _scenesDone;
+    private readonly int[] _sceneFrames;
 
     public JobProgressReporter(
         IRenderJobRepository repository, RenderProgressAggregator aggregator,
@@ -59,6 +60,7 @@ public sealed class JobProgressReporter : IProgress<RenderProgress>, IAsyncDispo
         _sceneCount = sceneCount;
         _clock = clock;
         _logger = logger;
+        _sceneFrames = new int[sceneCount];
 
         _pump = PumpAsync();
     }
@@ -105,7 +107,14 @@ public sealed class JobProgressReporter : IProgress<RenderProgress>, IAsyncDispo
     /// <summary>Never blocks: the renderer's output loop must not wait on the database.</summary>
     public void Report(RenderProgress value)
     {
-        lock (_gate) _latest = value;
+        lock (_gate)
+        {
+            _latest = value;
+            if (value.Stage == RenderStage.RenderingScene && value.SceneIndex >= 0 && value.SceneIndex < _sceneCount)
+            {
+                _sceneFrames[value.SceneIndex] = Math.Max(_sceneFrames[value.SceneIndex], value.StageFramesDone.Value);
+            }
+        }
     }
 
     private async Task PumpAsync()
@@ -131,6 +140,7 @@ public sealed class JobProgressReporter : IProgress<RenderProgress>, IAsyncDispo
         int writtenScene;
         int writtenPercent;
         DateTimeOffset writtenAt;
+        int totalSceneFrames;
         lock (_gate)
         {
             snapshot = _latest;
@@ -139,11 +149,15 @@ public sealed class JobProgressReporter : IProgress<RenderProgress>, IAsyncDispo
             writtenScene = _lastWrittenScene;
             writtenPercent = _lastWrittenPercent;
             writtenAt = _lastWriteAt;
+            totalSceneFrames = _sceneFrames.Sum();
         }
 
         if (snapshot is null) return;
 
-        var percent = _aggregator.Percent(snapshot.Stage, snapshot.SceneIndex, snapshot.StageFramesDone);
+        var computedPercent = _aggregator.Percent(
+            snapshot.Stage, snapshot.SceneIndex, snapshot.StageFramesDone, totalSceneFrames);
+        // Ensure percent is strictly monotonic non-decreasing so progress bar never fluctuates backwards
+        var percent = Math.Max(writtenPercent, computedPercent);
         var now = _clock.GetUtcNow();
 
         // A stage or scene change is always worth writing immediately; otherwise wait for

@@ -350,6 +350,69 @@ export class StudioStateService implements OnDestroy {
     return this.job()?.status === 'Failed';
   });
 
+  readonly currentProcessingClipIndex = computed<number>(() => {
+    const done = this.scenesDone();
+    const total = this.scenesTotal();
+    if (done >= total) return total;
+    return done + 1;
+  });
+
+  readonly currentProcessingClipName = computed<string>(() => {
+    const idx = this.scenesDone();
+    const sched = this.clipSchedule();
+    if (idx >= 0 && idx < sched.length) {
+      return sched[idx].clip.name;
+    }
+    const inc = this.included();
+    if (idx >= 0 && idx < inc.length) {
+      return inc[idx].clip.name;
+    }
+    return '';
+  });
+
+  readonly timelineDurationFormatted = computed<string>(() => {
+    const totalSec = Math.round(this.totalSeconds());
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return `${m}m ${s}s (${totalSec}s)`;
+  });
+
+  readonly hasNonCutTransitions = computed<boolean>(() => {
+    const list = this.junctionsList();
+    return list.some((j) => j.transition && j.transition !== 'None');
+  });
+
+  readonly exportPipelineMode = computed<string>(() => {
+    if (this.hasNonCutTransitions()) {
+      return 'Multi-Batch Crossfade Blending (High Quality)';
+    }
+    return 'Lossless Concat Demuxer Stream-Copy (Ultra-Fast)';
+  });
+
+  readonly timelineMatrixItems = computed(() => {
+    const sched = this.clipSchedule();
+    const done = this.scenesDone();
+    const isCompleted = this.exportIsCompleted();
+    const isRunning = this.running();
+
+    return sched.map((entry, index) => {
+      let status: 'completed' | 'active' | 'queued' = 'queued';
+      if (isCompleted) {
+        status = 'completed';
+      } else if (index < done) {
+        status = 'completed';
+      } else if (index === done && isRunning) {
+        status = 'active';
+      }
+      return {
+        index: index + 1,
+        name: entry.clip.name,
+        duration: entry.durationSeconds,
+        status,
+      };
+    });
+  });
+
   readonly pipelineStages = computed(() => {
     const j = this.job();
     const curStage = j?.currentStage ?? (this.running() ? 'Preparing' : 'Pending');
@@ -6209,13 +6272,22 @@ export class StudioStateService implements OnDestroy {
   }
 
   timelineItemsPayload(): TimelineItem[] | null {
-    const items = [...this.timelineItems()];
-    // Include V1 primary video timeline items so backend receives their transforms/crops
+    // 1. Separate non-V1 overlay items (IMG1, T1, V2, etc.)
+    const overlayItems = this.timelineItems().filter(
+      (it) => it.trackId !== 'V1' && it.trackId !== 'video'
+    );
+
+    // 2. Exact 1-to-1 V1 timeline items directly from clipSchedule
+    // Every clip on the timeline cut gets its own uniquely-indexed entry so duplicates and custom trims are preserved
     const schedule = this.clipSchedule();
-    for (const entry of schedule) {
+    const v1Items: TimelineItem[] = schedule.map((entry, index) => {
       const clipId = entry.clip.id;
       const realAssetId = this.resolveAssetId(entry.clip);
       const t = this.clipTransformSetting(clipId);
+      const dur = Math.max(0.05, entry.durationSeconds ?? (entry.endSeconds - entry.startSeconds));
+      const trimStart = entry.clip.trimStartSeconds ?? 0;
+      const trimEnd = entry.clip.trimEndSeconds ?? (trimStart + dur);
+
       const transformSpec: TimelineItemTransform = {
         scale: t.scale,
         x: t.x,
@@ -6229,32 +6301,25 @@ export class StudioStateService implements OnDestroy {
         cropLinked: t.cropLinked,
         stabilization: t.stabilization,
       };
-      const existingIdx = items.findIndex((it) => (it.trackId === 'V1' || it.trackId === 'video') && (it.src === clipId || it.id === clipId || it.src === realAssetId || it.id === `v1_${clipId}`));
-      if (existingIdx >= 0) {
-        items[existingIdx] = {
-          ...items[existingIdx],
-          src: realAssetId,
-          transform: transformSpec,
-          trimStartSeconds: entry.clip.trimStartSeconds,
-          trimEndSeconds: entry.clip.trimEndSeconds,
-        };
-      } else {
-        items.push({
-          id: `v1_${clipId}`,
-          type: 'video',
-          trackId: 'V1',
-          startTime: entry.startSeconds,
-          duration: Math.max(0.1, entry.endSeconds - entry.startSeconds),
-          src: realAssetId,
-          name: entry.clip.name,
-          transform: transformSpec,
-          trimStartSeconds: entry.clip.trimStartSeconds,
-          trimEndSeconds: entry.clip.trimEndSeconds,
-        });
-      }
-    }
-    if (items.length === 0) return null;
-    return items.map((item) => ({
+
+      return {
+        id: `v1_${index}_${clipId}`,
+        type: 'video',
+        trackId: 'V1',
+        startTime: entry.startSeconds,
+        duration: dur,
+        src: realAssetId,
+        name: entry.clip.name,
+        transform: transformSpec,
+        trimStartSeconds: trimStart,
+        trimEndSeconds: trimEnd,
+      };
+    });
+
+    const allItems = [...v1Items, ...overlayItems];
+    if (allItems.length === 0) return null;
+
+    return allItems.map((item) => ({
       id: item.id,
       type: item.type,
       trackId: item.trackId,
@@ -6281,7 +6346,7 @@ export class StudioStateService implements OnDestroy {
     const schedule = this.clipSchedule();
     const available = new Set(this.studio()?.musicCandidates.map((a) => a.id) ?? []);
 
-    return clips.map((row) => {
+    return clips.map((row, idx) => {
       const sound = this.clipSound(row.clip.id);
       const assetId = sound.audioAssetId && available.has(sound.audioAssetId)
         ? sound.audioAssetId
@@ -6293,7 +6358,7 @@ export class StudioStateService implements OnDestroy {
 
       let trimStart = sound.audioTrimStartSeconds ?? null;
       let trimEnd = sound.audioTrimEndSeconds ?? null;
-      const sRef = schedule.find((x) => x.clip.id === row.clip.id);
+      const sRef = schedule[idx] ?? schedule.find((x) => x.clip.id === row.clip.id);
       if (assetId && sRef) {
         let runStartSeconds = sRef.startSeconds;
         let runTrimStart = sound.audioTrimStartSeconds ?? 0;
