@@ -28,6 +28,108 @@ export class RenderComponent implements OnDestroy {
   readonly jobs = signal<RenderJob[]>([]);
   readonly job = signal<RenderJob | null>(null);
 
+  readonly elapsedSeconds = signal<number>(0);
+  readonly etaSeconds = signal<number | null>(null);
+  readonly stageDurations = signal<Record<string, number>>({});
+  readonly renderSpeed = signal<string>('1.0x');
+
+  readonly scenesTotal = computed(() => {
+    const j = this.job();
+    if (j && j.scenesTotal > 0) return j.scenesTotal;
+    return this.store.scenes().length || 1;
+  });
+
+  readonly scenesDone = computed(() => {
+    const j = this.job();
+    return j ? j.scenesDone : 0;
+  });
+
+  readonly scenesRemaining = computed(() => {
+    return Math.max(0, this.scenesTotal() - this.scenesDone());
+  });
+
+  readonly elapsedFormatted = computed(() => {
+    const totalSecs = this.elapsedSeconds();
+    const mins = Math.floor(totalSecs / 60);
+    const secs = totalSecs % 60;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  });
+
+  readonly etaFormatted = computed(() => {
+    const eta = this.etaSeconds();
+    if (eta === null || eta <= 0) return '--:--';
+    const mins = Math.floor(eta / 60);
+    const secs = eta % 60;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  });
+
+  readonly isCompleted = computed(() => {
+    const s = this.job()?.status;
+    return s === 'Completed' || s === 'CompletedWithWarnings';
+  });
+
+  readonly isFailed = computed(() => {
+    return this.job()?.status === 'Failed';
+  });
+
+  readonly pipelineStages = computed(() => {
+    const j = this.job();
+    const curStage = j?.currentStage ?? (this.running() ? 'Preparing' : 'Pending');
+    const isDone = j?.status === 'Completed' || j?.status === 'CompletedWithWarnings';
+    const durations = this.stageDurations();
+
+    const stages = [
+      {
+        id: 'Preparing',
+        name: 'Asset Preparation & Staging',
+        summary: 'Resolving scene backgrounds, audio tracks and character assets',
+        icon: '📁',
+        durationSec: durations['Preparing'] ?? 0,
+      },
+      {
+        id: 'RenderingScene',
+        name: 'Scene Filtergraph Rendering',
+        summary: `${this.scenesDone()} of ${this.scenesTotal()} scenes completed (${this.scenesRemaining()} remaining)`,
+        icon: '🎬',
+        durationSec: durations['RenderingScene'] ?? 0,
+      },
+      {
+        id: 'Merging',
+        name: 'Stream Concat & Audio Mixing',
+        summary: 'Transitions, Ken Burns zooms, background music & subtitle burn-in',
+        icon: '🔀',
+        durationSec: durations['Merging'] ?? 0,
+      },
+      {
+        id: 'Publishing',
+        name: 'Packaging & Frame Validation',
+        summary: 'Final MP4 container validation, faststart and storage publish',
+        icon: '📦',
+        durationSec: durations['Publishing'] ?? 0,
+      },
+    ];
+
+    const order = ['Preparing', 'RenderingScene', 'Merging', 'Publishing'];
+    const currentIdx = order.indexOf(curStage);
+
+    return stages.map((st, idx) => {
+      let state: 'completed' | 'active' | 'pending' = 'pending';
+      if (isDone) state = 'completed';
+      else if (currentIdx > idx) state = 'completed';
+      else if (currentIdx === idx) state = 'active';
+      else state = 'pending';
+      return { ...st, state };
+    });
+  });
+
+  formatStageDuration(sec: number): string {
+    if (!sec || sec <= 0) return '0s';
+    if (sec < 60) return `${sec}s`;
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}m ${s}s`;
+  }
+
   readonly previewFit = signal<'contain' | 'cover'>('contain');
   readonly previewZoom = signal<number>(100);
   readonly hasVideoClips = computed(() => this.store.assets().some((a) => a.kind === 'Video'));
@@ -220,11 +322,49 @@ export class RenderComponent implements OnDestroy {
     });
   }
 
+  private timerHandle: any = null;
+
+  private startTimer(): void {
+    this.stopTimer();
+    this.elapsedSeconds.set(0);
+    this.etaSeconds.set(null);
+    this.stageDurations.set({});
+
+    this.timerHandle = setInterval(() => {
+      this.elapsedSeconds.update((s) => s + 1);
+
+      const stage = this.job()?.currentStage || 'Preparing';
+      const durations = { ...this.stageDurations() };
+      durations[stage] = (durations[stage] ?? 0) + 1;
+      this.stageDurations.set(durations);
+
+      const progress = this.job()?.progress ?? 0;
+      const elapsed = this.elapsedSeconds();
+      if (progress >= 3 && progress < 100) {
+        const totalEstimated = (elapsed / progress) * 100;
+        const remaining = Math.max(0, Math.round(totalEstimated - elapsed));
+        this.etaSeconds.set(remaining);
+
+        const done = this.scenesDone();
+        if (elapsed > 2 && done > 0) {
+          const speed = (done * 4.0) / Math.max(1, elapsed);
+          this.renderSpeed.set(`${Math.max(0.8, Number(speed.toFixed(1)))}x`);
+        }
+      }
+    }, 1000);
+  }
+
+  private stopTimer(): void {
+    if (this.timerHandle !== null) {
+      clearInterval(this.timerHandle);
+      this.timerHandle = null;
+    }
+  }
+
   private startPolling(jobId: string): void {
     this.stopPolling();
+    this.startTimer();
 
-    // Polling rather than a socket, per the current design; the response shape is already
-    // what a push transport would deliver, so swapping later changes nothing here.
     this.pollHandle = setInterval(() => {
       this.api.job(jobId).subscribe({
         next: (job) => {
@@ -233,12 +373,17 @@ export class RenderComponent implements OnDestroy {
 
           if (isTerminal(job.status)) {
             this.stopPolling();
+            this.stopTimer();
+            this.etaSeconds.set(0);
             this.status.notify(job.warnings);
           }
         },
-        error: () => this.stopPolling(),
+        error: () => {
+          this.stopPolling();
+          this.stopTimer();
+        },
       });
-    }, 2000);
+    }, 1500);
   }
 
   private stopPolling(): void {
@@ -246,5 +391,6 @@ export class RenderComponent implements OnDestroy {
       clearInterval(this.pollHandle);
       this.pollHandle = null;
     }
+    this.stopTimer();
   }
 }

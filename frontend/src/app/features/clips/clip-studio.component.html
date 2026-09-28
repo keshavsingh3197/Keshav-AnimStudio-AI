@@ -934,4 +934,291 @@
       </div>
     </div>
   }
+
+  <!-- ======================================================= -->
+  <!-- EXPORT & RENDER PROGRESS & DIAGNOSTICS MONITOR MODAL    -->
+  <!-- ======================================================= -->
+  @if (state.exportProgressOpen()) {
+    <div class="modal-backdrop" (click)="state.minimizeExportProgress()">
+      <div class="render-monitor-dialog" (click)="$event.stopPropagation()">
+        <!-- Header -->
+        <div class="render-monitor-header">
+          <div class="monitor-title-group">
+            <span class="monitor-icon">🎬</span>
+            <div>
+              <h3>Export &amp; Render Diagnostics</h3>
+              <p class="monitor-subtitle">
+                Project: <strong>{{ state.exportName() || 'AnimStudio Video' }}</strong> &middot; Target: <strong>{{ state.exportResolution() }}</strong>
+              </p>
+            </div>
+          </div>
+          <div class="monitor-header-actions">
+            <span [class]="state.exportIsCompleted() ? 'badge bg-success' : (state.exportIsFailed() ? 'badge bg-danger' : 'badge bg-warning')">
+              @if (state.exportIsCompleted()) { ✓ Completed }
+              @else if (state.exportIsFailed()) { ✕ Failed }
+              @else { ⚡ In Progress }
+            </span>
+            <button class="monitor-action-btn" type="button" (click)="state.minimizeExportProgress()" title="Minimize to background HUD">
+              🗕 Minimize
+            </button>
+            <button class="close-btn" type="button" (click)="state.closeExportProgress()" title="Close monitor">&times;</button>
+          </div>
+        </div>
+
+        <!-- Body -->
+        <div class="render-monitor-body">
+          <!-- Main Progress Indicator -->
+          <div class="monitor-progress-hero">
+            <div class="hero-top-row">
+              <div class="hero-status-message">
+                <span class="pulsing-dot" [class.done]="state.exportIsCompleted()" [class.failed]="state.exportIsFailed()"></span>
+                <span class="hero-msg-text">
+                  @if (state.exportIsCompleted()) {
+                    All {{ state.scenesTotal() }} items rendered &amp; exported successfully!
+                  } @else if (state.exportIsFailed()) {
+                    Rendering interrupted: {{ state.job()?.errorMessage || 'An error occurred during export.' }}
+                  } @else {
+                    {{ state.job()?.message || 'Processing video streams...' }}
+                  }
+                </span>
+              </div>
+              <span class="hero-pct mono">{{ state.job()?.progress || 0 }}%</span>
+            </div>
+
+            <!-- Glowing Progress Bar -->
+            <div class="monitor-bar-container">
+              <div class="monitor-bar-fill" [style.width.%]="state.job()?.progress || 0"
+                   [class.bar-completed]="state.exportIsCompleted()"
+                   [class.bar-failed]="state.exportIsFailed()">
+                <div class="bar-shimmer"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 4 Core Metrics Grid -->
+          <div class="monitor-metrics-grid">
+            <div class="metric-card">
+              <span class="metric-label">Items Processed</span>
+              <div class="metric-val-row">
+                <span class="metric-val mono">{{ state.scenesDone() }} / {{ state.scenesTotal() }}</span>
+                <span class="metric-sub">{{ state.scenesRemaining() }} remaining</span>
+              </div>
+            </div>
+
+            <div class="metric-card">
+              <span class="metric-label">Time Elapsed</span>
+              <div class="metric-val-row">
+                <span class="metric-val mono">{{ state.exportElapsedFormatted() }}</span>
+                <span class="metric-sub">Live timer</span>
+              </div>
+            </div>
+
+            <div class="metric-card">
+              <span class="metric-label">Estimated Remaining</span>
+              <div class="metric-val-row">
+                <span class="metric-val mono">{{ state.exportEtaFormatted() }}</span>
+                <span class="metric-sub">Dynamic ETA</span>
+              </div>
+            </div>
+
+            <div class="metric-card">
+              <span class="metric-label">Processing Speed</span>
+              <div class="metric-val-row">
+                <span class="metric-val mono">{{ state.exportSpeed() }}</span>
+                <span class="metric-sub">Real-time factor</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Pipeline Stage Breakdown Checklist & Component Durations -->
+          <div class="monitor-section">
+            <div class="section-title-row">
+              <h4>Pipeline Components &amp; Stage Breakdown</h4>
+              <span class="section-meta">Stage-by-stage timing &amp; status</span>
+            </div>
+
+            <div class="pipeline-stages-list">
+              @for (st of state.pipelineStages(); track st.id) {
+                <div class="stage-row" [class.stage-completed]="st.state === 'completed'"
+                                       [class.stage-active]="st.state === 'active'"
+                                       [class.stage-pending]="st.state === 'pending'">
+                  <div class="stage-icon-col">
+                    @if (st.state === 'completed') {
+                      <span class="stage-badge-icon badge-done">✓</span>
+                    } @else if (st.state === 'active') {
+                      <span class="stage-badge-icon badge-active">⚡</span>
+                    } @else {
+                      <span class="stage-badge-icon badge-pending">○</span>
+                    }
+                  </div>
+                  <div class="stage-info-col">
+                    <div class="stage-name-row">
+                      <span class="stage-name">{{ st.icon }} {{ st.name }}</span>
+                      <span class="stage-status-tag" [class]="'tag-' + st.state">
+                        @if (st.state === 'completed') { Completed }
+                        @else if (st.state === 'active') { In Progress }
+                        @else { Queued }
+                      </span>
+                    </div>
+                    <p class="stage-summary">{{ st.summary }}</p>
+                  </div>
+                  <div class="stage-timing-col">
+                    <span class="stage-duration mono">
+                      @if (st.durationSec > 0) {
+                        {{ state.formatStageDuration(st.durationSec) }}
+                      } @else if (st.state === 'active') {
+                        In Progress...
+                      } @else {
+                        —
+                      }
+                    </span>
+                  </div>
+                </div>
+              }
+            </div>
+          </div>
+
+          <!-- Completed Celebration / Success Banner -->
+          @if (state.exportIsCompleted() && state.job(); as completedJob) {
+            <div class="export-success-banner">
+              <div class="success-icon-badge">🎉</div>
+              <div class="success-content">
+                <h4>Video Ready for Download!</h4>
+                <p>
+                  Rendered in <strong>{{ state.exportElapsedFormatted() }}</strong> &middot;
+                  Resolution: <strong>{{ state.exportResolution() }}</strong>
+                  @if (completedJob.outputDurationSeconds) {
+                    &middot; Length: <strong>{{ completedJob.outputDurationSeconds | number:'1.1-1' }}s</strong>
+                  }
+                </p>
+                <div class="success-actions">
+                  <a [href]="state.downloadUrl(completedJob.jobId)"
+                     [download]="(state.exportName() ? state.exportName() : completedJob.jobId) + '.mp4'"
+                     class="btn btn-success btn-lg export-download-btn">
+                    ⬇ Download MP4 Video
+                  </a>
+                  <button type="button" class="btn btn-outline-info" (click)="state.openExportPreview()">
+                    ▶ Preview Video
+                  </button>
+                </div>
+              </div>
+            </div>
+          }
+
+          <!-- Failure / Error Banner -->
+          @if (state.exportIsFailed() && state.job(); as failedJob) {
+            <div class="export-failure-banner">
+              <div class="fail-icon-badge">✕</div>
+              <div class="fail-content">
+                <h4>Render Encountered an Issue</h4>
+                <p class="error-msg">{{ failedJob.errorMessage || 'Export was stopped due to an error.' }}</p>
+                @if (failedJob.errorCode) {
+                  <span class="error-code-badge mono">Code: {{ failedJob.errorCode }}</span>
+                }
+              </div>
+            </div>
+          }
+
+          <!-- Warnings & Diagnostics Drawer (if any) -->
+          @if (state.job()?.warnings?.length) {
+            <div class="monitor-warnings-card">
+              <span class="warn-head">⚠️ Notice / Diagnostics Warnings ({{ state.job()?.warnings?.length }}):</span>
+              <ul>
+                @for (w of state.job()!.warnings; track w) {
+                  <li>{{ w }}</li>
+                }
+              </ul>
+            </div>
+          }
+        </div>
+
+        <!-- Footer -->
+        <div class="render-monitor-footer">
+          <div class="monitor-footer-left">
+            <span class="engine-badge">⚡ Hardware Engine Active</span>
+            <span class="engine-details">Multi-core Concurrency &middot; Preset: fast intermediate</span>
+          </div>
+
+          <div class="monitor-footer-right">
+            @if (state.running()) {
+              <button class="btn btn-outline-danger" type="button" (click)="state.cancel()">
+                ⏹ Cancel Export
+              </button>
+              <button class="btn btn-outline-secondary" type="button" (click)="state.minimizeExportProgress()">
+                🗕 Run in Background
+              </button>
+            } @else {
+              <button class="btn btn-primary" type="button" (click)="state.closeExportProgress()">
+                Done
+              </button>
+            }
+          </div>
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- ======================================================= -->
+  <!-- FLOATING MINI-HUD WIDGET (when minimized)               -->
+  <!-- ======================================================= -->
+  @if (state.exportProgressMinimized() && state.job(); as minJob) {
+    <div class="floating-render-hud" (click)="state.restoreExportProgress()" title="Click to open detailed Export Diagnostics Monitor">
+      <div class="hud-top-row">
+        <div class="hud-status">
+          <span class="hud-dot" [class.hud-dot-completed]="state.exportIsCompleted()" [class.hud-dot-failed]="state.exportIsFailed()"></span>
+          <strong>
+            @if (state.exportIsCompleted()) { Export Complete! }
+            @else if (state.exportIsFailed()) { Export Failed }
+            @else { Exporting: {{ minJob.progress }}% }
+          </strong>
+        </div>
+        <button class="hud-expand-btn" type="button" (click)="state.restoreExportProgress(); $event.stopPropagation()" title="Expand monitor">
+          ⤢
+        </button>
+      </div>
+
+      <div class="hud-details-row">
+        <span>Clip {{ state.scenesDone() }}/{{ state.scenesTotal() }}</span>
+        <span class="mono">ETA: {{ state.exportEtaFormatted() }}</span>
+      </div>
+
+      <div class="hud-bar-track">
+        <div class="hud-bar-fill" [style.width.%]="minJob.progress" [class.hud-bar-done]="state.exportIsCompleted()"></div>
+      </div>
+
+      @if (state.exportIsCompleted()) {
+        <a [href]="state.downloadUrl(minJob.jobId)"
+           [download]="(state.exportName() ? state.exportName() : minJob.jobId) + '.mp4'"
+           (click)="$event.stopPropagation()"
+           class="hud-download-btn">
+          ⬇ Download MP4
+        </a>
+      }
+    </div>
+  }
+
+  <!-- ======================================================= -->
+  <!-- IN-STUDIO VIDEO PREVIEW MODAL                           -->
+  <!-- ======================================================= -->
+  @if (state.exportPreviewModalOpen() && state.job(); as prevJob) {
+    <div class="modal-backdrop" (click)="state.closeExportPreview()">
+      <div class="export-preview-dialog" (click)="$event.stopPropagation()">
+        <div class="preview-dialog-header">
+          <h3>▶ Preview Rendered Video</h3>
+          <button class="close-btn" type="button" (click)="state.closeExportPreview()">&times;</button>
+        </div>
+        <div class="preview-dialog-body">
+          <video [src]="state.downloadUrl(prevJob.jobId)" controls autoplay class="preview-video-element"></video>
+        </div>
+        <div class="preview-dialog-footer">
+          <a [href]="state.downloadUrl(prevJob.jobId)"
+             [download]="(state.exportName() ? state.exportName() : prevJob.jobId) + '.mp4'"
+             class="btn btn-success">
+            ⬇ Download MP4
+          </a>
+          <button class="btn btn-secondary" type="button" (click)="state.closeExportPreview()">Close</button>
+        </div>
+      </div>
+    </div>
+  }
 </div>

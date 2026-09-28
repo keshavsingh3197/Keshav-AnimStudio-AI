@@ -81,45 +81,72 @@
                 <span class="muted" style="font-size: .82rem">{{ current.message }}</span>
               }
             </div>
-            <span class="progress-pct-label">{{ current.progress }}%</span>
-          </div>
-
-          <!-- Step dots row -->
-          <div class="render-steps">
-            <div class="render-step" [class.active]="current.progress > 0 && current.progress < 85"
-                                     [class.done]="current.progress >= 85">
-              <div class="step-dot"></div>
-              <span>Rendering Scenes</span>
-            </div>
-            <div class="render-connector" [class.active]="current.progress >= 85"></div>
-            <div class="render-step" [class.active]="current.progress >= 85 && current.progress < 98"
-                                     [class.done]="current.progress >= 98">
-              <div class="step-dot"></div>
-              <span>Merging &amp; Mixing</span>
-            </div>
-            <div class="render-connector" [class.active]="current.progress >= 98"></div>
-            <div class="render-step" [class.active]="current.progress >= 98">
-              <div class="step-dot"></div>
-              <span>Finalizing</span>
-            </div>
+            <span class="progress-pct-label mono" style="font-size: 1.5rem; font-weight: 800; color: #38bdf8;">{{ current.progress }}%</span>
           </div>
 
           <!-- Progress bar with shimmer -->
           <div class="render-bar-wrap">
-            <div class="render-bar-track">
+            <div class="render-bar-track" style="height: 8px; border-radius: 4px;">
               <div class="render-bar-fill" [style.width.%]="current.progress"
                    [class.fill-failed]="current.status === 'Failed'"
-                   [class.fill-cancelled]="current.status === 'Cancelled'">
+                   [class.fill-cancelled]="current.status === 'Cancelled'"
+                   style="height: 100%; border-radius: 4px; background: linear-gradient(90deg, #3b82f6, #8b5cf6, #06b6d4);">
               </div>
             </div>
           </div>
 
-          <!-- Stage + scene counter -->
-          <div class="render-stage-row">
-            <span class="render-stage-text">{{ current.currentStage }}</span>
-            <span class="render-scene-counter">
-              Scene {{ current.scenesDone }} / {{ current.scenesTotal }}
-            </span>
+          <!-- 4 Core Metrics Grid -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-top: 1rem;">
+            <div style="background: rgba(30, 41, 59, 0.45); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 0.6rem 0.8rem; display: flex; flex-direction: column; gap: 2px;">
+              <span style="font-size: 0.68rem; text-transform: uppercase; color: var(--text-dim, #94a3b8); font-weight: 600;">Scenes Done</span>
+              <span class="mono" style="font-size: 1.05rem; font-weight: 700; color: #38bdf8;">{{ scenesDone() }} / {{ scenesTotal() }}</span>
+              <span style="font-size: 0.68rem; color: #64748b;">{{ scenesRemaining() }} remaining</span>
+            </div>
+            <div style="background: rgba(30, 41, 59, 0.45); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 0.6rem 0.8rem; display: flex; flex-direction: column; gap: 2px;">
+              <span style="font-size: 0.68rem; text-transform: uppercase; color: var(--text-dim, #94a3b8); font-weight: 600;">Time Elapsed</span>
+              <span class="mono" style="font-size: 1.05rem; font-weight: 700; color: #38bdf8;">{{ elapsedFormatted() }}</span>
+              <span style="font-size: 0.68rem; color: #64748b;">Live timer</span>
+            </div>
+            <div style="background: rgba(30, 41, 59, 0.45); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 0.6rem 0.8rem; display: flex; flex-direction: column; gap: 2px;">
+              <span style="font-size: 0.68rem; text-transform: uppercase; color: var(--text-dim, #94a3b8); font-weight: 600;">Estimated Remaining</span>
+              <span class="mono" style="font-size: 1.05rem; font-weight: 700; color: #38bdf8;">{{ etaFormatted() }}</span>
+              <span style="font-size: 0.68rem; color: #64748b;">Dynamic ETA</span>
+            </div>
+            <div style="background: rgba(30, 41, 59, 0.45); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 0.6rem 0.8rem; display: flex; flex-direction: column; gap: 2px;">
+              <span style="font-size: 0.68rem; text-transform: uppercase; color: var(--text-dim, #94a3b8); font-weight: 600;">Render Speed</span>
+              <span class="mono" style="font-size: 1.05rem; font-weight: 700; color: #38bdf8;">{{ renderSpeed() }}</span>
+              <span style="font-size: 0.68rem; color: #64748b;">Real-time factor</span>
+            </div>
+          </div>
+
+          <!-- Pipeline Stage Breakdown Checklist & Component Durations -->
+          <div style="margin-top: 1rem; background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 8px 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <strong style="font-size: 0.84rem; color: #e2e8f0;">Pipeline Component Breakdown</strong>
+              <span style="font-size: 0.72rem; color: var(--text-dim, #94a3b8);">Durations per stage</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+              @for (st of pipelineStages(); track st.id) {
+                <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: 6px; background: rgba(255, 255, 255, 0.02);"
+                     [style.background]="st.state === 'active' ? 'rgba(59, 130, 246, 0.12)' : 'rgba(255, 255, 255, 0.02)'"
+                     [style.border]="st.state === 'active' ? '1px solid rgba(59, 130, 246, 0.3)' : '1px solid transparent'">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 0.8rem;">
+                      @if (st.state === 'completed') { <span style="color: #10b981; font-weight: bold;">✓</span> }
+                      @else if (st.state === 'active') { <span style="color: #3b82f6; font-weight: bold;">⚡</span> }
+                      @else { <span style="color: #64748b;">○</span> }
+                    </span>
+                    <span style="font-size: 0.82rem; font-weight: 600; color: #f1f5f9;">{{ st.icon }} {{ st.name }}</span>
+                    <span style="font-size: 0.72rem; color: var(--text-dim, #94a3b8); margin-left: 4px;">&middot; {{ st.summary }}</span>
+                  </div>
+                  <span class="mono" style="font-size: 0.78rem; font-weight: 600; color: #cbd5e1;">
+                    @if (st.durationSec > 0) { {{ formatStageDuration(st.durationSec) }} }
+                    @else if (st.state === 'active') { In Progress... }
+                    @else { — }
+                  </span>
+                </div>
+              }
+            </div>
           </div>
         </div>
       }

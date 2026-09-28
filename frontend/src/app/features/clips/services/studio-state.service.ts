@@ -302,6 +302,109 @@ export class StudioStateService implements OnDestroy {
   readonly exportResolution = signal<'1080p' | '720p' | '4k' | 'short_9_16' | 'square_1_1'>('1080p');
   readonly exportIncludeWatermark = signal<boolean>(true);
 
+  // Live Export Progress Monitor Signals
+  readonly exportProgressOpen = signal<boolean>(false);
+  readonly exportProgressMinimized = signal<boolean>(false);
+  readonly exportElapsedSeconds = signal<number>(0);
+  readonly exportEtaSeconds = signal<number | null>(null);
+  readonly exportSpeed = signal<string>('1.0x');
+  readonly stageDurations = signal<Record<string, number>>({});
+  readonly exportPreviewModalOpen = signal<boolean>(false);
+
+  readonly scenesTotal = computed(() => {
+    const j = this.job();
+    if (j && j.scenesTotal > 0) return j.scenesTotal;
+    return this.included().length || 1;
+  });
+
+  readonly scenesDone = computed(() => {
+    const j = this.job();
+    return j ? j.scenesDone : 0;
+  });
+
+  readonly scenesRemaining = computed(() => {
+    return Math.max(0, this.scenesTotal() - this.scenesDone());
+  });
+
+  readonly exportElapsedFormatted = computed(() => {
+    const totalSecs = this.exportElapsedSeconds();
+    const mins = Math.floor(totalSecs / 60);
+    const secs = totalSecs % 60;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  });
+
+  readonly exportEtaFormatted = computed(() => {
+    const eta = this.exportEtaSeconds();
+    if (eta === null || eta <= 0) return '--:--';
+    const mins = Math.floor(eta / 60);
+    const secs = eta % 60;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  });
+
+  readonly exportIsCompleted = computed(() => {
+    const s = this.job()?.status;
+    return s === 'Completed' || s === 'CompletedWithWarnings';
+  });
+
+  readonly exportIsFailed = computed(() => {
+    return this.job()?.status === 'Failed';
+  });
+
+  readonly pipelineStages = computed(() => {
+    const j = this.job();
+    const curStage = j?.currentStage ?? (this.running() ? 'Preparing' : 'Pending');
+    const isDone = j?.status === 'Completed' || j?.status === 'CompletedWithWarnings';
+    const durations = this.stageDurations();
+
+    const stages = [
+      {
+        id: 'Preparing',
+        name: 'Asset Preparation & Media Staging',
+        summary: 'Resolving media sources, local caching and pre-flight validation',
+        icon: '📁',
+        durationSec: durations['Preparing'] ?? 0,
+      },
+      {
+        id: 'RenderingScene',
+        name: 'Clip Conformance & Filter Graph Encoding',
+        summary: `${this.scenesDone()} of ${this.scenesTotal()} items processed (${this.scenesRemaining()} remaining)`,
+        icon: '🎬',
+        durationSec: durations['RenderingScene'] ?? 0,
+      },
+      {
+        id: 'Merging',
+        name: 'Stream Concat & Seamless Transitions',
+        summary: 'Crossfade blending, multi-batch cascades & timeline assembly',
+        icon: '🔀',
+        durationSec: durations['Merging'] ?? 0,
+      },
+      {
+        id: 'Publishing',
+        name: 'Final Multiplexing & MP4 FastStart',
+        summary: 'Validating output container, FastStart atom placement & storage upload',
+        icon: '📦',
+        durationSec: durations['Publishing'] ?? 0,
+      },
+    ];
+
+    const order = ['Preparing', 'RenderingScene', 'Merging', 'Publishing'];
+    const currentIdx = order.indexOf(curStage);
+
+    return stages.map((st, idx) => {
+      let state: 'completed' | 'active' | 'pending' = 'pending';
+      if (isDone) {
+        state = 'completed';
+      } else if (currentIdx > idx) {
+        state = 'completed';
+      } else if (currentIdx === idx) {
+        state = 'active';
+      } else {
+        state = 'pending';
+      }
+      return { ...st, state };
+    });
+  });
+
   // Edit Settings
   readonly orderText = signal<string>('');
   readonly orderResult = signal<ClipOrder | null>(null);
@@ -6249,6 +6352,84 @@ export class StudioStateService implements OnDestroy {
   }
 
   private pollHandle: any = null;
+  private exportTimerHandle: any = null;
+  private currentStageTracked: string = 'Preparing';
+
+  private startExportTimer(): void {
+    this.stopExportTimer();
+    this.currentStageTracked = 'Preparing';
+    this.exportElapsedSeconds.set(0);
+    this.exportEtaSeconds.set(null);
+    this.stageDurations.set({});
+
+    this.exportTimerHandle = setInterval(() => {
+      this.exportElapsedSeconds.update((s) => s + 1);
+
+      const stage = this.job()?.currentStage || this.currentStageTracked;
+      if (stage !== this.currentStageTracked) {
+        this.currentStageTracked = stage;
+      }
+      const durations = { ...this.stageDurations() };
+      durations[stage] = (durations[stage] ?? 0) + 1;
+      this.stageDurations.set(durations);
+
+      const progress = this.job()?.progress ?? 0;
+      const elapsed = this.exportElapsedSeconds();
+      if (progress >= 3 && progress < 100) {
+        const totalEstimated = (elapsed / progress) * 100;
+        const remaining = Math.max(0, Math.round(totalEstimated - elapsed));
+        this.exportEtaSeconds.set(remaining);
+
+        const doneClips = this.scenesDone();
+        if (elapsed > 2 && doneClips > 0) {
+          const speedVal = (doneClips * 4.0) / Math.max(1, elapsed);
+          this.exportSpeed.set(`${Math.max(0.8, Number(speedVal.toFixed(1)))}x`);
+        }
+      }
+    }, 1000);
+  }
+
+  private stopExportTimer(): void {
+    if (this.exportTimerHandle !== null) {
+      clearInterval(this.exportTimerHandle);
+      this.exportTimerHandle = null;
+    }
+  }
+
+  openExportProgress(): void {
+    this.exportProgressOpen.set(true);
+    this.exportProgressMinimized.set(false);
+  }
+
+  closeExportProgress(): void {
+    this.exportProgressOpen.set(false);
+  }
+
+  minimizeExportProgress(): void {
+    this.exportProgressMinimized.set(true);
+    this.exportProgressOpen.set(false);
+  }
+
+  restoreExportProgress(): void {
+    this.exportProgressMinimized.set(false);
+    this.exportProgressOpen.set(true);
+  }
+
+  openExportPreview(): void {
+    this.exportPreviewModalOpen.set(true);
+  }
+
+  closeExportPreview(): void {
+    this.exportPreviewModalOpen.set(false);
+  }
+
+  formatStageDuration(sec: number): string {
+    if (!sec || sec <= 0) return '0s';
+    if (sec < 60) return `${sec}s`;
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}m ${s}s`;
+  }
 
   private startPolling(jobId: string): void {
     this.stopPolling();
@@ -6259,13 +6440,23 @@ export class StudioStateService implements OnDestroy {
           this.job.set(job);
 
           if (isTerminal(job.status)) {
+            this.running.set(false);
             this.stopPolling();
+            this.stopExportTimer();
+            this.exportEtaSeconds.set(0);
+            if (this.exportProgressMinimized()) {
+              this.restoreExportProgress();
+            }
             this.status.notify(job.warnings.map((w) => this.explainWarning(w)));
           }
         },
-        error: () => this.stopPolling(),
+        error: () => {
+          this.running.set(false);
+          this.stopPolling();
+          this.stopExportTimer();
+        },
       });
-    }, 2000);
+    }, 1500);
   }
 
   private stopPolling(): void {
@@ -6376,9 +6567,11 @@ export class StudioStateService implements OnDestroy {
       }),
       (job: RenderJob) => {
         this.job.set(job);
-        this.running.set(false);
+        this.running.set(true);
+        this.startExportTimer();
         this.startPolling(job.jobId);
-        this.status.notify(['Build started successfully.']);
+        this.openExportProgress();
+        this.status.notify(['Export started successfully.']);
       }
     );
   }
@@ -6438,8 +6631,10 @@ export class StudioStateService implements OnDestroy {
       }),
       (job: RenderJob) => {
         this.job.set(job);
-        this.running.set(false);
+        this.running.set(true);
+        this.startExportTimer();
         this.startPolling(job.jobId);
+        this.openExportProgress();
         this.status.notify(['Started building vertical Short (9:16) video!']);
       }
     );
@@ -6452,6 +6647,8 @@ export class StudioStateService implements OnDestroy {
     this.api.cancelJob(j.jobId).subscribe({
       next: () => {
         this.running.set(false);
+        this.stopPolling();
+        this.stopExportTimer();
         this.status.notify(['Job canceled.']);
       },
       error: () => {

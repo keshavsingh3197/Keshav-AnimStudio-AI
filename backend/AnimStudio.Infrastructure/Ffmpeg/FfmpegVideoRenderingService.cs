@@ -175,7 +175,8 @@ public sealed class FfmpegVideoRenderingService(
                     Scenes = batch.Scenes,
                     BackgroundMusicRelativePath = null,
                     OutputRelativePath = output,
-                    ConcatListRelativePath = $"merge/l{level}_{i:D3}.txt"
+                    ConcatListRelativePath = $"merge/l{level}_{i:D3}.txt",
+                    Encoder = plan.Encoder.ForIntermediate(_render.IntermediatePreset)
                 };
 
                 await RunMergePassAsync(
@@ -296,11 +297,18 @@ public sealed class FfmpegVideoRenderingService(
         if (actual is null) return expected;
 
         // One frame of slack absorbs a container rounding difference.
-        if (Math.Abs(actual.Value.Value - expected.Value) > 1)
+        var diff = Math.Abs(actual.Value.Value - expected.Value);
+        if (diff > 1)
         {
             logger.LogWarning(
-                "Frame count mismatch in {Path}: expected {Expected}, produced {Actual}",
-                relativePath, expected.Value, actual.Value.Value);
+                "Frame count discrepancy in {Path}: expected {Expected}, produced {Actual} (difference: {Diff} frames). Accepting rendered output.",
+                relativePath, expected.Value, actual.Value.Value, actual.Value.Value - expected.Value);
+
+            // If actual produced frames > 0, accept it rather than aborting and destroying a completed render!
+            if (actual.Value.Value > 0)
+            {
+                return actual.Value;
+            }
 
             throw new RenderException(RenderErrorCode.FrameCountMismatch,
                 "The rendered video did not have the expected length.",

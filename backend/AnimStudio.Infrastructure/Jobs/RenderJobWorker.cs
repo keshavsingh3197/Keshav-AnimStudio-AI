@@ -135,7 +135,9 @@ public sealed class RenderJobWorker(
                 _options.MouthFlapHz,
                 _options.SubtitleFontName,
                 _options.SubtitleFontSize,
-                lease);
+                lease,
+                DeliveryProfile(),
+                _options.IntermediatePreset);
 
             await orchestrator.ExecuteAsync(job, _instanceId, settings, ct).ConfigureAwait(false);
         }

@@ -15,7 +15,7 @@ namespace AnimStudio.Application.Rendering;
 
 public sealed record RenderSettings(
     int KenBurnsSupersample, int MouthFlapHz, string SubtitleFontName, int SubtitleFontSize,
-    TimeSpan LeaseDuration);
+    TimeSpan LeaseDuration, EncoderProfile? Delivery = null, string IntermediatePreset = "veryfast");
 
 /// <summary>
 /// Runs one render job from claim to published MP4.
@@ -102,29 +102,48 @@ public sealed class ProjectRenderOrchestrator(
 
             var materialized = await MaterializeAsync(workspace, assetMap, token).ConfigureAwait(false);
 
-            // --- render each scene
-            var rendered = new List<MergeSceneInput>(sceneList.Count);
+            // --- render each scene in parallel with intermediate preset for speed
+            var deliveryProfile = settings.Delivery ?? EncoderProfile.Default;
+            var sceneEncoder = deliveryProfile.ForIntermediate(settings.IntermediatePreset);
 
-            for (var index = 0; index < sceneList.Count; index++)
+            var concurrency = Math.Clamp(Environment.ProcessorCount / 2, 2, 6);
+            using var throttle = new SemaphoreSlim(concurrency);
+            var renderedArray = new MergeSceneInput[sceneList.Count];
+            var completedCount = 0;
+
+            var sceneTasks = Enumerable.Range(0, sceneList.Count).Select(async index =>
             {
-                token.ThrowIfCancellationRequested();
+                await throttle.WaitAsync(token).ConfigureAwait(false);
+                try
+                {
+                    token.ThrowIfCancellationRequested();
 
-                var scene = sceneList[index];
-                var subtitlePath = await WriteSubtitlesAsync(
-                    workspace, scene, canvas, characterMap, settings, index, token).ConfigureAwait(false);
+                    var scene = sceneList[index];
+                    var subtitlePath = await WriteSubtitlesAsync(
+                        workspace, scene, canvas, characterMap, settings, index, token).ConfigureAwait(false);
 
-                var plan = RenderPlanFactory.Create(
-                    new SceneRenderContext(scene, canvas, characterMap, assetMap, materialized,
-                        subtitlePath, settings.KenBurnsSupersample, settings.MouthFlapHz),
-                    index,
-                    $"scenes/scene_{index + 1:D3}.mp4");
+                    var plan = RenderPlanFactory.Create(
+                        new SceneRenderContext(scene, canvas, characterMap, assetMap, materialized,
+                            subtitlePath, settings.KenBurnsSupersample, settings.MouthFlapHz),
+                        index,
+                        $"scenes/scene_{index + 1:D3}.mp4");
 
-                var result = await renderer
-                    .RenderSceneAsync(plan, workspace, reporter, token).ConfigureAwait(false);
+                    plan = plan with { Encoder = sceneEncoder };
 
-                rendered.Add(new MergeSceneInput(result.RelativePath, result.Frames, scene.Transition));
-                reporter.SceneCompleted(index + 1);
-            }
+                    var result = await renderer
+                        .RenderSceneAsync(plan, workspace, reporter, token).ConfigureAwait(false);
+
+                    renderedArray[index] = new MergeSceneInput(result.RelativePath, result.Frames, scene.Transition);
+                    reporter.SceneCompleted(Interlocked.Increment(ref completedCount));
+                }
+                finally
+                {
+                    throttle.Release();
+                }
+            });
+
+            await Task.WhenAll(sceneTasks).ConfigureAwait(false);
+            var rendered = renderedArray.ToList();
 
             // --- optional outro bumper / end-card
             if (project.Settings.DefaultOutro.IsEnabled
@@ -151,7 +170,7 @@ public sealed class ProjectRenderOrchestrator(
                     SourceHasAudio = !isImage && !string.IsNullOrEmpty(outroAsset.Probe.AudioCodec),
                     MuteAudio = false,
                     Watermark = null,
-                    Encoder = EncoderProfile.Default,
+                    Encoder = sceneEncoder,
                     EncoderThreads = 0
                 };
 
@@ -189,7 +208,8 @@ public sealed class ProjectRenderOrchestrator(
                 Scenes = rendered,
                 BackgroundMusicRelativePath = musicPath,
                 BackgroundMusicVolume = project.Settings.BackgroundMusicVolume,
-                OutputRelativePath = "out/final.mp4"
+                OutputRelativePath = "out/final.mp4",
+                Encoder = deliveryProfile
             };
 
             var merged = await renderer

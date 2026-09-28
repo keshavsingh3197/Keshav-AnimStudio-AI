@@ -170,7 +170,7 @@ public sealed class ClipMergeOrchestrator(
             // match, so a run of these does not turn into every process fighting the others
             // for every core; on a multi-core machine it still finishes the whole batch
             // sooner than encoding one clip at a time ever could.
-            var concurrency = Math.Clamp(Environment.ProcessorCount / 2, 1, 4);
+            var concurrency = Math.Clamp(Environment.ProcessorCount / 2, 2, 6);
             var perClipThreads = concurrency > 1
                 ? Math.Max(1, Environment.ProcessorCount / concurrency)
                 : 0;
