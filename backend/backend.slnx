@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="AnimStudio.Api/AnimStudio.Api.csproj" />
+  <Project Path="AnimStudio.Application/AnimStudio.Application.csproj" />
+  <Project Path="AnimStudio.Domain/AnimStudio.Domain.csproj" />
+  <Project Path="AnimStudio.Infrastructure/AnimStudio.Infrastructure.csproj" />
+</Solution>

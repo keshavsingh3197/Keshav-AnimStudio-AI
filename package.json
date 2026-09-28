@@ -6,11 +6,14 @@
   "scripts": {
     "start": "npm --prefix frontend start",
     "build": "npm --prefix frontend run build",
+    "build:all": "dotnet build AnimStudio.slnx && npm --prefix frontend run build",
+    "build:backend": "dotnet build AnimStudio.slnx",
+    "build:frontend": "npm --prefix frontend run build",
     "test": "npm --prefix frontend test",
+    "test:backend": "dotnet test AnimStudio.slnx",
     "frontend": "npm --prefix frontend start",
     "backend": "dotnet run --project backend/AnimStudio.Api/AnimStudio.Api.csproj",
     "server": "dotnet run --project backend/AnimStudio.Api/AnimStudio.Api.csproj",
     "api": "dotnet run --project backend/AnimStudio.Api/AnimStudio.Api.csproj"
   }
 }
-
