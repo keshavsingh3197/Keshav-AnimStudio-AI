@@ -11,11 +11,11 @@ node_modules/
 dist/
 .angular/
 
-# Dev launcher logs (run.bat)
-logs/
+# Dev launcher logs (run.bat) - only root directory
+/logs/
 
-# Local media + renders: never committed (blueprint §37)
-storage/
+# Local media + renders: never committed (blueprint §37) - only root directory
+/storage/
 *.mp4
 *.mkv
 *.mp3

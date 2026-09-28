@@ -1,0 +1,37 @@
+<header class="section-header">
+  <div class="row" style="justify-content: space-between; align-items: baseline">
+    <h1>Application Logs</h1>
+    
+    <button type="button" class="secondary" (click)="status.clearLogs()" [disabled]="status.logEntries().length === 0">
+      🗑️ Clear Logs
+    </button>
+  </div>
+</header>
+
+<div class="card" style="margin-top: 1rem">
+  @if (status.logEntries().length === 0) {
+    <div class="notice">No recent activity logs.</div>
+  } @else {
+    <table class="grid" style="width: 100%; border-collapse: collapse; text-align: left;">
+      <thead>
+        <tr>
+          <th style="padding: 0.5rem; border-bottom: 1px solid #333;">Time</th>
+          <th style="padding: 0.5rem; border-bottom: 1px solid #333;">Event</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (entry of status.logEntries(); track entry.id) {
+          <tr>
+            <td style="padding: 0.5rem; border-bottom: 1px solid #222; color: #888; white-space: nowrap; width: 120px;">
+              {{ entry.timestamp | date:'shortTime' }}
+            </td>
+            <td style="padding: 0.5rem; border-bottom: 1px solid #222;">
+              {{ entry.message }}
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  }
+</div>
+
