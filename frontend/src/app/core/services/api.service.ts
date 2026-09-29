@@ -23,7 +23,7 @@ import {
 @Injectable({ providedIn: 'root' })
 export class ApiService {
     public getHubConfig() {
-    return this.http.get<ApiResponse<any>>('/api/system/hub-config').pipe(
+    return this.http.get<ApiResponse<any>>(`${this.base}/api/system/hub-config`).pipe(
       map(r => r.data),
       catchError(err => {
         console.warn('Could not fetch HubConfig from backend. Using static fallbacks.');

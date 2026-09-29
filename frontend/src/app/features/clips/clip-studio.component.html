@@ -869,27 +869,54 @@
 
           <!-- Section: Transitions & Mixing Row -->
           <div class="export-row-two-col">
-            <!-- Col 1: Default Transition -->
+            <!-- Col 1: Timeline Cuts & Transitions -->
             <div class="export-sec">
-              <label class="export-sec-label">Default Transition</label>
-              <div class="export-trans-controls">
-                <select class="export-select" [ngModel]="state.transition()" (ngModelChange)="state.transition.set($event)">
-                  <option value="None">None (Hard Cut)</option>
-                  <option value="Dissolve">Dissolve / Crossfade</option>
-                  <option value="Fade">Fade to Black</option>
-                  <option value="WipeLeft">Wipe Left</option>
-                  <option value="WipeRight">Wipe Right</option>
-                  <option value="SlideLeft">Slide Left</option>
-                  <option value="SlideRight">Slide Right</option>
-                </select>
-                <div class="export-trans-duration">
-                  <label>Duration: {{ state.transitionSeconds() | number:'1.1-1' }}s</label>
-                  <input type="range" min="0.2" max="2.0" step="0.1"
-                         [ngModel]="state.transitionSeconds()"
-                         (ngModelChange)="state.transitionSeconds.set(+$event)"
-                         class="export-slider" />
+              <label class="export-sec-label">Timeline Cuts & Transitions</label>
+              <div class="export-timeline-sync-card">
+                <div class="sync-status-icon">✓</div>
+                <div class="sync-status-info">
+                  <div class="sync-status-title">Preserving Video Editor Edits</div>
+                  <div class="sync-status-desc">
+                    All clip cuts, trims, and junction transitions are preserved as configured in the editor.
+                    @if (state.customJunctionCount() > 0) {
+                      <div class="sync-tag-accent">✓ {{ state.customJunctionCount() }} custom transition{{ state.customJunctionCount() > 1 ? 's' : '' }} configured</div>
+                    } @else {
+                      <div class="sync-tag-sub">Direct cuts between clips (Instant Concat)</div>
+                    }
+                  </div>
                 </div>
               </div>
+
+              <!-- Optional Override (collapsed by default) -->
+              <div class="export-override-toggle">
+                <button type="button" class="export-override-btn" (click)="state.toggleExportOverrideTransitions()">
+                  <span class="export-override-arrow">{{ state.exportOverrideTransitions() ? '▼' : '▶' }}</span>
+                  <span>{{ state.exportOverrideTransitions() ? 'Hide Transition Override' : 'Override all transitions with a single effect...' }}</span>
+                </button>
+              </div>
+
+              @if (state.exportOverrideTransitions()) {
+                <div class="export-trans-controls override-panel">
+                  <select class="export-select" [ngModel]="state.transition()" (ngModelChange)="state.transition.set($event)">
+                    <option value="None">None (Hard Cut)</option>
+                    <option value="Dissolve">Dissolve / Crossfade</option>
+                    <option value="Fade">Fade to Black</option>
+                    <option value="WipeLeft">Wipe Left</option>
+                    <option value="WipeRight">Wipe Right</option>
+                    <option value="SlideLeft">Slide Left</option>
+                    <option value="SlideRight">Slide Right</option>
+                  </select>
+                  @if (state.transition() !== 'None') {
+                    <div class="export-trans-duration">
+                      <label>Duration: {{ state.transitionSeconds() | number:'1.1-1' }}s</label>
+                      <input type="range" min="0.2" max="2.0" step="0.1"
+                             [ngModel]="state.transitionSeconds()"
+                             (ngModelChange)="state.transitionSeconds.set(+$event)"
+                             class="export-slider" />
+                    </div>
+                  }
+                </div>
+              }
             </div>
 
             <!-- Col 2: Audio & Ducking -->

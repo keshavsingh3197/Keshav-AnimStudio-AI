@@ -5,6 +5,6 @@ import { AppShellComponent } from './layouts/app-shell.component';
 @Component({
   selector: 'app-root',
   imports: [AppShellComponent],
-  template: `<app-shell />`,
+  template: `<app-shell></app-shell>`,
 })
 export class AppComponent {}

@@ -1965,6 +1965,95 @@ app-timeline-dock {
   gap: 14px;
 }
 
+/* Timeline Sync Card */
+.export-timeline-sync-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.28);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.sync-status-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(16, 185, 129, 0.2);
+  color: #10b981;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.95rem;
+  flex-shrink: 0;
+}
+
+.sync-status-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sync-status-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #f1f5f9;
+}
+
+.sync-status-desc {
+  font-size: 0.76rem;
+  color: #94a3b8;
+  line-height: 1.35;
+}
+
+.sync-tag-accent {
+  color: #38bdf8;
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+.sync-tag-sub {
+  color: #64748b;
+  font-size: 0.72rem;
+  margin-top: 2px;
+}
+
+.export-override-toggle {
+  margin-top: 3px;
+}
+
+.export-override-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-dim, #94a3b8);
+  font-size: 0.74rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 0;
+  transition: color 0.15s;
+}
+
+.export-override-btn:hover {
+  color: #818cf8;
+}
+
+.export-override-arrow {
+  font-size: 0.62rem;
+}
+
+.override-panel {
+  margin-top: 4px;
+  padding: 8px 10px;
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+}
+
 .export-trans-controls {
   display: flex;
   flex-direction: column;

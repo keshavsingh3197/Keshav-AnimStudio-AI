@@ -472,8 +472,9 @@ export class StudioStateService implements OnDestroy {
   readonly orderText = signal<string>('');
   readonly orderResult = signal<ClipOrder | null>(null);
   readonly fit = signal<ClipFit>('Contain');
-  readonly transition = signal<string>('Dissolve');
-  readonly transitionSeconds = signal<number>(0.5);
+  readonly transition = signal<string>('None');
+  readonly transitionSeconds = signal<number>(0);
+  readonly exportOverrideTransitions = signal<boolean>(false);
   readonly junctions = signal<Record<string, JunctionSetting>>({});
   readonly junctionOverrides = signal<Map<string, JunctionSetting>>(new Map());
   readonly openJunctionKey = signal<string | null>(null);
@@ -2044,6 +2045,10 @@ export class StudioStateService implements OnDestroy {
     }
 
     return list;
+  });
+
+  readonly customJunctionCount = computed<number>(() => {
+    return this.junctionsList().filter((j) => j.transition && j.transition !== 'None').length;
   });
 
   readonly selectedJunction = computed<JunctionView | null>(() => {
@@ -6049,6 +6054,9 @@ export class StudioStateService implements OnDestroy {
       clipColors: this.clipColors(),
       clipTexts: this.clipTexts(),
       junctions: this.junctions(),
+      junctionOverrides: Array.from(this.junctionOverrides().entries()),
+      transition: this.transition(),
+      transitionSeconds: this.transitionSeconds(),
       trackV1Volume: this.trackV1Volume(),
       trackA1Volume: this.trackA1Volume(),
       projectOverlapRule: this.projectOverlapRule(),
@@ -6150,6 +6158,17 @@ export class StudioStateService implements OnDestroy {
     if (draft.clipColors) this.clipColors.set(draft.clipColors);
     if (draft.clipTexts) this.clipTexts.set(draft.clipTexts);
     if (draft.junctions) this.junctions.set(draft.junctions);
+    if (Array.isArray(draft.junctionOverrides)) {
+      this.junctionOverrides.set(new Map(draft.junctionOverrides));
+    } else if (draft.junctions && typeof draft.junctions === 'object') {
+      const map = new Map<string, JunctionSetting>();
+      for (const [k, v] of Object.entries(draft.junctions as Record<string, JunctionSetting>)) {
+        if (v) map.set(k, v);
+      }
+      this.junctionOverrides.set(map);
+    }
+    if (draft.transition !== undefined) this.transition.set(draft.transition);
+    if (draft.transitionSeconds !== undefined) this.transitionSeconds.set(draft.transitionSeconds);
     if (draft.trackV1Volume !== undefined) this.trackV1Volume.set(draft.trackV1Volume);
 
     if (draft.trackA1Volume !== undefined) this.trackA1Volume.set(draft.trackA1Volume);
@@ -6619,7 +6638,26 @@ export class StudioStateService implements OnDestroy {
       const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
       this.exportName.set(`${projName} - Export ${dateStr}`);
     }
+    const proj = this.store.project();
+    if (proj && proj.width && proj.height) {
+      if (proj.width === 1080 && proj.height === 1920) {
+        this.exportResolution.set('short_9_16');
+      } else if (proj.width === 1080 && proj.height === 1080) {
+        this.exportResolution.set('square_1_1');
+      } else if (proj.width >= 3840 || proj.height >= 2160) {
+        this.exportResolution.set('4k');
+      } else if (proj.width === 1280 && proj.height === 720) {
+        this.exportResolution.set('720p');
+      } else {
+        this.exportResolution.set('1080p');
+      }
+    }
+    this.exportOverrideTransitions.set(false);
     this.exportModalOpen.set(true);
+  }
+
+  toggleExportOverrideTransitions(): void {
+    this.exportOverrideTransitions.update((v) => !v);
   }
 
   closeExportModal(): void {
@@ -6663,6 +6701,10 @@ export class StudioStateService implements OnDestroy {
 
     const fitMode = res === 'short_9_16' && this.fit() === 'Contain' ? 'BlurredBackdrop' : this.fit();
 
+    const override = this.exportOverrideTransitions();
+    const globalTrans = override ? this.transition() : 'None';
+    const globalSecs = override && globalTrans !== 'None' ? this.transitionSeconds() : 0;
+
     this.status.run(
       this.api.mergeClips(projectId, {
         exportName: this.exportName() || undefined,
@@ -6670,13 +6712,17 @@ export class StudioStateService implements OnDestroy {
         fit: fitMode,
         outputWidth: outW,
         outputHeight: outH,
-        transition: this.transition(),
-        transitionSeconds: this.transition() === 'None' ? 0 : this.transitionSeconds(),
+        transition: globalTrans,
+        transitionSeconds: globalSecs,
         junctions: this.junctionsList().map((j, k) => {
           const sched = this.clipSchedule();
+          const tr = override ? this.transition() : j.transition;
+          const trSec = override
+            ? (this.transition() === 'None' ? 0 : this.transitionSeconds())
+            : (j.transition === 'None' ? 0 : j.seconds);
           return {
-            transition: j.transition,
-            transitionSeconds: j.transition === 'None' ? 0 : j.seconds,
+            transition: tr,
+            transitionSeconds: trSec,
             tailOutSeconds: sched[k]?.tailOutSeconds ?? 0,
             leadInSeconds: sched[k + 1]?.leadInSeconds ?? 0,
             freezeTail: sched[k]?.freezeTail ?? false,
@@ -6728,19 +6774,27 @@ export class StudioStateService implements OnDestroy {
 
     const wm: WatermarkBody = this.effectiveWatermark();
 
+    const override = this.exportOverrideTransitions();
+    const globalTrans = override ? this.transition() : 'None';
+    const globalSecs = override && globalTrans !== 'None' ? this.transitionSeconds() : 0;
+
     this.status.run(
       this.api.mergeClips(projectId, {
         assetIds: ids,
         fit: fitMode,
         outputWidth: 1080,
         outputHeight: 1920,
-        transition: this.transition(),
-        transitionSeconds: this.transition() === 'None' ? 0 : this.transitionSeconds(),
+        transition: globalTrans,
+        transitionSeconds: globalSecs,
         junctions: this.junctionsList().map((j, k) => {
           const sched = this.clipSchedule();
+          const tr = override ? this.transition() : j.transition;
+          const trSec = override
+            ? (this.transition() === 'None' ? 0 : this.transitionSeconds())
+            : (j.transition === 'None' ? 0 : j.seconds);
           return {
-            transition: j.transition,
-            transitionSeconds: j.transition === 'None' ? 0 : j.seconds,
+            transition: tr,
+            transitionSeconds: trSec,
             tailOutSeconds: sched[k]?.tailOutSeconds ?? 0,
             leadInSeconds: sched[k + 1]?.leadInSeconds ?? 0,
             freezeTail: sched[k]?.freezeTail ?? false,

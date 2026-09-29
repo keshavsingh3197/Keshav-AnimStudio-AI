@@ -89,8 +89,8 @@ import { StatusService } from '../core/services/status.service';
       }
 
       
-      <app-project-hub-modal [(isOpen)]="showVideoModal" />
-      <router-outlet />
+      <app-project-hub-modal [(isOpen)]="showVideoModal"></app-project-hub-modal>
+      <router-outlet></router-outlet>
     </main>
   `,
   styles: [`
