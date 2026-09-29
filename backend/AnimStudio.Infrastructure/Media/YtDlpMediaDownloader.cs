@@ -40,6 +40,9 @@ public sealed class YtDlpMediaDownloader(
                 "--no-playlist",
                 "--skip-download",
                 "--no-warnings",
+                "--geo-bypass",
+                "--no-check-certificates",
+                "--extractor-args", "youtube:player_client=ios,android,web",
                 "--",
                 canonicalUrl.AbsoluteUri
             ];
@@ -157,6 +160,9 @@ public sealed class YtDlpMediaDownloader(
             "--no-playlist",
             "--no-warnings",
             "--restrict-filenames",
+            "--geo-bypass",
+            "--no-check-certificates",
+            "--extractor-args", "youtube:player_client=ios,android,web",
             "-o", Path.Combine(targetDirectory, stem + ".%(ext)s"),
             "--print-to-file", "%(title)s\t%(duration)s", Path.Combine(targetDirectory, "meta.txt"),
             "--",

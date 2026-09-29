@@ -1207,6 +1207,74 @@ export class StudioStateService implements OnDestroy {
     this.status.notify([`Moved "${moved.clip.name}" to position ${target + 1}.`]);
   }
 
+  nudgeMusicTrack(key: string, deltaSeconds: number): void {
+    this.musicTracks.update((tracks) =>
+      tracks.map((t) => {
+        if (t.key !== key) return t;
+        const newStart = Math.max(0, Math.round((t.startSeconds + deltaSeconds) * 100) / 100);
+        return { ...t, startSeconds: newStart };
+      })
+    );
+    this.markDirty();
+  }
+
+  nudgeSelectedMusicTrack(deltaSeconds: number): void {
+    const key = this.selectedMusicTrackKey();
+    if (!key) return;
+    this.nudgeMusicTrack(key, deltaSeconds);
+  }
+
+  nudgeSelectedTimelineItem(deltaSeconds: number): void {
+    const id = this.selectedTimelineItemId();
+    if (!id) return;
+    this.timelineItems.update((items) =>
+      items.map((it) => {
+        if (it.id !== id) return it;
+        const newStart = Math.max(0, Math.round((it.startTime + deltaSeconds) * 100) / 100);
+        return { ...it, startTime: newStart };
+      })
+    );
+    this.markDirty();
+  }
+
+  shiftAllTracks(trackId: string, deltaSeconds: number): void {
+    if (trackId === 'A1') {
+      this.musicTracks.update((tracks) =>
+        tracks.map((t) => ({
+          ...t,
+          startSeconds: Math.max(0, Math.round((t.startSeconds + deltaSeconds) * 100) / 100),
+        }))
+      );
+      this.timelineItems.update((items) =>
+        items.map((it) =>
+          it.trackId === 'A1'
+            ? { ...it, startTime: Math.max(0, Math.round((it.startTime + deltaSeconds) * 100) / 100) }
+            : it
+        )
+      );
+      this.markDirty();
+    }
+  }
+
+  readonly canNudgeSelected = computed<boolean>(() => {
+    return Boolean(
+      this.selectedCutIndices().length > 0 ||
+      this.selectedMusicTrackKey() ||
+      this.selectedTimelineItemId()
+    );
+  });
+
+  nudgeAnySelected(direction: -1 | 1, stepSeconds: number = 0.5): void {
+    const delta = direction * stepSeconds;
+    if (this.selectedMusicTrackKey()) {
+      this.nudgeSelectedMusicTrack(delta);
+    } else if (this.selectedTimelineItemId()) {
+      this.nudgeSelectedTimelineItem(delta);
+    } else if (this.selectedCutIndices().length > 0) {
+      this.moveSelectedClips(direction);
+    }
+  }
+
   junctionKey(leftId: string, rightId: string): string {
     return `${leftId}:${rightId}`;
   }

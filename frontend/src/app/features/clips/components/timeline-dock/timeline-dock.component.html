@@ -44,18 +44,18 @@
 
       <div class="tl-toolbar-sep"></div>
 
-      <!-- Cut order: move, copy, paste. All of these act on the insert caret. -->
+      <!-- Cut order & Track Item Shift: move, copy, paste. -->
       <div class="tool-group">
         <button class="tool-btn" type="button"
-                [disabled]="state.selectedCutIndices().length === 0"
-                (click)="state.moveSelectedClips(-1)"
-                title="Move the selected clips one slot earlier (Alt+←)">
+                [disabled]="!state.canNudgeSelected()"
+                (click)="state.nudgeAnySelected(-1)"
+                title="Shift selected item earlier / Move cut clip earlier (◀ or Alt+←)">
           <span class="tool-btn-icon">◀</span>
         </button>
         <button class="tool-btn" type="button"
-                [disabled]="state.selectedCutIndices().length === 0"
-                (click)="state.moveSelectedClips(1)"
-                title="Move the selected clips one slot later (Alt+→)">
+                [disabled]="!state.canNudgeSelected()"
+                (click)="state.nudgeAnySelected(1)"
+                title="Shift selected item later / Move cut clip later (▶ or Alt+→)">
           <span class="tool-btn-icon">▶</span>
         </button>
         <button class="tool-btn" type="button"
@@ -645,6 +645,8 @@
                   }
                 </div>
                 <div class="tl-h-actions">
+                  <button class="tl-h-btn" type="button" (click)="$event.stopPropagation(); state.shiftAllTracks('A1', -0.5)" title="Shift all audio earlier by 0.5s (◀)">◀</button>
+                  <button class="tl-h-btn" type="button" (click)="$event.stopPropagation(); state.shiftAllTracks('A1', 0.5)" title="Shift all audio later by 0.5s (▶)">▶</button>
                   <button class="tl-h-btn" type="button" (click)="$event.stopPropagation(); state.toggleTrackLock('A1')" [title]="state.isTrackLocked('A1') ? 'Unlock A1' : 'Lock A1'">
                     {{ state.isTrackLocked('A1') ? '🔒' : '🔓' }}
                   </button>
@@ -672,9 +674,17 @@
                        (click)="$event.stopPropagation(); state.selectTimelineItem(item.id, $event); state.onTimelineAudioClicked()"
                        title="Click to open Audio Inspector">
                     <span class="tl-trim-handle left" (pointerdown)="onItemTrimPointerDown(item, 'left', $event)"></span>
+                    <button class="tl-clip-nudge-btn left" type="button"
+                            (pointerdown)="$event.stopPropagation()"
+                            (click)="$event.stopPropagation(); state.nudgeSelectedTimelineItem(-0.5)"
+                            title="Shift audio 0.5s earlier (◀)">◀</button>
                     <span class="tl-item-badge">A1</span>
                     <span class="tl-item-name">{{ item.name || item.src }}</span>
                     <span class="tl-item-dur mono">{{ item.duration | number:'1.1-1' }}s</span>
+                    <button class="tl-clip-nudge-btn right" type="button"
+                            (pointerdown)="$event.stopPropagation()"
+                            (click)="$event.stopPropagation(); state.nudgeSelectedTimelineItem(0.5)"
+                            title="Shift audio 0.5s later (▶)">▶</button>
                     <button class="tl-item-remove" type="button"
                             (pointerdown)="$event.stopPropagation()"
                             (click)="onRemoveItemClick($event, item.id)"
@@ -694,6 +704,10 @@
                        (click)="$event.stopPropagation(); state.selectMusicTrack(track.key)"
                        title="Click to select & configure Audio · Drag to move in time">
                     <span class="tl-trim-handle left" (pointerdown)="onMusicTrimPointerDown(track, 'start', $event)"></span>
+                    <button class="tl-clip-nudge-btn left" type="button"
+                            (pointerdown)="$event.stopPropagation()"
+                            (click)="$event.stopPropagation(); state.nudgeMusicTrack(track.key, -0.5)"
+                            title="Shift audio 0.5s earlier (◀)">◀</button>
                     @if (state.timelineThumbnailMode() === 'filmstrip') {
                       <div class="tl-music-inner">
                         <span class="tl-music-badge">🎵</span>
@@ -718,6 +732,10 @@
                         </small>
                       </span>
                     }
+                    <button class="tl-clip-nudge-btn right" type="button"
+                            (pointerdown)="$event.stopPropagation()"
+                            (click)="$event.stopPropagation(); state.nudgeMusicTrack(track.key, 0.5)"
+                            title="Shift audio 0.5s later (▶)">▶</button>
                     <button class="tl-music-remove" type="button"
                             (pointerdown)="$event.stopPropagation()"
                             (click)="onRemoveMusicClick($event, track.key)"

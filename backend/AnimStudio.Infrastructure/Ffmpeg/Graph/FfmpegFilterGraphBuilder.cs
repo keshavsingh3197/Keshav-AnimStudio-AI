@@ -661,8 +661,9 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         var graph = new StringBuilder();
         var audioFormat = AudioFilters.Format(plan.Encoder);
 
-        // Normalize the concatenated clip audio stream
-        graph.Append($"[0:a]{audioFormat},asetpts=N/SR/TB[clipaudio];\n");
+        // Normalize the concatenated clip audio stream and ensure it matches full video duration
+        var totalSeconds = FilterExpr.Sec(total, rate);
+        graph.Append($"[0:a]{audioFormat},asetpts=N/SR/TB,apad=whole_dur={totalSeconds}[clipaudio];\n");
         var mixLabels = new List<string> { "clipaudio" };
 
         var duckEnvelope = AudioFilters.DuckEnvelope(
@@ -711,7 +712,6 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
             "-b:a", $"{plan.Encoder.AudioBitrateKbps}k",
             "-ar", FilterExpr.N(plan.Encoder.AudioSampleRate),
             "-ac", FilterExpr.N(plan.Encoder.AudioChannels),
-            "-shortest",
             "-movflags", "+faststart"
         };
 
