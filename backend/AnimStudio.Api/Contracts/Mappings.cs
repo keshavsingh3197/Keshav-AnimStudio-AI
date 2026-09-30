@@ -154,7 +154,8 @@ public static class Mappings
                 job.Diagnostics.ItemsCount,
                 job.Diagnostics.OutputDurationSeconds,
                 job.Diagnostics.SpeedFactor,
-                job.Diagnostics.CompletedAt)
+                job.Diagnostics.CompletedAt,
+                job.Diagnostics.HardwareEncoder)
             : null;
 
         return new RenderJobResponse(

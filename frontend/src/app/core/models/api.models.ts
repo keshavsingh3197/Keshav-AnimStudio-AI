@@ -337,6 +337,8 @@ export interface RenderDiagnostics {
   outputDurationSeconds?: number;
   speedFactor?: string;
   completedAt?: string;
+  /** GPU or CPU encoder used for Step 2 clip conformance, e.g. "h264_nvenc", "h264_qsv", "CPU". */
+  hardwareEncoder?: string;
 }
 
 export interface RendererStatus {

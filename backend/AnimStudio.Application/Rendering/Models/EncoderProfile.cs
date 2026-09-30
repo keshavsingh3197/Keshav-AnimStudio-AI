@@ -37,4 +37,43 @@ public sealed record EncoderProfile(
     /// </summary>
     public EncoderProfile ForIntermediate(string preset) =>
         string.IsNullOrWhiteSpace(preset) ? this : this with { Preset = preset };
+
+    /// <summary>
+    /// Returns a hardware-accelerated encoder profile for the given GPU encoder.
+    /// <para>
+    /// NVENC and QSV do not use x264 CRF; instead, they use VBR with a constant-quality
+    /// target (CQ). We map our CRF directly to CQ so quality intent is preserved.
+    /// The <see cref="Preset"/> field carries the GPU preset string
+    /// (e.g., "p3" for NVENC, "medium" for QSV) — downstream, <see cref="ClipOutputArguments"/>
+    /// detects the codec and assembles the correct argument set.
+    /// </para>
+    /// </summary>
+    /// <param name="hwEncoder">One of "h264_nvenc", "h264_qsv", "h264_videotoolbox".</param>
+    public EncoderProfile ForHardwareEncoder(string hwEncoder) => hwEncoder switch
+    {
+        "h264_nvenc" => this with
+        {
+            VideoCodec = "h264_nvenc",
+            // p3 = balanced quality/speed for NVENC; p1 is fastest, p7 is best quality.
+            Preset = "p3",
+            // NVENC uses CQ instead of CRF; same numeric intent as our CRF setting.
+            Crf = this.Crf  // kept in the record so the graph builder can emit -cq
+        },
+        "h264_qsv" => this with
+        {
+            VideoCodec = "h264_qsv",
+            Preset = "medium",
+            Crf = this.Crf
+        },
+        "h264_videotoolbox" => this with
+        {
+            VideoCodec = "h264_videotoolbox",
+            Preset = string.Empty   // VideoToolbox ignores preset; uses -b:v or -q:v
+        },
+        _ => this
+    };
+
+    /// <summary>True when this profile is using a hardware GPU encoder rather than libx264.</summary>
+    public bool IsHardwareEncoder =>
+        VideoCodec is "h264_nvenc" or "h264_qsv" or "h264_videotoolbox";
 }

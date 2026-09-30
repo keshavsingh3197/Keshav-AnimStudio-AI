@@ -91,7 +91,9 @@ public sealed record RenderDiagnosticsResponse(
     int ItemsCount,
     double? OutputDurationSeconds,
     string? SpeedFactor,
-    DateTime? CompletedAt);
+    DateTime? CompletedAt,
+    string? HardwareEncoder = null);
+
 
 public sealed record RenderJobResponse(
     string JobId, string ProjectId, string Kind, string Status, int Progress, string? Message,

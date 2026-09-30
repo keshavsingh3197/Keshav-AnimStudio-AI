@@ -34,7 +34,13 @@ namespace AnimStudio.Application.Clips;
 /// </param>
 public sealed record ClipRenderSettings(
     string? WatermarkFontFile, EncoderProfile Delivery, string IntermediatePreset,
-    TimeSpan LeaseDuration);
+    TimeSpan LeaseDuration,
+    /// <summary>
+    /// Name of the GPU encoder to prefer for clip conformance (e.g. "h264_nvenc", "h264_qsv"),
+    /// or null to fall back to the CPU libx264 path with ultrafast preset.
+    /// </summary>
+    string? HardwareEncoder = null);
+
 
 /// <summary>
 /// Runs one clip stitch from claim to published MP4.
@@ -143,14 +149,31 @@ public sealed class ClipMergeOrchestrator(
         var perClipAudio = spec.ClipAudio.Count == spec.AssetIds.Count;
 
         // When the join is a stream copy, pass one's output IS the delivered video, so it
-        // gets the delivery preset. When the join re-encodes - any transition, or a music
-        // bed - pass one is writing a file whose only reader is ffmpeg, one step later, and
-        // spending the slow preset on it buys nothing. The CRF is the same either way, so
-        // this changes how long the intermediate takes to write and how big it is, not how
-        // the finished video looks.
-        var clipEncoder = willStreamCopy
-            ? settings.Delivery
-            : settings.Delivery.ForIntermediate(settings.IntermediatePreset);
+        // gets the delivery preset (no GPU shortcut: we want full quality). When the join
+        // re-encodes, pass one is writing a file whose only reader is ffmpeg, so a fast GPU
+        // encoder saves most of Step 2 without affecting the final video quality at all.
+        EncoderProfile clipEncoder;
+        string activeEncoder;
+        if (willStreamCopy)
+        {
+            // Delivery quality — output is the file the viewer downloads.
+            clipEncoder = settings.Delivery;
+            activeEncoder = settings.Delivery.VideoCodec;
+        }
+        else if (settings.HardwareEncoder is { Length: > 0 } hwEnc)
+        {
+            // GPU intermediates: fast encode, same quality target. The join re-encodes
+            // with the delivery profile, so intermediate quality is irrelevant.
+            clipEncoder = settings.Delivery.ForHardwareEncoder(hwEnc);
+            activeEncoder = hwEnc;
+        }
+        else
+        {
+            // CPU fallback with ultrafast preset.
+            clipEncoder = settings.Delivery.ForIntermediate(settings.IntermediatePreset);
+            activeEncoder = "CPU";
+        }
+
 
         var aggregator = new RenderProgressAggregator(
             estimates,
@@ -509,7 +532,9 @@ public sealed class ClipMergeOrchestrator(
                 ItemsCount = prepared.Length,
                 OutputDurationSeconds = Math.Round(outputDurationSeconds, 1),
                 SpeedFactor = speedFactor,
-                CompletedAt = clock.GetUtcNow().UtcDateTime
+                CompletedAt = clock.GetUtcNow().UtcDateTime,
+                HardwareEncoder = activeEncoder
+
             };
 
             job.Status = warnings.Count > 0

@@ -24,6 +24,27 @@ public sealed class FfmpegCapabilities : IRenderCapabilities
     public bool HasLibx264 { get; init; }
     public bool HasAac { get; init; }
 
+    // --- Hardware encoder availability (probed via test-encode at startup) ---
+
+    /// <summary>NVIDIA NVENC h264 encoder (requires CUDA-capable GPU + driver).</summary>
+    public bool HasNvenc { get; init; }
+
+    /// <summary>Intel Quick Sync Video h264 encoder (iGPU or Arc GPU).</summary>
+    public bool HasQsv { get; init; }
+
+    /// <summary>Apple VideoToolbox h264 encoder (macOS only).</summary>
+    public bool HasVideoToolbox { get; init; }
+
+    /// <summary>
+    /// Returns the first available hardware encoder name, or null when only software is
+    /// available. Priority: NVENC (fastest) > QSV > VideoToolbox.
+    /// </summary>
+    public string? BestHardwareEncoder =>
+        HasNvenc ? "h264_nvenc" :
+        HasQsv ? "h264_qsv" :
+        HasVideoToolbox ? "h264_videotoolbox" :
+        null;
+
     public static FfmpegCapabilities Unavailable(string reason) =>
         new() { IsAvailable = false, UnavailableReason = reason };
 

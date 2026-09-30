@@ -255,6 +255,20 @@
                 <div style="font-size: 0.66rem; text-transform: uppercase; color: #94a3b8; font-weight: 600;">Output Length</div>
                 <div class="mono" style="font-size: 0.95rem; font-weight: 700; color: #38bdf8;">{{ current.outputDurationSeconds ? (current.outputDurationSeconds | number: '1.1-1') + 's' : '—' }}</div>
               </div>
+              @if (current.diagnostics?.hardwareEncoder; as hw) {
+                <div style="background: rgba(30, 41, 59, 0.5); border-radius: 6px; padding: 6px 10px; border: 1px solid rgba(255, 255, 255, 0.05);">
+                  <div style="font-size: 0.66rem; text-transform: uppercase; color: #94a3b8; font-weight: 600;">Engine</div>
+                  @if (hw === 'h264_nvenc') {
+                    <div class="mono" style="font-size: 0.85rem; font-weight: 700; color: #34d399;">⚡ NVENC GPU</div>
+                  } @else if (hw === 'h264_qsv') {
+                    <div class="mono" style="font-size: 0.85rem; font-weight: 700; color: #34d399;">⚡ QSV GPU</div>
+                  } @else if (hw === 'h264_videotoolbox') {
+                    <div class="mono" style="font-size: 0.85rem; font-weight: 700; color: #34d399;">⚡ VideoToolbox</div>
+                  } @else {
+                    <div class="mono" style="font-size: 0.85rem; font-weight: 700; color: #94a3b8;">🖥 CPU</div>
+                  }
+                </div>
+              }
             </div>
 
             <!-- Mini Stage Breakdown Pills -->
@@ -378,6 +392,20 @@
           <span class="diag-metric-label">Speed Factor</span>
           <span class="mono diag-metric-val" style="color: #38bdf8;">{{ selectedDiagnosticsSpeed() }}</span>
         </div>
+        @if (diagJob.diagnostics?.hardwareEncoder; as hw) {
+          <div class="diag-metric-item">
+            <span class="diag-metric-label">Encoder Engine</span>
+            @if (hw === 'h264_nvenc') {
+              <span class="mono diag-metric-val" style="color: #34d399;">⚡ NVENC GPU</span>
+            } @else if (hw === 'h264_qsv') {
+              <span class="mono diag-metric-val" style="color: #34d399;">⚡ QSV GPU</span>
+            } @else if (hw === 'h264_videotoolbox') {
+              <span class="mono diag-metric-val" style="color: #34d399;">⚡ VideoToolbox</span>
+            } @else {
+              <span class="mono diag-metric-val" style="color: #94a3b8;">🖥 CPU (Multi-core)</span>
+            }
+          </div>
+        }
       </div>
 
       <!-- Stages Breakdown -->

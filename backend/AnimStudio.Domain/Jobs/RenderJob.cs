@@ -91,4 +91,11 @@ public sealed class RenderDiagnostics
     public double? OutputDurationSeconds { get; set; }
     public string? SpeedFactor { get; set; }
     public DateTime? CompletedAt { get; set; }
+
+    /// <summary>
+    /// The GPU or CPU encoder used for clip conformance: "h264_nvenc", "h264_qsv",
+    /// "h264_videotoolbox", or "CPU" for libx264. Displayed in the diagnostics UI.
+    /// </summary>
+    public string? HardwareEncoder { get; set; }
 }
+

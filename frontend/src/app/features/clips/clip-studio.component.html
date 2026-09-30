@@ -1321,9 +1321,26 @@
         <!-- Footer -->
         <div class="render-monitor-footer">
           <div class="monitor-footer-left">
-            <span class="engine-badge">⚡ Hardware Engine Active</span>
-            <span class="engine-details">Multi-core Concurrency &middot; Preset: fast intermediate</span>
+            @if (state.job()?.diagnostics?.hardwareEncoder; as hw) {
+              @if (hw === 'h264_nvenc') {
+                <span class="engine-badge engine-badge--gpu">⚡ NVIDIA NVENC GPU</span>
+                <span class="engine-details">Parallel GPU Encoding &middot; Preset: p3 VBR</span>
+              } @else if (hw === 'h264_qsv') {
+                <span class="engine-badge engine-badge--gpu">⚡ Intel QSV GPU</span>
+                <span class="engine-details">Parallel GPU Encoding &middot; Look-Ahead On</span>
+              } @else if (hw === 'h264_videotoolbox') {
+                <span class="engine-badge engine-badge--gpu">⚡ Apple VideoToolbox GPU</span>
+                <span class="engine-details">Parallel GPU Encoding</span>
+              } @else {
+                <span class="engine-badge">🖥 CPU Encoder</span>
+                <span class="engine-details">Multi-core Concurrency &middot; Preset: ultrafast</span>
+              }
+            } @else {
+              <span class="engine-badge">⚡ Hardware Engine Active</span>
+              <span class="engine-details">Multi-core Concurrency &middot; Preset: fast intermediate</span>
+            }
           </div>
+
 
           <div class="monitor-footer-right">
             @if (state.running()) {

@@ -3041,6 +3041,11 @@ app-timeline-dock {
   color: #38bdf8;
 }
 
+.engine-badge--gpu {
+  color: #34d399;
+  text-shadow: 0 0 8px rgba(52, 211, 153, 0.35);
+}
+
 .engine-details {
   font-size: 0.68rem;
   color: #64748b;

@@ -579,16 +579,57 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
     private static List<string> ClipOutputArguments(ClipRenderPlan plan)
     {
         var rate = plan.Canvas.FrameRate;
-        List<string> args =
-        [
+        var enc = plan.Encoder;
+
+        // Assemble video-codec-specific quality arguments. GPU encoders each have a
+        // different quality-control argument; the universal -crf only applies to libx264.
+        IEnumerable<string> qualityArgs = enc.VideoCodec switch
+        {
+            "h264_nvenc" =>
+            [
+                "-preset", enc.Preset,          // p1-p7 (p3 = balanced)
+                "-rc", "vbr",                   // variable bitrate with quality target
+                "-cq", FilterExpr.N(enc.Crf),   // analogous to CRF
+                "-b:v", "0"                     // let -cq do the driving
+            ],
+            "h264_qsv" =>
+            [
+                "-preset", enc.Preset,
+                "-global_quality", FilterExpr.N(enc.Crf),
+                "-look_ahead", "1"
+            ],
+            "h264_videotoolbox" =>
+            [
+                "-q:v", FilterExpr.N(enc.Crf)
+            ],
+            _ =>
+            [
+                // CPU libx264 — original path.
+                "-preset", enc.Preset,
+                "-crf", FilterExpr.N(enc.Crf)
+            ]
+        };
+
+        var args = new List<string>
+        {
             "-map", "[vout]",
             "-map", "[aout]",
             "-shortest",
-            ..(plan.SourceIsImage ? new[] { "-frames:v", FilterExpr.N(plan.ExpectedFrames.Value) } : []),
-            "-c:v", plan.Encoder.VideoCodec,
-            "-preset", plan.Encoder.Preset,
-            "-crf", FilterExpr.N(plan.Encoder.Crf),
-            "-pix_fmt", plan.Encoder.PixelFormat,
+        };
+
+        if (plan.SourceIsImage)
+        {
+            args.Add("-frames:v");
+            args.Add(FilterExpr.N(plan.ExpectedFrames.Value));
+        }
+
+        args.Add("-c:v");
+        args.Add(enc.VideoCodec);
+
+        args.AddRange(qualityArgs);
+
+        args.AddRange([
+            "-pix_fmt", enc.PixelFormat,
             "-profile:v", "high",
             "-r", rate.ToFfmpegRate(),
             "-fps_mode", "cfr",
@@ -600,23 +641,31 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
             "-colorspace", "bt709",
             "-color_primaries", "bt709",
             "-color_trc", "bt709",
-            "-c:a", plan.Encoder.AudioCodec,
-            "-b:a", $"{plan.Encoder.AudioBitrateKbps}k",
-            "-ar", FilterExpr.N(plan.Encoder.AudioSampleRate),
-            "-ac", FilterExpr.N(plan.Encoder.AudioChannels),
+            "-c:a", enc.AudioCodec,
+            "-b:a", $"{enc.AudioBitrateKbps}k",
+            "-ar", FilterExpr.N(enc.AudioSampleRate),
+            "-ac", FilterExpr.N(enc.AudioChannels),
             "-video_track_timescale", FilterExpr.N((int)(rate.AsDouble * 1000)),
-            "-movflags", "+faststart",
-            ..(plan.EncoderThreads > 0 ? new[] { "-threads", FilterExpr.N(plan.EncoderThreads) } : [])
-        ];
+            "-movflags", "+faststart"
+        ]);
 
-        if (plan.Encoder.Preset is "ultrafast" or "superfast" or "veryfast")
+        if (plan.EncoderThreads > 0 && !enc.IsHardwareEncoder)
         {
+            // -threads is a software-only option; GPU encoders manage their own threading.
+            args.Add("-threads");
+            args.Add(FilterExpr.N(plan.EncoderThreads));
+        }
+
+        if (!enc.IsHardwareEncoder && enc.Preset is "ultrafast" or "superfast" or "veryfast")
+        {
+            // -tune fastdecode is libx264-only; GPU encoders don't understand it.
             args.Add("-tune");
             args.Add("fastdecode");
         }
 
         return args;
     }
+
 
     public FilterGraphPlan BuildMerge(MergePlan plan)
     {

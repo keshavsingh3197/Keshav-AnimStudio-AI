@@ -73,10 +73,23 @@ public sealed partial class FfmpegCapabilityProbe(
                     $"The installed renderer is {major}.{minor}; {_options.MinimumVersion} or newer is required.");
             }
 
+            // --- Hardware encoder detection (run in parallel, each is a short test encode) ---
+            // This runs AFTER the version check so a missing ffmpeg doesn't try hardware probes.
+            var (nvenc, qsv, videotoolbox) = await ProbeHardwareEncodersAsync(
+                workingDirectory, encoders.StdOut, ct).ConfigureAwait(false);
+
+            capabilities = capabilities with
+            {
+                HasNvenc = nvenc,
+                HasQsv = qsv,
+                HasVideoToolbox = videotoolbox
+            };
+
+            var hwLabel = capabilities.BestHardwareEncoder is { } hw ? hw : "CPU";
             logger.LogInformation(
-                "Renderer ready: {Version} (libass={Libass}, xfade={Xfade}, zoompan={Zoompan})",
+                "Renderer ready: {Version} (libass={Libass}, xfade={Xfade}, zoompan={Zoompan}, hw={HwEncoder})",
                 capabilities.Version, capabilities.HasLibass, capabilities.HasXfade,
-                capabilities.HasZoompan);
+                capabilities.HasZoompan, hwLabel);
 
             return capabilities;
         }
@@ -87,6 +100,53 @@ public sealed partial class FfmpegCapabilityProbe(
             logger.LogWarning(ex, "Renderer capability probe failed; rendering will be unavailable.");
             return FfmpegCapabilities.Unavailable("Video rendering is not configured on this server.");
         }
+    }
+
+    /// <summary>
+    /// Probes each hardware encoder by attempting a single-frame test encode from a
+    /// synthetic lavfi color source to a null sink. This is the most reliable detection
+    /// method: an encoder listed in -encoders may be present but non-functional (e.g.,
+    /// h264_nvenc listed but no NVIDIA GPU or driver installed). A successful exit code
+    /// means the full pipeline initialised and the encoder is genuinely usable.
+    /// All three probes run concurrently to minimise startup overhead.
+    /// </summary>
+    private async Task<(bool Nvenc, bool Qsv, bool VideoToolbox)> ProbeHardwareEncodersAsync(
+        string workingDirectory, string encoderList, CancellationToken ct)
+    {
+        // Only probe if the encoder is listed — avoids spawning processes on machines
+        // that clearly have nothing, while still catching the "listed but broken" case.
+        var wantNvenc = HasEncoder(encoderList, "h264_nvenc");
+        var wantQsv = HasEncoder(encoderList, "h264_qsv");
+        var wantVtb = HasEncoder(encoderList, "h264_videotoolbox");
+
+        Task<bool> ProbeEncoder(string codec) => Task.Run(async () =>
+        {
+            try
+            {
+                // Single frame, tiny resolution, null output — completes in <200ms.
+                string[] args =
+                [
+                    "-hide_banner", "-loglevel", "error",
+                    "-f", "lavfi", "-i", "color=c=black:s=16x16:d=0.1",
+                    "-c:v", codec,
+                    "-frames:v", "1",
+                    "-f", "null", "-"
+                ];
+                var result = await RunAsync(workingDirectory, args, ct).ConfigureAwait(false);
+                return result.ExitCode == 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }, ct);
+
+        var nvencTask = wantNvenc ? ProbeEncoder("h264_nvenc") : Task.FromResult(false);
+        var qsvTask = wantQsv ? ProbeEncoder("h264_qsv") : Task.FromResult(false);
+        var vtbTask = wantVtb ? ProbeEncoder("h264_videotoolbox") : Task.FromResult(false);
+
+        await Task.WhenAll(nvencTask, qsvTask, vtbTask).ConfigureAwait(false);
+        return (await nvencTask, await qsvTask, await vtbTask);
     }
 
     private Task<FfmpegResult> RunAsync(string workingDirectory, string[] arguments, CancellationToken ct) =>

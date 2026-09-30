@@ -186,6 +186,13 @@ public sealed record ClipRenderPlan
     /// <summary>Original probe height of source video, if known.</summary>
     public int? SourceHeight { get; init; }
 
+    /// <summary>
+    /// When true, the source clip already matches canvas dimensions, frame rate, pixel format,
+    /// audio channels/sample rate, has no crops, trims, watermarks or transition padding,
+    /// allowing Step 2 to bypass the filtergraph entirely with direct stream copy (-c copy).
+    /// </summary>
+    public bool CanStreamCopy { get; init; }
+
     /// <summary>True when any crop edge is non-zero.</summary>
     public bool HasCrop => CropLeft > 0 || CropRight > 0 || CropTop > 0 || CropBottom > 0;
 }

@@ -1,4 +1,5 @@
 using AnimStudio.Application.Abstractions.Persistence;
+using AnimStudio.Application.Abstractions.Rendering;
 using AnimStudio.Application.Clips;
 using AnimStudio.Application.Projects;
 using AnimStudio.Application.Rendering;
@@ -24,12 +25,21 @@ public sealed class RenderJobWorker(
     IServiceScopeFactory scopeFactory,
     IOptions<RenderOptions> options,
     WatermarkFontResolver fonts,
+    IRenderCapabilities renderCapabilities,
     ILogger<RenderJobWorker> logger) : BackgroundService
 {
     private readonly RenderOptions _options = options.Value;
 
     /// <summary>Identifies this process in a job's lease.</summary>
     private readonly string _instanceId = $"{Environment.MachineName}:{Environment.ProcessId}";
+
+    /// <summary>
+    /// GPU encoder name detected at startup, or null for CPU. Passed into every clip
+    /// conformance job so the orchestrator knows which fast path to take.
+    /// </summary>
+    private readonly string? _hwEncoder = (renderCapabilities as FfmpegCapabilities)?.BestHardwareEncoder;
+
+
 
     private static readonly TimeSpan IdleDelay = TimeSpan.FromSeconds(3);
 
@@ -122,7 +132,8 @@ public sealed class RenderJobWorker(
             // family-name route that used to cover for it kills ffmpeg on any build whose
             // fontconfig has no configuration file.
             var clipSettings = new ClipRenderSettings(
-                fonts.FontFilePath, DeliveryProfile(), _options.IntermediatePreset, lease);
+                fonts.FontFilePath, DeliveryProfile(), _options.IntermediatePreset, lease,
+                HardwareEncoder: _hwEncoder);
 
             await clips.ExecuteAsync(job, _instanceId, clipSettings, ct).ConfigureAwait(false);
         }
