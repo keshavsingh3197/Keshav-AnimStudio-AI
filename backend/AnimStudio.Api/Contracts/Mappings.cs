@@ -142,17 +142,34 @@ public static class Mappings
     /// screens start disagreeing about what "progress" means.
     /// </para>
     /// </summary>
-    public static RenderJobResponse ToResponse(this RenderJob job) => new(
-        job.Id, job.ProjectId, job.Kind.ToString(), job.Status.ToString(),
-        job.Progress, job.Message,
-        job.CurrentStage.ToString(), job.ScenesTotal, job.ScenesDone,
-        job.ErrorCode, job.ErrorMessage, job.Warnings,
-        job.OutputStorageKey is not null,
-        job.OutputDurationFrames.HasValue
-            ? new FrameCount(job.OutputDurationFrames.Value).ToSeconds(FrameRate.Fps30)
-            : null,
-        job.CreatedAt, job.CompletedAt,
-        job.Width, job.Height, job.TargetFormat);
+    public static RenderJobResponse ToResponse(this RenderJob job)
+    {
+        var diag = job.Diagnostics is not null
+            ? new RenderDiagnosticsResponse(
+                job.Diagnostics.TotalSeconds,
+                job.Diagnostics.PreparingSeconds,
+                job.Diagnostics.EncodingSeconds,
+                job.Diagnostics.MergingSeconds,
+                job.Diagnostics.PublishingSeconds,
+                job.Diagnostics.ItemsCount,
+                job.Diagnostics.OutputDurationSeconds,
+                job.Diagnostics.SpeedFactor,
+                job.Diagnostics.CompletedAt)
+            : null;
+
+        return new RenderJobResponse(
+            job.Id, job.ProjectId, job.Kind.ToString(), job.Status.ToString(),
+            job.Progress, job.Message,
+            job.CurrentStage.ToString(), job.ScenesTotal, job.ScenesDone,
+            job.ErrorCode, job.ErrorMessage, job.Warnings,
+            job.OutputStorageKey is not null,
+            job.OutputDurationFrames.HasValue
+                ? new FrameCount(job.OutputDurationFrames.Value).ToSeconds(FrameRate.Fps30)
+                : null,
+            job.CreatedAt, job.CompletedAt,
+            job.Width, job.Height, job.TargetFormat,
+            diag);
+    }
 
     /// <summary>One video or image clip, with the facts a running order is laid out from.</summary>
     public static ClipResponse ToClipResponse(this Asset a) => new(

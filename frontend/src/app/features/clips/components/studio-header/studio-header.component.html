@@ -48,7 +48,7 @@
               <i [style.width.%]="current.progress" [style.background]="state.exportIsCompleted() ? 'var(--ok, #10b981)' : 'var(--brand, #3b82f6)'" style="height:100%; display:block; transition:width 0.3s ease;"></i>
             </div>
           </div>
-          <span style="font-size:0.75rem; color:var(--text-dim); text-decoration:underline;">Details</span>
+          <span style="font-size:0.75rem; color:var(--text-dim); text-decoration:underline;">📊 Diagnostics</span>
         </button>
         @if (current.hasOutput) {
           <a [href]="state.downloadUrl(current.jobId)" [download]="state.exportName() ? state.exportName() + '.mp4' : current.jobId + '.mp4'" style="text-decoration:none;">
@@ -112,6 +112,11 @@
         </div>
       }
     </div>
+    @if (state.job(); as current) {
+      <button class="hdr-btn" type="button" (click)="state.openExportProgress()" title="Open Diagnostics & Stage Breakdown">
+        📊 Diagnostics
+      </button>
+    }
     <button class="hdr-btn hdr-btn-cta" type="button"
             (click)="state.openExportModal()"
             [disabled]="state.status.busy() || state.uploading() || state.sideUpload() !== null || state.running() || state.blockedReason() !== null">

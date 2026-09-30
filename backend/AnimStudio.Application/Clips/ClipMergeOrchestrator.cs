@@ -9,6 +9,7 @@ using AnimStudio.Domain.Errors;
 using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Rendering;
 using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 using System.Threading;
 
 namespace AnimStudio.Application.Clips;
@@ -166,6 +167,9 @@ public sealed class ClipMergeOrchestrator(
 
         await using var workspace = await workspaces.CreateAsync(job.Id, token).ConfigureAwait(false);
 
+        var totalSw = Stopwatch.StartNew();
+        var stageSw = Stopwatch.StartNew();
+
         try
         {
             reporter.Report(new RenderProgress(
@@ -181,19 +185,18 @@ public sealed class ClipMergeOrchestrator(
                 spec, canvas, materialized, workspace, settings, warnings, token)
                 .ConfigureAwait(false);
 
+            var preparingSeconds = stageSw.Elapsed.TotalSeconds;
+            stageSw.Restart();
+
             // --- pass one: conform every clip to the canvas and burn in the mark.
             //
             // Run several at once. Normalizing a clip is almost entirely encoder work and
             // each one writes to its own output file, so nothing here is shared but the
             // workspace directory and the progress reporter - which is already lock-guarded.
-            // The degree is capped, and each clip's own encoder threads are divided down to
-            // match, so a run of these does not turn into every process fighting the others
-            // for every core; on a multi-core machine it still finishes the whole batch
-            // sooner than encoding one clip at a time ever could.
-            var concurrency = Math.Clamp(Environment.ProcessorCount, 2, 8);
-            var perClipThreads = concurrency > 1
-                ? Math.Max(1, Environment.ProcessorCount / concurrency)
-                : 0;
+            // Concurrency scales with cores, and each clip's encoder threads are budgeted so
+            // processes don't thrash cores.
+            var concurrency = Math.Clamp(Environment.ProcessorCount / 2, 2, 8);
+            var perClipThreads = Math.Max(1, Environment.ProcessorCount / concurrency);
 
             var prepared = new SceneRenderResult[spec.AssetIds.Count];
             var completedCount = 0;
@@ -329,6 +332,8 @@ public sealed class ClipMergeOrchestrator(
                         CropRight = v1Transform?.CropRight ?? 0,
                         CropTop = v1Transform?.CropTop ?? 0,
                         CropBottom = v1Transform?.CropBottom ?? 0,
+                        SourceWidth = asset.Probe?.Width,
+                        SourceHeight = asset.Probe?.Height,
                     };
 
 
@@ -346,6 +351,9 @@ public sealed class ClipMergeOrchestrator(
             });
 
             await Task.WhenAll(clipTasks).ConfigureAwait(false);
+
+            var encodingSeconds = stageSw.Elapsed.TotalSeconds;
+            stageSw.Restart();
 
             // --- pass two: join them. Transitions are clamped against the MEASURED
             // lengths, which is the earliest point at which they are known.
@@ -474,6 +482,9 @@ public sealed class ClipMergeOrchestrator(
             var merged = await renderer
                 .MergeScenesAsync(mergePlan, workspace, reporter, token).ConfigureAwait(false);
 
+            var mergingSeconds = stageSw.Elapsed.TotalSeconds;
+            stageSw.Restart();
+
             // --- publish
             reporter.Report(new RenderProgress(
                 RenderStage.Publishing, prepared.Length, prepared.Length, total, total,
@@ -482,6 +493,24 @@ public sealed class ClipMergeOrchestrator(
             var outputKey = $"renders/{job.ProjectId}/{job.Id}/final.mp4";
             await workspace.PublishAsync(merged.RelativePath, outputKey, "video/mp4", token)
                 .ConfigureAwait(false);
+
+            var publishingSeconds = stageSw.Elapsed.TotalSeconds;
+            var totalSeconds = totalSw.Elapsed.TotalSeconds;
+            var outputDurationSeconds = merged.Frames.ToSeconds(canvas.FrameRate);
+            var speedFactor = totalSeconds > 0 ? $"{outputDurationSeconds / totalSeconds:0.0}x" : "1.0x";
+
+            job.Diagnostics = new RenderDiagnostics
+            {
+                TotalSeconds = Math.Round(totalSeconds, 1),
+                PreparingSeconds = Math.Round(preparingSeconds, 1),
+                EncodingSeconds = Math.Round(encodingSeconds, 1),
+                MergingSeconds = Math.Round(mergingSeconds, 1),
+                PublishingSeconds = Math.Round(publishingSeconds, 1),
+                ItemsCount = prepared.Length,
+                OutputDurationSeconds = Math.Round(outputDurationSeconds, 1),
+                SpeedFactor = speedFactor,
+                CompletedAt = clock.GetUtcNow().UtcDateTime
+            };
 
             job.Status = warnings.Count > 0
                 ? RenderJobStatus.CompletedWithWarnings

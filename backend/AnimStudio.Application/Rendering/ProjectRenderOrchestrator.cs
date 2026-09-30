@@ -10,12 +10,13 @@ using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Rendering;
 using AnimStudio.Domain.Scenes;
 using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 
 namespace AnimStudio.Application.Rendering;
 
 public sealed record RenderSettings(
     int KenBurnsSupersample, int MouthFlapHz, string SubtitleFontName, int SubtitleFontSize,
-    TimeSpan LeaseDuration, EncoderProfile? Delivery = null, string IntermediatePreset = "veryfast");
+    TimeSpan LeaseDuration, EncoderProfile? Delivery = null, string IntermediatePreset = "ultrafast");
 
 /// <summary>
 /// Runs one render job from claim to published MP4.
@@ -89,6 +90,9 @@ public sealed class ProjectRenderOrchestrator(
 
         await using var workspace = await workspaces.CreateAsync(job.Id, token).ConfigureAwait(false);
 
+        var totalSw = Stopwatch.StartNew();
+        var stageSw = Stopwatch.StartNew();
+
         try
         {
             var characterMap = (await characters.ListByProjectAsync(job.ProjectId, token)
@@ -101,6 +105,9 @@ public sealed class ProjectRenderOrchestrator(
                 RenderStage.Preparing, 0, sceneList.Count, FrameCount.Zero, total, 0, string.Empty, null));
 
             var materialized = await MaterializeAsync(workspace, assetMap, token).ConfigureAwait(false);
+
+            var preparingSeconds = stageSw.Elapsed.TotalSeconds;
+            stageSw.Restart();
 
             // --- render each scene in parallel with intermediate preset for speed
             var deliveryProfile = settings.Delivery ?? EncoderProfile.Default;
@@ -189,6 +196,9 @@ public sealed class ProjectRenderOrchestrator(
                 rendered.Add(new MergeSceneInput(outroResult.RelativePath, outroResult.Frames, TransitionSettings.None));
             }
 
+            var encodingSeconds = stageSw.Elapsed.TotalSeconds;
+            stageSw.Restart();
+
             // --- merge
             token.ThrowIfCancellationRequested();
             reporter.Report(new RenderProgress(
@@ -215,6 +225,9 @@ public sealed class ProjectRenderOrchestrator(
             var merged = await renderer
                 .MergeScenesAsync(mergePlan, workspace, reporter, token).ConfigureAwait(false);
 
+            var mergingSeconds = stageSw.Elapsed.TotalSeconds;
+            stageSw.Restart();
+
             // --- publish
             reporter.Report(new RenderProgress(
                 RenderStage.Publishing, sceneList.Count, sceneList.Count, total, total,
@@ -223,6 +236,24 @@ public sealed class ProjectRenderOrchestrator(
             var outputKey = $"renders/{job.ProjectId}/{job.Id}/final.mp4";
             await workspace.PublishAsync(merged.RelativePath, outputKey, "video/mp4", token)
                 .ConfigureAwait(false);
+
+            var publishingSeconds = stageSw.Elapsed.TotalSeconds;
+            var totalSeconds = totalSw.Elapsed.TotalSeconds;
+            var outputDurationSeconds = merged.Frames.ToSeconds(canvas.FrameRate);
+            var speedFactor = totalSeconds > 0 ? $"{outputDurationSeconds / totalSeconds:0.0}x" : "1.0x";
+
+            job.Diagnostics = new RenderDiagnostics
+            {
+                TotalSeconds = Math.Round(totalSeconds, 1),
+                PreparingSeconds = Math.Round(preparingSeconds, 1),
+                EncodingSeconds = Math.Round(encodingSeconds, 1),
+                MergingSeconds = Math.Round(mergingSeconds, 1),
+                PublishingSeconds = Math.Round(publishingSeconds, 1),
+                ItemsCount = sceneList.Count,
+                OutputDurationSeconds = Math.Round(outputDurationSeconds, 1),
+                SpeedFactor = speedFactor,
+                CompletedAt = clock.GetUtcNow().UtcDateTime
+            };
 
             job.Status = RenderJobStatus.Completed;
             job.Progress = 100;

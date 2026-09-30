@@ -71,8 +71,24 @@ public sealed class RenderJob
     public DateTime? StartedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
 
+    /// <summary>Detailed pipeline performance diagnostics captured upon render completion.</summary>
+    public RenderDiagnostics? Diagnostics { get; set; }
+
     public bool IsTerminal => Status is RenderJobStatus.Completed
         or RenderJobStatus.Failed
         or RenderJobStatus.Cancelled
         or RenderJobStatus.CompletedWithWarnings;
+}
+
+public sealed class RenderDiagnostics
+{
+    public double TotalSeconds { get; set; }
+    public double PreparingSeconds { get; set; }
+    public double EncodingSeconds { get; set; }
+    public double MergingSeconds { get; set; }
+    public double PublishingSeconds { get; set; }
+    public int ItemsCount { get; set; }
+    public double? OutputDurationSeconds { get; set; }
+    public string? SpeedFactor { get; set; }
+    public DateTime? CompletedAt { get; set; }
 }

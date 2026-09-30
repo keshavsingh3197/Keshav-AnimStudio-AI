@@ -77,7 +77,8 @@ public sealed class FfmpegVideoRenderingService(
         var scriptPath = $"graph/clip_{index + 1:D3}.fcs";
         await workspace.WriteTextAsync(scriptPath, graph.FilterComplex, ct).ConfigureAwait(false);
 
-        var arguments = FfmpegArgumentBuilder.Build(graph, scriptPath, _ffmpeg.Threads, _graphFromFile);
+        var threads = plan.EncoderThreads > 0 ? plan.EncoderThreads : _ffmpeg.Threads;
+        var arguments = FfmpegArgumentBuilder.Build(graph, scriptPath, threads, _graphFromFile);
 
         var invocation = new FfmpegInvocation
         {

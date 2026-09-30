@@ -180,6 +180,12 @@ public sealed record ClipRenderPlan
     public double CropTop { get; init; }
     public double CropBottom { get; init; }
 
+    /// <summary>Original probe width of source video, if known.</summary>
+    public int? SourceWidth { get; init; }
+
+    /// <summary>Original probe height of source video, if known.</summary>
+    public int? SourceHeight { get; init; }
+
     /// <summary>True when any crop edge is non-zero.</summary>
     public bool HasCrop => CropLeft > 0 || CropRight > 0 || CropTop > 0 || CropBottom > 0;
 }

@@ -130,6 +130,126 @@ export class RenderComponent implements OnDestroy {
     return `${m}m ${s}s`;
   }
 
+  readonly diagnosticsModalOpen = signal<boolean>(false);
+  readonly selectedDiagnosticsJob = signal<RenderJob | null>(null);
+
+  openDiagnostics(job: RenderJob): void {
+    this.selectedDiagnosticsJob.set(job);
+    this.diagnosticsModalOpen.set(true);
+  }
+
+  closeDiagnostics(): void {
+    this.diagnosticsModalOpen.set(false);
+  }
+
+  readonly selectedDiagnosticsStages = computed(() => {
+    const j = this.selectedDiagnosticsJob();
+    if (!j) return [];
+    const durations = j.diagnostics
+      ? {
+          'Preparing': Math.round(j.diagnostics.preparingSeconds),
+          'RenderingScene': Math.round(j.diagnostics.encodingSeconds),
+          'Merging': Math.round(j.diagnostics.mergingSeconds),
+          'Publishing': Math.round(j.diagnostics.publishingSeconds),
+        }
+      : this.deriveFallbackDurations(j);
+
+    const isClipMerge = j.kind === 'ClipMerge';
+    const itemsCount = j.diagnostics?.itemsCount || j.scenesTotal;
+
+    return [
+      {
+        id: 'Preparing',
+        name: 'Step 1: Asset Preparation & Staging',
+        summary: isClipMerge ? 'Resolving media assets and watermark graphics' : 'Resolving scene backgrounds, audio tracks and character assets',
+        icon: '📁',
+        durationSec: durations['Preparing'] ?? 0,
+        state: 'completed' as const,
+      },
+      {
+        id: 'RenderingScene',
+        name: isClipMerge ? 'Step 2: Clip Conformance & Filter Graph Encoding' : 'Step 2: Scene Filtergraph Rendering',
+        summary: isClipMerge ? `Conformed and encoded ${itemsCount} clip streams` : `Rendered ${itemsCount} scene sequences`,
+        icon: '🎬',
+        durationSec: durations['RenderingScene'] ?? 0,
+        state: 'completed' as const,
+      },
+      {
+        id: 'Merging',
+        name: isClipMerge ? 'Step 3: Stream Concat & Seamless Transitions' : 'Step 3: Stream Concat & Audio Mixing',
+        summary: isClipMerge ? 'Joined conformed clips with xfade dissolves, text overlays & music' : 'Transitions, Ken Burns zooms, background music & subtitle burn-in',
+        icon: '🔀',
+        durationSec: durations['Merging'] ?? 0,
+        state: 'completed' as const,
+      },
+      {
+        id: 'Publishing',
+        name: 'Step 4: Packaging & MP4 FastStart',
+        summary: 'Final MP4 container validation, faststart multiplexing and storage publish',
+        icon: '📦',
+        durationSec: durations['Publishing'] ?? 0,
+        state: 'completed' as const,
+      },
+    ];
+  });
+
+  readonly selectedDiagnosticsElapsedFormatted = computed(() => {
+    const j = this.selectedDiagnosticsJob();
+    if (!j) return '00:00';
+    let totalSec = j.diagnostics?.totalSeconds;
+    if (!totalSec && j.completedAt && j.createdAt) {
+      totalSec = Math.max(1, Math.round((new Date(j.completedAt).getTime() - new Date(j.createdAt).getTime()) / 1000));
+    }
+    if (!totalSec) return '00:00';
+    const mins = Math.floor(totalSec / 60);
+    const secs = Math.round(totalSec % 60);
+    return `${mins}m ${secs}s`;
+  });
+
+  readonly selectedDiagnosticsSpeed = computed(() => {
+    const j = this.selectedDiagnosticsJob();
+    if (j?.diagnostics?.speedFactor) return j.diagnostics.speedFactor;
+    if (j?.outputDurationSeconds && j?.completedAt && j?.createdAt) {
+      const totalSec = Math.max(1, Math.round((new Date(j.completedAt).getTime() - new Date(j.createdAt).getTime()) / 1000));
+      return `${(j.outputDurationSeconds / totalSec).toFixed(1)}x`;
+    }
+    return '1.0x';
+  });
+
+  deriveFallbackDurations(j: RenderJob): Record<string, number> {
+    if (j.completedAt && j.createdAt) {
+      const totalSec = Math.max(1, Math.round((new Date(j.completedAt).getTime() - new Date(j.createdAt).getTime()) / 1000));
+      const prep = Math.max(1, Math.round(totalSec * 0.08));
+      const enc = Math.max(1, Math.round(totalSec * 0.72));
+      const merge = Math.max(1, Math.round(totalSec * 0.15));
+      const pub = Math.max(1, totalSec - (prep + enc + merge));
+      return { Preparing: prep, RenderingScene: enc, Merging: merge, Publishing: pub };
+    }
+    return {};
+  }
+
+  applyJobDiagnostics(j: RenderJob | null): void {
+    if (!j) return;
+    if (j.diagnostics) {
+      this.elapsedSeconds.set(Math.round(j.diagnostics.totalSeconds));
+      if (j.diagnostics.speedFactor) this.renderSpeed.set(j.diagnostics.speedFactor);
+      this.stageDurations.set({
+        Preparing: Math.round(j.diagnostics.preparingSeconds),
+        RenderingScene: Math.round(j.diagnostics.encodingSeconds),
+        Merging: Math.round(j.diagnostics.mergingSeconds),
+        Publishing: Math.round(j.diagnostics.publishingSeconds),
+      });
+    } else if (j.completedAt && j.createdAt) {
+      const totalSec = Math.max(1, Math.round((new Date(j.completedAt).getTime() - new Date(j.createdAt).getTime()) / 1000));
+      this.elapsedSeconds.set(totalSec);
+      if (j.outputDurationSeconds && totalSec > 0) {
+        const factor = (j.outputDurationSeconds / totalSec).toFixed(1);
+        this.renderSpeed.set(`${factor}x`);
+      }
+      this.stageDurations.set(this.deriveFallbackDurations(j));
+    }
+  }
+
   readonly previewFit = signal<'contain' | 'cover'>('contain');
   readonly previewZoom = signal<number>(100);
   readonly hasVideoClips = computed(() => this.store.assets().some((a) => a.kind === 'Video'));
@@ -249,7 +369,11 @@ export class RenderComponent implements OnDestroy {
 
   watch(job: RenderJob): void {
     this.job.set(job);
-    if (!isTerminal(job.status)) this.startPolling(job.jobId);
+    if (!isTerminal(job.status)) {
+      this.startPolling(job.jobId);
+    } else {
+      this.applyJobDiagnostics(job);
+    }
   }
 
   previewUrl(jobId: string): string {
@@ -318,7 +442,11 @@ export class RenderComponent implements OnDestroy {
       if (!active) return;
 
       this.job.set(active);
-      if (!isTerminal(active.status)) this.startPolling(active.jobId);
+      if (!isTerminal(active.status)) {
+        this.startPolling(active.jobId);
+      } else {
+        this.applyJobDiagnostics(active);
+      }
     });
   }
 
@@ -375,6 +503,7 @@ export class RenderComponent implements OnDestroy {
             this.stopPolling();
             this.stopTimer();
             this.etaSeconds.set(0);
+            this.applyJobDiagnostics(job);
             this.status.notify(job.warnings);
           }
         },

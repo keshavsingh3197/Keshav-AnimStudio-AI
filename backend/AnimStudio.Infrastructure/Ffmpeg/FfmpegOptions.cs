@@ -83,7 +83,7 @@ public sealed class RenderOptions
     /// value as <see cref="Preset"/> to opt out.
     /// </para>
     /// </summary>
-    public string IntermediatePreset { get; set; } = "veryfast";
+    public string IntermediatePreset { get; set; } = "ultrafast";
 
     public string ScratchRoot { get; set; } = "storage/temp";
 

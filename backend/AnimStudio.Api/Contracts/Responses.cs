@@ -82,13 +82,25 @@ public sealed record CharacterPlacementResponse(
 /// Shaped so a future push-based transport can deliver exactly this payload without the
 /// client changing.
 /// </summary>
+public sealed record RenderDiagnosticsResponse(
+    double TotalSeconds,
+    double PreparingSeconds,
+    double EncodingSeconds,
+    double MergingSeconds,
+    double PublishingSeconds,
+    int ItemsCount,
+    double? OutputDurationSeconds,
+    string? SpeedFactor,
+    DateTime? CompletedAt);
+
 public sealed record RenderJobResponse(
     string JobId, string ProjectId, string Kind, string Status, int Progress, string? Message,
     string CurrentStage, int ScenesTotal, int ScenesDone,
     string? ErrorCode, string? ErrorMessage, IReadOnlyList<string> Warnings,
     bool HasOutput, double? OutputDurationSeconds,
     DateTime CreatedAt, DateTime? CompletedAt,
-    int? Width = null, int? Height = null, string? TargetFormat = null);
+    int? Width = null, int? Height = null, string? TargetFormat = null,
+    RenderDiagnosticsResponse? Diagnostics = null);
 
 public sealed record RendererStatusResponse(
     bool Available, string? Version, string? UnavailableReason,

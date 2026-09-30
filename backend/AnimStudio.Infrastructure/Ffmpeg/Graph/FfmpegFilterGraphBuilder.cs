@@ -516,12 +516,17 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
             ? BuildCropFilter(plan)
             : string.Empty;
 
+        var matchesExactCanvas = !plan.HasCrop
+            && plan.SourceWidth.HasValue && plan.SourceWidth.Value == canvas.Width
+            && plan.SourceHeight.HasValue && plan.SourceHeight.Value == canvas.Height;
+
         return fit switch
         {
             // Fill and centre-crop. No bars, at the cost of the edges.
-            ClipFit.Cover =>
-                $"[0:v]{cropPrefix}scale={size}:force_original_aspect_ratio=increase:flags=lanczos,"
-                + $"crop={size},{conform}[base];\n",
+            ClipFit.Cover => matchesExactCanvas
+                ? $"[0:v]{conform}[base];\n"
+                : $"[0:v]{cropPrefix}scale={size}:force_original_aspect_ratio=increase:flags=bicubic,"
+                  + $"crop={size},{conform}[base];\n",
 
             // Letterbox over a blurred, cropped copy of the same frame. split comes first
             // so the source is decoded once and used twice.
@@ -530,15 +535,16 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
                 + $"[bgsrc]scale={size}:force_original_aspect_ratio=increase,crop={size},"
                 + $"gblur=sigma={FilterExpr.N(Math.Max(canvas.Height / 40, 4))}:steps=2,"
                 + $"setsar=1,format={working}[bgblur];\n"
-                + $"[fgsrc]scale={size}:force_original_aspect_ratio=decrease:flags=lanczos,"
+                + $"[fgsrc]scale={size}:force_original_aspect_ratio=decrease:flags=bicubic,"
                 + $"setsar=1,format={working}[fgfit];\n"
                 + "[bgblur][fgfit]overlay=format=auto:x=(main_w-overlay_w)/2"
                 + $":y=(main_h-overlay_h)/2,fps={rate.ToFfmpegRate()}[base];\n",
 
             // Letterbox on black. Loses nothing.
-            _ =>
-                $"[0:v]{cropPrefix}scale={size}:force_original_aspect_ratio=decrease:flags=lanczos,"
-                + $"pad={size}:(ow-iw)/2:(oh-ih)/2:color=black,{conform}[base];\n"
+            _ => matchesExactCanvas
+                ? $"[0:v]{conform}[base];\n"
+                : $"[0:v]{cropPrefix}scale={size}:force_original_aspect_ratio=decrease:flags=bicubic,"
+                  + $"pad={size}:(ow-iw)/2:(oh-ih)/2:color=black,{conform}[base];\n"
         };
     }
 
@@ -573,12 +579,12 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
     private static List<string> ClipOutputArguments(ClipRenderPlan plan)
     {
         var rate = plan.Canvas.FrameRate;
-        return
+        List<string> args =
         [
             "-map", "[vout]",
             "-map", "[aout]",
             "-shortest",
-            .. plan.SourceIsImage ? new[] { "-frames:v", FilterExpr.N(plan.ExpectedFrames.Value) } : [],
+            ..(plan.SourceIsImage ? new[] { "-frames:v", FilterExpr.N(plan.ExpectedFrames.Value) } : []),
             "-c:v", plan.Encoder.VideoCodec,
             "-preset", plan.Encoder.Preset,
             "-crf", FilterExpr.N(plan.Encoder.Crf),
@@ -600,8 +606,16 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
             "-ac", FilterExpr.N(plan.Encoder.AudioChannels),
             "-video_track_timescale", FilterExpr.N((int)(rate.AsDouble * 1000)),
             "-movflags", "+faststart",
-            .. plan.EncoderThreads > 0 ? new[] { "-threads", FilterExpr.N(plan.EncoderThreads) } : []
+            ..(plan.EncoderThreads > 0 ? new[] { "-threads", FilterExpr.N(plan.EncoderThreads) } : [])
         ];
+
+        if (plan.Encoder.Preset is "ultrafast" or "superfast" or "veryfast")
+        {
+            args.Add("-tune");
+            args.Add("fastdecode");
+        }
+
+        return args;
     }
 
     public FilterGraphPlan BuildMerge(MergePlan plan)

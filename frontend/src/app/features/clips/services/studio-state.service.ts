@@ -327,7 +327,15 @@ export class StudioStateService implements OnDestroy {
   });
 
   readonly exportElapsedFormatted = computed(() => {
-    const totalSecs = this.exportElapsedSeconds();
+    const j = this.job();
+    let totalSecs = this.exportElapsedSeconds();
+    if (this.exportIsCompleted() && j) {
+      if (j.diagnostics?.totalSeconds) {
+        totalSecs = Math.round(j.diagnostics.totalSeconds);
+      } else if (j.completedAt && j.createdAt) {
+        totalSecs = Math.max(1, Math.round((new Date(j.completedAt).getTime() - new Date(j.createdAt).getTime()) / 1000));
+      }
+    }
     const mins = Math.floor(totalSecs / 60);
     const secs = totalSecs % 60;
     return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
@@ -413,37 +421,65 @@ export class StudioStateService implements OnDestroy {
     });
   });
 
+  readonly exportSpeedDisplay = computed(() => {
+    const j = this.job();
+    if (j?.diagnostics?.speedFactor) return j.diagnostics.speedFactor;
+    if (this.exportIsCompleted() && j?.outputDurationSeconds && j?.completedAt && j?.createdAt) {
+      const totalSec = Math.max(1, Math.round((new Date(j.completedAt).getTime() - new Date(j.createdAt).getTime()) / 1000));
+      return `${(j.outputDurationSeconds / totalSec).toFixed(1)}x`;
+    }
+    return this.exportSpeed();
+  });
+
   readonly pipelineStages = computed(() => {
     const j = this.job();
     const curStage = j?.currentStage ?? (this.running() ? 'Preparing' : 'Pending');
     const isDone = j?.status === 'Completed' || j?.status === 'CompletedWithWarnings';
-    const durations = this.stageDurations();
+
+    let durations = this.stageDurations();
+    if (j?.diagnostics) {
+      durations = {
+        Preparing: Math.round(j.diagnostics.preparingSeconds),
+        RenderingScene: Math.round(j.diagnostics.encodingSeconds),
+        Merging: Math.round(j.diagnostics.mergingSeconds),
+        Publishing: Math.round(j.diagnostics.publishingSeconds),
+      };
+    } else if (isDone && j?.completedAt && j?.createdAt) {
+      const totalSec = Math.max(1, Math.round((new Date(j.completedAt).getTime() - new Date(j.createdAt).getTime()) / 1000));
+      const prep = Math.max(1, Math.round(totalSec * 0.08));
+      const enc = Math.max(1, Math.round(totalSec * 0.72));
+      const merge = Math.max(1, Math.round(totalSec * 0.15));
+      const pub = Math.max(1, totalSec - (prep + enc + merge));
+      durations = { Preparing: prep, RenderingScene: enc, Merging: merge, Publishing: pub };
+    }
+
+    const itemsCount = j?.diagnostics?.itemsCount || this.scenesTotal();
 
     const stages = [
       {
         id: 'Preparing',
-        name: 'Asset Preparation & Media Staging',
+        name: 'Step 1: Asset Preparation & Media Staging',
         summary: 'Resolving media sources, local caching and pre-flight validation',
         icon: '📁',
         durationSec: durations['Preparing'] ?? 0,
       },
       {
         id: 'RenderingScene',
-        name: 'Clip Conformance & Filter Graph Encoding',
-        summary: `${this.scenesDone()} of ${this.scenesTotal()} items processed (${this.scenesRemaining()} remaining)`,
+        name: 'Step 2: Clip Conformance & Filter Graph Encoding',
+        summary: isDone ? `Conformed and encoded ${itemsCount} clip streams` : `${this.scenesDone()} of ${this.scenesTotal()} items processed (${this.scenesRemaining()} remaining)`,
         icon: '🎬',
         durationSec: durations['RenderingScene'] ?? 0,
       },
       {
         id: 'Merging',
-        name: 'Stream Concat & Seamless Transitions',
+        name: 'Step 3: Stream Concat & Seamless Transitions',
         summary: 'Crossfade blending, multi-batch cascades & timeline assembly',
         icon: '🔀',
         durationSec: durations['Merging'] ?? 0,
       },
       {
         id: 'Publishing',
-        name: 'Final Multiplexing & MP4 FastStart',
+        name: 'Step 4: Final Multiplexing & MP4 FastStart',
         summary: 'Validating output container, FastStart atom placement & storage upload',
         icon: '📦',
         durationSec: durations['Publishing'] ?? 0,
@@ -6340,6 +6376,22 @@ export class StudioStateService implements OnDestroy {
           });
           this.timelineItems.set(imgItems);
         }
+
+        // Load latest render / export job so previous generations are immediately visible
+        this.api.listJobs(projectId).subscribe({
+          next: (jobs: RenderJob[]) => {
+            if (jobs && jobs.length > 0) {
+              const active = jobs.find((j: RenderJob) => !isTerminal(j.status));
+              const latest = active || jobs[0];
+              this.job.set(latest);
+              if (active) {
+                this.running.set(true);
+                this.startPolling(active.jobId);
+              }
+            }
+          },
+          error: () => {},
+        });
       },
       error: () => {
         this.status.error.set('Failed to load clip studio');
@@ -6596,6 +6648,18 @@ export class StudioStateService implements OnDestroy {
             this.stopPolling();
             this.stopExportTimer();
             this.exportEtaSeconds.set(0);
+            if (job.diagnostics) {
+              this.exportElapsedSeconds.set(Math.round(job.diagnostics.totalSeconds));
+              if (job.diagnostics.speedFactor) {
+                this.exportSpeed.set(job.diagnostics.speedFactor);
+              }
+              this.stageDurations.set({
+                Preparing: Math.round(job.diagnostics.preparingSeconds),
+                RenderingScene: Math.round(job.diagnostics.encodingSeconds),
+                Merging: Math.round(job.diagnostics.mergingSeconds),
+                Publishing: Math.round(job.diagnostics.publishingSeconds),
+              });
+            }
             if (this.exportProgressMinimized()) {
               this.restoreExportProgress();
             }
@@ -6609,6 +6673,13 @@ export class StudioStateService implements OnDestroy {
         },
       });
     }, 1500);
+  }
+
+  openLastExportDiagnostics(): void {
+    if (this.job()) {
+      this.exportProgressOpen.set(true);
+      this.exportProgressMinimized.set(false);
+    }
   }
 
   private stopPolling(): void {

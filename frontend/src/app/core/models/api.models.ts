@@ -324,6 +324,19 @@ export interface RenderJob {
   targetFormat?: string;
   createdAt: string;
   completedAt?: string;
+  diagnostics?: RenderDiagnostics;
+}
+
+export interface RenderDiagnostics {
+  totalSeconds: number;
+  preparingSeconds: number;
+  encodingSeconds: number;
+  mergingSeconds: number;
+  publishingSeconds: number;
+  itemsCount: number;
+  outputDurationSeconds?: number;
+  speedFactor?: string;
+  completedAt?: string;
 }
 
 export interface RendererStatus {
