@@ -303,28 +303,130 @@
   @if (state.showShortcutsModal()) {
     <div class="modal-backdrop" (click)="state.showShortcutsModal.set(false)">
       <div class="shortcuts-dialog" (click)="$event.stopPropagation()">
+        <!-- Header -->
         <div class="shortcuts-header">
-          <h3>Keyboard Shortcuts</h3>
-          <button class="close-btn" type="button" (click)="state.showShortcutsModal.set(false)">&times;</button>
+          <div class="shortcuts-title-wrap">
+            <span class="shortcuts-icon">⌨️</span>
+            <div>
+              <h3>Keyboard Shortcuts & Timeline Hotkeys</h3>
+              <p class="shortcuts-subtitle">Professional NLE quick-navigation and timeline editing keys</p>
+            </div>
+          </div>
+          <button class="close-btn" type="button" (click)="state.showShortcutsModal.set(false)" title="Close">&times;</button>
         </div>
-        <div class="shortcuts-grid">
-          <div class="shortcut-item"><kbd>Space</kbd> <span>Play / Pause</span></div>
-          <div class="shortcut-item"><kbd>J</kbd> / <kbd>K</kbd> / <kbd>L</kbd> <span>Rewind / Stop / Forward</span></div>
-          <div class="shortcut-item"><kbd>←</kbd> / <kbd>→</kbd> <span>Step 1 frame</span></div>
-          <div class="shortcut-item"><kbd>Ctrl</kbd> + <kbd>←</kbd> / <kbd>→</kbd> <span>Step 1 second</span></div>
-          <div class="shortcut-item"><kbd>Shift</kbd> + <kbd>←</kbd> / <kbd>→</kbd> <span>Extend / shrink clip selection</span></div>
-          <div class="shortcut-item"><kbd>Shift</kbd> + click <span>Select a range of clips</span></div>
-          <div class="shortcut-item"><kbd>Ctrl</kbd> + click <span>Add / remove one clip</span></div>
-          <div class="shortcut-item"><kbd>Alt</kbd> + <kbd>←</kbd> / <kbd>→</kbd> <span>Move selected clips in the cut</span></div>
-          <div class="shortcut-item"><kbd>Ctrl</kbd> + <kbd>C</kbd> / <kbd>X</kbd> / <kbd>V</kbd> <span>Copy / cut / paste at the caret</span></div>
-          <div class="shortcut-item"><kbd>Home</kbd> / <kbd>End</kbd> <span>Jump to Start / End</span></div>
-          <div class="shortcut-item"><kbd>S</kbd> <span>Split Clip at Playhead</span></div>
-          <div class="shortcut-item"><kbd>B</kbd> <span>Blade / Split Tool</span></div>
-          <div class="shortcut-item"><kbd>V</kbd> <span>Select / Pointer Tool</span></div>
-          <div class="shortcut-item"><kbd>M</kbd> <span>Mute / Unmute Selected</span></div>
-          <div class="shortcut-item"><kbd>Delete</kbd> / <kbd>Backspace</kbd> <span>Delete Selected</span></div>
-          <div class="shortcut-item"><kbd>Ctrl</kbd> + <kbd>S</kbd> <span>Save Draft Locally</span></div>
-          <div class="shortcut-item"><kbd>F</kbd> <span>Toggle Fullscreen</span></div>
+
+        <!-- Body with 3 organized columns/categories -->
+        <div class="shortcuts-body">
+          <!-- Category 1: Auto-Move & Selection -->
+          <div class="shortcuts-category">
+            <div class="sc-cat-title">
+              <span class="sc-cat-icon">↔️</span>
+              <span>Moving & Selecting Items (Auto-Move)</span>
+            </div>
+            <div class="sc-cat-list">
+              <div class="shortcut-row">
+                <div class="shortcut-keys"><kbd>←</kbd> / <kbd>→</kbd></div>
+                <div class="shortcut-desc"><strong>Move selected item</strong> earlier / later (0.2s)</div>
+              </div>
+              <div class="shortcut-row">
+                <div class="shortcut-keys"><kbd>Shift</kbd> + <kbd>←</kbd> / <kbd>→</kbd></div>
+                <div class="shortcut-desc"><strong>Fast nudge</strong> (1.0s) / extend selection</div>
+              </div>
+              <div class="shortcut-row">
+                <div class="shortcut-keys"><kbd>Alt</kbd> + <kbd>←</kbd> / <kbd>→</kbd></div>
+                <div class="shortcut-desc">Shift selected clip in cut sequence</div>
+              </div>
+              <div class="shortcut-row">
+                <div class="shortcut-keys"><kbd>Click</kbd></div>
+                <div class="shortcut-desc">Select item on timeline to move or edit</div>
+              </div>
+              <div class="shortcut-row">
+                <div class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>Click</kbd></div>
+                <div class="shortcut-desc">Multi-select items / add to selection</div>
+              </div>
+              <div class="shortcut-row">
+                <div class="shortcut-keys"><kbd>Esc</kbd></div>
+                <div class="shortcut-desc">Deselect all items / cancel dialog</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Category 2: Editing & Timeline Operations -->
+          <div class="shortcuts-category">
+            <div class="sc-cat-title">
+              <span class="sc-cat-icon">✂️</span>
+              <span>Editing & Cut Tools</span>
+            </div>
+            <div class="sc-cat-list">
+              <div class="shortcut-row">
+                <div class="shortcut-keys"><kbd>S</kbd></div>
+                <div class="shortcut-desc">Split clip at playhead needle</div>
+              </div>
+              <div class="shortcut-row">
+                <div class="shortcut-keys"><kbd>Del</kbd> / <kbd>⌫</kbd></div>
+                <div class="shortcut-desc">Delete selected clip, audio, or overlay</div>
+              </div>
+              <div class="shortcut-row">
+                <div class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>D</kbd></div>
+                <div class="shortcut-desc">Duplicate selected timeline item / clip</div>
+              </div>
+              <div class="shortcut-row">
+                <div class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>C</kbd> / <kbd>V</kbd></div>
+                <div class="shortcut-desc">Copy / Paste clips at insert caret</div>
+              </div>
+              <div class="shortcut-row">
+                <div class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>A</kbd></div>
+                <div class="shortcut-desc">Select all clips on timeline cut</div>
+              </div>
+              <div class="shortcut-row">
+                <div class="shortcut-keys"><kbd>M</kbd></div>
+                <div class="shortcut-desc">Mute / unmute selected audio or clip</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Category 3: Playback & Navigation -->
+          <div class="shortcuts-category">
+            <div class="sc-cat-title">
+              <span class="sc-cat-icon">🎬</span>
+              <span>Playback & Navigation</span>
+            </div>
+            <div class="sc-cat-list">
+              <div class="shortcut-row">
+                <div class="shortcut-keys"><kbd>Space</kbd></div>
+                <div class="shortcut-desc">Play / Pause playback</div>
+              </div>
+              <div class="shortcut-row">
+                <div class="shortcut-keys"><kbd>J</kbd> / <kbd>K</kbd> / <kbd>L</kbd></div>
+                <div class="shortcut-desc">Rewind / Pause / Fast Forward</div>
+              </div>
+              <div class="shortcut-row">
+                <div class="shortcut-keys"><kbd>←</kbd> / <kbd>→</kbd></div>
+                <div class="shortcut-desc">Step 1 frame (when nothing selected)</div>
+              </div>
+              <div class="shortcut-row">
+                <div class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>←</kbd> / <kbd>→</kbd></div>
+                <div class="shortcut-desc">Jog 1.0 second earlier / later</div>
+              </div>
+              <div class="shortcut-row">
+                <div class="shortcut-keys"><kbd>Home</kbd> / <kbd>End</kbd></div>
+                <div class="shortcut-desc">Jump to timeline start / end</div>
+              </div>
+              <div class="shortcut-row">
+                <div class="shortcut-keys"><kbd>F</kbd></div>
+                <div class="shortcut-desc">Toggle workspace fullscreen</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="shortcuts-footer">
+          <div class="shortcuts-pro-tip">
+            <span class="pro-tip-badge">💡 Pro-Tip</span>
+            <span>Click any track item or audio block, then use <strong>← / →</strong> arrow keys on your keyboard to auto-move and adjust timing with microsecond precision.</span>
+          </div>
+          <button class="btn btn-primary btn-sm" type="button" (click)="state.showShortcutsModal.set(false)">Got It</button>
         </div>
       </div>
     </div>

@@ -102,6 +102,39 @@
   color: #94a3b8;
 }
 
+.tool-btn.icon-only {
+  width: 28px;
+  min-width: 28px;
+  height: 26px;
+  padding: 0;
+  justify-content: center;
+  position: relative;
+}
+
+.tool-btn.icon-only .tool-btn-icon {
+  font-size: 0.92rem;
+  line-height: 1;
+}
+
+.tool-badge-count {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: var(--brand, #6366f1);
+  color: #fff;
+  font-size: 0.6rem;
+  font-weight: 700;
+  border-radius: 999px;
+  min-width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  line-height: 1;
+}
+
 .tool-btn.btn-danger-action {
   background: rgba(239, 68, 68, 0.12);
   border-color: rgba(239, 68, 68, 0.3);

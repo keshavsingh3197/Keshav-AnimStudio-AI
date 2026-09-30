@@ -7,20 +7,18 @@
     <!-- Timeline Toolbar -->
     <div class="tl-toolbar">
       <div class="tool-group">
-        <button class="tool-btn" type="button" title="Undo (Ctrl+Z)" disabled>
+        <button class="tool-btn icon-only" type="button" title="Undo (Ctrl+Z)" disabled>
           <span class="tool-btn-icon">↩</span>
         </button>
-        <button class="tool-btn" type="button" title="Redo (Ctrl+Y)" disabled>
+        <button class="tool-btn icon-only" type="button" title="Redo (Ctrl+Y)" disabled>
           <span class="tool-btn-icon">↪</span>
         </button>
-        <button class="tool-btn btn-danger-action" type="button" (click)="state.deleteOrRemoveCurrentSelection()" [disabled]="!state.hasAnySelection()" title="Remove selected from timeline cut (Del/Backspace)">
+        <button class="tool-btn icon-only btn-danger-action" type="button" (click)="state.deleteOrRemoveCurrentSelection()" [disabled]="!state.hasAnySelection()" title="Delete / Remove selected (Del / Backspace)">
           <span class="tool-btn-icon">🗑</span>
-          <span>Remove</span>
         </button>
         @if (state.hasAnySelection()) {
-          <button class="tool-btn btn-clear-action" type="button" (click)="state.clearAllSelections()" title="Deselect all (Esc)">
+          <button class="tool-btn icon-only btn-clear-action" type="button" (click)="state.clearAllSelections()" title="Deselect all (Esc)">
             <span class="tool-btn-icon">✕</span>
-            <span>Deselect</span>
           </button>
         }
       </div>
@@ -28,105 +26,106 @@
       <div class="tl-toolbar-sep"></div>
 
       <div class="tool-group">
-        <button class="tool-btn" type="button" (click)="state.splitClipAtPlayhead()" title="Split clip at playhead needle (S)">
+        <button class="tool-btn icon-only" type="button" (click)="state.splitClipAtPlayhead()" title="Split clip at playhead needle (S)">
           <span class="tool-btn-icon">✂</span>
-          <span>Split</span>
         </button>
-        <button class="tool-btn" type="button" [disabled]="!state.canMergeClips()" (click)="state.mergeSelectedOrAdjacentClips()" title="Merge adjacent parts of the same clip back together (Join)">
+        <button class="tool-btn icon-only" type="button" [disabled]="!state.canMergeClips()" (click)="state.mergeSelectedOrAdjacentClips()" title="Merge adjacent parts of the same clip back together (Join)">
           <span class="tool-btn-icon">🔗</span>
-          <span>Merge</span>
         </button>
-        <button class="tool-btn" type="button" [disabled]="!state.hasAnySelection()" (click)="state.duplicateSelectedTimelineItem()" title="Duplicate selected timeline clip or overlay (Ctrl+D)">
+        <button class="tool-btn icon-only" type="button" [disabled]="!state.hasAnySelection()" (click)="state.duplicateSelectedTimelineItem()" title="Duplicate selected timeline clip or overlay (Ctrl+D)">
           <span class="tool-btn-icon">⧉</span>
-          <span>Duplicate</span>
         </button>
       </div>
 
       <div class="tl-toolbar-sep"></div>
 
-      <!-- Cut order & Track Item Shift: move, copy, paste. -->
+      <!-- Cut order & Track Item Shift: move, copy, paste, caret. -->
       <div class="tool-group">
-        <button class="tool-btn" type="button"
+        <button class="tool-btn icon-only" type="button"
                 [disabled]="!state.canNudgeSelected()"
                 (click)="state.nudgeAnySelected(-1)"
-                title="Shift selected item earlier / Move cut clip earlier (◀ or Alt+←)">
+                title="Move selected earlier (◀ or ←)">
           <span class="tool-btn-icon">◀</span>
         </button>
-        <button class="tool-btn" type="button"
+        <button class="tool-btn icon-only" type="button"
                 [disabled]="!state.canNudgeSelected()"
                 (click)="state.nudgeAnySelected(1)"
-                title="Shift selected item later / Move cut clip later (▶ or Alt+→)">
+                title="Move selected later (▶ or →)">
           <span class="tool-btn-icon">▶</span>
         </button>
-        <button class="tool-btn" type="button"
+        <button class="tool-btn icon-only" type="button"
                 [disabled]="state.selectedCutIndices().length === 0"
                 (click)="state.copySelectedClips()"
-                title="Copy the selected clips (Ctrl+C)">
-          <span class="tool-btn-icon">⧉</span>
-          <span>Copy</span>
+                title="Copy selected clips (Ctrl+C)">
+          <span class="tool-btn-icon">📄</span>
         </button>
-        <button class="tool-btn" type="button"
+        <button class="tool-btn icon-only" type="button"
                 [disabled]="state.clipboardCount() === 0"
                 (click)="state.pasteClips()"
                 [title]="state.clipboardCount() === 0 ? 'Nothing copied yet' : 'Paste ' + state.clipboardCount() + ' clip(s) ' + state.insertPointLabel() + ' (Ctrl+V)'">
           <span class="tool-btn-icon">📋</span>
-          <span>Paste{{ state.clipboardCount() > 0 ? ' (' + state.clipboardCount() + ')' : '' }}</span>
+          @if (state.clipboardCount() > 0) {
+            <span class="tool-badge-count">{{ state.clipboardCount() }}</span>
+          }
         </button>
-        <button class="tool-btn tool-btn-subtle" type="button"
+        <button class="tool-btn icon-only tool-btn-subtle" type="button"
                 (click)="state.moveInsertCaretToPlayhead()"
                 [title]="'Insert caret is ' + state.insertPointLabel() + ' — click to move it to the playhead'">
           <span class="tool-btn-icon">⌶</span>
-          <span>Caret</span>
         </button>
-        <button class="tool-btn" type="button" [class.active]="state.activeInspectorTab() === 'clip'" [disabled]="!state.selectedClip()" (click)="state.activeInspectorTab.set('clip')" title="Crop, Framing & Clip Settings (C)">
-          <span class="tool-btn-icon">⬜</span>
-          <span>Crop</span>
+      </div>
+
+      <div class="tl-toolbar-sep"></div>
+
+      <!-- Inspector tabs and overlay quick actions -->
+      <div class="tool-group">
+        <button class="tool-btn icon-only" type="button" [class.active]="state.activeInspectorTab() === 'clip'" [disabled]="!state.selectedClip()" (click)="state.activeInspectorTab.set('clip')" title="Crop, Framing & Clip Settings (C)">
+          <span class="tool-btn-icon">📐</span>
         </button>
-        <button class="tool-btn" type="button" [class.active]="state.activeInspectorTab() === 'color'" (click)="state.activeInspectorTab.set('color')" title="Color grading">
+        <button class="tool-btn icon-only" type="button" [class.active]="state.activeInspectorTab() === 'color'" (click)="state.activeInspectorTab.set('color')" title="Color grading & filters">
           <span class="tool-btn-icon">🎨</span>
-          <span>Color</span>
         </button>
-        <button class="tool-btn" type="button" [class.active]="state.activeInspectorTab() === 'audio'" (click)="state.onTimelineAudioClicked()" title="Audio Hub">
+        <button class="tool-btn icon-only" type="button" [class.active]="state.activeInspectorTab() === 'audio'" (click)="state.onTimelineAudioClicked()" title="Audio Hub & Sound Effects">
           <span class="tool-btn-icon">🎵</span>
-          <span>Audio</span>
         </button>
-        <button class="tool-btn" type="button" [class.active]="state.activeInspectorTab() === 'text'" (click)="state.onTextToolbarClicked()" title="Text Overlays">
-          <span class="tool-btn-icon">T</span>
-          <span>Text</span>
+        <button class="tool-btn icon-only" type="button" [class.active]="state.activeInspectorTab() === 'text'" (click)="state.onTextToolbarClicked()" title="Text & Subtitle Overlays">
+          <span class="tool-btn-icon">𝐓</span>
         </button>
-        <button class="tool-btn tool-btn-subtle" type="button" (click)="state.addTextOverlay()" title="Add Text / Subtitle Overlay on TXT1">
-          <span class="tool-btn-icon">+</span>
-          <span>Overlay</span>
+        <button class="tool-btn icon-only tool-btn-subtle" type="button" (click)="state.addTextOverlay()" title="Add Text / Subtitle Overlay on TXT1">
+          <span class="tool-btn-icon">➕</span>
         </button>
-        <button class="tool-btn" type="button" [class.active]="state.activeInspectorTab() === 'effects'" (click)="state.activeInspectorTab.set('effects')" title="Visual Effects">
+        <button class="tool-btn icon-only" type="button" [class.active]="state.activeInspectorTab() === 'effects'" (click)="state.activeInspectorTab.set('effects')" title="Visual Effects">
           <span class="tool-btn-icon">✨</span>
-          <span>Effects</span>
         </button>
-        <button class="tool-btn" type="button" [class.active]="state.activeInspectorTab() === 'transitions'" (click)="state.openTransitionsTab()" title="Transitions">
+        <button class="tool-btn icon-only" type="button" [class.active]="state.activeInspectorTab() === 'transitions'" (click)="state.openTransitionsTab()" title="Transitions & Cuts">
           <span class="tool-btn-icon">⚡</span>
-          <span>Transitions</span>
         </button>
       </div>
 
       <span style="flex:1"></span>
 
+      <!-- Right Tool Group: Stats, Shortcuts, View mode, Zoom -->
       <div class="tool-group">
         <div class="tl-stats-badge mono">
           <span class="stat-dot"></span>
           <span>{{ state.included().length }} clips · {{ state.totalSeconds() | number:'1.1-1' }}s</span>
         </div>
 
-        <button class="tool-btn" type="button"
-                [class.active]="state.timelineThumbnailMode() === 'filmstrip'"
-                (click)="state.timelineThumbnailMode.set(state.timelineThumbnailMode() === 'filmstrip' ? 'simple' : 'filmstrip')"
-                [title]="state.timelineThumbnailMode() === 'filmstrip' ? 'Switch to Compact timeline view' : 'Switch to Visual Thumbnails timeline view'">
-          <span class="tool-btn-icon">{{ state.timelineThumbnailMode() === 'filmstrip' ? '🖼' : '☰' }}</span>
-          <span>{{ state.timelineThumbnailMode() === 'filmstrip' ? 'Filmstrip' : 'Compact' }}</span>
+        <button class="tool-btn icon-only" type="button"
+                (click)="state.showShortcutsModal.set(true)"
+                title="Keyboard Shortcuts & Timeline Hotkeys Guide (?)">
+          <span class="tool-btn-icon">⌨</span>
         </button>
 
-        <button class="tool-btn" type="button" (click)="fitTimeline()" title="Fit timeline to screen">
+        <button class="tool-btn icon-only" type="button"
+                [class.active]="state.timelineThumbnailMode() === 'filmstrip'"
+                (click)="state.timelineThumbnailMode.set(state.timelineThumbnailMode() === 'filmstrip' ? 'simple' : 'filmstrip')"
+                [title]="state.timelineThumbnailMode() === 'filmstrip' ? 'Switch to Compact timeline view' : 'Switch to Filmstrip thumbnails view'">
+          <span class="tool-btn-icon">{{ state.timelineThumbnailMode() === 'filmstrip' ? '🖼' : '☰' }}</span>
+        </button>
+
+        <button class="tool-btn icon-only" type="button" (click)="fitTimeline()" title="Fit timeline to screen (Zoom Fit)">
           <span class="tool-btn-icon">⤢</span>
-          <span>Fit</span>
         </button>
 
         <div class="tl-zoom-ctrl">
@@ -645,8 +644,6 @@
                   }
                 </div>
                 <div class="tl-h-actions">
-                  <button class="tl-h-btn" type="button" (click)="$event.stopPropagation(); state.shiftAllTracks('A1', -0.5)" title="Shift all audio earlier by 0.5s (◀)">◀</button>
-                  <button class="tl-h-btn" type="button" (click)="$event.stopPropagation(); state.shiftAllTracks('A1', 0.5)" title="Shift all audio later by 0.5s (▶)">▶</button>
                   <button class="tl-h-btn" type="button" (click)="$event.stopPropagation(); state.toggleTrackLock('A1')" [title]="state.isTrackLocked('A1') ? 'Unlock A1' : 'Lock A1'">
                     {{ state.isTrackLocked('A1') ? '🔒' : '🔓' }}
                   </button>
@@ -672,19 +669,11 @@
                        [style.width.px]="state.secondsToPx(item.duration)"
                        (pointerdown)="onItemPointerDown(item, $event)"
                        (click)="$event.stopPropagation(); state.selectTimelineItem(item.id, $event); state.onTimelineAudioClicked()"
-                       title="Click to open Audio Inspector">
+                       title="Click to open Audio Inspector · Use ← / → arrow keys to move">
                     <span class="tl-trim-handle left" (pointerdown)="onItemTrimPointerDown(item, 'left', $event)"></span>
-                    <button class="tl-clip-nudge-btn left" type="button"
-                            (pointerdown)="$event.stopPropagation()"
-                            (click)="$event.stopPropagation(); state.nudgeSelectedTimelineItem(-0.5)"
-                            title="Shift audio 0.5s earlier (◀)">◀</button>
                     <span class="tl-item-badge">A1</span>
                     <span class="tl-item-name">{{ item.name || item.src }}</span>
                     <span class="tl-item-dur mono">{{ item.duration | number:'1.1-1' }}s</span>
-                    <button class="tl-clip-nudge-btn right" type="button"
-                            (pointerdown)="$event.stopPropagation()"
-                            (click)="$event.stopPropagation(); state.nudgeSelectedTimelineItem(0.5)"
-                            title="Shift audio 0.5s later (▶)">▶</button>
                     <button class="tl-item-remove" type="button"
                             (pointerdown)="$event.stopPropagation()"
                             (click)="onRemoveItemClick($event, item.id)"
@@ -702,12 +691,8 @@
                        [style.width.px]="state.secondsToPx(state.musicTrackDurationSeconds(track))"
                        (pointerdown)="onMusicBlockPointerDown(track, $event)"
                        (click)="$event.stopPropagation(); state.selectMusicTrack(track.key)"
-                       title="Click to select & configure Audio · Drag to move in time">
+                       title="Click to select Audio · Use ← / → arrow keys to move in time">
                     <span class="tl-trim-handle left" (pointerdown)="onMusicTrimPointerDown(track, 'start', $event)"></span>
-                    <button class="tl-clip-nudge-btn left" type="button"
-                            (pointerdown)="$event.stopPropagation()"
-                            (click)="$event.stopPropagation(); state.nudgeMusicTrack(track.key, -0.5)"
-                            title="Shift audio 0.5s earlier (◀)">◀</button>
                     @if (state.timelineThumbnailMode() === 'filmstrip') {
                       <div class="tl-music-inner">
                         <span class="tl-music-badge">🎵</span>
@@ -732,10 +717,6 @@
                         </small>
                       </span>
                     }
-                    <button class="tl-clip-nudge-btn right" type="button"
-                            (pointerdown)="$event.stopPropagation()"
-                            (click)="$event.stopPropagation(); state.nudgeMusicTrack(track.key, 0.5)"
-                            title="Shift audio 0.5s later (▶)">▶</button>
                     <button class="tl-music-remove" type="button"
                             (pointerdown)="$event.stopPropagation()"
                             (click)="onRemoveMusicClick($event, track.key)"

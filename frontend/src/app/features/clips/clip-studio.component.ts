@@ -203,17 +203,27 @@ export class ClipStudioComponent implements OnInit {
       case 'Delete':
       case 'Backspace':
         event.preventDefault();
-        this.state.deleteSelected();
+        this.state.deleteOrRemoveCurrentSelection();
         break;
       case 'ArrowLeft':
         event.preventDefault();
-        if (event.shiftKey) this.state.extendClipSelection(-1);
-        else this.state.step(-1 / 30);
+        if (this.state.canNudgeSelected()) {
+          this.state.nudgeAnySelected(-1, event.shiftKey ? 1.0 : 0.2);
+        } else if (event.shiftKey) {
+          this.state.extendClipSelection(-1);
+        } else {
+          this.state.step(-1 / 30);
+        }
         break;
       case 'ArrowRight':
         event.preventDefault();
-        if (event.shiftKey) this.state.extendClipSelection(1);
-        else this.state.step(1 / 30);
+        if (this.state.canNudgeSelected()) {
+          this.state.nudgeAnySelected(1, event.shiftKey ? 1.0 : 0.2);
+        } else if (event.shiftKey) {
+          this.state.extendClipSelection(1);
+        } else {
+          this.state.step(1 / 30);
+        }
         break;
       case 'KeyM':
         event.preventDefault();
