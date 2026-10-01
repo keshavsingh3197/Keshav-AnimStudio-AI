@@ -426,6 +426,10 @@ public sealed record ClipMergeRequest
     [Range(360, 3840)] public int? OutputWidth { get; init; }
     [Range(360, 3840)] public int? OutputHeight { get; init; }
 
+    /// <summary>Fast, High (the default) or Best - see <see cref="ExportQuality"/>.</summary>
+    [EnumDataType(typeof(ExportQuality))]
+    public ExportQuality Quality { get; init; } = ExportQuality.High;
+
     public SceneTransition Transition { get; init; } = SceneTransition.None;
 
     [Range(0, 3)] public double TransitionSeconds { get; init; }

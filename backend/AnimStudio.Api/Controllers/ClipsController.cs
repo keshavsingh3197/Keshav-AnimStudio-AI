@@ -148,6 +148,7 @@ public sealed class ClipsController(
             Fit = request.Fit,
             OutputWidth = request.OutputWidth,
             OutputHeight = request.OutputHeight,
+            Quality = request.Quality,
             Transition = request.Transition,
             TransitionSeconds = request.TransitionSeconds,
             Junctions = request.Junctions?

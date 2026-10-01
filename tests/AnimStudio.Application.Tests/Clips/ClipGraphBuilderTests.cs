@@ -487,12 +487,15 @@ public class ClipGraphBuilderTests
     }
 
     [Fact]
-    public void Composites_the_mark_in_4_4_4_and_converts_once_at_the_end()
+    public void Composites_the_mark_in_the_delivery_format_rather_than_4_4_4()
     {
+        // 4:4:4 cost 29% of the conform pass for an SSIM difference of 0.001 on the logo
+        // strip, and a watermarked stitch pays it on every frame of every clip.
         var graph = NewBuilder().BuildClip(Plan(watermark: LogoMark())).FilterComplex;
 
-        Assert.Contains("format=yuv444p[base]", graph);
+        Assert.Contains("format=yuv420p[base]", graph);
         Assert.Contains("format=yuv420p[vout]", graph);
+        Assert.DoesNotContain("yuv444p", graph);
     }
 
     // --- working pixel format ------------------------------------------------

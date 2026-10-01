@@ -947,6 +947,31 @@
             </div>
           </div>
 
+          <!-- Section: Delivered picture quality -->
+          <div class="export-sec">
+            <label class="export-sec-label">Video Quality</label>
+            <div class="export-pills">
+              <button type="button" class="export-pill"
+                      [class.active]="state.exportQuality() === 'Fast'"
+                      (click)="state.exportQuality.set('Fast')">
+                <span>⚡ Fast</span>
+                <span class="export-pill-sub">Draft · smallest file</span>
+              </button>
+              <button type="button" class="export-pill"
+                      [class.active]="state.exportQuality() === 'High'"
+                      (click)="state.exportQuality.set('High')">
+                <span>⭐ High</span>
+                <span class="export-pill-sub">Recommended · sharp &amp; quick</span>
+              </button>
+              <button type="button" class="export-pill"
+                      [class.active]="state.exportQuality() === 'Best'"
+                      (click)="state.exportQuality.set('Best')">
+                <span>💎 Best</span>
+                <span class="export-pill-sub">Master · ~3× slower</span>
+              </button>
+            </div>
+          </div>
+
           <!-- Section: Aspect Ratio Fit Mode -->
           <div class="export-sec">
             <label class="export-sec-label">Framing & Aspect Fit</label>
@@ -1077,7 +1102,7 @@
             <div>
               <h3>Export &amp; Render Diagnostics</h3>
               <p class="monitor-subtitle">
-                Project: <strong>{{ state.exportName() || 'AnimStudio Video' }}</strong> &middot; Target: <strong>{{ state.exportResolution() }}</strong> &middot; Timeline: <strong>{{ state.timelineDurationFormatted() }}</strong>
+                Project: <strong>{{ state.exportName() || 'AnimStudio Video' }}</strong> &middot; Target: <strong>{{ state.exportResolution() }}</strong> &middot; Quality: <strong>{{ state.exportQuality() }}</strong> &middot; Timeline: <strong>{{ state.timelineDurationFormatted() }}</strong>
               </p>
             </div>
           </div>
@@ -1337,7 +1362,7 @@
               }
             } @else {
               <span class="engine-badge">⚡ Hardware Engine Active</span>
-              <span class="engine-details">Multi-core Concurrency &middot; Preset: fast intermediate</span>
+              <span class="engine-details">Multi-core Concurrency &middot; Quality: {{ state.exportQuality() }}</span>
             }
           </div>
 

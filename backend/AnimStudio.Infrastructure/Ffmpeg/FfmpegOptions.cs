@@ -85,7 +85,27 @@ public sealed class RenderOptions
     /// </summary>
     public string IntermediatePreset { get; set; } = "ultrafast";
 
+    /// <summary>
+    /// Encode throwaway stitch intermediates on the GPU encoder the startup probe found.
+    /// <para>
+    /// Off by default because it was measured to LOSE here: Quick Sync took 1730ms per
+    /// 1080p clip against 1250ms for libx264 veryfast, and one iGPU has one media engine,
+    /// so the eight clips conformed in parallel queue behind each other while the CPU
+    /// idles. Turn it on only for a host with a discrete encoder that benchmarks faster.
+    /// </para>
+    /// </summary>
+    public bool UseHardwareEncoder { get; set; }
+
     public string ScratchRoot { get; set; } = "storage/temp";
+
+    /// <summary>
+    /// Where conformed clips are kept between exports, keyed by everything that decides
+    /// their bytes. Empty disables the cache. See <see cref="ClipConformCache"/>.
+    /// </summary>
+    public string ClipCacheRoot { get; set; } = "storage/clip-cache";
+
+    /// <summary>Size the clip cache is trimmed back to, oldest-used first.</summary>
+    public int ClipCacheMaxGigabytes { get; set; } = 20;
 
     /// <summary>Rendering is CPU-bound; more than one concurrent job just thrashes.</summary>
     public int MaxConcurrentJobs { get; set; } = 1;

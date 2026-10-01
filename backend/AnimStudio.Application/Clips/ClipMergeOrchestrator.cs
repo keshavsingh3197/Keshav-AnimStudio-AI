@@ -138,10 +138,14 @@ public sealed class ClipMergeOrchestrator(
             })
             .ToList();
 
-        var hasMusic = !string.IsNullOrEmpty(spec.BackgroundMusicAssetId) || spec.MusicTracks.Count > 0;
+        // The same test the merge graph applies: hard cuts and nothing composited on top
+        // means the join copies the video stream untouched. Music does NOT break that - it
+        // is mixed into the audio while the video is still copied - so a music bed must not
+        // demote the clips to throwaway intermediates, or the fast-preset file becomes the
+        // delivered one at several times the size.
         var hasTransitions = spec.TransitionFrames > 0
             || spec.Junctions.Any(j => j.Transition != SceneTransition.None && j.TransitionFrames > 0);
-        var willStreamCopy = !hasTransitions && !hasMusic && spec.TimelineItems.All(it => it.TrackId is "V1" or "video");
+        var willStreamCopy = !hasTransitions && !spec.TimelineItems.Any(it => IsOverlayTrack(it.TrackId));
 
         // Per-clip sound costs the join nothing: it is mixed in pass one, so every
         // conformed clip still comes out with the same single audio stream and the join
@@ -152,26 +156,30 @@ public sealed class ClipMergeOrchestrator(
         // gets the delivery preset (no GPU shortcut: we want full quality). When the join
         // re-encodes, pass one is writing a file whose only reader is ffmpeg, so a fast GPU
         // encoder saves most of Step 2 without affecting the final video quality at all.
+        // The export's chosen quality decides the delivered encode, whichever pass writes it.
+        var delivery = settings.Delivery.ForQuality(spec.Quality);
+        var deliveryLabel = $"{spec.Quality} · {delivery.VideoCodec} {delivery.Preset} CRF {delivery.Crf}";
+
         EncoderProfile clipEncoder;
         string activeEncoder;
         if (willStreamCopy)
         {
             // Delivery quality — output is the file the viewer downloads.
-            clipEncoder = settings.Delivery;
-            activeEncoder = settings.Delivery.VideoCodec;
+            clipEncoder = delivery;
+            activeEncoder = deliveryLabel;
         }
         else if (settings.HardwareEncoder is { Length: > 0 } hwEnc)
         {
             // GPU intermediates: fast encode, same quality target. The join re-encodes
             // with the delivery profile, so intermediate quality is irrelevant.
-            clipEncoder = settings.Delivery.ForHardwareEncoder(hwEnc);
-            activeEncoder = hwEnc;
+            clipEncoder = delivery.ForHardwareEncoder(hwEnc);
+            activeEncoder = $"{deliveryLabel} (intermediates: {hwEnc})";
         }
         else
         {
             // CPU fallback with ultrafast preset.
-            clipEncoder = settings.Delivery.ForIntermediate(settings.IntermediatePreset);
-            activeEncoder = "CPU";
+            clipEncoder = delivery.ForIntermediate(settings.IntermediatePreset);
+            activeEncoder = deliveryLabel;
         }
 
 
@@ -446,7 +454,7 @@ public sealed class ClipMergeOrchestrator(
             var overlays = new List<MergeOverlayItem>();
             foreach (var item in spec.TimelineItems)
             {
-                if (item.TrackId is "IMG1" or "IMG" or "IMAGE" or "V2" or "V3" or "TXT1")
+                if (IsOverlayTrack(item.TrackId))
                 {
                     string? relPath = null;
                     if (item.Type is "image" or "video")
@@ -499,7 +507,7 @@ public sealed class ClipMergeOrchestrator(
                 OutputRelativePath = "out/final.mp4",
                 // Always the delivery profile: whether this re-encodes or stream-copies,
                 // its output is what the viewer downloads.
-                Encoder = settings.Delivery
+                Encoder = delivery
             };
 
             var merged = await renderer
@@ -697,14 +705,21 @@ public sealed class ClipMergeOrchestrator(
     /// <summary>
     /// Copies each asset into the workspace once. The workspace de-duplicates by storage
     /// key, so a clip listed twice in the running order is fetched a single time.
+    /// <para>
+    /// Fetched several at a time: a hundred-clip stitch spent ~20s here copying files one
+    /// after another while the disk sat mostly idle between them.
+    /// </para>
     /// </summary>
     private static async Task<Dictionary<string, string>> MaterializeAsync(
         IRenderWorkspace workspace, Dictionary<string, Asset> assetMap, CancellationToken ct)
     {
-        var paths = new Dictionary<string, string>(StringComparer.Ordinal);
+        var paths = new System.Collections.Concurrent.ConcurrentDictionary<string, string>(
+            StringComparer.Ordinal);
 
-        foreach (var (id, asset) in assetMap)
+        var options = new ParallelOptions { MaxDegreeOfParallelism = 8, CancellationToken = ct };
+        await Parallel.ForEachAsync(assetMap, options, async (entry, token) =>
         {
+            var (id, asset) = entry;
             var extension = Path.GetExtension(asset.StorageKey);
             if (string.IsNullOrEmpty(extension))
             {
@@ -725,11 +740,11 @@ public sealed class ClipMergeOrchestrator(
 
             // Generated name only: a client filename never reaches the filesystem.
             paths[id] = await workspace
-                .MaterializeAsync(asset.StorageKey, $"in/{prefix}_{id}{extension}", ct)
+                .MaterializeAsync(asset.StorageKey, $"in/{prefix}_{id}{extension}", token)
                 .ConfigureAwait(false);
-        }
+        }).ConfigureAwait(false);
 
-        return paths;
+        return new Dictionary<string, string>(paths, StringComparer.Ordinal);
     }
 
     /// <summary>
@@ -781,6 +796,13 @@ public sealed class ClipMergeOrchestrator(
         return ClipPlanFactory.CreateWatermark(
             spec.Watermark, canvas, logoPath, textPath, fontFile);
     }
+
+    /// <summary>
+    /// Tracks composited over the main video in the join. Any item on one forces the join
+    /// to re-encode, so this decides both the overlay list and the stream-copy prediction.
+    /// </summary>
+    private static bool IsOverlayTrack(string? trackId) =>
+        trackId is "IMG1" or "IMG" or "IMAGE" or "V2" or "V3" or "TXT1";
 
     /// <summary>Zero transitions, for the pre-flight total used to weight progress.</summary>
     private static IReadOnlyList<FrameCount> ZerosFor(IReadOnlyList<FrameCount> lengths) =>

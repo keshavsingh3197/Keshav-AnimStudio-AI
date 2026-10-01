@@ -49,6 +49,8 @@ public sealed record ClipMergeCommand
     public int? OutputWidth { get; init; }
     public int? OutputHeight { get; init; }
 
+    public ExportQuality Quality { get; init; } = ExportQuality.High;
+
     public SceneTransition Transition { get; init; } = SceneTransition.None;
 
     /// <summary>Crossfade length. Ignored when the transition is a cut.</summary>
@@ -516,6 +518,7 @@ public sealed class ClipMergeService(
                 Fit = command.Fit,
                 OutputWidth = command.OutputWidth,
                 OutputHeight = command.OutputHeight,
+                Quality = command.Quality,
                 Transition = command.Transition,
                 TransitionFrames = transitionFrames,
                 Junctions = junctionSpecs,

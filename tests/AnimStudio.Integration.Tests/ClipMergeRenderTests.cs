@@ -56,7 +56,8 @@ public sealed class ClipMergeRenderTests : IAsyncLifetime
     /// the single-pass join, so batching is exercised only where a test asks for it.
     /// </para>
     /// </summary>
-    private static FfmpegVideoRenderingService BuildService(int maxMergeInputs = 64)
+    private static FfmpegVideoRenderingService BuildService(
+        int maxMergeInputs = 64, ClipConformCache? cache = null, IFfmpegRunner? runner = null)
     {
         var ffmpegOptions = Options.Create(new FfmpegOptions
         {
@@ -67,7 +68,7 @@ public sealed class ClipMergeRenderTests : IAsyncLifetime
             MaxMergeInputs = maxMergeInputs
         });
 
-        var runner = new FfmpegRunner(ffmpegOptions, NullLogger<FfmpegRunner>.Instance);
+        runner ??= new FfmpegRunner(ffmpegOptions, NullLogger<FfmpegRunner>.Instance);
 
         var capabilities = new FfmpegCapabilities
         {
@@ -82,7 +83,86 @@ public sealed class ClipMergeRenderTests : IAsyncLifetime
             capabilities,
             ffmpegOptions,
             Options.Create(new RenderOptions()),
-            NullLogger<FfmpegVideoRenderingService>.Instance);
+            NullLogger<FfmpegVideoRenderingService>.Instance,
+            cache);
+    }
+
+    private static FfmpegOptions RealFfmpeg() => new()
+    {
+        FfmpegPath = FfmpegLocator.FfmpegPath,
+        FfprobePath = FfmpegLocator.FfprobePath,
+        SceneTimeoutMinutes = 5
+    };
+
+    private sealed class CountingRunner(IFfmpegRunner inner) : IFfmpegRunner
+    {
+        public int Encodes;
+
+        public Task<FfmpegResult> RunAsync(
+            FfmpegInvocation invocation, IProgress<FfmpegProgress>? progress, CancellationToken ct)
+        {
+            if (invocation.Tool == FfmpegTool.Ffmpeg) Interlocked.Increment(ref Encodes);
+            return inner.RunAsync(invocation, progress, ct);
+        }
+    }
+
+    private sealed class TestHost(string root) : Microsoft.Extensions.Hosting.IHostEnvironment
+    {
+        public string EnvironmentName { get; set; } = "Test";
+        public string ApplicationName { get; set; } = "AnimStudio.Tests";
+        public string ContentRootPath { get; set; } = root;
+        public Microsoft.Extensions.FileProviders.IFileProvider ContentRootFileProvider { get; set; } =
+            new Microsoft.Extensions.FileProviders.NullFileProvider();
+    }
+
+    // --- clip cache ---------------------------------------------------------
+
+    [FfmpegFact]
+    public async Task A_second_export_of_an_unchanged_clip_is_restored_without_encoding()
+    {
+        var cacheRoot = _root + "-cache";
+        try
+        {
+            var cache = new ClipConformCache(
+                Options.Create(new RenderOptions { ClipCacheRoot = cacheRoot }),
+                new TestHost(_root), NullLogger<ClipConformCache>.Instance);
+            var runner = new CountingRunner(
+                new FfmpegRunner(Options.Create(RealFfmpeg()), NullLogger<FfmpegRunner>.Instance));
+            var service = BuildService(cache: cache, runner: runner);
+
+            MakeClip("in/a.mp4", 2.0, 640, 360, 30, withAudio: true);
+            var first = await service.RenderClipAsync(Plan(0, "in/a.mp4"), _workspace, null, Ct);
+            var encodesAfterFirst = runner.Encodes;
+
+            // A new export is a new workspace holding a fresh copy of the same source.
+            await using var second = new LocalRenderWorkspace(
+                "clip-job-2", _root + "-2", new NullObjectStore(),
+                NullLogger<LocalRenderWorkspace>.Instance, keepOnFailure: false);
+            File.Copy(Path_("in/a.mp4"), second.Resolve("in/a.mp4"));
+
+            var restored = await service.RenderClipAsync(Plan(0, "in/a.mp4"), second, null, Ct);
+
+            Assert.Equal(encodesAfterFirst, runner.Encodes);
+            Assert.Equal(first.Frames, restored.Frames);
+            Assert.Equal(first.SizeBytes, new FileInfo(second.Resolve(restored.RelativePath)).Length);
+
+            // The same path holding different footage is a different clip.
+            MakeClip("in/a.mp4", 1.0, 640, 360, 30, withAudio: true);
+            File.Copy(Path_("in/a.mp4"), second.Resolve("in/a.mp4"), overwrite: true);
+
+            var changed = await service.RenderClipAsync(Plan(0, "in/a.mp4"), second, null, Ct);
+
+            Assert.True(runner.Encodes > encodesAfterFirst, "a changed source must be encoded");
+            Assert.InRange(changed.Frames.Value, 29, 31);
+
+            // Re-encoding over a restored (hard-linked) output must not have written
+            // through the link into the cached clip or the first export's copy of it.
+            Assert.Equal(first.SizeBytes, new FileInfo(_workspace.Resolve(first.RelativePath)).Length);
+        }
+        finally
+        {
+            if (Directory.Exists(cacheRoot)) Directory.Delete(cacheRoot, recursive: true);
+        }
     }
 
     public async Task DisposeAsync() => await _workspace.DisposeAsync();

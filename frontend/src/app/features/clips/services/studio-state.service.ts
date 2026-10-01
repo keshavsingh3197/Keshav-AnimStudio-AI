@@ -2,7 +2,7 @@ import { Injectable, computed, inject, signal, OnDestroy } from '@angular/core';
 import { catchError, concatMap, finalize, from, map, of } from 'rxjs';
 
 import {
-  Clip, ClipAudioBody, ClipFit, ClipOrder, ClipStudio, MAX_CLIP_GAIN, RenderJob,
+  Clip, ClipAudioBody, ClipFit, ClipOrder, ClipStudio, ExportQuality, MAX_CLIP_GAIN, RenderJob,
   SHORTS_MAX_SECONDS, TRANSITIONS, WATERMARK_POSITIONS, WatermarkBody, WatermarkKind, WatermarkPosition,
   aspectRatioLabel, isTerminal, videoFormat,
   TimelineItem, TimelineItemType, TrackControlState, TimelineItemTransform, TimelineItemTextStyle,
@@ -297,9 +297,10 @@ export class StudioStateService implements OnDestroy {
   readonly hasUnsavedChanges = signal<boolean>(false);
   readonly exportName = signal<string>('');
   readonly exportFormat = signal<'mp4' | 'webm'>('mp4');
-  readonly exportQuality = signal<'high' | 'medium' | 'fast'>('high');
   readonly exportModalOpen = signal<boolean>(false);
   readonly exportResolution = signal<'1080p' | '720p' | '4k' | 'short_9_16' | 'square_1_1'>('1080p');
+  /** Picture quality of the delivered encode; High unless the user picks otherwise. */
+  readonly exportQuality = signal<ExportQuality>('High');
   readonly exportIncludeWatermark = signal<boolean>(true);
 
   // Live Export Progress Monitor Signals
@@ -6783,6 +6784,7 @@ export class StudioStateService implements OnDestroy {
         fit: fitMode,
         outputWidth: outW,
         outputHeight: outH,
+        quality: this.exportQuality(),
         transition: globalTrans,
         transitionSeconds: globalSecs,
         junctions: this.junctionsList().map((j, k) => {
@@ -6855,6 +6857,7 @@ export class StudioStateService implements OnDestroy {
         fit: fitMode,
         outputWidth: 1080,
         outputHeight: 1920,
+        quality: this.exportQuality(),
         transition: globalTrans,
         transitionSeconds: globalSecs,
         junctions: this.junctionsList().map((j, k) => {

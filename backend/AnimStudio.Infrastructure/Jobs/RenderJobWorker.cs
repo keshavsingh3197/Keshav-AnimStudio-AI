@@ -133,7 +133,7 @@ public sealed class RenderJobWorker(
             // fontconfig has no configuration file.
             var clipSettings = new ClipRenderSettings(
                 fonts.FontFilePath, DeliveryProfile(), _options.IntermediatePreset, lease,
-                HardwareEncoder: _hwEncoder);
+                HardwareEncoder: _options.UseHardwareEncoder ? _hwEncoder : null);
 
             await clips.ExecuteAsync(job, _instanceId, clipSettings, ct).ConfigureAwait(false);
         }

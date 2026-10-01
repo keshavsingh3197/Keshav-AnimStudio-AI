@@ -218,6 +218,8 @@ public static class DependencyInjection
         services.AddSingleton<IFilterGraphBuilder, FfmpegFilterGraphBuilder>();
         services.AddSingleton<ISubtitleWriter, AssSubtitleWriter>();
         services.AddSingleton<IRenderWorkspaceFactory, RenderWorkspaceFactory>();
+        // Singleton: it owns the trim schedule, and the cache outlives every job.
+        services.AddSingleton<ClipConformCache>();
         services.AddScoped<IVideoRenderingService, FfmpegVideoRenderingService>();
         services.AddScoped<IMediaProbeService, FfprobeMediaProbeService>();
         services.AddSingleton<YtDlpMediaDownloader>();

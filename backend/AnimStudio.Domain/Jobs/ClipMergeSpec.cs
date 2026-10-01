@@ -57,6 +57,9 @@ public sealed class ClipMergeSpec
     public int? OutputWidth { get; set; }
     public int? OutputHeight { get; set; }
 
+    /// <summary>Picture quality of the delivered encode. Defaults to High.</summary>
+    public ExportQuality Quality { get; set; } = ExportQuality.High;
+
     public WatermarkSettings Watermark { get; set; } = new();
     public OutroSettings Outro { get; set; } = new();
 

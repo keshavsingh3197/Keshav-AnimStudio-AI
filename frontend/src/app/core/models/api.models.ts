@@ -472,6 +472,11 @@ export const CLIP_FITS = ['Contain', 'Cover', 'BlurredBackdrop'] as const;
 
 export type ClipFit = (typeof CLIP_FITS)[number];
 
+/** Delivered picture quality. High is the default and what an omitted value means. */
+export const EXPORT_QUALITIES = ['Fast', 'High', 'Best'] as const;
+
+export type ExportQuality = (typeof EXPORT_QUALITIES)[number];
+
 /** One gap between two consecutive clips, overriding the timeline's default transition. */
 export interface ClipJunctionBody {
   transition: string;
@@ -594,6 +599,7 @@ export interface ClipMergeBody {
   fit: ClipFit;
   outputWidth?: number;
   outputHeight?: number;
+  quality?: ExportQuality;
   transition: string;
   transitionSeconds: number;
   /** One entry per gap between clips; omitted or empty means every gap uses the default. */

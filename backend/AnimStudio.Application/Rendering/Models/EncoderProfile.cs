@@ -1,3 +1,5 @@
+using AnimStudio.Domain.Rendering;
+
 namespace AnimStudio.Application.Rendering.Models;
 
 /// <summary>
@@ -37,6 +39,24 @@ public sealed record EncoderProfile(
     /// </summary>
     public EncoderProfile ForIntermediate(string preset) =>
         string.IsNullOrWhiteSpace(preset) ? this : this with { Preset = preset };
+
+    /// <summary>
+    /// The delivery encode for an export's chosen quality.
+    /// <para>
+    /// Measured on this project's 1080p clips (SSIM against a lossless reference, time for
+    /// seven clips conformed in parallel): veryfast/20 0.9586 in 13.6s, veryfast/16 0.9606
+    /// in 17.1s, medium/14 0.9617 in 47.6s. For comparison, the old default medium/18 scored
+    /// 0.9610 and ultrafast/18 - what stitches with music used to ship - 0.9567. High is
+    /// therefore the veryfast/16 point: as good as the old medium encode for a quarter of
+    /// the extra cost, and clearly better than anything the stitch shipped before.
+    /// </para>
+    /// </summary>
+    public EncoderProfile ForQuality(ExportQuality quality) => quality switch
+    {
+        ExportQuality.Fast => this with { Preset = "veryfast", Crf = 20 },
+        ExportQuality.Best => this with { Preset = "medium", Crf = 14 },
+        _ => this with { Preset = "veryfast", Crf = 16 }
+    };
 
     /// <summary>
     /// Returns a hardware-accelerated encoder profile for the given GPU encoder.
