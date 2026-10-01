@@ -46,6 +46,17 @@ public sealed partial class FfmpegCapabilityProbe(
             var buildConf = await RunAsync(workingDirectory, ["-hide_banner", "-buildconf"], ct);
             var encoders = await RunAsync(workingDirectory, ["-hide_banner", "-encoders"], ct);
 
+            var minimum = ParseMinimum(_options.MinimumVersion);
+            if (major < minimum.Major || (major == minimum.Major && minor < minimum.Minor))
+            {
+                return FfmpegCapabilities.Unavailable(
+                    $"The installed renderer is {major}.{minor}; {_options.MinimumVersion} or newer is required.");
+            }
+
+            // --- Hardware encoder detection (run in parallel, each is a short test encode) ---
+            var (nvenc, qsv, videotoolbox) = await ProbeHardwareEncodersAsync(
+                workingDirectory, encoders.StdOut, ct).ConfigureAwait(false);
+
             var capabilities = new FfmpegCapabilities
             {
                 IsAvailable = true,
@@ -63,23 +74,7 @@ public sealed partial class FfmpegCapabilityProbe(
                 HasAlimiter = HasFilter(filters.StdOut, "alimiter"),
                 HasGblur = HasFilter(filters.StdOut, "gblur"),
                 HasLibx264 = HasEncoder(encoders.StdOut, "libx264"),
-                HasAac = HasEncoder(encoders.StdOut, "aac")
-            };
-
-            var minimum = ParseMinimum(_options.MinimumVersion);
-            if (major < minimum.Major || (major == minimum.Major && minor < minimum.Minor))
-            {
-                return FfmpegCapabilities.Unavailable(
-                    $"The installed renderer is {major}.{minor}; {_options.MinimumVersion} or newer is required.");
-            }
-
-            // --- Hardware encoder detection (run in parallel, each is a short test encode) ---
-            // This runs AFTER the version check so a missing ffmpeg doesn't try hardware probes.
-            var (nvenc, qsv, videotoolbox) = await ProbeHardwareEncodersAsync(
-                workingDirectory, encoders.StdOut, ct).ConfigureAwait(false);
-
-            capabilities = capabilities with
-            {
+                HasAac = HasEncoder(encoders.StdOut, "aac"),
                 HasNvenc = nvenc,
                 HasQsv = qsv,
                 HasVideoToolbox = videotoolbox
