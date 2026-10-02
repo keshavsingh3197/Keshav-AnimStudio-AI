@@ -50,12 +50,15 @@ export class ProjectListComponent {
   searchTerm = '';
   statusFilter = 'All';
   aspectFilter = 'All';
+  /** A channel id, or 'All'. */
+  channelFilter = 'All';
   selectedProjectIds = new Set<string>();
   pinnedProjectIds = new Set<string>();
 
   // Context Menu State
   activeMenuProjectId = signal<string | null>(null);
 
+/** The channel a project publishes under; no channel is the default one. */  channelName(p: Project): string {    const id = p.brandChannelId || DEFAULT_BRAND_CHANNEL;    return this.channels().find((c) => c.id === id)?.name ?? 'Default';  }
   constructor() {
     this.loadSavedPreferences();
     this.reload();
@@ -152,6 +155,11 @@ export class ProjectListComponent {
         if (this.aspectFilter === '16:9 Video') return fmt === 'Video';
         return true;
       });
+    }
+
+    if (this.channelFilter !== 'All') {
+      // A project with no channel is on the default one, so it shows under Default.
+      list = list.filter(p => (p.brandChannelId || DEFAULT_BRAND_CHANNEL) === this.channelFilter);
     }
 
     // Sort: Pinned projects first, then according to sort option

@@ -220,6 +220,15 @@
         <option value="9:16 Shorts">9:16 Shorts</option>
         <option value="16:9 Video">16:9 Video</option>
       </select>
+
+      @if (channels().length > 1) {
+        <select class="toolbar-select" [(ngModel)]="channelFilter" (change)="currentPage.set(1)" aria-label="Filter by channel">
+          <option value="All">All Channels</option>
+          @for (c of channels(); track c.id) {
+            <option [value]="c.id">{{ c.name }}</option>
+          }
+        </select>
+      }
     </div>
 
     <div class="toolbar-right">
@@ -422,6 +431,12 @@
                 <span class="meta-time">Edited {{ project.updatedAt | date:'mediumDate' }}</span>
                 <span class="meta-aspect">{{ aspect(project.width, project.height) }}</span>
               </div>
+              @if (channels().length > 1) {
+                <div class="card-channel-row">
+                  <span class="channel-chip" [title]="'Publishes under ' + channelName(project)">📺 {{ channelName(project) }}</span>
+                  @if (project.followChannelWatermark === false) { <span class="channel-own" title="This project uses its own watermark instead of the channel's">custom watermark</span> }
+                </div>
+              }
 
               <!-- Inline Delete Confirmation -->
               @if (confirming() === project.id) {
@@ -489,6 +504,9 @@
                       </a>
                       @if (project.description) {
                         <span class="table-desc-text" [title]="project.description">{{ project.description }}</span>
+                      }
+                      @if (channels().length > 1) {
+                        <span class="channel-chip small">📺 {{ channelName(project) }}</span>
                       }
                     </div>
                   </div>

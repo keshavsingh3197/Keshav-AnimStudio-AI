@@ -2,10 +2,10 @@
   <!-- Header -->
   <div class="branding-header">
     <div class="branding-header-title">
-      <div class="branding-header-icon">🎨</div>
+      <div class="branding-header-icon">{{ heading().icon }}</div>
       <div>
-        <h2>Server Studio Branding &amp; Video Defaults</h2>
-        <p>Configure server-wide hallmark watermarks, outro bumpers/end-cards, and video segmentation.</p>
+        <h2>{{ heading().title }}</h2>
+        <p>{{ heading().subtitle }}</p>
       </div>
     </div>
     <div class="branding-top-actions">
@@ -15,6 +15,7 @@
     </div>
   </div>
 
+  @if (shows('watermark') || shows('outro')) {
   <!-- Brand channels: each YouTube channel gets its own watermark + end card. -->
   <div class="branding-card branding-card-wide channel-bar">
     <div class="channel-bar-head">
@@ -73,7 +74,9 @@
       </div>
     }
   </div>
+  }
 
+  @if (shows('watermark')) {
   <!-- Card 1: Studio Hallmark & Watermark -->
   <div class="branding-card">
     <div class="card-section-head">
@@ -198,44 +201,29 @@
 
         <!-- Right Column: Interactive 16:9 Canvas Mockup -->
         <div>
-          <label class="form-label">Live Hallmark Simulation</label>
+          <label class="form-label">Live preview</label>
           <div class="mockup-wrapper">
             <div class="mockup-header-row">
-              <span>Preview Viewport (16:9 Ratio)</span>
+              <div class="aspect-toggle" role="group" aria-label="Preview format">
+                @for (a of previewAspects; track a.label) {
+                  <button type="button" [class.active]="previewAspect() === a" (click)="previewAspect.set(a)">{{ a.label }}</button>
+                }
+              </div>
               <span style="color: #93c5fd; font-family: ui-monospace, monospace;">{{ form.position }} &bull; {{ (form.opacity * 100) | number: '1.0-0' }}%</span>
             </div>
 
-            <div class="watermark-viewport"
-                 [style.padding.px]="(form.margin / 100) * 280"
-                 [style.align-items]="form.position.startsWith('Top') ? 'flex-start' : 'flex-end'"
-                 [style.justify-content]="form.position.endsWith('Left') ? 'flex-start' : form.position.endsWith('Right') ? 'flex-end' : 'center'">
-              <div class="watermark-viewport-grid"></div>
-              <div class="viewport-center-cross"></div>
-
-              @if (form.kind === 'Logo') {
-                @if (logoPreviewUrl(); as url) {
-                  <img class="mockup-watermark-item" [src]="url" alt="Hallmark logo"
-                       [style.height.px]="(form.height / 100) * 280"
-                       [style.opacity]="form.opacity"
-                       style="object-fit: contain; max-width: 180px; display: block;" />
-                } @else {
-                  <div class="mockup-watermark-item" style="padding: 6px 12px; background: rgba(0,0,0,0.6); border-radius: 4px; font-size: 0.75rem; color: #8b9bb4; border: 1px dashed #374151;">
-                    No logo image uploaded yet
-                  </div>
-                }
-              } @else {
-                <div class="mockup-watermark-item"
-                     [style.font-size.px]="((form.height / 100) * 280 * 0.75)"
-                     [style.color]="form.color"
-                     [style.opacity]="form.opacity"
-                     [style.background]="'rgba(0,0,0,' + form.backplate + ')'"
-                     style="padding: 4px 10px; border-radius: 4px; font-weight: 600; line-height: 1.2; letter-spacing: 0.02em; border: 1px solid rgba(255,255,255,0.08); backdrop-filter: blur(2px);">
-                  {{ form.text || 'AnimStudio AI' }}
-                </div>
-              }
+            <div class="preview-stage">
+              <app-watermark-preview
+                [watermark]="formAsBody()"
+                [width]="previewAspect().width"
+                [height]="previewAspect().height"
+                [logoUrl]="logoPreviewUrl()"
+                [boxHeight]="previewAspect().height > previewAspect().width ? 300 : 200"
+                [label]="previewAspect().width + '×' + previewAspect().height" />
             </div>
             <p style="margin: 0; font-size: 0.78rem; color: #8b9bb4; text-align: center;">
-              This watermark is automatically composited over finished video frames.
+              Drawn with the renderer's own sizing, including the safe margin on upright videos -
+              what you see here is the export, scaled down.
             </p>
           </div>
         </div>
@@ -248,7 +236,9 @@
       </button>
     </div>
   </div>
+  }
 
+  @if (shows('outro')) {
   <!-- Card 2: Global Channel Outro & End-Card Bumper -->
   <div class="branding-card branding-card-wide">
     <div class="card-section-head">
@@ -554,7 +544,9 @@
       </button>
     </div>
   </div>
+  }
 
+  @if (shows('chunking')) {
   <!-- Card 3: Global Video Chunking & Splitting -->
   <div class="branding-card">
     <div class="card-section-head">
@@ -618,4 +610,5 @@
       </button>
     </div>
   </div>
+  }
 </div>

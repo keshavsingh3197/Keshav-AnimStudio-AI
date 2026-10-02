@@ -76,6 +76,7 @@ public static class DependencyInjection
 
         // Adapts the package's IObjectStore to the Application layer's own port.
         services.AddSingleton<AppObjectStore, KeshavObjectStoreAdapter>();
+        services.AddSingleton<IStorageUsageService, LocalStorageUsageService>();
         // --- persistence: Dual database support (SqlServer on localhost or Mongo)
         var dbProvider = configuration["Database:Provider"] ?? "SqlServer";
         var useSqlServer = string.Equals(dbProvider, "SqlServer", StringComparison.OrdinalIgnoreCase);

@@ -477,3 +477,15 @@
 .btn-outline.danger { color: #f87171; border-color: rgba(239, 68, 68, 0.35); }
 @media (max-width: 768px) { .channel-add { margin-left: 0; width: 100%; } }
 .channel-heading-name { color: var(--brand, #6c8cff); font-weight: 600; }
+
+/* Live preview: format toggle + renderer-accurate frame */
+.aspect-toggle { display: inline-flex; border: 1px solid #1d2a45; border-radius: 6px; overflow: hidden; }
+.aspect-toggle button {
+  background: transparent; border: none; color: #8b9bb4; font-size: 0.72rem;
+  padding: 3px 9px; cursor: pointer;
+}
+.aspect-toggle button.active { background: #4f46e5; color: #fff; }
+.preview-stage {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 310px; padding: 8px; border-radius: 8px; background: #070b14;
+}

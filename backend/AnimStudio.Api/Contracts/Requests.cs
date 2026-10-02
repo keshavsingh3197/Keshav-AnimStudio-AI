@@ -600,3 +600,9 @@ public sealed record TimelineItemRequest
     public double? TrimStartSeconds { get; init; }
     public double? TrimEndSeconds { get; init; }
 }
+
+/// <summary>Null clears the quota; the bar then shows the drive's capacity.</summary>
+public sealed record UpdateStorageQuotaRequest
+{
+    [Range(1, 1_000_000)] public double? QuotaGb { get; init; }
+}

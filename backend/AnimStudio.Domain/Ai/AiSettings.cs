@@ -119,6 +119,12 @@ public sealed class AiSettings
     public double DefaultChunkDurationSeconds { get; set; } = 10.0;
 
     /// <summary>
+    /// The space set aside for durable media, in GB - what the storage bar fills against.
+    /// Null: no quota, and the bar shows the drive's own capacity instead.
+    /// </summary>
+    public double? StorageQuotaGb { get; set; }
+
+    /// <summary>
     /// Whether downloading media from external URLs is enabled.
     /// </summary>
     public bool AllowMediaDownload { get; set; } = true;

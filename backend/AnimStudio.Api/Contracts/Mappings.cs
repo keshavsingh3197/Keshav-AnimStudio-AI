@@ -202,3 +202,22 @@ public static class Mappings
         result.AppendedAssetIds,
         result.IsExact);
 }
+
+public static class StorageMappings
+{
+    private const double BytesPerGb = 1024d * 1024 * 1024;
+
+    public static StorageSummaryResponse ToSummary(this AnimStudio.Application.Abstractions.Storage.StorageUsage usage, double? quotaGb)
+    {
+        var (capacity, source) = quotaGb is > 0
+            ? ((long?)(quotaGb.Value * BytesPerGb), "quota")
+            : usage.DiskTotalBytes is { } disk ? (disk, "disk") : ((long?)null, "none");
+
+        return new StorageSummaryResponse(
+            usage.Provider, usage.IsMeasurable, usage.UsedBytes, capacity, source, usage.MeasuredAt);
+    }
+
+    public static StorageDetailResponse ToDetail(this AnimStudio.Application.Abstractions.Storage.StorageUsage usage, double? quotaGb) =>
+        new(usage.ToSummary(quotaGb), quotaGb, usage.FileCount, usage.DiskTotalBytes, usage.DiskFreeBytes,
+            usage.Folders.Select(f => new StorageFolderResponse(f.Name, f.Bytes, f.Files)).ToList());
+}

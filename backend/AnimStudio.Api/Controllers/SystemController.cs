@@ -21,8 +21,21 @@ public sealed class SystemController(
     IOptionsMonitor<AdminOptions> adminOptions,
     IAiSettingsRepository aiSettingsRepo,
     IAssetRepository assets,
-    IObjectStore store) : ControllerBase
+    IObjectStore store,
+    IStorageUsageService storageUsage) : ControllerBase
 {
+    /// <summary>
+    /// How full the media store is, for the project hub's storage bar. Measured from the
+    /// store itself (cached for a minute) against the quota set in server settings.
+    /// </summary>
+    [HttpGet("storage")]
+    public async Task<ActionResult<ApiResponse<StorageSummaryResponse>>> GetStorage(CancellationToken ct)
+    {
+        var settings = await aiSettingsRepo.GetAsync(ct);
+        var usage = await storageUsage.GetAsync(refresh: false, ct);
+        return Ok(ApiResponse<StorageSummaryResponse>.Ok(usage.ToSummary(settings?.StorageQuotaGb)));
+    }
+
     /// <summary>
     /// Whether this caller may administer the server.
     /// <para>
@@ -213,7 +226,9 @@ public sealed class SystemController(
     /// <summary>
     /// Updates the global default chunk duration in seconds.
     /// </summary>
+    // A server-wide default: changing it is administration, like every other global setting.
     [HttpPut("chunk-duration")]
+    [Microsoft.AspNetCore.Authorization.Authorize(Policy = AnimStudio.Api.Security.AdminAccess.Policy)]
     public async Task<ActionResult<ApiResponse<double>>> UpdateChunkDuration(
         [FromBody] UpdateChunkDurationRequest request, CancellationToken ct)
     {

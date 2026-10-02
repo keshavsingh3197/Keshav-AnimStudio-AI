@@ -1,16 +1,17 @@
 import { Component, computed, effect, inject, model, signal } from '@angular/core';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { DatePipe, DecimalPipe, NgClass } from '@angular/common';
 import { ApiService } from '../core/services/api.service';
-import { Project, HubConfig } from '../core/models/api.models';
+import { Project, BrandChannel, StorageSummary, WatermarkBody, DEFAULT_BRAND_CHANNEL, formatBytes } from '../core/models/api.models';
 import { StatusService } from '../core/services/status.service';
 import { FileDropDirective } from '../shared/file-drop.directive';
 import { optimizeThumbnailImage } from '../core/utils/image-utils';
+import { WatermarkPreviewComponent } from '../shared/watermark-preview.component';
 
 @Component({
   selector: 'app-project-hub-modal',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, FileDropDirective],
+  imports: [DatePipe, DecimalPipe, FileDropDirective, RouterLink, WatermarkPreviewComponent],
   template: `
     @if (isOpen()) {
       <div class="modal-backdrop" (click)="close()" (keydown.escape)="close()" tabindex="0" style="position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 9999; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px);">
@@ -23,14 +24,22 @@ import { optimizeThumbnailImage } from '../core/utils/image-utils';
             <div style="display: flex; gap: 1rem; align-items: center;">
               
               
-              <div class="storage-bar" [title]="storageUsedGb() + ' GB / ' + storageTotalGb() + ' GB Used'">
-                <div class="storage-track">
-                  <div class="storage-fill" [style.width]="(storageUsedGb() / storageTotalGb() * 100) + '%'"></div>
-                </div>
-                <span class="storage-text">{{ storageUsedGb() }} / {{ storageTotalGb() }} GB</span>
-              </div>
-
-              <span class="cloud-indicator">☁️ Cloud Synced</span>
+              @if (storage(); as s) {
+                <a class="storage-bar" routerLink="/admin/storage" (click)="close()"
+                   [class.warn]="storagePercent() >= 85" [class.full]="storagePercent() >= 100"
+                   [title]="storageTitle()">
+                  @if (s.isMeasurable) {
+                    <div class="storage-track">
+                      <div class="storage-fill" [style.width.%]="Math.min(100, storagePercent())"></div>
+                    </div>
+                    <span class="storage-text">
+                      {{ bytes(s.usedBytes) }}@if (s.capacityBytes) { / {{ bytes(s.capacityBytes) }} }
+                    </span>
+                  } @else {
+                    <span class="storage-text">{{ s.provider }} storage</span>
+                  }
+                </a>
+              }
               <button class="icon close-btn" type="button" (click)="close()">&times;</button>
             </div>
           </div>
@@ -161,9 +170,34 @@ import { optimizeThumbnailImage } from '../core/utils/image-utils';
                     </div>
                   </div>
 
-                  <div class="drop-media-area" (dragover)="$event.preventDefault()" (drop)="onDropMedia($event)">
-                    <span style="font-size: 1.5rem">📥</span>
-                    <span>Drag & Drop media here<br><small>to auto-initialize timeline</small></span>
+                  <div class="form-group">
+                    <label>Channel &amp; watermark</label>
+                    <div class="channel-chips">
+                      @for (c of channels(); track c.id) {
+                        <button type="button" class="channel-chip" [class.active]="selectedChannelId() === c.id"
+                                (click)="selectedChannelId.set(c.id)">
+                          {{ c.name }}
+                          <small>{{ watermarkSummary(c) }}</small>
+                        </button>
+                      }
+                    </div>
+                    <div class="mark-mode">
+                      <button type="button" [class.active]="!noWatermark()" (click)="noWatermark.set(false)">Channel watermark</button>
+                      <button type="button" [class.active]="noWatermark()" (click)="noWatermark.set(true)">No watermark</button>
+                    </div>
+                    <div class="mark-preview">
+                      <app-watermark-preview
+                        [watermark]="previewWatermark()"
+                        [width]="selectedPreset()?.width ?? 1920"
+                        [height]="selectedPreset()?.height ?? 1080"
+                        [logoUrl]="previewLogoUrl()"
+                        [boxHeight]="128" />
+                      <p class="mark-hint">
+                        Exactly where the export draws it. The end card comes from the same channel;
+                        both can be changed per project later, or for every project in
+                        <a routerLink="/admin/branding/watermark" (click)="close()">Settings › Watermark</a>.
+                      </p>
+                    </div>
                   </div>
 
                 } @else {
@@ -538,7 +572,7 @@ import { optimizeThumbnailImage } from '../core/utils/image-utils';
     .ai-quick-starts {
       display: flex;
       gap: 6px;
-      overflow-x: auto;
+      flex-wrap: wrap;
       padding-bottom: 4px;
     }
     .ai-btn {
@@ -572,14 +606,14 @@ import { optimizeThumbnailImage } from '../core/utils/image-utils';
     }
     .preset-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 8px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 6px;
     }
     .preset-card {
       background: var(--bg);
       border: 1px solid var(--border);
       border-radius: 6px;
-      padding: 8px;
+      padding: 6px 4px;
       cursor: pointer;
       display: flex;
       flex-direction: column;
@@ -591,8 +625,8 @@ import { optimizeThumbnailImage } from '../core/utils/image-utils';
       background: color-mix(in srgb, var(--brand) 10%, transparent);
     }
     .aspect-box-container {
-      width: 40px;
-      height: 40px;
+      width: 26px;
+      height: 26px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -605,20 +639,24 @@ import { optimizeThumbnailImage } from '../core/utils/image-utils';
       border-radius: 2px;
       border: 1px solid rgba(255,255,255,0.2);
     }
-    .preset-label { font-size: 0.7rem; text-align: center; line-height: 1.2; }
-    .drop-media-area {
-      border: 2px dashed var(--border);
-      border-radius: 8px;
-      padding: 1.5rem;
-      text-align: center;
-      color: var(--muted);
-      font-size: 0.8rem;
-      margin-top: 1rem;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      background: var(--bg);
+    .preset-label { font-size: 0.66rem; text-align: center; line-height: 1.2; }
+    .channel-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .channel-chip {
+      display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+      padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--bg); color: var(--text); font-size: 0.8rem; cursor: pointer;
     }
+    .channel-chip small { color: var(--muted); font-size: 0.66rem; }
+    .channel-chip.active { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 14%, transparent); }
+    .mark-mode { display: inline-flex; margin-top: 8px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+    .mark-mode button { background: transparent; border: none; color: var(--muted); padding: 4px 10px; font-size: 0.75rem; cursor: pointer; }
+    .mark-mode button.active { background: var(--brand); color: #fff; }
+    .mark-preview { display: flex; gap: 12px; align-items: flex-start; margin-top: 10px; }
+    .mark-hint { margin: 0; font-size: 0.72rem; color: var(--muted); line-height: 1.45; }
+    .mark-hint a { color: var(--brand-glow, var(--brand)); }
+    a.storage-bar { text-decoration: none; color: inherit; }
+    .storage-bar.warn .storage-fill { background: #f59e0b; }
+    .storage-bar.full .storage-fill { background: #ef4444; }
     
     .hub-create-footer {
       padding-top: 1rem;
@@ -717,8 +755,34 @@ export class ProjectHubModalComponent {
 
   readonly hubTemplates = signal<any[]>([]);
   readonly hubQuickStarts = signal<any[]>([]);
-  readonly storageUsedGb = signal(0);
-  readonly storageTotalGb = signal(50);
+  readonly Math = Math;
+  readonly bytes = formatBytes;
+
+  /** Measured on the server; null until it answers, and the bar is then simply not shown. */
+  readonly storage = signal<StorageSummary | null>(null);
+  readonly storagePercent = computed(() => {
+    const s = this.storage();
+    return s?.capacityBytes ? (s.usedBytes / s.capacityBytes) * 100 : 0;
+  });
+  readonly storageTitle = computed(() => {
+    const s = this.storage();
+    if (!s) return '';
+    if (!s.isMeasurable) return `${s.provider} storage: usage cannot be measured from here.`;
+    const of = s.capacitySource === 'quota' ? 'of the quota set in Settings › Storage'
+      : s.capacitySource === 'disk' ? 'of the drive (no quota set)' : '';
+    return `${formatBytes(s.usedBytes)} used ${of}${s.capacityBytes ? ` - ${this.storagePercent().toFixed(0)}%` : ''}. Click to manage.`;
+  });
+
+  // Channel & watermark for the new project
+  readonly channels = signal<BrandChannel[]>([]);
+  readonly selectedChannelId = signal<string>(DEFAULT_BRAND_CHANNEL);
+  readonly noWatermark = signal(false);
+  readonly selectedChannel = computed(() =>
+    this.channels().find((c) => c.id === this.selectedChannelId()) ?? null);
+  readonly previewWatermark = computed<WatermarkBody | null>(() =>
+    this.noWatermark() ? null : this.selectedChannel()?.watermark ?? null);
+  readonly previewLogoUrl = computed(() =>
+    this.previewWatermark()?.kind === 'Logo' ? this.api.globalLogoUrl(this.selectedChannelId()) : null);
 
 
   // Management State
@@ -771,9 +835,20 @@ export class ProjectHubModalComponent {
       
       if (this.isOpen()) {
         this.api.listProjects().subscribe(p => this.projects.set(p));
+        this.api.storageSummary().subscribe({
+          next: (s) => this.storage.set(s),
+          error: () => this.storage.set(null),
+        });
+        this.api.listBrandChannels().subscribe({
+          next: (list) => {
+            this.channels.set(list);
+            if (!list.some((c) => c.id === this.selectedChannelId())) {
+              this.selectedChannelId.set(list.find((c) => c.isDefault)?.id ?? DEFAULT_BRAND_CHANNEL);
+            }
+          },
+          error: () => this.channels.set([]),
+        });
         this.api.getHubConfig().subscribe(config => {
-          this.storageUsedGb.set(config.storageUsedGb);
-          this.storageTotalGb.set(config.storageTotalGb);
           this.presets.set(config.presets);
           this.hubTemplates.set(config.templates);
           this.hubQuickStarts.set(config.quickStarts);
@@ -901,6 +976,11 @@ export class ProjectHubModalComponent {
     const name = this.newProjectName().trim() || 'Untitled Project';
     const preset = this.selectedPreset();
     
+    const open = (project: Project) => {
+      this.close();
+      this.router.navigate(['/projects', project.id, 'clips']);
+    };
+
     this.status.run(
       this.api.createProject({
         name,
@@ -908,12 +988,41 @@ export class ProjectHubModalComponent {
         height: preset.height,
         fps: 30,
         distributionIntent: 'Public',
+        brandChannelId: this.selectedChannelId(),
       }),
       (project) => {
-        this.close();
-        this.router.navigate(['/projects', project.id, 'clips']);
+        if (!this.noWatermark()) {
+          open(project);
+          return;
+        }
+        // "No watermark" is this project's own choice, so it stops following the channel;
+        // the channel's end card still applies.
+        this.status.run(
+          this.api.updateProject(project.id, {
+            name: project.name,
+            width: project.width,
+            height: project.height,
+            fps: project.fps,
+            distributionIntent: project.distributionIntent,
+            acceptShareAlikeObligation: project.acceptShareAlikeObligation,
+            backgroundMusicVolume: project.backgroundMusicVolume,
+            brandChannelId: project.brandChannelId ?? null,
+            followChannelWatermark: false,
+            defaultWatermark: {
+              kind: 'None', position: 'TopRight', opacity: 0.8,
+              heightFraction: 0.055, marginFraction: 0.04, backplateOpacity: 0.3,
+            },
+          }),
+          () => open(project),
+        );
       }
     );
+  }
+
+  watermarkSummary(c: BrandChannel): string {
+    const w = c.watermark;
+    if (!w || w.kind === 'None') return 'no watermark';
+    return w.kind === 'Logo' ? 'logo' : `"${w.text ?? ''}"`.slice(0, 22);
   }
 
   renameProject(p: Project) {
@@ -963,15 +1072,6 @@ export class ProjectHubModalComponent {
           this.projects.update(list => list.filter(x => x.id !== p.id));
         }
       );
-    }
-  }
-
-  onDropMedia(e: DragEvent) {
-    e.preventDefault();
-    this.status.notify(['Media dropped! It will be imported upon creation.']);
-    if (e.target instanceof HTMLElement) {
-      e.target.style.borderColor = 'var(--brand)';
-      e.target.innerHTML = '<span>✅ Media Ready</span><br><small>Will import on create</small>';
     }
   }
 }

@@ -1028,3 +1028,35 @@ export interface HubConfig {
   templates: HubTemplate[];
   quickStarts: HubQuickStart[];
 }
+
+/** How full the media store is. Mirrors StorageSummaryResponse. */
+export interface StorageSummary {
+  provider: string;
+  isMeasurable: boolean;
+  usedBytes: number;
+  /** What the bar fills against: the admin's quota, else the drive's size. */
+  capacityBytes: number | null;
+  capacitySource: 'quota' | 'disk' | 'none';
+  measuredAt: string;
+}
+
+export interface StorageFolder { name: string; bytes: number; files: number; }
+
+/** The settings page's view of storage. Mirrors StorageDetailResponse. */
+export interface StorageDetail {
+  summary: StorageSummary;
+  quotaGb: number | null;
+  fileCount: number;
+  diskTotalBytes: number | null;
+  diskFreeBytes: number | null;
+  folders: StorageFolder[];
+}
+
+/** "1.4 GB", "820 MB" - binary units, as the server counts them. */
+export function formatBytes(bytes: number | null | undefined): string {
+  if (bytes == null || !Number.isFinite(bytes)) return '—';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let v = Math.max(0, bytes), i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return `${v >= 100 || i === 0 ? v.toFixed(0) : v.toFixed(1)} ${units[i]}`;
+}

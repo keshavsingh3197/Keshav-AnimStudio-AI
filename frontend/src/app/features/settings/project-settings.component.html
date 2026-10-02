@@ -237,7 +237,7 @@
         <div style="font-size: 0.84rem; color: #8b9bb4;">
           No global server-wide hallmark configured yet.
         </div>
-        <a routerLink="/admin/branding" style="font-size: 0.84rem; color: var(--brand, #6c8cff); text-decoration: none; font-weight: 600;">
+        <a routerLink="/admin/branding/watermark" style="font-size: 0.84rem; color: var(--brand, #6c8cff); text-decoration: none; font-weight: 600;">
           Configure Global Studio Hallmark &rarr;
         </a>
       }
@@ -259,7 +259,7 @@
       <p class="field-hint" style="margin: 0.4rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
         @if (form.followChannelWatermark) {
           Shown below as the channel has it. Change it in
-          <a routerLink="/admin/branding" style="color: var(--brand, #6c8cff);">Admin → Branding</a>
+          <a routerLink="/admin/branding/watermark" style="color: var(--brand, #6c8cff);">Settings → Watermark</a>
           and this project follows automatically.
         } @else {
           This project's own watermark - channel changes do not affect it.
@@ -452,7 +452,7 @@
         <div style="font-size: 0.84rem; color: #8b9bb4;">
           No global studio outro configured on server.
         </div>
-        <a routerLink="/admin/branding" style="font-size: 0.84rem; color: var(--brand, #6c8cff); text-decoration: none; font-weight: 600;">
+        <a routerLink="/admin/branding/end-card" style="font-size: 0.84rem; color: var(--brand, #6c8cff); text-decoration: none; font-weight: 600;">
           Configure Global Studio Outro &rarr;
         </a>
       }
@@ -602,7 +602,7 @@
           <span class="form-label" style="margin: 0;">Your exports end with</span>
           <div class="end-card-effective-label">{{ endCardLabel() }}</div>
           @if (endCardSource() === 'global') {
-            <a routerLink="/admin/branding" class="end-card-effective-link">Edit the studio end card &rarr;</a>
+            <a routerLink="/admin/branding/end-card" class="end-card-effective-link">Edit the studio end card &rarr;</a>
           }
         </div>
         @if (endCardSource() !== 'none') {

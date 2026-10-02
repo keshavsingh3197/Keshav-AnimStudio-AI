@@ -1,39 +1,61 @@
-<div class="page-head">
-  <div>
-    <h1>Server settings</h1>
-    <p class="muted">
-      Everything about how this copy of AnimStudio runs. None of it is needed to make a
-      video &mdash; the <strong>Bundle</strong> tab on a project works with all of this
-      switched off.
-    </p>
-  </div>
-</div>
-
 @if (access(); as access) {
-  @if (!access.canAdminister) {
-    <div class="notice error">{{ access.explanation }}</div>
-  }
+  <div class="settings-layout">
+    <aside class="settings-nav" aria-label="Settings">
+      <div class="settings-nav-head">
+        <h1>Settings</h1>
+        <p class="muted">How this copy of AnimStudio runs. None of it is needed to make a video.</p>
+      </div>
 
-  <nav class="subtabs">
-    <a routerLink="providers" routerLinkActive="active">AI providers</a>
-    <a routerLink="branding" routerLinkActive="active">Branding & Hallmark</a>
-    <a routerLink="usage" routerLinkActive="active">Usage</a>
-    <a routerLink="health" routerLinkActive="active">This machine</a>
-    <a routerLink="jobs" routerLinkActive="active">Renders</a>
-    <a routerLink="activity" routerLinkActive="active">Activity</a>
-  </nav>
+      <div class="settings-search">
+        <input #search type="search" placeholder="Search settings  ( / )" aria-label="Search settings"
+               [value]="query()" (input)="query.set(search.value)"
+               (keydown.enter)="openFirst()" (keydown.escape)="query.set(''); search.blur()" />
+      </div>
 
-  @if (access.canAdminister) {
-    <router-outlet />
-  } @else {
-    <div class="empty">
-      <p>There is nothing to show here from this browser.</p>
-      <p class="muted">
-        Open AnimStudio on the machine the server is running on, or sign in with an account
-        that has the Admin role.
-      </p>
-    </div>
-  }
+      @if (query().trim()) {
+        <div class="settings-results">
+          @for (r of results(); track r.page.id) {
+            <a class="settings-link" [routerLink]="r.page.route" routerLinkActive="active" (click)="query.set('')">
+              <span class="ico">{{ r.page.icon }}</span>
+              <span class="txt">
+                <span class="lbl">{{ r.page.label }}</span>
+                <span class="sub">{{ r.via ? 'has “' + r.via + '”' : r.page.group }}</span>
+              </span>
+            </a>
+          } @empty {
+            <p class="muted none">No setting matches “{{ query() }}”.</p>
+          }
+        </div>
+      } @else {
+        @for (g of groups; track g.name) {
+          <div class="settings-group">
+            <span class="settings-group-name">{{ g.name }}</span>
+            @for (p of g.pages; track p.id) {
+              <a class="settings-link" [routerLink]="p.route" routerLinkActive="active" [title]="p.description">
+                <span class="ico">{{ p.icon }}</span>
+                <span class="lbl">{{ p.label }}</span>
+              </a>
+            }
+          </div>
+        }
+      }
+    </aside>
+
+    <main class="settings-main">
+      @if (!access.canAdminister) {
+        <div class="notice error">{{ access.explanation }}</div>
+        <div class="empty">
+          <p>There is nothing to show here from this browser.</p>
+          <p class="muted">
+            Open AnimStudio on the machine the server is running on, or sign in with an account
+            that has the Admin role.
+          </p>
+        </div>
+      } @else {
+        <router-outlet />
+      }
+    </main>
+  </div>
 } @else {
   <div class="card muted">Loading&hellip;</div>
 }

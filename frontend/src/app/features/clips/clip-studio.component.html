@@ -1085,7 +1085,7 @@
                     {{ endCardPreviewBusy() ? 'Rendering…' : (endCardPreviewUrl() ? '↻ Re-render' : '▶ Preview end card') }}
                   </button>
                 } @else {
-                  <a class="end-card-effective-link" routerLink="/admin/branding">Set one up in Branding &rarr;</a>
+                  <a class="end-card-effective-link" routerLink="/admin/branding/end-card">Set one up in Settings › End card &rarr;</a>
                 }
               </div>
               @if (endCardPreviewError(); as err) {

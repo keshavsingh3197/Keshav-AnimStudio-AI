@@ -120,12 +120,37 @@ export const routes: Routes = [
           import('./features/admin/admin-providers.component')
             .then((m) => m.AdminProvidersComponent),
       },
+      // One branding component, three pages: the route data says which section it shows.
+      { path: 'branding', pathMatch: 'full', redirectTo: 'branding/watermark' },
       {
-        path: 'branding',
-        title: 'Branding & Hallmark - AnimStudio AI',
+        path: 'branding/watermark',
+        title: 'Watermark - AnimStudio AI',
+        data: { section: 'watermark' },
         loadComponent: () =>
           import('./features/admin/admin-branding.component')
             .then((m) => m.AdminBrandingComponent),
+      },
+      {
+        path: 'branding/end-card',
+        title: 'End card - AnimStudio AI',
+        data: { section: 'outro' },
+        loadComponent: () =>
+          import('./features/admin/admin-branding.component')
+            .then((m) => m.AdminBrandingComponent),
+      },
+      {
+        path: 'media/chunking',
+        title: 'Video chunking - AnimStudio AI',
+        data: { section: 'chunking' },
+        loadComponent: () =>
+          import('./features/admin/admin-branding.component')
+            .then((m) => m.AdminBrandingComponent),
+      },
+      {
+        path: 'storage',
+        title: 'Storage - AnimStudio AI',
+        loadComponent: () =>
+          import('./features/admin/admin-storage.component').then((m) => m.AdminStorageComponent),
       },
       {
         path: 'usage',

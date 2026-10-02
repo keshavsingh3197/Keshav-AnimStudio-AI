@@ -1348,3 +1348,18 @@
 @media (min-width: 3000px) {
   .projects-dashboard-page { max-width: 3000px; }
 }
+
+/* Channel the project publishes under */
+.card-channel-row { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
+.channel-chip {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
+  padding: 1px 8px; border-radius: 999px; font-size: 0.7rem; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+  color: #c7d2fe; background: color-mix(in srgb, #6366f1 18%, transparent);
+  border: 1px solid color-mix(in srgb, #6366f1 35%, transparent);
+}
+.channel-chip.small { font-size: 0.66rem; margin-top: 3px; align-self: flex-start; }
+.channel-own { font-size: 0.66rem; color: var(--muted, #8b9bb4); font-style: italic; }
+
+/* Filters size to their content instead of the global full-width select rule */
+.toolbar-left .toolbar-select { width: auto; flex: 0 0 auto; min-width: 150px; max-width: 220px; }

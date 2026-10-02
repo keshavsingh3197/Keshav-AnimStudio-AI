@@ -59,8 +59,40 @@ public sealed class AdminController(
     IAiSettingsRepository aiSettingsRepo,
     IAssetRepository assets,
     AppObjectStore store,
+    AnimStudio.Application.Abstractions.Storage.IStorageUsageService storageUsage,
     TimeProvider clock) : ControllerBase
 {
+    // --- storage -------------------------------------------------------------------------
+
+    [HttpGet("storage")]
+    public async Task<ActionResult<ApiResponse<StorageDetailResponse>>> GetStorage(
+        [FromQuery] bool refresh, CancellationToken ct)
+    {
+        var stored = await aiSettingsRepo.GetAsync(ct);
+        var usage = await storageUsage.GetAsync(refresh, ct);
+        return Ok(ApiResponse<StorageDetailResponse>.Ok(usage.ToDetail(stored?.StorageQuotaGb)));
+    }
+
+    [HttpPut("storage")]
+    public async Task<ActionResult<ApiResponse<StorageDetailResponse>>> UpdateStorageQuota(
+        [FromBody] UpdateStorageQuotaRequest request, CancellationToken ct)
+    {
+        var stored = await aiSettingsRepo.GetAsync(ct) ?? new AiSettings();
+        var before = stored.StorageQuotaGb;
+        stored.StorageQuotaGb = request.QuotaGb;
+        stored.UpdatedAt = DateTime.UtcNow;
+        await aiSettingsRepo.SaveAsync(stored, ct);
+
+        await audit.RecordAsync(
+            "storage.quota.updated", "storage",
+            before?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "none",
+            request.QuotaGb?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "none",
+            RemoteAddress(), ct);
+
+        var usage = await storageUsage.GetAsync(refresh: false, ct);
+        return Ok(ApiResponse<StorageDetailResponse>.Ok(usage.ToDetail(stored.StorageQuotaGb)));
+    }
+
     /// <summary>A fortnight reads well on one screen and covers a free tier's reset cycle.</summary>
     private const int DefaultUsageDays = 14;
     private const int MaxUsageDays = 92;

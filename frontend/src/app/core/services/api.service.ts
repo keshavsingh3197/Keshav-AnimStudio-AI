@@ -11,7 +11,7 @@ import {
   CreateSceneBody, DialogueBody, IngestCapabilities, IngestResult, IngestSummary,
   PlacementBody, Project, RenderJob, ExportTimelineFormat, RendererStatus, Scene, SceneAudioBody, SceneDetail,
   SceneGenerationResult, ScriptDetail, ScriptSummary, UpdateProjectBody, UpdateSceneBody,
-  WatermarkBody, OutroBody, BrandChannel, DEFAULT_BRAND_CHANNEL,
+  WatermarkBody, OutroBody, BrandChannel, DEFAULT_BRAND_CHANNEL, StorageSummary, StorageDetail,
 } from '../models/api.models';
 
 /**
@@ -28,8 +28,6 @@ export class ApiService {
       catchError(err => {
         console.warn('Could not fetch HubConfig from backend. Using static fallbacks.');
         return of({
-          storageUsedGb: 14.2,
-          storageTotalGb: 50,
           presets: [
             { label: '9:16 Shorts', width: 1080, height: 1920 },
             { label: '16:9 Landscape', width: 1920, height: 1080 },
@@ -55,6 +53,11 @@ export class ApiService {
   private readonly base = environment.apiUrl;
 
   // --- system
+  /** How full the media store is, measured on the server against the configured quota. */
+  storageSummary(): Observable<StorageSummary> {
+    return this.unwrap(this.http.get<ApiResponse<StorageSummary>>(`${this.base}/api/system/storage`));
+  }
+
   rendererStatus(): Observable<RendererStatus> {
     return this.unwrap(this.http.get<ApiResponse<RendererStatus>>(`${this.base}/api/system/renderer`));
   }
@@ -446,6 +449,15 @@ export class ApiService {
   // message rather than a blank screen.
 
   private readonly admin = `${this.base}/api/admin`;
+
+  adminStorage(refresh = false): Observable<StorageDetail> {
+    return this.unwrap(this.http.get<ApiResponse<StorageDetail>>(
+      `${this.admin}/storage${refresh ? '?refresh=true' : ''}`));
+  }
+
+  updateStorageQuota(quotaGb: number | null): Observable<StorageDetail> {
+    return this.unwrap(this.http.put<ApiResponse<StorageDetail>>(`${this.admin}/storage`, { quotaGb }));
+  }
 
   adminProviders(): Observable<AdminProviders> {
     return this.unwrap(this.http.get<ApiResponse<AdminProviders>>(`${this.admin}/providers`));

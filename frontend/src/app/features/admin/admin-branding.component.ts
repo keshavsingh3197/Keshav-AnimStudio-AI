@@ -1,5 +1,8 @@
 import { DecimalPipe } from '@angular/common';
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { ActivatedRoute } from '@angular/router';
+import { map } from 'rxjs';
 import { FormsModule } from '@angular/forms';
 
 import {
@@ -10,11 +13,12 @@ import { ApiService } from '../../core/services/api.service';
 import { MediaToolsService } from '../../core/services/media-tools.service';
 import { StatusService } from '../../core/services/status.service';
 import { FileDropDirective } from '../../shared/file-drop.directive';
+import { WatermarkPreviewComponent } from '../../shared/watermark-preview.component';
 
 @Component({
   selector: 'app-admin-branding',
   standalone: true,
-  imports: [FormsModule, DecimalPipe, FileDropDirective],
+  imports: [FormsModule, DecimalPipe, FileDropDirective, WatermarkPreviewComponent],
   templateUrl: './admin-branding.component.html',
   styleUrls: ['./admin-branding.component.css'],
 })
@@ -40,6 +44,46 @@ export class AdminBrandingComponent {
   readonly outroTransitions: readonly string[] = ['Fade', 'Dissolve', 'None', 'WipeLeft', 'WipeRight'];
 
   readonly chunkPresets: readonly number[] = [5, 10, 15, 30, 60, 120];
+
+  // --- Which page of the settings this is -----------------------------------------------
+  // One component serves the Watermark, End card and Video chunking pages; the route says
+  // which. With no section (an old /admin/branding bookmark) everything shows, as before.
+
+  private readonly route = inject(ActivatedRoute);
+  readonly section = toSignal(this.route.data.pipe(map((d) => (d['section'] as BrandingSection | undefined) ?? null)),
+    { initialValue: null });
+
+  shows(s: BrandingSection): boolean {
+    const current = this.section();
+    return current === null || current === s;
+  }
+
+  readonly heading = computed(() => HEADINGS[this.section() ?? 'all']);
+
+  // --- Live preview ---------------------------------------------------------------------
+
+  readonly previewAspects = [
+    { label: '16:9', width: 1920, height: 1080 },
+    { label: '9:16', width: 1080, height: 1920 },
+    { label: '1:1', width: 1080, height: 1080 },
+    { label: '4:5', width: 1080, height: 1350 },
+  ] as const;
+  readonly previewAspect = signal<(typeof this.previewAspects)[number]>(this.previewAspects[0]);
+
+  /** The unsaved form as the renderer would read it. */
+  formAsBody(): WatermarkBody {
+    return {
+      kind: this.form.kind,
+      text: this.form.text,
+      logoAssetId: this.form.logoAssetId || null,
+      position: this.form.position,
+      opacity: this.form.opacity,
+      heightFraction: this.form.height / 100,
+      marginFraction: this.form.margin / 100,
+      colorHex: this.form.color,
+      backplateOpacity: this.form.backplate,
+    };
+  }
 
   readonly logoPreviewUrl = signal<string | null>(null);
   readonly saveSuccess = signal(false);
@@ -498,3 +542,12 @@ function blankOutroForm() {
     textHex: '#FFFFFF',
   };
 }
+
+type BrandingSection = 'watermark' | 'outro' | 'chunking';
+
+const HEADINGS: Record<BrandingSection | 'all', { icon: string; title: string; subtitle: string }> = {
+  watermark: { icon: '🛡️', title: 'Watermark', subtitle: 'The mark stamped on every video of a channel. Projects on that channel follow it unless they set their own.' },
+  outro: { icon: '🎬', title: 'End card', subtitle: 'What each channel\'s videos finish with: a bumper video, a graphic, or a support card with a QR code.' },
+  chunking: { icon: '✂️', title: 'Video chunking', subtitle: 'The default segment length when long videos are split into clips.' },
+  all: { icon: '🎨', title: 'Branding & video defaults', subtitle: 'Watermarks, end cards and video segmentation.' },
+};

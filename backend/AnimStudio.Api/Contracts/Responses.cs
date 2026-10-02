@@ -238,3 +238,27 @@ public sealed record ClipStudioResponse(
     bool TransitionsAvailable,
     bool BlurredBackdropAvailable,
     string? StudioDraftJson = null);
+
+/// <summary>
+/// What the storage bar fills against. <c>CapacitySource</c> is "quota" when an
+/// administrator set one, "disk" when the bar falls back to the drive's size, and "none"
+/// when neither is known. No paths: this one is shown to every user.
+/// </summary>
+public sealed record StorageSummaryResponse(
+    string Provider,
+    bool IsMeasurable,
+    long UsedBytes,
+    long? CapacityBytes,
+    string CapacitySource,
+    DateTimeOffset MeasuredAt);
+
+public sealed record StorageFolderResponse(string Name, long Bytes, long Files);
+
+/// <summary>The settings page's view: the summary plus where the space went.</summary>
+public sealed record StorageDetailResponse(
+    StorageSummaryResponse Summary,
+    double? QuotaGb,
+    long FileCount,
+    long? DiskTotalBytes,
+    long? DiskFreeBytes,
+    IReadOnlyList<StorageFolderResponse> Folders);
