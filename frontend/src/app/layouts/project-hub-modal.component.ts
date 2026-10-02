@@ -7,11 +7,12 @@ import { StatusService } from '../core/services/status.service';
 import { FileDropDirective } from '../shared/file-drop.directive';
 import { optimizeThumbnailImage } from '../core/utils/image-utils';
 import { WatermarkPreviewComponent } from '../shared/watermark-preview.component';
+import { ChannelPickerComponent } from '../shared/channel-picker.component';
 
 @Component({
   selector: 'app-project-hub-modal',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, FileDropDirective, RouterLink, WatermarkPreviewComponent],
+  imports: [DatePipe, DecimalPipe, FileDropDirective, RouterLink, WatermarkPreviewComponent, ChannelPickerComponent],
   template: `
     @if (isOpen()) {
       <div class="modal-backdrop" (click)="close()" (keydown.escape)="close()" tabindex="0" style="position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 9999; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px);">
@@ -172,15 +173,21 @@ import { WatermarkPreviewComponent } from '../shared/watermark-preview.component
 
                   <div class="form-group">
                     <label>Channel &amp; watermark</label>
-                    <div class="channel-chips">
-                      @for (c of channels(); track c.id) {
-                        <button type="button" class="channel-chip" [class.active]="selectedChannelId() === c.id"
-                                (click)="selectedChannelId.set(c.id)">
-                          {{ c.name }}
-                          <small>{{ watermarkSummary(c) }}</small>
-                        </button>
-                      }
-                    </div>
+                    <!-- Chips for a handful of channels; past that, a searchable picker. -->
+                    @if (channels().length <= 6) {
+                      <div class="channel-chips">
+                        @for (c of channels(); track c.id) {
+                          <button type="button" class="channel-chip" [class.active]="selectedChannelId() === c.id"
+                                  (click)="selectedChannelId.set(c.id)">
+                            {{ c.name }}
+                            <small>{{ watermarkSummary(c) }}</small>
+                          </button>
+                        }
+                      </div>
+                    } @else {
+                      <app-channel-picker [channels]="channels()" [selectedId]="selectedChannelId()"
+                                          (selectedIdChange)="selectedChannelId.set($event)" />
+                    }
                     <div class="mark-mode">
                       <button type="button" [class.active]="!noWatermark()" (click)="noWatermark.set(false)">Channel watermark</button>
                       <button type="button" [class.active]="noWatermark()" (click)="noWatermark.set(true)">No watermark</button>

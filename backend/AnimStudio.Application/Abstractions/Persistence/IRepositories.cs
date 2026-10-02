@@ -12,6 +12,9 @@ public interface IProjectRepository
 {
     Task<Project?> GetAsync(string id, CancellationToken ct);
     Task<IReadOnlyList<Project>> ListAsync(string userId, CancellationToken ct);
+
+    /// <summary>Every user's projects. Administration only - e.g. counting what uses a brand channel.</summary>
+    Task<IReadOnlyList<Project>> ListAllAsync(CancellationToken ct);
     Task InsertAsync(Project project, CancellationToken ct);
     Task ReplaceAsync(Project project, CancellationToken ct);
     Task DeleteAsync(string id, CancellationToken ct);

@@ -15,7 +15,11 @@ public sealed class BrandChannel
     public const string DefaultId = "default";
 
     public const int MaxNameLength = 60;
-    public const int MaxChannels = 25;
+    /// <summary>
+    /// Ceiling, not a target. Channels live in one settings document; a thousand with a
+    /// watermark and end card each is well under a megabyte of it.
+    /// </summary>
+    public const int MaxChannels = 1000;
 
     public string Id { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;

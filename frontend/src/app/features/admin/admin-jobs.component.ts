@@ -24,13 +24,18 @@ export class AdminJobsComponent {
 
   readonly status = inject(StatusService);
   readonly jobs = signal<AdminJob[]>([]);
+  /** False until the first answer, so an empty list is never shown while it is still loading. */
+  readonly loaded = signal(false);
 
   constructor() {
     this.reload();
   }
 
   reload(): void {
-    this.status.run(this.api.adminJobs(), (jobs) => this.jobs.set(jobs));
+    this.status.run(this.api.adminJobs(), (jobs) => {
+      this.jobs.set(jobs);
+      this.loaded.set(true);
+    });
   }
 
   cancel(job: AdminJob): void {

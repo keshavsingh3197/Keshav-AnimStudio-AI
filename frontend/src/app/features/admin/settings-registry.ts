@@ -24,9 +24,14 @@ export type SettingsGroup = (typeof SETTINGS_GROUPS)[number];
 
 export const SETTINGS_PAGES: readonly SettingsPage[] = [
   {
+    id: 'channels', group: 'Branding', label: 'Channels', icon: '📺', route: 'channels',
+    description: 'Every brand channel: add, rename, duplicate, remove, and how many projects use each.',
+    keywords: ['channel', 'channels', 'youtube', 'brand', 'add channel', 'rename', 'delete', 'duplicate', 'projects'],
+  },
+  {
     id: 'watermark', group: 'Branding', label: 'Watermark', icon: '🛡️', route: 'branding/watermark',
     description: 'Each channel\'s logo or text mark, its position, size and opacity.',
-    keywords: ['channel', 'channels', 'brand', 'hallmark', 'logo', 'text', 'position', 'opacity', 'size', 'margin', 'colour', 'color', 'backplate', 'youtube'],
+    keywords: ['brand', 'hallmark', 'logo', 'text', 'position', 'opacity', 'size', 'margin', 'colour', 'color', 'backplate', 'youtube'],
   },
   {
     id: 'end-card', group: 'Branding', label: 'End card', icon: '🎬', route: 'branding/end-card',

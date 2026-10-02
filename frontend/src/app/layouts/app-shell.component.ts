@@ -42,10 +42,6 @@ import { StatusService } from '../core/services/status.service';
           </a>
         </nav>
 
-        @if (status.busy()) {
-          <span class="muted">working&hellip;</span>
-        }
-
 
         <div class="topbar-end">
           @if (status.busy()) {

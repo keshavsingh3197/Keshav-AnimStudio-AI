@@ -120,6 +120,12 @@ export const routes: Routes = [
           import('./features/admin/admin-providers.component')
             .then((m) => m.AdminProvidersComponent),
       },
+      {
+        path: 'channels',
+        title: 'Channels - AnimStudio AI',
+        loadComponent: () =>
+          import('./features/admin/admin-channels.component').then((m) => m.AdminChannelsComponent),
+      },
       // One branding component, three pages: the route data says which section it shows.
       { path: 'branding', pathMatch: 'full', redirectTo: 'branding/watermark' },
       {

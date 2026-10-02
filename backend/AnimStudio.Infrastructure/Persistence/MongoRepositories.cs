@@ -18,6 +18,9 @@ public sealed class MongoProjectRepository(MongoDbService mongo) : IProjectRepos
     public async Task<Project?> GetAsync(string id, CancellationToken ct) =>
         await Collection.Find(p => p.Id == id).FirstOrDefaultAsync(ct).ConfigureAwait(false);
 
+    public async Task<IReadOnlyList<Project>> ListAllAsync(CancellationToken ct) =>
+        await Collection.Find(FilterDefinition<Project>.Empty).ToListAsync(ct).ConfigureAwait(false);
+
     public async Task<IReadOnlyList<Project>> ListAsync(string userId, CancellationToken ct) =>
         await Collection.Find(p => p.UserId == userId)
             .SortByDescending(p => p.UpdatedAt)

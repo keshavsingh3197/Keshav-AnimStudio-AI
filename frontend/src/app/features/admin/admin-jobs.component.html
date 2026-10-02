@@ -5,7 +5,9 @@
   <span class="muted">The 40 most recent renders, newest first.</span>
 </div>
 
-@if (jobs().length === 0) {
+@if (!loaded()) {
+  <div class="empty muted">Loading renders&hellip;</div>
+} @else if (jobs().length === 0) {
   <div class="empty">Nothing has been rendered on this server yet.</div>
 } @else {
   <div class="card">

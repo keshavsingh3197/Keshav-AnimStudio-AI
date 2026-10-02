@@ -16,63 +16,20 @@
   </div>
 
   @if (shows('watermark') || shows('outro')) {
-  <!-- Brand channels: each YouTube channel gets its own watermark + end card. -->
+  <!-- Which channel these settings belong to. A picker, not tabs: it has to work for 1000. -->
   <div class="branding-card branding-card-wide channel-bar">
-    <div class="channel-bar-head">
+    <div class="channel-pick-row">
       <div>
-        <h3>📺 Brand Channels</h3>
-        <p>One look per YouTube channel. The watermark and end card below belong to the selected channel; each project picks its channel in its settings.</p>
+        <span class="form-label" style="margin: 0 0 4px; display: block;">Editing channel</span>
+        <app-channel-picker [channels]="channels()" [selectedId]="selectedChannelId()"
+                            (selectedIdChange)="selectChannel($event)" />
       </div>
+      <p class="channel-pick-hint">
+        Everything below belongs to this channel. Projects on it follow it unless they set their own.
+        {{ channels().length }} {{ channels().length === 1 ? 'channel' : 'channels' }} -
+        <a routerLink="/admin/channels">add, rename or remove them in Channels</a>.
+      </p>
     </div>
-
-    <div class="channel-tabs" role="tablist">
-      @for (c of channels(); track c.id) {
-        <button type="button" role="tab" class="channel-tab"
-                [class.active]="c.id === selectedChannelId()"
-                [attr.aria-selected]="c.id === selectedChannelId()"
-                (click)="selectChannel(c.id)">
-          <span class="channel-tab-name">{{ c.name }}</span>
-          @if (c.isDefault) { <span class="channel-tab-tag">default</span> }
-          <span class="channel-tab-meta">{{ channelSummary(c) }}</span>
-        </button>
-      }
-
-      <form class="channel-add" (submit)="$event.preventDefault(); createChannel()">
-        <input class="form-input" type="text" maxlength="60" placeholder="New channel name, e.g. Bhakti Kids"
-               [ngModel]="newChannelName()" (ngModelChange)="newChannelName.set($event)" name="newChannel" />
-        <button type="submit" class="btn-outline" [disabled]="!newChannelName().trim() || status.busy()"
-                title="Starts as a copy of the selected channel">
-          ➕ Add channel
-        </button>
-      </form>
-    </div>
-
-    @if (selectedChannel(); as current) {
-      <div class="channel-actions">
-        <span class="channel-editing">Editing: <strong>{{ current.name }}</strong></span>
-        @if (renamingChannel()) {
-          <form class="channel-rename" (submit)="$event.preventDefault(); saveRename()">
-            <input class="form-input" type="text" maxlength="60" [ngModel]="renameValue()"
-                   (ngModelChange)="renameValue.set($event)" name="renameChannel" />
-            <button type="submit" class="btn-outline" [disabled]="!renameValue().trim()">Save name</button>
-            <button type="button" class="btn-outline" (click)="renamingChannel.set(false)">Cancel</button>
-          </form>
-        } @else {
-          <button type="button" class="btn-outline" (click)="startRename()">✎ Rename</button>
-        }
-        @if (!current.isDefault) {
-          @if (confirmingChannelDelete()) {
-            <span class="channel-delete-confirm">
-              Delete "{{ current.name }}"? Its projects fall back to the default channel's end card.
-              <button type="button" class="btn-outline danger" (click)="deleteChannel()">Yes, delete</button>
-              <button type="button" class="btn-outline" (click)="confirmingChannelDelete.set(false)">Keep</button>
-            </span>
-          } @else {
-            <button type="button" class="btn-outline danger" (click)="confirmingChannelDelete.set(true)">🗑 Delete channel</button>
-          }
-        }
-      </div>
-    }
   </div>
   }
 

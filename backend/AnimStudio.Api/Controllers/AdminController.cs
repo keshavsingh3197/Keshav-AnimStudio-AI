@@ -571,9 +571,36 @@ public sealed class AdminController(
     /// Removes a channel. Projects that used it fall back to the default channel's end card
     /// (see <see cref="AiSettings.OutroFor"/>); the default itself cannot be deleted.
     /// </summary>
+    /// <summary>
+    /// How many projects publish under each channel, keyed by channel id. A project with no
+    /// channel, or one naming a channel that no longer exists, counts under the default -
+    /// that is the channel it actually renders with.
+    /// </summary>
+    [HttpGet("branding/channels/usage")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyDictionary<string, int>>>> ChannelUsage(CancellationToken ct)
+    {
+        var stored = await aiSettingsRepo.GetAsync(ct) ?? new AiSettings();
+        var all = await projects.ListAllAsync(ct);
+
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var project in all)
+        {
+            var id = !BrandChannel.IsDefault(project.Settings.BrandChannelId) && stored.FindChannel(project.Settings.BrandChannelId) is { } c
+                ? c.Id
+                : BrandChannel.DefaultId;
+            counts[id] = counts.GetValueOrDefault(id) + 1;
+        }
+
+        return Ok(ApiResponse<IReadOnlyDictionary<string, int>>.Ok(counts));
+    }
+
+    /// <param name="moveProjectsTo">
+    /// The channel its projects move to. Omitted, they fall back to the default - which is
+    /// what a render would do anyway, but saying where they go makes it a decision.
+    /// </param>
     [HttpDelete("branding/channels/{channelId}")]
     public async Task<ActionResult<ApiResponse<IReadOnlyList<BrandChannelResponse>>>> DeleteChannel(
-        string channelId, CancellationToken ct)
+        string channelId, [FromQuery] string? moveProjectsTo, CancellationToken ct)
     {
         if (BrandChannel.IsDefault(channelId))
         {
@@ -585,11 +612,30 @@ public sealed class AdminController(
         var channel = stored.FindChannel(channelId);
         if (channel is null) return ChannelNotFound();
 
+        if (string.Equals(moveProjectsTo, channel.Id, StringComparison.Ordinal)
+            || !TryChannel(stored, moveProjectsTo, out var destination))
+        {
+            const string message = "Choose another existing channel for its projects.";
+            return BadRequest(ApiResponse<EmptyPayload>.Fail(message, new ApiError("invalid-destination", message)));
+        }
+
+        // Projects first: if this fails part-way, the channel still exists and the delete can
+        // simply be repeated, instead of projects pointing at a channel that is gone.
+        var moved = 0;
+        foreach (var project in await projects.ListAllAsync(ct))
+        {
+            if (!string.Equals(project.Settings.BrandChannelId, channel.Id, StringComparison.Ordinal)) continue;
+            project.Settings.BrandChannelId = destination?.Id;
+            await projects.ReplaceAsync(project, ct);
+            moved++;
+        }
+
         stored.Channels.Remove(channel);
         await aiSettingsRepo.SaveAsync(stored, ct);
 
         await audit.RecordAsync("branding.channel-deleted", ChannelAuditTarget(channelId),
-            channel.Name, null, RemoteAddress(), ct);
+            channel.Name, $"{moved} project(s) moved to {destination?.Name ?? stored.DefaultChannelName}",
+            RemoteAddress(), ct);
 
         return Ok(ApiResponse<IReadOnlyList<BrandChannelResponse>>.Ok(stored.ToChannelResponses()));
     }

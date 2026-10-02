@@ -41,6 +41,20 @@ public sealed class SqlProjectRepository(ISqlConnectionFactory factory) : IProje
         return result is string json ? SqlJson.Deserialize<Project>(json) : null;
     }
 
+    public async Task<IReadOnlyList<Project>> ListAllAsync(CancellationToken ct)
+    {
+        await using var conn = await factory.OpenConnectionAsync(ct).ConfigureAwait(false);
+        await using var cmd = new SqlCommand("SELECT DataJson FROM Projects", conn);
+
+        var list = new List<Project>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
+        {
+            if (SqlJson.Deserialize<Project>(reader.GetString(0)) is { } item) list.Add(item);
+        }
+        return list;
+    }
+
     public async Task<IReadOnlyList<Project>> ListAsync(string userId, CancellationToken ct)
     {
         await using var conn = await factory.OpenConnectionAsync(ct).ConfigureAwait(false);

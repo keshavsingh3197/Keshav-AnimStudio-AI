@@ -1,7 +1,7 @@
 import { DecimalPipe } from '@angular/common';
 import { Component, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 import { FormsModule } from '@angular/forms';
 
@@ -14,11 +14,12 @@ import { MediaToolsService } from '../../core/services/media-tools.service';
 import { StatusService } from '../../core/services/status.service';
 import { FileDropDirective } from '../../shared/file-drop.directive';
 import { WatermarkPreviewComponent } from '../../shared/watermark-preview.component';
+import { ChannelPickerComponent } from '../../shared/channel-picker.component';
 
 @Component({
   selector: 'app-admin-branding',
   standalone: true,
-  imports: [FormsModule, DecimalPipe, FileDropDirective, WatermarkPreviewComponent],
+  imports: [FormsModule, DecimalPipe, FileDropDirective, WatermarkPreviewComponent, ChannelPickerComponent, RouterLink],
   templateUrl: './admin-branding.component.html',
   styleUrls: ['./admin-branding.component.css'],
 })
@@ -50,6 +51,7 @@ export class AdminBrandingComponent {
   // which. With no section (an old /admin/branding bookmark) everything shows, as before.
 
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   readonly section = toSignal(this.route.data.pipe(map((d) => (d['section'] as BrandingSection | undefined) ?? null)),
     { initialValue: null });
 
@@ -100,30 +102,25 @@ export class AdminBrandingComponent {
   // studio's original branding, used by every project that has not picked a channel.
 
   readonly channels = signal<BrandChannel[]>([]);
-  readonly selectedChannelId = signal<string>(DEFAULT_BRAND_CHANNEL);
-  readonly newChannelName = signal('');
-  readonly renamingChannel = signal(false);
-  readonly renameValue = signal('');
-  readonly confirmingChannelDelete = signal(false);
+  /** Starts from ?channel= so the Channels page can link straight to one channel's look. */
+  readonly selectedChannelId = signal<string>(
+    this.route.snapshot.queryParamMap.get('channel') || DEFAULT_BRAND_CHANNEL);
 
   selectedChannel(): BrandChannel | undefined {
     return this.channels().find((c) => c.id === this.selectedChannelId());
   }
 
-  /** "🛡 Logo · 🎬 Card" - what a channel has set up, for its tab. */
-  channelSummary(c: BrandChannel): string {
-    const wm = c.watermark && c.watermark.kind !== 'None' ? c.watermark.kind : 'none';
-    const outro = c.outro && c.outro.kind !== 'None' ? c.outro.kind : 'none';
-    return `🛡 ${wm} · 🎬 ${outro}`;
-  }
-
   selectChannel(id: string): void {
     if (id === this.selectedChannelId()) return;
     this.selectedChannelId.set(id);
-    this.renamingChannel.set(false);
-    this.confirmingChannelDelete.set(false);
     this.setPreview(null);
     this.loadChannelBranding();
+    // In the address too, so a reload or a shared link opens the same channel.
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { channel: id === DEFAULT_BRAND_CHANNEL ? null : id },
+      replaceUrl: true,
+    });
   }
 
   private loadChannels(): void {
@@ -140,46 +137,6 @@ export class AdminBrandingComponent {
       this.selectedChannelId.set(DEFAULT_BRAND_CHANNEL);
       this.loadChannelBranding();
     }
-  }
-
-  /** Adds a channel that starts as a copy of the selected one, then switches to it. */
-  createChannel(): void {
-    const name = this.newChannelName().trim();
-    if (!name) return;
-    this.status.run(this.api.createBrandChannel(name, this.selectedChannelId()), (list) => {
-      this.newChannelName.set('');
-      this.channels.set(list);
-      const created = list.find((c) => !c.isDefault && c.name === name);
-      if (created) {
-        this.selectedChannelId.set(created.id);
-        this.setPreview(null);
-        this.loadChannelBranding();
-      }
-      this.status.notify([`Channel "${name}" added as a copy - now change its logo and end card.`]);
-    });
-  }
-
-  startRename(): void {
-    this.renameValue.set(this.selectedChannel()?.name ?? '');
-    this.renamingChannel.set(true);
-  }
-
-  saveRename(): void {
-    const name = this.renameValue().trim();
-    if (!name) return;
-    this.status.run(this.api.renameBrandChannel(this.selectedChannelId(), name), (list) => {
-      this.renamingChannel.set(false);
-      this.applyChannels(list);
-    });
-  }
-
-  deleteChannel(): void {
-    const id = this.selectedChannelId();
-    if (id === DEFAULT_BRAND_CHANNEL) return;
-    this.status.run(this.api.deleteBrandChannel(id), (list) => {
-      this.confirmingChannelDelete.set(false);
-      this.applyChannels(list);
-    });
   }
 
   /** The rendered end card, as an object URL, and which shape it was rendered for. */

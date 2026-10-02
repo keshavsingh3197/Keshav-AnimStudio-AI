@@ -537,9 +537,16 @@ export class ApiService {
       `${this.admin}/branding/channels/${encodeURIComponent(channelId)}`, { name }));
   }
 
-  deleteBrandChannel(channelId: string): Observable<BrandChannel[]> {
+  /** `moveProjectsTo`: where the channel's projects go; omitted, they go to the default. */
+  deleteBrandChannel(channelId: string, moveProjectsTo?: string | null): Observable<BrandChannel[]> {
+    const move = moveProjectsTo ? `?moveProjectsTo=${encodeURIComponent(moveProjectsTo)}` : '';
     return this.unwrap(this.http.delete<ApiResponse<BrandChannel[]>>(
-      `${this.admin}/branding/channels/${encodeURIComponent(channelId)}`));
+      `${this.admin}/branding/channels/${encodeURIComponent(channelId)}${move}`));
+  }
+
+  /** Projects per channel id; projects with no (or a vanished) channel count under the default. */
+  brandChannelUsage(): Observable<Record<string, number>> {
+    return this.unwrap(this.http.get<ApiResponse<Record<string, number>>>(`${this.admin}/branding/channels/usage`));
   }
 
   updateGlobalBranding(body: WatermarkBody, channel?: string | null): Observable<WatermarkBody | null> {
