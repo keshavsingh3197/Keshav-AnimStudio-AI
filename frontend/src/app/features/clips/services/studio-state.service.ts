@@ -59,6 +59,14 @@ export class StudioStateService implements OnDestroy {
   readonly pendingNonConflictFiles = signal<File[]>([]);
   private autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /**
+   * The project the studio state below was loaded for. Saves go to THIS project, never to
+   * whatever the store happens to hold when a timer fires, and a response for any other
+   * project is dropped - so one project's timeline can never be written into another.
+   */
+  private loadedProjectId: string | null = null;
+  private destroyed = false;
+
   constructor() {
     if (typeof document !== 'undefined') {
       document.addEventListener('fullscreenchange', () => {
@@ -2341,6 +2349,7 @@ export class StudioStateService implements OnDestroy {
   });
 
   ngOnDestroy(): void {
+    this.destroyed = true;
     if (this.autoSaveTimer) {
       clearTimeout(this.autoSaveTimer);
       this.autoSaveTimer = null;
@@ -2349,7 +2358,13 @@ export class StudioStateService implements OnDestroy {
       }
     }
     this.stopPolling();
+    this.stopExportTimer();
     this.closePreview();
+  }
+
+  /** True only while the store still shows the project this studio state belongs to. */
+  private ownsCurrentProject(projectId: string | null): projectId is string {
+    return !!projectId && projectId === this.store.projectId();
   }
 
   // Exact continuous time getter for isolated 60fps RAF loops (Guardrail 2)
@@ -3008,7 +3023,8 @@ export class StudioStateService implements OnDestroy {
   }
 
   removeFromLibrary(): void {
-    const projectId = this.store.projectId();
+    // The selection belongs to the project the studio loaded; never delete it under another.
+    const projectId = this.ownsCurrentProject(this.loadedProjectId) ? this.loadedProjectId : null;
     const selIds = Array.from(this.selectedLibraryIds());
     const ids = selIds.length > 0 ? selIds : this.allMediaRows().filter((r) => r.included).map((r) => r.clip.id);
 
@@ -6145,8 +6161,8 @@ export class StudioStateService implements OnDestroy {
 
   saveOrder(): void {
     this.markDirty();
-    const projectId = this.store.projectId();
-    if (!projectId) return;
+    const projectId = this.loadedProjectId;
+    if (!this.ownsCurrentProject(projectId)) return;
 
     const uniqueAssetIds = Array.from(new Set(this.rows().map((row) => this.resolveAssetId(row.clip))));
     this.api.saveClipOrder(projectId, uniqueAssetIds).subscribe({
@@ -6353,8 +6369,8 @@ export class StudioStateService implements OnDestroy {
   }
 
   saveDraft(): void {
-    const projectId = this.store.projectId();
-    if (!projectId) return;
+    const projectId = this.loadedProjectId;
+    if (!this.ownsCurrentProject(projectId)) return;
 
     if (this.autoSaveTimer) {
       clearTimeout(this.autoSaveTimer);
@@ -6377,8 +6393,8 @@ export class StudioStateService implements OnDestroy {
   }
 
   autoSaveDraft(): void {
-    const projectId = this.store.projectId();
-    if (!projectId || !this.hasUnsavedChanges()) return;
+    const projectId = this.loadedProjectId;
+    if (!this.ownsCurrentProject(projectId) || !this.hasUnsavedChanges()) return;
 
     const draftData = this.buildDraftData();
     const draftJson = JSON.stringify(draftData);
@@ -6401,8 +6417,8 @@ export class StudioStateService implements OnDestroy {
   }
 
   discardDraft(): void {
-    const projectId = this.store.projectId();
-    if (projectId) {
+    const projectId = this.loadedProjectId;
+    if (this.ownsCurrentProject(projectId)) {
       localStorage.removeItem(`${DRAFT_KEY_PREFIX}${projectId}`);
       this.api.saveStudioDraft(projectId, '').subscribe({
         next: () => {},
@@ -6416,10 +6432,52 @@ export class StudioStateService implements OnDestroy {
 
   loadStudio(): void {
     const projectId = this.store.projectId();
-    if (!projectId) return;
+    if (!projectId || this.destroyed) return;
+
+    if (this.loadedProjectId !== projectId) {
+      // A different project: nothing from the previous one may survive into this one -
+      // not a pending auto-save, not a render being polled, not its clips or timeline.
+      if (this.autoSaveTimer) {
+        clearTimeout(this.autoSaveTimer);
+        this.autoSaveTimer = null;
+      }
+      this.stopPolling();
+      this.stopExportTimer();
+      this.job.set(null);
+      this.running.set(false);
+      this.studio.set(null);
+      this.rows.set([]);
+      this.timelineItems.set([]);
+      this.musicTracks.set([]);
+      this.musicAssetId.set('');
+      this.clipSounds.set({});
+      this.clipTransforms.set({});
+      this.clipColors.set({});
+      this.clipTexts.set({});
+      this.junctions.set({});
+      this.junctionOverrides.set(new Map());
+      this.clipTrims.set(new Map());
+      this.clipFraming.set(new Map());
+      this.clipAudioFade.set(new Map());
+      this.clipColor.set(new Map());
+      this.clipText.set(new Map());
+      this.selectedLibraryIds.set(new Set<string>());
+      this.selectedClipId.set(null);
+      this.selectedTimelineClipIndex.set(null);
+      this.selectedTimelineItemId.set(null);
+      this.selectedTimelineItemIds.set(new Set<string>());
+      this.clipboard.set(null);
+      this.orderResult.set(null);
+      this.hasUnsavedChanges.set(false);
+      this.lastSavedTime.set(null);
+      this.restoredDraftTime.set(null);
+    }
+    this.loadedProjectId = projectId;
 
     this.api.clipStudio(projectId).subscribe({
       next: (studio: ClipStudio) => {
+        // A reply for a project that is no longer open belongs to nobody.
+        if (this.destroyed || !this.ownsCurrentProject(projectId) || this.loadedProjectId !== projectId) return;
         this.studio.set(studio);
         const rowList: ClipRow[] = (studio.clips || [])
           .filter((clip) => this.getClipType(clip) !== 'audio')
@@ -6501,6 +6559,7 @@ export class StudioStateService implements OnDestroy {
         // Load latest render / export job so previous generations are immediately visible
         this.api.listJobs(projectId).subscribe({
           next: (jobs: RenderJob[]) => {
+            if (this.destroyed || this.loadedProjectId !== projectId) return;
             if (jobs && jobs.length > 0) {
               const active = jobs.find((j: RenderJob) => !isTerminal(j.status));
               const latest = active || jobs[0];
@@ -6759,6 +6818,8 @@ export class StudioStateService implements OnDestroy {
 
   private startPolling(jobId: string): void {
     this.stopPolling();
+    // A reply that arrives after the studio is gone must not start a poll nobody can stop.
+    if (this.destroyed) return;
 
     this.pollHandle = setInterval(() => {
       this.api.job(jobId).subscribe({
@@ -6869,8 +6930,8 @@ export class StudioStateService implements OnDestroy {
   }
 
   build(): void {
-    const projectId = this.store.projectId();
-    if (!projectId || this.blockedReason() !== null) return;
+    const projectId = this.loadedProjectId;
+    if (!this.ownsCurrentProject(projectId) || this.blockedReason() !== null) return;
 
     const includedClips = this.included().map((r) => r.clip.id);
     if (includedClips.length === 0) {
@@ -6951,8 +7012,8 @@ export class StudioStateService implements OnDestroy {
   }
 
   buildShort(clipIds?: string[]): void {
-    const projectId = this.store.projectId();
-    if (!projectId || this.blockedReason() !== null) return;
+    const projectId = this.loadedProjectId;
+    if (!this.ownsCurrentProject(projectId) || this.blockedReason() !== null) return;
 
     const ids = clipIds && clipIds.length > 0
       ? clipIds

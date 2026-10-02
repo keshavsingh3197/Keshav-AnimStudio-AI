@@ -37,9 +37,20 @@ public sealed class SqlDatabaseInitializer(
                 await using var masterConn = new SqlConnection(builder.ConnectionString);
                 await masterConn.OpenAsync(ct).ConfigureAwait(false);
 
-                var checkDbSql = $"IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = '{targetDb}') CREATE DATABASE [{targetDb}];";
+                // The name comes from configuration, but it is still parameterized and
+                // QUOTENAME'd rather than spliced into the statement.
+                const string checkDbSql = """
+                    IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = @Db)
+                    BEGIN
+                        DECLARE @Create NVARCHAR(400) = N'CREATE DATABASE ' + QUOTENAME(@Db);
+                        EXEC (@Create);
+                    END;
+                    """;
                 await using var createCmd = new SqlCommand(checkDbSql, masterConn);
+                createCmd.Parameters.AddWithValue("@Db", targetDb);
                 await createCmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+
+                await EnableReadCommittedSnapshotAsync(masterConn, targetDb, ct).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -99,7 +110,7 @@ public sealed class SqlDatabaseInitializer(
             DELETE FROM Assets WHERE Id = '' OR Id IS NULL;
             DELETE FROM Scripts WHERE Id = '' OR Id IS NULL;
             DELETE FROM TranscriptIngests WHERE Id = '' OR Id IS NULL;
-            DELETE FROM RenderJobs WHERE JobId = '' OR JobId IS NULL;
+            DELETE FROM RenderJobs WHERE Id = '' OR Id IS NULL;
             """;
         try
         {
@@ -109,6 +120,45 @@ public sealed class SqlDatabaseInitializer(
         catch (Exception ex)
         {
             logger.LogDebug(ex, "Database cleanup check completed with notice.");
+        }
+    }
+
+    /// <summary>
+    /// Turns on READ_COMMITTED_SNAPSHOT so reads see the last committed row version instead
+    /// of waiting on writers. Without it, every API read of RenderJobs/Projects queued
+    /// behind the worker's heartbeat and claim locks and timed out under load.
+    /// <para>
+    /// NO_WAIT: the switch needs the database to itself, and this must never kill someone
+    /// else's session (an open SSMS window, say). If it cannot get exclusive access it
+    /// fails fast and is retried on the next start.
+    /// </para>
+    /// </summary>
+    private async Task EnableReadCommittedSnapshotAsync(SqlConnection masterConn, string targetDb, CancellationToken ct)
+    {
+        const string sql = """
+            IF EXISTS (SELECT 1 FROM sys.databases WHERE name = @Db AND is_read_committed_snapshot_on = 0)
+            BEGIN
+                DECLARE @Alter NVARCHAR(400) = N'ALTER DATABASE ' + QUOTENAME(@Db) + N' SET READ_COMMITTED_SNAPSHOT ON WITH NO_WAIT';
+                EXEC (@Alter);
+                SELECT 1;
+            END
+            ELSE
+                SELECT 0;
+            """;
+        try
+        {
+            await using var cmd = new SqlCommand(sql, masterConn);
+            cmd.Parameters.AddWithValue("@Db", targetDb);
+            var changed = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
+            if (changed is 1)
+                logger.LogInformation("Enabled READ_COMMITTED_SNAPSHOT on {Database}.", targetDb);
+        }
+        catch (SqlException ex)
+        {
+            logger.LogWarning(ex,
+                "Could not enable READ_COMMITTED_SNAPSHOT on {Database} (another session has it open). " +
+                "Reads may block behind render-job writes until it is enabled; close other connections and restart.",
+                targetDb);
         }
     }
 

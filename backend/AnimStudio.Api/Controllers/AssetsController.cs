@@ -16,6 +16,7 @@ namespace AnimStudio.Api.Controllers;
 [ApiController]
 public sealed class AssetsController(
     IAssetRepository assets,
+    IAssetFolderRepository folders,
     IProjectRepository projects,
     IObjectStore store,
     IMediaProbeService probe,
@@ -70,6 +71,11 @@ public sealed class AssetsController(
         string projectId, IFormFile file, [FromForm] string? folderId, CancellationToken ct)
     {
         await EnsureOwnedAsync(projectId, ct);
+
+        // A folder id is only ever one of THIS project's folders: another project's folder
+        // would file the upload where this project's library can never show it.
+        if (!await IsFolderOfProjectAsync(folderId, projectId, ct))
+            return NotFound();
 
         if (file is null || file.Length == 0)
             return BadRequest(ApiResponse<AssetResponse>.Fail(
@@ -175,6 +181,10 @@ public sealed class AssetsController(
             if (ct.IsCancellationRequested || HttpContext.RequestAborted.IsCancellationRequested)
                 return new EmptyResult();
 
+            // The id becomes part of a cache file path, so anything but an id's own
+            // characters is refused before it can name a file outside the cache directory.
+            if (!IsSafeId(id)) return NotFound();
+
             if (!MetaCache.TryGetValue(id, out var meta))
             {
                 var asset = await assets.GetAsync(id, ct);
@@ -272,6 +282,10 @@ public sealed class AssetsController(
         {
             if (ct.IsCancellationRequested || HttpContext.RequestAborted.IsCancellationRequested)
                 return new EmptyResult();
+
+            // The id becomes part of a cache file path, so anything but an id's own
+            // characters is refused before it can name a file outside the cache directory.
+            if (!IsSafeId(id)) return NotFound();
 
             if (!MetaCache.TryGetValue(id, out var meta))
             {
@@ -437,6 +451,20 @@ public sealed class AssetsController(
             throw new UnauthorizedAccessException();
     }
 
+    private static readonly System.Text.RegularExpressions.Regex SafeIdPattern =
+        new(@"^[A-Za-z0-9_-]{1,128}$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    private static bool IsSafeId(string? id) => id is not null && SafeIdPattern.IsMatch(id);
+
+    /// <summary>True for "no folder", or for a folder that belongs to this project.</summary>
+    private async Task<bool> IsFolderOfProjectAsync(string? folderId, string projectId, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(folderId)) return true;
+
+        var folder = await folders.GetAsync(folderId, ct);
+        return folder is not null && string.Equals(folder.ProjectId, projectId, StringComparison.Ordinal);
+    }
+
     public sealed record ReorderAssetsRequest
     {
         public List<string> AssetIds { get; init; } = [];
@@ -474,6 +502,9 @@ public sealed class AssetsController(
 
         var asset = await assets.GetAsync(assetId, ct);
         if (asset == null || asset.ProjectId != projectId)
+            return NotFound();
+
+        if (!await IsFolderOfProjectAsync(req.FolderId, projectId, ct))
             return NotFound();
 
         asset.FolderId = req.FolderId;

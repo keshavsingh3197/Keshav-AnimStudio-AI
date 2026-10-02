@@ -253,12 +253,16 @@ export class ImportComponent {
     if (!projectId) return;
 
     this.api.listIngests(projectId).subscribe({
-      next: (list) => this.ingests.set(list),
+      next: (list) => {
+        if (this.store.projectId() === projectId) this.ingests.set(list);
+      },
       error: () => undefined,
     });
 
     this.api.listScripts(projectId).subscribe({
-      next: (list) => this.scripts.set(list),
+      next: (list) => {
+        if (this.store.projectId() === projectId) this.scripts.set(list);
+      },
       error: () => undefined,
     });
   }

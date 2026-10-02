@@ -258,6 +258,12 @@ public sealed class ClipsController(
         {
             try
             {
+                // Scoped to the project in the route: a clip id from another project is
+                // treated as already gone rather than deleted from under that project.
+                var asset = await assets.GetAsync(id, ct);
+                if (asset is null || !string.Equals(asset.ProjectId, projectId, StringComparison.Ordinal))
+                    continue;
+
                 await library.DeleteAsync(id, currentUser.UserId, ct);
                 deleted++;
             }

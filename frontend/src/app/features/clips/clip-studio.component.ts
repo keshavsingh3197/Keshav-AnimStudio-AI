@@ -1,7 +1,7 @@
-import { Component, ElementRef, HostListener, OnDestroy, OnInit, ViewChild, effect, inject, signal, untracked } from '@angular/core';
+import { Component, ElementRef, HostListener, OnDestroy, ViewChild, computed, effect, inject, signal, untracked } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { RouterLink } from '@angular/router';
 import { Clip, DEFAULT_BRAND_CHANNEL } from '../../core/models/api.models';
 import { StudioStateService } from './services/studio-state.service';
 import { StudioHeaderComponent } from './components/studio-header/studio-header.component';
@@ -28,15 +28,29 @@ import { clipboardFiles } from '../../shared/file-drop.directive';
   templateUrl: './clip-studio.component.html',
   styleUrls: ['./clip-studio.component.css'],
 })
-export class ClipStudioComponent implements OnInit, OnDestroy {
+export class ClipStudioComponent implements OnDestroy {
   readonly state = inject(StudioStateService);
-  private readonly route = inject(ActivatedRoute);
+
+  /** Only the id: a reload of the same project must not throw the open timeline away. */
+  private readonly openProjectId = computed(() => this.state.store.project()?.id ?? null);
 
   readonly splitPreviewingPart = signal<number | null>(null);
   @ViewChild('part1Video') part1VideoRef?: ElementRef<HTMLVideoElement>;
   @ViewChild('part2Video') part2VideoRef?: ElementRef<HTMLVideoElement>;
 
   constructor() {
+    // Loads once the project lands, and again whenever a DIFFERENT project does. This route's
+    // own paramMap never changes - :projectId belongs to the parent route - so subscribing
+    // to it loaded nothing on a direct visit and never noticed a switch of project.
+    effect(() => {
+      const projectId = this.openProjectId();
+      if (!projectId) return;
+      untracked(() => {
+        this.state.loadStudio();
+        this.setEndCardPreview(null);
+      });
+    });
+
     effect(() => {
       // Sync frame preview when split point changes
       const prompt = this.state.splitPrompt();
@@ -53,6 +67,7 @@ export class ClipStudioComponent implements OnInit, OnDestroy {
       const channelId = project.brandChannelId || DEFAULT_BRAND_CHANNEL;
       untracked(() => this.state.api.listBrandChannels().subscribe({
         next: (list) => {
+          if (this.openProjectId() !== project.id) return; // answered after a project switch
           const channel = list.find((c) => c.id === channelId) ?? list.find((c) => c.isDefault);
           this.state.globalOutro.set(channel?.outro ?? null);
           this.state.brandChannelName.set(channel?.name ?? null);
@@ -60,13 +75,6 @@ export class ClipStudioComponent implements OnInit, OnDestroy {
         },
         error: () => this.state.globalOutro.set(null),
       }));
-    });
-  }
-
-  ngOnInit(): void {
-    this.route.paramMap.subscribe(() => {
-      this.state.loadStudio();
-      this.setEndCardPreview(null);
     });
   }
 
@@ -89,6 +97,7 @@ export class ClipStudioComponent implements OnInit, OnDestroy {
     this.endCardPreviewError.set(null);
     this.state.api.previewProjectOutro(projectId, null, format).subscribe({
       next: (blob) => {
+        if (this.openProjectId() !== projectId) return;
         this.setEndCardPreview(blob);
         this.endCardPreviewBusy.set(false);
       },

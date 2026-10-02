@@ -24,6 +24,7 @@ public sealed class MediaToolsController(
     IObjectStore store,
     IMediaProbeService probe,
     IAiSettingsRepository aiSettingsRepo,
+    ICurrentUser currentUser,
     ILogger<MediaToolsController> logger) : ControllerBase
 {
     private sealed record MediaTicket(string FilePath, string FileName, string MimeType, DateTime CreatedAt);
@@ -85,6 +86,12 @@ public sealed class MediaToolsController(
                 "Invalid YouTube or video URL.", new ApiError("url-invalid", "That does not look like a valid video URL.")));
         }
 
+        // Checked before anything is downloaded, and outside the catch-all below, so a
+        // project that is not the caller's is a 403/404 and never receives the file.
+        var targetProject = request.ImportAsAsset && !string.IsNullOrWhiteSpace(request.ProjectId)
+            ? await LoadOwnedProjectAsync(request.ProjectId, ct)
+            : null;
+
         var workDir = Path.Combine("D:/AI_STUDIO/downloads", Guid.NewGuid().ToString("n"));
         Directory.CreateDirectory(workDir);
 
@@ -95,10 +102,9 @@ public sealed class MediaToolsController(
             string? assetId = null;
 
             // Optional import directly into project assets
-            if (request.ImportAsAsset && !string.IsNullOrWhiteSpace(request.ProjectId))
+            if (targetProject is not null)
             {
-                var project = await projects.GetAsync(request.ProjectId, ct);
-                if (project != null)
+                var project = targetProject;
                 {
                     var storageKey = $"projects/{request.ProjectId}/assets/{Guid.NewGuid():n}_{downloaded.FileName}";
                     await using (var fileStream = System.IO.File.OpenRead(downloaded.FilePath))
@@ -201,6 +207,30 @@ public sealed class MediaToolsController(
             ? chunkDurationSeconds.Value
             : (settings?.DefaultChunkDurationSeconds ?? 10.0);
 
+        // Checked up front, and outside the catch-all below, so chunks are never cut for -
+        // or imported into - a project that is not the caller's.
+        var targetProject = importAsClips && !string.IsNullOrWhiteSpace(projectId)
+            ? await LoadOwnedProjectAsync(projectId, ct)
+            : null;
+
+        Asset? sourceAsset = null;
+        if (file is not { Length: > 0 } && !string.IsNullOrWhiteSpace(assetId))
+        {
+            sourceAsset = await assets.GetAsync(assetId, ct);
+
+            // The source must be the caller's own, and chunks imported into a project must
+            // come from that project's library: an asset id from project A must not have its
+            // footage copied into project B.
+            if (sourceAsset is null
+                || !await IsOwnedAssetAsync(sourceAsset, ct)
+                || (targetProject is not null
+                    && !string.Equals(sourceAsset.ProjectId, targetProject.Id, StringComparison.Ordinal)
+                    && !IsSharedLibrary(sourceAsset.ProjectId)))
+            {
+                return NotFound(ApiResponse<VideoChunkResult>.Fail("Asset not found.", new ApiError("asset-not-found", "Asset not found.")));
+            }
+        }
+
         var jobId = Guid.NewGuid().ToString("n");
         var workDir = Path.Combine("D:/AI_STUDIO/chunks", jobId);
         Directory.CreateDirectory(workDir);
@@ -214,18 +244,14 @@ public sealed class MediaToolsController(
             if (file != null && file.Length > 0)
             {
                 sourceTitle = Path.GetFileNameWithoutExtension(file.FileName);
-                inputVideoPath = Path.Combine(workDir, "source_" + file.FileName);
+                // Generated name: the client's filename may carry "..\" segments and must
+                // never decide where on disk the upload lands.
+                inputVideoPath = Path.Combine(workDir, "source_upload" + SafeExtension(file.FileName));
                 await using var fs = new FileStream(inputVideoPath, FileMode.Create, FileAccess.Write);
                 await file.CopyToAsync(fs, ct);
             }
-            else if (!string.IsNullOrWhiteSpace(assetId))
+            else if (sourceAsset is { } asset)
             {
-                var asset = await assets.GetAsync(assetId, ct);
-                if (asset == null)
-                {
-                    return NotFound(ApiResponse<VideoChunkResult>.Fail("Asset not found.", new ApiError("asset-not-found", "Asset not found.")));
-                }
-
                 sourceTitle = asset.Name;
                 inputVideoPath = Path.Combine(workDir, "source_asset.mp4");
                 await using var readStream = await store.OpenAsync(asset.StorageKey, ct);
@@ -261,10 +287,9 @@ public sealed class MediaToolsController(
                 inputVideoPath, sourceTitle, chunkDuration, accurateCut, convertTo916, jobId, workDir, compressionPreset, ct);
 
             // If requested, import chunks as Project Clips!
-            if (importAsClips && !string.IsNullOrWhiteSpace(projectId))
+            if (targetProject is not null)
             {
-                var project = await projects.GetAsync(projectId, ct);
-                if (project != null)
+                var project = targetProject;
                 {
                     var updatedClipOrder = new List<string>(project.Settings.ClipOrderAssetIds);
                     var updatedChunks = new List<ChunkItemResponse>();
@@ -360,5 +385,37 @@ public sealed class MediaToolsController(
 
         var stream = new FileStream(chunkPath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous);
         return File(stream, "video/mp4", $"chunk_{index:D3}.mp4", enableRangeProcessing: true);
+    }
+
+    private static bool IsSharedLibrary(string projectId) =>
+        string.Equals(projectId, "global", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(projectId, "system", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>A short, plain extension from a client filename, or ".mp4".</summary>
+    private static string SafeExtension(string? fileName)
+    {
+        var extension = Path.GetExtension(Path.GetFileName(fileName ?? string.Empty));
+        return extension is { Length: > 1 and <= 6 } && extension[1..].All(char.IsAsciiLetterOrDigit)
+            ? extension.ToLowerInvariant()
+            : ".mp4";
+    }
+
+    private async Task<Project> LoadOwnedProjectAsync(string projectId, CancellationToken ct)
+    {
+        var project = await projects.GetAsync(projectId, ct) ?? throw new KeyNotFoundException();
+
+        if (!string.Equals(project.UserId, currentUser.UserId, StringComparison.Ordinal))
+            throw new UnauthorizedAccessException();
+
+        return project;
+    }
+
+    private async Task<bool> IsOwnedAssetAsync(Asset asset, CancellationToken ct)
+    {
+        if (IsSharedLibrary(asset.ProjectId)) return true;
+
+        var project = await projects.GetAsync(asset.ProjectId, ct);
+        return project is not null
+            && string.Equals(project.UserId, currentUser.UserId, StringComparison.Ordinal);
     }
 }

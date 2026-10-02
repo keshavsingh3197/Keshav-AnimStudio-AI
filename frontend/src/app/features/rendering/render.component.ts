@@ -1,5 +1,5 @@
 import { DatePipe, DecimalPipe, NgStyle } from '@angular/common';
-import { Component, OnDestroy, computed, inject, signal } from '@angular/core';
+import { Component, OnDestroy, computed, effect, inject, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
@@ -341,11 +341,22 @@ export class RenderComponent implements OnDestroy {
     return current !== null && !isTerminal(current.status);
   });
 
+  /** Only the id, so a reload of the same project does not restart the job list. */
+  private readonly openProjectId = computed(() => this.store.project()?.id ?? null);
+
   constructor() {
-    this.reload();
+    // The store loads asynchronously, so the job list waits for the project to arrive -
+    // reading it once in the constructor found no project (or the previous one).
+    effect(() => {
+      if (!this.openProjectId()) return;
+      untracked(() => this.reload());
+    });
   }
 
+  private destroyed = false;
+
   ngOnDestroy(): void {
+    this.destroyed = true;
     this.stopPolling();
   }
 
@@ -434,7 +445,12 @@ export class RenderComponent implements OnDestroy {
     const projectId = this.store.projectId();
     if (!projectId) return;
 
+    this.stopPolling();
+    this.jobs.set([]);
+    this.job.set(null);
+
     this.status.run(this.api.listJobs(projectId), (list) => {
+      if (this.store.projectId() !== projectId) return; // answered after a project switch
       this.jobs.set(list);
 
       // Reattach to whatever is still running, so leaving the page does not lose it.
@@ -491,6 +507,8 @@ export class RenderComponent implements OnDestroy {
 
   private startPolling(jobId: string): void {
     this.stopPolling();
+    // A reply that lands after the page is gone must not start a poll nobody can stop.
+    if (this.destroyed) return;
     this.startTimer();
 
     this.pollHandle = setInterval(() => {

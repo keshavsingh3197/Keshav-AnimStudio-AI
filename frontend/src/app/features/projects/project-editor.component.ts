@@ -16,6 +16,9 @@ import { ProjectStore } from '../../core/services/project-store';
   selector: 'app-project-editor',
   imports: [RouterLink, RouterLinkActive, RouterOutlet],
   templateUrl: './project-editor.component.html',
+  // Owned by this component, so the open project's state lives exactly as long as the editor
+  // for that project - every routed screen below the outlet shares this one instance.
+  providers: [ProjectStore],
 })
 export class ProjectEditorComponent {
   /** Bound from the route by withComponentInputBinding(). */

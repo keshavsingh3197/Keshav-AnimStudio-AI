@@ -1,7 +1,5 @@
 import { Routes } from '@angular/router';
 
-import { ProjectStore } from './core/services/project-store';
-
 /**
  * Feature areas are lazy: the dashboard is the only thing most visits need, and the scene
  * editor is by far the largest screen.
@@ -18,8 +16,8 @@ export const routes: Routes = [
 
   {
     path: 'projects/:projectId',
-    // Scoped here so the open project's state is created on entry and dropped on exit.
-    providers: [ProjectStore],
+    // ProjectStore is provided by ProjectEditorComponent, not here: a route-level injector
+    // outlives navigation, so it kept the previous project's state alive into the next one.
     loadComponent: () =>
       import('./features/projects/project-editor.component').then((m) => m.ProjectEditorComponent),
     children: [
