@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 
 import {
-  CANVAS_PRESETS, DISTRIBUTION_INTENTS, Project, aspectRatioLabel, videoFormat,
+  BrandChannel, CANVAS_PRESETS, DEFAULT_BRAND_CHANNEL, DISTRIBUTION_INTENTS, Project, aspectRatioLabel, videoFormat,
 } from '../../core/models/api.models';
 import { ApiService } from '../../core/services/api.service';
 import { StatusService } from '../../core/services/status.service';
@@ -42,6 +42,9 @@ export class ProjectListComponent {
   name = '';
   presetIndex = 0;
   fps = 30;
+  /** Brand channel (YouTube channel) the new project publishes under; its watermark is copied in. */
+  channelId: string = DEFAULT_BRAND_CHANNEL;
+  readonly channels = signal<BrandChannel[]>([]);
   intent: string = DISTRIBUTION_INTENTS[1] ?? 'Public'; // Default to Public
 
   searchTerm = '';
@@ -56,6 +59,7 @@ export class ProjectListComponent {
   constructor() {
     this.loadSavedPreferences();
     this.reload();
+    this.api.listBrandChannels().subscribe({ next: (list) => this.channels.set(list), error: () => {} });
   }
 
   private loadSavedPreferences(): void {
@@ -256,6 +260,7 @@ export class ProjectListComponent {
         height: preset.height,
         fps: this.fps,
         distributionIntent: this.intent || 'Public',
+        brandChannelId: this.channelId,
       }),
       (project) => {
         this.projects.update((list) => [project, ...list]);
@@ -333,6 +338,7 @@ export class ProjectListComponent {
         height: p.height,
         fps: p.fps,
         distributionIntent: intent,
+        brandChannelId: p.brandChannelId ?? null,
       }),
       (cloned) => {
         this.projects.update(list => [cloned, ...list]);

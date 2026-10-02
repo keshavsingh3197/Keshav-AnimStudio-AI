@@ -3267,3 +3267,27 @@ app-timeline-dock {
   .export-dialog-title h3 { font-size: 1.3rem; }
   .export-end-card .end-card-effective-video { max-height: 520px; }
 }
+
+/* Export progress monitor: one stack by default; on wide screens the progress, live item and
+   clip matrix sit beside the metrics and pipeline stages instead of a long narrow scroll. */
+.monitor-columns,
+.monitor-col { display: flex; flex-direction: column; gap: 1.2rem; min-width: 0; }
+
+@media (min-width: 1900px) {
+  .render-monitor-dialog { width: min(1500px, 92vw); max-height: 90vh; }
+  .monitor-columns { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 1.4rem; align-items: start; }
+  .timeline-clip-matrix-container { max-height: 340px; }
+}
+@media (min-width: 2560px) {
+  .render-monitor-dialog { width: min(1800px, 90vw); }
+  .render-monitor-body { padding: 1.5rem 1.8rem; }
+  .timeline-clip-matrix-container { max-height: 460px; }
+}
+
+/* The other studio dialogs on wide screens: roomier shortcut columns, transition previews big
+   enough to actually judge the effect. */
+@media (min-width: 1900px) {
+  .shortcuts-dialog { max-width: 1200px; }
+  .transition-dialog { max-width: 900px; }
+  .transition-preview-dialog { max-width: 1000px; }
+}

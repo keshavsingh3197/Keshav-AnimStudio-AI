@@ -1341,3 +1341,10 @@
   font-weight: 600;
   cursor: pointer;
 }
+
+@media (min-width: 2200px) {
+  .projects-dashboard-page { max-width: 2400px; }
+}
+@media (min-width: 3000px) {
+  .projects-dashboard-page { max-width: 3000px; }
+}

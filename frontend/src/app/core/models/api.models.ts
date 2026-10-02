@@ -30,6 +30,8 @@ export interface Project {
   customThumbnail?: string | null;
   defaultWatermark?: any;
   defaultOutro?: OutroBody | null;
+  /** The brand channel (YouTube channel) this project publishes under; null = default. */
+  brandChannelId?: string | null;
 }
 
 export interface CreateProjectBody {
@@ -39,6 +41,20 @@ export interface CreateProjectBody {
   height: number;
   fps: number;
   distributionIntent: string;
+  /** Channel to publish under; its watermark is copied into the new project. */
+  brandChannelId?: string | null;
+}
+
+/** The id of the built-in brand channel (the studio's original single branding). */
+export const DEFAULT_BRAND_CHANNEL = 'default';
+
+/** One channel's look: the watermark on its videos and the end card they finish with. */
+export interface BrandChannel {
+  id: string;
+  name: string;
+  isDefault: boolean;
+  watermark: WatermarkBody | null;
+  outro: OutroBody | null;
 }
 
 export interface UpdateProjectBody extends CreateProjectBody {

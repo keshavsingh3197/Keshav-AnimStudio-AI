@@ -305,8 +305,10 @@ export class StudioStateService implements OnDestroy {
   /** End the export with the saved outro / "support us" QR card. Ignored when none is set up. */
   readonly exportIncludeOutro = signal<boolean>(true);
 
-  /** The studio-wide outro, which an export uses when the project has none of its own. */
+  /** The project's brand channel's outro, which an export uses when the project has none of its own. */
   readonly globalOutro = signal<OutroBody | null>(null);
+  /** That channel's display name (one per YouTube channel). */
+  readonly brandChannelName = signal<string | null>(null);
 
   /** The end card an export appends - mirrors the server: the project's own, else the studio's. */
   readonly endCard = computed<{ source: 'project' | 'global'; label: string; seconds: number } | null>(() => {
@@ -324,7 +326,8 @@ export class StudioStateService implements OnDestroy {
     const g = this.globalOutro();
     if (g && g.kind !== 'None') {
       const what = g.kind === 'Card' ? 'QR end card' : `outro ${g.kind.toLowerCase()}`;
-      return { source: 'global', label: `Studio ${what} (global branding)`, seconds: g.durationSeconds || 4 };
+      const channel = this.brandChannelName() ?? 'Default';
+      return { source: 'global', label: `"${channel}" channel ${what}`, seconds: g.durationSeconds || 4 };
     }
     return null;
   });

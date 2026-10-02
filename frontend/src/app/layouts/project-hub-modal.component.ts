@@ -946,6 +946,7 @@ export class ProjectHubModalComponent {
         height: p.height,
         fps: p.fps,
         distributionIntent: intent,
+        brandChannelId: p.brandChannelId ?? null,
       }),
       (cloned) => {
         this.projects.update(list => [cloned, ...list]);

@@ -11,7 +11,7 @@ import {
   CreateSceneBody, DialogueBody, IngestCapabilities, IngestResult, IngestSummary,
   PlacementBody, Project, RenderJob, ExportTimelineFormat, RendererStatus, Scene, SceneAudioBody, SceneDetail,
   SceneGenerationResult, ScriptDetail, ScriptSummary, UpdateProjectBody, UpdateSceneBody,
-  WatermarkBody, OutroBody,
+  WatermarkBody, OutroBody, BrandChannel, DEFAULT_BRAND_CHANNEL,
 } from '../models/api.models';
 
 /**
@@ -70,22 +70,33 @@ export class ApiService {
       this.http.get<ApiResponse<IngestCapabilities>>(`${this.base}/api/ingest/capabilities`));
   }
 
-  getGlobalBranding(): Observable<WatermarkBody | null> {
+  // Branding is per brand channel (one per YouTube channel). `channel` omitted or null means
+  // the built-in default channel; an unknown id also reads as the default.
+
+  getGlobalBranding(channel?: string | null): Observable<WatermarkBody | null> {
     return this.unwrap(
-      this.http.get<ApiResponse<WatermarkBody | null>>(`${this.base}/api/system/branding`));
+      this.http.get<ApiResponse<WatermarkBody | null>>(`${this.base}/api/system/branding${channelQuery(channel)}`));
   }
 
-  globalLogoUrl(): string {
-    return `${this.base}/api/system/branding/logo`;
+  /** Always carries a query string, so callers add cache-busters with `&`. */
+  globalLogoUrl(channel?: string | null): string {
+    return `${this.base}/api/system/branding/logo${channelQuery(channel, true)}`;
   }
 
-  getGlobalOutro(): Observable<OutroBody | null> {
+  getGlobalOutro(channel?: string | null): Observable<OutroBody | null> {
     return this.unwrap(
-      this.http.get<ApiResponse<OutroBody | null>>(`${this.base}/api/system/branding/outro`));
+      this.http.get<ApiResponse<OutroBody | null>>(`${this.base}/api/system/branding/outro${channelQuery(channel)}`));
   }
 
-  globalOutroMediaUrl(): string {
-    return `${this.base}/api/system/branding/outro/media`;
+  /** Always carries a query string, so callers add cache-busters with `&`. */
+  globalOutroMediaUrl(channel?: string | null): string {
+    return `${this.base}/api/system/branding/outro/media${channelQuery(channel, true)}`;
+  }
+
+  /** Every brand channel, the default first. Readable by any signed-in user. */
+  listBrandChannels(): Observable<BrandChannel[]> {
+    return this.unwrap(
+      this.http.get<ApiResponse<BrandChannel[]>>(`${this.base}/api/system/branding/channels`));
   }
 
   // --- projects
@@ -504,36 +515,51 @@ export class ApiService {
       this.http.get<ApiResponse<AdminAuditEntry[]>>(`${this.admin}/audit?limit=${limit}`));
   }
 
-  updateGlobalBranding(body: WatermarkBody): Observable<WatermarkBody | null> {
-    return this.unwrap(
-      this.http.put<ApiResponse<WatermarkBody | null>>(`${this.admin}/branding`, body));
+  createBrandChannel(name: string, copyFromChannelId?: string | null): Observable<BrandChannel[]> {
+    return this.unwrap(this.http.post<ApiResponse<BrandChannel[]>>(
+      `${this.admin}/branding/channels`, { name, copyFromChannelId: copyFromChannelId ?? null }));
   }
 
-  uploadGlobalLogo(file: File): Observable<WatermarkBody | null> {
+  renameBrandChannel(channelId: string, name: string): Observable<BrandChannel[]> {
+    return this.unwrap(this.http.put<ApiResponse<BrandChannel[]>>(
+      `${this.admin}/branding/channels/${encodeURIComponent(channelId)}`, { name }));
+  }
+
+  deleteBrandChannel(channelId: string): Observable<BrandChannel[]> {
+    return this.unwrap(this.http.delete<ApiResponse<BrandChannel[]>>(
+      `${this.admin}/branding/channels/${encodeURIComponent(channelId)}`));
+  }
+
+  updateGlobalBranding(body: WatermarkBody, channel?: string | null): Observable<WatermarkBody | null> {
+    return this.unwrap(
+      this.http.put<ApiResponse<WatermarkBody | null>>(`${this.admin}/branding${channelQuery(channel)}`, body));
+  }
+
+  uploadGlobalLogo(file: File, channel?: string | null): Observable<WatermarkBody | null> {
     const form = new FormData();
     form.append('file', file, file.name);
     return this.unwrap(
-      this.http.post<ApiResponse<WatermarkBody | null>>(`${this.admin}/branding/logo`, form));
+      this.http.post<ApiResponse<WatermarkBody | null>>(`${this.admin}/branding/logo${channelQuery(channel)}`, form));
   }
 
-  updateGlobalOutro(body: OutroBody): Observable<OutroBody | null> {
+  updateGlobalOutro(body: OutroBody, channel?: string | null): Observable<OutroBody | null> {
     return this.unwrap(
-      this.http.put<ApiResponse<OutroBody | null>>(`${this.admin}/branding/outro`, body));
+      this.http.put<ApiResponse<OutroBody | null>>(`${this.admin}/branding/outro${channelQuery(channel)}`, body));
   }
 
-  uploadGlobalOutro(file: File): Observable<OutroBody | null> {
+  uploadGlobalOutro(file: File, channel?: string | null): Observable<OutroBody | null> {
     const form = new FormData();
     form.append('file', file, file.name);
     return this.unwrap(
-      this.http.post<ApiResponse<OutroBody | null>>(`${this.admin}/branding/outro/upload`, form));
+      this.http.post<ApiResponse<OutroBody | null>>(`${this.admin}/branding/outro/upload${channelQuery(channel)}`, form));
   }
 
   /** Uploads the end card's QR code; the outro switches to a Card. */
-  uploadGlobalOutroQr(file: File): Observable<OutroBody | null> {
+  uploadGlobalOutroQr(file: File, channel?: string | null): Observable<OutroBody | null> {
     const form = new FormData();
     form.append('file', file, file.name);
     return this.unwrap(
-      this.http.post<ApiResponse<OutroBody | null>>(`${this.admin}/branding/outro/qr`, form));
+      this.http.post<ApiResponse<OutroBody | null>>(`${this.admin}/branding/outro/qr${channelQuery(channel)}`, form));
   }
 
   /**
@@ -569,4 +595,10 @@ export class ApiService {
     return this.unwrap(this.http.post<ApiResponse<unknown>>(`${this.base}/api/debug/screenshot`, { base64Image, viewName }));
   }
 
+}
+
+/** `?channel=<id>` for a named brand channel; for the default, nothing (or `?channel=default` when a query is required). */
+function channelQuery(channel?: string | null, alwaysQuery = false): string {
+  if (channel && channel !== DEFAULT_BRAND_CHANNEL) return `?channel=${encodeURIComponent(channel)}`;
+  return alwaysQuery ? `?channel=${DEFAULT_BRAND_CHANNEL}` : '';
 }

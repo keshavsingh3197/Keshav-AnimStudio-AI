@@ -57,6 +57,24 @@ public sealed record CreateProjectRequest
 
     [JsonConverter(typeof(TolerantDistributionIntentConverter))]
     public DistributionIntent DistributionIntent { get; init; } = DistributionIntent.Personal;
+
+    /// <summary>The channel to publish under; its watermark is copied in. Null means the default.</summary>
+    [StringLength(64)] public string? BrandChannelId { get; init; }
+}
+
+/// <summary>A new brand channel, optionally starting as a copy of an existing one's look.</summary>
+public sealed record CreateBrandChannelRequest
+{
+    [Required, StringLength(BrandChannel.MaxNameLength, MinimumLength = 1)]
+    public string Name { get; init; } = string.Empty;
+
+    [StringLength(64)] public string? CopyFromChannelId { get; init; }
+}
+
+public sealed record RenameBrandChannelRequest
+{
+    [Required, StringLength(BrandChannel.MaxNameLength, MinimumLength = 1)]
+    public string Name { get; init; } = string.Empty;
 }
 
 public sealed record RightsAttestationRequest
@@ -153,6 +171,9 @@ public sealed record UpdateProjectRequest
 
     public WatermarkRequest? DefaultWatermark { get; init; }
     public OutroRequest? DefaultOutro { get; init; }
+
+    /// <summary>Null leaves the channel unchanged; "default" (or blank) picks the default channel.</summary>
+    [StringLength(64)] public string? BrandChannelId { get; init; }
 }
 
 public sealed record CreateSceneRequest

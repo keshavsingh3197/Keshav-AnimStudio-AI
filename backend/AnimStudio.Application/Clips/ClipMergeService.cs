@@ -634,14 +634,14 @@ public sealed class ClipMergeService(
     }
 
     /// <summary>
-    /// The outro this export ends with: the project's own when it has one enabled, else the
-    /// studio-wide one. Copied, so editing the settings later never changes a queued job.
+    /// The outro this export ends with: the project's own when it has one enabled, else its
+    /// brand channel's (the studio default when it has none). Copied, so editing the settings later never changes a queued job.
     /// </summary>
     private async Task<OutroSettings?> ResolveOutroAsync(Domain.Projects.Project project, CancellationToken ct)
     {
         var chosen = project.Settings.DefaultOutro is { IsEnabled: true } own
             ? own
-            : (await aiSettings.GetAsync(ct).ConfigureAwait(false))?.DefaultOutro;
+            : (await aiSettings.GetAsync(ct).ConfigureAwait(false))?.OutroFor(project.Settings.BrandChannelId);
 
         if (chosen is not { IsEnabled: true }) return null;
 

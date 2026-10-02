@@ -1156,6 +1156,9 @@
 
         <!-- Body -->
         <div class="render-monitor-body">
+          <!-- Two columns on wide screens (progress + clips | metrics + stages), one stack otherwise -->
+          <div class="monitor-columns">
+          <div class="monitor-col">
           <!-- Main Progress Indicator -->
           <div class="monitor-progress-hero">
             <div class="hero-top-row">
@@ -1241,6 +1244,8 @@
             </div>
           </div>
 
+          </div>
+          <div class="monitor-col">
           <!-- 4 Core Metrics Grid -->
           <div class="monitor-metrics-grid">
             <div class="metric-card">
@@ -1322,6 +1327,9 @@
                 </div>
               }
             </div>
+          </div>
+
+          </div>
           </div>
 
           <!-- Completed Celebration / Success Banner -->

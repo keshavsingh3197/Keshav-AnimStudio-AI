@@ -461,43 +461,153 @@ public sealed class AdminController(
 
     // --- branding & hallmark -------------------------------------------------------------
 
-    [HttpGet("branding")]
-    public async Task<ActionResult<ApiResponse<WatermarkResponse?>>> GetBranding(CancellationToken ct)
+    // --- brand channels: one look (watermark + end card) per YouTube channel --------------
+
+    [HttpGet("branding/channels")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<BrandChannelResponse>>>> ListChannels(CancellationToken ct)
     {
         var stored = await aiSettingsRepo.GetAsync(ct);
-        return Ok(ApiResponse<WatermarkResponse?>.Ok(stored?.DefaultWatermark.ToResponse()));
+        return Ok(ApiResponse<IReadOnlyList<BrandChannelResponse>>.Ok(stored.ToChannelResponses()));
+    }
+
+    /// <summary>
+    /// Adds a channel. It starts as a copy of another channel's look (the default unless
+    /// <c>CopyFromChannelId</c> says otherwise), so a second channel is "change the logo and
+    /// the QR code", not "set everything up again".
+    /// </summary>
+    [HttpPost("branding/channels")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<BrandChannelResponse>>>> CreateChannel(
+        [FromBody] CreateBrandChannelRequest request, CancellationToken ct)
+    {
+        var stored = await aiSettingsRepo.GetAsync(ct) ?? new AiSettings();
+        if (stored.Channels.Count >= BrandChannel.MaxChannels)
+        {
+            var limit = $"A studio can have up to {BrandChannel.MaxChannels} channels.";
+            return BadRequest(ApiResponse<EmptyPayload>.Fail(limit, new ApiError("too-many-channels", limit)));
+        }
+
+        if (!TryChannel(stored, request.CopyFromChannelId, out var source)) return ChannelNotFound();
+
+        var name = request.Name.Trim();
+        if (IsNameTaken(stored, name, exceptId: null))
+        {
+            var taken = $"There is already a channel called \"{name}\".";
+            return BadRequest(ApiResponse<EmptyPayload>.Fail(taken, new ApiError("channel-name-taken", taken)));
+        }
+
+        var channel = new BrandChannel
+        {
+            Id = MongoDB.Bson.ObjectId.GenerateNewId().ToString(),
+            Name = name,
+            Watermark = Copy(source?.Watermark ?? stored.DefaultWatermark) ?? new WatermarkSettings(),
+            Outro = Copy(source?.Outro ?? stored.DefaultOutro) ?? new OutroSettings(),
+        };
+        stored.Channels.Add(channel);
+        await aiSettingsRepo.SaveAsync(stored, ct);
+
+        await audit.RecordAsync("branding.channel-created", ChannelAuditTarget(channel.Id),
+            null, name, RemoteAddress(), ct);
+
+        return Ok(ApiResponse<IReadOnlyList<BrandChannelResponse>>.Ok(stored.ToChannelResponses()));
+    }
+
+    [HttpPut("branding/channels/{channelId}")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<BrandChannelResponse>>>> RenameChannel(
+        string channelId, [FromBody] RenameBrandChannelRequest request, CancellationToken ct)
+    {
+        var stored = await aiSettingsRepo.GetAsync(ct) ?? new AiSettings();
+        if (!TryChannel(stored, channelId, out var channel)) return ChannelNotFound();
+
+        var name = request.Name.Trim();
+        if (IsNameTaken(stored, name, exceptId: channel?.Id ?? BrandChannel.DefaultId))
+        {
+            var taken = $"There is already a channel called \"{name}\".";
+            return BadRequest(ApiResponse<EmptyPayload>.Fail(taken, new ApiError("channel-name-taken", taken)));
+        }
+
+        var before = channel?.Name ?? stored.DefaultChannelName;
+        if (channel is null) stored.DefaultChannelName = name; else channel.Name = name;
+        await aiSettingsRepo.SaveAsync(stored, ct);
+
+        await audit.RecordAsync("branding.channel-renamed", ChannelAuditTarget(channelId),
+            before, name, RemoteAddress(), ct);
+
+        return Ok(ApiResponse<IReadOnlyList<BrandChannelResponse>>.Ok(stored.ToChannelResponses()));
+    }
+
+    /// <summary>
+    /// Removes a channel. Projects that used it fall back to the default channel's end card
+    /// (see <see cref="AiSettings.OutroFor"/>); the default itself cannot be deleted.
+    /// </summary>
+    [HttpDelete("branding/channels/{channelId}")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<BrandChannelResponse>>>> DeleteChannel(
+        string channelId, CancellationToken ct)
+    {
+        if (BrandChannel.IsDefault(channelId))
+        {
+            const string message = "The default channel cannot be deleted.";
+            return BadRequest(ApiResponse<EmptyPayload>.Fail(message, new ApiError("default-channel", message)));
+        }
+
+        var stored = await aiSettingsRepo.GetAsync(ct) ?? new AiSettings();
+        var channel = stored.FindChannel(channelId);
+        if (channel is null) return ChannelNotFound();
+
+        stored.Channels.Remove(channel);
+        await aiSettingsRepo.SaveAsync(stored, ct);
+
+        await audit.RecordAsync("branding.channel-deleted", ChannelAuditTarget(channelId),
+            channel.Name, null, RemoteAddress(), ct);
+
+        return Ok(ApiResponse<IReadOnlyList<BrandChannelResponse>>.Ok(stored.ToChannelResponses()));
+    }
+
+    // --- branding & hallmark (per channel: ?channel=<id>, omitted = default) --------------
+
+    [HttpGet("branding")]
+    public async Task<ActionResult<ApiResponse<WatermarkResponse?>>> GetBranding(
+        [FromQuery] string? channel, CancellationToken ct)
+    {
+        var stored = await aiSettingsRepo.GetAsync(ct) ?? new AiSettings();
+        if (!TryChannel(stored, channel, out var target)) return ChannelNotFound();
+        return Ok(ApiResponse<WatermarkResponse?>.Ok((target?.Watermark ?? stored.DefaultWatermark).ToResponse()));
     }
 
     [HttpPut("branding")]
     public async Task<ActionResult<ApiResponse<WatermarkResponse?>>> UpdateBranding(
-        [FromBody] WatermarkRequest request, CancellationToken ct)
+        [FromBody] WatermarkRequest request, [FromQuery] string? channel, CancellationToken ct)
     {
         var stored = await aiSettingsRepo.GetAsync(ct) ?? new AiSettings();
-        var before = stored.DefaultWatermark?.Kind.ToString() ?? "None";
+        if (!TryChannel(stored, channel, out var target)) return ChannelNotFound();
+        var before = (target?.Watermark ?? stored.DefaultWatermark)?.Kind.ToString() ?? "None";
 
         var watermark = request.ToSettings();
         watermark.Clamp();
-        stored.DefaultWatermark = watermark;
+        if (target is null) stored.DefaultWatermark = watermark; else target.Watermark = watermark;
 
         await aiSettingsRepo.SaveAsync(stored, ct);
 
         await audit.RecordAsync(
             "branding.updated",
-            "global-branding",
+            ChannelAuditTarget(channel),
             $"Kind: {before}",
             $"Kind: {watermark.Kind}, Text: {watermark.Text}, Logo: {watermark.LogoAssetId}",
             RemoteAddress(),
             ct);
 
-        return Ok(ApiResponse<WatermarkResponse?>.Ok(stored.DefaultWatermark.ToResponse()));
+        return Ok(ApiResponse<WatermarkResponse?>.Ok(watermark.ToResponse()));
     }
 
     [HttpPost("branding/logo")]
     [RequestSizeLimit(AssetsController.MaxUploadBytes)]
     [RequestFormLimits(MultipartBodyLengthLimit = AssetsController.MaxUploadBytes)]
     public async Task<ActionResult<ApiResponse<WatermarkResponse?>>> UploadBrandingLogo(
-        IFormFile file, CancellationToken ct)
+        IFormFile file, [FromQuery] string? channel, CancellationToken ct)
     {
+        // Checked before anything is stored, so a bad channel id never leaves an orphan file.
+        var stored = await aiSettingsRepo.GetAsync(ct) ?? new AiSettings();
+        if (!TryChannel(stored, channel, out var target)) return ChannelNotFound();
+
         if (file is null || file.Length == 0)
         {
             return BadRequest(ApiResponse<WatermarkResponse?>.Fail(
@@ -544,60 +654,66 @@ public sealed class AdminController(
 
         await assets.InsertAsync(asset, ct);
 
-        var stored = await aiSettingsRepo.GetAsync(ct) ?? new AiSettings();
-        stored.DefaultWatermark ??= new WatermarkSettings();
-        stored.DefaultWatermark.Kind = WatermarkKind.Logo;
-        stored.DefaultWatermark.LogoAssetId = assetId;
-        stored.DefaultWatermark.Clamp();
+        var watermark = target?.Watermark ?? (stored.DefaultWatermark ??= new WatermarkSettings());
+        watermark.Kind = WatermarkKind.Logo;
+        watermark.LogoAssetId = assetId;
+        watermark.Clamp();
 
         await aiSettingsRepo.SaveAsync(stored, ct);
 
         await audit.RecordAsync(
             "branding.logo-uploaded",
-            "global-branding",
-            "Uploaded global hallmark logo",
+            ChannelAuditTarget(channel),
+            "Uploaded hallmark logo",
             asset.Name,
             RemoteAddress(),
             ct);
 
-        return Ok(ApiResponse<WatermarkResponse?>.Ok(stored.DefaultWatermark.ToResponse()));
+        return Ok(ApiResponse<WatermarkResponse?>.Ok(watermark.ToResponse()));
     }
 
     [HttpGet("branding/outro")]
-    public async Task<ActionResult<ApiResponse<OutroResponse?>>> GetOutro(CancellationToken ct)
+    public async Task<ActionResult<ApiResponse<OutroResponse?>>> GetOutro(
+        [FromQuery] string? channel, CancellationToken ct)
     {
-        var stored = await aiSettingsRepo.GetAsync(ct);
-        return Ok(ApiResponse<OutroResponse?>.Ok(stored?.DefaultOutro.ToResponse()));
+        var stored = await aiSettingsRepo.GetAsync(ct) ?? new AiSettings();
+        if (!TryChannel(stored, channel, out var target)) return ChannelNotFound();
+        return Ok(ApiResponse<OutroResponse?>.Ok((target?.Outro ?? stored.DefaultOutro).ToResponse()));
     }
 
     [HttpPut("branding/outro")]
     public async Task<ActionResult<ApiResponse<OutroResponse?>>> UpdateOutro(
-        [FromBody] OutroRequest request, CancellationToken ct)
+        [FromBody] OutroRequest request, [FromQuery] string? channel, CancellationToken ct)
     {
         var stored = await aiSettingsRepo.GetAsync(ct) ?? new AiSettings();
+        if (!TryChannel(stored, channel, out var target)) return ChannelNotFound();
+
         var outro = request.ToSettings();
         outro.Clamp();
-        stored.DefaultOutro = outro;
+        if (target is null) stored.DefaultOutro = outro; else target.Outro = outro;
 
         await aiSettingsRepo.SaveAsync(stored, ct);
 
         await audit.RecordAsync(
             "branding.outro-updated",
-            "global-branding",
-            "Updated global outro bumper",
+            ChannelAuditTarget(channel),
+            "Updated outro bumper",
             $"Kind: {outro.Kind}, Asset: {outro.AssetId}, Duration: {outro.DurationSeconds}s",
             RemoteAddress(),
             ct);
 
-        return Ok(ApiResponse<OutroResponse?>.Ok(stored.DefaultOutro.ToResponse()));
+        return Ok(ApiResponse<OutroResponse?>.Ok(outro.ToResponse()));
     }
 
     [HttpPost("branding/outro/upload")]
     [RequestSizeLimit(AssetsController.MaxUploadBytes)]
     [RequestFormLimits(MultipartBodyLengthLimit = AssetsController.MaxUploadBytes)]
     public async Task<ActionResult<ApiResponse<OutroResponse?>>> UploadBrandingOutro(
-        IFormFile file, CancellationToken ct)
+        IFormFile file, [FromQuery] string? channel, CancellationToken ct)
     {
+        var stored = await aiSettingsRepo.GetAsync(ct) ?? new AiSettings();
+        if (!TryChannel(stored, channel, out var target)) return ChannelNotFound();
+
         if (file is null || file.Length == 0)
         {
             return BadRequest(ApiResponse<OutroResponse?>.Fail(
@@ -650,23 +766,22 @@ public sealed class AdminController(
 
         await assets.InsertAsync(asset, ct);
 
-        var stored = await aiSettingsRepo.GetAsync(ct) ?? new AiSettings();
-        stored.DefaultOutro ??= new OutroSettings();
-        stored.DefaultOutro.Kind = isVideo ? OutroKind.Video : OutroKind.Image;
-        stored.DefaultOutro.AssetId = assetId;
-        stored.DefaultOutro.Clamp();
+        var outro = target?.Outro ?? (stored.DefaultOutro ??= new OutroSettings());
+        outro.Kind = isVideo ? OutroKind.Video : OutroKind.Image;
+        outro.AssetId = assetId;
+        outro.Clamp();
 
         await aiSettingsRepo.SaveAsync(stored, ct);
 
         await audit.RecordAsync(
             "branding.outro-uploaded",
-            "global-branding",
-            "Uploaded global studio outro media",
+            ChannelAuditTarget(channel),
+            "Uploaded outro media",
             asset.Name,
             RemoteAddress(),
             ct);
 
-        return Ok(ApiResponse<OutroResponse?>.Ok(stored.DefaultOutro.ToResponse()));
+        return Ok(ApiResponse<OutroResponse?>.Ok(outro.ToResponse()));
     }
 
     /// <summary>
@@ -678,8 +793,11 @@ public sealed class AdminController(
     [RequestSizeLimit(AssetsController.MaxUploadBytes)]
     [RequestFormLimits(MultipartBodyLengthLimit = AssetsController.MaxUploadBytes)]
     public async Task<ActionResult<ApiResponse<OutroResponse?>>> UploadOutroQr(
-        IFormFile file, CancellationToken ct)
+        IFormFile file, [FromQuery] string? channel, CancellationToken ct)
     {
+        var stored = await aiSettingsRepo.GetAsync(ct) ?? new AiSettings();
+        if (!TryChannel(stored, channel, out var target)) return ChannelNotFound();
+
         if (file is null || file.Length == 0)
         {
             return BadRequest(ApiResponse<OutroResponse?>.Fail(
@@ -721,19 +839,18 @@ public sealed class AdminController(
             CreatedAt = clock.GetUtcNow().UtcDateTime
         }, ct);
 
-        var stored = await aiSettingsRepo.GetAsync(ct) ?? new AiSettings();
-        stored.DefaultOutro ??= new OutroSettings();
-        stored.DefaultOutro.Kind = OutroKind.Card;
-        stored.DefaultOutro.QrAssetId = assetId;
-        stored.DefaultOutro.Clamp();
+        var outro = target?.Outro ?? (stored.DefaultOutro ??= new OutroSettings());
+        outro.Kind = OutroKind.Card;
+        outro.QrAssetId = assetId;
+        outro.Clamp();
 
         await aiSettingsRepo.SaveAsync(stored, ct);
 
         await audit.RecordAsync(
-            "branding.outro-qr-uploaded", "global-branding",
-            "Uploaded global end card QR code", assetId, RemoteAddress(), ct);
+            "branding.outro-qr-uploaded", ChannelAuditTarget(channel),
+            "Uploaded end card QR code", assetId, RemoteAddress(), ct);
 
-        return Ok(ApiResponse<OutroResponse?>.Ok(stored.DefaultOutro.ToResponse()));
+        return Ok(ApiResponse<OutroResponse?>.Ok(outro.ToResponse()));
     }
 
     /// <summary>
@@ -776,6 +893,47 @@ public sealed class AdminController(
     }
 
     // --- helpers -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Resolves <c>?channel=</c>: true with null for the default channel, true with the
+    /// channel for a known id, false for an id that names nothing.
+    /// </summary>
+    private static bool TryChannel(AiSettings settings, string? channelId, out BrandChannel? channel)
+    {
+        channel = settings.FindChannel(channelId);
+        return BrandChannel.IsDefault(channelId) || channel is not null;
+    }
+
+    private NotFoundObjectResult ChannelNotFound()
+    {
+        const string message = "That brand channel does not exist (it may have been deleted).";
+        return NotFound(ApiResponse<EmptyPayload>.Fail(message, new ApiError("channel-not-found", message)));
+    }
+
+    private static bool IsNameTaken(AiSettings settings, string name, string? exceptId)
+    {
+        bool Same(string other) => string.Equals(other.Trim(), name, StringComparison.OrdinalIgnoreCase);
+        if (exceptId != BrandChannel.DefaultId && Same(settings.DefaultChannelName)) return true;
+        return settings.Channels.Any(c => c.Id != exceptId && Same(c.Name));
+    }
+
+    private static string ChannelAuditTarget(string? channelId) =>
+        BrandChannel.IsDefault(channelId) ? "global-branding" : $"global-branding:{channelId}";
+
+    private static WatermarkSettings? Copy(WatermarkSettings? w) => w is null ? null : new WatermarkSettings
+    {
+        Kind = w.Kind, Text = w.Text, LogoAssetId = w.LogoAssetId, Position = w.Position,
+        Opacity = w.Opacity, HeightFraction = w.HeightFraction, MarginFraction = w.MarginFraction,
+        ColorHex = w.ColorHex, BackplateOpacity = w.BackplateOpacity,
+    };
+
+    private static OutroSettings? Copy(OutroSettings? o) => o is null ? null : new OutroSettings
+    {
+        Kind = o.Kind, AssetId = o.AssetId, DurationSeconds = o.DurationSeconds, Transition = o.Transition,
+        TransitionDurationFrames = o.TransitionDurationFrames, QrAssetId = o.QrAssetId,
+        Headline = o.Headline, Subtext = o.Subtext, HeadlineSecondary = o.HeadlineSecondary,
+        SubtextSecondary = o.SubtextSecondary, BackgroundHex = o.BackgroundHex, TextHex = o.TextHex,
+    };
 
     private static AiProviderId Parse(string providerId) =>
         AiProviderId.TryParse(providerId, out var id) ? id : throw new KeyNotFoundException();

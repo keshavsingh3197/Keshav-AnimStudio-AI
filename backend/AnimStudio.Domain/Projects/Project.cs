@@ -23,6 +23,12 @@ public sealed class ProjectSettings
     public WatermarkSettings DefaultWatermark { get; set; } = new();
     public OutroSettings DefaultOutro { get; set; } = new();
 
+    /// <summary>
+    /// The brand channel (YouTube channel) this project publishes under: its end card is
+    /// used when the project has no outro of its own. Null means the default channel.
+    /// </summary>
+    public string? BrandChannelId { get; set; }
+
     public List<string> ClipOrderAssetIds { get; set; } = [];
 
     public Canvas ToCanvas() => new(Width, Height, new FrameRate(FrameRateNum, FrameRateDen));

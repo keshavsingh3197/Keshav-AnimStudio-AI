@@ -3,6 +3,7 @@ import { Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
 import {
+  BrandChannel, DEFAULT_BRAND_CHANNEL,
   OUTRO_KINDS, OutroBody, OutroKind, WATERMARK_POSITIONS, WatermarkBody, WatermarkKind, WatermarkPosition,
 } from '../../core/models/api.models';
 import { ApiService } from '../../core/services/api.service';
@@ -47,32 +48,95 @@ export class AdminBrandingComponent {
   readonly defaultChunkDuration = signal<number>(10);
   readonly chunkDurationSaved = signal<boolean>(false);
 
-  form = {
-    kind: 'None' as WatermarkKind,
-    text: '',
-    logoAssetId: '',
-    position: 'TopRight' as WatermarkPosition,
-    opacity: 0.8,
-    height: 5.5,
-    margin: 4,
-    color: '#ffffff',
-    backplate: 0.3,
-  };
+  form = blankWatermarkForm();
+  outroForm = blankOutroForm();
 
-  outroForm = {
-    kind: 'None' as OutroKind,
-    assetId: '',
-    durationSeconds: 4,
-    transition: 'Fade',
-    transitionDurationFrames: 15,
-    qrAssetId: '',
-    headline: 'Support us for more videos like this',
-    subtext: 'Scan the QR code',
-    headlineSecondary: '',
-    subtextSecondary: '',
-    backgroundHex: '#101828',
-    textHex: '#FFFFFF',
-  };
+  // --- Brand channels: one watermark + end card per YouTube channel ---------------------
+  // Everything below the channel bar edits the selected channel; "default" is the
+  // studio's original branding, used by every project that has not picked a channel.
+
+  readonly channels = signal<BrandChannel[]>([]);
+  readonly selectedChannelId = signal<string>(DEFAULT_BRAND_CHANNEL);
+  readonly newChannelName = signal('');
+  readonly renamingChannel = signal(false);
+  readonly renameValue = signal('');
+  readonly confirmingChannelDelete = signal(false);
+
+  selectedChannel(): BrandChannel | undefined {
+    return this.channels().find((c) => c.id === this.selectedChannelId());
+  }
+
+  /** "🛡 Logo · 🎬 Card" - what a channel has set up, for its tab. */
+  channelSummary(c: BrandChannel): string {
+    const wm = c.watermark && c.watermark.kind !== 'None' ? c.watermark.kind : 'none';
+    const outro = c.outro && c.outro.kind !== 'None' ? c.outro.kind : 'none';
+    return `🛡 ${wm} · 🎬 ${outro}`;
+  }
+
+  selectChannel(id: string): void {
+    if (id === this.selectedChannelId()) return;
+    this.selectedChannelId.set(id);
+    this.renamingChannel.set(false);
+    this.confirmingChannelDelete.set(false);
+    this.setPreview(null);
+    this.loadChannelBranding();
+  }
+
+  private loadChannels(): void {
+    this.api.listBrandChannels().subscribe({
+      next: (list) => this.applyChannels(list),
+      error: () => {},
+    });
+  }
+
+  private applyChannels(list: BrandChannel[]): void {
+    this.channels.set(list);
+    // The selected channel was deleted (here or elsewhere): fall back to the default.
+    if (!list.some((c) => c.id === this.selectedChannelId())) {
+      this.selectedChannelId.set(DEFAULT_BRAND_CHANNEL);
+      this.loadChannelBranding();
+    }
+  }
+
+  /** Adds a channel that starts as a copy of the selected one, then switches to it. */
+  createChannel(): void {
+    const name = this.newChannelName().trim();
+    if (!name) return;
+    this.status.run(this.api.createBrandChannel(name, this.selectedChannelId()), (list) => {
+      this.newChannelName.set('');
+      this.channels.set(list);
+      const created = list.find((c) => !c.isDefault && c.name === name);
+      if (created) {
+        this.selectedChannelId.set(created.id);
+        this.setPreview(null);
+        this.loadChannelBranding();
+      }
+      this.status.notify([`Channel "${name}" added as a copy - now change its logo and end card.`]);
+    });
+  }
+
+  startRename(): void {
+    this.renameValue.set(this.selectedChannel()?.name ?? '');
+    this.renamingChannel.set(true);
+  }
+
+  saveRename(): void {
+    const name = this.renameValue().trim();
+    if (!name) return;
+    this.status.run(this.api.renameBrandChannel(this.selectedChannelId(), name), (list) => {
+      this.renamingChannel.set(false);
+      this.applyChannels(list);
+    });
+  }
+
+  deleteChannel(): void {
+    const id = this.selectedChannelId();
+    if (id === DEFAULT_BRAND_CHANNEL) return;
+    this.status.run(this.api.deleteBrandChannel(id), (list) => {
+      this.confirmingChannelDelete.set(false);
+      this.applyChannels(list);
+    });
+  }
 
   /** The rendered end card, as an object URL, and which shape it was rendered for. */
   readonly outroPreviewUrl = signal<string | null>(null);
@@ -86,11 +150,32 @@ export class AdminBrandingComponent {
   }
 
   reload(): void {
+    this.loadChannels();
+    this.loadChannelBranding();
+
+    // 3. Media Chunking (studio-wide, not per channel)
+    this.mediaTools.getMediaSettings().subscribe({
+      next: (settings) => {
+        this.defaultChunkDuration.set(settings.defaultChunkDurationSeconds || 10);
+      },
+      error: () => {},
+    });
+  }
+
+  /** Loads the selected channel's watermark and end card into the two forms. */
+  private loadChannelBranding(): void {
     this.saveSuccess.set(false);
     this.saveOutroSuccess.set(false);
+    const channel = this.selectedChannelId();
+    // A channel with nothing set yet shows blank forms, not the previous channel's values.
+    this.form = blankWatermarkForm();
+    this.outroForm = blankOutroForm();
+    this.logoPreviewUrl.set(null);
+    this.outroMediaUrl.set(null);
 
     // 1. Watermark / Hallmark
-    this.status.run(this.api.getGlobalBranding(), (wm) => {
+    this.status.run(this.api.getGlobalBranding(channel), (wm) => {
+      if (channel !== this.selectedChannelId()) return; // switched away meanwhile
       if (wm) {
         this.form = {
           kind: (wm.kind as WatermarkKind) ?? 'None',
@@ -104,7 +189,7 @@ export class AdminBrandingComponent {
           backplate: wm.backplateOpacity ?? 0.3,
         };
         if (wm.kind === 'Logo' && wm.logoAssetId) {
-          this.logoPreviewUrl.set(this.api.globalLogoUrl());
+          this.logoPreviewUrl.set(this.api.globalLogoUrl(channel) + '&t=' + Date.now());
         } else {
           this.logoPreviewUrl.set(null);
         }
@@ -112,8 +197,9 @@ export class AdminBrandingComponent {
     });
 
     // 2. Outro Bumper
-    this.api.getGlobalOutro().subscribe({
+    this.api.getGlobalOutro(channel).subscribe({
       next: (outro) => {
+        if (channel !== this.selectedChannelId()) return;
         if (outro) {
           this.outroForm = {
             kind: (outro.kind as OutroKind) ?? 'None',
@@ -130,19 +216,11 @@ export class AdminBrandingComponent {
             textHex: outro.textHex || '#FFFFFF',
           };
           if (outro.kind !== 'None' && outro.kind !== 'Card' && outro.assetId) {
-            this.outroMediaUrl.set(this.api.globalOutroMediaUrl() + '?t=' + Date.now());
+            this.outroMediaUrl.set(this.api.globalOutroMediaUrl(channel) + '&t=' + Date.now());
           } else {
             this.outroMediaUrl.set(null);
           }
         }
-      },
-      error: () => {},
-    });
-
-    // 3. Media Chunking
-    this.mediaTools.getMediaSettings().subscribe({
-      next: (settings) => {
-        this.defaultChunkDuration.set(settings.defaultChunkDurationSeconds || 10);
       },
       error: () => {},
     });
@@ -177,11 +255,12 @@ export class AdminBrandingComponent {
 
   uploadLogo(file: File): void {
     this.saveSuccess.set(false);
-    this.status.run(this.api.uploadGlobalLogo(file), (wm) => {
+    const channel = this.selectedChannelId();
+    this.status.run(this.api.uploadGlobalLogo(file, channel), (wm) => {
       if (wm) {
         this.form.kind = 'Logo';
         this.form.logoAssetId = wm.logoAssetId ?? '';
-        this.logoPreviewUrl.set(this.api.globalLogoUrl() + '?t=' + Date.now());
+        this.logoPreviewUrl.set(this.api.globalLogoUrl(channel) + '&t=' + Date.now());
       }
     });
   }
@@ -208,7 +287,8 @@ export class AdminBrandingComponent {
       backplateOpacity: this.form.backplate,
     };
 
-    this.status.run(this.api.updateGlobalBranding(body), () => {
+    this.status.run(this.api.updateGlobalBranding(body, this.selectedChannelId()), () => {
+      this.loadChannels();
       this.saveSuccess.set(true);
       setTimeout(() => this.saveSuccess.set(false), 4000);
     });
@@ -233,11 +313,12 @@ export class AdminBrandingComponent {
 
   uploadOutro(file: File): void {
     this.saveOutroSuccess.set(false);
-    this.status.run(this.api.uploadGlobalOutro(file), (res) => {
+    const channel = this.selectedChannelId();
+    this.status.run(this.api.uploadGlobalOutro(file, channel), (res) => {
       if (res) {
         this.outroForm.kind = res.kind;
         this.outroForm.assetId = res.assetId ?? '';
-        this.outroMediaUrl.set(this.api.globalOutroMediaUrl() + '?t=' + Date.now());
+        this.outroMediaUrl.set(this.api.globalOutroMediaUrl(channel) + '&t=' + Date.now());
       }
     });
   }
@@ -257,7 +338,7 @@ export class AdminBrandingComponent {
 
   uploadOutroQr(file: File): void {
     this.saveOutroSuccess.set(false);
-    this.status.run(this.api.uploadGlobalOutroQr(file), (res) => {
+    this.status.run(this.api.uploadGlobalOutroQr(file, this.selectedChannelId()), (res) => {
       if (res) {
         this.outroForm.kind = 'Card';
         this.outroForm.qrAssetId = res.qrAssetId ?? '';
@@ -361,7 +442,8 @@ export class AdminBrandingComponent {
     this.saveOutroSuccess.set(false);
     const body = this.outroBody();
 
-    this.status.run(this.api.updateGlobalOutro(body), () => {
+    this.status.run(this.api.updateGlobalOutro(body, this.selectedChannelId()), () => {
+      this.loadChannels();
       this.saveOutroSuccess.set(true);
       setTimeout(() => this.saveOutroSuccess.set(false), 4000);
     });
@@ -384,4 +466,35 @@ export class AdminBrandingComponent {
       setTimeout(() => this.chunkDurationSaved.set(false), 4000);
     });
   }
+}
+
+function blankWatermarkForm() {
+  return {
+    kind: 'None' as WatermarkKind,
+    text: '',
+    logoAssetId: '',
+    position: 'TopRight' as WatermarkPosition,
+    opacity: 0.8,
+    height: 5.5,
+    margin: 4,
+    color: '#ffffff',
+    backplate: 0.3,
+  };
+}
+
+function blankOutroForm() {
+  return {
+    kind: 'None' as OutroKind,
+    assetId: '',
+    durationSeconds: 4,
+    transition: 'Fade',
+    transitionDurationFrames: 15,
+    qrAssetId: '',
+    headline: 'Support us for more videos like this',
+    subtext: 'Scan the QR code',
+    headlineSecondary: '',
+    subtextSecondary: '',
+    backgroundHex: '#101828',
+    textHex: '#FFFFFF',
+  };
 }

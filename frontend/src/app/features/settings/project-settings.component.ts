@@ -1,9 +1,10 @@
 import { DecimalPipe } from '@angular/common';
-import { Component, effect, inject, signal } from '@angular/core';
+import { Component, effect, inject, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 
 import {
+  BrandChannel, DEFAULT_BRAND_CHANNEL,
   CANVAS_PRESETS, DISTRIBUTION_INTENTS, WATERMARK_POSITIONS, WatermarkBody, WatermarkKind, WatermarkPosition,
   OutroBody, OutroKind, aspectRatioLabel, videoFormat,
 } from '../../core/models/api.models';
@@ -74,7 +75,48 @@ export class ProjectSettingsComponent {
     defaultOutroDurationSeconds: 4,
     defaultOutroTransition: 'Fade',
     defaultOutroTransitionDurationFrames: 15,
+    brandChannelId: DEFAULT_BRAND_CHANNEL as string,
   };
+
+  /**
+   * The studio's brand channels (one per YouTube channel). globalWatermark / globalOutro
+   * below hold the SELECTED channel's look - what "sync" copies and what the end card
+   * falls back to - not necessarily the default channel's.
+   */
+  readonly channels = signal<BrandChannel[]>([]);
+
+  selectedChannel(): BrandChannel | undefined {
+    const list = this.channels();
+    return list.find((c) => c.id === this.form.brandChannelId) ?? list.find((c) => c.isDefault);
+  }
+
+  /** Points globalWatermark / globalOutro at the form's channel. */
+  private syncChannelBranding(): void {
+    const c = this.selectedChannel();
+    this.globalWatermark.set(c?.watermark ?? null);
+    this.globalOutro.set(c?.outro ?? null);
+  }
+
+  /**
+   * Switching channel adopts its look: its watermark is copied in (still tunable here) and
+   * the project's own outro is cleared so the export ends with the channel's end card.
+   * Nothing is stored until Save.
+   */
+  onChannelChange(channelId: string): void {
+    this.form.brandChannelId = channelId;
+    this.syncChannelBranding();
+    const c = this.selectedChannel();
+    if (c?.watermark && c.watermark.kind !== 'None') {
+      this.applyGlobalBranding();
+    } else {
+      this.form.defaultWatermarkKind = 'None';
+    }
+    this.form.defaultOutroKind = 'None';
+    this.setEndCardPreview(null);
+    this.status.notify([
+      `Using the "${c?.name ?? 'Default'}" channel's watermark and end card. Save to keep it.`,
+    ]);
+  }
 
   constructor() {
     // Fills the form as soon as the project lands, and again if it is reloaded.
@@ -107,18 +149,19 @@ export class ProjectSettingsComponent {
         defaultOutroDurationSeconds: project.defaultOutro?.durationSeconds || 4,
         defaultOutroTransition: project.defaultOutro?.transition || 'Fade',
         defaultOutroTransitionDurationFrames: project.defaultOutro?.transitionDurationFrames || 15,
+        brandChannelId: project.brandChannelId || DEFAULT_BRAND_CHANNEL,
       };
 
       this.presetIndex = this.matchPreset(project.width, project.height);
+      // untracked: the channel list arriving must not re-run this and wipe unsaved edits.
+      untracked(() => this.syncChannelBranding());
     });
 
-    this.api.getGlobalBranding().subscribe({
-      next: (wm) => this.globalWatermark.set(wm),
-      error: () => {},
-    });
-
-    this.api.getGlobalOutro().subscribe({
-      next: (o) => this.globalOutro.set(o),
+    this.api.listBrandChannels().subscribe({
+      next: (list) => {
+        this.channels.set(list);
+        this.syncChannelBranding();
+      },
       error: () => {},
     });
   }
@@ -193,7 +236,7 @@ export class ProjectSettingsComponent {
     const id = this.form.defaultWatermarkLogoId;
     if (!id) return null;
     if (id === this.globalWatermark()?.logoAssetId) {
-      return this.api.globalLogoUrl();
+      return this.api.globalLogoUrl(this.form.brandChannelId);
     }
     return this.api.assetUrl(id);
   }
@@ -319,9 +362,10 @@ export class ProjectSettingsComponent {
         return this.form.defaultOutroKind === 'Video' ? "This project's own outro video" : "This project's own end-card graphic";
       case 'global': {
         const g = this.globalOutro()!;
+        const channel = `"${this.selectedChannel()?.name ?? 'Default'}" channel`;
         return g.kind === 'Card'
-          ? 'Studio end card from global branding (QR code' + (g.headline ? ` + "${g.headline}"` : '') + ')'
-          : `Studio outro ${g.kind.toLowerCase()} from global branding`;
+          ? `The ${channel}'s end card (QR code` + (g.headline ? ` + "${g.headline}"` : '') + ')'
+          : `The ${channel}'s outro ${g.kind.toLowerCase()}`;
       }
       default:
         return 'No end card - exports finish on the last clip.';
@@ -367,7 +411,7 @@ export class ProjectSettingsComponent {
     const id = this.form.defaultOutroAssetId;
     if (!id) return null;
     if (id === this.globalOutro()?.assetId) {
-      return this.api.globalOutroMediaUrl();
+      return this.api.globalOutroMediaUrl(this.form.brandChannelId);
     }
     return this.api.assetUrl(id);
   }
@@ -407,6 +451,7 @@ export class ProjectSettingsComponent {
     this.status.run(
       this.api.updateProject(projectId, {
         name: this.form.name,
+        brandChannelId: this.form.brandChannelId || DEFAULT_BRAND_CHANNEL,
         description: this.form.description.trim() || undefined,
         width: this.form.width,
         height: this.form.height,

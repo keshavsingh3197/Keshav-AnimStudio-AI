@@ -1,3 +1,4 @@
+using AnimStudio.Domain.Ai;
 using AnimStudio.Domain.Assets;
 using AnimStudio.Application.Clips;
 using AnimStudio.Domain.Characters;
@@ -31,7 +32,18 @@ public static class Mappings
         p.IsPinned,
         p.CustomThumbnail,
         p.Settings.DefaultWatermark.ToResponse(),
-        p.Settings.DefaultOutro.ToResponse());
+        p.Settings.DefaultOutro.ToResponse(),
+        p.Settings.BrandChannelId);
+
+    /// <summary>Every channel, the built-in default first.</summary>
+    public static IReadOnlyList<BrandChannelResponse> ToChannelResponses(this AiSettings? s) =>
+    [
+        new BrandChannelResponse(
+            BrandChannel.DefaultId, s?.DefaultChannelName ?? "Default", true,
+            s?.DefaultWatermark.ToResponse(), s?.DefaultOutro.ToResponse()),
+        .. (s?.Channels ?? []).Select(c => new BrandChannelResponse(
+            c.Id, c.Name, false, c.Watermark.ToResponse(), c.Outro.ToResponse())),
+    ];
 
     public static WatermarkResponse? ToResponse(this WatermarkSettings? w) =>
         w is null ? null : new WatermarkResponse(

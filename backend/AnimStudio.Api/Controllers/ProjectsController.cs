@@ -39,21 +39,26 @@ public sealed class ProjectsController(
     {
         var now = clock.GetUtcNow().UtcDateTime;
 
-        WatermarkSettings? defaultWatermark = null;
         var globalSettings = await aiSettingsRepo.GetAsync(ct);
-        if (globalSettings?.DefaultWatermark is not null && globalSettings.DefaultWatermark.Kind != WatermarkKind.None)
+        if (UnknownChannel(globalSettings, request.BrandChannelId) is { } unknown) return unknown;
+        var channelId = BrandChannel.IsDefault(request.BrandChannelId) ? null : request.BrandChannelId;
+
+        // The new project starts with its channel's watermark, copied so it can be tuned per project.
+        WatermarkSettings? defaultWatermark = null;
+        var channelWatermark = globalSettings?.WatermarkFor(channelId);
+        if (channelWatermark is not null && channelWatermark.Kind != WatermarkKind.None)
         {
             defaultWatermark = new WatermarkSettings
             {
-                Kind = globalSettings.DefaultWatermark.Kind,
-                Text = globalSettings.DefaultWatermark.Text,
-                LogoAssetId = globalSettings.DefaultWatermark.LogoAssetId,
-                Position = globalSettings.DefaultWatermark.Position,
-                Opacity = globalSettings.DefaultWatermark.Opacity,
-                HeightFraction = globalSettings.DefaultWatermark.HeightFraction,
-                MarginFraction = globalSettings.DefaultWatermark.MarginFraction,
-                ColorHex = globalSettings.DefaultWatermark.ColorHex,
-                BackplateOpacity = globalSettings.DefaultWatermark.BackplateOpacity
+                Kind = channelWatermark.Kind,
+                Text = channelWatermark.Text,
+                LogoAssetId = channelWatermark.LogoAssetId,
+                Position = channelWatermark.Position,
+                Opacity = channelWatermark.Opacity,
+                HeightFraction = channelWatermark.HeightFraction,
+                MarginFraction = channelWatermark.MarginFraction,
+                ColorHex = channelWatermark.ColorHex,
+                BackplateOpacity = channelWatermark.BackplateOpacity
             };
         }
 
@@ -72,7 +77,8 @@ public sealed class ProjectsController(
                 FrameRateNum = request.Fps,
                 FrameRateDen = 1,
                 DistributionIntent = request.DistributionIntent,
-                DefaultWatermark = defaultWatermark ?? new WatermarkSettings()
+                DefaultWatermark = defaultWatermark ?? new WatermarkSettings(),
+                BrandChannelId = channelId
             },
             CreatedAt = now,
             UpdatedAt = now
@@ -88,6 +94,12 @@ public sealed class ProjectsController(
     public async Task<ActionResult<ApiResponse<ProjectResponse>>> Update(
         string id, [FromBody] UpdateProjectRequest request, CancellationToken ct)
     {
+        if (request.BrandChannelId is not null
+            && UnknownChannel(await aiSettingsRepo.GetAsync(ct), request.BrandChannelId) is { } unknown)
+        {
+            return unknown;
+        }
+
         var project = await editing.UpdateAsync(new UpdateProjectCommand
         {
             ProjectId = id,
@@ -104,10 +116,19 @@ public sealed class ProjectsController(
             IsPinned = request.IsPinned,
             CustomThumbnail = request.CustomThumbnail,
             DefaultWatermark = request.DefaultWatermark?.ToSettings(),
-            DefaultOutro = request.DefaultOutro?.ToSettings()
+            DefaultOutro = request.DefaultOutro?.ToSettings(),
+            BrandChannelId = request.BrandChannelId
         }, ct);
 
         return Ok(ApiResponse<ProjectResponse>.Ok(project.ToResponse()));
+    }
+
+    /// <summary>A 400 when the id names no channel; null when it is the default or exists.</summary>
+    private static BadRequestObjectResult? UnknownChannel(Domain.Ai.AiSettings? settings, string? channelId)
+    {
+        if (BrandChannel.IsDefault(channelId) || settings?.FindChannel(channelId) is not null) return null;
+        const string message = "That brand channel no longer exists. Pick another in project settings.";
+        return new BadRequestObjectResult(ApiResponse<EmptyPayload>.Fail(message, new ApiError("unknown-channel", message)));
     }
 
     [HttpDelete("{id}")]
@@ -119,7 +140,7 @@ public sealed class ProjectsController(
 
     /// <summary>
     /// Renders the end card this project's export would finish with - its own outro when it
-    /// has one enabled, else the studio's - so it can be seen before a 20-minute export.
+    /// has one enabled, else its brand channel's - so it can be seen before a 20-minute export.
     /// A body previews unsaved project settings; without one the saved settings are used.
     /// </summary>
     /// <param name="format">landscape, vertical or square; omitted means the project's own canvas.</param>
@@ -149,7 +170,9 @@ public sealed class ProjectsController(
 
         var own = request?.ToSettings() ?? project.Settings.DefaultOutro;
         own?.Clamp();
-        var outro = own is { IsEnabled: true } ? own : (await aiSettingsRepo.GetAsync(ct))?.DefaultOutro;
+        var outro = own is { IsEnabled: true }
+            ? own
+            : (await aiSettingsRepo.GetAsync(ct))?.OutroFor(project.Settings.BrandChannelId);
 
         var bytes = outro is { IsEnabled: true }
             ? await previews.RenderAsync(outro, canvas, project.Id, ct)

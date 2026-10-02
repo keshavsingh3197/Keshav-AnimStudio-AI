@@ -135,6 +135,17 @@
             <span>{{ showDetails() ? '▾ Hide Advanced Quality Settings' : '▸ Show Frame Rate & Distribution Settings' }}</span>
           </button>
 
+          @if (channels().length > 1) {
+            <div class="advanced-col" style="margin-bottom: 0.75rem;">
+              <label for="channelSelect" class="drawer-label">📺 YouTube Channel / Brand</label>
+              <select id="channelSelect" class="drawer-select" [(ngModel)]="channelId">
+                @for (c of channels(); track c.id) {
+                  <option [ngValue]="c.id">{{ c.name }}{{ c.isDefault ? ' (default)' : '' }}</option>
+                }
+              </select>
+            </div>
+          }
+
           @if (showDetails()) {
             <div class="advanced-grid">
               <div class="advanced-col">

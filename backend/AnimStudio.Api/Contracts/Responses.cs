@@ -34,7 +34,12 @@ public sealed record ProjectResponse(
     bool IsPinned = false,
     string? CustomThumbnail = null,
     WatermarkResponse? DefaultWatermark = null,
-    OutroResponse? DefaultOutro = null);
+    OutroResponse? DefaultOutro = null,
+    string? BrandChannelId = null);
+
+/// <summary>A brand channel and its look. The built-in default comes first, with IsDefault set.</summary>
+public sealed record BrandChannelResponse(
+    string Id, string Name, bool IsDefault, WatermarkResponse? Watermark, OutroResponse? Outro);
 
 public sealed record CharacterResponse(
     string Id, string Name, string? Description, IReadOnlyList<string> Aliases,

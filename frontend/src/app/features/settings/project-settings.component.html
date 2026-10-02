@@ -9,6 +9,16 @@
       </div>
     </div>
     <div class="settings-top-actions">
+      @if (channels().length > 1) {
+        <label class="channel-picker" title="Which YouTube channel this project publishes under: its watermark and end card">
+          <span>📺 Channel</span>
+          <select class="form-select" [ngModel]="form.brandChannelId" (ngModelChange)="onChannelChange($event)">
+            @for (c of channels(); track c.id) {
+              <option [value]="c.id">{{ c.name }}{{ c.isDefault ? ' (default)' : '' }}</option>
+            }
+          </select>
+        </label>
+      }
       @if (saveSuccess()) {
         <div class="save-toast-pill">
           <span>✓</span> Settings Saved
@@ -217,11 +227,11 @@
         <div class="hallmark-badge-group">
           <div class="status-dot-pulse"></div>
           <span style="font-size: 0.85rem; color: #fff; font-weight: 500;">
-            Global Studio Hallmark configured: <strong>{{ globalWatermark()?.kind }}</strong> ({{ globalWatermark()?.position }})
+            "{{ selectedChannel()?.name ?? 'Default' }}" channel hallmark: <strong>{{ globalWatermark()?.kind }}</strong> ({{ globalWatermark()?.position }})
           </span>
         </div>
         <button type="button" class="btn-outline" (click)="applyGlobalBranding()" style="font-size: 0.82rem; padding: 4px 12px;">
-          Sync from Global Hallmark
+          Sync from Channel Hallmark
         </button>
       } @else {
         <div style="font-size: 0.84rem; color: #8b9bb4;">
@@ -403,11 +413,11 @@
         <div class="hallmark-badge-group">
           <div class="status-dot-pulse"></div>
           <span style="font-size: 0.85rem; color: #fff; font-weight: 500;">
-            Global Studio Outro active: <strong>{{ globalOutro()?.kind }}</strong> ({{ globalOutro()?.transition }} transition)
+            "{{ selectedChannel()?.name ?? 'Default' }}" channel outro: <strong>{{ globalOutro()?.kind }}</strong> ({{ globalOutro()?.transition }} transition)
           </span>
         </div>
         <button type="button" class="btn-outline" (click)="applyGlobalOutro()" style="font-size: 0.82rem; padding: 4px 12px;">
-          Sync from Global Outro
+          Sync from Channel Outro
         </button>
       } @else {
         <div style="font-size: 0.84rem; color: #8b9bb4;">

@@ -5260,3 +5260,12 @@ audio { height: 2.2rem; vertical-align: middle; }
 .end-card-effective-error { margin: 0.5rem 0 0; font-size: 0.8rem; color: var(--err); }
 .end-card-effective-video { display: block; width: 100%; max-height: 360px; margin-top: 0.75rem; border-radius: 8px; background: #000; object-fit: contain; }
 .end-card-effective-note { margin: 0.35rem 0 0; font-size: 0.75rem; color: var(--muted); }
+
+/* Ultra-wide: the 1320px shell left two thirds of a 3440px screen empty. Pages with their
+   own cap raise it too (projects, characters, settings, branding). */
+@media (min-width: 2200px) {
+  .wrap { max-width: min(94vw, 2400px); }
+}
+@media (min-width: 3000px) {
+  .wrap { max-width: min(94vw, 3000px); }
+}

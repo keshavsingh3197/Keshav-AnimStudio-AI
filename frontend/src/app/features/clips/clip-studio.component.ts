@@ -1,8 +1,8 @@
-import { Component, ElementRef, HostListener, OnDestroy, OnInit, ViewChild, effect, inject, signal } from '@angular/core';
+import { Component, ElementRef, HostListener, OnDestroy, OnInit, ViewChild, effect, inject, signal, untracked } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { Clip } from '../../core/models/api.models';
+import { Clip, DEFAULT_BRAND_CHANNEL } from '../../core/models/api.models';
 import { StudioStateService } from './services/studio-state.service';
 import { StudioHeaderComponent } from './components/studio-header/studio-header.component';
 import { MediaDockComponent } from './components/media-dock/media-dock.component';
@@ -45,16 +45,27 @@ export class ClipStudioComponent implements OnInit, OnDestroy {
         setTimeout(() => this.updateSplitVideoFrames(), 30);
       }
     });
+
+    // The end card falls back to the project's brand channel, so it follows the project.
+    effect(() => {
+      const project = this.state.store.project();
+      if (!project) return;
+      const channelId = project.brandChannelId || DEFAULT_BRAND_CHANNEL;
+      untracked(() => this.state.api.listBrandChannels().subscribe({
+        next: (list) => {
+          const channel = list.find((c) => c.id === channelId) ?? list.find((c) => c.isDefault);
+          this.state.globalOutro.set(channel?.outro ?? null);
+          this.state.brandChannelName.set(channel?.name ?? null);
+        },
+        error: () => this.state.globalOutro.set(null),
+      }));
+    });
   }
 
   ngOnInit(): void {
     this.route.paramMap.subscribe(() => {
       this.state.loadStudio();
       this.setEndCardPreview(null);
-    });
-    this.state.api.getGlobalOutro().subscribe({
-      next: (o) => this.state.globalOutro.set(o),
-      error: () => this.state.globalOutro.set(null),
     });
   }
 
