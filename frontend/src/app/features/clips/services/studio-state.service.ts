@@ -4,7 +4,7 @@ import { catchError, concatMap, finalize, from, map, of } from 'rxjs';
 import {
   Clip, ClipAudioBody, ClipFit, ClipOrder, ClipStudio, ExportQuality, MAX_CLIP_GAIN, RenderJob, ExportTimelineFormat,
   SHORTS_MAX_SECONDS, TRANSITIONS, WATERMARK_POSITIONS, WatermarkBody, WatermarkKind, WatermarkPosition,
-  aspectRatioLabel, isTerminal, videoFormat,
+  aspectRatioLabel, isTerminal, videoFormat, OutroBody,
   TimelineItem, TimelineItemType, TrackControlState, TimelineItemTransform, TimelineItemTextStyle,
 } from '../../../core/models/api.models';
 import { ApiService } from '../../../core/services/api.service';
@@ -304,6 +304,33 @@ export class StudioStateService implements OnDestroy {
   readonly exportIncludeWatermark = signal<boolean>(true);
   /** End the export with the saved outro / "support us" QR card. Ignored when none is set up. */
   readonly exportIncludeOutro = signal<boolean>(true);
+
+  /** The studio-wide outro, which an export uses when the project has none of its own. */
+  readonly globalOutro = signal<OutroBody | null>(null);
+
+  /** The end card an export appends - mirrors the server: the project's own, else the studio's. */
+  readonly endCard = computed<{ source: 'project' | 'global'; label: string; seconds: number } | null>(() => {
+    const own = this.store.project()?.defaultOutro;
+    if (own && own.kind !== 'None') {
+      // A bumper video runs its own length; the asset knows it when it is in this project.
+      const asset = own.kind === 'Video' && own.assetId
+        ? this.store.assets().find((a) => a.id === own.assetId) : undefined;
+      return {
+        source: 'project',
+        label: own.kind === 'Video' ? 'Project outro video' : 'Project end-card graphic',
+        seconds: asset?.durationSeconds || own.durationSeconds || 4,
+      };
+    }
+    const g = this.globalOutro();
+    if (g && g.kind !== 'None') {
+      const what = g.kind === 'Card' ? 'QR end card' : `outro ${g.kind.toLowerCase()}`;
+      return { source: 'global', label: `Studio ${what} (global branding)`, seconds: g.durationSeconds || 4 };
+    }
+    return null;
+  });
+
+  /** Seconds the end card adds after the cut, when this export will include it. */
+  readonly endCardTailSeconds = computed(() => (this.exportIncludeOutro() ? this.endCard()?.seconds ?? 0 : 0));
 
   // Live Export Progress Monitor Signals
   readonly exportProgressOpen = signal<boolean>(false);
@@ -1426,7 +1453,8 @@ export class StudioStateService implements OnDestroy {
   });
 
   readonly timelineSeconds = computed(() => {
-    return Math.max(this.contentDurationSeconds(), 10);
+    // Room for the end-card marker drawn after the cut, so the end of the video is visible.
+    return Math.max(this.contentDurationSeconds() + this.endCardTailSeconds(), 10);
   });
 
   readonly rulerTicks = computed<number[]>(() => {

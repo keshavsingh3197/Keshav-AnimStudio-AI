@@ -8,6 +8,10 @@ namespace AnimStudio.Application.Abstractions.Rendering;
 /// </summary>
 public interface IOutroPreviewRenderer
 {
+    /// <param name="projectId">
+    /// A project the caller has already been checked to own, whose files the outro may also
+    /// use (a project's own bumper). Null limits it to studio-wide files.
+    /// </param>
     /// <returns>The MP4's bytes, or null when the outro has nothing to show.</returns>
-    Task<byte[]?> RenderAsync(OutroSettings outro, Canvas canvas, CancellationToken ct);
+    Task<byte[]?> RenderAsync(OutroSettings outro, Canvas canvas, string? projectId, CancellationToken ct);
 }

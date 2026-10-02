@@ -118,6 +118,52 @@ public sealed class ProjectsController(
     }
 
     /// <summary>
+    /// Renders the end card this project's export would finish with - its own outro when it
+    /// has one enabled, else the studio's - so it can be seen before a 20-minute export.
+    /// A body previews unsaved project settings; without one the saved settings are used.
+    /// </summary>
+    /// <param name="format">landscape, vertical or square; omitted means the project's own canvas.</param>
+    [HttpPost("{id}/outro/preview")]
+    public async Task<IActionResult> PreviewOutro(
+        string id,
+        [FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] OutroRequest? request,
+        [FromQuery] string? format,
+        [FromServices] AnimStudio.Application.Abstractions.Rendering.IOutroPreviewRenderer previews,
+        CancellationToken ct)
+    {
+        var project = await LoadOwnedAsync(id, ct);
+
+        Canvas? canvas = format?.ToLowerInvariant() switch
+        {
+            null or "" => project.Settings.ToCanvas(),
+            "landscape" => Canvas.Hd1080p30,
+            "vertical" => Canvas.Vertical1080x1920,
+            "square" => Canvas.Square1080,
+            _ => null
+        };
+        if (canvas is null)
+        {
+            const string message = "format must be landscape, vertical or square.";
+            return BadRequest(ApiResponse<EmptyPayload>.Fail(message, new ApiError("invalid-format", message)));
+        }
+
+        var own = request?.ToSettings() ?? project.Settings.DefaultOutro;
+        own?.Clamp();
+        var outro = own is { IsEnabled: true } ? own : (await aiSettingsRepo.GetAsync(ct))?.DefaultOutro;
+
+        var bytes = outro is { IsEnabled: true }
+            ? await previews.RenderAsync(outro, canvas, project.Id, ct)
+            : null;
+        if (bytes is null)
+        {
+            const string message = "This project has no end card: set one here or in global branding.";
+            return BadRequest(ApiResponse<EmptyPayload>.Fail(message, new ApiError("outro-empty", message)));
+        }
+
+        return File(bytes, "video/mp4", "end-card-preview.mp4");
+    }
+
+    /// <summary>
     /// Loads a project and verifies ownership. Every project-scoped endpoint goes through
     /// this: an id being hard to guess is not an access control.
     /// </summary>

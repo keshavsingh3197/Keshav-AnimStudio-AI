@@ -298,6 +298,71 @@ export class ProjectSettingsComponent {
     this.form.defaultOutroKind = 'None';
   }
 
+  // --- What the export actually ends with -------------------------------------------
+  // A project set to "None" still ends with the studio's card, which this page cannot
+  // edit - so it is named and rendered here rather than leaving the end a surprise.
+
+  readonly endCardPreviewUrl = signal<string | null>(null);
+  readonly endCardPreviewBusy = signal(false);
+  readonly endCardPreviewError = signal<string | null>(null);
+
+  /** 'project' | 'global' | 'none' - which outro the next export uses. */
+  endCardSource(): 'project' | 'global' | 'none' {
+    if (this.form.defaultOutroKind !== 'None') return 'project';
+    const g = this.globalOutro();
+    return g && g.kind !== 'None' ? 'global' : 'none';
+  }
+
+  endCardLabel(): string {
+    switch (this.endCardSource()) {
+      case 'project':
+        return this.form.defaultOutroKind === 'Video' ? "This project's own outro video" : "This project's own end-card graphic";
+      case 'global': {
+        const g = this.globalOutro()!;
+        return g.kind === 'Card'
+          ? 'Studio end card from global branding (QR code' + (g.headline ? ` + "${g.headline}"` : '') + ')'
+          : `Studio outro ${g.kind.toLowerCase()} from global branding`;
+      }
+      default:
+        return 'No end card - exports finish on the last clip.';
+    }
+  }
+
+  /** Renders the end card exactly as the export would, using the unsaved form. */
+  previewEndCard(): void {
+    const projectId = this.store.projectId();
+    if (!projectId) return;
+    this.endCardPreviewBusy.set(true);
+    this.endCardPreviewError.set(null);
+    this.api.previewProjectOutro(projectId, this.outroBody()).subscribe({
+      next: (blob) => {
+        this.setEndCardPreview(blob);
+        this.endCardPreviewBusy.set(false);
+      },
+      error: () => {
+        this.setEndCardPreview(null);
+        this.endCardPreviewBusy.set(false);
+        this.endCardPreviewError.set('Could not render the end card. Check the outro here or in global branding.');
+      },
+    });
+  }
+
+  private setEndCardPreview(blob: Blob | null): void {
+    const previous = this.endCardPreviewUrl();
+    if (previous) URL.revokeObjectURL(previous);
+    this.endCardPreviewUrl.set(blob ? URL.createObjectURL(blob) : null);
+  }
+
+  private outroBody(): OutroBody {
+    return {
+      kind: this.form.defaultOutroKind,
+      assetId: this.form.defaultOutroAssetId || null,
+      durationSeconds: this.form.defaultOutroDurationSeconds,
+      transition: this.form.defaultOutroTransition,
+      transitionDurationFrames: this.form.defaultOutroTransitionDurationFrames,
+    };
+  }
+
   outroMediaUrl(): string | null {
     const id = this.form.defaultOutroAssetId;
     if (!id) return null;
@@ -361,13 +426,7 @@ export class ProjectSettingsComponent {
           colorHex: this.form.defaultWatermarkColor,
           backplateOpacity: this.form.defaultWatermarkBackplate,
         },
-        defaultOutro: {
-          kind: this.form.defaultOutroKind,
-          assetId: this.form.defaultOutroAssetId || null,
-          durationSeconds: this.form.defaultOutroDurationSeconds,
-          transition: this.form.defaultOutroTransition,
-          transitionDurationFrames: this.form.defaultOutroTransitionDurationFrames,
-        },
+        defaultOutro: this.outroBody(),
       }),
       (project) => {
         this.store.project.set(project);
@@ -389,5 +448,6 @@ export class ProjectSettingsComponent {
 
   ngOnDestroy(): void {
     this.stopAudioPreview();
+    this.setEndCardPreview(null);
   }
 }

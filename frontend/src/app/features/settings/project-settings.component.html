@@ -556,6 +556,32 @@
       </div>
     }
 
+    <!-- What the export will actually end with: own outro, or the studio's global card -->
+    <div class="end-card-effective" [class.is-none]="endCardSource() === 'none'">
+      <div class="end-card-effective-head">
+        <div>
+          <span class="form-label" style="margin: 0;">Your exports end with</span>
+          <div class="end-card-effective-label">{{ endCardLabel() }}</div>
+          @if (endCardSource() === 'global') {
+            <a routerLink="/admin/branding" class="end-card-effective-link">Edit the studio end card &rarr;</a>
+          }
+        </div>
+        @if (endCardSource() !== 'none') {
+          <button type="button" class="btn-outline" [disabled]="endCardPreviewBusy()" (click)="previewEndCard()">
+            {{ endCardPreviewBusy() ? 'Rendering…' : (endCardPreviewUrl() ? '↻ Re-render preview' : '▶ Preview end card') }}
+          </button>
+        }
+      </div>
+      @if (endCardPreviewError(); as err) {
+        <p class="end-card-effective-error">{{ err }}</p>
+      }
+      @if (endCardPreviewUrl(); as url) {
+        <video class="end-card-effective-video" [src]="url" controls autoplay playsinline
+               [style.aspect-ratio]="form.width + '/' + form.height"></video>
+        <p class="end-card-effective-note">Rendered at this project's canvas ({{ form.width }}&times;{{ form.height }}), exactly as the export appends it.</p>
+      }
+    </div>
+
     <div style="display: flex; justify-content: flex-end; margin-top: 1rem;">
       <button type="button" class="btn-primary-glow" (click)="save()" [disabled]="status.busy() || !form.name.trim()">
         Save Settings &amp; Outro

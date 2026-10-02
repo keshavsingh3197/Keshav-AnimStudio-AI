@@ -1066,6 +1066,37 @@
             </div>
           </div>
 
+          <!-- What the export appends at the end, and a real render of it -->
+          @if (state.exportIncludeOutro()) {
+            <div class="end-card-effective export-end-card" [class.is-none]="!state.endCard()">
+              <div class="end-card-effective-head">
+                <div>
+                  <span class="export-sec-label" style="margin: 0;">End card</span>
+                  <div class="end-card-effective-label">
+                    @if (state.endCard(); as card) {
+                      {{ card.label }} &middot; {{ card.seconds | number:'1.0-1' }}s
+                    } @else {
+                      No end card set up - the export finishes on the last clip.
+                    }
+                  </div>
+                </div>
+                @if (state.endCard()) {
+                  <button type="button" class="btn btn-outline-info" [disabled]="endCardPreviewBusy()" (click)="previewEndCard()">
+                    {{ endCardPreviewBusy() ? 'Rendering…' : (endCardPreviewUrl() ? '↻ Re-render' : '▶ Preview end card') }}
+                  </button>
+                } @else {
+                  <a class="end-card-effective-link" routerLink="/admin/branding">Set one up in Branding &rarr;</a>
+                }
+              </div>
+              @if (endCardPreviewError(); as err) {
+                <p class="end-card-effective-error">{{ err }}</p>
+              }
+              @if (endCardPreviewUrl(); as url) {
+                <video class="end-card-effective-video" [src]="url" controls autoplay playsinline></video>
+              }
+            </div>
+          }
+
           <!-- System & Engine Capacity Info Footer -->
           <div class="export-limits-info">
             <span class="limits-icon">⚙</span>

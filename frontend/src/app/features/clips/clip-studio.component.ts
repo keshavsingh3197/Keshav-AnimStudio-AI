@@ -1,7 +1,7 @@
-import { Component, ElementRef, HostListener, OnInit, ViewChild, effect, inject, signal } from '@angular/core';
+import { Component, ElementRef, HostListener, OnDestroy, OnInit, ViewChild, effect, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { Clip } from '../../core/models/api.models';
 import { StudioStateService } from './services/studio-state.service';
 import { StudioHeaderComponent } from './components/studio-header/studio-header.component';
@@ -23,11 +23,12 @@ import { clipboardFiles } from '../../shared/file-drop.directive';
     VideoViewportComponent,
     InspectorDockComponent,
     TimelineDockComponent,
+    RouterLink,
   ],
   templateUrl: './clip-studio.component.html',
   styleUrls: ['./clip-studio.component.css'],
 })
-export class ClipStudioComponent implements OnInit {
+export class ClipStudioComponent implements OnInit, OnDestroy {
   readonly state = inject(StudioStateService);
   private readonly route = inject(ActivatedRoute);
 
@@ -49,7 +50,48 @@ export class ClipStudioComponent implements OnInit {
   ngOnInit(): void {
     this.route.paramMap.subscribe(() => {
       this.state.loadStudio();
+      this.setEndCardPreview(null);
     });
+    this.state.api.getGlobalOutro().subscribe({
+      next: (o) => this.state.globalOutro.set(o),
+      error: () => this.state.globalOutro.set(null),
+    });
+  }
+
+  ngOnDestroy(): void {
+    this.setEndCardPreview(null);
+  }
+
+  // --- Export dialog: which end card the export appends, and a rendered preview of it ---
+
+  readonly endCardPreviewUrl = signal<string | null>(null);
+  readonly endCardPreviewBusy = signal(false);
+  readonly endCardPreviewError = signal<string | null>(null);
+
+  previewEndCard(): void {
+    const projectId = this.state.store.projectId();
+    if (!projectId) return;
+    const res = this.state.exportResolution();
+    const format = res === 'short_9_16' ? 'vertical' : res === 'square_1_1' ? 'square' : 'landscape';
+    this.endCardPreviewBusy.set(true);
+    this.endCardPreviewError.set(null);
+    this.state.api.previewProjectOutro(projectId, null, format).subscribe({
+      next: (blob) => {
+        this.setEndCardPreview(blob);
+        this.endCardPreviewBusy.set(false);
+      },
+      error: () => {
+        this.setEndCardPreview(null);
+        this.endCardPreviewBusy.set(false);
+        this.endCardPreviewError.set('Could not render the end card. Check Settings → Outro or Admin → Branding.');
+      },
+    });
+  }
+
+  private setEndCardPreview(blob: Blob | null): void {
+    const previous = this.endCardPreviewUrl();
+    if (previous) URL.revokeObjectURL(previous);
+    this.endCardPreviewUrl.set(blob ? URL.createObjectURL(blob) : null);
   }
 
   updateSplitVideoFrames(): void {

@@ -2035,9 +2035,9 @@ app-timeline-dock {
   font-size: 0.85rem;
   font-weight: 600;
   color: #f8fafc;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* Wraps rather than truncating: "1080p F..." told nobody which format it was. */
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .res-card-dim {
@@ -3253,4 +3253,17 @@ app-timeline-dock {
   padding: 0.8rem 1.2rem;
   background: rgba(15, 23, 42, 0.9);
   border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Export dialog on wide and ultra-wide screens: room for every format on one row,
+   and a taller end-card preview. */
+@media (min-width: 1900px) {
+  .export-dialog { max-width: 1040px; }
+  .export-res-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .export-end-card .end-card-effective-video { max-height: 420px; }
+}
+@media (min-width: 2560px) {
+  .export-dialog { max-width: 1240px; }
+  .export-dialog-title h3 { font-size: 1.3rem; }
+  .export-end-card .end-card-effective-video { max-height: 520px; }
 }

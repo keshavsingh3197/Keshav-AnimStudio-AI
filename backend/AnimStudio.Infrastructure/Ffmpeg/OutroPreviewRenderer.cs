@@ -23,7 +23,7 @@ public sealed class OutroPreviewRenderer(
     IOptions<RenderOptions> options,
     ILogger<OutroPreviewRenderer> logger) : IOutroPreviewRenderer
 {
-    public async Task<byte[]?> RenderAsync(OutroSettings outro, Canvas canvas, CancellationToken ct)
+    public async Task<byte[]?> RenderAsync(OutroSettings outro, Canvas canvas, string? projectId, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(outro);
         if (!outro.IsEnabled) return null;
@@ -35,9 +35,14 @@ public sealed class OutroPreviewRenderer(
             ? await assets.GetAsync(id, ct).ConfigureAwait(false)
             : null;
 
-        // Only studio-wide files: this renders the global outro, and must not become a way
-        // to pull a file out of somebody's project.
-        if (asset is not null && asset.ProjectId is not ("global" or "system")) asset = null;
+        // Studio-wide files, plus the one project the caller was checked to own: this must
+        // not become a way to pull a file out of somebody else's project.
+        if (asset is not null
+            && asset.ProjectId is not ("global" or "system")
+            && !(projectId is not null && string.Equals(asset.ProjectId, projectId, StringComparison.Ordinal)))
+        {
+            asset = null;
+        }
 
         string? path = null;
         if (asset is not null)

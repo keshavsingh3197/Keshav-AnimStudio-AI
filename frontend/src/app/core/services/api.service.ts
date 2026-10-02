@@ -544,6 +544,19 @@ export class ApiService {
     return this.http.post(`${this.admin}/branding/outro/preview?format=${format}`, body, { responseType: 'blob' });
   }
 
+  /**
+   * The end card this project's export would finish with (its own outro, else the studio's),
+   * rendered at the project's canvas unless `format` says otherwise. Pass `body` to preview
+   * unsaved project settings.
+   */
+  previewProjectOutro(
+    projectId: string, body: OutroBody | null = null, format?: 'landscape' | 'vertical' | 'square',
+  ): Observable<Blob> {
+    const query = format ? `?format=${format}` : '';
+    return this.http.post(
+      `${this.base}/api/projects/${encodeURIComponent(projectId)}/outro/preview${query}`, body, { responseType: 'blob' });
+  }
+
   /** Global (studio-wide) assets such as the QR code are readable by any signed-in user. */
   assetContentUrl(assetId: string): string {
     return `${this.base}/api/assets/${encodeURIComponent(assetId)}/content`;

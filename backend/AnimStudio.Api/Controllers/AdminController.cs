@@ -765,7 +765,7 @@ public sealed class AdminController(
         var outro = request.ToSettings();
         outro.Clamp();
 
-        var bytes = await previews.RenderAsync(outro, canvas, ct);
+        var bytes = await previews.RenderAsync(outro, canvas, projectId: null, ct);
         if (bytes is null)
         {
             const string message = "Add a QR code or a headline (or upload a bumper) first.";
