@@ -8,11 +8,12 @@ import {
 import { ApiService } from '../../core/services/api.service';
 import { MediaToolsService } from '../../core/services/media-tools.service';
 import { StatusService } from '../../core/services/status.service';
+import { FileDropDirective } from '../../shared/file-drop.directive';
 
 @Component({
   selector: 'app-admin-branding',
   standalone: true,
-  imports: [FormsModule, DecimalPipe],
+  imports: [FormsModule, DecimalPipe, FileDropDirective],
   templateUrl: './admin-branding.component.html',
   styleUrls: ['./admin-branding.component.css'],
 })
@@ -170,8 +171,11 @@ export class AdminBrandingComponent {
   onUploadLogo(event: Event): void {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
-    if (!file) return;
+    input.value = '';
+    if (file) this.uploadLogo(file);
+  }
 
+  uploadLogo(file: File): void {
     this.saveSuccess.set(false);
     this.status.run(this.api.uploadGlobalLogo(file), (wm) => {
       if (wm) {
@@ -179,7 +183,6 @@ export class AdminBrandingComponent {
         this.form.logoAssetId = wm.logoAssetId ?? '';
         this.logoPreviewUrl.set(this.api.globalLogoUrl() + '?t=' + Date.now());
       }
-      input.value = '';
     });
   }
 
@@ -224,8 +227,11 @@ export class AdminBrandingComponent {
   onUploadOutro(event: Event): void {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
-    if (!file) return;
+    input.value = '';
+    if (file) this.uploadOutro(file);
+  }
 
+  uploadOutro(file: File): void {
     this.saveOutroSuccess.set(false);
     this.status.run(this.api.uploadGlobalOutro(file), (res) => {
       if (res) {
@@ -233,7 +239,6 @@ export class AdminBrandingComponent {
         this.outroForm.assetId = res.assetId ?? '';
         this.outroMediaUrl.set(this.api.globalOutroMediaUrl() + '?t=' + Date.now());
       }
-      input.value = '';
     });
   }
 
@@ -246,15 +251,17 @@ export class AdminBrandingComponent {
   onUploadOutroQr(event: Event): void {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
-    if (!file) return;
+    input.value = '';
+    if (file) this.uploadOutroQr(file);
+  }
 
+  uploadOutroQr(file: File): void {
     this.saveOutroSuccess.set(false);
     this.status.run(this.api.uploadGlobalOutroQr(file), (res) => {
       if (res) {
         this.outroForm.kind = 'Card';
         this.outroForm.qrAssetId = res.qrAssetId ?? '';
       }
-      input.value = '';
     });
   }
 

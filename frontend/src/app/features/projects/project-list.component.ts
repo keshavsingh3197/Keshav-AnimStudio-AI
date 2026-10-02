@@ -8,13 +8,14 @@ import {
 } from '../../core/models/api.models';
 import { ApiService } from '../../core/services/api.service';
 import { StatusService } from '../../core/services/status.service';
+import { FileDropDirective } from '../../shared/file-drop.directive';
 import { optimizeThumbnailImage } from '../../core/utils/image-utils';
 
 export type StartingPoint = 'prompt' | 'bundle' | 'import' | 'clips' | 'scenes';
 
 @Component({
   selector: 'app-project-list',
-  imports: [DatePipe, FormsModule, RouterLink],
+  imports: [DatePipe, FormsModule, RouterLink, FileDropDirective],
   templateUrl: './project-list.component.html',
   styleUrl: './project-list.component.css'
 })
@@ -437,12 +438,15 @@ export class ProjectListComponent {
     this.status.run(this.api.listProjects(), (list) => this.projects.set(list));
   }
 
-  async onUploadThumbnail(event: Event, p: Project): Promise<void> {
+  onUploadThumbnail(event: Event, p: Project): void {
     event.stopPropagation();
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
-    if (!file) return;
+    input.value = '';
+    if (file) void this.setThumbnail(file, p);
+  }
 
+  async setThumbnail(file: File, p: Project): Promise<void> {
     try {
       const b64 = await optimizeThumbnailImage(file);
       this.status.run(
@@ -465,8 +469,6 @@ export class ProjectListComponent {
       );
     } catch {
       this.status.notify(['Failed to process image for thumbnail.']);
-    } finally {
-      input.value = '';
     }
   }
 

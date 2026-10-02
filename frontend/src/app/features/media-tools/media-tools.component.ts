@@ -25,10 +25,11 @@ import {
 import { MediaToolsService } from '../../core/services/media-tools.service';
 import { ProjectStore } from '../../core/services/project-store';
 import { StatusService } from '../../core/services/status.service';
+import { FileDropDirective } from '../../shared/file-drop.directive';
 
 @Component({
   selector: 'app-media-tools',
-  imports: [CommonModule, FormsModule, DecimalPipe],
+  imports: [CommonModule, FormsModule, DecimalPipe, FileDropDirective],
   templateUrl: './media-tools.component.html',
   styleUrls: ['./media-tools.component.css'],
 })
@@ -354,28 +355,27 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
   onFileChange(event: Event): void {
     const input = event.target as HTMLInputElement;
     if (input.files && input.files.length > 0) {
-      const file = input.files[0];
-      this.selectedFile.set(file);
-      // Create object URL for source preview
-      const oldUrl = this.selectedFileObjectUrl();
-      if (oldUrl) URL.revokeObjectURL(oldUrl);
-      this.selectedFileObjectUrl.set(URL.createObjectURL(file));
-      this.sourceYoutubeEmbedUrl.set(null);
-      this.showSourcePlayer.set(true);
+      this.useFile(input.files[0]);
     }
   }
 
   onFileDrop(event: DragEvent): void {
     event.preventDefault();
     if (event.dataTransfer?.files && event.dataTransfer.files.length > 0) {
-      const file = event.dataTransfer.files[0];
-      this.selectedFile.set(file);
-      this.chunkSourceType.set('file');
-      const oldUrl = this.selectedFileObjectUrl();
-      if (oldUrl) URL.revokeObjectURL(oldUrl);
-      this.selectedFileObjectUrl.set(URL.createObjectURL(file));
-      this.showSourcePlayer.set(true);
+      this.useFile(event.dataTransfer.files[0]);
     }
+  }
+
+  /** Picked, dropped or pasted (Ctrl+V) source video. */
+  useFile(file: File): void {
+    this.selectedFile.set(file);
+    this.chunkSourceType.set('file');
+    // Create object URL for source preview
+    const oldUrl = this.selectedFileObjectUrl();
+    if (oldUrl) URL.revokeObjectURL(oldUrl);
+    this.selectedFileObjectUrl.set(URL.createObjectURL(file));
+    this.sourceYoutubeEmbedUrl.set(null);
+    this.showSourcePlayer.set(true);
   }
 
   onDragOver(event: DragEvent): void {

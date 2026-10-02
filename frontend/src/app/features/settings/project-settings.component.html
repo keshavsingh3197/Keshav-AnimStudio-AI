@@ -284,11 +284,13 @@
                   <option [value]="asset.id">{{ asset.name }}</option>
                 }
               </select>
-              <div style="margin-top: 0.5rem;">
+              <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem; align-items: center;"
+                   appFileDrop="image/png,image/jpeg,image/webp" (filesDropped)="uploadLogo($event[0])">
                 <label class="btn-outline" style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.8rem; padding: 4px 10px;">
                   <input type="file" accept="image/png,image/jpeg,image/webp" (change)="onPickLogo($event)" style="display: none;" />
                   <span>⬆ Upload New Transparent PNG</span>
                 </label>
+                <span class="file-drop-hint">or drop / Ctrl+V</span>
               </div>
             </div>
           }
@@ -444,11 +446,13 @@
                   <option [value]="asset.id">🎬 {{ asset.name }} ({{ asset.durationSeconds | number: '1.1-1' }}s)</option>
                 }
               </select>
-              <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem; align-items: center;">
+              <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem; align-items: center;"
+                   appFileDrop="video/mp4,video/webm,video/quicktime" (filesDropped)="uploadOutroMedia($event[0])">
                 <label class="btn-outline" style="cursor: pointer; font-size: 0.8rem; padding: 4px 10px;">
                   <input type="file" accept="video/mp4,video/webm,video/quicktime" (change)="onPickOutroMedia($event)" style="display: none;" />
                   <span>⬆ Upload New Outro MP4</span>
                 </label>
+                <span class="file-drop-hint">or drop / Ctrl+V</span>
                 @if (form.defaultOutroAssetId) {
                   <button type="button" class="btn-outline" style="color: #f87171; border-color: rgba(239,68,68,0.3); font-size: 0.8rem; padding: 4px 10px;" (click)="clearOutroMedia()">
                     ✕ Clear
@@ -467,11 +471,13 @@
                   <option [value]="asset.id">🖼️ {{ asset.name }}</option>
                 }
               </select>
-              <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem; align-items: center;">
+              <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem; align-items: center;"
+                   appFileDrop="image/png,image/jpeg,image/webp" (filesDropped)="uploadOutroMedia($event[0])">
                 <label class="btn-outline" style="cursor: pointer; font-size: 0.8rem; padding: 4px 10px;">
                   <input type="file" accept="image/png,image/jpeg,image/webp" (change)="onPickOutroMedia($event)" style="display: none;" />
                   <span>⬆ Upload New End-Card PNG</span>
                 </label>
+                <span class="file-drop-hint">or drop / Ctrl+V</span>
                 @if (form.defaultOutroAssetId) {
                   <button type="button" class="btn-outline" style="color: #f87171; border-color: rgba(239,68,68,0.3); font-size: 0.8rem; padding: 4px 10px;" (click)="clearOutroMedia()">
                     ✕ Clear

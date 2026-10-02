@@ -5245,3 +5245,8 @@ audio { height: 2.2rem; vertical-align: middle; }
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+/* File-drop zones (shared/file-drop.directive.ts): drag a file over, or Ctrl+V while hovered. */
+.file-drop-zone { transition: outline-color .12s, background-color .12s; outline: 2px dashed transparent; outline-offset: 3px; }
+.file-drop-zone.file-drop-active { border-radius: 8px; outline-color: var(--brand); background-color: rgba(108, 140, 255, 0.08); }
+.file-drop-hint { font-size: 0.75rem; color: var(--muted); }

@@ -6,6 +6,7 @@ import { BundleImportResult, BundlePreview, ImportSheetPlan } from '../../core/m
 import { ApiService } from '../../core/services/api.service';
 import { ProjectStore } from '../../core/services/project-store';
 import { StatusService } from '../../core/services/status.service';
+import { FileDropDirective } from '../../shared/file-drop.directive';
 
 /**
  * Build a whole video from one file, with no AI configured at all.
@@ -16,7 +17,7 @@ import { StatusService } from '../../core/services/status.service';
  */
 @Component({
   selector: 'app-bundle-import',
-  imports: [FormsModule],
+  imports: [FormsModule, FileDropDirective],
   templateUrl: './bundle-import.component.html',
 })
 export class BundleImportComponent {
@@ -39,14 +40,18 @@ export class BundleImportComponent {
 
   choose(event: Event): void {
     const input = event.target as HTMLInputElement;
-    const projectId = this.store.projectId();
     const file = input.files?.[0];
 
     // Cleared immediately so picking the same file twice still fires a change event -
     // which is exactly what someone does after fixing a row and re-zipping.
     input.value = '';
 
-    if (!projectId || !file) return;
+    if (file) this.chooseFile(file);
+  }
+
+  chooseFile(file: File): void {
+    const projectId = this.store.projectId();
+    if (!projectId) return;
 
     this.result.set(null);
     this.preview.set(null);

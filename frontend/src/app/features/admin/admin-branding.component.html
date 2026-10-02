@@ -72,13 +72,14 @@
           }
 
           @if (form.kind === 'Logo') {
-            <div class="form-group">
+            <div class="form-group" appFileDrop="image/png,image/jpeg,image/webp" (filesDropped)="uploadLogo($event[0])">
               <label class="form-label">Studio Logo Image</label>
               <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
                 <label class="btn-outline" style="cursor: pointer;">
                   <input type="file" accept="image/png,image/jpeg,image/webp" (change)="onUploadLogo($event)" style="display: none;" />
                   <span>⬆ Upload New Logo (PNG / JPG / WEBP)</span>
                 </label>
+                <span class="file-drop-hint">or drop a file here / paste with Ctrl+V</span>
                 @if (form.logoAssetId) {
                   <button type="button" class="btn-outline" style="color: #f87171; border-color: rgba(239,68,68,0.3);" (click)="clearLogo()">
                     ✕ Remove Logo
@@ -221,7 +222,7 @@
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 1.5rem; margin-bottom: 1.25rem;">
         <!-- Left: card content -->
         <div>
-          <div class="form-group">
+          <div class="form-group" appFileDrop="image/png,image/jpeg,image/webp" (filesDropped)="uploadOutroQr($event[0])">
             <label class="form-label">QR Code Image (PNG / JPG / WEBP)</label>
             <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
               <label class="btn-outline" style="cursor: pointer;">
@@ -229,6 +230,7 @@
                        (change)="onUploadOutroQr($event)" style="display: none;" />
                 <span>⬆ {{ outroForm.qrAssetId ? 'Replace QR Code' : 'Upload QR Code' }}</span>
               </label>
+              <span class="file-drop-hint">or drop a file here / paste with Ctrl+V</span>
               @if (outroForm.qrAssetId) {
                 <button type="button" class="btn-outline" style="color: #f87171; border-color: rgba(239,68,68,0.3);" (click)="clearOutroQr()">
                   ✕ Remove QR
@@ -355,7 +357,9 @@
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 1.5rem; margin-bottom: 1.25rem;">
         <!-- Left: Upload & Config -->
         <div>
-          <div class="form-group">
+          <div class="form-group"
+               [appFileDrop]="outroForm.kind === 'Video' ? 'video/mp4,video/webm,video/quicktime' : 'image/png,image/jpeg,image/webp'"
+               (filesDropped)="uploadOutro($event[0])">
             <label class="form-label">
               Upload Outro {{ outroForm.kind === 'Video' ? 'Video (MP4 / WebM / MOV)' : 'Graphic (PNG / JPG / WEBP)' }}
             </label>
@@ -366,6 +370,7 @@
                        (change)="onUploadOutro($event)" style="display: none;" />
                 <span>⬆ Upload Channel Outro File</span>
               </label>
+              <span class="file-drop-hint">or drop a file here / paste with Ctrl+V</span>
               @if (outroForm.assetId) {
                 <button type="button" class="btn-outline" style="color: #f87171; border-color: rgba(239,68,68,0.3);" (click)="clearOutro()">
                   ✕ Remove Outro

@@ -9,6 +9,7 @@ import { MediaDockComponent } from './components/media-dock/media-dock.component
 import { VideoViewportComponent } from './components/video-viewport/video-viewport.component';
 import { InspectorDockComponent } from './components/inspector-dock/inspector-dock.component';
 import { TimelineDockComponent } from './components/timeline-dock/timeline-dock.component';
+import { clipboardFiles } from '../../shared/file-drop.directive';
 
 @Component({
   selector: 'app-clip-studio',
@@ -140,6 +141,23 @@ export class ClipStudioComponent implements OnInit {
   }
 
 
+  /** Ctrl+V: files or a screenshot on the clipboard go to the media dock, otherwise copied clips. */
+  @HostListener('document:paste', ['$event'])
+  handleGlobalPaste(event: ClipboardEvent): void {
+    if (event.defaultPrevented) return; // a file-drop zone (e.g. an open dialog) already took it
+    const target = event.target as HTMLElement | null;
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+      return;
+    }
+    event.preventDefault();
+    const files = clipboardFiles(event);
+    if (files.length > 0) {
+      this.state.uploadFiles(files);
+    } else {
+      this.state.pasteClips();
+    }
+  }
+
   // Global Keyboard Shortcuts Guardrail (Guardrail 5)
   @HostListener('window:keydown', ['$event'])
   handleGlobalKeydown(event: KeyboardEvent): void {
@@ -170,8 +188,9 @@ export class ClipStudioComponent implements OnInit {
         event.preventDefault();
         this.state.cutSelectedClips();
       } else if (event.key.toLowerCase() === 'v') {
-        event.preventDefault();
-        this.state.pasteClips();
+        // Left to the browser so a paste event fires: handleGlobalPaste decides between
+        // uploading copied files and pasting copied clips. Preventing it here would
+        // swallow the event and the files with it.
       } else if (event.code === 'ArrowLeft') {
         // The one-second jog used to live on Shift+Arrow; Shift now extends the
         // clip selection, which is the more useful thing to have on the easier chord.

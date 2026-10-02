@@ -5,11 +5,12 @@ import { Asset, AssetFolder } from '../../core/models/api.models';
 import { ApiService } from '../../core/services/api.service';
 import { ProjectStore } from '../../core/services/project-store';
 import { StatusService } from '../../core/services/status.service';
+import { FileDropDirective } from '../../shared/file-drop.directive';
 import { FormsModule } from '@angular/forms';
 
 @Component({
   selector: 'app-asset-library',
-  imports: [DecimalPipe, FormsModule],
+  imports: [DecimalPipe, FormsModule, FileDropDirective],
   templateUrl: './asset-library.component.html',
   styleUrls: ['./asset-library.component.css']
 })

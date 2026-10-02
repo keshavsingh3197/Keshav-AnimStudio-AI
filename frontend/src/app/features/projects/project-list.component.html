@@ -314,7 +314,9 @@
             </div>
 
             <!-- Thumbnail Visual Area -->
-            <div class="project-thumb-container" [style.background]="getProjectGradient(project)">
+            <div class="project-thumb-container" [style.background]="getProjectGradient(project)"
+                 appFileDrop="image/*" (filesDropped)="setThumbnail($event[0], project)"
+                 title="Drop an image or press Ctrl+V to set the thumbnail">
               @if (project.customThumbnail) {
                 <img [src]="project.customThumbnail" class="project-custom-img" alt="" />
               } @else {
@@ -456,6 +458,7 @@
                 <td>
                   <div class="table-project-cell">
                     <div class="table-mini-thumb"
+                         appFileDrop="image/*" (filesDropped)="setThumbnail($event[0], project)"
                          [style.background]="getProjectGradient(project)"
                          [class.short]="format(project.width, project.height) === 'Short'">
                       @if (project.customThumbnail) {

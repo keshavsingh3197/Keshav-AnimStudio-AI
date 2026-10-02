@@ -286,13 +286,14 @@
     }
 
     @if (chunkSourceType() === 'file') {
-      <div class="drop-zone" (drop)="onFileDrop($event)" (dragover)="onDragOver($event)" (click)="fileInput.click()">
+      <div class="drop-zone" (drop)="onFileDrop($event)" (dragover)="onDragOver($event)" (click)="fileInput.click()"
+           appFileDrop="video/*" [fileDropPasteOnly]="true" (filesDropped)="useFile($event[0])">
         <input #fileInput type="file" accept="video/*" style="display: none;" (change)="onFileChange($event)" />
         <div style="font-size: 2rem; margin-bottom: 0.5rem;">📹</div>
         @if (selectedFile(); as f) {
           <strong style="color: #38bdf8;">{{ f.name }}</strong> ({{ f.size / (1024 * 1024) | number:'1.1-2' }} MB)
         } @else {
-          <strong>Drop a video file here, or click to browse</strong>
+          <strong>Drop a video file here, paste with Ctrl+V, or click to browse</strong>
           <div class="muted" style="font-size: 0.8rem; margin-top: 0.25rem;">Supports MP4, MOV, WebM, MKV up to 512 MB</div>
         }
       </div>

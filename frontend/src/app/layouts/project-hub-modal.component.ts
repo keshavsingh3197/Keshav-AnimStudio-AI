@@ -4,12 +4,13 @@ import { DatePipe, DecimalPipe, NgClass } from '@angular/common';
 import { ApiService } from '../core/services/api.service';
 import { Project, HubConfig } from '../core/models/api.models';
 import { StatusService } from '../core/services/status.service';
+import { FileDropDirective } from '../shared/file-drop.directive';
 import { optimizeThumbnailImage } from '../core/utils/image-utils';
 
 @Component({
   selector: 'app-project-hub-modal',
   standalone: true,
-  imports: [DatePipe, DecimalPipe],
+  imports: [DatePipe, DecimalPipe, FileDropDirective],
   template: `
     @if (isOpen()) {
       <div class="modal-backdrop" (click)="close()" (keydown.escape)="close()" tabindex="0" style="position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 9999; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px);">
@@ -85,7 +86,8 @@ import { optimizeThumbnailImage } from '../core/utils/image-utils';
                     </button>
 
                     <!-- Make sure aspect ratio is respected in grid view -->
-                    <div class="thumb-preview" [style.aspect-ratio]="viewMode() === 'grid' ? (p.width + '/' + p.height) : '16/9'">
+                    <div class="thumb-preview" [style.aspect-ratio]="viewMode() === 'grid' ? (p.width + '/' + p.height) : '16/9'"
+                         appFileDrop="image/*" (filesDropped)="setThumbnail($event[0], p)">
                        @if (getCustomThumb(p.id); as customThumb) {
                          <img [src]="customThumb" style="width:100%; height:100%; object-fit:cover; border-radius:4px;" />
                        } @else {
@@ -798,11 +800,14 @@ export class ProjectHubModalComponent {
     return p?.customThumbnail || null;
   }
 
-  async onUploadThumbnail(event: Event, p: Project): Promise<void> {
+  onUploadThumbnail(event: Event, p: Project): void {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
-    if (!file) return;
+    input.value = '';
+    if (file) void this.setThumbnail(file, p);
+  }
 
+  async setThumbnail(file: File, p: Project): Promise<void> {
     try {
       const b64 = await optimizeThumbnailImage(file);
       this.status.run(
@@ -825,8 +830,6 @@ export class ProjectHubModalComponent {
       );
     } catch {
       this.status.notify(['Failed to process image for thumbnail.']);
-    } finally {
-      input.value = '';
     }
   }
 

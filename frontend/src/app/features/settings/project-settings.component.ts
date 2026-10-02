@@ -10,11 +10,12 @@ import {
 import { ApiService } from '../../core/services/api.service';
 import { ProjectStore } from '../../core/services/project-store';
 import { StatusService } from '../../core/services/status.service';
+import { FileDropDirective } from '../../shared/file-drop.directive';
 
 /** Project-wide settings: canvas, frame rate, intended use and the music bed. */
 @Component({
   selector: 'app-project-settings',
-  imports: [FormsModule, DecimalPipe, RouterLink],
+  imports: [FormsModule, DecimalPipe, RouterLink, FileDropDirective],
   templateUrl: './project-settings.component.html',
   styleUrls: ['./project-settings.component.css'],
 })
@@ -170,8 +171,12 @@ export class ProjectSettingsComponent {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
     input.value = '';
+    if (file) this.uploadLogo(file);
+  }
+
+  uploadLogo(file: File): void {
     const projectId = this.store.projectId();
-    if (!file || !projectId) return;
+    if (!projectId) return;
 
     this.status.run(this.api.uploadAsset(projectId, file), (asset) => {
       this.store.refreshAssets();
@@ -270,8 +275,12 @@ export class ProjectSettingsComponent {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
     input.value = '';
+    if (file) this.uploadOutroMedia(file);
+  }
+
+  uploadOutroMedia(file: File): void {
     const projectId = this.store.projectId();
-    if (!file || !projectId) return;
+    if (!projectId) return;
 
     this.status.run(this.api.uploadAsset(projectId, file), (asset) => {
       this.store.refreshAssets();
