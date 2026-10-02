@@ -376,6 +376,13 @@ public sealed class ClipMergeOrchestrator(
                         CropRight = v1Transform?.CropRight ?? 0,
                         CropTop = v1Transform?.CropTop ?? 0,
                         CropBottom = v1Transform?.CropBottom ?? 0,
+                        // Normalized again here, not only at the API: the spec is a stored
+                        // document, and the renderer must never see an out-of-frame box.
+                        EraseRegions = (v1Transform?.EraseRegions ?? [])
+                            .Select(r => r.Normalized())
+                            .OfType<EraseRegionSpec>()
+                            .Take(EraseRegionSpec.MaxPerClip)
+                            .ToList(),
                         SourceWidth = asset.Probe?.Width,
                         SourceHeight = asset.Probe?.Height,
                     };

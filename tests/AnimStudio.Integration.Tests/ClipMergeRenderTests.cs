@@ -4,6 +4,7 @@ using AnimStudio.Application.Abstractions.Rendering;
 using AnimStudio.Application.Abstractions.Storage;
 using AnimStudio.Application.Clips;
 using AnimStudio.Application.Rendering.Models;
+using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Rendering;
 using AnimStudio.Infrastructure.Ffmpeg;
 using AnimStudio.Infrastructure.Ffmpeg.Graph;
@@ -323,6 +324,61 @@ public sealed class ClipMergeRenderTests : IAsyncLifetime
 
         Assert.True(Math.Abs(top - bottom) > 1.0,
             $"expected the mark to change the top band (top {top:F2} vs bottom {bottom:F2}).");
+    }
+
+    // --- erasing an existing mark ------------------------------------------
+
+    /// <summary>A black clip with a white "foreign logo" in its top-right corner.</summary>
+    private void MakeMarkedClip(string relative, int width, int height, string pixelFormat = "yuv420p")
+    {
+        Directory.CreateDirectory(Path_("in"));
+        Run($"-y -f lavfi -i color=c=black:size={width}x{height}:rate=30:duration=1 "
+          + $"-vf drawbox=x=iw-iw/8:y=0:w=iw/8:h=ih/8:color=white:t=fill "
+          + $"-c:v libx264 -pix_fmt {pixelFormat} -an \"{Path_(relative)}\"");
+    }
+
+    [FfmpegFact]
+    public async Task Fills_over_a_mark_in_the_corner_of_the_source_frame()
+    {
+        // The corner is the case that matters: watermarks sit against the edges, and the
+        // obvious filter for this (delogo) refuses any box that touches one.
+        MakeMarkedClip("in/marked.mp4", 640, 360);
+
+        var plan = Plan(0, "in/marked.mp4", hasAudio: false) with
+        {
+            EraseRegions = [new EraseRegionSpec { X = 85, Y = 0, Width = 15, Height = 15, Style = EraseStyle.Fill }]
+        };
+
+        var before = MeanLuma(Path_("in/marked.mp4"), "crop=60:30:575:5");
+        var result = await _service.RenderClipAsync(plan, _workspace, null, Ct);
+        var after = MeanLuma(_workspace.Resolve(result.RelativePath), "crop=60:30:575:5");
+
+        Assert.True(before > 200, $"fixture mark should be white, read {before:F1}");
+        Assert.True(after < 30, $"expected the mark gone, read {after:F1}");
+    }
+
+    [FfmpegFact]
+    public async Task Blurs_regions_on_the_edge_of_an_odd_sized_frame_without_failing()
+    {
+        // Odd dimensions, a 1% box in the very corner and one running off two edges: each
+        // has, at some point, made one of these filters reject its parameters.
+        // 4:4:4, because 4:2:0 cannot be odd-sized at all.
+        MakeMarkedClip("in/odd-marked.mp4", 481, 271, "yuv444p");
+
+        var plan = Plan(0, "in/odd-marked.mp4", hasAudio: false) with
+        {
+            EraseRegions =
+            [
+                new EraseRegionSpec { X = 99, Y = 99, Width = 1, Height = 1 },
+                new EraseRegionSpec { X = 80, Y = 0, Width = 20, Height = 20 }
+            ]
+        };
+
+        var result = await _service.RenderClipAsync(plan, _workspace, null, Ct);
+        var path = _workspace.Resolve(result.RelativePath);
+
+        Assert.Equal("640", ProbeStream(path, "v:0", "width"));
+        Assert.Equal("360", ProbeStream(path, "v:0", "height"));
     }
 
     private static OutroSettings SupportCard(double seconds = 2.0) => new()

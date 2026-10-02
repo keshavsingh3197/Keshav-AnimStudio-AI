@@ -193,6 +193,15 @@ public sealed class ClipsController(
                         CropTop = t.Transform.CropTop,
                         CropBottom = t.Transform.CropBottom,
                         Stabilization = t.Transform.Stabilization,
+                        EraseRegions = (t.Transform.EraseRegions ?? [])
+                            .Select(r => new EraseRegionSpec
+                            {
+                                X = r.X, Y = r.Y, Width = r.Width, Height = r.Height,
+                                Style = r.Style, FillColor = r.FillColor
+                            }.Normalized())
+                            .OfType<EraseRegionSpec>()
+                            .Take(EraseRegionSpec.MaxPerClip)
+                            .ToList(),
                         TransitionIn = t.Transform.TransitionIn,
                         TransitionInDuration = t.Transform.TransitionInDuration,
                         TransitionOut = t.Transform.TransitionOut,

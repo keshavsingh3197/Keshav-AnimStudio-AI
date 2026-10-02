@@ -329,7 +329,12 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
 
         var drawsText = wantsText && canDrawText;
 
-        graph.Append(FitChain(fit, canvas, rate, plan.Encoder.PixelFormat, plan));
+        // Another mark burned into the source is wiped first, on the untouched frame, so
+        // the region means the same patch of footage however the clip is then framed - and
+        // our own watermark, drawn below, is never under it.
+        var source = EraseFilters.Append(graph, "0:v", plan.EraseRegions);
+
+        graph.Append(FitChain(fit, canvas, rate, plan.Encoder.PixelFormat, plan, source));
 
         var current = "base";
         var stage = 0;
@@ -586,7 +591,7 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
     /// The pixel format the chain runs in - the delivery format, which is roughly half the
     /// plane data of 4:4:4 to scale, pad and blur.
     /// </param>
-    private static string FitChain(ClipFit fit, Canvas canvas, FrameRate rate, string working, ClipRenderPlan plan)
+    private static string FitChain(ClipFit fit, Canvas canvas, FrameRate rate, string working, ClipRenderPlan plan, string source = "0:v")
     {
         var size = $"{FilterExpr.N(canvas.Width)}:{FilterExpr.N(canvas.Height)}";
         var conform = $"setsar=1,fps={rate.ToFfmpegRate()},format={working}";
@@ -606,14 +611,14 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         {
             // Fill and centre-crop. No bars, at the cost of the edges.
             ClipFit.Cover => matchesExactCanvas
-                ? $"[0:v]{conform}[base];\n"
-                : $"[0:v]{cropPrefix}scale={size}:force_original_aspect_ratio=increase:flags=bicubic,"
+                ? $"[{source}]{conform}[base];\n"
+                : $"[{source}]{cropPrefix}scale={size}:force_original_aspect_ratio=increase:flags=bicubic,"
                   + $"crop={size},{conform}[base];\n",
 
             // Letterbox over a blurred, cropped copy of the same frame. split comes first
             // so the source is decoded once and used twice.
             ClipFit.BlurredBackdrop =>
-                $"[0:v]{cropPrefix}split=2[bgsrc][fgsrc];\n"
+                $"[{source}]{cropPrefix}split=2[bgsrc][fgsrc];\n"
                 + $"[bgsrc]scale={size}:force_original_aspect_ratio=increase,crop={size},"
                 + $"gblur=sigma={FilterExpr.N(Math.Max(canvas.Height / 40, 4))}:steps=2,"
                 + $"setsar=1,format={working}[bgblur];\n"
@@ -624,8 +629,8 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
 
             // Letterbox on black. Loses nothing.
             _ => matchesExactCanvas
-                ? $"[0:v]{conform}[base];\n"
-                : $"[0:v]{cropPrefix}scale={size}:force_original_aspect_ratio=decrease:flags=bicubic,"
+                ? $"[{source}]{conform}[base];\n"
+                : $"[{source}]{cropPrefix}scale={size}:force_original_aspect_ratio=decrease:flags=bicubic,"
                   + $"pad={size}:(ow-iw)/2:(oh-ih)/2:color=black,{conform}[base];\n"
         };
     }

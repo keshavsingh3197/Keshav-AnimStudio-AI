@@ -694,6 +694,68 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     }
   }
 
+  // ── Erase existing watermark ────────────────────────────────────────────────
+
+  @ViewChild('eraseFrame') eraseFrameRef?: ElementRef<HTMLElement>;
+
+  /**
+   * Each layer's picture shape, read from the decoded video rather than the probe: a
+   * phone clip's probed size ignores its rotation, the browser's does not.
+   */
+  private readonly layerAspect = signal<Record<'A' | 'B', number | null>>({ A: null, B: null });
+
+  /** Width / height of the picture on screen, so the erase boxes sit on the footage itself. */
+  readonly monitorAspect = computed<number>(() => {
+    const fromVideo = this.layerAspect()[this.activeLayer()];
+    if (fromVideo && !this.state.activeClipIsImage()) return fromVideo;
+    const clip = this.state.currentScheduledClip()?.clip ?? this.state.activeTargetClip();
+    return clip?.width && clip?.height ? clip.width / clip.height : 16 / 9;
+  });
+
+  onVideoMetadata(layer: 'A' | 'B', event: Event): void {
+    const v = event.target as HTMLVideoElement;
+    if (v.videoWidth > 0 && v.videoHeight > 0) {
+      this.layerAspect.update((m) => ({ ...m, [layer]: v.videoWidth / v.videoHeight }));
+    }
+  }
+
+  /** Moves or resizes one erase box by dragging it on the paused monitor. */
+  startEraseDrag(event: PointerEvent, index: number, mode: 'move' | 'resize'): void {
+    if (this.state.isPlaying() || event.button !== 0) return;
+    const frame = this.eraseFrameRef?.nativeElement;
+    const clip = this.state.currentScheduledClip()?.clip ?? this.state.activeTargetClip();
+    const start = clip ? this.state.clipTransformSetting(clip.id).eraseRegions[index] : undefined;
+    if (!frame || !start) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    const target = event.currentTarget as HTMLElement;
+    target.setPointerCapture(event.pointerId);
+
+    const rect = frame.getBoundingClientRect();
+    const x0 = event.clientX, y0 = event.clientY;
+
+    const onMove = (e: PointerEvent) => {
+      const dx = ((e.clientX - x0) / rect.width) * 100;
+      const dy = ((e.clientY - y0) / rect.height) * 100;
+      this.state.updateEraseRegion(index, mode === 'move'
+        ? {
+            x: Math.max(0, Math.min(100 - start.width, start.x + dx)),
+            y: Math.max(0, Math.min(100 - start.height, start.y + dy)),
+          }
+        : { width: start.width + dx, height: start.height + dy });
+    };
+    const onUp = (e: PointerEvent) => {
+      target.releasePointerCapture(e.pointerId);
+      target.removeEventListener('pointermove', onMove);
+      target.removeEventListener('pointerup', onUp);
+      target.removeEventListener('pointercancel', onUp);
+    };
+    target.addEventListener('pointermove', onMove);
+    target.addEventListener('pointerup', onUp);
+    target.addEventListener('pointercancel', onUp);
+  }
+
   toggleFullscreen(): void {
     const el = this.monitorContainerRef?.nativeElement;
     if (!el) return;

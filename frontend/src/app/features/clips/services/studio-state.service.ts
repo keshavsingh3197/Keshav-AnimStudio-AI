@@ -6,6 +6,7 @@ import {
   SHORTS_MAX_SECONDS, TRANSITIONS, WATERMARK_POSITIONS, WatermarkBody, WatermarkKind, WatermarkPosition,
   aspectRatioLabel, isTerminal, videoFormat, OutroBody,
   TimelineItem, TimelineItemType, TrackControlState, TimelineItemTransform, TimelineItemTextStyle,
+  EraseRegion, MAX_ERASE_REGIONS, MIN_ERASE_SIZE,
 } from '../../../core/models/api.models';
 import { ApiService } from '../../../core/services/api.service';
 import { ProjectStore } from '../../../core/services/project-store';
@@ -3719,11 +3720,11 @@ export class StudioStateService implements OnDestroy {
 
   /** Default transform values (all neutral). */
   readonly DEFAULT_TRANSFORM: Required<Pick<TimelineItemTransform,
-    'scale' | 'x' | 'y' | 'opacity' | 'rotation' | 'cropLeft' | 'cropRight' | 'cropTop' | 'cropBottom' | 'cropLinked' | 'stabilization'
-  >> = { scale: 1, x: 0, y: 0, opacity: 1, rotation: 0, cropLeft: 0, cropRight: 0, cropTop: 0, cropBottom: 0, cropLinked: false, stabilization: false };
+    'scale' | 'x' | 'y' | 'opacity' | 'rotation' | 'cropLeft' | 'cropRight' | 'cropTop' | 'cropBottom' | 'cropLinked' | 'stabilization' | 'eraseRegions'
+  >> = { scale: 1, x: 0, y: 0, opacity: 1, rotation: 0, cropLeft: 0, cropRight: 0, cropTop: 0, cropBottom: 0, cropLinked: false, stabilization: false, eraseRegions: [] };
 
   clipTransformSetting(clipId: string): Required<Pick<TimelineItemTransform,
-    'scale' | 'x' | 'y' | 'opacity' | 'rotation' | 'cropLeft' | 'cropRight' | 'cropTop' | 'cropBottom' | 'cropLinked' | 'stabilization'
+    'scale' | 'x' | 'y' | 'opacity' | 'rotation' | 'cropLeft' | 'cropRight' | 'cropTop' | 'cropBottom' | 'cropLinked' | 'stabilization' | 'eraseRegions'
   >> {
     const t = this.clipTransforms()[clipId];
     return {
@@ -3738,6 +3739,7 @@ export class StudioStateService implements OnDestroy {
       cropBottom: t?.cropBottom ?? 0,
       cropLinked: t?.cropLinked ?? false,
       stabilization: t?.stabilization ?? false,
+      eraseRegions: t?.eraseRegions ?? [],
     };
   }
 
@@ -3781,7 +3783,7 @@ export class StudioStateService implements OnDestroy {
         const t = this.clipTransformSetting(clip.id);
         return { scale: t.scale, x: t.x, y: t.y, rotation: t.rotation, cropLeft: t.cropLeft, cropRight: t.cropRight, cropTop: t.cropTop, cropBottom: t.cropBottom, cropLinked: t.cropLinked, stabilization: t.stabilization };
       }
-      return { scale: 1, x: 0, y: 0, rotation: 0, cropLeft: 0, cropRight: 0, cropTop: 0, cropBottom: 0, cropLinked: false, stabilization: false };
+      return { scale: 1, x: 0, y: 0, rotation: 0, cropLeft: 0, cropRight: 0, cropTop: 0, cropBottom: 0, cropLinked: false, stabilization: false, eraseRegions: [] };
     }
     const transforms = ids.map((id) => this.clipTransformSetting(id));
     const first = transforms[0];
@@ -3948,6 +3950,88 @@ export class StudioStateService implements OnDestroy {
   resetScopeCrop(): void {
     this._setScopeTransformField({ cropLeft: 0, cropRight: 0, cropTop: 0, cropBottom: 0 });
   }
+
+  // ── Erase existing watermark ────────────────────────────────────────────────
+
+  /**
+   * The active scope's erase regions. Edits write ONE list to every clip in scope, so the
+   * first target's list is the one shown - which is what makes "same logo, same corner,
+   * every clip from that channel" a single edit with the scope set to all clips.
+   */
+  readonly activeEraseRegions = computed<EraseRegion[]>(() => {
+    const id = this.getTargetClipIds()[0] ?? this.activeTargetClip()?.id;
+    return id ? this.clipTransformSetting(id).eraseRegions : [];
+  });
+
+  /** Pulls a region inside the frame, the same way EraseRegionSpec.Normalized does. */
+  private clampEraseRegion(r: EraseRegion): EraseRegion {
+    const num = (v: number, lo: number, hi: number) =>
+      Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : lo;
+    const x = num(r.x, 0, 100 - MIN_ERASE_SIZE);
+    const y = num(r.y, 0, 100 - MIN_ERASE_SIZE);
+    return {
+      x, y,
+      width: num(r.width, MIN_ERASE_SIZE, 100 - x),
+      height: num(r.height, MIN_ERASE_SIZE, 100 - y),
+      style: r.style === 'Fill' ? 'Fill' : 'Blur',
+      fillColor: /^#[0-9a-f]{6}$/i.test(r.fillColor ?? '') ? r.fillColor : '#000000',
+    };
+  }
+
+  private setScopeEraseRegions(update: (regions: EraseRegion[]) => EraseRegion[]): void {
+    const targetIds = this.getTargetClipIds(this.activeTargetClip()?.id);
+    if (targetIds.length === 0) return;
+    const next = update(this.activeEraseRegions().map((r) => ({ ...r })))
+      .slice(0, MAX_ERASE_REGIONS)
+      .map((r) => this.clampEraseRegion(r));
+    this.clipTransforms.update((rec) => {
+      const out = { ...rec };
+      for (const id of targetIds) {
+        out[id] = { ...this.clipTransformSetting(id), eraseRegions: next.map((r) => ({ ...r })) };
+      }
+      return out;
+    });
+    this.markDirty();
+  }
+
+  /** Adds a box where marks usually sit; the user then nudges it onto the real one. */
+  addEraseRegion(corner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center' = 'top-right'): void {
+    const w = 20, h = 10, edge = 2;
+    const x = corner.endsWith('left') ? edge : corner.endsWith('right') ? 100 - w - edge : (100 - w) / 2;
+    const y = corner.startsWith('top') ? edge : corner.startsWith('bottom') ? 100 - h - edge : (100 - h) / 2;
+    this.setScopeEraseRegions((list) =>
+      list.length >= MAX_ERASE_REGIONS ? list : [...list, { x, y, width: w, height: h, style: 'Blur', fillColor: '#000000' }]);
+  }
+
+  updateEraseRegion(index: number, patch: Partial<EraseRegion>): void {
+    this.setScopeEraseRegions((list) => list.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+  }
+
+  removeEraseRegion(index: number): void {
+    this.setScopeEraseRegions((list) => list.filter((_, i) => i !== index));
+  }
+
+  clearEraseRegions(): void {
+    this.setScopeEraseRegions(() => []);
+  }
+
+  /**
+   * Regions to wipe on the monitor for the clip under the playhead, cut down to its crop -
+   * a box partly outside the crop only shows inside it, exactly as the render would.
+   * Percent of the source frame, like the regions themselves.
+   */
+  readonly monitorEraseRegions = computed<(EraseRegion & { index: number })[]>(() => {
+    const clip = this.currentScheduledClip()?.clip ?? this.activeTargetClip();
+    if (!clip) return [];
+    const t = this.clipTransformSetting(clip.id);
+    const left = t.cropLeft, top = t.cropTop, right = 100 - t.cropRight, bottom = 100 - t.cropBottom;
+    return t.eraseRegions.flatMap((r, index) => {
+      const x = Math.max(r.x, left), y = Math.max(r.y, top);
+      const width = Math.min(r.x + r.width, right) - x;
+      const height = Math.min(r.y + r.height, bottom) - y;
+      return width > 0 && height > 0 ? [{ ...r, x, y, width, height, index }] : [];
+    });
+  });
 
 
 
@@ -6476,6 +6560,7 @@ export class StudioStateService implements OnDestroy {
         cropBottom: t.cropBottom,
         cropLinked: t.cropLinked,
         stabilization: t.stabilization,
+        eraseRegions: t.eraseRegions.length > 0 ? t.eraseRegions : undefined,
       };
 
       return {

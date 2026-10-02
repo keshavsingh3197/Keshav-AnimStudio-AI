@@ -577,6 +577,8 @@ export interface TimelineItemTransform {
   cropLinked?: boolean;
   /** Request video stabilization for this clip */
   stabilization?: boolean;
+  /** Existing marks in the source footage to wipe before our own watermark is drawn */
+  eraseRegions?: EraseRegion[];
   /** Transition In style for image overlay */
   transitionIn?: 'none' | 'fade' | 'slide-left' | 'slide-right' | 'slide-up' | 'slide-down' | 'zoom' | 'zoom-in' | 'zoom-out';
   transitionInDuration?: number;
@@ -584,6 +586,26 @@ export interface TimelineItemTransform {
   transitionOut?: 'none' | 'fade' | 'slide-left' | 'slide-right' | 'slide-up' | 'slide-down' | 'zoom' | 'zoom-in' | 'zoom-out';
   transitionOutDuration?: number;
 }
+
+export type EraseStyle = 'Blur' | 'Fill';
+
+/**
+ * A rectangle of a clip's SOURCE frame to erase, in percent of that frame - so it means
+ * the same patch of footage whatever the crop, fit or output size. Mirrors EraseRegionSpec.
+ */
+export interface EraseRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  style: EraseStyle;
+  /** #rrggbb, used by 'Fill' */
+  fillColor?: string;
+}
+
+/** Mirrors EraseRegionSpec.MaxPerClip / MinSizePercent on the server. */
+export const MAX_ERASE_REGIONS = 8;
+export const MIN_ERASE_SIZE = 1;
 
 export interface TimelineItemTextStyle {
   fontSize: number;

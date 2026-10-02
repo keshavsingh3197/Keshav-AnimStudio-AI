@@ -564,10 +564,25 @@ public sealed record TimelineItemTransformRequest
     /// <summary>Request video stabilization for this clip.</summary>
     public bool Stabilization { get; init; }
 
+    /// <summary>Existing marks to wipe from the source frame before our own is drawn.</summary>
+    [MaxLength(EraseRegionSpec.MaxPerClip)]
+    public List<EraseRegionRequest>? EraseRegions { get; init; }
+
     [StringLength(32)] public string? TransitionIn { get; init; } = "fade";
     public double TransitionInDuration { get; init; } = 0.5;
     [StringLength(32)] public string? TransitionOut { get; init; } = "fade";
     public double TransitionOutDuration { get; init; } = 0.5;
+}
+
+/// <summary>One rectangle to erase, in percent of the clip's source frame.</summary>
+public sealed record EraseRegionRequest
+{
+    [Range(0, 100)] public double X { get; init; }
+    [Range(0, 100)] public double Y { get; init; }
+    [Range(EraseRegionSpec.MinSizePercent, 100)] public double Width { get; init; } = 20;
+    [Range(EraseRegionSpec.MinSizePercent, 100)] public double Height { get; init; } = 10;
+    [EnumDataType(typeof(EraseStyle))] public EraseStyle Style { get; init; } = EraseStyle.Blur;
+    [RegularExpression("^#[0-9a-fA-F]{6}$")] public string? FillColor { get; init; }
 }
 
 public sealed record TimelineItemRequest

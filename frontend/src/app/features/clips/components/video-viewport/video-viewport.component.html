@@ -63,6 +63,7 @@
                [style.transform]="state.activeClipTransform()"
                [style.clip-path]="state.activeClipClipPath()"
                [muted]="state.isMonitorMuted()"
+               (loadedmetadata)="onVideoMetadata('A', $event)"
                playsinline preload="auto"></video>
 
         <video #videoMonitorB
@@ -73,6 +74,7 @@
                [style.transform]="state.activeClipTransform()"
                [style.clip-path]="state.activeClipClipPath()"
                [muted]="state.isMonitorMuted()"
+               (loadedmetadata)="onVideoMetadata('B', $event)"
                playsinline preload="auto"></video>
 
         <!-- V2 Video Track Overlay Layer -->
@@ -96,6 +98,34 @@
                [style.clip-path]="state.activeClipClipPath()"
                [style.object-fit]="state.monitorFitClass() === 'fit-cover' ? 'cover' : 'contain'"
                alt="" />
+        }
+
+        <!-- Erase existing watermark: wipes the boxed marks on the playing clip, live. Sits
+             in the picture's own content rect and carries its transform, so a box stays on
+             the same patch of footage however the clip is framed. No clip-path here: it
+             would make this a backdrop root and the blur would silently show nothing. -->
+        @if (state.monitorEraseRegions().length > 0) {
+          <div class="erase-layer" [style.transform]="state.activeClipTransform()">
+            <div #eraseFrame class="erase-frame"
+                 [class.cover]="state.monitorFitClass() === 'fit-cover'"
+                 [style.--ar]="monitorAspect()">
+              @for (r of state.monitorEraseRegions(); track r.index) {
+                <div class="erase-box"
+                     [class.fill]="r.style === 'Fill'"
+                     [class.editing]="!state.isPlaying()"
+                     [style.left.%]="r.x" [style.top.%]="r.y"
+                     [style.width.%]="r.width" [style.height.%]="r.height"
+                     [style.background-color]="r.style === 'Fill' ? r.fillColor : null"
+                     [title]="'Erase box ' + (r.index + 1) + ' - drag to move'"
+                     (pointerdown)="startEraseDrag($event, r.index, 'move')">
+                  @if (!state.isPlaying()) {
+                    <span class="erase-handle" title="Drag to resize"
+                          (pointerdown)="startEraseDrag($event, r.index, 'resize')"></span>
+                  }
+                </div>
+              }
+            </div>
+          </div>
         }
 
         <!-- Image Overlay Layer -->

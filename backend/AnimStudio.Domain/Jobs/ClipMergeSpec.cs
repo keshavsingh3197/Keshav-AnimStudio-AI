@@ -279,6 +279,78 @@ public sealed class TimelineItemTransformSpec
 
     /// <summary>Returns true when any crop edge is non-zero (crop filter needed).</summary>
     public bool HasCrop => CropLeft > 0 || CropRight > 0 || CropTop > 0 || CropBottom > 0;
+
+    /// <summary>
+    /// Areas of the SOURCE frame to wipe before anything else happens to it - another
+    /// channel's logo or a stock-site mark burned into footage the user is licensed to
+    /// edit. Applied ahead of crop and fit, so the region means the same patch of the
+    /// footage however the clip is later framed, and our own watermark is drawn after.
+    /// </summary>
+    public List<EraseRegionSpec> EraseRegions { get; set; } = [];
+}
+
+/// <summary>How an erased region is filled.</summary>
+public enum EraseStyle
+{
+    /// <summary>A heavy blur of the region's own pixels. Blends into moving footage.</summary>
+    Blur = 0,
+
+    /// <summary>A solid box. Removes the mark completely, at the cost of being visible.</summary>
+    Fill = 1
+}
+
+/// <summary>
+/// One rectangle of a clip's source frame to erase, in PERCENT of the source frame so it
+/// survives any resolution and needs no probe - a phone clip's probed size ignores its
+/// rotation, and a pixel rectangle measured against the wrong orientation lands nowhere.
+/// </summary>
+public sealed class EraseRegionSpec
+{
+    /// <summary>Ceiling per clip. Each region is one more pass in the filtergraph.</summary>
+    public const int MaxPerClip = 8;
+
+    /// <summary>
+    /// Smallest region side, in percent. Below it the box is too small to hold a mark and
+    /// too small for the blur's radius to mean anything.
+    /// </summary>
+    public const double MinSizePercent = 1;
+
+    public double X { get; set; }
+    public double Y { get; set; }
+    public double Width { get; set; } = 20;
+    public double Height { get; set; } = 10;
+
+    public EraseStyle Style { get; set; } = EraseStyle.Blur;
+
+    /// <summary><c>#rrggbb</c> for <see cref="EraseStyle.Fill"/>; anything else is black.</summary>
+    public string? FillColor { get; set; }
+
+    /// <summary>
+    /// The region pulled inside the frame with a usable size, or null when it covers
+    /// nothing. Done here rather than trusted from the request: the values end up inside
+    /// an ffmpeg expression, and an out-of-frame crop fails the whole render.
+    /// </summary>
+    public EraseRegionSpec? Normalized()
+    {
+        static double Clamp(double v, double lo, double hi) =>
+            double.IsFinite(v) ? Math.Clamp(v, lo, hi) : lo;
+
+        var x = Clamp(X, 0, 100 - MinSizePercent);
+        var y = Clamp(Y, 0, 100 - MinSizePercent);
+        var w = Clamp(Width, 0, 100 - x);
+        var h = Clamp(Height, 0, 100 - y);
+        if (w < MinSizePercent || h < MinSizePercent) return null;
+
+        return new EraseRegionSpec
+        {
+            X = x, Y = y, Width = w, Height = h,
+            Style = Enum.IsDefined(Style) ? Style : EraseStyle.Blur,
+            FillColor = IsHexColor(FillColor) ? FillColor : "#000000"
+        };
+    }
+
+    public static bool IsHexColor(string? value) =>
+        value is { Length: 7 } && value[0] == '#' && value.Skip(1).All(char.IsAsciiHexDigit);
 }
 
 public sealed class TimelineItemSpec

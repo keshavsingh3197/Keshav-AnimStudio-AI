@@ -1,3 +1,4 @@
+using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Rendering;
 
 namespace AnimStudio.Application.Rendering.Models;
@@ -185,6 +186,12 @@ public sealed record ClipRenderPlan
     public double CropRight { get; init; }
     public double CropTop { get; init; }
     public double CropBottom { get; init; }
+
+    /// <summary>
+    /// Regions of the SOURCE frame to wipe, already normalized. Applied before crop and
+    /// fit, and so before our own watermark is composited on top.
+    /// </summary>
+    public IReadOnlyList<EraseRegionSpec> EraseRegions { get; init; } = [];
 
     /// <summary>Original probe width of source video, if known.</summary>
     public int? SourceWidth { get; init; }

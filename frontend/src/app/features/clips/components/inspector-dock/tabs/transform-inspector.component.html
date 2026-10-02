@@ -157,6 +157,69 @@
     }
   </div>
 
+  <!-- ── ERASE EXISTING WATERMARK section ────────────────────────── -->
+  @let erase = state.activeEraseRegions();
+  <div class="inspector-section">
+    <button class="section-header" type="button" (click)="toggleErase()" title="Wipe a logo or watermark already in this footage">
+      <span class="section-title">Erase watermark @if (erase.length) { <span class="erase-count">{{ erase.length }}</span> }</span>
+      @if (erase.length) {
+        <button class="reset-btn" type="button" (click)="$event.stopPropagation(); state.clearEraseRegions()" title="Remove all erase boxes">↺</button>
+      }
+      <span class="chevron" [class.open]="eraseOpen()">▶</span>
+    </button>
+
+    @if (eraseOpen()) {
+      <div class="section-body">
+        <p class="erase-hint">
+          Box a mark that is already in the footage; it is wiped before your own watermark is drawn,
+          in the preview and the export. Pause the preview to drag or resize a box.
+          Only remove marks from footage you own or are licensed to edit.
+        </p>
+
+        @for (r of erase; track $index; let i = $index) {
+          <div class="erase-row">
+            <div class="erase-row-head">
+              <span class="erase-label">Box {{ i + 1 }}</span>
+              <select class="erase-style" [value]="r.style"
+                      (change)="state.updateEraseRegion(i, { style: $any($event.target).value })"
+                      title="Blur smears the mark into the footage; Fill covers it with a solid box">
+                <option value="Blur">Blur</option>
+                <option value="Fill">Fill</option>
+              </select>
+              @if (r.style === 'Fill') {
+                <input type="color" class="erase-color" [value]="r.fillColor ?? '#000000'"
+                       (change)="state.updateEraseRegion(i, { fillColor: $any($event.target).value })"
+                       title="Fill colour" />
+              }
+              <button class="reset-btn" type="button" (click)="state.removeEraseRegion(i)" title="Remove this box">✕</button>
+            </div>
+            <div class="erase-grid">
+              @for (f of eraseFields; track f.key) {
+                <label class="crop-input-wrap" [title]="f.title">
+                  <span class="unit">{{ f.label }}</span>
+                  <input type="number" class="num-input" min="0" max="100" step="0.5"
+                         [value]="r[f.key]"
+                         (change)="onEraseInput(i, f.key, $event)" />
+                </label>
+              }
+            </div>
+          </div>
+        }
+
+        @if (erase.length < maxEraseRegions) {
+          <div class="erase-add">
+            <span class="erase-label">Add box</span>
+            <button class="icon-btn" type="button" (click)="state.addEraseRegion('top-left')" title="Top left">◤</button>
+            <button class="icon-btn" type="button" (click)="state.addEraseRegion('top-right')" title="Top right">◥</button>
+            <button class="icon-btn" type="button" (click)="state.addEraseRegion('center')" title="Centre">◼</button>
+            <button class="icon-btn" type="button" (click)="state.addEraseRegion('bottom-left')" title="Bottom left">◣</button>
+            <button class="icon-btn" type="button" (click)="state.addEraseRegion('bottom-right')" title="Bottom right">◢</button>
+          </div>
+        }
+      </div>
+    }
+  </div>
+
   <!-- ── STABILIZATION row ───────────────────────────────────────── -->
   <div class="inspector-section">
     <div class="section-body" style="padding:8px 10px">
