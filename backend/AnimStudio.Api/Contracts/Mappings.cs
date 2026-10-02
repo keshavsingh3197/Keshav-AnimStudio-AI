@@ -33,7 +33,8 @@ public static class Mappings
         p.CustomThumbnail,
         p.Settings.DefaultWatermark.ToResponse(),
         p.Settings.DefaultOutro.ToResponse(),
-        p.Settings.BrandChannelId);
+        p.Settings.BrandChannelId,
+        p.Settings.FollowsChannelWatermark);
 
     /// <summary>Every channel, the built-in default first.</summary>
     public static IReadOnlyList<BrandChannelResponse> ToChannelResponses(this AiSettings? s) =>

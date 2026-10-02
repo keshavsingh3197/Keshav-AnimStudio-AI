@@ -32,6 +32,8 @@ export interface Project {
   defaultOutro?: OutroBody | null;
   /** The brand channel (YouTube channel) this project publishes under; null = default. */
   brandChannelId?: string | null;
+  /** True: the watermark is the channel's, live. False: defaultWatermark is this project's own. */
+  followChannelWatermark?: boolean;
 }
 
 export interface CreateProjectBody {
@@ -63,6 +65,8 @@ export interface UpdateProjectBody extends CreateProjectBody {
   backgroundMusicVolume: number;
   defaultWatermark?: WatermarkBody | null;
   defaultOutro?: OutroBody | null;
+  /** Omitted leaves it unchanged. */
+  followChannelWatermark?: boolean;
   isPinned?: boolean;
   customThumbnail?: string | null;
 }

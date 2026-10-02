@@ -309,6 +309,8 @@ export class StudioStateService implements OnDestroy {
   readonly globalOutro = signal<OutroBody | null>(null);
   /** That channel's display name (one per YouTube channel). */
   readonly brandChannelName = signal<string | null>(null);
+  /** That channel's watermark - the project's, while it follows its channel (the default). */
+  readonly channelWatermark = signal<WatermarkBody | null>(null);
 
   /** The end card an export appends - mirrors the server: the project's own, else the studio's. */
   readonly endCard = computed<{ source: 'project' | 'global'; label: string; seconds: number } | null>(() => {
@@ -2035,7 +2037,8 @@ export class StudioStateService implements OnDestroy {
       };
     }
     if (src === 'project') {
-      const def = this.store.project()?.defaultWatermark;
+      const project = this.store.project();
+      const def = project?.followChannelWatermark !== false ? this.channelWatermark() : project?.defaultWatermark;
       if (def && def.kind !== 'None') {
         return {
           kind: (def.kind as WatermarkKind) ?? 'None',

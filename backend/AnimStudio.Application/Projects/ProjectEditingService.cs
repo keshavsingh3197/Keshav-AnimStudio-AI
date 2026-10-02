@@ -32,6 +32,9 @@ public sealed record UpdateProjectCommand
 
     /// <summary>Null leaves it unchanged; blank or "default" clears it to the default channel.</summary>
     public string? BrandChannelId { get; init; }
+
+    /// <summary>Null leaves it unchanged.</summary>
+    public bool? FollowChannelWatermark { get; init; }
     public bool? IsPinned { get; init; }
     public string? CustomThumbnail { get; init; }
 }
@@ -122,6 +125,9 @@ public sealed class ProjectEditingService(
             command.DefaultOutro.Clamp();
             project.Settings.DefaultOutro = command.DefaultOutro;
         }
+
+        if (command.FollowChannelWatermark is { } follow)
+            project.Settings.FollowChannelWatermark = follow;
 
         if (command.BrandChannelId is not null)
         {

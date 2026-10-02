@@ -56,6 +56,7 @@ export class ClipStudioComponent implements OnInit, OnDestroy {
           const channel = list.find((c) => c.id === channelId) ?? list.find((c) => c.isDefault);
           this.state.globalOutro.set(channel?.outro ?? null);
           this.state.brandChannelName.set(channel?.name ?? null);
+          this.state.channelWatermark.set(channel?.watermark ?? null);
         },
         error: () => this.state.globalOutro.set(null),
       }));

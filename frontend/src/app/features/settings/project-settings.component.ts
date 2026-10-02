@@ -76,6 +76,7 @@ export class ProjectSettingsComponent {
     defaultOutroTransition: 'Fade',
     defaultOutroTransitionDurationFrames: 15,
     brandChannelId: DEFAULT_BRAND_CHANNEL as string,
+    followChannelWatermark: true,
   };
 
   /**
@@ -95,6 +96,26 @@ export class ProjectSettingsComponent {
     const c = this.selectedChannel();
     this.globalWatermark.set(c?.watermark ?? null);
     this.globalOutro.set(c?.outro ?? null);
+    if (this.form.followChannelWatermark) this.showChannelWatermark();
+  }
+
+  /** Fills the (read-only while following) watermark controls with the channel's. */
+  private showChannelWatermark(): void {
+    const wm = this.globalWatermark();
+    if (wm && wm.kind !== 'None') {
+      this.applyGlobalBranding();
+    } else {
+      this.form.defaultWatermarkKind = 'None';
+    }
+  }
+
+  /**
+   * Follow: the channel's watermark, live - a new logo in Admin → Branding reaches this
+   * project without touching it. Custom: this project's own, starting from what is shown.
+   */
+  setWatermarkSource(follow: boolean): void {
+    this.form.followChannelWatermark = follow;
+    if (follow) this.showChannelWatermark();
   }
 
   /**
@@ -104,17 +125,14 @@ export class ProjectSettingsComponent {
    */
   onChannelChange(channelId: string): void {
     this.form.brandChannelId = channelId;
-    this.syncChannelBranding();
+    this.syncChannelBranding(); // also shows its watermark when following
     const c = this.selectedChannel();
-    if (c?.watermark && c.watermark.kind !== 'None') {
-      this.applyGlobalBranding();
-    } else {
-      this.form.defaultWatermarkKind = 'None';
-    }
     this.form.defaultOutroKind = 'None';
     this.setEndCardPreview(null);
     this.status.notify([
-      `Using the "${c?.name ?? 'Default'}" channel's watermark and end card. Save to keep it.`,
+      this.form.followChannelWatermark
+        ? `Using the "${c?.name ?? 'Default'}" channel's watermark and end card. Save to keep it.`
+        : `Using the "${c?.name ?? 'Default'}" channel's end card; this project keeps its custom watermark. Save to keep it.`,
     ]);
   }
 
@@ -150,6 +168,7 @@ export class ProjectSettingsComponent {
         defaultOutroTransition: project.defaultOutro?.transition || 'Fade',
         defaultOutroTransitionDurationFrames: project.defaultOutro?.transitionDurationFrames || 15,
         brandChannelId: project.brandChannelId || DEFAULT_BRAND_CHANNEL,
+        followChannelWatermark: project.followChannelWatermark ?? true,
       };
 
       this.presetIndex = this.matchPreset(project.width, project.height);
@@ -452,6 +471,7 @@ export class ProjectSettingsComponent {
       this.api.updateProject(projectId, {
         name: this.form.name,
         brandChannelId: this.form.brandChannelId || DEFAULT_BRAND_CHANNEL,
+        followChannelWatermark: this.form.followChannelWatermark,
         description: this.form.description.trim() || undefined,
         width: this.form.width,
         height: this.form.height,

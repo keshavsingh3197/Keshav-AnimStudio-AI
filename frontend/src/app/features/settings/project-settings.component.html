@@ -243,6 +243,31 @@
       }
     </div>
 
+    <!-- Where the watermark comes from: the channel (live) or this project -->
+    <div class="form-group">
+      <label class="form-label">Watermark Source</label>
+      <div class="segmented-row">
+        <button type="button" class="segment-btn" [class.active]="form.followChannelWatermark"
+                (click)="setWatermarkSource(true)">
+          📺 Follow "{{ selectedChannel()?.name ?? 'Default' }}" channel
+        </button>
+        <button type="button" class="segment-btn" [class.active]="!form.followChannelWatermark"
+                (click)="setWatermarkSource(false)">
+          ✎ Custom for this project
+        </button>
+      </div>
+      <p class="field-hint" style="margin: 0.4rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
+        @if (form.followChannelWatermark) {
+          Shown below as the channel has it. Change it in
+          <a routerLink="/admin/branding" style="color: var(--brand, #6c8cff);">Admin → Branding</a>
+          and this project follows automatically.
+        } @else {
+          This project's own watermark - channel changes do not affect it.
+        }
+      </p>
+    </div>
+
+    <fieldset class="watermark-editor" [disabled]="form.followChannelWatermark">
     <!-- Watermark Style Segmented Controls -->
     <div class="form-group">
       <label class="form-label">Watermark Style</label>
@@ -290,6 +315,9 @@
               <label class="form-label" for="wm-logo">Logo Asset</label>
               <select class="form-select" id="wm-logo" [(ngModel)]="form.defaultWatermarkLogoId">
                 <option value="">Select an image from library...</option>
+                @if (globalWatermark()?.logoAssetId; as channelLogo) {
+                  <option [value]="channelLogo">📺 "{{ selectedChannel()?.name ?? 'Default' }}" channel logo</option>
+                }
                 @for (asset of store.imagesOnly(); track asset.id) {
                   <option [value]="asset.id">{{ asset.name }}</option>
                 }
@@ -390,6 +418,7 @@
         </div>
       </div>
     }
+    </fieldset>
 
     <div style="display: flex; justify-content: flex-end; margin-top: 1rem;">
       <button type="button" class="btn-primary-glow" (click)="save()" [disabled]="status.busy() || !form.name.trim()">

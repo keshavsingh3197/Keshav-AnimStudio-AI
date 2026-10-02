@@ -35,7 +35,8 @@ public sealed record ProjectResponse(
     string? CustomThumbnail = null,
     WatermarkResponse? DefaultWatermark = null,
     OutroResponse? DefaultOutro = null,
-    string? BrandChannelId = null);
+    string? BrandChannelId = null,
+    bool FollowChannelWatermark = true);
 
 /// <summary>A brand channel and its look. The built-in default comes first, with IsDefault set.</summary>
 public sealed record BrandChannelResponse(

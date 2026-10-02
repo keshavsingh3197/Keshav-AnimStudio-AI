@@ -174,6 +174,9 @@ public sealed record UpdateProjectRequest
 
     /// <summary>Null leaves the channel unchanged; "default" (or blank) picks the default channel.</summary>
     [StringLength(64)] public string? BrandChannelId { get; init; }
+
+    /// <summary>True: use the channel's watermark live; false: DefaultWatermark is custom. Null: unchanged.</summary>
+    public bool? FollowChannelWatermark { get; init; }
 }
 
 public sealed record CreateSceneRequest
