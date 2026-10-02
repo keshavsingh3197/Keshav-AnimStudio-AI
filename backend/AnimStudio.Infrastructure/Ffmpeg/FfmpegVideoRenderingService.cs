@@ -276,13 +276,23 @@ public sealed class FfmpegVideoRenderingService(
     /// <summary>
     /// Writes the concat demuxer list. Entries are relative to the workspace root, which
     /// is also ffmpeg's working directory, and generated names never contain a quote.
+    /// <para>
+    /// Each entry carries its exact video length. Without it the demuxer starts the next
+    /// clip where the previous file's LONGER stream ended, so a clip whose audio and video
+    /// differ by a few ms shifts everything after it - and across a long join that adds up
+    /// to visible lip-sync drift.
+    /// </para>
     /// </summary>
     private static async Task WriteConcatListAsync(
         MergePlan plan, IRenderWorkspace workspace, CancellationToken ct)
     {
+        var rate = plan.Canvas.FrameRate;
         var builder = new StringBuilder();
         foreach (var scene in plan.Scenes)
-            builder.Append("file '").Append(scene.RelativePath).Append("'\n");
+        {
+            builder.Append("file '").Append(scene.RelativePath).Append("'\n")
+                   .Append("duration ").Append(FilterExpr.Sec(scene.Length, rate)).Append('\n');
+        }
 
         await workspace.WriteTextAsync(plan.ConcatListRelativePath, builder.ToString(), ct)
             .ConfigureAwait(false);

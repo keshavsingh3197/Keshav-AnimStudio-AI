@@ -8,6 +8,7 @@ using AnimStudio.Application.Admin;
 using AnimStudio.Application.Ai;
 using AnimStudio.Application.Options;
 using AnimStudio.Application.Security;
+using AnimStudio.Application.Uploads;
 using AnimStudio.Domain.Ai;
 using AnimStudio.Domain.Assets;
 using AnimStudio.Domain.Rendering;
@@ -666,6 +667,112 @@ public sealed class AdminController(
             ct);
 
         return Ok(ApiResponse<OutroResponse?>.Ok(stored.DefaultOutro.ToResponse()));
+    }
+
+    /// <summary>
+    /// Uploads the QR code (or any small image) for the "support us" end card and switches
+    /// the outro to a card. Kept apart from the bumper upload so changing kinds never
+    /// loses the other file.
+    /// </summary>
+    [HttpPost("branding/outro/qr")]
+    [RequestSizeLimit(AssetsController.MaxUploadBytes)]
+    [RequestFormLimits(MultipartBodyLengthLimit = AssetsController.MaxUploadBytes)]
+    public async Task<ActionResult<ApiResponse<OutroResponse?>>> UploadOutroQr(
+        IFormFile file, CancellationToken ct)
+    {
+        if (file is null || file.Length == 0)
+        {
+            return BadRequest(ApiResponse<OutroResponse?>.Fail(
+                "Choose a QR code image to upload.",
+                new ApiError("file-required", "Choose a QR code image to upload.")));
+        }
+
+        // Signature-checked, the same as every project upload: the declared type is a claim.
+        UploadValidationResult validation;
+        await using (var probe = file.OpenReadStream())
+        {
+            validation = await UploadValidator.ValidateAsync(file.FileName, file.ContentType, probe, ct);
+        }
+
+        if (!validation.IsValid || validation.Kind != AssetKind.Image)
+        {
+            const string message = "The QR code must be a PNG, JPG or WEBP image.";
+            return BadRequest(ApiResponse<OutroResponse?>.Fail(
+                message, new ApiError(validation.Code ?? "not-an-image", message)));
+        }
+
+        var assetId = MongoDB.Bson.ObjectId.GenerateNewId().ToString();
+        var storageKey = $"branding/global-outro-qr-{assetId}{validation.CanonicalExtension}";
+
+        await using (var stream = file.OpenReadStream())
+        {
+            await store.SaveAsync(storageKey, stream, validation.MimeType!, ct);
+        }
+
+        await assets.InsertAsync(new Asset
+        {
+            Id = assetId,
+            ProjectId = "global",
+            Name = UploadValidator.SanitizeDisplayName(file.FileName),
+            Kind = AssetKind.Image,
+            StorageKey = storageKey,
+            MimeType = validation.MimeType!,
+            FileSizeBytes = file.Length,
+            CreatedAt = clock.GetUtcNow().UtcDateTime
+        }, ct);
+
+        var stored = await aiSettingsRepo.GetAsync(ct) ?? new AiSettings();
+        stored.DefaultOutro ??= new OutroSettings();
+        stored.DefaultOutro.Kind = OutroKind.Card;
+        stored.DefaultOutro.QrAssetId = assetId;
+        stored.DefaultOutro.Clamp();
+
+        await aiSettingsRepo.SaveAsync(stored, ct);
+
+        await audit.RecordAsync(
+            "branding.outro-qr-uploaded", "global-branding",
+            "Uploaded global end card QR code", assetId, RemoteAddress(), ct);
+
+        return Ok(ApiResponse<OutroResponse?>.Ok(stored.DefaultOutro.ToResponse()));
+    }
+
+    /// <summary>
+    /// Renders the outro on its own as an MP4 - the form as submitted, so a card can be
+    /// checked before it is saved - for previewing, and for downloading to attach to
+    /// videos uploaded before the card existed.
+    /// </summary>
+    /// <param name="format">landscape (1920x1080), vertical (1080x1920) or square (1080x1080).</param>
+    [HttpPost("branding/outro/preview")]
+    public async Task<IActionResult> PreviewOutro(
+        [FromBody] OutroRequest request, [FromQuery] string? format,
+        [FromServices] AnimStudio.Application.Abstractions.Rendering.IOutroPreviewRenderer previews,
+        CancellationToken ct)
+    {
+        Canvas? canvas = (format ?? "landscape").ToLowerInvariant() switch
+        {
+            "landscape" => Canvas.Hd1080p30,
+            "vertical" => Canvas.Vertical1080x1920,
+            "square" => Canvas.Square1080,
+            _ => null
+        };
+
+        if (canvas is null)
+        {
+            const string message = "format must be landscape, vertical or square.";
+            return BadRequest(ApiResponse<EmptyPayload>.Fail(message, new ApiError("invalid-format", message)));
+        }
+
+        var outro = request.ToSettings();
+        outro.Clamp();
+
+        var bytes = await previews.RenderAsync(outro, canvas, ct);
+        if (bytes is null)
+        {
+            const string message = "Add a QR code or a headline (or upload a bumper) first.";
+            return BadRequest(ApiResponse<EmptyPayload>.Fail(message, new ApiError("outro-empty", message)));
+        }
+
+        return File(bytes, "video/mp4", $"end-card-{format?.ToLowerInvariant() ?? "landscape"}.mp4");
     }
 
     // --- helpers -------------------------------------------------------------------------

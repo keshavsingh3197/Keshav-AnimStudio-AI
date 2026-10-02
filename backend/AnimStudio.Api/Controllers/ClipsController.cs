@@ -170,6 +170,7 @@ public sealed class ClipsController(
                     c.Volume, c.AudioAssetId, c.AudioVolume, c.KeepOriginalAudio, c.TrimStartSeconds, c.TrimEndSeconds))
                 .ToList(),
             Watermark = request.Watermark.ToSettings(),
+            IncludeOutro = request.IncludeOutro,
             TimelineItems = request.TimelineItems?
                 .Select(t => new TimelineItemSpec
                 {

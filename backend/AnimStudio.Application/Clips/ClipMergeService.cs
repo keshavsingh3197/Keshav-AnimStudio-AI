@@ -2,6 +2,7 @@ using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Abstractions.Rendering;
 using AnimStudio.Application.Common;
 using AnimStudio.Application.Projects;
+using AnimStudio.Application.Rendering;
 using AnimStudio.Application.Security;
 using AnimStudio.Domain.Assets;
 using AnimStudio.Domain.Errors;
@@ -86,6 +87,12 @@ public sealed record ClipMergeCommand
 
     public WatermarkSettings Watermark { get; init; } = new();
 
+    /// <summary>
+    /// End the video with the outro: the project's own when it has one, else the studio-wide
+    /// one from Admin &gt; Branding. The settings are resolved server-side, never sent.
+    /// </summary>
+    public bool IncludeOutro { get; init; }
+
     public IReadOnlyList<TimelineItemSpec>? TimelineItems { get; init; }
 }
 
@@ -105,7 +112,8 @@ public sealed class ClipMergeService(
     IRenderCapabilities capabilities,
     ProjectStatusService status,
     ICurrentUser currentUser,
-    TimeProvider clock)
+    TimeProvider clock,
+    IAiSettingsRepository aiSettings)
 {
     /// <summary>Longest crossfade offered. Beyond a second or two it reads as a mistake.</summary>
     private const double MaxTransitionSeconds = 3.0;
@@ -269,7 +277,11 @@ public sealed class ClipMergeService(
         // One round trip for the whole set. Duplicates are deliberately allowed - a sting
         // repeated between segments is a real edit - so the lookup is by distinct id and
         // the order is honoured separately.
+        var outro = command.IncludeOutro ? await ResolveOutroAsync(project, ct).ConfigureAwait(false) : null;
+        var outroAssetId = OutroPlanFactory.AssetIdFor(outro);
+
         var referenced = clipIds
+            .Concat(outroAssetId is { } outroAsset ? [outroAsset] : [])
             .Concat(command.BackgroundMusicAssetId is { Length: > 0 } music ? [music] : [])
             .Concat(command.Watermark.LogoAssetId is { Length: > 0 } logo ? [logo] : [])
             .Concat(command.MusicTracks.Select(t => t.AssetId))
@@ -314,6 +326,28 @@ public sealed class ClipMergeService(
         }
 
         var watermark = ValidateWatermark(command.Watermark, byId, projectId);
+
+        // The outro comes from saved settings, but its asset is still checked like any other:
+        // a project's outro naming another project's file must not fetch that file.
+        if (outroAssetId is not null)
+        {
+            if (!byId.ContainsKey(outroAssetId))
+            {
+                // Deleted since it was set up: export without it rather than refuse - the
+                // orchestrator reports OUTRO_UNAVAILABLE for a card that lost its code.
+                if (outro!.Kind != OutroKind.Card) outro = null;
+            }
+            else
+            {
+                var asset = Require(byId, outroAssetId, projectId, "outro");
+                var expected = outro!.Kind == OutroKind.Video ? AssetKind.Video : AssetKind.Image;
+                if (asset.Kind != expected)
+                {
+                    throw EditingException.Invalid("outro-wrong-kind",
+                        $"The end card file '{asset.Name}' is not a {expected.ToString().ToLowerInvariant()}.");
+                }
+            }
+        }
 
         if (command.BackgroundMusicAssetId is { Length: > 0 } musicId)
         {
@@ -529,6 +563,7 @@ public sealed class ClipMergeService(
                 MusicDuckWindows = duckWindowSpecs,
                 ClipAudio = clipAudioSpecs,
                 Watermark = watermark,
+                Outro = outro ?? new OutroSettings(),
                 TimelineItems = command.TimelineItems?.ToList() ?? []
             }
         };
@@ -596,6 +631,37 @@ public sealed class ClipMergeService(
 
         watermark.Clamp();
         return watermark;
+    }
+
+    /// <summary>
+    /// The outro this export ends with: the project's own when it has one enabled, else the
+    /// studio-wide one. Copied, so editing the settings later never changes a queued job.
+    /// </summary>
+    private async Task<OutroSettings?> ResolveOutroAsync(Domain.Projects.Project project, CancellationToken ct)
+    {
+        var chosen = project.Settings.DefaultOutro is { IsEnabled: true } own
+            ? own
+            : (await aiSettings.GetAsync(ct).ConfigureAwait(false))?.DefaultOutro;
+
+        if (chosen is not { IsEnabled: true }) return null;
+
+        var copy = new OutroSettings
+        {
+            Kind = chosen.Kind,
+            AssetId = chosen.AssetId,
+            DurationSeconds = chosen.DurationSeconds,
+            Transition = chosen.Transition,
+            TransitionDurationFrames = chosen.TransitionDurationFrames,
+            QrAssetId = chosen.QrAssetId,
+            Headline = chosen.Headline,
+            Subtext = chosen.Subtext,
+            HeadlineSecondary = chosen.HeadlineSecondary,
+            SubtextSecondary = chosen.SubtextSecondary,
+            BackgroundHex = chosen.BackgroundHex,
+            TextHex = chosen.TextHex
+        };
+        copy.Clamp();
+        return copy.IsEnabled ? copy : null;
     }
 
     /// <summary>

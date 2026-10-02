@@ -245,6 +245,12 @@ export class ProjectSettingsComponent {
   applyGlobalOutro(): void {
     const o = this.globalOutro();
     if (!o || o.kind === 'None') return;
+    // A project with no outro of its own already ends with the studio's, and a QR card
+    // has fields this page does not edit - so "use the global card" means "None" here.
+    if (o.kind === 'Card') {
+      this.form.defaultOutroKind = 'None';
+      return;
+    }
     this.form.defaultOutroKind = (o.kind as OutroKind) ?? 'None';
     this.form.defaultOutroAssetId = o.assetId ?? '';
     this.form.defaultOutroDurationSeconds = o.durationSeconds || 4;

@@ -16,7 +16,14 @@ public sealed record OutroResponse(
     string? AssetId,
     double DurationSeconds,
     string Transition,
-    int TransitionDurationFrames);
+    int TransitionDurationFrames,
+    string? QrAssetId = null,
+    string? Headline = null,
+    string? Subtext = null,
+    string BackgroundHex = "#101828",
+    string TextHex = "#FFFFFF",
+    string? HeadlineSecondary = null,
+    string? SubtextSecondary = null);
 
 public sealed record ProjectResponse(
     string Id, string Name, string? Description, string Status,
@@ -102,7 +109,8 @@ public sealed record RenderJobResponse(
     bool HasOutput, double? OutputDurationSeconds,
     DateTime CreatedAt, DateTime? CompletedAt,
     int? Width = null, int? Height = null, string? TargetFormat = null,
-    RenderDiagnosticsResponse? Diagnostics = null);
+    RenderDiagnosticsResponse? Diagnostics = null,
+    bool HasTimeline = false);
 
 public sealed record RendererStatusResponse(
     bool Available, string? Version, string? UnavailableReason,

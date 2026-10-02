@@ -9,7 +9,7 @@ import {
   BundleImportResult, BundlePreview, Character, CharacterBody, ClipMergeBody, ClipOrder,
   ClipStudio, CreateProjectBody,
   CreateSceneBody, DialogueBody, IngestCapabilities, IngestResult, IngestSummary,
-  PlacementBody, Project, RenderJob, RendererStatus, Scene, SceneAudioBody, SceneDetail,
+  PlacementBody, Project, RenderJob, ExportTimelineFormat, RendererStatus, Scene, SceneAudioBody, SceneDetail,
   SceneGenerationResult, ScriptDetail, ScriptSummary, UpdateProjectBody, UpdateSceneBody,
   WatermarkBody, OutroBody,
 } from '../models/api.models';
@@ -346,6 +346,11 @@ export class ApiService {
     return `${this.base}/api/render-jobs/${jobId}/download`;
   }
 
+  /** Where each clip, sound and overlay sits in the finished export. */
+  timelineUrl(jobId: string, format: ExportTimelineFormat): string {
+    return `${this.base}/api/render-jobs/${encodeURIComponent(jobId)}/timeline?format=${format}`;
+  }
+
   // --- clips: several finished clips joined into one downloadable file
 
   /** The clips, what can mark or score them, and what this server's renderer can do. */
@@ -521,6 +526,27 @@ export class ApiService {
     form.append('file', file, file.name);
     return this.unwrap(
       this.http.post<ApiResponse<OutroBody | null>>(`${this.admin}/branding/outro/upload`, form));
+  }
+
+  /** Uploads the end card's QR code; the outro switches to a Card. */
+  uploadGlobalOutroQr(file: File): Observable<OutroBody | null> {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return this.unwrap(
+      this.http.post<ApiResponse<OutroBody | null>>(`${this.admin}/branding/outro/qr`, form));
+  }
+
+  /**
+   * Renders the outro AS GIVEN (saved or not) to an MP4, for previewing and for
+   * downloading to attach to videos uploaded before the card existed.
+   */
+  previewGlobalOutro(body: OutroBody, format: 'landscape' | 'vertical' | 'square'): Observable<Blob> {
+    return this.http.post(`${this.admin}/branding/outro/preview?format=${format}`, body, { responseType: 'blob' });
+  }
+
+  /** Global (studio-wide) assets such as the QR code are readable by any signed-in user. */
+  assetContentUrl(assetId: string): string {
+    return `${this.base}/api/assets/${encodeURIComponent(assetId)}/content`;
   }
 
   private unwrap<T>(source: Observable<ApiResponse<T>>): Observable<T> {

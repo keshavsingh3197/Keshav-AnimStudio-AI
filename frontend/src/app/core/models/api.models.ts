@@ -325,7 +325,12 @@ export interface RenderJob {
   createdAt: string;
   completedAt?: string;
   diagnostics?: RenderDiagnostics;
+  /** True when the export recorded where each clip, sound and overlay landed. */
+  hasTimeline?: boolean;
 }
+
+/** Downloadable forms of an export's timeline: a YouTube description draft, CSV or JSON. */
+export type ExportTimelineFormat = 'youtube' | 'csv' | 'json';
 
 export interface RenderDiagnostics {
   totalSeconds: number;
@@ -457,7 +462,7 @@ export interface WatermarkBody {
   backplateOpacity: number;
 }
 
-export const OUTRO_KINDS = ['None', 'Video', 'Image'] as const;
+export const OUTRO_KINDS = ['None', 'Video', 'Image', 'Card'] as const;
 export type OutroKind = (typeof OUTRO_KINDS)[number];
 
 export interface OutroBody {
@@ -466,6 +471,15 @@ export interface OutroBody {
   durationSeconds: number;
   transition: string;
   transitionDurationFrames: number;
+  /** Card only: the QR code shown in the middle, and the lines above and below it. */
+  qrAssetId?: string | null;
+  headline?: string | null;
+  subtext?: string | null;
+  /** Optional second-language lines, drawn under the headline and the subtext. */
+  headlineSecondary?: string | null;
+  subtextSecondary?: string | null;
+  backgroundHex?: string | null;
+  textHex?: string | null;
 }
 
 export const CLIP_FITS = ['Contain', 'Cover', 'BlurredBackdrop'] as const;
@@ -611,6 +625,8 @@ export interface ClipMergeBody {
   /** One entry per clip in the cut; omitted means every clip plays as recorded. */
   clipAudio?: ClipAudioBody[] | null;
   watermark: WatermarkBody;
+  /** End with the saved outro or QR end card (Admin &gt; Branding, or the project's own). */
+  includeOutro?: boolean;
   timelineItems?: TimelineItem[] | null;
   /**
    * Stretches where the music must drop under the clips above it. Ducking the music cannot be

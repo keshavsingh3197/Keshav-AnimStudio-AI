@@ -1058,6 +1058,10 @@
                   <input type="checkbox" [ngModel]="state.exportIncludeWatermark()" (ngModelChange)="state.exportIncludeWatermark.set($event)" />
                   <span>Include Watermark / Logo</span>
                 </label>
+                <label class="export-check-item" title="Set up in Admin → Branding → Global Channel Outro">
+                  <input type="checkbox" [ngModel]="state.exportIncludeOutro()" (ngModelChange)="state.exportIncludeOutro.set($event)" />
+                  <span>Include End Card / Outro (support QR)</span>
+                </label>
               </div>
             </div>
           </div>
@@ -1312,6 +1316,29 @@
                     ▶ Preview Video
                   </button>
                 </div>
+                @if (completedJob.hasTimeline) {
+                  <div class="timeline-downloads">
+                    <span class="timeline-downloads-label"
+                          title="Where every clip, sound, music track and overlay starts and ends in this video">
+                      Timeline details:
+                    </span>
+                    <a [href]="state.timelineUrl(completedJob.jobId, 'youtube')" download
+                       class="btn btn-sm btn-outline-light"
+                       title="Description draft with chapters (0:00 …), music credits and the footage list">
+                      📝 YouTube description
+                    </a>
+                    <a [href]="state.timelineUrl(completedJob.jobId, 'csv')" download
+                       class="btn btn-sm btn-outline-light"
+                       title="One row per item with start/end timecodes, source trims and credits">
+                      📊 CSV
+                    </a>
+                    <a [href]="state.timelineUrl(completedJob.jobId, 'json')" download
+                       class="btn btn-sm btn-outline-light"
+                       title="Full timeline for scripts and other tools">
+                      &#123; &#125; JSON
+                    </a>
+                  </div>
+                }
               </div>
             </div>
           }

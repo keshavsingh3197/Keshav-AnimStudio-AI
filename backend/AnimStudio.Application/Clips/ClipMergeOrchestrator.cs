@@ -39,7 +39,16 @@ public sealed record ClipRenderSettings(
     /// Name of the GPU encoder to prefer for clip conformance (e.g. "h264_nvenc", "h264_qsv"),
     /// or null to fall back to the CPU libx264 path with ultrafast preset.
     /// </summary>
-    string? HardwareEncoder = null);
+    string? HardwareEncoder = null,
+    /// <summary>
+    /// A font that can draw the given text - per script, so Hindi gets a Devanagari face -
+    /// or null when the host has none. Absent, <c>WatermarkFontFile</c> is used for all text.
+    /// </summary>
+    Func<string, string?>? FontForText = null)
+{
+    /// <summary>The font for <paramref name="text"/>, honouring the fallback.</summary>
+    public string? FontFor(string text) => FontForText is not null ? FontForText(text) : WatermarkFontFile;
+}
 
 
 /// <summary>
@@ -144,7 +153,8 @@ public sealed class ClipMergeOrchestrator(
         // demote the clips to throwaway intermediates, or the fast-preset file becomes the
         // delivered one at several times the size.
         var hasTransitions = spec.TransitionFrames > 0
-            || spec.Junctions.Any(j => j.Transition != SceneTransition.None && j.TransitionFrames > 0);
+            || spec.Junctions.Any(j => j.Transition != SceneTransition.None && j.TransitionFrames > 0)
+            || OutroPlanFactory.Crossfades(spec.Outro);
         var willStreamCopy = !hasTransitions && !spec.TimelineItems.Any(it => IsOverlayTrack(it.TrackId));
 
         // Per-clip sound costs the join nothing: it is mixed in pass one, so every
@@ -230,6 +240,9 @@ public sealed class ClipMergeOrchestrator(
             var perClipThreads = Math.Max(1, Environment.ProcessorCount / concurrency);
 
             var prepared = new SceneRenderResult[spec.AssetIds.Count];
+            // Frozen first-frame seconds per clip, for the export timeline: a clip's added
+            // sound starts after them, with its content.
+            var leadIns = new double[spec.AssetIds.Count];
             var completedCount = 0;
 
             // Per-junction overrides win when the timeline supplied exactly one per gap;
@@ -373,6 +386,7 @@ public sealed class ClipMergeOrchestrator(
                         .RenderClipAsync(plan, workspace, reporter, token).ConfigureAwait(false);
 
                     prepared[index] = result;
+                    leadIns[index] = plan.FreezeHead ? plan.LeadInSeconds : 0;
                     reporter.SceneCompleted(Interlocked.Increment(ref completedCount));
                 }
                 finally
@@ -382,6 +396,12 @@ public sealed class ClipMergeOrchestrator(
             });
 
             await Task.WhenAll(clipTasks).ConfigureAwait(false);
+
+            // --- the outro: conformed with the same encoder as the clips, so it joins them
+            // by stream copy. No progress report - the aggregator's slots are the clips.
+            var outro = await RenderOutroAsync(
+                spec.Outro, assetMap, materialized, canvas, clipEncoder, settings, workspace,
+                warnings, spec.AssetIds.Count, token).ConfigureAwait(false);
 
             var encodingSeconds = stageSw.Elapsed.TotalSeconds;
             stageSw.Restart();
@@ -429,7 +449,37 @@ public sealed class ClipMergeOrchestrator(
                 joined.Add(new MergeSceneInput(prepared[index].RelativePath, lengths[index], toNext));
             }
 
+            // The outro joins after the last clip, clamped by the same half-the-shorter-
+            // neighbour rule as every other junction. Only the outro's own setting decides
+            // its transition, never the clips' uniform one.
+            if (outro is not null)
+            {
+                var requested = new FrameCount(OutroPlanFactory.Crossfades(spec.Outro) ? spec.Outro.TransitionDurationFrames : 0);
+                var intoOutro = ClipPlanFactory.ClampTransitions([lengths[^1], outro.Frames], requested)[0];
+
+                if (intoOutro.Value > 0)
+                {
+                    joined[^1] = joined[^1] with
+                    {
+                        TransitionToNext = new TransitionSettings(spec.Outro.Transition, intoOutro)
+                    };
+                }
+
+                transitions = [.. transitions, intoOutro];
+                lengths.Add(outro.Frames);
+                joined.Add(new MergeSceneInput(outro.RelativePath, outro.Frames, TransitionSettings.None));
+            }
+
             var total = RenderTimeline.TotalLength(lengths, transitions);
+
+            var timeline = ExportTimelineBuilder.Build(
+                spec,
+                id => assetMap.TryGetValue(id, out var a) ? a
+                    : assetMap.GetValueOrDefault(ClipMergeService.CleanClipId(id)),
+                new ExportTimelineFacts(
+                    lengths, transitions,
+                    [.. joined.Take(transitions.Count).Select(j => j.TransitionToNext.Kind)],
+                    leadIns, canvas.FrameRate, total));
 
             reporter.Report(new RenderProgress(
                 RenderStage.Merging, prepared.Length, prepared.Length, FrameCount.Zero, total,
@@ -554,6 +604,7 @@ public sealed class ClipMergeOrchestrator(
             job.OutputStorageKey = outputKey;
             job.OutputSizeBytes = merged.SizeBytes;
             job.OutputDurationFrames = merged.Frames.Value;
+            job.Timeline = timeline;
             job.ScenesDone = prepared.Length;
             job.ScenesTotal = prepared.Length;
             job.Warnings = [.. warnings];
@@ -656,6 +707,7 @@ public sealed class ClipMergeOrchestrator(
 
         if (spec.BackgroundMusicAssetId is { Length: > 0 } music) ids.Add(music);
         if (spec.Watermark.LogoAssetId is { Length: > 0 } logo) ids.Add(logo);
+        if (OutroPlanFactory.AssetIdFor(spec.Outro) is { } outro) ids.Add(outro);
         foreach (var track in spec.MusicTracks) ids.Add(track.AssetId);
 
         foreach (var clip in spec.ClipAudio)
@@ -786,7 +838,8 @@ public sealed class ClipMergeOrchestrator(
         // Re-checked rather than trusted: the worker resolved this path at startup, and a
         // font file can be removed between then and now. A missing fontfile= is a hard
         // drawtext failure, so it is better found here than in ffmpeg's stderr.
-        var fontFile = settings.WatermarkFontFile is { Length: > 0 } candidate
+        // Chosen for the text itself, so a Hindi mark gets a face that has Devanagari.
+        var fontFile = (spec.Watermark.Text is { Length: > 0 } markText ? settings.FontFor(markText) : settings.WatermarkFontFile) is { Length: > 0 } candidate
                        && File.Exists(candidate)
             ? candidate
             : null;
@@ -798,10 +851,38 @@ public sealed class ClipMergeOrchestrator(
     }
 
     /// <summary>
+    /// Conforms the outro - a bumper video, an end-card image, or a composed QR card - to
+    /// the export's canvas and encoder. Null when there is none, or when its asset was
+    /// deleted after queueing: a missing outro costs a warning, not the export.
+    /// </summary>
+    private async Task<SceneRenderResult?> RenderOutroAsync(
+        OutroSettings? outro, Dictionary<string, Asset> assetMap, Dictionary<string, string> materialized,
+        Canvas canvas, EncoderProfile encoder, ClipRenderSettings settings, IRenderWorkspace workspace,
+        HashSet<string> warnings, int clipIndex, CancellationToken ct)
+    {
+        if (outro is not { IsEnabled: true }) return null;
+
+        var id = OutroPlanFactory.AssetIdFor(outro);
+        Asset? asset = null;
+        string? path = null;
+        if (id is not null && assetMap.TryGetValue(id, out var found) && materialized.TryGetValue(id, out var p))
+            (asset, path) = (found, p);
+
+        var plan = await OutroPlanFactory.CreateAsync(
+            outro, asset, path, canvas,
+            capabilities.Supports(RenderFeature.DrawText) ? settings.FontFor : null,
+            encoder, workspace, clipIndex, warnings, ct).ConfigureAwait(false);
+
+        return plan is null
+            ? null
+            : await renderer.RenderClipAsync(plan, workspace, null, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Tracks composited over the main video in the join. Any item on one forces the join
     /// to re-encode, so this decides both the overlay list and the stream-copy prediction.
     /// </summary>
-    private static bool IsOverlayTrack(string? trackId) =>
+    internal static bool IsOverlayTrack(string? trackId) =>
         trackId is "IMG1" or "IMG" or "IMAGE" or "V2" or "V3" or "TXT1";
 
     /// <summary>Zero transitions, for the pre-flight total used to weight progress.</summary>

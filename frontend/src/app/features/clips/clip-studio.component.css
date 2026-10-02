@@ -2943,6 +2943,19 @@ app-timeline-dock {
   gap: 10px;
 }
 
+.timeline-downloads {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.timeline-downloads-label {
+  font-size: 0.8rem;
+  opacity: 0.75;
+}
+
 .export-download-btn {
   background: #10b981 !important;
   color: #000 !important;

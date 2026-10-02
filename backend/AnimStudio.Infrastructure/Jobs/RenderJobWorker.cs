@@ -133,7 +133,8 @@ public sealed class RenderJobWorker(
             // fontconfig has no configuration file.
             var clipSettings = new ClipRenderSettings(
                 fonts.FontFilePath, DeliveryProfile(), _options.IntermediatePreset, lease,
-                HardwareEncoder: _options.UseHardwareEncoder ? _hwEncoder : null);
+                HardwareEncoder: _options.UseHardwareEncoder ? _hwEncoder : null,
+                FontForText: fonts.FontFor);
 
             await clips.ExecuteAsync(job, _instanceId, clipSettings, ct).ConfigureAwait(false);
         }
@@ -175,20 +176,23 @@ public sealed class RenderJobWorker(
     /// all and no way to tell.
     /// </para>
     /// </summary>
-    private EncoderProfile DeliveryProfile()
+    private EncoderProfile DeliveryProfile() => DeliveryProfile(_options, logger);
+
+    /// <summary>The same, for anything else that encodes a deliverable - the outro preview.</summary>
+    internal static EncoderProfile DeliveryProfile(RenderOptions options, ILogger logger)
     {
         var profile = EncoderProfile.Default;
 
-        if (!string.IsNullOrWhiteSpace(_options.Preset))
-            profile = profile with { Preset = _options.Preset.Trim() };
+        if (!string.IsNullOrWhiteSpace(options.Preset))
+            profile = profile with { Preset = options.Preset.Trim() };
 
         // x264's CRF range. Out-of-range values are a configuration typo, and clamping
         // beats letting ffmpeg reject the argument on every clip of every job.
-        if (_options.Crf is >= 0 and <= 51)
-            profile = profile with { Crf = _options.Crf };
+        if (options.Crf is >= 0 and <= 51)
+            profile = profile with { Crf = options.Crf };
         else
             logger.LogWarning("Render:Crf is {Crf}, outside 0-51; using {Default}.",
-                _options.Crf, profile.Crf);
+                options.Crf, profile.Crf);
 
         return profile;
     }

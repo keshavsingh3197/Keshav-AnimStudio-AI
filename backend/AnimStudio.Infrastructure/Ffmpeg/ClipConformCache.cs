@@ -96,6 +96,11 @@ public sealed class ClipConformCache
             if (plan.Watermark?.TextRelativePath is { Length: > 0 } text)
                 Fingerprint(hash, resolve(text));
 
+            // An end card's lines too: their path never changes, so without this an edited
+            // headline would come back from the cache as the old one.
+            foreach (var line in plan.EndCard?.Lines ?? [])
+                Fingerprint(hash, resolve(line.TextRelativePath));
+
             return Convert.ToHexStringLower(hash.GetHashAndReset());
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

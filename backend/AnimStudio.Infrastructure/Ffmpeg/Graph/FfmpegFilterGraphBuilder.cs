@@ -257,6 +257,8 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         ArgumentNullException.ThrowIfNull(plan);
         plan.Canvas.Validate();
 
+        if (plan.EndCard is { } card) return BuildEndCard(plan, card);
+
         var canvas = plan.Canvas;
         var rate = canvas.FrameRate;
         var warnings = new List<string>();
@@ -396,6 +398,92 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
     }
 
     /// <summary>
+    /// A "support us" end card: plain background, QR code on a white quiet-zone square,
+    /// headline above and small text below. Output arguments and the silent audio stream
+    /// are a normal clip's, so the card joins a stitch by stream copy like any other clip.
+    /// <para>
+    /// The code is scaled with <c>neighbor</c>: any smoothing blurs module edges, and a
+    /// blurred QR code is one a phone takes noticeably longer to lock on to.
+    /// </para>
+    /// </summary>
+    private FilterGraphPlan BuildEndCard(ClipRenderPlan plan, EndCardPlan card)
+    {
+        var canvas = plan.Canvas;
+        var rate = canvas.FrameRate;
+        var warnings = new List<string>();
+        var duration = FilterExpr.N(plan.ImageDurationSeconds);
+
+        var inputs = new List<FfmpegInputSpec>
+        {
+            new(["-f", "lavfi"],
+                $"color=c=0x{card.BackgroundRgb}:s={canvas.Width}x{canvas.Height}"
+                + $":r={rate.ToFfmpegRate()}:d={duration}")
+            { IsLavfi = true }
+        };
+
+        var graph = new StringBuilder();
+        graph.Append("[0:v]setsar=1");
+        if (card.BoxSize > 0)
+        {
+            graph.Append($",drawbox=x={card.BoxX}:y={card.BoxY}:w={card.BoxSize}:h={card.BoxSize}")
+                 .Append(":color=white:t=fill");
+        }
+        graph.Append("[bg];\n");
+        var current = "bg";
+
+        if (card.QrRelativePath is { Length: > 0 } qr && card.BoxSize > 0)
+        {
+            // One frame, held by eof_action=repeat - the same trick the logo watermark uses.
+            var qrInput = inputs.Count;
+            inputs.Add(new FfmpegInputSpec([], qr));
+
+            graph.Append($"[{qrInput}:v]scale={card.QrSize}:{card.QrSize}")
+                 .Append(":force_original_aspect_ratio=decrease:flags=neighbor,format=rgba[qr];\n")
+                 .Append($"[{current}][qr]overlay=x={card.BoxX}+({card.BoxSize}-overlay_w)/2")
+                 .Append($":y={card.BoxY}+({card.BoxSize}-overlay_h)/2:eof_action=repeat:format=auto[cq];\n");
+            current = "cq";
+        }
+
+        var canDrawText = capabilities.Supports(RenderFeature.DrawText);
+        if (card.Lines.Count > 0 && !canDrawText) warnings.Add("ENDCARD_TEXT_UNAVAILABLE");
+
+        if (canDrawText)
+        {
+            // text_shaping is on by default where ffmpeg has HarfBuzz; it is what joins
+            // Devanagari conjuncts and places vowel signs instead of drawing them loose.
+            for (var i = 0; i < card.Lines.Count; i++)
+            {
+                var line = card.Lines[i];
+                var label = $"ct{i}";
+
+                graph.Append($"[{current}]drawtext=")
+                     .Append($"textfile={FilterExpr.Quote(FilterExpr.Path(line.TextRelativePath))}")
+                     .Append($":fontfile={FilterExpr.Quote(FilterExpr.Path(line.FontFilePath))}")
+                     .Append($":reload=0:fontsize={line.FontPixels}")
+                     .Append($":fontcolor=0x{card.TextRgb}@{FilterExpr.N(line.Opacity)}")
+                     .Append($":x=(w-text_w)/2:y={line.Y}[{label}];\n");
+                current = label;
+            }
+        }
+
+        var fadeIn = card.FadeInSeconds > 0
+            ? $"fade=t=in:st=0:d={FilterExpr.N(card.FadeInSeconds)},"
+            : string.Empty;
+        graph.Append($"[{current}]{fadeIn}format={plan.Encoder.PixelFormat}[vout];\n");
+        graph.Append(ClipAudio(plan, inputs));
+
+        return new FilterGraphPlan
+        {
+            Inputs = inputs,
+            FilterComplex = graph.ToString(),
+            OutputArguments = ClipOutputArguments(plan),
+            OutputRelativePath = plan.OutputRelativePath,
+            ExpectedFrames = plan.ExpectedFrames,
+            Warnings = warnings
+        };
+    }
+
+    /// <summary>
     /// One clip's audio, ending at <c>[aout]</c> - which every clip MUST produce, even a
     /// silent one, or the concat demuxer writes a file that plays the first clip and stalls.
     /// <para>
@@ -454,7 +542,7 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
 
             // normalize=0 inside Mix is what makes the two levels mean what they say;
             // amix's default would halve both the moment a second input appeared.
-            var own = $"[0:a]{format},asetpts=N/SR/TB{headDelay},volume={FilterExpr.N(ownVolume)},apad";
+            var own = $"[0:a]{format},{AudioFilters.FollowTimestamps}{headDelay},volume={FilterExpr.N(ownVolume)},apad";
             var limiter = capabilities.Supports(RenderFeature.AudioLimiter);
 
             return $"{own}[a0];\n{extra}[a1];\n[a0][a1]{AudioFilters.Mix(2, limiter)}[aout]";
@@ -473,7 +561,7 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
                 ? string.Empty
                 : $",volume={FilterExpr.N(ownVolume)}{guard}";
 
-            return $"[0:a]{format},asetpts=N/SR/TB{headDelay}{level},apad[aout]";
+            return $"[0:a]{format},{AudioFilters.FollowTimestamps}{headDelay}{level},apad[aout]";
         }
 
         var silence = inputs.Count;
@@ -718,9 +806,13 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         var graph = new StringBuilder();
         var audioFormat = AudioFilters.Format(plan.Encoder);
 
-        // Normalize the concatenated clip audio stream and ensure it matches full video duration
+        // The concat list gives every clip its exact video length, so the demuxer stamps each
+        // clip's audio where its picture starts. Following those stamps - not renumbering
+        // the samples - is what stops the per-clip shortfall accumulating into drift. Then
+        // held to exactly the video's length at both ends.
         var totalSeconds = FilterExpr.Sec(total, rate);
-        graph.Append($"[0:a]{audioFormat},asetpts=N/SR/TB,apad=whole_dur={totalSeconds}[clipaudio];\n");
+        graph.Append($"[0:a]{audioFormat},{AudioFilters.FollowTimestamps},")
+             .Append($"apad=whole_dur={totalSeconds},atrim=end={totalSeconds}[clipaudio];\n");
         var mixLabels = new List<string> { "clipaudio" };
 
         var duckEnvelope = AudioFilters.DuckEnvelope(
@@ -916,9 +1008,14 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         // arithmetic xfade uses, so driving both from the same durations keeps them locked.
         // Using concat here instead would leave audio long by the sum of all transitions -
         // twenty 0.5s transitions is ten seconds of drift by the end.
+        // Each clip's audio is held to exactly its video length first: a conformed clip's
+        // sound ends a few ms short of its picture, and acrossfade would otherwise carry
+        // every one of those shortfalls forward into the next clip.
         for (var i = 0; i < plan.Scenes.Count; i++)
         {
-            graph.Append($"[{i}:a]{AudioFilters.Format(plan.Encoder)},asetpts=N/SR/TB[a{i}];\n");
+            var seconds = FilterExpr.Sec(lengths[i], rate);
+            graph.Append($"[{i}:a]{AudioFilters.Format(plan.Encoder)},{AudioFilters.FollowTimestamps},")
+                 .Append($"apad=whole_dur={seconds},atrim=end={seconds}[a{i}];\n");
         }
 
         var audioLabel = "a0";

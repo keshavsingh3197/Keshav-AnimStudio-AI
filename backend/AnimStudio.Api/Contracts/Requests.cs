@@ -302,13 +302,42 @@ public sealed record OutroRequest
     [Range(0, 120)]
     public int TransitionDurationFrames { get; init; } = 15;
 
+    [StringLength(64)]
+    public string? QrAssetId { get; init; }
+
+    [StringLength(OutroSettings.MaxHeadlineLength)]
+    public string? Headline { get; init; }
+
+    [StringLength(OutroSettings.MaxSubtextLength)]
+    public string? Subtext { get; init; }
+
+    /// <summary>Optional second-language lines, drawn under the headline and the subtext.</summary>
+    [StringLength(OutroSettings.MaxHeadlineLength)]
+    public string? HeadlineSecondary { get; init; }
+
+    [StringLength(OutroSettings.MaxSubtextLength)]
+    public string? SubtextSecondary { get; init; }
+
+    [RegularExpression("^#[0-9A-Fa-f]{6}$")]
+    public string? BackgroundHex { get; init; }
+
+    [RegularExpression("^#[0-9A-Fa-f]{6}$")]
+    public string? TextHex { get; init; }
+
     public OutroSettings ToSettings() => new()
     {
         Kind = Kind,
         AssetId = AssetId,
         DurationSeconds = DurationSeconds,
         Transition = Transition,
-        TransitionDurationFrames = TransitionDurationFrames
+        TransitionDurationFrames = TransitionDurationFrames,
+        QrAssetId = QrAssetId,
+        Headline = Headline,
+        Subtext = Subtext,
+        HeadlineSecondary = HeadlineSecondary,
+        SubtextSecondary = SubtextSecondary,
+        BackgroundHex = BackgroundHex ?? "#101828",
+        TextHex = TextHex ?? "#FFFFFF"
     };
 }
 
@@ -466,7 +495,11 @@ public sealed record ClipMergeRequest
     public List<ClipAudioRequest>? ClipAudio { get; init; }
 
     public WatermarkRequest Watermark { get; init; } = new();
-    public OutroRequest Outro { get; init; } = new();
+    /// <summary>
+    /// End the video with the saved outro or QR end card. Only the switch is accepted: the
+    /// card itself always comes from the project or studio settings.
+    /// </summary>
+    public bool IncludeOutro { get; init; }
 
     public List<TimelineItemRequest>? TimelineItems { get; init; }
 }

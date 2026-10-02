@@ -3,6 +3,7 @@ using AnimStudio.Api.Contracts;
 using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Abstractions.Rendering;
 using AnimStudio.Application.Abstractions.Storage;
+using AnimStudio.Application.Clips;
 using AnimStudio.Application.Projects;
 using AnimStudio.Application.Security;
 using AnimStudio.Domain.Jobs;
@@ -141,6 +142,48 @@ public sealed class RenderController(
         var project = await projects.GetAsync(job.ProjectId, ct);
 
         return File(stream, "video/mp4", DownloadName(project, jobId));
+    }
+
+    /// <summary>
+    /// Downloads where each clip, sound and overlay sits in the finished file:
+    /// <c>youtube</c> (a description draft with chapters and credits), <c>csv</c> or <c>json</c>.
+    /// Only clip exports completed since the timeline was recorded have one; anything else
+    /// is a 404, the same answer as a job with no output.
+    /// </summary>
+    [HttpGet("api/render-jobs/{jobId}/timeline")]
+    public async Task<IActionResult> DownloadTimeline(
+        string jobId, [FromQuery] string? format, CancellationToken ct)
+    {
+        var job = await LoadOwnedJobAsync(jobId, ct);
+
+        // Allowlist, not Enum.TryParse: that would also accept "1" or "YouTube, Csv".
+        ExportTimelineFormat? requested = (format ?? "youtube").ToLowerInvariant() switch
+        {
+            "youtube" => ExportTimelineFormat.YouTube,
+            "csv" => ExportTimelineFormat.Csv,
+            "json" => ExportTimelineFormat.Json,
+            _ => null
+        };
+
+        if (requested is not { } parsed)
+        {
+            const string message = "format must be youtube, csv or json.";
+            return BadRequest(ApiResponse<EmptyPayload>.Fail(message, new ApiError("invalid-format", message)));
+        }
+
+        if (job.Timeline is not { Entries.Count: > 0 } timeline)
+            throw new KeyNotFoundException();
+
+        var project = await projects.GetAsync(job.ProjectId, ct);
+        var title = job.ClipMerge?.ExportName is { Length: > 0 } exportName ? exportName : project?.Name;
+
+        var (content, contentType, extension) = ExportTimelineFormatter.Format(timeline, parsed, title);
+        var suffix = parsed == ExportTimelineFormat.YouTube ? "youtube-description" : "timeline";
+        var name = $"{Path.GetFileNameWithoutExtension(DownloadName(project, jobId))}-{suffix}.{extension}";
+
+        // A BOM so Excel reads a CSV of non-ASCII labels as UTF-8 rather than the ANSI codepage.
+        var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(content)).ToArray();
+        return File(bytes, $"{contentType}; charset=utf-8", name);
     }
 
     /// <summary>

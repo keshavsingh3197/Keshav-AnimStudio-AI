@@ -32,6 +32,7 @@ export class AdminBrandingComponent {
     { kind: 'None', label: 'No Channel Outro' },
     { kind: 'Video', label: 'Outro Video Bumper (MP4 / WebM / MOV)' },
     { kind: 'Image', label: 'End-Card Graphic (PNG / JPG / WEBP)' },
+    { kind: 'Card', label: 'Support Us End Card (QR code + message)' },
   ];
 
   readonly outroTransitions: readonly string[] = ['Fade', 'Dissolve', 'None', 'WipeLeft', 'WipeRight'];
@@ -63,7 +64,21 @@ export class AdminBrandingComponent {
     durationSeconds: 4,
     transition: 'Fade',
     transitionDurationFrames: 15,
+    qrAssetId: '',
+    headline: 'Support us for more videos like this',
+    subtext: 'Scan the QR code',
+    headlineSecondary: '',
+    subtextSecondary: '',
+    backgroundHex: '#101828',
+    textHex: '#FFFFFF',
   };
+
+  /** The rendered end card, as an object URL, and which shape it was rendered for. */
+  readonly outroPreviewUrl = signal<string | null>(null);
+  readonly outroPreviewFormat = signal<'landscape' | 'vertical' | 'square'>('landscape');
+  readonly outroPreviewBusy = signal(false);
+  readonly outroPreviewError = signal<string | null>(null);
+  private outroPreviewBlob: Blob | null = null;
 
   constructor() {
     this.reload();
@@ -105,8 +120,15 @@ export class AdminBrandingComponent {
             durationSeconds: outro.durationSeconds || 4,
             transition: outro.transition || 'Fade',
             transitionDurationFrames: outro.transitionDurationFrames || 15,
+            qrAssetId: outro.qrAssetId ?? '',
+            headline: outro.headline ?? '',
+            subtext: outro.subtext ?? '',
+            headlineSecondary: outro.headlineSecondary ?? '',
+            subtextSecondary: outro.subtextSecondary ?? '',
+            backgroundHex: outro.backgroundHex || '#101828',
+            textHex: outro.textHex || '#FFFFFF',
           };
-          if (outro.kind !== 'None' && outro.assetId) {
+          if (outro.kind !== 'None' && outro.kind !== 'Card' && outro.assetId) {
             this.outroMediaUrl.set(this.api.globalOutroMediaUrl() + '?t=' + Date.now());
           } else {
             this.outroMediaUrl.set(null);
@@ -221,15 +243,116 @@ export class AdminBrandingComponent {
     this.outroForm.kind = 'None';
   }
 
-  saveOutro(): void {
+  onUploadOutroQr(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+
     this.saveOutroSuccess.set(false);
-    const body: OutroBody = {
+    this.status.run(this.api.uploadGlobalOutroQr(file), (res) => {
+      if (res) {
+        this.outroForm.kind = 'Card';
+        this.outroForm.qrAssetId = res.qrAssetId ?? '';
+      }
+      input.value = '';
+    });
+  }
+
+  /** Ready-made wording, so a bilingual card is one click rather than four fields. */
+  readonly cardLanguagePresets: readonly { label: string; headline: string; subtext: string; headline2: string; subtext2: string }[] = [
+    {
+      label: 'English',
+      headline: 'Support us for more videos like this', subtext: 'Scan the QR code',
+      headline2: '', subtext2: '',
+    },
+    {
+      label: 'हिन्दी',
+      headline: 'इस तरह के और वीडियो के लिए हमारा समर्थन करें', subtext: 'QR कोड स्कैन करें',
+      headline2: '', subtext2: '',
+    },
+    {
+      label: 'English + हिन्दी',
+      headline: 'Support us for more videos like this', subtext: 'Scan the QR code',
+      headline2: 'इस तरह के और वीडियो के लिए हमारा समर्थन करें', subtext2: 'QR कोड स्कैन करें',
+    },
+    {
+      label: 'हिन्दी + English',
+      headline: 'इस तरह के और वीडियो के लिए हमारा समर्थन करें', subtext: 'QR कोड स्कैन करें',
+      headline2: 'Support us for more videos like this', subtext2: 'Scan the QR code',
+    },
+  ];
+
+  applyCardLanguagePreset(preset: (typeof this.cardLanguagePresets)[number]): void {
+    this.outroForm.headline = preset.headline;
+    this.outroForm.subtext = preset.subtext;
+    this.outroForm.headlineSecondary = preset.headline2;
+    this.outroForm.subtextSecondary = preset.subtext2;
+  }
+
+  qrImageUrl(): string | null {
+    return this.outroForm.qrAssetId ? this.api.assetContentUrl(this.outroForm.qrAssetId) : null;
+  }
+
+  clearOutroQr(): void {
+    this.outroForm.qrAssetId = '';
+  }
+
+  /** Renders the form as it stands - saved or not - so the card can be checked first. */
+  previewOutro(format: 'landscape' | 'vertical' | 'square'): void {
+    this.outroPreviewBusy.set(true);
+    this.outroPreviewError.set(null);
+    this.outroPreviewFormat.set(format);
+
+    this.api.previewGlobalOutro(this.outroBody(), format).subscribe({
+      next: (blob) => {
+        this.setPreview(blob);
+        this.outroPreviewBusy.set(false);
+      },
+      error: () => {
+        this.setPreview(null);
+        this.outroPreviewBusy.set(false);
+        this.outroPreviewError.set('Could not render the end card. Add a QR code or a headline, then try again.');
+      },
+    });
+  }
+
+  downloadOutroPreview(): void {
+    if (!this.outroPreviewBlob) return;
+    const url = URL.createObjectURL(this.outroPreviewBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `end-card-${this.outroPreviewFormat()}.mp4`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  private setPreview(blob: Blob | null): void {
+    const previous = this.outroPreviewUrl();
+    if (previous) URL.revokeObjectURL(previous);
+    this.outroPreviewBlob = blob;
+    this.outroPreviewUrl.set(blob ? URL.createObjectURL(blob) : null);
+  }
+
+  private outroBody(): OutroBody {
+    return {
       kind: this.outroForm.kind,
       assetId: this.outroForm.assetId || null,
       durationSeconds: this.outroForm.durationSeconds,
       transition: this.outroForm.transition,
       transitionDurationFrames: this.outroForm.transitionDurationFrames,
+      qrAssetId: this.outroForm.qrAssetId || null,
+      headline: this.outroForm.headline?.trim() || null,
+      subtext: this.outroForm.subtext?.trim() || null,
+      headlineSecondary: this.outroForm.headlineSecondary?.trim() || null,
+      subtextSecondary: this.outroForm.subtextSecondary?.trim() || null,
+      backgroundHex: this.outroForm.backgroundHex,
+      textHex: this.outroForm.textHex,
     };
+  }
+
+  saveOutro(): void {
+    this.saveOutroSuccess.set(false);
+    const body = this.outroBody();
 
     this.status.run(this.api.updateGlobalOutro(body), () => {
       this.saveOutroSuccess.set(true);

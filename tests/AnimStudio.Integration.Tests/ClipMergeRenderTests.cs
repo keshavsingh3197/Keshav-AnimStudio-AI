@@ -325,6 +325,108 @@ public sealed class ClipMergeRenderTests : IAsyncLifetime
             $"expected the mark to change the top band (top {top:F2} vs bottom {bottom:F2}).");
     }
 
+    private static OutroSettings SupportCard(double seconds = 2.0) => new()
+    {
+        Kind = OutroKind.Card,
+        QrAssetId = "qr",
+        Headline = "Support us",
+        Subtext = "Scan the code",
+        DurationSeconds = seconds,
+        Transition = SceneTransition.None
+    };
+
+    [FfmpegFontFact]
+    public async Task Draws_an_end_card_with_its_qr_quiet_zone_and_headline_for_the_whole_duration()
+    {
+        // At 640x360 the layout puts the headline at y=61 and the white square at
+        // x=237,y=101, 166px wide - asserted against the pixels, since a drawtext or
+        // drawbox that did nothing still exits 0.
+        RenderFixtures.MakeSprite(Path_("in/qr.png"), "black", 64);
+        var warnings = new List<string>();
+
+        var plan = await AnimStudio.Application.Rendering.EndCardFactory.PrepareAsync(
+            _workspace, SupportCard(), TestCanvas, "in/qr.png", _ => WatermarkFontResolver.FindSystemFont(),
+            EncoderProfile.Default, 0, "clips/clip_outro.mp4", warnings, Ct);
+
+        var result = await _service.RenderClipAsync(plan, _workspace, null, Ct);
+        var path = _workspace.Resolve(result.RelativePath);
+
+        Assert.Empty(warnings);
+        Assert.Equal(60, result.Frames.Value);
+
+        var quietZone = MeanLuma(path, "crop=166:8:237:103");
+        var headline = MeanLuma(path, "crop=640:24:0:61");
+        var background = MeanLuma(path, "crop=640:20:0:10");
+
+        Assert.True(quietZone > 200, $"expected a white quiet zone, got luma {quietZone:F1}.");
+        Assert.True(headline - background > 1.0,
+            $"expected the headline to brighten its band (headline {headline:F2} vs background {background:F2}).");
+    }
+
+    [FfmpegFontFact]
+    public async Task Draws_hindi_lines_in_a_face_that_has_devanagari()
+    {
+        // The bug this guards: the Latin watermark face has no Devanagari, and drawtext
+        // draws every missing glyph as a box. The resolver must hand Hindi lines a face
+        // that covers them - and the line must actually draw, not be dropped.
+        var fonts = new WatermarkFontResolver(Options.Create(new RenderOptions()), NullLogger<WatermarkFontResolver>.Instance);
+        var hindiFont = fonts.FontFor("हिन्दी");
+        if (hindiFont is null) return; // no Devanagari face on this host to test against
+
+        Assert.NotEqual(fonts.FontFilePath, hindiFont);
+
+        var card = SupportCard();
+        card.Headline = null;
+        card.Subtext = null;
+        card.HeadlineSecondary = "इस तरह के और वीडियो के लिए हमारा समर्थन करें";
+        RenderFixtures.MakeSprite(Path_("in/qr.png"), "black", 64);
+        var warnings = new List<string>();
+
+        var plan = await AnimStudio.Application.Rendering.EndCardFactory.PrepareAsync(
+            _workspace, card, TestCanvas, "in/qr.png", fonts.FontFor,
+            EncoderProfile.Default, 0, "clips/clip_outro.mp4", warnings, Ct);
+
+        Assert.Empty(warnings);
+        var line = Assert.Single(plan.EndCard!.Lines);
+        Assert.Equal(hindiFont, line.FontFilePath);
+
+        var result = await _service.RenderClipAsync(plan, _workspace, null, Ct);
+        var path = _workspace.Resolve(result.RelativePath);
+
+        var band = MeanLuma(path, $"crop=640:{line.FontPixels}:0:{line.Y}");
+        var background = MeanLuma(path, "crop=640:20:0:10");
+        Assert.True(band - background > 1.0, $"expected the Hindi line to draw (band {band:F2} vs background {background:F2}).");
+    }
+
+    [FfmpegFact]
+    public async Task An_end_card_joins_a_clip_by_stream_copy_with_its_fade_inside_it()
+    {
+        // The card's "transition" is a fade up inside the card, so the join is a cut: the
+        // timeline is the plain sum, 1s + 2s, and nothing is re-encoded to get there.
+        MakeClip("in/a.mp4", 1.0, 640, 360, 30, withAudio: true);
+        RenderFixtures.MakeSprite(Path_("in/qr.png"), "black", 64);
+
+        var card = SupportCard();
+        card.Transition = SceneTransition.Fade;
+
+        var plan = await AnimStudio.Application.Rendering.EndCardFactory.PrepareAsync(
+            _workspace, card, TestCanvas, "in/qr.png", null,
+            EncoderProfile.Default, 1, "clips/clip_outro.mp4", new List<string>(), Ct);
+        Assert.True(plan.EndCard!.FadeInSeconds > 0);
+
+        var prepared = new List<SceneRenderResult>
+        {
+            await _service.RenderClipAsync(Plan(0, "in/a.mp4"), _workspace, null, Ct),
+            await _service.RenderClipAsync(plan, _workspace, null, Ct)
+        };
+
+        var merged = await Merge(prepared, FrameCount.Zero);
+
+        var duration = ProbeDuration(_workspace.Resolve(merged.RelativePath), "v:0");
+        Assert.True(Math.Abs(duration - 3.0) < 0.1, $"expected 3.0s, got {duration:F3}s");
+        Assert.Equal(90, merged.Frames.Value);
+    }
+
     [FfmpegFact]
     public async Task Keeps_a_logo_watermark_on_screen_for_the_whole_clip()
     {

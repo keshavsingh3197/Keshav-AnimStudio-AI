@@ -217,7 +217,141 @@
       </div>
     </div>
 
-    @if (outroForm.kind !== 'None') {
+    @if (outroForm.kind === 'Card') {
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 1.5rem; margin-bottom: 1.25rem;">
+        <!-- Left: card content -->
+        <div>
+          <div class="form-group">
+            <label class="form-label">QR Code Image (PNG / JPG / WEBP)</label>
+            <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+              <label class="btn-outline" style="cursor: pointer;">
+                <input type="file" accept="image/png,image/jpeg,image/webp"
+                       (change)="onUploadOutroQr($event)" style="display: none;" />
+                <span>⬆ {{ outroForm.qrAssetId ? 'Replace QR Code' : 'Upload QR Code' }}</span>
+              </label>
+              @if (outroForm.qrAssetId) {
+                <button type="button" class="btn-outline" style="color: #f87171; border-color: rgba(239,68,68,0.3);" (click)="clearOutroQr()">
+                  ✕ Remove QR
+                </button>
+              }
+            </div>
+            <p style="margin: 0.35rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
+              Your UPI / Ko-fi / Patreon / membership QR. It is placed on a white square with a quiet zone, so it scans on any background colour.
+            </p>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Language</label>
+            <div class="segmented-row">
+              @for (p of cardLanguagePresets; track p.label) {
+                <button type="button" class="segment-btn" (click)="applyCardLanguagePreset(p)">{{ p.label }}</button>
+              }
+            </div>
+            <p style="margin: 0.35rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
+              Fills in ready-made wording - edit it freely afterwards. Hindi and other Indian scripts are drawn with a font that has their letters.
+            </p>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="outro-headline">Headline (above the code)</label>
+            <input id="outro-headline" class="form-control" type="text" maxlength="80"
+                   placeholder="Support us for more videos like this"
+                   [(ngModel)]="outroForm.headline" />
+            <input id="outro-headline-2" class="form-control" type="text" maxlength="80"
+                   style="margin-top: 0.4rem;" aria-label="Headline, second language"
+                   placeholder="Second language (optional) - e.g. इस तरह के और वीडियो के लिए हमारा समर्थन करें"
+                   [(ngModel)]="outroForm.headlineSecondary" />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="outro-subtext">Small text (below the code)</label>
+            <input id="outro-subtext" class="form-control" type="text" maxlength="120"
+                   placeholder="Scan the QR code · upi://… / ko-fi.com/…"
+                   [(ngModel)]="outroForm.subtext" />
+            <input id="outro-subtext-2" class="form-control" type="text" maxlength="120"
+                   style="margin-top: 0.4rem;" aria-label="Small text, second language"
+                   placeholder="Second language (optional) - e.g. QR कोड स्कैन करें"
+                   [(ngModel)]="outroForm.subtextSecondary" />
+            <p style="margin: 0.35rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
+              A second-language line sits just under its partner, a little smaller and softer.
+            </p>
+          </div>
+
+          <div style="display: flex; gap: 1.25rem; flex-wrap: wrap;">
+            <div class="form-group">
+              <label class="form-label" for="outro-bg">Background</label>
+              <input id="outro-bg" type="color" [(ngModel)]="outroForm.backgroundHex" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="outro-fg">Text colour</label>
+              <input id="outro-fg" type="color" [(ngModel)]="outroForm.textHex" />
+            </div>
+          </div>
+
+          <div class="slider-container" style="margin-bottom: 1.25rem;">
+            <div class="slider-meta">
+              <label class="form-label" style="margin-bottom: 0;">End Card Duration</label>
+              <span class="slider-val-badge">{{ outroForm.durationSeconds }}s</span>
+            </div>
+            <input class="form-range" type="range" min="1" max="30" step="0.5"
+                   [(ngModel)]="outroForm.durationSeconds" />
+            <p style="margin: 0.25rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
+              5–10 seconds gives viewers time to get their phone out and scan.
+            </p>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Fade In</label>
+            <div class="segmented-row">
+              <button type="button" class="segment-btn" [class.active]="outroForm.transition !== 'None'"
+                      (click)="setOutroTransition('Fade')">Fade up from black</button>
+              <button type="button" class="segment-btn" [class.active]="outroForm.transition === 'None'"
+                      (click)="setOutroTransition('None')">Hard cut</button>
+            </div>
+            <p style="margin: 0.35rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
+              The card fades in on its own, so adding it never forces the whole video to re-encode.
+            </p>
+          </div>
+        </div>
+
+        <!-- Right: what the card is made of -->
+        <div>
+          <label class="form-label">QR Code</label>
+          <div class="mockup-wrapper">
+            <div class="outro-preview-box" [style.background]="outroForm.backgroundHex">
+              <div style="text-align: center; padding: 1.25rem; width: 100%;">
+                <div [style.color]="outroForm.textHex" style="font-weight: 700; font-size: 1rem; margin-bottom: 0.75rem;">
+                  {{ outroForm.headline || 'Headline' }}
+                </div>
+                @if (outroForm.headlineSecondary) {
+                  <div [style.color]="outroForm.textHex" style="font-size: 0.82rem; opacity: 0.85; margin: -0.5rem 0 0.75rem;">
+                    {{ outroForm.headlineSecondary }}
+                  </div>
+                }
+                @if (qrImageUrl(); as qr) {
+                  <img [src]="qr" alt="QR code" style="width: 40%; max-width: 160px; background: #fff; padding: 6px; image-rendering: pixelated;" />
+                } @else {
+                  <div style="display: inline-block; width: 120px; height: 120px; background: #fff; color: #555; font-size: 0.75rem; line-height: 120px;">QR code</div>
+                }
+                <div [style.color]="outroForm.textHex" style="font-size: 0.8rem; margin-top: 0.75rem; opacity: 0.9;">
+                  {{ outroForm.subtext }}
+                </div>
+                @if (outroForm.subtextSecondary) {
+                  <div [style.color]="outroForm.textHex" style="font-size: 0.72rem; margin-top: 0.15rem; opacity: 0.8;">
+                    {{ outroForm.subtextSecondary }}
+                  </div>
+                }
+              </div>
+            </div>
+            <p style="margin: 0; font-size: 0.78rem; color: #8b9bb4; text-align: center;">
+              Rough layout only. Use “Render Preview” below to see the exact card.
+            </p>
+          </div>
+        </div>
+      </div>
+    }
+
+    @if (outroForm.kind === 'Video' || outroForm.kind === 'Image') {
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 1.5rem; margin-bottom: 1.25rem;">
         <!-- Left: Upload & Config -->
         <div>
@@ -315,6 +449,38 @@
             </p>
           </div>
         </div>
+      </div>
+    }
+
+    @if (outroForm.kind !== 'None') {
+      <!-- The exact end video exports will finish with, rendered on demand -->
+      <div class="form-group" style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 1rem;">
+        <label class="form-label">Preview &amp; Download the End Video</label>
+        <p style="margin: 0 0 0.6rem; font-size: 0.78rem; color: #8b9bb4;">
+          Renders exactly what exports will end with, from the form as it is now (save to make exports use it).
+          Download it to add to videos already on YouTube.
+        </p>
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+          <button type="button" class="btn-outline" [disabled]="outroPreviewBusy()" (click)="previewOutro('landscape')">▶ Landscape 16:9</button>
+          <button type="button" class="btn-outline" [disabled]="outroPreviewBusy()" (click)="previewOutro('vertical')">▶ Shorts 9:16</button>
+          <button type="button" class="btn-outline" [disabled]="outroPreviewBusy()" (click)="previewOutro('square')">▶ Square 1:1</button>
+          @if (outroPreviewBusy()) {
+            <span style="font-size: 0.8rem; color: #93c5fd;">Rendering…</span>
+          }
+        </div>
+        @if (outroPreviewError(); as err) {
+          <p style="margin: 0.5rem 0 0; font-size: 0.8rem; color: #f87171;">{{ err }}</p>
+        }
+        @if (outroPreviewUrl(); as url) {
+          <div style="margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-start;">
+            <video [src]="url" controls autoplay playsinline
+                   [style.max-width]="outroPreviewFormat() === 'landscape' ? '520px' : '260px'"
+                   style="width: 100%; border-radius: 8px; background: #000;"></video>
+            <button type="button" class="btn-primary-glow" (click)="downloadOutroPreview()">
+              ⬇ Download End Video (MP4, {{ outroPreviewFormat() }})
+            </button>
+          </div>
+        }
       </div>
     }
 

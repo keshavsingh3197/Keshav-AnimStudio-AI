@@ -221,6 +221,7 @@ public static class DependencyInjection
         // Singleton: it owns the trim schedule, and the cache outlives every job.
         services.AddSingleton<ClipConformCache>();
         services.AddScoped<IVideoRenderingService, FfmpegVideoRenderingService>();
+        services.AddScoped<IOutroPreviewRenderer, OutroPreviewRenderer>();
         services.AddScoped<IMediaProbeService, FfprobeMediaProbeService>();
         services.AddSingleton<YtDlpMediaDownloader>();
         services.AddSingleton<FfmpegVideoChunker>();

@@ -121,6 +121,26 @@ public sealed class WatermarkFontResolver
     /// </summary>
     public string? FontFilePath => _resolved.Value;
 
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string?> _byScript = new();
+
+    /// <summary>
+    /// A font that can actually draw <paramref name="text"/>. Latin-only text gets
+    /// <see cref="FontFilePath"/>; text with Hindi (or another script that face lacks) gets
+    /// a face that has those glyphs - Nirmala UI on Windows, Noto on Linux - which also
+    /// carries Latin, so a mixed line like "QR कोड स्कैन करें" draws whole.
+    /// <para>
+    /// Null when the host has no face for that script. Callers leave the line off rather
+    /// than draw it in the Latin face, which renders every letter as an empty box.
+    /// </para>
+    /// </summary>
+    public string? FontFor(string text)
+    {
+        var script = ScriptFonts.Detect(text);
+        return script is null
+            ? FontFilePath
+            : _byScript.GetOrAdd(script, s => ScriptFonts.Find(s));
+    }
+
     /// <summary>
     /// The first font file this machine actually has. Public and static so the render
     /// tests find their font the same way the server does, rather than keeping a second

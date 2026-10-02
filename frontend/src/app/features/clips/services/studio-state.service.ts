@@ -2,7 +2,7 @@ import { Injectable, computed, inject, signal, OnDestroy } from '@angular/core';
 import { catchError, concatMap, finalize, from, map, of } from 'rxjs';
 
 import {
-  Clip, ClipAudioBody, ClipFit, ClipOrder, ClipStudio, ExportQuality, MAX_CLIP_GAIN, RenderJob,
+  Clip, ClipAudioBody, ClipFit, ClipOrder, ClipStudio, ExportQuality, MAX_CLIP_GAIN, RenderJob, ExportTimelineFormat,
   SHORTS_MAX_SECONDS, TRANSITIONS, WATERMARK_POSITIONS, WatermarkBody, WatermarkKind, WatermarkPosition,
   aspectRatioLabel, isTerminal, videoFormat,
   TimelineItem, TimelineItemType, TrackControlState, TimelineItemTransform, TimelineItemTextStyle,
@@ -302,6 +302,8 @@ export class StudioStateService implements OnDestroy {
   /** Picture quality of the delivered encode; High unless the user picks otherwise. */
   readonly exportQuality = signal<ExportQuality>('High');
   readonly exportIncludeWatermark = signal<boolean>(true);
+  /** End the export with the saved outro / "support us" QR card. Ignored when none is set up. */
+  readonly exportIncludeOutro = signal<boolean>(true);
 
   // Live Export Progress Monitor Signals
   readonly exportProgressOpen = signal<boolean>(false);
@@ -6816,6 +6818,7 @@ export class StudioStateService implements OnDestroy {
         clipAudio: this.clipAudioPayload(),
         musicDuckWindows: this.musicDuckWindowsPayload(),
         watermark: this.exportIncludeWatermark() ? wm : { ...wm, kind: "None" as any },
+        includeOutro: this.exportIncludeOutro(),
       }),
       (job: RenderJob) => {
         this.job.set(job);
@@ -6889,6 +6892,7 @@ export class StudioStateService implements OnDestroy {
         clipAudio: this.clipAudioPayload(),
         musicDuckWindows: this.musicDuckWindowsPayload(),
         watermark: this.exportIncludeWatermark() ? wm : { ...wm, kind: "None" as any },
+        includeOutro: this.exportIncludeOutro(),
       }),
       (job: RenderJob) => {
         this.job.set(job);
@@ -6966,5 +6970,9 @@ export class StudioStateService implements OnDestroy {
 
   downloadUrl(jobId: string): string {
     return this.api.downloadUrl(jobId);
+  }
+
+  timelineUrl(jobId: string, format: ExportTimelineFormat): string {
+    return this.api.timelineUrl(jobId, format);
   }
 }

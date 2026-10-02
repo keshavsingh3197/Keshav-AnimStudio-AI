@@ -51,7 +51,9 @@ public static class Mappings
             o.AssetId,
             o.DurationSeconds,
             o.Transition.ToString(),
-            o.TransitionDurationFrames);
+            o.TransitionDurationFrames,
+            o.QrAssetId, o.Headline, o.Subtext, o.BackgroundHex, o.TextHex,
+            o.HeadlineSecondary, o.SubtextSecondary);
 
     public static CharacterResponse ToResponse(this Character c) => new(
         c.Id, c.Name, c.Description, c.Aliases,
@@ -169,7 +171,8 @@ public static class Mappings
                 : null,
             job.CreatedAt, job.CompletedAt,
             job.Width, job.Height, job.TargetFormat,
-            diag);
+            diag,
+            job.Timeline is { Entries.Count: > 0 });
     }
 
     /// <summary>One video or image clip, with the facts a running order is laid out from.</summary>

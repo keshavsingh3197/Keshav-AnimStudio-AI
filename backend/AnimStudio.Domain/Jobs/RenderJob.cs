@@ -74,6 +74,12 @@ public sealed class RenderJob
     /// <summary>Detailed pipeline performance diagnostics captured upon render completion.</summary>
     public RenderDiagnostics? Diagnostics { get; set; }
 
+    /// <summary>
+    /// Where each clip, sound and overlay landed in the delivered file. Set by a completed
+    /// clip export; null on project renders and on exports from before it was recorded.
+    /// </summary>
+    public ExportTimeline? Timeline { get; set; }
+
     public bool IsTerminal => Status is RenderJobStatus.Completed
         or RenderJobStatus.Failed
         or RenderJobStatus.Cancelled
