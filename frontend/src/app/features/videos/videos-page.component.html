@@ -117,7 +117,7 @@
 @if (dialog(); as d) {
   @let f = form();
   <div class="dlg-backdrop" (click)="closeDialog()"></div>
-  <div class="dlg" role="dialog" aria-modal="true" [attr.aria-label]="d.kind === 'create' ? 'New video or Short' : 'Video details'">
+  <div class="dlg" [class.wide]="d.kind === 'create' && f.mode === 'Range'" role="dialog" aria-modal="true" [attr.aria-label]="d.kind === 'create' ? 'New video or Short' : 'Video details'">
     <header class="dlg-head">
       <h3>{{ d.kind === 'create' ? 'New video or Short' : 'Video details' }}</h3>
       <button type="button" class="icon" (click)="closeDialog()" aria-label="Close">✕</button>
@@ -175,48 +175,20 @@
         }
 
         @if (f.mode === 'Range') {
-          @let len = formSource()?.durationSeconds ?? 0;
           <div class="fld">
-            <span>Part to keep</span>
-            @if (len > 0) {
-              <div class="range-bar">
-                <div class="range-sel"
-                     [style.left.%]="(f.rangeStart / len) * 100"
-                     [style.width.%]="((f.rangeEnd - f.rangeStart) / len) * 100"></div>
-              </div>
-              <div class="range-sliders">
-                <label>
-                  <small>From</small>
-                  <input type="range" min="0" [max]="len" step="0.5" [value]="f.rangeStart"
-                         (input)="setRange('start', +$any($event.target).value)" aria-label="Start" />
-                </label>
-                <label>
-                  <small>To</small>
-                  <input type="range" min="0" [max]="len" step="0.5" [value]="f.rangeEnd"
-                         (input)="setRange('end', +$any($event.target).value)" aria-label="End" />
-                </label>
-              </div>
-            }
-            <div class="range-inputs">
-              <input type="text" class="clock" [value]="clock(f.rangeStart)" (change)="setRangeText('start', $any($event.target).value)" aria-label="Start time" />
-              <span class="muted">to</span>
-              <input type="text" class="clock" [value]="clock(f.rangeEnd)" (change)="setRangeText('end', $any($event.target).value)" aria-label="End time" />
-              <span class="range-len" [class.over]="f.format === 'Short' && formRangeLength() > shortsMax">
-                = {{ clock(formRangeLength()) }}
-              </span>
-            </div>
-            @if (len > 0) {
-              <div class="presets">
-                <button type="button" class="chip small" (click)="presetRange('first', 60)">First 60 s</button>
-                <button type="button" class="chip small" (click)="presetRange('middle', 60)">Middle 60 s</button>
-                <button type="button" class="chip small" (click)="presetRange('last', 60)">Last 60 s</button>
-                <button type="button" class="chip small" (click)="presetRange('first', 30)">First 30 s</button>
-              </div>
-            } @else {
-              <small class="muted">This video has no saved length yet - type the times (e.g. 1:30).</small>
-            }
-            @if (f.format === 'Short' && formRangeLength() > shortsMax) {
-              <small class="warn">Shorts can be at most {{ shortsMax / 60 }} minutes.</small>
+            <span>Part to keep <small class="muted">- play it, then drag the edges or mark start / end at the playhead</small></span>
+            @if (projectId(); as pid) {
+              @if (formSource(); as src) {
+                <app-range-picker
+                  [projectId]="pid"
+                  [source]="src"
+                  [start]="f.rangeStart"
+                  [end]="f.rangeEnd"
+                  [targetFormat]="f.format"
+                  [maxSeconds]="f.format === 'Short' ? shortsMax : null"
+                  (rangeChange)="setRangeBoth($event.start, $event.end)"
+                  (lengthKnown)="setSourceLength(src.id, $event)" />
+              }
             }
           </div>
         }

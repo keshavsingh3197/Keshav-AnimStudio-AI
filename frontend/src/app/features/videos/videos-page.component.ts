@@ -4,6 +4,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { ApiService } from '../../core/services/api.service';
 import { ProjectStore } from '../../core/services/project-store';
 import { StatusService } from '../../core/services/status.service';
+import { RangePickerComponent } from './range-picker/range-picker.component';
 import {
   CreateEditBody, CreateEditMode, EDIT_CATEGORY_SUGGESTIONS, EDIT_FORMATS, EditFormat, ProjectEdit, SHORTS_MAX_SECONDS,
 } from '../../core/models/api.models';
@@ -31,7 +32,7 @@ interface EditForm {
 @Component({
   selector: 'app-videos-page',
   standalone: true,
-  imports: [],
+  imports: [RangePickerComponent],
   templateUrl: './videos-page.component.html',
   styleUrl: './videos-page.component.css',
 })
@@ -94,6 +95,12 @@ export class VideosPageComponent {
   readonly confirmDeleteId = signal<string | null>(null);
 
   readonly formSource = computed(() => this.edits().find((e) => e.id === this.form().sourceEditId) ?? null);
+  /** Lengths read from the timelines themselves by the preview; the listing can be stale. */
+  private readonly measuredLengths = signal<Record<string, number>>({});
+  readonly formSourceLength = computed(() => {
+    const src = this.formSource();
+    return src ? this.measuredLengths()[src.id] ?? src.durationSeconds : 0;
+  });
   readonly formRangeLength = computed(() => Math.max(0, this.form().rangeEnd - this.form().rangeStart));
   readonly formError = computed<string | null>(() => {
     const f = this.form();
@@ -166,13 +173,6 @@ export class VideosPageComponent {
     return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
   }
 
-  /** Accepts "90", "1:30" or "0:01:30". */
-  parseClock(text: string): number | null {
-    const parts = text.trim().split(':').map((p) => Number(p));
-    if (parts.length === 0 || parts.length > 3 || parts.some((p) => !Number.isFinite(p) || p < 0)) return null;
-    return parts.reduce((acc, p) => acc * 60 + p, 0);
-  }
-
   ago(iso: string): string {
     const diff = (Date.now() - new Date(iso).getTime()) / 1000;
     if (diff < 60) return 'just now';
@@ -237,35 +237,42 @@ export class VideosPageComponent {
 
   setSource(id: string): void {
     const src = this.edits().find((e) => e.id === id);
-    const len = src?.durationSeconds ?? 0;
+    this.patchForm({ sourceEditId: id });
+    const len = this.measuredLengths()[id] ?? src?.durationSeconds ?? 0;
+    if (len > 0) this.fitRangeInto(len);
+  }
+
+  /** The part to keep, as the range picker proposes it: clamped to the source, at least 1 s. */
+  setRangeBoth(start: number, end: number): void {
+    const len = this.formSourceLength();
+    const max = len > 0 ? len : 24 * 3600;
+    const round = (v: number) => Math.round(Math.max(0, Math.min(max, v)) * 10) / 10;
+    let s = round(start);
+    let e = round(end);
+    if (e - s < 1) {
+      if (s + 1 <= max) e = round(s + 1);
+      else s = round(e - 1);
+    }
+    this.patchForm({ rangeStart: s, rangeEnd: e });
+  }
+
+  /**
+   * The preview read the source's real length. A fresh dialog whose default part ran past
+   * the listed (possibly stale or zero) length is pulled back inside it.
+   */
+  setSourceLength(editId: string, seconds: number): void {
+    this.measuredLengths.update((m) => ({ ...m, [editId]: seconds }));
+    if (this.form().sourceEditId === editId) this.fitRangeInto(seconds);
+  }
+
+  /** Keeps the part's length where it can, sliding it back inside a source of `seconds`. */
+  private fitRangeInto(seconds: number): void {
     const f = this.form();
-    this.patchForm({
-      sourceEditId: id,
-      rangeStart: Math.min(f.rangeStart, len),
-      rangeEnd: len > 0 ? Math.min(Math.max(f.rangeEnd, 1), len) : f.rangeEnd,
-    });
-  }
-
-  setRange(which: 'start' | 'end', value: number): void {
-    const max = this.formSource()?.durationSeconds ?? 24 * 3600;
-    const v = Math.max(0, Math.min(max, Math.round(value * 10) / 10));
-    const f = this.form();
-    if (which === 'start') this.patchForm({ rangeStart: Math.min(v, f.rangeEnd - 1 > 0 ? f.rangeEnd - 1 : v) });
-    else this.patchForm({ rangeEnd: Math.max(v, f.rangeStart + 1) });
-  }
-
-  setRangeText(which: 'start' | 'end', text: string): void {
-    const v = this.parseClock(text);
-    if (v !== null) this.setRange(which, v);
-  }
-
-  /** Quick windows over the source: its first / middle / last N seconds. */
-  presetRange(where: 'first' | 'middle' | 'last', seconds: number): void {
-    const len = this.formSource()?.durationSeconds ?? 0;
-    if (len <= 0) return;
-    const span = Math.min(seconds, len);
-    const start = where === 'first' ? 0 : where === 'last' ? len - span : (len - span) / 2;
-    this.patchForm({ rangeStart: Math.round(start * 10) / 10, rangeEnd: Math.round((start + span) * 10) / 10 });
+    if (f.rangeEnd > seconds || f.rangeStart >= seconds) {
+      const span = Math.min(f.rangeEnd - f.rangeStart, seconds);
+      const start = Math.min(f.rangeStart, Math.max(0, seconds - span));
+      this.setRangeBoth(start, start + span);
+    }
   }
 
   private parseTags(text: string): string[] {

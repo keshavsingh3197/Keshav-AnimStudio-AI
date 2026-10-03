@@ -6570,7 +6570,10 @@ export class StudioStateService implements OnDestroy {
     }));
 
     this.musicTracks.update((tracks) => tracks.flatMap((t) => {
-      const len = t.trimEndSeconds !== null ? t.trimEndSeconds - (t.trimStartSeconds ?? 0) : Infinity;
+      // An untrimmed track runs to the end of its file; it ends before the part when the file does.
+      const fileLength = this.musicTrackAsset(t)?.durationSeconds;
+      const len = t.trimEndSeconds != null ? t.trimEndSeconds - (t.trimStartSeconds ?? 0)
+        : fileLength != null ? fileLength - (t.trimStartSeconds ?? 0) : Infinity;
       const tEnd = t.startSeconds + len;
       if (tEnd <= start || t.startSeconds >= end) return [];
       const head = Math.max(0, start - t.startSeconds);

@@ -133,12 +133,29 @@ public class ProjectEditsController(
             {
                 var start = request.RangeStart ?? 0;
                 var end = request.RangeEnd ?? 0;
-                if (end - start < 1)
+                if (start < 0 || end - start < 1)
                     return BadRequest(ApiResponse<EditResponse>.Fail("The part to keep must be at least one second long."));
+
+                // A source made from part of another and never opened still holds the whole
+                // copied timeline, and the part chosen here is measured on its own (shorter)
+                // timeline - so it is offset into that copy and kept inside its part.
+                if (source.PendingRangeStart is { } sourceStart && source.PendingRangeEnd is { } sourceEnd)
+                {
+                    start += sourceStart;
+                    end = Math.Min(end + sourceStart, sourceEnd);
+                    if (end - start < 1)
+                        return BadRequest(ApiResponse<EditResponse>.Fail("The part to keep must be at least one second long."));
+                }
 
                 edit.PendingRangeStart = start;
                 edit.PendingRangeEnd = end;
                 edit.DurationSeconds = end - start;
+            }
+            else
+            {
+                // A copy of a not-yet-opened part is that same part.
+                edit.PendingRangeStart = source.PendingRangeStart;
+                edit.PendingRangeEnd = source.PendingRangeEnd;
             }
         }
 
