@@ -106,7 +106,7 @@ public sealed class MediaToolsController(
             {
                 var project = targetProject;
                 {
-                    var storageKey = $"projects/{request.ProjectId}/assets/{Guid.NewGuid():n}_{downloaded.FileName}";
+                    var storageKey = $"projects/{project.Id}/assets/{Guid.NewGuid():n}_{downloaded.FileName}";
                     await using (var fileStream = System.IO.File.OpenRead(downloaded.FilePath))
                     {
                         await store.SaveAsync(storageKey, fileStream, downloaded.MimeType, ct);
@@ -118,7 +118,7 @@ public sealed class MediaToolsController(
                     var asset = new Asset
                     {
                         Id = Guid.NewGuid().ToString("n"),
-                        ProjectId = request.ProjectId,
+                        ProjectId = project.Id,
                         Name = string.IsNullOrWhiteSpace(request.AssetName) ? downloaded.FileName : request.AssetName,
                         DisplayFileName = downloaded.FileName,
                         Kind = assetKind,
@@ -299,7 +299,7 @@ public sealed class MediaToolsController(
                         var chunkFilePath = Path.Combine(workDir, "chunks", ch.FileName);
                         if (!System.IO.File.Exists(chunkFilePath)) continue;
 
-                        var storageKey = $"projects/{projectId}/assets/chunks/{jobId}_{ch.FileName}";
+                        var storageKey = $"projects/{project.Id}/assets/chunks/{jobId}_{ch.FileName}";
                         await using (var cs = System.IO.File.OpenRead(chunkFilePath))
                         {
                             await store.SaveAsync(storageKey, cs, "video/mp4", ct);
@@ -309,7 +309,7 @@ public sealed class MediaToolsController(
                         var chunkAsset = new Asset
                         {
                             Id = Guid.NewGuid().ToString("n"),
-                            ProjectId = projectId,
+                            ProjectId = project.Id,
                             Name = $"{sourceTitle} Part {ch.Index} ({ch.StartFormatted}-{ch.EndFormatted})",
                             DisplayFileName = ch.FileName,
                             Kind = AssetKind.Video,

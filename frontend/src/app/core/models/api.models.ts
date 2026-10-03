@@ -587,7 +587,14 @@ export interface TimelineItemTransform {
   transitionOutDuration?: number;
 }
 
-export type EraseStyle = 'Blur' | 'Fill';
+/**
+ * Blur smears the mark; Patch covers it with the footage beside it; Fill paints a box;
+ * Brand patches it and draws the project's own watermark in its place.
+ */
+export type EraseStyle = 'Blur' | 'Fill' | 'Patch' | 'Brand';
+
+/** Which neighbouring footage a Patch / Brand box copies from. */
+export type EraseSource = 'Auto' | 'Above' | 'Below' | 'Left' | 'Right';
 
 /**
  * A rectangle of a clip's SOURCE frame to erase, in percent of that frame - so it means
@@ -601,7 +608,19 @@ export interface EraseRegion {
   style: EraseStyle;
   /** #rrggbb, used by 'Fill' */
   fillColor?: string;
+  /** 0-100: blur amount, or how much a patch is softened */
+  strength?: number;
+  /** 0-100: how far the edge fades into the footage around the box */
+  feather?: number;
+  /** 0-100: density of a Fill */
+  opacity?: number;
+  /** Patch / Brand: where the cover footage is copied from */
+  source?: EraseSource;
 }
+
+/** Mirrors EraseRegionSpec.DefaultStrength / DefaultFeather on the server. */
+export const ERASE_DEFAULT_STRENGTH = 60;
+export const ERASE_DEFAULT_FEATHER = 30;
 
 /** Mirrors EraseRegionSpec.MaxPerClip / MinSizePercent on the server. */
 export const MAX_ERASE_REGIONS = 8;

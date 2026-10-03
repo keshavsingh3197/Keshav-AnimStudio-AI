@@ -6,7 +6,8 @@ import {
   SHORTS_MAX_SECONDS, TRANSITIONS, WATERMARK_POSITIONS, WatermarkBody, WatermarkKind, WatermarkPosition,
   aspectRatioLabel, isTerminal, videoFormat, OutroBody,
   TimelineItem, TimelineItemType, TrackControlState, TimelineItemTransform, TimelineItemTextStyle,
-  EraseRegion, MAX_ERASE_REGIONS, MIN_ERASE_SIZE,
+  EraseRegion, EraseSource, EraseStyle, MAX_ERASE_REGIONS, MIN_ERASE_SIZE,
+  ERASE_DEFAULT_FEATHER, ERASE_DEFAULT_STRENGTH,
 } from '../../../core/models/api.models';
 import { ApiService } from '../../../core/services/api.service';
 import { ProjectStore } from '../../../core/services/project-store';
@@ -16,6 +17,18 @@ import {
   ClipAudioSetting, ClipColorSetting, ClipRow, ClipTextSetting, FILTER_PRESETS,
   FileUploadConflict, FilterPreset, JunctionSetting, JunctionView, MusicTrackRow, ScheduledClip, SideUploadTarget, TRACK_COLORS
 } from '../models/clip-studio.models';
+import { EraseRect, eraseFeatherMask, eraseOuter } from './erase-geometry';
+
+/** One erase box as the monitor draws it: grown by its feather, cut to the clip's crop. */
+export interface MonitorEraseRegion {
+  region: EraseRegion;
+  index: number;
+  outer: EraseRect;
+  /** clip-path for the crop window, or null when the whole box shows */
+  inset: string | null;
+  /** CSS mask fading the feather margin, or null for hard edges */
+  mask: string | null;
+}
 
 /** What the precedence chain decided for one clip, and the gains that follow from it. */
 export interface ResolvedOverlap {
@@ -3979,19 +3992,35 @@ export class StudioStateService implements OnDestroy {
     return id ? this.clipTransformSetting(id).eraseRegions : [];
   });
 
-  /** Pulls a region inside the frame, the same way EraseRegionSpec.Normalized does. */
+  /**
+   * Pulls a region inside the frame, the same way EraseRegionSpec.Normalized does, and
+   * rounds it to 0.01% - a dragged box otherwise carries fifteen meaningless decimals.
+   */
   private clampEraseRegion(r: EraseRegion): EraseRegion {
-    const num = (v: number, lo: number, hi: number) =>
-      Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : lo;
+    const num = (v: number | undefined, lo: number, hi: number, fallback = lo) =>
+      Math.round((Number.isFinite(v) ? Math.max(lo, Math.min(hi, v as number)) : fallback) * 100) / 100;
     const x = num(r.x, 0, 100 - MIN_ERASE_SIZE);
     const y = num(r.y, 0, 100 - MIN_ERASE_SIZE);
+    const styles: EraseStyle[] = ['Blur', 'Fill', 'Patch', 'Brand'];
+    const sources: EraseSource[] = ['Auto', 'Above', 'Below', 'Left', 'Right'];
     return {
       x, y,
       width: num(r.width, MIN_ERASE_SIZE, 100 - x),
       height: num(r.height, MIN_ERASE_SIZE, 100 - y),
-      style: r.style === 'Fill' ? 'Fill' : 'Blur',
+      style: styles.includes(r.style) ? r.style : 'Blur',
       fillColor: /^#[0-9a-f]{6}$/i.test(r.fillColor ?? '') ? r.fillColor : '#000000',
+      strength: num(r.strength, 0, 100, ERASE_DEFAULT_STRENGTH),
+      feather: num(r.feather, 0, 100, ERASE_DEFAULT_FEATHER),
+      opacity: num(r.opacity, 0, 100, 100),
+      source: sources.includes(r.source as EraseSource) ? r.source : 'Auto',
     };
+  }
+
+  /** The erase box being edited: highlighted on the monitor, expanded in the inspector. */
+  readonly selectedEraseIndex = signal<number | null>(null);
+
+  selectEraseRegion(index: number | null): void {
+    this.selectedEraseIndex.set(index);
   }
 
   private setScopeEraseRegions(update: (regions: EraseRegion[]) => EraseRegion[]): void {
@@ -4011,12 +4040,29 @@ export class StudioStateService implements OnDestroy {
   }
 
   /** Adds a box where marks usually sit; the user then nudges it onto the real one. */
-  addEraseRegion(corner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center' = 'top-right'): void {
-    const w = 20, h = 10, edge = 2;
+  addEraseRegion(
+    corner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center' = 'top-right',
+    style: EraseStyle = 'Patch',
+  ): void {
+    const w = 14, h = 10, edge = 2;
     const x = corner.endsWith('left') ? edge : corner.endsWith('right') ? 100 - w - edge : (100 - w) / 2;
     const y = corner.startsWith('top') ? edge : corner.startsWith('bottom') ? 100 - h - edge : (100 - h) / 2;
-    this.setScopeEraseRegions((list) =>
-      list.length >= MAX_ERASE_REGIONS ? list : [...list, { x, y, width: w, height: h, style: 'Blur', fillColor: '#000000' }]);
+    const count = this.activeEraseRegions().length;
+    if (count >= MAX_ERASE_REGIONS) return;
+    this.setScopeEraseRegions((list) => [...list, {
+      x, y, width: w, height: h, style, fillColor: '#000000',
+      strength: ERASE_DEFAULT_STRENGTH, feather: ERASE_DEFAULT_FEATHER, opacity: 100, source: 'Auto',
+    }]);
+    this.selectedEraseIndex.set(count);
+  }
+
+  /** Copies a box just beside the original, keeping its settings. */
+  duplicateEraseRegion(index: number): void {
+    const src = this.activeEraseRegions()[index];
+    if (!src || this.activeEraseRegions().length >= MAX_ERASE_REGIONS) return;
+    const x = src.x + src.width + 2 <= 100 - src.width ? src.x + src.width + 2 : Math.max(0, src.x - src.width - 2);
+    this.setScopeEraseRegions((list) => [...list, { ...src, x }]);
+    this.selectedEraseIndex.set(this.activeEraseRegions().length - 1);
   }
 
   updateEraseRegion(index: number, patch: Partial<EraseRegion>): void {
@@ -4025,10 +4071,13 @@ export class StudioStateService implements OnDestroy {
 
   removeEraseRegion(index: number): void {
     this.setScopeEraseRegions((list) => list.filter((_, i) => i !== index));
+    const sel = this.selectedEraseIndex();
+    if (sel !== null) this.selectedEraseIndex.set(sel === index ? null : sel > index ? sel - 1 : sel);
   }
 
   clearEraseRegions(): void {
     this.setScopeEraseRegions(() => []);
+    this.selectedEraseIndex.set(null);
   }
 
   /**
@@ -4036,16 +4085,23 @@ export class StudioStateService implements OnDestroy {
    * a box partly outside the crop only shows inside it, exactly as the render would.
    * Percent of the source frame, like the regions themselves.
    */
-  readonly monitorEraseRegions = computed<(EraseRegion & { index: number })[]>(() => {
+  readonly monitorEraseRegions = computed<MonitorEraseRegion[]>(() => {
     const clip = this.currentScheduledClip()?.clip ?? this.activeTargetClip();
     if (!clip) return [];
     const t = this.clipTransformSetting(clip.id);
     const left = t.cropLeft, top = t.cropTop, right = 100 - t.cropRight, bottom = 100 - t.cropBottom;
     return t.eraseRegions.flatMap((r, index) => {
-      const x = Math.max(r.x, left), y = Math.max(r.y, top);
-      const width = Math.min(r.x + r.width, right) - x;
-      const height = Math.min(r.y + r.height, bottom) - y;
-      return width > 0 && height > 0 ? [{ ...r, x, y, width, height, index }] : [];
+      const outer = eraseOuter(r);
+      const visible = Math.min(outer.x + outer.width, right) > Math.max(outer.x, left)
+        && Math.min(outer.y + outer.height, bottom) > Math.max(outer.y, top);
+      if (!visible) return [];
+      // Inset of the crop window, in percent of the grown box, for its own clip-path.
+      const pct = (v: number, size: number) => `${Math.max(0, (v / size) * 100)}%`;
+      const inset = left > outer.x || top > outer.y || right < outer.x + outer.width || bottom < outer.y + outer.height
+        ? `inset(${pct(top - outer.y, outer.height)} ${pct(outer.x + outer.width - right, outer.width)} `
+          + `${pct(outer.y + outer.height - bottom, outer.height)} ${pct(left - outer.x, outer.width)})`
+        : null;
+      return [{ region: r, index, outer, inset, mask: eraseFeatherMask(r) }];
     });
   });
 

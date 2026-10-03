@@ -102,6 +102,43 @@ public sealed class SqlDatabaseInitializer(
             logger.LogDebug(ex, "Schema migration check completed with notice.");
         }
 
+        // Folders were not persisted on SQL Server before AssetFolders existed, so assets can
+        // point at folder ids that were never saved. Rendered exports (storage key under
+        // renders/) are re-homed into a real "Exports" folder; anything else goes to the root.
+        const string orphanFolderRepairSql = """
+            ;WITH Orphans AS (
+                SELECT a.ProjectId, JSON_VALUE(a.DataJson, '$.storageKey') AS StorageKey
+                FROM Assets a
+                WHERE JSON_VALUE(a.DataJson, '$.folderId') IS NOT NULL
+                  AND NOT EXISTS (SELECT 1 FROM AssetFolders f WHERE f.Id = JSON_VALUE(a.DataJson, '$.folderId'))
+            )
+            INSERT INTO AssetFolders (Id, ProjectId, Name, ParentId, CreatedAt)
+            SELECT LOWER(REPLACE(CONVERT(NVARCHAR(36), NEWID()), '-', '')), p.ProjectId, N'Exports', NULL, SYSUTCDATETIME()
+            FROM (SELECT DISTINCT ProjectId FROM Orphans WHERE StorageKey LIKE 'renders/%') p
+            WHERE NOT EXISTS (SELECT 1 FROM AssetFolders f WHERE f.ProjectId = p.ProjectId AND f.Name = N'Exports');
+
+            UPDATE a
+            SET DataJson = JSON_MODIFY(a.DataJson, '$.folderId',
+                (SELECT TOP 1 f.Id FROM AssetFolders f
+                 WHERE f.ProjectId = a.ProjectId AND f.Name = N'Exports'
+                   AND JSON_VALUE(a.DataJson, '$.storageKey') LIKE 'renders/%'
+                 ORDER BY f.CreatedAt))
+            FROM Assets a
+            WHERE JSON_VALUE(a.DataJson, '$.folderId') IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM AssetFolders f WHERE f.Id = JSON_VALUE(a.DataJson, '$.folderId'));
+            """;
+        try
+        {
+            await using var repairCmd = new SqlCommand(orphanFolderRepairSql, conn);
+            var repaired = await repairCmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            if (repaired > 0)
+                logger.LogInformation("Re-homed assets that referenced missing folders ({Rows} row(s) changed).", repaired);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Could not repair assets that reference missing folders.");
+        }
+
         // Self-healing cleanup for any corrupted blank IDs inserted from previous runs
         const string cleanupSql = """
             DELETE FROM Projects WHERE Id = '' OR Id IS NULL;
@@ -145,6 +182,10 @@ public sealed class SqlDatabaseInitializer(
             ELSE
                 SELECT 0;
             """;
+        // Idle connections in this process's own pool count as "other users" too; dropping
+        // them is safe (they reopen on demand) and leaves only foreign sessions to block us.
+        SqlConnection.ClearAllPools();
+
         try
         {
             await using var cmd = new SqlCommand(sql, masterConn);
@@ -153,12 +194,46 @@ public sealed class SqlDatabaseInitializer(
             if (changed is 1)
                 logger.LogInformation("Enabled READ_COMMITTED_SNAPSHOT on {Database}.", targetDb);
         }
+        catch (SqlException ex) when (ex.Number == 5070)
+        {
+            // Expected while SSMS or another app instance has the database open - no stack trace needed.
+            var holders = await DescribeOtherSessionsAsync(masterConn, targetDb, ct).ConfigureAwait(false);
+            logger.LogWarning(
+                "READ_COMMITTED_SNAPSHOT is not yet enabled on {Database}: other sessions have it open ({Holders}). " +
+                "Reads may block behind render-job writes; close those connections and restart to enable it.",
+                targetDb, holders);
+        }
         catch (SqlException ex)
         {
-            logger.LogWarning(ex,
-                "Could not enable READ_COMMITTED_SNAPSHOT on {Database} (another session has it open). " +
-                "Reads may block behind render-job writes until it is enabled; close other connections and restart.",
-                targetDb);
+            logger.LogWarning(ex, "Could not enable READ_COMMITTED_SNAPSHOT on {Database}.", targetDb);
+        }
+    }
+
+    /// <summary>Names the programs holding the database open, so the warning says what to close.</summary>
+    private async Task<string> DescribeOtherSessionsAsync(SqlConnection masterConn, string targetDb, CancellationToken ct)
+    {
+        const string sql = """
+            SELECT COALESCE(NULLIF(program_name, ''), 'unknown program') + ' on ' + COALESCE(host_name, '?')
+                   + ' (' + CAST(COUNT(*) AS NVARCHAR(10)) + ')'
+            FROM sys.dm_exec_sessions
+            WHERE database_id = DB_ID(@Db) AND session_id <> @@SPID
+            GROUP BY program_name, host_name
+            """;
+        try
+        {
+            await using var cmd = new SqlCommand(sql, masterConn);
+            cmd.Parameters.AddWithValue("@Db", targetDb);
+            var names = new List<string>();
+            await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            while (await reader.ReadAsync(ct).ConfigureAwait(false))
+                names.Add(reader.GetString(0));
+            return names.Count > 0 ? string.Join("; ", names) : "none visible";
+        }
+        catch (SqlException ex)
+        {
+            // Listing sessions needs VIEW SERVER STATE; without it the warning is still useful.
+            logger.LogDebug(ex, "Could not list sessions holding {Database}.", targetDb);
+            return "session list needs VIEW SERVER STATE";
         }
     }
 
@@ -215,6 +290,18 @@ public sealed class SqlDatabaseInitializer(
                 DataJson NVARCHAR(MAX) NOT NULL
             );
             CREATE INDEX IX_Assets_ProjectId ON Assets (ProjectId, CreatedAt DESC);
+        END;
+
+        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'AssetFolders')
+        BEGIN
+            CREATE TABLE AssetFolders (
+                Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+                ProjectId NVARCHAR(64) NOT NULL,
+                Name NVARCHAR(100) NOT NULL,
+                ParentId NVARCHAR(64) NULL,
+                CreatedAt DATETIME2 NOT NULL
+            );
+            CREATE INDEX IX_AssetFolders_ProjectId ON AssetFolders (ProjectId, CreatedAt DESC);
         END;
 
         IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Scripts')

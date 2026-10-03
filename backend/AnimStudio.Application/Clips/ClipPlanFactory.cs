@@ -81,6 +81,7 @@ public static class ClipPlanFactory
             Kind = settings.Kind,
             Position = settings.Position,
             TextRelativePath = isLogo ? null : textRelativePath,
+            TextLength = isLogo ? 0 : settings.Text?.Trim().Length ?? 0,
             LogoRelativePath = isLogo ? logoRelativePath : null,
             HeightPixels = height,
             MarginPixels = margin,

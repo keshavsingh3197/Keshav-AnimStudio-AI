@@ -24,7 +24,13 @@ public enum RenderFeature
     /// one does not have the other and rendering fails outright with the wrong flag.
     /// </para>
     /// </summary>
-    FilterGraphFromFile = 8
+    FilterGraphFromFile = 8,
+
+    /// <summary>
+    /// <c>scale</c> with a second, reference input (<c>rw</c>/<c>rh</c>), added in ffmpeg 7.1.
+    /// Sizes the project's logo to an erase box whose pixel size only the graph knows.
+    /// </summary>
+    ScaleToReference = 9
 }
 
 /// <summary>

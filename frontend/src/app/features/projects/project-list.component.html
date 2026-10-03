@@ -317,7 +317,7 @@
     @if (viewMode() === 'grid') {
       <div class="projects-grid">
         @for (project of paginatedProjects; track project.id) {
-          <div class="project-card" [class.is-selected]="selectedProjectIds.has(project.id)" (click)="openInClips(project.id)">
+          <div class="project-card" [class.is-selected]="selectedProjectIds.has(project.id)" [class.menu-open]="activeMenuProjectId() === project.id" (click)="openInClips(project.id)">
             <!-- Top Card Overlay Buttons: Checkbox & Pin -->
             <div class="card-overlay-top" (click)="$event.stopPropagation()">
               <input type="checkbox" class="project-checkbox"
@@ -393,7 +393,7 @@
                   </button>
 
                   @if (activeMenuProjectId() === project.id) {
-                    <div class="studio-dropdown-menu">
+                    <div class="studio-dropdown-menu" [style.top.px]="menuPos().top" [style.bottom.px]="menuPos().bottom" [style.right.px]="menuPos().right">
                       <button type="button" class="dropdown-item" (click)="openInClips(project.id, $event)">
                         <span>🎞️</span> Open Video Editor
                       </button>
@@ -545,7 +545,7 @@
                         </button>
 
                         @if (activeMenuProjectId() === project.id) {
-                          <div class="studio-dropdown-menu">
+                          <div class="studio-dropdown-menu" [style.top.px]="menuPos().top" [style.bottom.px]="menuPos().bottom" [style.right.px]="menuPos().right">
                             <button type="button" class="dropdown-item" (click)="openInClips(project.id, $event)">
                               <span>🎞️</span> Open Video Editor
                             </button>

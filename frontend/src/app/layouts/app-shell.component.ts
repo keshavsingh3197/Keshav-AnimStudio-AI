@@ -88,8 +88,82 @@ import { StatusService } from '../core/services/status.service';
       <app-project-hub-modal [(isOpen)]="showVideoModal"></app-project-hub-modal>
       <router-outlet></router-outlet>
     </main>
+
+    <footer class="app-footer">
+      <div class="wrap app-footer-inner">
+        <div class="app-footer-brand">
+          <a routerLink="/projects" class="brand">AnimStudio<span>AI</span></a>
+          <span class="app-footer-tagline">Script to screen: scenes, clips and renders in one studio.</span>
+        </div>
+
+        <nav class="app-footer-links" aria-label="Footer">
+          <a routerLink="/projects">Projects</a>
+          <a routerLink="/tools">Media Studio</a>
+          <a routerLink="/logs">Logs</a>
+          @if (access()?.canAdminister) {
+            <a routerLink="/admin">Settings</a>
+          }
+        </nav>
+
+        <span class="app-footer-copy">&copy; {{ year }} AnimStudio AI</span>
+      </div>
+    </footer>
   `,
   styles: [`
+    :host {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    :host > main {
+      flex: 1 0 auto;
+      width: 100%;
+    }
+
+    .app-footer {
+      border-top: 1px solid var(--border);
+      background: color-mix(in srgb, var(--surface) 90%, transparent);
+      color: var(--muted);
+      font-size: .82rem;
+    }
+
+    .app-footer-inner {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: .75rem 1.5rem;
+      padding-top: 1rem;
+      padding-bottom: 1rem;
+    }
+
+    .app-footer-brand {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: .75rem;
+    }
+
+    .app-footer-brand .brand {
+      font-size: 1rem;
+    }
+
+    .app-footer-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .app-footer-links a {
+      color: var(--muted);
+      text-decoration: none;
+      font-weight: 600;
+    }
+
+    .app-footer-links a:hover {
+      color: var(--text);
+    }
     .topbar-nav {
       display: flex;
       align-items: center;
@@ -198,6 +272,7 @@ export class AppShellComponent {
   readonly access = signal<AdminAccess | null>(null);
 
   readonly showVideoModal = signal(false);
+  readonly year = new Date().getFullYear();
   private readonly banner = viewChild<ElementRef<HTMLElement>>('banner');
 
   openVideoModal() {

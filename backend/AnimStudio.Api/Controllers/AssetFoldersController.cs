@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Threading;
 using System.Threading.Tasks;
+using AnimStudio.Api.Common;
 using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Security;
 using AnimStudio.Domain.Assets;
@@ -15,6 +16,7 @@ namespace AnimStudio.Api.Controllers;
 [Route("api/projects/{projectId}/folders")]
 public class AssetFoldersController(
     IAssetFolderRepository folders,
+    IAssetRepository assets,
     IProjectRepository projects,
     ICurrentUser currentUser) : ControllerBase
 {
@@ -31,17 +33,17 @@ public class AssetFoldersController(
     }
 
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<AssetFolder>>> ListFolders(
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<AssetFolder>>>> ListFolders(
         string projectId, CancellationToken ct)
     {
         await EnsureOwnedAsync(projectId, ct);
 
         var list = await folders.ListByProjectAsync(projectId, ct);
-        return Ok(list);
+        return Ok(ApiResponse<IReadOnlyList<AssetFolder>>.Ok(list));
     }
 
     [HttpPost]
-    public async Task<ActionResult<AssetFolder>> CreateFolder(
+    public async Task<ActionResult<ApiResponse<AssetFolder>>> CreateFolder(
         string projectId,
         [FromBody] CreateFolderRequest req,
         CancellationToken ct)
@@ -60,11 +62,11 @@ public class AssetFoldersController(
         };
 
         await folders.InsertAsync(folder, ct);
-        return Ok(folder);
+        return Ok(ApiResponse<AssetFolder>.Ok(folder));
     }
 
     [HttpPut("{folderId}")]
-    public async Task<ActionResult<AssetFolder>> UpdateFolder(
+    public async Task<ActionResult<ApiResponse<AssetFolder>>> UpdateFolder(
         string projectId,
         string folderId,
         [FromBody] UpdateFolderRequest req,
@@ -87,7 +89,7 @@ public class AssetFoldersController(
         existing.ParentId = req.ParentId;
 
         await folders.ReplaceAsync(existing, ct);
-        return Ok(existing);
+        return Ok(ApiResponse<AssetFolder>.Ok(existing));
     }
 
     [HttpDelete("{folderId}")]
@@ -101,8 +103,16 @@ public class AssetFoldersController(
         var existing = await folders.GetAsync(folderId, ct);
         if (existing == null || existing.ProjectId != projectId) return NotFound();
 
+        // Matches the UI promise: the folder's assets move back to the library root.
+        foreach (var asset in await assets.ListByProjectAsync(projectId, ct))
+        {
+            if (asset.FolderId != folderId) continue;
+            asset.FolderId = null;
+            await assets.ReplaceAsync(asset, ct);
+        }
+
         await folders.DeleteAsync(folderId, ct);
-        return NoContent();
+        return Ok(ApiResponse<EmptyPayload>.Ok(EmptyPayload.Value));
     }
 
     /// <summary>True for "no parent", or for a folder that belongs to this project.</summary>

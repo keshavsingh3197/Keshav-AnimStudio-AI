@@ -701,6 +701,13 @@
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 0 16px rgba(108, 140, 255, 0.1);
 }
 
+/* A transform would become the fixed menu's containing block and trap it in the card. */
+.project-card.menu-open,
+.project-card.menu-open:hover {
+  transform: none;
+  z-index: 20;
+}
+
 .project-card.is-selected {
   border-color: var(--brand, #6c8cff);
   box-shadow: 0 0 0 2px var(--brand, #6c8cff);
@@ -984,11 +991,13 @@
   color: #ffffff;
 }
 
+/* Fixed, positioned from the toggle button in toggleProjectMenu(), so the table's
+   overflow and neighbouring cards can never clip or cover it. */
 .studio-dropdown-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  min-width: 170px;
+  position: fixed;
+  min-width: 190px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
   background: #0b1120;
   border: 1px solid #1e293b;
   border-radius: 8px;

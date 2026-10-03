@@ -1,3 +1,4 @@
+using AnimStudio.Application.Abstractions.Rendering;
 using AnimStudio.Application.Rendering.Models;
 using AnimStudio.Application.Tests.Rendering;
 using AnimStudio.Domain.Jobs;
@@ -61,7 +62,7 @@ public class EraseRegionTests
     {
         // A rotated phone clip's probed size is the wrong way round; a fraction of the
         // decoded frame is right however it was stored.
-        var graph = Graph(Plan(new EraseRegionSpec { X = 70, Y = 5, Width = 25, Height = 10 }));
+        var graph = Graph(Plan(new EraseRegionSpec { X = 70, Y = 5, Width = 25, Height = 10, Feather = 0 }));
 
         Assert.Contains("x='iw*0.7':y='ih*0.05'", graph);
         Assert.Contains("iw*0.25", graph);
@@ -73,10 +74,10 @@ public class EraseRegionTests
     {
         // boxblur rejects a radius of half the short side or more, and a floor of 1 breaks
         // a 2-pixel patch - the render then fails rather than merely missing a blur.
-        var graph = Graph(Plan(new EraseRegionSpec { X = 99, Y = 99, Width = 1, Height = 1 }));
+        var graph = Graph(Plan(new EraseRegionSpec { X = 99, Y = 99, Width = 1, Height = 1, Strength = 100 }));
 
-        Assert.Contains("luma_radius='min(w,h)/3'", graph);
-        Assert.Contains("chroma_radius='min(cw,ch)/3'", graph);
+        Assert.Contains("luma_radius='min(w,h)*0.4'", graph);
+        Assert.Contains("chroma_radius='min(cw,ch)*0.4'", graph);
         Assert.Contains("min(iw,max(8,", graph);
     }
 
@@ -103,6 +104,92 @@ public class EraseRegionTests
         Assert.Contains("[er0]drawbox=", graph);
         Assert.Contains("[er1]", graph);
         Assert.DoesNotContain("[0:v]scale", graph);
+    }
+
+    [Fact]
+    public void Fills_at_the_requested_density()
+    {
+        var graph = Graph(Plan(new EraseRegionSpec
+        {
+            X = 0, Y = 0, Width = 10, Height = 10, Style = EraseStyle.Fill, FillColor = "#ffffff", Opacity = 45
+        }));
+
+        Assert.Contains("color=0xffffff@0.45:t=fill", graph);
+    }
+
+    [Fact]
+    public void Feathers_only_the_sides_that_have_room_to_fade()
+    {
+        // Against the right and bottom edges there is no margin; a ramp there would let
+        // the mark show through instead of fading into footage.
+        var graph = Graph(Plan(new EraseRegionSpec { X = 80, Y = 90, Width = 20, Height = 10, Feather = 50 }));
+
+        Assert.Contains("geq=lum='lum(X,Y)'", graph);
+        Assert.Contains("X/max(1,W*", graph);
+        Assert.Contains("Y/max(1,H*", graph);
+        Assert.DoesNotContain("(W-1-X)", graph);
+        Assert.DoesNotContain("(H-1-Y)", graph);
+        Assert.Contains(":format=auto[er0]", graph);
+    }
+
+    [Fact]
+    public void Sharp_edges_need_no_alpha_pass()
+    {
+        var graph = Graph(Plan(new EraseRegionSpec { X = 40, Y = 40, Width = 10, Height = 10, Feather = 0 }));
+
+        Assert.DoesNotContain("geq", graph);
+    }
+
+    [Theory]
+    [InlineData(70, 80, EraseSource.Auto, 70, 70)]    // room above: copy from there
+    [InlineData(70, 2, EraseSource.Auto, 70, 12)]     // top edge: copy from below
+    [InlineData(70, 40, EraseSource.Left, 50, 40)]
+    [InlineData(70, 40, EraseSource.Right, 80, 40)]   // clamped back inside the frame
+    public void Patches_from_a_neighbouring_area_that_does_not_hold_the_mark(
+        double x, double y, EraseSource source, double expectedX, double expectedY)
+    {
+        var r = new EraseRegionSpec { X = x, Y = y, Width = 20, Height = 10, Feather = 0, Source = source };
+
+        var (px, py) = r.PatchOrigin();
+
+        Assert.Equal(expectedX, px, 6);
+        Assert.Equal(expectedY, py, 6);
+    }
+
+    private static WatermarkPlan LogoMark() => new()
+    {
+        Kind = WatermarkKind.Logo,
+        Position = WatermarkPosition.TopRight,
+        LogoRelativePath = "in/logo.png",
+        HeightPixels = 60, MarginPixels = 40, MaxWidthPixels = 600,
+        Opacity = 0.8, ColorRgb = "FFFFFF", BackplateOpacity = 0
+    };
+
+    [Fact]
+    public void Replaces_the_mark_with_our_logo_fitted_inside_the_box()
+    {
+        var plan = Plan(new EraseRegionSpec { X = 70, Y = 80, Width = 20, Height = 10, Style = EraseStyle.Brand })
+            with { Watermark = LogoMark() };
+
+        var result = new FfmpegFilterGraphBuilder(new FakeCapabilities()).BuildClip(plan);
+
+        Assert.Contains(result.Inputs, i => i.RelativePath == "in/logo.png");
+        Assert.Contains("scale=w='rw*0.85':h='rh*0.85'", result.FilterComplex);
+        Assert.Contains("overlay=x='main_w*0.7+(main_w*0.2-overlay_w)/2'", result.FilterComplex);
+        Assert.DoesNotContain("ERASE_BRAND_UNAVAILABLE", result.Warnings);
+    }
+
+    [Fact]
+    public void Still_patches_the_box_when_this_ffmpeg_cannot_size_the_logo()
+    {
+        var plan = Plan(new EraseRegionSpec { X = 70, Y = 80, Width = 20, Height = 10, Style = EraseStyle.Brand })
+            with { Watermark = LogoMark() };
+
+        var result = new FfmpegFilterGraphBuilder(new FakeCapabilities(RenderFeature.ScaleToReference)).BuildClip(plan);
+
+        Assert.DoesNotContain("rw*", result.FilterComplex);
+        Assert.Contains("[er0m][er0b]overlay", result.FilterComplex);
+        Assert.Contains("ERASE_BRAND_UNAVAILABLE", result.Warnings);
     }
 
     // --- normalization ------------------------------------------------------

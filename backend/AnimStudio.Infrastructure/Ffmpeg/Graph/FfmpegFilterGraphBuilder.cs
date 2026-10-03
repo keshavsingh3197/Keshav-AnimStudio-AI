@@ -332,7 +332,8 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         // Another mark burned into the source is wiped first, on the untouched frame, so
         // the region means the same patch of footage however the clip is then framed - and
         // our own watermark, drawn below, is never under it.
-        var source = EraseFilters.Append(graph, "0:v", plan.EraseRegions);
+        var source = EraseFilters.Append(
+            graph, "0:v", plan.EraseRegions, mark, capabilities, inputs, warnings);
 
         graph.Append(FitChain(fit, canvas, rate, plan.Encoder.PixelFormat, plan, source));
 

@@ -54,6 +54,18 @@ BEGIN
     CREATE INDEX IX_Assets_ProjectId ON Assets (ProjectId, CreatedAt DESC);
 END;
 
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'AssetFolders')
+BEGIN
+    CREATE TABLE AssetFolders (
+        Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+        ProjectId NVARCHAR(64) NOT NULL,
+        Name NVARCHAR(100) NOT NULL,
+        ParentId NVARCHAR(64) NULL,
+        CreatedAt DATETIME2 NOT NULL
+    );
+    CREATE INDEX IX_AssetFolders_ProjectId ON AssetFolders (ProjectId, CreatedAt DESC);
+END;
+
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Scripts')
 BEGIN
     CREATE TABLE Scripts (

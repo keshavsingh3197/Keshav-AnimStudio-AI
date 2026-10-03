@@ -3,12 +3,12 @@ import { FormsModule } from '@angular/forms';
 import { DecimalPipe } from '@angular/common';
 import { StudioStateService } from '../../../services/studio-state.service';
 import { ScopeBarComponent } from './scope-bar.component';
-import { MAX_ERASE_REGIONS } from '../../../../../core/models/api.models';
+import { EraseWatermarkPanelComponent } from './erase-watermark-panel.component';
 
 @Component({
   selector: 'app-transform-inspector',
   standalone: true,
-  imports: [FormsModule, DecimalPipe, ScopeBarComponent],
+  imports: [FormsModule, DecimalPipe, ScopeBarComponent, EraseWatermarkPanelComponent],
   templateUrl: './transform-inspector.component.html',
   styleUrl: './transform-inspector.component.css',
 })
@@ -26,22 +26,6 @@ export class TransformInspectorComponent {
   toggleTransform(): void { this.transformOpen.update((v) => !v); }
   toggleCrop(): void { this.cropOpen.update((v) => !v); }
   toggleAiTools(): void { this.aiToolsOpen.update((v) => !v); }
-
-  readonly eraseOpen = signal(true);
-  readonly maxEraseRegions = MAX_ERASE_REGIONS;
-  readonly eraseFields: { key: 'x' | 'y' | 'width' | 'height'; label: string; title: string }[] = [
-    { key: 'x', label: 'X', title: 'Left edge, % of the frame width' },
-    { key: 'y', label: 'Y', title: 'Top edge, % of the frame height' },
-    { key: 'width', label: 'W', title: 'Width, % of the frame width' },
-    { key: 'height', label: 'H', title: 'Height, % of the frame height' },
-  ];
-
-  toggleErase(): void { this.eraseOpen.update((v) => !v); }
-
-  onEraseInput(index: number, key: 'x' | 'y' | 'width' | 'height', event: Event): void {
-    const val = parseFloat((event.target as HTMLInputElement).value);
-    if (!isNaN(val)) this.state.updateEraseRegion(index, { [key]: val });
-  }
 
   /** Format a nullable number as string or '--' for mixed-value display */
   fmt(val: number | null, decimals = 1): string {

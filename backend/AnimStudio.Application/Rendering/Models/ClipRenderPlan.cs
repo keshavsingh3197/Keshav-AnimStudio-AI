@@ -26,6 +26,12 @@ public sealed record WatermarkPlan
     /// <summary>A file in the workspace holding exactly the line to draw, no newline.</summary>
     public string? TextRelativePath { get; init; }
 
+    /// <summary>
+    /// Characters in that line. drawtext cannot size text to a width, so a mark fitted
+    /// into an erase box is sized from this instead.
+    /// </summary>
+    public int TextLength { get; init; }
+
     /// <summary>The logo image, already materialized into the workspace.</summary>
     public string? LogoRelativePath { get; init; }
 

@@ -86,7 +86,12 @@ public sealed class FfmpegRunner(
         var stderr = await stderrTask.ConfigureAwait(false);
         stopwatch.Stop();
 
-        if (process.ExitCode != 0)
+        if (process.ExitCode != 0 && invocation.FailureExpected)
+        {
+            logger.LogDebug("ffmpeg exited with {ExitCode} after {Elapsed} (expected for this probe)",
+                process.ExitCode, stopwatch.Elapsed);
+        }
+        else if (process.ExitCode != 0)
         {
             logger.LogWarning("ffmpeg exited with {ExitCode} after {Elapsed}",
                 process.ExitCode, stopwatch.Elapsed);

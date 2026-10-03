@@ -381,6 +381,52 @@ public sealed class ClipMergeRenderTests : IAsyncLifetime
         Assert.Equal("360", ProbeStream(path, "v:0", "height"));
     }
 
+    [FfmpegFact]
+    public async Task Patches_over_a_corner_mark_with_the_footage_beside_it()
+    {
+        // The fixture is black apart from the white mark, so a patch copied from the
+        // area below it must read as black - a blur would still leave it grey.
+        MakeMarkedClip("in/marked-patch.mp4", 640, 360);
+
+        var plan = Plan(0, "in/marked-patch.mp4", hasAudio: false) with
+        {
+            EraseRegions = [new EraseRegionSpec { X = 85, Y = 0, Width = 15, Height = 15, Style = EraseStyle.Patch }]
+        };
+
+        var result = await _service.RenderClipAsync(plan, _workspace, null, Ct);
+        var after = MeanLuma(_workspace.Resolve(result.RelativePath), "crop=60:30:575:5");
+
+        Assert.True(after < 30, $"expected the mark patched away, read {after:F1}");
+    }
+
+    [FfmpegFact]
+    public async Task Replaces_a_mark_with_our_logo_for_the_whole_clip()
+    {
+        // The logo is a single frame scaled against a crop of the clip; the clip must
+        // still come out full length, with the logo still there at the end.
+        MakeMarkedClip("in/marked-brand.mp4", 481, 271, "yuv444p");
+        RenderFixtures.MakeSprite(Path_("in/brand.png"), "red", 64);
+
+        var plan = Plan(0, "in/marked-brand.mp4", hasAudio: false) with
+        {
+            EraseRegions = [new EraseRegionSpec { X = 80, Y = 0, Width = 20, Height = 20, Style = EraseStyle.Brand }],
+            Watermark = new WatermarkPlan
+            {
+                Kind = WatermarkKind.Logo,
+                Position = WatermarkPosition.TopRight,
+                LogoRelativePath = "in/brand.png",
+                HeightPixels = 20, MarginPixels = 10, MaxWidthPixels = 100,
+                Opacity = 1, ColorRgb = "FFFFFF", BackplateOpacity = 0
+            }
+        };
+
+        var result = await _service.RenderClipAsync(plan, _workspace, null, Ct);
+        var path = _workspace.Resolve(result.RelativePath);
+
+        Assert.Equal("640", ProbeStream(path, "v:0", "width"));
+        Assert.True(int.Parse(ProbeStream(path, "v:0", "nb_frames")) >= 29);
+    }
+
     private static OutroSettings SupportCard(double seconds = 2.0) => new()
     {
         Kind = OutroKind.Card,

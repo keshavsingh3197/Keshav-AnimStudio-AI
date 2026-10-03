@@ -583,6 +583,10 @@ public sealed record EraseRegionRequest
     [Range(EraseRegionSpec.MinSizePercent, 100)] public double Height { get; init; } = 10;
     [EnumDataType(typeof(EraseStyle))] public EraseStyle Style { get; init; } = EraseStyle.Blur;
     [RegularExpression("^#[0-9a-fA-F]{6}$")] public string? FillColor { get; init; }
+    [Range(0, 100)] public double Strength { get; init; } = EraseRegionSpec.DefaultStrength;
+    [Range(0, 100)] public double Feather { get; init; } = EraseRegionSpec.DefaultFeather;
+    [Range(0, 100)] public double Opacity { get; init; } = 100;
+    [EnumDataType(typeof(EraseSource))] public EraseSource Source { get; init; } = EraseSource.Auto;
 }
 
 public sealed record TimelineItemRequest

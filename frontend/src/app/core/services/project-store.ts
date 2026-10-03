@@ -77,7 +77,7 @@ export class ProjectStore {
         if (this.currentId !== projectId) return;
         this.project.set(loaded.project);
         this.assets.set(loaded.assets);
-        this.folders.set(loaded.folders);
+        this.folders.set(loaded.folders ?? []);
         this.characters.set(loaded.characters);
         this.scenes.set(loaded.scenes);
         this.renderer.set(loaded.renderer);
@@ -87,7 +87,7 @@ export class ProjectStore {
   refreshFolders(): void {
     const id = this.projectId();
     if (id) this.status.run(this.api.getFolders(id), (list) => {
-      if (this.projectId() === id) this.folders.set(list);
+      if (this.projectId() === id) this.folders.set(list ?? []);
     });
   }
 

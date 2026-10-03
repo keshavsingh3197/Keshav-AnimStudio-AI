@@ -62,6 +62,7 @@ public sealed class FfmpegCapabilities : IRenderCapabilities
         // spelling, not a filter. The generic -/opt form arrived in 7.0 and the older
         // -filter_complex_script it replaces was removed in 8.0.
         RenderFeature.FilterGraphFromFile => IsAvailable && Major >= 7,
+        RenderFeature.ScaleToReference => IsAvailable && (Major > 7 || (Major == 7 && Minor >= 1)),
         _ => false
     };
 }

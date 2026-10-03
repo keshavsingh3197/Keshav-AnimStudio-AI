@@ -1,10 +1,11 @@
 import {
-  Component, ElementRef, OnDestroy, OnInit, ViewChild, computed, effect, inject, signal, untracked
+  Component, ElementRef, OnDestroy, OnInit, QueryList, ViewChild, ViewChildren, computed, effect, inject, signal, untracked
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { StudioStateService } from '../../services/studio-state.service';
-import { TimelineItemTransform } from '../../../../core/models/api.models';
+import { MonitorEraseRegion, StudioStateService } from '../../services/studio-state.service';
+import { erasePatchOrigin } from '../../services/erase-geometry';
+import { ERASE_DEFAULT_STRENGTH, TimelineItemTransform } from '../../../../core/models/api.models';
 
 @Component({
   selector: 'app-video-viewport',
@@ -87,6 +88,14 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       });
     });
 
+    // Patch / Brand erase boxes are painted from the footage; start painting once their
+    // canvases are in the DOM. The loop stops by itself when the last one goes.
+    effect(() => {
+      const patched = this.state.monitorEraseRegions()
+        .some((m) => m.region.style === 'Patch' || m.region.style === 'Brand');
+      if (patched) untracked(() => setTimeout(() => this.schedulePatchPaint()));
+    });
+
     // React to Schedule or Clip Layout changes while paused to render current frame
     effect(() => {
       const sched = this.state.clipSchedule();
@@ -108,6 +117,10 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     if (this.animFrameId !== null) {
       cancelAnimationFrame(this.animFrameId);
       this.animFrameId = null;
+    }
+    if (this.patchFrameId !== null) {
+      cancelAnimationFrame(this.patchFrameId);
+      this.patchFrameId = null;
     }
     this.pauseAllMedia();
   }
@@ -719,9 +732,95 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     }
   }
 
+  @ViewChild('imageMonitor') imageMonitorRef?: ElementRef<HTMLImageElement>;
+  @ViewChildren('patchCanvas') patchCanvases?: QueryList<ElementRef<HTMLCanvasElement>>;
+  private patchFrameId: number | null = null;
+
+  /** The inner box's place inside its grown (feathered) box, in percent of the latter. */
+  innerBox(m: MonitorEraseRegion): { left: number; top: number; width: number; height: number } {
+    const { region: r, outer: o } = m;
+    return {
+      left: ((r.x - o.x) / o.width) * 100,
+      top: ((r.y - o.y) / o.height) * 100,
+      width: (r.width / o.width) * 100,
+      height: (r.height / o.height) * 100,
+    };
+  }
+
+  /**
+   * Backdrop blur scaled to the box, the way the export's boxblur is: a share of the
+   * box's short side, so the same strength looks the same on any box and any monitor.
+   * --fw / --fh are one percent of the picture's on-screen width and height.
+   */
+  eraseBlur(m: MonitorEraseRegion): string {
+    const k = ((m.region.strength ?? ERASE_DEFAULT_STRENGTH) / 250) * 0.6;
+    return `blur(calc(min(${m.outer.width} * var(--fw), ${m.outer.height} * var(--fh)) * ${k}))`;
+  }
+
+  eraseFill(m: MonitorEraseRegion): string {
+    return `color-mix(in srgb, ${m.region.fillColor ?? '#000000'} ${m.region.opacity ?? 100}%, transparent)`;
+  }
+
+  /** Text mark size: fills the box's height, unless the line would overflow its width. */
+  brandFontSize(): string {
+    const len = Math.max(1, (this.state.effectiveWatermark().text || 'yoursite.example').length);
+    return `min(60cqh, calc(85cqw / ${len * 0.55}))`;
+  }
+
+  /**
+   * Paints every Patch / Brand box from the footage beside it, each frame while any
+   * exist - CSS has no way to show one part of a video somewhere else.
+   */
+  private schedulePatchPaint(): void {
+    if (this.patchFrameId !== null) return;
+    const paint = () => {
+      this.patchFrameId = null;
+      const canvases = this.patchCanvases?.toArray() ?? [];
+      if (canvases.length === 0) return;
+      this.paintPatches(canvases.map((c) => c.nativeElement));
+      this.patchFrameId = requestAnimationFrame(paint);
+    };
+    this.patchFrameId = requestAnimationFrame(paint);
+  }
+
+  private paintPatches(canvases: HTMLCanvasElement[]): void {
+    const img = this.state.activeClipIsImage() ? this.imageMonitorRef?.nativeElement : undefined;
+    const video = this.activeLayer() === 'A' ? this.videoMonitorARef?.nativeElement : this.videoMonitorBRef?.nativeElement;
+    const source: CanvasImageSource | undefined = img ?? video;
+    const sw = img ? img.naturalWidth : video?.videoWidth ?? 0;
+    const sh = img ? img.naturalHeight : video?.videoHeight ?? 0;
+    if (!source || sw === 0 || sh === 0) return;
+
+    const regions = this.state.monitorEraseRegions();
+    for (const canvas of canvases) {
+      const m = regions.find((x) => x.index === Number(canvas.dataset['erase']));
+      if (!m) continue;
+      const origin = erasePatchOrigin(m.region);
+      const w = (m.outer.width / 100) * sw;
+      const h = (m.outer.height / 100) * sh;
+      // Capped: a preview patch never needs more pixels than the monitor shows.
+      const scale = Math.min(1, 480 / Math.max(w, h));
+      const cw = Math.max(1, Math.round(w * scale));
+      const ch = Math.max(1, Math.round(h * scale));
+      if (canvas.width !== cw) canvas.width = cw;
+      if (canvas.height !== ch) canvas.height = ch;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) continue;
+      const soften = Math.min(cw, ch) * ((m.region.strength ?? ERASE_DEFAULT_STRENGTH) / 2000);
+      ctx.filter = soften >= 0.5 ? `blur(${soften.toFixed(1)}px)` : 'none';
+      try {
+        ctx.drawImage(source, (origin.x / 100) * sw, (origin.y / 100) * sh, w, h, 0, 0, cw, ch);
+      } catch {
+        // A frame that is not decodable yet; the next tick paints it.
+      }
+    }
+  }
+
   /** Moves or resizes one erase box by dragging it on the paused monitor. */
   startEraseDrag(event: PointerEvent, index: number, mode: 'move' | 'resize'): void {
-    if (this.state.isPlaying() || event.button !== 0) return;
+    if (event.button !== 0) return;
+    this.state.selectEraseRegion(index);
+    if (this.state.isPlaying()) return;
     const frame = this.eraseFrameRef?.nativeElement;
     const clip = this.state.currentScheduledClip()?.clip ?? this.state.activeTargetClip();
     const start = clip ? this.state.clipTransformSetting(clip.id).eraseRegions[index] : undefined;

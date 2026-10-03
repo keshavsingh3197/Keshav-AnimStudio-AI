@@ -1,5 +1,5 @@
 import { DatePipe } from '@angular/common';
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, HostListener, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 
@@ -57,6 +57,8 @@ export class ProjectListComponent {
 
   // Context Menu State
   activeMenuProjectId = signal<string | null>(null);
+  readonly menuPos = signal<{ top: number | null; bottom: number | null; right: number }>(
+    { top: 0, bottom: null, right: 0 });
 
 /** The channel a project publishes under; no channel is the default one. */  channelName(p: Project): string {    const id = p.brandChannelId || DEFAULT_BRAND_CHANNEL;    return this.channels().find((c) => c.id === id)?.name ?? 'Default';  }
   constructor() {
@@ -301,9 +303,26 @@ export class ProjectListComponent {
     event.stopPropagation();
     if (this.activeMenuProjectId() === projectId) {
       this.activeMenuProjectId.set(null);
-    } else {
-      this.activeMenuProjectId.set(projectId);
+      return;
     }
+
+    // The menu is position: fixed so neither a card's hover transform nor the table's
+    // overflow can clip it; place it under the button, or above when there is no room.
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const menuHeight = 300;
+    const right = Math.max(8, window.innerWidth - rect.right);
+    const openUp = window.innerHeight - rect.bottom < menuHeight && rect.top > menuHeight;
+    this.menuPos.set(openUp
+      ? { top: null, bottom: window.innerHeight - rect.top + 4, right }
+      : { top: rect.bottom + 4, bottom: null, right });
+    this.activeMenuProjectId.set(projectId);
+  }
+
+  /** A fixed menu would drift away from its button, so scrolling or resizing closes it. */
+  @HostListener('window:scroll')
+  @HostListener('window:resize')
+  onViewportChange(): void {
+    if (this.activeMenuProjectId()) this.closeMenus();
   }
 
   closeMenus(): void {

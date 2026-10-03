@@ -89,7 +89,7 @@
 
         <!-- Static Image Clip Monitor Layer -->
         @if (state.activeClipIsImage()) {
-          <img crossorigin="anonymous"
+          <img #imageMonitor crossorigin="anonymous"
                [class]="'pv-monitor-layer layer-front ' + state.monitorFitClass() + (liveTransitionActive() ? ' ' + liveTransitionClass() : '')"
                [style.animation-duration.s]="liveTransitionDuration()"
                [src]="state.activeClipImageUrl()"
@@ -109,18 +109,50 @@
             <div #eraseFrame class="erase-frame"
                  [class.cover]="state.monitorFitClass() === 'fit-cover'"
                  [style.--ar]="monitorAspect()">
-              @for (r of state.monitorEraseRegions(); track r.index) {
+              <!-- What the export will draw: grown by the feather, faded by its mask. -->
+              @for (m of state.monitorEraseRegions(); track m.index) {
                 <div class="erase-box"
-                     [class.fill]="r.style === 'Fill'"
+                     [class.blur]="m.region.style === 'Blur'"
+                     [style.left.%]="m.outer.x" [style.top.%]="m.outer.y"
+                     [style.width.%]="m.outer.width" [style.height.%]="m.outer.height"
+                     [style.clip-path]="m.inset"
+                     [style.mask-image]="m.mask"
+                     [style.backdrop-filter]="m.region.style === 'Blur' ? eraseBlur(m) : null"
+                     [style.background-color]="m.region.style === 'Fill' ? eraseFill(m) : null">
+                  @if (m.region.style === 'Patch' || m.region.style === 'Brand') {
+                    <canvas #patchCanvas class="erase-patch" [attr.data-erase]="m.index"
+                            [style.filter]="state.computedMonitorFilter()"></canvas>
+                  }
+                  @if (m.region.style === 'Brand' && state.effectiveWatermark().kind !== 'None') {
+                    @let inner = innerBox(m);
+                    <div class="erase-brand"
+                         [style.left.%]="inner.left" [style.top.%]="inner.top"
+                         [style.width.%]="inner.width" [style.height.%]="inner.height"
+                         [style.opacity]="state.effectiveWatermark().opacity">
+                      @if (state.effectiveWatermark().kind === 'Logo') {
+                        @if (state.logoUrl(); as logo) { <img [src]="logo" alt="" /> }
+                      } @else {
+                        <span [style.color]="state.effectiveWatermark().colorHex"
+                              [style.font-size]="brandFontSize()">{{ state.effectiveWatermark().text || 'yoursite.example' }}</span>
+                      }
+                    </div>
+                  }
+                </div>
+              }
+
+              <!-- Editing chrome, unmasked so outline and handle stay crisp. -->
+              @for (m of state.monitorEraseRegions(); track m.index) {
+                <div class="erase-chrome"
                      [class.editing]="!state.isPlaying()"
-                     [style.left.%]="r.x" [style.top.%]="r.y"
-                     [style.width.%]="r.width" [style.height.%]="r.height"
-                     [style.background-color]="r.style === 'Fill' ? r.fillColor : null"
-                     [title]="'Erase box ' + (r.index + 1) + ' - drag to move'"
-                     (pointerdown)="startEraseDrag($event, r.index, 'move')">
+                     [class.selected]="state.selectedEraseIndex() === m.index"
+                     [style.left.%]="m.region.x" [style.top.%]="m.region.y"
+                     [style.width.%]="m.region.width" [style.height.%]="m.region.height"
+                     [title]="'Erase box ' + (m.index + 1) + ' - drag to move'"
+                     (pointerdown)="startEraseDrag($event, m.index, 'move')">
                   @if (!state.isPlaying()) {
+                    <span class="erase-badge">{{ m.index + 1 }}</span>
                     <span class="erase-handle" title="Drag to resize"
-                          (pointerdown)="startEraseDrag($event, r.index, 'resize')"></span>
+                          (pointerdown)="startEraseDrag($event, m.index, 'resize')"></span>
                   }
                 </div>
               }

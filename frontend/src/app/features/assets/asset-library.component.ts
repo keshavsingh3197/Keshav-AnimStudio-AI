@@ -159,24 +159,36 @@ export class AssetLibraryComponent {
   }
 
   constructor() {
-    // Fetch real storage from server
-    this.status.run(this.api.adminStorage(false), (d) => this.storageDetail.set(d));
+    // Server-wide storage is an admin endpoint. For anyone else it is refused, and the
+    // header keeps the sum of this project's assets instead of raising an error banner.
+    this.api.adminStorage(false).subscribe({
+      next: (d) => this.storageDetail.set(d),
+      error: () => this.storageDetail.set(null),
+    });
 
-    // Auto-create 'Exports' folder when project loads and folders are available
+    // Auto-create the 'Exports' folder once per project. A project with no folders at all
+    // needs it most, so an empty list must not skip this.
     effect(() => {
       const folders = this.store.folders();
       const projectId = this.store.projectId();
-      if (!projectId || folders.length === 0) return;
-      const hasExports = folders.some(f => f.name === 'Exports');
-      if (!hasExports) {
-        untracked(() => {
-          this.status.run(this.api.createFolder(projectId, 'Exports'), () => {
-            this.store.refreshFolders();
-          });
+      if (!projectId || this.exportsRequestedFor === projectId) return;
+      if (folders.some(f => f.name === 'Exports')) return;
+      this.exportsRequestedFor = projectId;
+      untracked(() => {
+        this.status.run(this.api.createFolder(projectId, 'Exports'), () => {
+          this.store.refreshFolders();
         });
-      }
+      });
+    });
+
+    // Deleting, filtering or searching can shrink the list below the current page.
+    effect(() => {
+      const total = this.totalPages;
+      if (untracked(this.currentPage) > total) this.currentPage.set(total);
     });
   }
+
+  private exportsRequestedFor: string | null = null;
 
   upload(event: Event): void {
     const input = event.target as HTMLInputElement;

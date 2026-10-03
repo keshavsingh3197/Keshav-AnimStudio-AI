@@ -118,17 +118,27 @@ public sealed partial class FfmpegCapabilityProbe(
         {
             try
             {
-                // Single frame, tiny resolution, null output — completes in <200ms.
+                // Single frame, small resolution, null output - completes in <200ms. Not tiny:
+                // QSV rejects frames below its minimum ("Current resolution is unsupported")
+                // and NVENC has a minimum too, so 16x16 reported working encoders as broken.
                 string[] args =
                 [
                     "-hide_banner", "-loglevel", "error",
-                    "-f", "lavfi", "-i", "color=c=black:s=16x16:d=0.1",
+                    "-f", "lavfi", "-i", "color=c=black:s=320x240:d=0.1",
                     "-c:v", codec,
                     "-frames:v", "1",
                     "-f", "null", "-"
                 ];
-                var result = await RunAsync(workingDirectory, args, ct).ConfigureAwait(false);
-                return result.ExitCode == 0;
+                var result = await RunAsync(workingDirectory, args, ct, failureExpected: true).ConfigureAwait(false);
+                if (result.ExitCode == 0) return true;
+
+                var reason = result.StderrTail
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .FirstOrDefault() ?? "no error output";
+                logger.LogInformation(
+                    "Hardware encoder {Codec} is listed but unusable (exit {ExitCode}: {Reason}); using another encoder.",
+                    codec, result.ExitCode, reason);
+                return false;
             }
             catch
             {
@@ -144,13 +154,15 @@ public sealed partial class FfmpegCapabilityProbe(
         return (await nvencTask, await qsvTask, await vtbTask);
     }
 
-    private Task<FfmpegResult> RunAsync(string workingDirectory, string[] arguments, CancellationToken ct) =>
+    private Task<FfmpegResult> RunAsync(
+        string workingDirectory, string[] arguments, CancellationToken ct, bool failureExpected = false) =>
         runner.RunAsync(new FfmpegInvocation
         {
             Tool = FfmpegTool.Ffmpeg,
             WorkingDirectory = workingDirectory,
             Arguments = arguments,
-            Timeout = TimeSpan.FromSeconds(_options.ProbeTimeoutSeconds)
+            Timeout = TimeSpan.FromSeconds(_options.ProbeTimeoutSeconds),
+            FailureExpected = failureExpected
         }, progress: null, ct);
 
     /// <summary>
