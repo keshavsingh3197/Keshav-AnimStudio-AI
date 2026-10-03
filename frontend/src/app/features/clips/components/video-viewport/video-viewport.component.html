@@ -186,7 +186,7 @@
         }
 
         <!-- Live Watermark Overlay -->
-        @if (state.effectiveWatermark().kind !== 'None') {
+        @if (state.effectiveWatermark().kind !== 'None' && state.monitorShowsCornerWatermark()) {
           <div class="monitor-watermark-overlay"
                [style.padding.px]="state.preview().inset"
                [style.align-items]="state.preview().top ? 'flex-start' : 'flex-end'"

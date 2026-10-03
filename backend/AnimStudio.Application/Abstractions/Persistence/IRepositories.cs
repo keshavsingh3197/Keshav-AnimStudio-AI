@@ -20,6 +20,19 @@ public interface IProjectRepository
     Task DeleteAsync(string id, CancellationToken ct);
 }
 
+/// <summary>
+/// A project's cuts (videos, Shorts...). Listing leaves <see cref="ProjectEdit.DraftJson"/>
+/// out: a timeline can run to megabytes, and the list page never needs one.
+/// </summary>
+public interface IProjectEditRepository
+{
+    Task<ProjectEdit?> GetAsync(string id, CancellationToken ct);
+    Task<IReadOnlyList<ProjectEdit>> ListByProjectAsync(string projectId, CancellationToken ct);
+    Task InsertAsync(ProjectEdit edit, CancellationToken ct);
+    Task ReplaceAsync(ProjectEdit edit, CancellationToken ct);
+    Task DeleteAsync(string id, CancellationToken ct);
+}
+
 public interface ICharacterRepository
 {
     Task<Character?> GetAsync(string id, CancellationToken ct);

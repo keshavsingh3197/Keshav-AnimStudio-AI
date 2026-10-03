@@ -333,7 +333,15 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         // the region means the same patch of footage however the clip is then framed - and
         // our own watermark, drawn below, is never under it.
         var source = EraseFilters.Append(
-            graph, "0:v", plan.EraseRegions, mark, capabilities, inputs, warnings);
+            graph, "0:v", plan.EraseRegions, out var markAlreadyInBox, mark, capabilities, inputs, warnings);
+
+        // A "My mark" box already put our watermark where theirs was; a second copy in the
+        // corner is only drawn when the box asked for it.
+        if (markAlreadyInBox)
+        {
+            drawsLogo = false;
+            drawsText = false;
+        }
 
         graph.Append(FitChain(fit, canvas, rate, plan.Encoder.PixelFormat, plan, source));
 

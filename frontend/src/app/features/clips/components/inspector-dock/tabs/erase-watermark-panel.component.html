@@ -80,6 +80,11 @@
                     {{ state.effectiveWatermark().kind === 'Logo' ? 'logo' : '"' + state.effectiveWatermark().text + '"' }}
                     watermark, fitted inside the box.
                   </div>
+                  <label class="toggle-line" title="Off: on clips with this box, your watermark is shown only here">
+                    <input type="checkbox" [checked]="r.keepCornerMark ?? false"
+                           (change)="update(i, { keepCornerMark: $any($event.target).checked })" />
+                    Also show my watermark in its usual corner
+                  </label>
                 } @else {
                   <div class="mark-note warn">
                     No watermark is set for this project yet. Set one under Export → Watermark; until then the
@@ -176,12 +181,15 @@
 
       @if (list.length > 0 && list.length < maxRegions) {
         <div class="add-row">
-          <span class="add-label">+ Add box</span>
+          <button type="button" class="add-btn" (click)="addNext()" title="Add another box">+ Add box</button>
+          <span class="add-at">or at</span>
           @for (c of corners; track c.value) {
             <button type="button" class="snap-btn" [title]="'Add a box ' + c.title.toLowerCase()"
                     (click)="add(c.value)">{{ c.icon }}</button>
           }
         </div>
+      } @else if (list.length >= maxRegions) {
+        <div class="add-at">Up to {{ maxRegions }} boxes per clip.</div>
       }
     </div>
   }

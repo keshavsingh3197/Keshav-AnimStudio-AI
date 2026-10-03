@@ -179,6 +179,32 @@ public class EraseRegionTests
         Assert.DoesNotContain("ERASE_BRAND_UNAVAILABLE", result.Warnings);
     }
 
+    [Theory]
+    [InlineData(false, 1)]
+    [InlineData(true, 2)]
+    public void Draws_our_corner_mark_too_only_when_the_box_asks_for_it(bool keepCorner, int expectedLogoOverlays)
+    {
+        var plan = Plan(new EraseRegionSpec
+        {
+            X = 70, Y = 80, Width = 20, Height = 10, Style = EraseStyle.Brand, KeepCornerMark = keepCorner
+        }) with { Watermark = LogoMark() };
+
+        var result = new FfmpegFilterGraphBuilder(new FakeCapabilities()).BuildClip(plan);
+
+        Assert.Equal(expectedLogoOverlays, result.Inputs.Count(i => i.RelativePath == "in/logo.png"));
+    }
+
+    [Fact]
+    public void Keeps_the_corner_mark_when_the_box_could_not_draw_ours()
+    {
+        var plan = Plan(new EraseRegionSpec { X = 70, Y = 80, Width = 20, Height = 10, Style = EraseStyle.Brand })
+            with { Watermark = LogoMark() };
+
+        var result = new FfmpegFilterGraphBuilder(new FakeCapabilities(RenderFeature.ScaleToReference)).BuildClip(plan);
+
+        Assert.Single(result.Inputs, i => i.RelativePath == "in/logo.png");
+    }
+
     [Fact]
     public void Still_patches_the_box_when_this_ffmpeg_cannot_size_the_logo()
     {

@@ -12,6 +12,7 @@ import {
   PlacementBody, Project, RenderJob, ExportTimelineFormat, RendererStatus, Scene, SceneAudioBody, SceneDetail,
   SceneGenerationResult, ScriptDetail, ScriptSummary, UpdateProjectBody, UpdateSceneBody,
   WatermarkBody, OutroBody, BrandChannel, DEFAULT_BRAND_CHANNEL, StorageSummary, StorageDetail,
+  ProjectEdit, CreateEditBody, UpdateEditBody, SaveEditDraftBody,
 } from '../models/api.models';
 
 /**
@@ -394,6 +395,44 @@ export class ApiService {
   saveStudioDraft(projectId: string, draftJson: string): Observable<unknown> {
     return this.unwrap(this.http.put<ApiResponse<unknown>>(
       `${this.base}/api/projects/${projectId}/clips/draft`, { draftJson }));
+  }
+
+  // --- cuts (videos / Shorts) of a project
+
+  listEdits(projectId: string): Observable<ProjectEdit[]> {
+    return this.unwrap(this.http.get<ApiResponse<ProjectEdit[]>>(
+      `${this.base}/api/projects/${projectId}/edits`));
+  }
+
+  /** One cut with its timeline document. */
+  getEdit(projectId: string, editId: string): Observable<ProjectEdit> {
+    return this.unwrap(this.http.get<ApiResponse<ProjectEdit>>(
+      `${this.base}/api/projects/${projectId}/edits/${encodeURIComponent(editId)}`));
+  }
+
+  createEdit(projectId: string, body: CreateEditBody): Observable<ProjectEdit> {
+    return this.unwrap(this.http.post<ApiResponse<ProjectEdit>>(
+      `${this.base}/api/projects/${projectId}/edits`, body));
+  }
+
+  updateEdit(projectId: string, editId: string, body: UpdateEditBody): Observable<ProjectEdit> {
+    return this.unwrap(this.http.patch<ApiResponse<ProjectEdit>>(
+      `${this.base}/api/projects/${projectId}/edits/${encodeURIComponent(editId)}`, body));
+  }
+
+  saveEditDraft(projectId: string, editId: string, body: SaveEditDraftBody): Observable<ProjectEdit> {
+    return this.unwrap(this.http.put<ApiResponse<ProjectEdit>>(
+      `${this.base}/api/projects/${projectId}/edits/${encodeURIComponent(editId)}/draft`, body));
+  }
+
+  duplicateEdit(projectId: string, editId: string): Observable<ProjectEdit> {
+    return this.unwrap(this.http.post<ApiResponse<ProjectEdit>>(
+      `${this.base}/api/projects/${projectId}/edits/${encodeURIComponent(editId)}/duplicate`, {}));
+  }
+
+  deleteEdit(projectId: string, editId: string): Observable<unknown> {
+    return this.unwrap(this.http.delete<ApiResponse<unknown>>(
+      `${this.base}/api/projects/${projectId}/edits/${encodeURIComponent(editId)}`));
   }
 
   /** Queues the stitch. Polled and downloaded through the same job endpoints as a render. */

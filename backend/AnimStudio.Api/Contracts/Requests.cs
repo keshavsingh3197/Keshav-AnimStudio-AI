@@ -587,6 +587,7 @@ public sealed record EraseRegionRequest
     [Range(0, 100)] public double Feather { get; init; } = EraseRegionSpec.DefaultFeather;
     [Range(0, 100)] public double Opacity { get; init; } = 100;
     [EnumDataType(typeof(EraseSource))] public EraseSource Source { get; init; } = EraseSource.Auto;
+    public bool KeepCornerMark { get; init; }
 }
 
 public sealed record TimelineItemRequest

@@ -36,14 +36,19 @@ internal static class EraseFilters
     /// Appends the erase passes reading <paramref name="input"/> and returns the label of
     /// the result, or <paramref name="input"/> itself when there is nothing to erase.
     /// </summary>
+    /// <param name="replacesCornerMark">
+    /// True when a Brand box drew our mark and did not ask to keep the corner one as well -
+    /// the caller then skips the corner watermark for this clip.
+    /// </param>
     /// <param name="mark">The project's own watermark, drawn into <see cref="EraseStyle.Brand"/> boxes.</param>
     /// <param name="inputs">Where a Brand box's logo input is added.</param>
     public static string Append(
-        StringBuilder graph, string input, IReadOnlyList<EraseRegionSpec> regions,
+        StringBuilder graph, string input, IReadOnlyList<EraseRegionSpec> regions, out bool replacesCornerMark,
         WatermarkPlan? mark = null, IRenderCapabilities? capabilities = null,
         List<FfmpegInputSpec>? inputs = null, List<string>? warnings = null)
     {
         var current = input;
+        replacesCornerMark = false;
         for (var i = 0; i < regions.Count; i++)
         {
             var r = regions[i];
@@ -76,7 +81,10 @@ internal static class EraseFilters
                     {
                         var branded = $"{next}k";
                         if (AppendMark(graph, next, branded, r, i, mark, capabilities, inputs))
+                        {
                             next = branded;
+                            replacesCornerMark |= !r.KeepCornerMark;
+                        }
                         else
                             warnings?.Add("ERASE_BRAND_UNAVAILABLE");
                     }

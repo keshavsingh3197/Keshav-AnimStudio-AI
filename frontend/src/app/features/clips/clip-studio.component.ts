@@ -1,7 +1,9 @@
 import { Component, ElementRef, HostListener, OnDestroy, ViewChild, computed, effect, inject, signal, untracked } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { map } from 'rxjs';
 import { Clip, DEFAULT_BRAND_CHANNEL } from '../../core/models/api.models';
 import { StudioStateService } from './services/studio-state.service';
 import { StudioHeaderComponent } from './components/studio-header/studio-header.component';
@@ -34,6 +36,11 @@ export class ClipStudioComponent implements OnDestroy {
   /** Only the id: a reload of the same project must not throw the open timeline away. */
   private readonly openProjectId = computed(() => this.state.store.project()?.id ?? null);
 
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly editParam = toSignal(
+    this.route.queryParamMap.pipe(map((p) => p.get('edit'))), { initialValue: null });
+
   readonly splitPreviewingPart = signal<number | null>(null);
   @ViewChild('part1Video') part1VideoRef?: ElementRef<HTMLVideoElement>;
   @ViewChild('part2Video') part2VideoRef?: ElementRef<HTMLVideoElement>;
@@ -42,12 +49,30 @@ export class ClipStudioComponent implements OnDestroy {
     // Loads once the project lands, and again whenever a DIFFERENT project does. This route's
     // own paramMap never changes - :projectId belongs to the parent route - so subscribing
     // to it loaded nothing on a direct visit and never noticed a switch of project.
+    // Which cut (video / Short) is open lives in the URL, so a link or a reload reopens it.
     effect(() => {
       const projectId = this.openProjectId();
+      const editId = this.editParam();
       if (!projectId) return;
       untracked(() => {
-        this.state.loadStudio();
-        this.setEndCardPreview(null);
+        if (editId) {
+          this.state.loadStudio(editId);
+          this.setEndCardPreview(null);
+          return;
+        }
+        // No cut named: open the one worked on most recently.
+        this.state.api.listEdits(projectId).subscribe({
+          next: (list) => {
+            if (this.openProjectId() !== projectId || !list[0]) return;
+            this.router.navigate([], {
+              relativeTo: this.route,
+              queryParams: { edit: list[0].id },
+              queryParamsHandling: 'merge',
+              replaceUrl: true,
+            });
+          },
+          error: () => this.state.status.error.set("Could not load this project's videos."),
+        });
       });
     });
 

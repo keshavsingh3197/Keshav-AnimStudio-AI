@@ -95,6 +95,30 @@ public sealed class MongoSceneRepository(MongoDbService mongo) : ISceneRepositor
         Collection.DeleteManyAsync(s => s.ProjectId == projectId, ct);
 }
 
+public sealed class MongoProjectEditRepository(MongoDbService mongo) : IProjectEditRepository
+{
+    private IMongoCollection<ProjectEdit> Collection =>
+        mongo.GetCollection<ProjectEdit>(MongoCollections.ProjectEdits);
+
+    public async Task<ProjectEdit?> GetAsync(string id, CancellationToken ct) =>
+        await Collection.Find(e => e.Id == id).FirstOrDefaultAsync(ct).ConfigureAwait(false);
+
+    public async Task<IReadOnlyList<ProjectEdit>> ListByProjectAsync(string projectId, CancellationToken ct) =>
+        await Collection.Find(e => e.ProjectId == projectId)
+            .Project<ProjectEdit>(Builders<ProjectEdit>.Projection.Exclude(e => e.DraftJson))
+            .SortByDescending(e => e.UpdatedAt)
+            .ToListAsync(ct).ConfigureAwait(false);
+
+    public Task InsertAsync(ProjectEdit edit, CancellationToken ct) =>
+        Collection.InsertOneAsync(edit, cancellationToken: ct);
+
+    public Task ReplaceAsync(ProjectEdit edit, CancellationToken ct) =>
+        Collection.ReplaceOneAsync(e => e.Id == edit.Id, edit, cancellationToken: ct);
+
+    public Task DeleteAsync(string id, CancellationToken ct) =>
+        Collection.DeleteOneAsync(e => e.Id == id, ct);
+}
+
 public sealed class MongoAssetFolderRepository(MongoDbService mongo) : IAssetFolderRepository
 {
     private IMongoCollection<AssetFolder> Collection =>

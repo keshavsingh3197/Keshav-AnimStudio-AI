@@ -8,6 +8,7 @@ public static class MongoCollections
     public const string Scenes = "scenes";
     public const string Assets = "assets";
     public const string AssetFolders = "assetFolders";
+    public const string ProjectEdits = "projectEdits";
     public const string Scripts = "scripts";
     public const string Ingests = "transcriptIngests";
     public const string RenderJobs = "renderJobs";

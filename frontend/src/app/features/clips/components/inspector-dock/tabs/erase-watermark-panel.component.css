@@ -285,5 +285,28 @@
 }
 .geo-input input:focus { outline: none; }
 
-.add-row { padding-top: 2px; }
-.add-label { flex: 1; font-size: 0.72rem; color: var(--text-dim, #9ca3af); }
+.add-row { padding-top: 2px; gap: 4px; }
+.add-btn {
+  flex: 1;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px dashed #33476e;
+  background: transparent;
+  color: var(--text, #d1d5db);
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+.add-btn:hover { border-color: var(--brand, #6c8cff); background: color-mix(in srgb, var(--brand, #6c8cff) 12%, transparent); color: #fff; }
+.add-at { font-size: 0.68rem; color: var(--text-dim, #6b7280); }
+
+.toggle-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.72rem;
+  color: var(--text-dim, #9ca3af);
+  cursor: pointer;
+}
+.toggle-line input { accent-color: var(--brand, #6c8cff); margin: 0; }

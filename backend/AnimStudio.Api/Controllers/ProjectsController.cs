@@ -135,9 +135,14 @@ public sealed class ProjectsController(
     }
 
     [HttpDelete("{id}")]
-    public async Task<ActionResult<ApiResponse<EmptyPayload>>> Delete(string id, CancellationToken ct)
+    public async Task<ActionResult<ApiResponse<EmptyPayload>>> Delete(
+        string id, [FromServices] IProjectEditRepository edits, CancellationToken ct)
     {
         await editing.DeleteAsync(id, currentUser.UserId, ct);
+
+        // Only reached once the delete above confirmed ownership.
+        foreach (var edit in await edits.ListByProjectAsync(id, ct))
+            await edits.DeleteAsync(edit.Id, ct);
         return Ok(ApiResponse<EmptyPayload>.Ok(EmptyPayload.Value));
     }
 

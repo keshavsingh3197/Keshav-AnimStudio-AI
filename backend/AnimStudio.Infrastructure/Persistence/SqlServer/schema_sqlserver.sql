@@ -169,3 +169,16 @@ BEGIN
     CREATE INDEX IX_AdminAudit_AtUtc ON AdminAudit (AtUtc DESC);
 END;
 
+
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'ProjectEdits')
+BEGIN
+    CREATE TABLE ProjectEdits (
+        Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+        ProjectId NVARCHAR(64) NOT NULL,
+        UserId NVARCHAR(100) NOT NULL,
+        UpdatedAt DATETIME2 NOT NULL,
+        MetaJson NVARCHAR(MAX) NOT NULL,
+        DraftJson NVARCHAR(MAX) NULL
+    );
+    CREATE INDEX IX_ProjectEdits_ProjectId ON ProjectEdits (ProjectId, UpdatedAt DESC);
+END;

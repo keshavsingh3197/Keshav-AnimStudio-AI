@@ -366,6 +366,12 @@ public sealed class EraseRegionSpec
     /// <summary>Where a patch copies its footage from.</summary>
     public EraseSource Source { get; set; } = EraseSource.Auto;
 
+    /// <summary>
+    /// <see cref="EraseStyle.Brand"/> only: still draw our watermark at its usual corner too.
+    /// Off by default - the box already carries the mark, and two of them looks like a mistake.
+    /// </summary>
+    public bool KeepCornerMark { get; set; }
+
     public const double DefaultStrength = 60;
     public const double DefaultFeather = 30;
 
@@ -393,7 +399,8 @@ public sealed class EraseRegionSpec
             Strength = Clamp(Strength, 0, 100),
             Feather = Clamp(Feather, 0, 100),
             Opacity = double.IsFinite(Opacity) ? Math.Clamp(Opacity, 0, 100) : 100,
-            Source = Enum.IsDefined(Source) ? Source : EraseSource.Auto
+            Source = Enum.IsDefined(Source) ? Source : EraseSource.Auto,
+            KeepCornerMark = KeepCornerMark
         };
     }
 

@@ -88,6 +88,18 @@ export class EraseWatermarkPanelComponent {
 
   add(corner: Corner): void { this.state.addEraseRegion(corner); }
 
+  /** Adds a box in the first corner no existing box sits in, so it never lands on top of one. */
+  addNext(): void {
+    const taken = (c: Corner) => this.regions().some((r) => {
+      const cx = r.x + r.width / 2, cy = r.y + r.height / 2;
+      const col = cx < 33 ? 'left' : cx > 67 ? 'right' : 'mid';
+      const row = cy < 33 ? 'top' : cy > 67 ? 'bottom' : 'mid';
+      return c === 'center' ? col === 'mid' && row === 'mid' : c === `${row}-${col}`;
+    });
+    const order: Corner[] = ['top-right', 'top-left', 'bottom-right', 'bottom-left', 'center'];
+    this.add(order.find((c) => !taken(c)) ?? 'center');
+  }
+
   update(index: number, patch: Partial<EraseRegion>): void {
     this.state.updateEraseRegion(index, patch);
   }

@@ -199,7 +199,8 @@ public sealed class ClipsController(
                                 X = r.X, Y = r.Y, Width = r.Width, Height = r.Height,
                                 Style = r.Style, FillColor = r.FillColor,
                                 Strength = r.Strength, Feather = r.Feather,
-                                Opacity = r.Opacity, Source = r.Source
+                                Opacity = r.Opacity, Source = r.Source,
+                                KeepCornerMark = r.KeepCornerMark
                             }.Normalized())
                             .OfType<EraseRegionSpec>()
                             .Take(EraseRegionSpec.MaxPerClip)

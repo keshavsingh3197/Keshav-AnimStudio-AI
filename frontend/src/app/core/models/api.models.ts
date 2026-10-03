@@ -616,6 +616,8 @@ export interface EraseRegion {
   opacity?: number;
   /** Patch / Brand: where the cover footage is copied from */
   source?: EraseSource;
+  /** Brand: also draw the watermark at its usual corner (default: only in this box) */
+  keepCornerMark?: boolean;
 }
 
 /** Mirrors EraseRegionSpec.DefaultStrength / DefaultFeather on the server. */
@@ -1079,3 +1081,65 @@ export function formatBytes(bytes: number | null | undefined): string {
   while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
   return `${v >= 100 || i === 0 ? v.toFixed(0) : v.toFixed(1)} ${units[i]}`;
 }
+
+// --- cuts: several videos / Shorts per project, each with its own editor timeline ---
+
+export type EditFormat = 'Video' | 'Short' | 'Square';
+
+/** One cut of a project, as the "Videos & Shorts" page lists it. Mirrors ProjectEdit. */
+export interface ProjectEdit {
+  id: string;
+  name: string;
+  format: EditFormat;
+  category: string | null;
+  tags: string[];
+  durationSeconds: number;
+  clipCount: number;
+  thumbnailAssetId: string | null;
+  sourceEditId: string | null;
+  /** Set until the editor has trimmed a copied timeline down to the chosen part. */
+  pendingRangeStart: number | null;
+  pendingRangeEnd: number | null;
+  createdAt: string;
+  updatedAt: string;
+  /** Only on a single-cut fetch. */
+  draftJson?: string | null;
+}
+
+export type CreateEditMode = 'Blank' | 'Copy' | 'Range';
+
+export interface CreateEditBody {
+  name: string;
+  format: EditFormat;
+  category?: string | null;
+  tags?: string[];
+  mode: CreateEditMode;
+  sourceEditId?: string | null;
+  rangeStart?: number | null;
+  rangeEnd?: number | null;
+}
+
+export interface UpdateEditBody {
+  name?: string;
+  format?: EditFormat;
+  category?: string;
+  tags?: string[];
+}
+
+export interface SaveEditDraftBody {
+  draftJson: string;
+  durationSeconds: number;
+  clipCount: number;
+  thumbnailAssetId?: string | null;
+  clearPendingRange?: boolean;
+}
+
+/** Output size per format, matching the editor's export presets. */
+export const EDIT_FORMATS: { value: EditFormat; label: string; ratio: string; width: number; height: number }[] = [
+  { value: 'Video', label: 'Video', ratio: '16:9', width: 1920, height: 1080 },
+  { value: 'Short', label: 'Short / Reel', ratio: '9:16', width: 1080, height: 1920 },
+  { value: 'Square', label: 'Square', ratio: '1:1', width: 1080, height: 1080 },
+];
+
+/** Suggested categories; any text is allowed. */
+export const EDIT_CATEGORY_SUGGESTIONS = ['Full video', 'Short', 'Teaser', 'Highlight', 'Trailer', 'Reel', 'Clip'];

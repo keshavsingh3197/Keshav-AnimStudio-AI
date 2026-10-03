@@ -1,5 +1,5 @@
 import { Injectable, computed, inject, signal, OnDestroy } from '@angular/core';
-import { catchError, concatMap, finalize, from, map, of } from 'rxjs';
+import { catchError, concatMap, finalize, forkJoin, from, map, of } from 'rxjs';
 
 import {
   Clip, ClipAudioBody, ClipFit, ClipOrder, ClipStudio, ExportQuality, MAX_CLIP_GAIN, RenderJob, ExportTimelineFormat,
@@ -8,6 +8,7 @@ import {
   TimelineItem, TimelineItemType, TrackControlState, TimelineItemTransform, TimelineItemTextStyle,
   EraseRegion, EraseSource, EraseStyle, MAX_ERASE_REGIONS, MIN_ERASE_SIZE,
   ERASE_DEFAULT_FEATHER, ERASE_DEFAULT_STRENGTH,
+  EDIT_FORMATS, EditFormat, ProjectEdit, SaveEditDraftBody,
 } from '../../../core/models/api.models';
 import { ApiService } from '../../../core/services/api.service';
 import { ProjectStore } from '../../../core/services/project-store';
@@ -78,6 +79,13 @@ export class StudioStateService implements OnDestroy {
    * project is dropped - so one project's timeline can never be written into another.
    */
   private loadedProjectId: string | null = null;
+
+  /** The cut (video / Short) whose timeline is open. Saves go to it and only it. */
+  private loadedEditId: string | null = null;
+  readonly currentEdit = signal<ProjectEdit | null>(null);
+
+  /** The open cut's shape; null falls back to the project's canvas. */
+  readonly editFormat = computed<EditFormat | null>(() => this.currentEdit()?.format ?? null);
   private destroyed = false;
 
   constructor() {
@@ -683,11 +691,15 @@ export class StudioStateService implements OnDestroy {
 
   // Project Aspect and Format
   readonly format = computed(() => {
+    const ef = this.editFormat();
+    if (ef) return ef;
     const project = this.store.project();
     return project ? videoFormat(project.width, project.height) : 'Video';
   });
 
   readonly aspect = computed(() => {
+    const ef = this.editFormat();
+    if (ef) return EDIT_FORMATS.find((f) => f.value === ef)?.ratio ?? '16:9';
     const project = this.store.project();
     return project ? aspectRatioLabel(project.width, project.height) : '';
   });
@@ -4013,8 +4025,24 @@ export class StudioStateService implements OnDestroy {
       feather: num(r.feather, 0, 100, ERASE_DEFAULT_FEATHER),
       opacity: num(r.opacity, 0, 100, 100),
       source: sources.includes(r.source as EraseSource) ? r.source : 'Auto',
+      keepCornerMark: r.keepCornerMark === true,
     };
   }
+
+  /**
+   * False when the clip under the playhead has a "My mark" box that replaces the corner
+   * watermark - the export then draws the mark only in the box, so the preview must too.
+   */
+  readonly monitorShowsCornerWatermark = computed<boolean>(() => {
+    if (!this.watermarkCanReplace()) return true;
+    return !this.monitorEraseRegions().some((m) => m.region.style === 'Brand' && !m.region.keepCornerMark);
+  });
+
+  /** A Brand box can only stand in for the corner mark when there is a mark to draw. */
+  private readonly watermarkCanReplace = computed<boolean>(() => {
+    const wm = this.effectiveWatermark();
+    return wm.kind === 'Logo' ? !!wm.logoAssetId : wm.kind === 'Text' ? !!wm.text?.trim() : false;
+  });
 
   /** The erase box being edited: highlighted on the monitor, expanded in the inspector. */
   readonly selectedEraseIndex = signal<number | null>(null);
@@ -6433,16 +6461,19 @@ export class StudioStateService implements OnDestroy {
       this.autoSaveTimer = null;
     }
 
+    const editId = this.loadedEditId;
+    if (!editId) return;
+
     const draftData = this.buildDraftData();
     const draftJson = JSON.stringify(draftData);
 
-    localStorage.setItem(`${DRAFT_KEY_PREFIX}${projectId}`, draftJson);
+    this.writeLocalDraft(projectId, editId, draftJson);
     this.hasUnsavedChanges.set(false);
     this.lastSavedTime.set(draftData.savedAt);
     this.restoredDraftTime.set(null);
     this.status.notify(['Saved to database & local storage.']);
 
-    this.api.saveStudioDraft(projectId, draftJson).subscribe({
+    this.persistEditDraft(projectId, editId, draftJson).subscribe({
       next: () => {},
       error: (err) => console.warn('Failed to sync draft to server', err),
     });
@@ -6450,19 +6481,135 @@ export class StudioStateService implements OnDestroy {
 
   autoSaveDraft(): void {
     const projectId = this.loadedProjectId;
-    if (!this.ownsCurrentProject(projectId) || !this.hasUnsavedChanges()) return;
+    const editId = this.loadedEditId;
+    if (!this.ownsCurrentProject(projectId) || !editId || !this.hasUnsavedChanges()) return;
 
     const draftData = this.buildDraftData();
     const draftJson = JSON.stringify(draftData);
 
-    localStorage.setItem(`${DRAFT_KEY_PREFIX}${projectId}`, draftJson);
+    this.writeLocalDraft(projectId, editId, draftJson);
 
-    this.api.saveStudioDraft(projectId, draftJson).subscribe({
+    this.persistEditDraft(projectId, editId, draftJson).subscribe({
       next: () => {
+        // Only if the same cut is still open - a late reply must not mark another one saved.
+        if (this.loadedEditId !== editId) return;
         this.hasUnsavedChanges.set(false);
         this.lastSavedTime.set(draftData.savedAt);
       },
       error: (err) => console.warn('Auto-save failed to sync to server', err),
+    });
+  }
+
+  private localDraftKey(projectId: string, editId: string): string {
+    return `${DRAFT_KEY_PREFIX}${projectId}:${editId}`;
+  }
+
+  private writeLocalDraft(projectId: string, editId: string, draftJson: string): void {
+    try {
+      localStorage.setItem(this.localDraftKey(projectId, editId), draftJson);
+    } catch {
+      // A full or blocked storage only loses the offline copy; the server has the draft.
+    }
+  }
+
+  /** The draft plus what the "Videos & Shorts" page shows without opening it. */
+  private persistEditDraft(projectId: string, editId: string, draftJson: string, clearPendingRange = false) {
+    const included = this.included();
+    const first = included[0]?.clip;
+    const body: SaveEditDraftBody = {
+      draftJson,
+      durationSeconds: Math.round(this.totalSeconds() * 100) / 100,
+      clipCount: included.length,
+      thumbnailAssetId: first ? this.resolveAssetId(first) : null,
+      clearPendingRange,
+    };
+    return this.api.saveEditDraft(projectId, editId, body);
+  }
+
+  /**
+   * Cuts the open timeline down to [start, end) seconds - how a Short is carved out of the
+   * full video. Clips and overlays outside are dropped (clips are only taken out of the
+   * cut, not deleted), the ones straddling an edge are trimmed, and everything shifts so
+   * the kept part starts at zero.
+   */
+  applyRange(start: number, end: number): void {
+    if (!(end > start)) return;
+
+    const schedule = this.clipSchedule();
+    const byRow = new Map(schedule.map((s) => [s.row, s] as const));
+    this.rows.update((rows) => rows.map((row) => {
+      const s = byRow.get(row);
+      if (!s) return row;
+      if (s.endSeconds <= start || s.startSeconds >= end) return { ...row, included: false };
+      const head = Math.max(0, start - s.startSeconds);
+      const tail = Math.max(0, s.endSeconds - end);
+      if (head === 0 && tail === 0) return row;
+      const dur = s.durationSeconds;
+      const trimStart = row.clip.trimStartSeconds ?? 0;
+      const trimEnd = row.clip.trimEndSeconds ?? trimStart + dur;
+      return {
+        ...row,
+        clip: {
+          ...row.clip,
+          trimStartSeconds: trimStart + head,
+          trimEndSeconds: trimEnd - tail,
+          durationSeconds: dur - head - tail,
+        },
+      };
+    }));
+
+    this.timelineItems.update((items) => items.flatMap((it) => {
+      const itEnd = it.startTime + it.duration;
+      if (itEnd <= start || it.startTime >= end) return [];
+      const head = Math.max(0, start - it.startTime);
+      const duration = Math.min(itEnd, end) - Math.max(it.startTime, start);
+      const next: TimelineItem = { ...it, startTime: Math.max(0, it.startTime - start), duration };
+      if (it.trimStartSeconds !== undefined || head > 0) next.trimStartSeconds = (it.trimStartSeconds ?? 0) + head;
+      if (it.trimEndSeconds !== undefined) next.trimEndSeconds = (next.trimStartSeconds ?? 0) + duration;
+      return [next];
+    }));
+
+    this.musicTracks.update((tracks) => tracks.flatMap((t) => {
+      const len = t.trimEndSeconds !== null ? t.trimEndSeconds - (t.trimStartSeconds ?? 0) : Infinity;
+      const tEnd = t.startSeconds + len;
+      if (tEnd <= start || t.startSeconds >= end) return [];
+      const head = Math.max(0, start - t.startSeconds);
+      const trimStart = (t.trimStartSeconds ?? 0) + head;
+      const kept = Math.min(tEnd, end) - Math.max(t.startSeconds, start);
+      return [{
+        ...t,
+        startSeconds: Math.max(0, t.startSeconds - start),
+        trimStartSeconds: trimStart,
+        trimEndSeconds: tEnd > end ? trimStart + kept : t.trimEndSeconds,
+      }];
+    }));
+  }
+
+  // --- the other cuts of this project, for the header's switcher ---
+
+  readonly projectEdits = signal<ProjectEdit[]>([]);
+
+  refreshProjectEdits(): void {
+    const projectId = this.loadedProjectId;
+    if (!this.ownsCurrentProject(projectId)) return;
+    this.api.listEdits(projectId).subscribe({
+      next: (list) => { if (this.loadedProjectId === projectId) this.projectEdits.set(list); },
+      error: () => {},
+    });
+  }
+
+  /** Renames the open cut or changes its format, from inside the editor. */
+  updateCurrentEdit(patch: { name?: string; format?: EditFormat }): void {
+    const projectId = this.loadedProjectId;
+    const editId = this.loadedEditId;
+    if (!this.ownsCurrentProject(projectId) || !editId) return;
+    this.api.updateEdit(projectId, editId, patch).subscribe({
+      next: (e) => {
+        if (this.loadedEditId !== editId) return;
+        this.currentEdit.set(e);
+        this.projectEdits.update((list) => list.map((x) => (x.id === e.id ? e : x)));
+      },
+      error: () => this.status.error.set('Could not update this video.'),
     });
   }
 
@@ -6474,29 +6621,40 @@ export class StudioStateService implements OnDestroy {
 
   discardDraft(): void {
     const projectId = this.loadedProjectId;
-    if (this.ownsCurrentProject(projectId)) {
-      localStorage.removeItem(`${DRAFT_KEY_PREFIX}${projectId}`);
-      this.api.saveStudioDraft(projectId, '').subscribe({
-        next: () => {},
-        error: (err) => console.warn('Failed to clear draft on server', err),
-      });
+    const editId = this.loadedEditId;
+    if (this.ownsCurrentProject(projectId) && editId) {
+      // The restored copy only ever comes from this browser; the server never had it.
+      localStorage.removeItem(this.localDraftKey(projectId, editId));
     }
     this.restoredDraftTime.set(null);
     this.loadStudio();
     this.status.notify(['Draft discarded.']);
   }
 
-  loadStudio(): void {
+  /**
+   * Loads the project's clips and the timeline of one cut. Called again with another
+   * cut's id to switch to it; with no id, reloads the open one.
+   */
+  loadStudio(editId?: string): void {
     const projectId = this.store.projectId();
-    if (!projectId || this.destroyed) return;
+    editId = editId ?? this.loadedEditId ?? undefined;
+    if (!projectId || !editId || this.destroyed) return;
 
-    if (this.loadedProjectId !== projectId) {
-      // A different project: nothing from the previous one may survive into this one -
-      // not a pending auto-save, not a render being polled, not its clips or timeline.
+    const switchingEdit = this.loadedProjectId === projectId && this.loadedEditId !== null && this.loadedEditId !== editId;
+    if (switchingEdit && this.hasUnsavedChanges()) {
+      // Written to the cut being left, before anything below forgets it.
+      this.autoSaveDraft();
+    }
+
+    if (this.loadedProjectId !== projectId || this.loadedEditId !== editId) {
+      // A different project or cut: nothing from the previous one may survive into this
+      // one - not a pending auto-save, not a render being polled, not its clips or timeline.
       if (this.autoSaveTimer) {
         clearTimeout(this.autoSaveTimer);
         this.autoSaveTimer = null;
       }
+      this.currentEdit.set(null);
+      this.selectedEraseIndex.set(null);
       this.stopPolling();
       this.stopExportTimer();
       this.job.set(null);
@@ -6529,46 +6687,73 @@ export class StudioStateService implements OnDestroy {
       this.restoredDraftTime.set(null);
     }
     this.loadedProjectId = projectId;
+    this.loadedEditId = editId;
+    const loadingEditId = editId;
 
-    this.api.clipStudio(projectId).subscribe({
-      next: (studio: ClipStudio) => {
-        // A reply for a project that is no longer open belongs to nobody.
-        if (this.destroyed || !this.ownsCurrentProject(projectId) || this.loadedProjectId !== projectId) return;
+    forkJoin({ studio: this.api.clipStudio(projectId), edit: this.api.getEdit(projectId, editId) }).subscribe({
+      next: ({ studio, edit }: { studio: ClipStudio; edit: ProjectEdit }) => {
+        // A reply for a project or cut that is no longer open belongs to nobody.
+        if (this.destroyed || !this.ownsCurrentProject(projectId) || this.loadedProjectId !== projectId
+          || this.loadedEditId !== loadingEditId) return;
         this.studio.set(studio);
+        this.currentEdit.set({ ...edit, draftJson: undefined });
+        this.refreshProjectEdits();
+
+        // The first cut is the project's original timeline; any other cut created blank
+        // starts with nothing in it, so the user picks what goes in.
+        const isMainCut = edit.id.startsWith('main-');
+        const startsEmpty = !edit.draftJson && !isMainCut && !edit.sourceEditId;
         const rowList: ClipRow[] = (studio.clips || [])
           .filter((clip) => this.getClipType(clip) !== 'audio')
           .filter((clip) => this.getClipType(clip) === 'video')
           .map((clip) => ({
             clip,
-            included: true,
+            included: !startsEmpty,
           }));
         this.rows.set(rowList);
 
         // Check for server draft first
-        if (studio.studioDraftJson) {
+        if (edit.draftJson) {
           try {
-            const serverDraft = JSON.parse(studio.studioDraftJson);
+            const serverDraft = JSON.parse(edit.draftJson);
             this.applyDraft(serverDraft);
             this.hasUnsavedChanges.set(false);
             this.lastSavedTime.set(serverDraft.savedAt || 'Saved');
             this.restoredDraftTime.set(null);
-            localStorage.setItem(`${DRAFT_KEY_PREFIX}${projectId}`, studio.studioDraftJson);
+
+            // A cut made from part of another: trim the copied timeline once, then save
+            // it so the server forgets the range.
+            if (edit.pendingRangeStart !== null && edit.pendingRangeEnd !== null) {
+              this.applyRange(edit.pendingRangeStart, edit.pendingRangeEnd);
+              const trimmed = JSON.stringify(this.buildDraftData());
+              this.writeLocalDraft(projectId, loadingEditId, trimmed);
+              this.persistEditDraft(projectId, loadingEditId, trimmed, true).subscribe({
+                next: (saved) => { if (this.loadedEditId === loadingEditId) this.currentEdit.set(saved); },
+                error: (err) => console.warn('Failed to save the trimmed cut', err),
+              });
+              this.status.notify([`Kept ${this.formatTimecode(edit.pendingRangeStart)} – ${this.formatTimecode(edit.pendingRangeEnd)} of the original.`]);
+            } else {
+              this.writeLocalDraft(projectId, loadingEditId, edit.draftJson);
+            }
             return;
           } catch (e) {
             console.warn('Failed to parse server draft', e);
           }
         }
 
-        // Fallback to local draft if server draft is absent
-        const draftJson = localStorage.getItem(`${DRAFT_KEY_PREFIX}${projectId}`);
+        // Fallback to local draft if server draft is absent. The first cut also looks
+        // under the key used before a project could have several.
+        const draftJson = localStorage.getItem(this.localDraftKey(projectId, loadingEditId))
+          ?? (isMainCut ? localStorage.getItem(`${DRAFT_KEY_PREFIX}${projectId}`) : null);
         if (draftJson) {
           try {
             const localDraft = JSON.parse(draftJson);
             this.applyDraft(localDraft);
             this.restoredDraftTime.set(localDraft.savedAt || 'Unknown');
             // Auto-migrate local draft to server database
-            this.api.saveStudioDraft(projectId, draftJson).subscribe({
+            this.persistEditDraft(projectId, loadingEditId, draftJson).subscribe({
               next: () => {
+                if (this.loadedEditId !== loadingEditId) return;
                 this.hasUnsavedChanges.set(false);
                 this.lastSavedTime.set(localDraft.savedAt || 'Saved');
                 this.restoredDraftTime.set(null);
@@ -6580,6 +6765,8 @@ export class StudioStateService implements OnDestroy {
             console.warn('Failed to parse local draft', e);
           }
         }
+
+        if (startsEmpty) return;
 
         // If no draft exists, initialize image overlays on IMG1
         const initialImages = (studio.clips || []).filter((clip) => this.getClipType(clip) === 'image');
@@ -6946,10 +7133,19 @@ export class StudioStateService implements OnDestroy {
       const projName = this.store.project()?.name || 'AnimStudio';
       const now = new Date();
       const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-      this.exportName.set(`${projName} - Export ${dateStr}`);
+      const cut = this.currentEdit()?.name;
+      this.exportName.set(cut ? `${projName} - ${cut} ${dateStr}` : `${projName} - Export ${dateStr}`);
     }
     const proj = this.store.project();
-    if (proj && proj.width && proj.height) {
+    const ef = this.editFormat();
+    if (ef === 'Short') {
+      this.exportResolution.set('short_9_16');
+    } else if (ef === 'Square') {
+      this.exportResolution.set('square_1_1');
+    } else if (ef === 'Video' && proj && proj.height >= proj.width) {
+      // A landscape cut of a vertical project.
+      this.exportResolution.set('1080p');
+    } else if (proj && proj.width && proj.height) {
       if (proj.width === 1080 && proj.height === 1920) {
         this.exportResolution.set('short_9_16');
       } else if (proj.width === 1080 && proj.height === 1080) {

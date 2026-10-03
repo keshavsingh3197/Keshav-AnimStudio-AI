@@ -48,6 +48,12 @@ export const routes: Routes = [
           import('./features/assets/asset-library.component').then((m) => m.AssetLibraryComponent),
       },
       {
+        path: 'videos',
+        title: 'Videos & Shorts - AnimStudio AI',
+        loadComponent: () =>
+          import('./features/videos/videos-page.component').then((m) => m.VideosPageComponent),
+      },
+      {
         path: 'clips',
         title: 'Video editor - AnimStudio AI',
         loadComponent: () =>
