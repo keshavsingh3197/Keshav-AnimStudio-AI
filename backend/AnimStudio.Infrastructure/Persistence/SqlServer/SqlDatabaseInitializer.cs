@@ -172,7 +172,10 @@ public sealed class SqlDatabaseInitializer(
     /// </summary>
     private async Task EnableReadCommittedSnapshotAsync(SqlConnection masterConn, string targetDb, CancellationToken ct)
     {
+        // NO_WAIT alone does not stop the ALTER queueing for the exclusive database lock, so
+        // without LOCK_TIMEOUT it hangs until the command timeout whenever SSMS is connected.
         const string sql = """
+            SET LOCK_TIMEOUT 5000;
             IF EXISTS (SELECT 1 FROM sys.databases WHERE name = @Db AND is_read_committed_snapshot_on = 0)
             BEGIN
                 DECLARE @Alter NVARCHAR(400) = N'ALTER DATABASE ' + QUOTENAME(@Db) + N' SET READ_COMMITTED_SNAPSHOT ON WITH NO_WAIT';
@@ -188,13 +191,13 @@ public sealed class SqlDatabaseInitializer(
 
         try
         {
-            await using var cmd = new SqlCommand(sql, masterConn);
+            await using var cmd = new SqlCommand(sql, masterConn) { CommandTimeout = 15 };
             cmd.Parameters.AddWithValue("@Db", targetDb);
             var changed = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
             if (changed is 1)
                 logger.LogInformation("Enabled READ_COMMITTED_SNAPSHOT on {Database}.", targetDb);
         }
-        catch (SqlException ex) when (ex.Number == 5070)
+        catch (SqlException ex) when (IsBlockedByOtherSessions(ex))
         {
             // Expected while SSMS or another app instance has the database open - no stack trace needed.
             var holders = await DescribeOtherSessionsAsync(masterConn, targetDb, ct).ConfigureAwait(false);
@@ -208,6 +211,13 @@ public sealed class SqlDatabaseInitializer(
             logger.LogWarning(ex, "Could not enable READ_COMMITTED_SNAPSHOT on {Database}.", targetDb);
         }
     }
+
+    /// <summary>
+    /// The ways SQL Server reports "someone else has the database": 5070 (other users), 5061 and
+    /// 1222 (lock not granted / lock timeout), and -2 (client command timeout while waiting).
+    /// </summary>
+    private static bool IsBlockedByOtherSessions(SqlException ex) =>
+        ex.Number is 5070 or 5061 or 1222 or -2;
 
     /// <summary>Names the programs holding the database open, so the warning says what to close.</summary>
     private async Task<string> DescribeOtherSessionsAsync(SqlConnection masterConn, string targetDb, CancellationToken ct)
