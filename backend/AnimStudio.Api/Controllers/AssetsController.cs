@@ -11,6 +11,8 @@ using AnimStudio.Domain.Assets;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
+using AnimStudio.Infrastructure.Storage;
+
 namespace AnimStudio.Api.Controllers;
 
 [ApiController]
@@ -23,6 +25,7 @@ public sealed class AssetsController(
     AssetLibraryService library,
     IOptions<IngestOptions> ingestOptions,
     ICurrentUser currentUser,
+    AppDataPaths dataPaths,
     TimeProvider clock) : ControllerBase
 {
     /// <summary>
@@ -58,7 +61,7 @@ public sealed class AssetsController(
         await EnsureOwnedAsync(projectId, ct);
 
         var list = await assets.ListByProjectAsync(projectId, ct);
-        _ = Task.Run(() => PrewarmThumbnails(list));
+        _ = Task.Run(() => PrewarmThumbnails(list, dataPaths));
 
         return Ok(ApiResponse<IReadOnlyList<AssetResponse>>.Ok(
             [.. list.Select(a => a.ToResponse())]));
@@ -222,27 +225,25 @@ public sealed class AssetsController(
     }
 
     private static readonly SemaphoreSlim ThumbLock = new(3, 3);
-    private static readonly string ThumbDir = @"D:\AI_STUDIO\thumbnails";
+    private string ThumbDir => dataPaths.Thumbnails;
 
-    private static void PrewarmThumbnails(IReadOnlyList<AnimStudio.Domain.Assets.Asset> assetList)
+    private static void PrewarmThumbnails(IReadOnlyList<AnimStudio.Domain.Assets.Asset> assetList, AppDataPaths paths)
     {
         try
         {
-            Directory.CreateDirectory(ThumbDir);
+            var thumbDir = paths.Thumbnails;
+            Directory.CreateDirectory(thumbDir);
 
             foreach (var a in assetList)
             {
                 if (a.Kind != AnimStudio.Domain.Assets.AssetKind.Video && !a.MimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase))
                     continue;
 
-                var thumbPath = Path.Combine(ThumbDir, $"{a.Id}.jpg");
+                var thumbPath = Path.Combine(thumbDir, $"{a.Id}.jpg");
                 if (System.IO.File.Exists(thumbPath)) continue;
 
-                var videoPath = Path.IsPathRooted(a.StorageKey)
-                    ? a.StorageKey
-                    : Path.Combine("D:", "AI_STUDIO", "objects", a.StorageKey.Replace('/', Path.DirectorySeparatorChar));
-
-                if (!System.IO.File.Exists(videoPath)) continue;
+                var videoPath = paths.ObjectPath(a.StorageKey);
+                if (videoPath is null || !System.IO.File.Exists(videoPath)) continue;
 
                 try
                 {
@@ -333,11 +334,9 @@ public sealed class AssetsController(
                     return PhysicalFile(thumbPath, "image/jpeg");
                 }
 
-                var videoPath = Path.IsPathRooted(meta.StorageKey)
-                    ? meta.StorageKey
-                    : Path.Combine("D:", "AI_STUDIO", "objects", meta.StorageKey.Replace('/', Path.DirectorySeparatorChar));
+                var videoPath = dataPaths.ObjectPath(meta.StorageKey);
 
-                if (System.IO.File.Exists(videoPath))
+                if (videoPath is not null && System.IO.File.Exists(videoPath))
                 {
                     await ThumbLock.WaitAsync(ct);
                     try
@@ -403,7 +402,7 @@ public sealed class AssetsController(
     }
 
     /// <summary>
-    /// Purges the on-disk thumbnail cache under D:/AI_STUDIO/temp/thumbnails.
+    /// Purges the on-disk thumbnail cache under &lt;DataRoot&gt;/thumbnails.
     /// </summary>
     [HttpDelete("api/assets/thumbnails/cache")]
     public IActionResult ClearThumbnailCache()

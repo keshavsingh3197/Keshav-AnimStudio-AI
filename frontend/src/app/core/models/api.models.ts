@@ -10,6 +10,8 @@ export interface ApiError {
   code: string;
   message: string;
   field?: string;
+  hint?: string;
+  detail?: string;
 }
 
 export interface Project {
