@@ -28,6 +28,7 @@ using AnimStudio.Infrastructure.Ffmpeg.Graph;
 using AnimStudio.Infrastructure.Ingest;
 using AnimStudio.Infrastructure.Jobs;
 using AnimStudio.Infrastructure.Persistence;
+using AnimStudio.Infrastructure.Releases;
 using AnimStudio.Infrastructure.Persistence.SqlServer;
 using AnimStudio.Infrastructure.Storage;
 using AnimStudio.Infrastructure.Subtitles;
@@ -228,6 +229,7 @@ public static class DependencyInjection
         services.AddScoped<IMediaProbeService, FfprobeMediaProbeService>();
         services.AddSingleton<YtDlpMediaDownloader>();
         services.AddSingleton<FfmpegVideoChunker>();
+        services.AddSingleton<FfmpegReleaseKitBuilder>();
         services.AddScoped<ProjectRenderOrchestrator>();
 
         // The clip stitch. Shares the queue, the workspace and the merge with the project

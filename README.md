@@ -57,6 +57,11 @@ Craft viral Shorts, Reels, YouTube videos, animated stories, and narrated slides
 - **Timeline Music Cues**: Place multiple audio tracks at specific timestamps with independent volume sliders.
 - **Intelligent Audio Ducking**: Automatically lower or mute video sound when a background music cue begins playing.
 
+### 🎵 Music Release Kit
+- **Distributor-Ready Master**: Two-pass loudness normalisation to -14 LUFS / -1 dBTP (or -16 / -11), 16- or 24-bit WAV at 44.1/48/96 kHz.
+- **Artwork & Promo Videos**: 3000×3000 cover, a full-length 16:9 YouTube visualizer, and an 8-second 9:16 loop for Spotify Canvas, Reels and Shorts.
+- **Release Sheet**: Metadata checked the way distributors check it (ISRC, UPC check digit, credits-in-title), exported as a copy-paste sheet and JSON. Upload the kit to the distributor of your choice; stores only accept releases through distributors.
+
 ### 🎨 Color Grading & Effects
 - **9 Cinematic LUT Filter Presets**: Natural, Cinematic Warm, Cool Sci-Fi, Vivid Pop, Golden Hour, Teal & Orange, Cyberpunk, Film Noir, and Faded 90s.
 - **Text & Logo Watermarks**: Positionable text or logo watermarks (Top-Left, Top-Right, Bottom-Left, Bottom-Right, Center) with font and opacity controls.

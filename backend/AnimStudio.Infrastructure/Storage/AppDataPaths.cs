@@ -29,6 +29,7 @@ public sealed class AppDataPaths
 
     public string Downloads => Path.Combine(Root, "downloads");
     public string Chunks => Path.Combine(Root, "chunks");
+    public string Releases => Path.Combine(Root, "releases");
     public string Thumbnails => Path.Combine(Root, "thumbnails");
     public string Logs => Path.Combine(Root, "logs");
     public string Temp => Path.Combine(Root, "temp");
@@ -49,7 +50,7 @@ public sealed class AppDataPaths
 
     public void EnsureCreated()
     {
-        foreach (var dir in new[] { Root, Objects, Downloads, Chunks, Thumbnails, Logs, Temp })
+        foreach (var dir in new[] { Root, Objects, Downloads, Chunks, Releases, Thumbnails, Logs, Temp })
             Directory.CreateDirectory(dir);
     }
 

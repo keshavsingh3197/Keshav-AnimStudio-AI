@@ -34,6 +34,9 @@ import { StatusService } from '../core/services/status.service';
           <a routerLink="/tools" routerLinkActive="active" class="topbar-navlink">
             <span class="topbar-navlink-icon">🎞</span> Media Studio
           </a>
+          <a routerLink="/release" routerLinkActive="active" class="topbar-navlink">
+            <span class="topbar-navlink-icon">🎵</span> Music Release
+          </a>
           <a routerLink="/logs" routerLinkActive="active" class="topbar-navlink">
             <span class="topbar-navlink-icon">📜</span> Logs
             @if (status.logEntries().length > 0) {
@@ -99,6 +102,7 @@ import { StatusService } from '../core/services/status.service';
         <nav class="app-footer-links" aria-label="Footer">
           <a routerLink="/projects">Projects</a>
           <a routerLink="/tools">Media Studio</a>
+          <a routerLink="/release">Music Release</a>
           <a routerLink="/logs">Logs</a>
           @if (access()?.canAdminister) {
             <a routerLink="/admin">Settings</a>

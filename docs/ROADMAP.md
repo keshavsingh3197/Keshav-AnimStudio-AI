@@ -178,6 +178,13 @@ Order is dependency-driven. `P3` unlocks most of the rest.
 - [ ] **A11.4** Batch: playlist, multiple URLs, or a spreadsheet of URLs → queued runs with a concurrency cap
 - [ ] **A11.5** Multi-language dub: translated script + per-language TTS + per-language subtitle track
 
+### P13 — Music release — [detail](plans/P13-music-release.md)
+- [x] **A13.1** Release kit: loudness-normalised WAV master, 3000×3000 cover, visualizer, promo loop, release sheet
+- [ ] **A13.2** Upload the visualizer to YouTube (OAuth, `youtube.upload` scope, tokens in Key Vault)
+- [ ] **A13.3** Direct upload to Audius
+- [ ] **A13.4** Build a release kit and lyric video from a rendered project
+- [ ] **A13.5** DDEX ERN metadata export (exploratory)
+
 ### P12 — Hardening — [detail](plans/P12-hardening.md)
 - [ ] **A12.1** Rate limiting and request size caps on every ingest/AI endpoint
 - [ ] **A12.2** Structured logging with personal-data scrubbing on the AI and ingest paths

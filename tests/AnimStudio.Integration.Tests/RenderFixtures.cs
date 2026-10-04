@@ -22,6 +22,9 @@ public static class RenderFixtures
         Run($"-y -f lavfi -i \"sine=frequency={frequency}:duration={seconds}\" "
           + $"-ar 48000 -ac 2 \"{path}\"");
 
+    public static void MakeSilence(string path, double seconds) =>
+        Run($"-y -f lavfi -i \"anullsrc=r=48000:cl=stereo\" -t {seconds.ToString(System.Globalization.CultureInfo.InvariantCulture)} \"{path}\"");
+
     private static void Run(string arguments)
     {
         using var process = Process.Start(new ProcessStartInfo(FfmpegLocator.FfmpegPath)

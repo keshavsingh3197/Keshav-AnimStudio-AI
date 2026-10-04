@@ -104,6 +104,14 @@ export const routes: Routes = [
   },
 
   {
+    path: 'release',
+    title: 'Music Release Kit - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/release-kit/release-kit.component')
+        .then((m) => m.ReleaseKitComponent),
+  },
+
+  {
     path: 'logs',
     title: 'Application Logs - AnimStudio AI',
     loadComponent: () =>
