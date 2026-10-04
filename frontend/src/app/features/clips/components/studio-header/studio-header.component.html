@@ -8,7 +8,40 @@
         {{ state.store.project()?.name ?? 'Project' }}
       </a>
       <span class="muted">/</span>
-      <span>Video Studio</span>
+      <a [routerLink]="['/projects', state.store.projectId(), 'videos']" class="muted crumb-link"
+         title="All videos and Shorts of this project">Videos &amp; Shorts</a>
+      <span class="muted">/</span>
+      <div class="cut-switch">
+        <button type="button" class="cut-btn" (click)="cutMenuOpen.set(!cutMenuOpen())"
+                [title]="'Switch to another video or Short of this project'">
+          <span class="cut-name">{{ state.currentEdit()?.name ?? 'Loading…' }}</span>
+          <span class="cut-caret">▾</span>
+        </button>
+        @if (cutMenuOpen()) {
+          <div class="cut-backdrop" (click)="cutMenuOpen.set(false)"></div>
+          <div class="cut-menu" role="menu">
+            <div class="cut-menu-title">This project's videos</div>
+            @for (e of state.projectEdits(); track e.id) {
+              <a class="cut-item" role="menuitem" [class.active]="e.id === state.currentEdit()?.id"
+                 [routerLink]="[]" [queryParams]="{ edit: e.id }" queryParamsHandling="merge"
+                 (click)="cutMenuOpen.set(false)">
+                <span class="cut-fmt" [class]="'cut-fmt fmt-' + e.format.toLowerCase()">{{ fmtLabel(e.format) }}</span>
+                <span class="cut-item-name">{{ e.name }}</span>
+                <span class="cut-item-dur">{{ duration(e.durationSeconds) }}</span>
+              </a>
+            }
+            <div class="cut-menu-sep"></div>
+            <a class="cut-item cut-action" [routerLink]="['/projects', state.store.projectId(), 'videos']"
+               [queryParams]="{ create: 1, from: state.currentEdit()?.id }" (click)="cutMenuOpen.set(false)">
+              + New video or Short from this one…
+            </a>
+            <a class="cut-item cut-action" [routerLink]="['/projects', state.store.projectId(), 'videos']"
+               (click)="cutMenuOpen.set(false)">
+              ▦ Manage all videos &amp; Shorts
+            </a>
+          </div>
+        }
+      </div>
       <span [class]="state.formatClass()" style="margin-left: .4rem">
         {{ state.format() }} · {{ state.aspect() }}
       </span>

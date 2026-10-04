@@ -85,9 +85,44 @@ public sealed class AiSettings
     public OutroSettings? DefaultOutro { get; set; }
 
     /// <summary>
+    /// Display name of the built-in channel that <see cref="DefaultWatermark"/> and
+    /// <see cref="DefaultOutro"/> belong to.
+    /// </summary>
+    public string DefaultChannelName { get; set; } = "Default";
+
+    /// <summary>
+    /// Further channels (one per YouTube channel or brand), each with its own watermark and
+    /// end card. The built-in default is not in this list.
+    /// </summary>
+    public List<BrandChannel> Channels { get; set; } = [];
+
+    /// <summary>The named channel; null for the default, and for an id that no longer exists.</summary>
+    public BrandChannel? FindChannel(string? channelId) =>
+        BrandChannel.IsDefault(channelId)
+            ? null
+            : Channels.FirstOrDefault(c => string.Equals(c.Id, channelId, StringComparison.Ordinal));
+
+    /// <summary>
+    /// A channel's watermark. A deleted channel falls back to the default rather than
+    /// leaving its projects unbranded.
+    /// </summary>
+    public WatermarkSettings? WatermarkFor(string? channelId) =>
+        FindChannel(channelId)?.Watermark ?? DefaultWatermark;
+
+    /// <summary>A channel's end card, with the same fallback as <see cref="WatermarkFor"/>.</summary>
+    public OutroSettings? OutroFor(string? channelId) =>
+        FindChannel(channelId)?.Outro ?? DefaultOutro;
+
+    /// <summary>
     /// Global default duration in seconds when chunking or splitting videos (default: 10.0s).
     /// </summary>
     public double DefaultChunkDurationSeconds { get; set; } = 10.0;
+
+    /// <summary>
+    /// The space set aside for durable media, in GB - what the storage bar fills against.
+    /// Null: no quota, and the bar shows the drive's own capacity instead.
+    /// </summary>
+    public double? StorageQuotaGb { get; set; }
 
     /// <summary>
     /// Whether downloading media from external URLs is enabled.

@@ -3,11 +3,12 @@ import { FormsModule } from '@angular/forms';
 import { DecimalPipe } from '@angular/common';
 import { StudioStateService } from '../../../services/studio-state.service';
 import { ScopeBarComponent } from './scope-bar.component';
+import { EraseWatermarkPanelComponent } from './erase-watermark-panel.component';
 
 @Component({
   selector: 'app-transform-inspector',
   standalone: true,
-  imports: [FormsModule, DecimalPipe, ScopeBarComponent],
+  imports: [FormsModule, DecimalPipe, ScopeBarComponent, EraseWatermarkPanelComponent],
   templateUrl: './transform-inspector.component.html',
   styleUrl: './transform-inspector.component.css',
 })

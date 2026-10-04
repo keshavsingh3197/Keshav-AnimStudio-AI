@@ -76,6 +76,7 @@ public static class DependencyInjection
 
         // Adapts the package's IObjectStore to the Application layer's own port.
         services.AddSingleton<AppObjectStore, KeshavObjectStoreAdapter>();
+        services.AddSingleton<IStorageUsageService, LocalStorageUsageService>();
         // --- persistence: Dual database support (SqlServer on localhost or Mongo)
         var dbProvider = configuration["Database:Provider"] ?? "SqlServer";
         var useSqlServer = string.Equals(dbProvider, "SqlServer", StringComparison.OrdinalIgnoreCase);
@@ -97,6 +98,7 @@ public static class DependencyInjection
             services.AddScoped<ISceneRepository, SqlSceneRepository>();
             services.AddScoped<IAssetRepository, SqlAssetRepository>();
             services.AddScoped<IAssetFolderRepository, SqlAssetFolderRepository>();
+            services.AddScoped<IProjectEditRepository, SqlProjectEditRepository>();
             services.AddScoped<IScriptRepository, SqlScriptRepository>();
             services.AddScoped<IIngestRepository, SqlIngestRepository>();
             services.AddScoped<IRenderJobRepository, SqlRenderJobRepository>();
@@ -126,6 +128,7 @@ public static class DependencyInjection
             services.AddScoped<ISceneRepository, MongoSceneRepository>();
             services.AddScoped<IAssetRepository, MongoAssetRepository>();
         services.AddScoped<IAssetFolderRepository, MongoAssetFolderRepository>();
+            services.AddScoped<IProjectEditRepository, MongoProjectEditRepository>();
             services.AddScoped<IScriptRepository, MongoScriptRepository>();
             services.AddScoped<IIngestRepository, MongoIngestRepository>();
             services.AddScoped<IRenderJobRepository, MongoRenderJobRepository>();
@@ -218,7 +221,10 @@ public static class DependencyInjection
         services.AddSingleton<IFilterGraphBuilder, FfmpegFilterGraphBuilder>();
         services.AddSingleton<ISubtitleWriter, AssSubtitleWriter>();
         services.AddSingleton<IRenderWorkspaceFactory, RenderWorkspaceFactory>();
+        // Singleton: it owns the trim schedule, and the cache outlives every job.
+        services.AddSingleton<ClipConformCache>();
         services.AddScoped<IVideoRenderingService, FfmpegVideoRenderingService>();
+        services.AddScoped<IOutroPreviewRenderer, OutroPreviewRenderer>();
         services.AddScoped<IMediaProbeService, FfprobeMediaProbeService>();
         services.AddSingleton<YtDlpMediaDownloader>();
         services.AddSingleton<FfmpegVideoChunker>();

@@ -8,6 +8,7 @@ import {
   MediaDownloadRequest,
   MediaDownloadResult,
   MediaProbeResponse,
+  MediaSources,
   MediaSystemSettings,
   VideoChunkResult,
 } from '../models/media-tools.models';
@@ -16,6 +17,16 @@ import {
 export class MediaToolsService {
   private readonly http = inject(HttpClient);
   private readonly base = environment.apiUrl;
+
+  /** Supported sites and whether the downloader (yt-dlp) is installed. */
+  getSources(): Observable<MediaSources> {
+    return this.unwrap(this.http.get<ApiResponse<MediaSources>>(`${this.base}/api/media/sources`));
+  }
+
+  /** Fetches a finished download through HttpClient, so it carries the same auth as every call. */
+  fetchFile(streamUrl: string): Observable<Blob> {
+    return this.http.get(streamUrl, { responseType: 'blob' });
+  }
 
   probeUrl(url: string): Observable<MediaProbeResponse> {
     return this.unwrap(

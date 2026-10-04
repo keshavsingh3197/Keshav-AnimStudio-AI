@@ -685,3 +685,21 @@
     display: none;
   }
 }
+
+/* Ultra-wide: cards side by side (canvas | metadata, watermark | outro) rather than one tall column. */
+@media (min-width: 2200px) {
+  .settings-container { max-width: 2300px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 1.5rem; align-items: start; }
+  .settings-header, .settings-card.danger-card { grid-column: 1 / -1; }
+}
+
+/* Channel picker in the header: which YouTube channel's watermark + end card this project uses. */
+.channel-picker { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; color: #c9d1d9; font-weight: 600; }
+.channel-picker .form-select { min-width: 180px; padding: 6px 10px; }
+
+/* Watermark controls while the project follows its channel: visible, not editable. */
+.watermark-editor { border: 0; margin: 0; padding: 0; min-width: 0; }
+.watermark-editor:disabled .segment-btn,
+.watermark-editor:disabled .form-input,
+.watermark-editor:disabled .form-select,
+.watermark-editor:disabled .form-range,
+.watermark-editor:disabled .btn-outline { opacity: 0.6; cursor: not-allowed; }

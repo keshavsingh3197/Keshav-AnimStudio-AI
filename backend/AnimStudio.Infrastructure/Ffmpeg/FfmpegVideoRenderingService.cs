@@ -17,7 +17,8 @@ public sealed class FfmpegVideoRenderingService(
     IRenderCapabilities capabilities,
     IOptions<FfmpegOptions> ffmpegOptions,
     IOptions<RenderOptions> renderOptions,
-    ILogger<FfmpegVideoRenderingService> logger) : IVideoRenderingService
+    ILogger<FfmpegVideoRenderingService> logger,
+    ClipConformCache? clipCache = null) : IVideoRenderingService
 {
     private readonly FfmpegOptions _ffmpeg = ffmpegOptions.Value;
     private readonly RenderOptions _render = renderOptions.Value;
@@ -74,6 +75,27 @@ public sealed class FfmpegVideoRenderingService(
         var graph = graphBuilder.BuildClip(plan);
         var index = plan.ClipIndex;
 
+        // A clip conformed by an earlier export with the same graph, inputs and encoder
+        // settings is byte-for-byte what this run would produce, so it is linked in rather
+        // than encoded again. This is what makes a re-export cost seconds.
+        var cacheKey = clipCache?.KeyFor(graph, plan, workspace.Resolve);
+        if (cacheKey is not null
+            && clipCache!.TryRestore(cacheKey, workspace.Resolve(graph.OutputRelativePath), out var cachedFrames))
+        {
+            progress?.Report(new RenderProgress(
+                RenderStage.RenderingScene, index, 0, cachedFrames, cachedFrames,
+                OverallPercent: 0, Message: string.Empty, null));
+
+            var cachedSize = new FileInfo(workspace.Resolve(graph.OutputRelativePath)).Length;
+            return new SceneRenderResult(graph.OutputRelativePath, cachedFrames, cachedSize);
+        }
+
+        // ffmpeg -y truncates an existing output IN PLACE. If that file is a hard link into
+        // the cache - a retried job reusing its workspace - the truncation would rewrite the
+        // cached clip underneath every later export, so the old entry is unlinked first.
+        var outputPath = workspace.Resolve(graph.OutputRelativePath);
+        if (File.Exists(outputPath)) File.Delete(outputPath);
+
         var scriptPath = $"graph/clip_{index + 1:D3}.fcs";
         await workspace.WriteTextAsync(scriptPath, graph.FilterComplex, ct).ConfigureAwait(false);
 
@@ -116,7 +138,9 @@ public sealed class FfmpegVideoRenderingService(
                 $"{graph.OutputRelativePath}: measured {frames.Value} frames.");
         }
 
-        var size = new FileInfo(workspace.Resolve(graph.OutputRelativePath)).Length;
+        if (cacheKey is not null) clipCache!.Store(cacheKey, outputPath, frames);
+
+        var size = new FileInfo(outputPath).Length;
         return new SceneRenderResult(graph.OutputRelativePath, frames, size);
     }
 
@@ -252,13 +276,23 @@ public sealed class FfmpegVideoRenderingService(
     /// <summary>
     /// Writes the concat demuxer list. Entries are relative to the workspace root, which
     /// is also ffmpeg's working directory, and generated names never contain a quote.
+    /// <para>
+    /// Each entry carries its exact video length. Without it the demuxer starts the next
+    /// clip where the previous file's LONGER stream ended, so a clip whose audio and video
+    /// differ by a few ms shifts everything after it - and across a long join that adds up
+    /// to visible lip-sync drift.
+    /// </para>
     /// </summary>
     private static async Task WriteConcatListAsync(
         MergePlan plan, IRenderWorkspace workspace, CancellationToken ct)
     {
+        var rate = plan.Canvas.FrameRate;
         var builder = new StringBuilder();
         foreach (var scene in plan.Scenes)
-            builder.Append("file '").Append(scene.RelativePath).Append("'\n");
+        {
+            builder.Append("file '").Append(scene.RelativePath).Append("'\n")
+                   .Append("duration ").Append(FilterExpr.Sec(scene.Length, rate)).Append('\n');
+        }
 
         await workspace.WriteTextAsync(plan.ConcatListRelativePath, builder.ToString(), ct)
             .ConfigureAwait(false);

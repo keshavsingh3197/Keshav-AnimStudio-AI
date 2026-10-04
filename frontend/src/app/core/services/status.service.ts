@@ -36,16 +36,27 @@ export class StatusService {
     this.inFlight.update((count) => count + 1);
     this.error.set(null);
 
+    // Released exactly once, however the call ends - a value, an error, or completing with
+    // no value at all. Releasing in `next` alone left "Working…" on screen for good after
+    // any call that completed empty, and released twice for one that emitted twice.
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      this.inFlight.update((count) => Math.max(0, count - 1));
+    };
+
     source.subscribe({
       next: (value) => {
-        this.inFlight.update((count) => count - 1);
+        release();
         next(value);
       },
       error: (failure: unknown) => {
-        this.inFlight.update((count) => count - 1);
+        release();
         this.error.set(
           failure instanceof ApiFailure ? failure.message : 'Something went wrong.');
       },
+      complete: release,
     });
   }
 

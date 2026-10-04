@@ -65,6 +65,9 @@ public static class MongoMappingRegistrar
             // Not an ObjectId: this document's id is the fixed literal "ai-settings", which
             // is what guarantees there is exactly one of it.
             MapWithLiteralId<AiSettings>();
+
+            // App-assigned GUID ids, valid on SQL Server too - not ObjectIds.
+            MapWithLiteralId<ProjectEdit>();
         }
     }
 

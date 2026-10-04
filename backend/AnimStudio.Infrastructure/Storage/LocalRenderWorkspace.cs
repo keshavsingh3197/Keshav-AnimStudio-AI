@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text;
 using AnimStudio.Application.Abstractions.Storage;
 using AnimStudio.Domain.Errors;
@@ -15,7 +16,8 @@ public sealed class LocalRenderWorkspace : IRenderWorkspace
     private readonly bool _keepOnFailure;
 
     /// <summary>Storage key to the relative name it was materialized as.</summary>
-    private readonly Dictionary<string, string> _materialized = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, Lazy<Task<string>>> _materialized =
+        new(StringComparer.Ordinal);
 
     private bool _failed;
     private string? _failureReason;
@@ -65,12 +67,17 @@ public sealed class LocalRenderWorkspace : IRenderWorkspace
         return full;
     }
 
-    public async Task<string> MaterializeAsync(
+    public Task<string> MaterializeAsync(
+        string storageKey, string relativeName, CancellationToken ct) =>
+        // A background shared by eight scenes should be fetched once, not eight times -
+        // and callers fetch in parallel, so two of them asking for the same key at once
+        // must share one copy rather than both writing the same file.
+        _materialized.GetOrAdd(storageKey,
+            _ => new Lazy<Task<string>>(() => CopyInAsync(storageKey, relativeName, ct))).Value;
+
+    private async Task<string> CopyInAsync(
         string storageKey, string relativeName, CancellationToken ct)
     {
-        // A background shared by eight scenes should be fetched once, not eight times.
-        if (_materialized.TryGetValue(storageKey, out var existing)) return existing;
-
         var destination = Resolve(relativeName);
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
 
@@ -83,7 +90,6 @@ public sealed class LocalRenderWorkspace : IRenderWorkspace
             FileShare.None, 1 << 20, useAsync: true);
         await source.CopyToAsync(file, 1 << 20, ct).ConfigureAwait(false);
 
-        _materialized[storageKey] = relativeName;
         return relativeName;
     }
 

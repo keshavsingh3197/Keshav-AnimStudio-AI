@@ -1,6 +1,6 @@
 namespace AnimStudio.Api.Common;
 
-public sealed record ApiError(string Code, string Message, string? Field = null);
+public sealed record ApiError(string Code, string Message, string? Field = null, string? Hint = null, string? Detail = null);
 
 /// <summary>
 /// The single response envelope every endpoint returns, so clients have one shape to

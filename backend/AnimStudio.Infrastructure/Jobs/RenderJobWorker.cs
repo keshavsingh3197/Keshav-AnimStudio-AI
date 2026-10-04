@@ -1,4 +1,5 @@
 using AnimStudio.Application.Abstractions.Persistence;
+using AnimStudio.Application.Abstractions.Rendering;
 using AnimStudio.Application.Clips;
 using AnimStudio.Application.Projects;
 using AnimStudio.Application.Rendering;
@@ -24,12 +25,21 @@ public sealed class RenderJobWorker(
     IServiceScopeFactory scopeFactory,
     IOptions<RenderOptions> options,
     WatermarkFontResolver fonts,
+    IRenderCapabilities renderCapabilities,
     ILogger<RenderJobWorker> logger) : BackgroundService
 {
     private readonly RenderOptions _options = options.Value;
 
     /// <summary>Identifies this process in a job's lease.</summary>
     private readonly string _instanceId = $"{Environment.MachineName}:{Environment.ProcessId}";
+
+    /// <summary>
+    /// GPU encoder name detected at startup, or null for CPU. Passed into every clip
+    /// conformance job so the orchestrator knows which fast path to take.
+    /// </summary>
+    private readonly string? _hwEncoder = (renderCapabilities as FfmpegCapabilities)?.BestHardwareEncoder;
+
+
 
     private static readonly TimeSpan IdleDelay = TimeSpan.FromSeconds(3);
 
@@ -122,7 +132,9 @@ public sealed class RenderJobWorker(
             // family-name route that used to cover for it kills ffmpeg on any build whose
             // fontconfig has no configuration file.
             var clipSettings = new ClipRenderSettings(
-                fonts.FontFilePath, DeliveryProfile(), _options.IntermediatePreset, lease);
+                fonts.FontFilePath, DeliveryProfile(), _options.IntermediatePreset, lease,
+                HardwareEncoder: _options.UseHardwareEncoder ? _hwEncoder : null,
+                FontForText: fonts.FontFor);
 
             await clips.ExecuteAsync(job, _instanceId, clipSettings, ct).ConfigureAwait(false);
         }
@@ -164,20 +176,23 @@ public sealed class RenderJobWorker(
     /// all and no way to tell.
     /// </para>
     /// </summary>
-    private EncoderProfile DeliveryProfile()
+    private EncoderProfile DeliveryProfile() => DeliveryProfile(_options, logger);
+
+    /// <summary>The same, for anything else that encodes a deliverable - the outro preview.</summary>
+    internal static EncoderProfile DeliveryProfile(RenderOptions options, ILogger logger)
     {
         var profile = EncoderProfile.Default;
 
-        if (!string.IsNullOrWhiteSpace(_options.Preset))
-            profile = profile with { Preset = _options.Preset.Trim() };
+        if (!string.IsNullOrWhiteSpace(options.Preset))
+            profile = profile with { Preset = options.Preset.Trim() };
 
         // x264's CRF range. Out-of-range values are a configuration typo, and clamping
         // beats letting ffmpeg reject the argument on every clip of every job.
-        if (_options.Crf is >= 0 and <= 51)
-            profile = profile with { Crf = _options.Crf };
+        if (options.Crf is >= 0 and <= 51)
+            profile = profile with { Crf = options.Crf };
         else
             logger.LogWarning("Render:Crf is {Crf}, outside 0-51; using {Default}.",
-                _options.Crf, profile.Crf);
+                options.Crf, profile.Crf);
 
         return profile;
     }

@@ -1,11 +1,14 @@
 import { Injectable, computed, inject, signal, OnDestroy } from '@angular/core';
-import { catchError, concatMap, finalize, from, map, of } from 'rxjs';
+import { catchError, concatMap, finalize, forkJoin, from, map, of } from 'rxjs';
 
 import {
-  Clip, ClipAudioBody, ClipFit, ClipOrder, ClipStudio, MAX_CLIP_GAIN, RenderJob,
+  Clip, ClipAudioBody, ClipFit, ClipOrder, ClipStudio, ExportQuality, MAX_CLIP_GAIN, RenderJob, ExportTimelineFormat,
   SHORTS_MAX_SECONDS, TRANSITIONS, WATERMARK_POSITIONS, WatermarkBody, WatermarkKind, WatermarkPosition,
-  aspectRatioLabel, isTerminal, videoFormat,
+  aspectRatioLabel, isTerminal, videoFormat, OutroBody,
   TimelineItem, TimelineItemType, TrackControlState, TimelineItemTransform, TimelineItemTextStyle,
+  EraseRegion, EraseSource, EraseStyle, MAX_ERASE_REGIONS, MIN_ERASE_SIZE,
+  ERASE_DEFAULT_FEATHER, ERASE_DEFAULT_STRENGTH,
+  EDIT_FORMATS, EditFormat, ProjectEdit, SaveEditDraftBody,
 } from '../../../core/models/api.models';
 import { ApiService } from '../../../core/services/api.service';
 import { ProjectStore } from '../../../core/services/project-store';
@@ -15,6 +18,18 @@ import {
   ClipAudioSetting, ClipColorSetting, ClipRow, ClipTextSetting, FILTER_PRESETS,
   FileUploadConflict, FilterPreset, JunctionSetting, JunctionView, MusicTrackRow, ScheduledClip, SideUploadTarget, TRACK_COLORS
 } from '../models/clip-studio.models';
+import { EraseRect, eraseFeatherMask, eraseOuter } from './erase-geometry';
+
+/** One erase box as the monitor draws it: grown by its feather, cut to the clip's crop. */
+export interface MonitorEraseRegion {
+  region: EraseRegion;
+  index: number;
+  outer: EraseRect;
+  /** clip-path for the crop window, or null when the whole box shows */
+  inset: string | null;
+  /** CSS mask fading the feather margin, or null for hard edges */
+  mask: string | null;
+}
 
 /** What the precedence chain decided for one clip, and the gains that follow from it. */
 export interface ResolvedOverlap {
@@ -57,6 +72,21 @@ export class StudioStateService implements OnDestroy {
   readonly uploadConflicts = signal<FileUploadConflict[]>([]);
   readonly pendingNonConflictFiles = signal<File[]>([]);
   private autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * The project the studio state below was loaded for. Saves go to THIS project, never to
+   * whatever the store happens to hold when a timer fires, and a response for any other
+   * project is dropped - so one project's timeline can never be written into another.
+   */
+  private loadedProjectId: string | null = null;
+
+  /** The cut (video / Short) whose timeline is open. Saves go to it and only it. */
+  private loadedEditId: string | null = null;
+  readonly currentEdit = signal<ProjectEdit | null>(null);
+
+  /** The open cut's shape; null falls back to the project's canvas. */
+  readonly editFormat = computed<EditFormat | null>(() => this.currentEdit()?.format ?? null);
+  private destroyed = false;
 
   constructor() {
     if (typeof document !== 'undefined') {
@@ -297,10 +327,45 @@ export class StudioStateService implements OnDestroy {
   readonly hasUnsavedChanges = signal<boolean>(false);
   readonly exportName = signal<string>('');
   readonly exportFormat = signal<'mp4' | 'webm'>('mp4');
-  readonly exportQuality = signal<'high' | 'medium' | 'fast'>('high');
   readonly exportModalOpen = signal<boolean>(false);
   readonly exportResolution = signal<'1080p' | '720p' | '4k' | 'short_9_16' | 'square_1_1'>('1080p');
+  /** Picture quality of the delivered encode; High unless the user picks otherwise. */
+  readonly exportQuality = signal<ExportQuality>('High');
   readonly exportIncludeWatermark = signal<boolean>(true);
+  /** End the export with the saved outro / "support us" QR card. Ignored when none is set up. */
+  readonly exportIncludeOutro = signal<boolean>(true);
+
+  /** The project's brand channel's outro, which an export uses when the project has none of its own. */
+  readonly globalOutro = signal<OutroBody | null>(null);
+  /** That channel's display name (one per YouTube channel). */
+  readonly brandChannelName = signal<string | null>(null);
+  /** That channel's watermark - the project's, while it follows its channel (the default). */
+  readonly channelWatermark = signal<WatermarkBody | null>(null);
+
+  /** The end card an export appends - mirrors the server: the project's own, else the studio's. */
+  readonly endCard = computed<{ source: 'project' | 'global'; label: string; seconds: number } | null>(() => {
+    const own = this.store.project()?.defaultOutro;
+    if (own && own.kind !== 'None') {
+      // A bumper video runs its own length; the asset knows it when it is in this project.
+      const asset = own.kind === 'Video' && own.assetId
+        ? this.store.assets().find((a) => a.id === own.assetId) : undefined;
+      return {
+        source: 'project',
+        label: own.kind === 'Video' ? 'Project outro video' : 'Project end-card graphic',
+        seconds: asset?.durationSeconds || own.durationSeconds || 4,
+      };
+    }
+    const g = this.globalOutro();
+    if (g && g.kind !== 'None') {
+      const what = g.kind === 'Card' ? 'QR end card' : `outro ${g.kind.toLowerCase()}`;
+      const channel = this.brandChannelName() ?? 'Default';
+      return { source: 'global', label: `"${channel}" channel ${what}`, seconds: g.durationSeconds || 4 };
+    }
+    return null;
+  });
+
+  /** Seconds the end card adds after the cut, when this export will include it. */
+  readonly endCardTailSeconds = computed(() => (this.exportIncludeOutro() ? this.endCard()?.seconds ?? 0 : 0));
 
   // Live Export Progress Monitor Signals
   readonly exportProgressOpen = signal<boolean>(false);
@@ -626,11 +691,15 @@ export class StudioStateService implements OnDestroy {
 
   // Project Aspect and Format
   readonly format = computed(() => {
+    const ef = this.editFormat();
+    if (ef) return ef;
     const project = this.store.project();
     return project ? videoFormat(project.width, project.height) : 'Video';
   });
 
   readonly aspect = computed(() => {
+    const ef = this.editFormat();
+    if (ef) return EDIT_FORMATS.find((f) => f.value === ef)?.ratio ?? '16:9';
     const project = this.store.project();
     return project ? aspectRatioLabel(project.width, project.height) : '';
   });
@@ -1423,7 +1492,8 @@ export class StudioStateService implements OnDestroy {
   });
 
   readonly timelineSeconds = computed(() => {
-    return Math.max(this.contentDurationSeconds(), 10);
+    // Room for the end-card marker drawn after the cut, so the end of the video is visible.
+    return Math.max(this.contentDurationSeconds() + this.endCardTailSeconds(), 10);
   });
 
   readonly rulerTicks = computed<number[]>(() => {
@@ -2001,7 +2071,8 @@ export class StudioStateService implements OnDestroy {
       };
     }
     if (src === 'project') {
-      const def = this.store.project()?.defaultWatermark;
+      const project = this.store.project();
+      const def = project?.followChannelWatermark !== false ? this.channelWatermark() : project?.defaultWatermark;
       if (def && def.kind !== 'None') {
         return {
           kind: (def.kind as WatermarkKind) ?? 'None',
@@ -2303,6 +2374,7 @@ export class StudioStateService implements OnDestroy {
   });
 
   ngOnDestroy(): void {
+    this.destroyed = true;
     if (this.autoSaveTimer) {
       clearTimeout(this.autoSaveTimer);
       this.autoSaveTimer = null;
@@ -2311,7 +2383,13 @@ export class StudioStateService implements OnDestroy {
       }
     }
     this.stopPolling();
+    this.stopExportTimer();
     this.closePreview();
+  }
+
+  /** True only while the store still shows the project this studio state belongs to. */
+  private ownsCurrentProject(projectId: string | null): projectId is string {
+    return !!projectId && projectId === this.store.projectId();
   }
 
   // Exact continuous time getter for isolated 60fps RAF loops (Guardrail 2)
@@ -2970,7 +3048,8 @@ export class StudioStateService implements OnDestroy {
   }
 
   removeFromLibrary(): void {
-    const projectId = this.store.projectId();
+    // The selection belongs to the project the studio loaded; never delete it under another.
+    const projectId = this.ownsCurrentProject(this.loadedProjectId) ? this.loadedProjectId : null;
     const selIds = Array.from(this.selectedLibraryIds());
     const ids = selIds.length > 0 ? selIds : this.allMediaRows().filter((r) => r.included).map((r) => r.clip.id);
 
@@ -3682,11 +3761,11 @@ export class StudioStateService implements OnDestroy {
 
   /** Default transform values (all neutral). */
   readonly DEFAULT_TRANSFORM: Required<Pick<TimelineItemTransform,
-    'scale' | 'x' | 'y' | 'opacity' | 'rotation' | 'cropLeft' | 'cropRight' | 'cropTop' | 'cropBottom' | 'cropLinked' | 'stabilization'
-  >> = { scale: 1, x: 0, y: 0, opacity: 1, rotation: 0, cropLeft: 0, cropRight: 0, cropTop: 0, cropBottom: 0, cropLinked: false, stabilization: false };
+    'scale' | 'x' | 'y' | 'opacity' | 'rotation' | 'cropLeft' | 'cropRight' | 'cropTop' | 'cropBottom' | 'cropLinked' | 'stabilization' | 'eraseRegions'
+  >> = { scale: 1, x: 0, y: 0, opacity: 1, rotation: 0, cropLeft: 0, cropRight: 0, cropTop: 0, cropBottom: 0, cropLinked: false, stabilization: false, eraseRegions: [] };
 
   clipTransformSetting(clipId: string): Required<Pick<TimelineItemTransform,
-    'scale' | 'x' | 'y' | 'opacity' | 'rotation' | 'cropLeft' | 'cropRight' | 'cropTop' | 'cropBottom' | 'cropLinked' | 'stabilization'
+    'scale' | 'x' | 'y' | 'opacity' | 'rotation' | 'cropLeft' | 'cropRight' | 'cropTop' | 'cropBottom' | 'cropLinked' | 'stabilization' | 'eraseRegions'
   >> {
     const t = this.clipTransforms()[clipId];
     return {
@@ -3701,6 +3780,7 @@ export class StudioStateService implements OnDestroy {
       cropBottom: t?.cropBottom ?? 0,
       cropLinked: t?.cropLinked ?? false,
       stabilization: t?.stabilization ?? false,
+      eraseRegions: t?.eraseRegions ?? [],
     };
   }
 
@@ -3744,7 +3824,7 @@ export class StudioStateService implements OnDestroy {
         const t = this.clipTransformSetting(clip.id);
         return { scale: t.scale, x: t.x, y: t.y, rotation: t.rotation, cropLeft: t.cropLeft, cropRight: t.cropRight, cropTop: t.cropTop, cropBottom: t.cropBottom, cropLinked: t.cropLinked, stabilization: t.stabilization };
       }
-      return { scale: 1, x: 0, y: 0, rotation: 0, cropLeft: 0, cropRight: 0, cropTop: 0, cropBottom: 0, cropLinked: false, stabilization: false };
+      return { scale: 1, x: 0, y: 0, rotation: 0, cropLeft: 0, cropRight: 0, cropTop: 0, cropBottom: 0, cropLinked: false, stabilization: false, eraseRegions: [] };
     }
     const transforms = ids.map((id) => this.clipTransformSetting(id));
     const first = transforms[0];
@@ -3911,6 +3991,147 @@ export class StudioStateService implements OnDestroy {
   resetScopeCrop(): void {
     this._setScopeTransformField({ cropLeft: 0, cropRight: 0, cropTop: 0, cropBottom: 0 });
   }
+
+  // ── Erase existing watermark ────────────────────────────────────────────────
+
+  /**
+   * The active scope's erase regions. Edits write ONE list to every clip in scope, so the
+   * first target's list is the one shown - which is what makes "same logo, same corner,
+   * every clip from that channel" a single edit with the scope set to all clips.
+   */
+  readonly activeEraseRegions = computed<EraseRegion[]>(() => {
+    const id = this.getTargetClipIds()[0] ?? this.activeTargetClip()?.id;
+    return id ? this.clipTransformSetting(id).eraseRegions : [];
+  });
+
+  /**
+   * Pulls a region inside the frame, the same way EraseRegionSpec.Normalized does, and
+   * rounds it to 0.01% - a dragged box otherwise carries fifteen meaningless decimals.
+   */
+  private clampEraseRegion(r: EraseRegion): EraseRegion {
+    const num = (v: number | undefined, lo: number, hi: number, fallback = lo) =>
+      Math.round((Number.isFinite(v) ? Math.max(lo, Math.min(hi, v as number)) : fallback) * 100) / 100;
+    const x = num(r.x, 0, 100 - MIN_ERASE_SIZE);
+    const y = num(r.y, 0, 100 - MIN_ERASE_SIZE);
+    const styles: EraseStyle[] = ['Blur', 'Fill', 'Patch', 'Brand'];
+    const sources: EraseSource[] = ['Auto', 'Above', 'Below', 'Left', 'Right'];
+    return {
+      x, y,
+      width: num(r.width, MIN_ERASE_SIZE, 100 - x),
+      height: num(r.height, MIN_ERASE_SIZE, 100 - y),
+      style: styles.includes(r.style) ? r.style : 'Blur',
+      fillColor: /^#[0-9a-f]{6}$/i.test(r.fillColor ?? '') ? r.fillColor : '#000000',
+      strength: num(r.strength, 0, 100, ERASE_DEFAULT_STRENGTH),
+      feather: num(r.feather, 0, 100, ERASE_DEFAULT_FEATHER),
+      opacity: num(r.opacity, 0, 100, 100),
+      source: sources.includes(r.source as EraseSource) ? r.source : 'Auto',
+      keepCornerMark: r.keepCornerMark === true,
+    };
+  }
+
+  /**
+   * False when the clip under the playhead has a "My mark" box that replaces the corner
+   * watermark - the export then draws the mark only in the box, so the preview must too.
+   */
+  readonly monitorShowsCornerWatermark = computed<boolean>(() => {
+    if (!this.watermarkCanReplace()) return true;
+    return !this.monitorEraseRegions().some((m) => m.region.style === 'Brand' && !m.region.keepCornerMark);
+  });
+
+  /** A Brand box can only stand in for the corner mark when there is a mark to draw. */
+  private readonly watermarkCanReplace = computed<boolean>(() => {
+    const wm = this.effectiveWatermark();
+    return wm.kind === 'Logo' ? !!wm.logoAssetId : wm.kind === 'Text' ? !!wm.text?.trim() : false;
+  });
+
+  /** The erase box being edited: highlighted on the monitor, expanded in the inspector. */
+  readonly selectedEraseIndex = signal<number | null>(null);
+
+  selectEraseRegion(index: number | null): void {
+    this.selectedEraseIndex.set(index);
+  }
+
+  private setScopeEraseRegions(update: (regions: EraseRegion[]) => EraseRegion[]): void {
+    const targetIds = this.getTargetClipIds(this.activeTargetClip()?.id);
+    if (targetIds.length === 0) return;
+    const next = update(this.activeEraseRegions().map((r) => ({ ...r })))
+      .slice(0, MAX_ERASE_REGIONS)
+      .map((r) => this.clampEraseRegion(r));
+    this.clipTransforms.update((rec) => {
+      const out = { ...rec };
+      for (const id of targetIds) {
+        out[id] = { ...this.clipTransformSetting(id), eraseRegions: next.map((r) => ({ ...r })) };
+      }
+      return out;
+    });
+    this.markDirty();
+  }
+
+  /** Adds a box where marks usually sit; the user then nudges it onto the real one. */
+  addEraseRegion(
+    corner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center' = 'top-right',
+    style: EraseStyle = 'Patch',
+  ): void {
+    const w = 14, h = 10, edge = 2;
+    const x = corner.endsWith('left') ? edge : corner.endsWith('right') ? 100 - w - edge : (100 - w) / 2;
+    const y = corner.startsWith('top') ? edge : corner.startsWith('bottom') ? 100 - h - edge : (100 - h) / 2;
+    const count = this.activeEraseRegions().length;
+    if (count >= MAX_ERASE_REGIONS) return;
+    this.setScopeEraseRegions((list) => [...list, {
+      x, y, width: w, height: h, style, fillColor: '#000000',
+      strength: ERASE_DEFAULT_STRENGTH, feather: ERASE_DEFAULT_FEATHER, opacity: 100, source: 'Auto',
+    }]);
+    this.selectedEraseIndex.set(count);
+  }
+
+  /** Copies a box just beside the original, keeping its settings. */
+  duplicateEraseRegion(index: number): void {
+    const src = this.activeEraseRegions()[index];
+    if (!src || this.activeEraseRegions().length >= MAX_ERASE_REGIONS) return;
+    const x = src.x + src.width + 2 <= 100 - src.width ? src.x + src.width + 2 : Math.max(0, src.x - src.width - 2);
+    this.setScopeEraseRegions((list) => [...list, { ...src, x }]);
+    this.selectedEraseIndex.set(this.activeEraseRegions().length - 1);
+  }
+
+  updateEraseRegion(index: number, patch: Partial<EraseRegion>): void {
+    this.setScopeEraseRegions((list) => list.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+  }
+
+  removeEraseRegion(index: number): void {
+    this.setScopeEraseRegions((list) => list.filter((_, i) => i !== index));
+    const sel = this.selectedEraseIndex();
+    if (sel !== null) this.selectedEraseIndex.set(sel === index ? null : sel > index ? sel - 1 : sel);
+  }
+
+  clearEraseRegions(): void {
+    this.setScopeEraseRegions(() => []);
+    this.selectedEraseIndex.set(null);
+  }
+
+  /**
+   * Regions to wipe on the monitor for the clip under the playhead, cut down to its crop -
+   * a box partly outside the crop only shows inside it, exactly as the render would.
+   * Percent of the source frame, like the regions themselves.
+   */
+  readonly monitorEraseRegions = computed<MonitorEraseRegion[]>(() => {
+    const clip = this.currentScheduledClip()?.clip ?? this.activeTargetClip();
+    if (!clip) return [];
+    const t = this.clipTransformSetting(clip.id);
+    const left = t.cropLeft, top = t.cropTop, right = 100 - t.cropRight, bottom = 100 - t.cropBottom;
+    return t.eraseRegions.flatMap((r, index) => {
+      const outer = eraseOuter(r);
+      const visible = Math.min(outer.x + outer.width, right) > Math.max(outer.x, left)
+        && Math.min(outer.y + outer.height, bottom) > Math.max(outer.y, top);
+      if (!visible) return [];
+      // Inset of the crop window, in percent of the grown box, for its own clip-path.
+      const pct = (v: number, size: number) => `${Math.max(0, (v / size) * 100)}%`;
+      const inset = left > outer.x || top > outer.y || right < outer.x + outer.width || bottom < outer.y + outer.height
+        ? `inset(${pct(top - outer.y, outer.height)} ${pct(outer.x + outer.width - right, outer.width)} `
+          + `${pct(outer.y + outer.height - bottom, outer.height)} ${pct(left - outer.x, outer.width)})`
+        : null;
+      return [{ region: r, index, outer, inset, mask: eraseFeatherMask(r) }];
+    });
+  });
 
 
 
@@ -6024,8 +6245,8 @@ export class StudioStateService implements OnDestroy {
 
   saveOrder(): void {
     this.markDirty();
-    const projectId = this.store.projectId();
-    if (!projectId) return;
+    const projectId = this.loadedProjectId;
+    if (!this.ownsCurrentProject(projectId)) return;
 
     const uniqueAssetIds = Array.from(new Set(this.rows().map((row) => this.resolveAssetId(row.clip))));
     this.api.saveClipOrder(projectId, uniqueAssetIds).subscribe({
@@ -6232,44 +6453,166 @@ export class StudioStateService implements OnDestroy {
   }
 
   saveDraft(): void {
-    const projectId = this.store.projectId();
-    if (!projectId) return;
+    const projectId = this.loadedProjectId;
+    if (!this.ownsCurrentProject(projectId)) return;
 
     if (this.autoSaveTimer) {
       clearTimeout(this.autoSaveTimer);
       this.autoSaveTimer = null;
     }
 
+    const editId = this.loadedEditId;
+    if (!editId) return;
+
     const draftData = this.buildDraftData();
     const draftJson = JSON.stringify(draftData);
 
-    localStorage.setItem(`${DRAFT_KEY_PREFIX}${projectId}`, draftJson);
+    this.writeLocalDraft(projectId, editId, draftJson);
     this.hasUnsavedChanges.set(false);
     this.lastSavedTime.set(draftData.savedAt);
     this.restoredDraftTime.set(null);
     this.status.notify(['Saved to database & local storage.']);
 
-    this.api.saveStudioDraft(projectId, draftJson).subscribe({
+    this.persistEditDraft(projectId, editId, draftJson).subscribe({
       next: () => {},
       error: (err) => console.warn('Failed to sync draft to server', err),
     });
   }
 
   autoSaveDraft(): void {
-    const projectId = this.store.projectId();
-    if (!projectId || !this.hasUnsavedChanges()) return;
+    const projectId = this.loadedProjectId;
+    const editId = this.loadedEditId;
+    if (!this.ownsCurrentProject(projectId) || !editId || !this.hasUnsavedChanges()) return;
 
     const draftData = this.buildDraftData();
     const draftJson = JSON.stringify(draftData);
 
-    localStorage.setItem(`${DRAFT_KEY_PREFIX}${projectId}`, draftJson);
+    this.writeLocalDraft(projectId, editId, draftJson);
 
-    this.api.saveStudioDraft(projectId, draftJson).subscribe({
+    this.persistEditDraft(projectId, editId, draftJson).subscribe({
       next: () => {
+        // Only if the same cut is still open - a late reply must not mark another one saved.
+        if (this.loadedEditId !== editId) return;
         this.hasUnsavedChanges.set(false);
         this.lastSavedTime.set(draftData.savedAt);
       },
       error: (err) => console.warn('Auto-save failed to sync to server', err),
+    });
+  }
+
+  private localDraftKey(projectId: string, editId: string): string {
+    return `${DRAFT_KEY_PREFIX}${projectId}:${editId}`;
+  }
+
+  private writeLocalDraft(projectId: string, editId: string, draftJson: string): void {
+    try {
+      localStorage.setItem(this.localDraftKey(projectId, editId), draftJson);
+    } catch {
+      // A full or blocked storage only loses the offline copy; the server has the draft.
+    }
+  }
+
+  /** The draft plus what the "Videos & Shorts" page shows without opening it. */
+  private persistEditDraft(projectId: string, editId: string, draftJson: string, clearPendingRange = false) {
+    const included = this.included();
+    const first = included[0]?.clip;
+    const body: SaveEditDraftBody = {
+      draftJson,
+      durationSeconds: Math.round(this.totalSeconds() * 100) / 100,
+      clipCount: included.length,
+      thumbnailAssetId: first ? this.resolveAssetId(first) : null,
+      clearPendingRange,
+    };
+    return this.api.saveEditDraft(projectId, editId, body);
+  }
+
+  /**
+   * Cuts the open timeline down to [start, end) seconds - how a Short is carved out of the
+   * full video. Clips and overlays outside are dropped (clips are only taken out of the
+   * cut, not deleted), the ones straddling an edge are trimmed, and everything shifts so
+   * the kept part starts at zero.
+   */
+  applyRange(start: number, end: number): void {
+    if (!(end > start)) return;
+
+    const schedule = this.clipSchedule();
+    const byRow = new Map(schedule.map((s) => [s.row, s] as const));
+    this.rows.update((rows) => rows.map((row) => {
+      const s = byRow.get(row);
+      if (!s) return row;
+      if (s.endSeconds <= start || s.startSeconds >= end) return { ...row, included: false };
+      const head = Math.max(0, start - s.startSeconds);
+      const tail = Math.max(0, s.endSeconds - end);
+      if (head === 0 && tail === 0) return row;
+      const dur = s.durationSeconds;
+      const trimStart = row.clip.trimStartSeconds ?? 0;
+      const trimEnd = row.clip.trimEndSeconds ?? trimStart + dur;
+      return {
+        ...row,
+        clip: {
+          ...row.clip,
+          trimStartSeconds: trimStart + head,
+          trimEndSeconds: trimEnd - tail,
+          durationSeconds: dur - head - tail,
+        },
+      };
+    }));
+
+    this.timelineItems.update((items) => items.flatMap((it) => {
+      const itEnd = it.startTime + it.duration;
+      if (itEnd <= start || it.startTime >= end) return [];
+      const head = Math.max(0, start - it.startTime);
+      const duration = Math.min(itEnd, end) - Math.max(it.startTime, start);
+      const next: TimelineItem = { ...it, startTime: Math.max(0, it.startTime - start), duration };
+      if (it.trimStartSeconds !== undefined || head > 0) next.trimStartSeconds = (it.trimStartSeconds ?? 0) + head;
+      if (it.trimEndSeconds !== undefined) next.trimEndSeconds = (next.trimStartSeconds ?? 0) + duration;
+      return [next];
+    }));
+
+    this.musicTracks.update((tracks) => tracks.flatMap((t) => {
+      // An untrimmed track runs to the end of its file; it ends before the part when the file does.
+      const fileLength = this.musicTrackAsset(t)?.durationSeconds;
+      const len = t.trimEndSeconds != null ? t.trimEndSeconds - (t.trimStartSeconds ?? 0)
+        : fileLength != null ? fileLength - (t.trimStartSeconds ?? 0) : Infinity;
+      const tEnd = t.startSeconds + len;
+      if (tEnd <= start || t.startSeconds >= end) return [];
+      const head = Math.max(0, start - t.startSeconds);
+      const trimStart = (t.trimStartSeconds ?? 0) + head;
+      const kept = Math.min(tEnd, end) - Math.max(t.startSeconds, start);
+      return [{
+        ...t,
+        startSeconds: Math.max(0, t.startSeconds - start),
+        trimStartSeconds: trimStart,
+        trimEndSeconds: tEnd > end ? trimStart + kept : t.trimEndSeconds,
+      }];
+    }));
+  }
+
+  // --- the other cuts of this project, for the header's switcher ---
+
+  readonly projectEdits = signal<ProjectEdit[]>([]);
+
+  refreshProjectEdits(): void {
+    const projectId = this.loadedProjectId;
+    if (!this.ownsCurrentProject(projectId)) return;
+    this.api.listEdits(projectId).subscribe({
+      next: (list) => { if (this.loadedProjectId === projectId) this.projectEdits.set(list); },
+      error: () => {},
+    });
+  }
+
+  /** Renames the open cut or changes its format, from inside the editor. */
+  updateCurrentEdit(patch: { name?: string; format?: EditFormat }): void {
+    const projectId = this.loadedProjectId;
+    const editId = this.loadedEditId;
+    if (!this.ownsCurrentProject(projectId) || !editId) return;
+    this.api.updateEdit(projectId, editId, patch).subscribe({
+      next: (e) => {
+        if (this.loadedEditId !== editId) return;
+        this.currentEdit.set(e);
+        this.projectEdits.update((list) => list.map((x) => (x.id === e.id ? e : x)));
+      },
+      error: () => this.status.error.set('Could not update this video.'),
     });
   }
 
@@ -6280,60 +6623,140 @@ export class StudioStateService implements OnDestroy {
   }
 
   discardDraft(): void {
-    const projectId = this.store.projectId();
-    if (projectId) {
-      localStorage.removeItem(`${DRAFT_KEY_PREFIX}${projectId}`);
-      this.api.saveStudioDraft(projectId, '').subscribe({
-        next: () => {},
-        error: (err) => console.warn('Failed to clear draft on server', err),
-      });
+    const projectId = this.loadedProjectId;
+    const editId = this.loadedEditId;
+    if (this.ownsCurrentProject(projectId) && editId) {
+      // The restored copy only ever comes from this browser; the server never had it.
+      localStorage.removeItem(this.localDraftKey(projectId, editId));
     }
     this.restoredDraftTime.set(null);
     this.loadStudio();
     this.status.notify(['Draft discarded.']);
   }
 
-  loadStudio(): void {
+  /**
+   * Loads the project's clips and the timeline of one cut. Called again with another
+   * cut's id to switch to it; with no id, reloads the open one.
+   */
+  loadStudio(editId?: string): void {
     const projectId = this.store.projectId();
-    if (!projectId) return;
+    editId = editId ?? this.loadedEditId ?? undefined;
+    if (!projectId || !editId || this.destroyed) return;
 
-    this.api.clipStudio(projectId).subscribe({
-      next: (studio: ClipStudio) => {
+    const switchingEdit = this.loadedProjectId === projectId && this.loadedEditId !== null && this.loadedEditId !== editId;
+    if (switchingEdit && this.hasUnsavedChanges()) {
+      // Written to the cut being left, before anything below forgets it.
+      this.autoSaveDraft();
+    }
+
+    if (this.loadedProjectId !== projectId || this.loadedEditId !== editId) {
+      // A different project or cut: nothing from the previous one may survive into this
+      // one - not a pending auto-save, not a render being polled, not its clips or timeline.
+      if (this.autoSaveTimer) {
+        clearTimeout(this.autoSaveTimer);
+        this.autoSaveTimer = null;
+      }
+      this.currentEdit.set(null);
+      this.selectedEraseIndex.set(null);
+      this.stopPolling();
+      this.stopExportTimer();
+      this.job.set(null);
+      this.running.set(false);
+      this.studio.set(null);
+      this.rows.set([]);
+      this.timelineItems.set([]);
+      this.musicTracks.set([]);
+      this.musicAssetId.set('');
+      this.clipSounds.set({});
+      this.clipTransforms.set({});
+      this.clipColors.set({});
+      this.clipTexts.set({});
+      this.junctions.set({});
+      this.junctionOverrides.set(new Map());
+      this.clipTrims.set(new Map());
+      this.clipFraming.set(new Map());
+      this.clipAudioFade.set(new Map());
+      this.clipColor.set(new Map());
+      this.clipText.set(new Map());
+      this.selectedLibraryIds.set(new Set<string>());
+      this.selectedClipId.set(null);
+      this.selectedTimelineClipIndex.set(null);
+      this.selectedTimelineItemId.set(null);
+      this.selectedTimelineItemIds.set(new Set<string>());
+      this.clipboard.set(null);
+      this.orderResult.set(null);
+      this.hasUnsavedChanges.set(false);
+      this.lastSavedTime.set(null);
+      this.restoredDraftTime.set(null);
+    }
+    this.loadedProjectId = projectId;
+    this.loadedEditId = editId;
+    const loadingEditId = editId;
+
+    forkJoin({ studio: this.api.clipStudio(projectId), edit: this.api.getEdit(projectId, editId) }).subscribe({
+      next: ({ studio, edit }: { studio: ClipStudio; edit: ProjectEdit }) => {
+        // A reply for a project or cut that is no longer open belongs to nobody.
+        if (this.destroyed || !this.ownsCurrentProject(projectId) || this.loadedProjectId !== projectId
+          || this.loadedEditId !== loadingEditId) return;
         this.studio.set(studio);
+        this.currentEdit.set({ ...edit, draftJson: undefined });
+        this.refreshProjectEdits();
+
+        // The first cut is the project's original timeline; any other cut created blank
+        // starts with nothing in it, so the user picks what goes in.
+        const isMainCut = edit.id.startsWith('main-');
+        const startsEmpty = !edit.draftJson && !isMainCut && !edit.sourceEditId;
         const rowList: ClipRow[] = (studio.clips || [])
           .filter((clip) => this.getClipType(clip) !== 'audio')
           .filter((clip) => this.getClipType(clip) === 'video')
           .map((clip) => ({
             clip,
-            included: true,
+            included: !startsEmpty,
           }));
         this.rows.set(rowList);
 
         // Check for server draft first
-        if (studio.studioDraftJson) {
+        if (edit.draftJson) {
           try {
-            const serverDraft = JSON.parse(studio.studioDraftJson);
+            const serverDraft = JSON.parse(edit.draftJson);
             this.applyDraft(serverDraft);
             this.hasUnsavedChanges.set(false);
             this.lastSavedTime.set(serverDraft.savedAt || 'Saved');
             this.restoredDraftTime.set(null);
-            localStorage.setItem(`${DRAFT_KEY_PREFIX}${projectId}`, studio.studioDraftJson);
+
+            // A cut made from part of another: trim the copied timeline once, then save
+            // it so the server forgets the range.
+            if (edit.pendingRangeStart !== null && edit.pendingRangeEnd !== null) {
+              this.applyRange(edit.pendingRangeStart, edit.pendingRangeEnd);
+              const trimmed = JSON.stringify(this.buildDraftData());
+              this.writeLocalDraft(projectId, loadingEditId, trimmed);
+              this.persistEditDraft(projectId, loadingEditId, trimmed, true).subscribe({
+                next: (saved) => { if (this.loadedEditId === loadingEditId) this.currentEdit.set(saved); },
+                error: (err) => console.warn('Failed to save the trimmed cut', err),
+              });
+              this.status.notify([`Kept ${this.formatTimecode(edit.pendingRangeStart)} – ${this.formatTimecode(edit.pendingRangeEnd)} of the original.`]);
+            } else {
+              this.writeLocalDraft(projectId, loadingEditId, edit.draftJson);
+            }
             return;
           } catch (e) {
             console.warn('Failed to parse server draft', e);
           }
         }
 
-        // Fallback to local draft if server draft is absent
-        const draftJson = localStorage.getItem(`${DRAFT_KEY_PREFIX}${projectId}`);
+        // Fallback to local draft if server draft is absent. The first cut also looks
+        // under the key used before a project could have several.
+        const draftJson = localStorage.getItem(this.localDraftKey(projectId, loadingEditId))
+          ?? (isMainCut ? localStorage.getItem(`${DRAFT_KEY_PREFIX}${projectId}`) : null);
         if (draftJson) {
           try {
             const localDraft = JSON.parse(draftJson);
             this.applyDraft(localDraft);
             this.restoredDraftTime.set(localDraft.savedAt || 'Unknown');
             // Auto-migrate local draft to server database
-            this.api.saveStudioDraft(projectId, draftJson).subscribe({
+            this.persistEditDraft(projectId, loadingEditId, draftJson).subscribe({
               next: () => {
+                if (this.loadedEditId !== loadingEditId) return;
                 this.hasUnsavedChanges.set(false);
                 this.lastSavedTime.set(localDraft.savedAt || 'Saved');
                 this.restoredDraftTime.set(null);
@@ -6345,6 +6768,8 @@ export class StudioStateService implements OnDestroy {
             console.warn('Failed to parse local draft', e);
           }
         }
+
+        if (startsEmpty) return;
 
         // If no draft exists, initialize image overlays on IMG1
         const initialImages = (studio.clips || []).filter((clip) => this.getClipType(clip) === 'image');
@@ -6380,6 +6805,7 @@ export class StudioStateService implements OnDestroy {
         // Load latest render / export job so previous generations are immediately visible
         this.api.listJobs(projectId).subscribe({
           next: (jobs: RenderJob[]) => {
+            if (this.destroyed || this.loadedProjectId !== projectId) return;
             if (jobs && jobs.length > 0) {
               const active = jobs.find((j: RenderJob) => !isTerminal(j.status));
               const latest = active || jobs[0];
@@ -6439,6 +6865,7 @@ export class StudioStateService implements OnDestroy {
         cropBottom: t.cropBottom,
         cropLinked: t.cropLinked,
         stabilization: t.stabilization,
+        eraseRegions: t.eraseRegions.length > 0 ? t.eraseRegions : undefined,
       };
 
       return {
@@ -6637,6 +7064,8 @@ export class StudioStateService implements OnDestroy {
 
   private startPolling(jobId: string): void {
     this.stopPolling();
+    // A reply that arrives after the studio is gone must not start a poll nobody can stop.
+    if (this.destroyed) return;
 
     this.pollHandle = setInterval(() => {
       this.api.job(jobId).subscribe({
@@ -6707,10 +7136,19 @@ export class StudioStateService implements OnDestroy {
       const projName = this.store.project()?.name || 'AnimStudio';
       const now = new Date();
       const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-      this.exportName.set(`${projName} - Export ${dateStr}`);
+      const cut = this.currentEdit()?.name;
+      this.exportName.set(cut ? `${projName} - ${cut} ${dateStr}` : `${projName} - Export ${dateStr}`);
     }
     const proj = this.store.project();
-    if (proj && proj.width && proj.height) {
+    const ef = this.editFormat();
+    if (ef === 'Short') {
+      this.exportResolution.set('short_9_16');
+    } else if (ef === 'Square') {
+      this.exportResolution.set('square_1_1');
+    } else if (ef === 'Video' && proj && proj.height >= proj.width) {
+      // A landscape cut of a vertical project.
+      this.exportResolution.set('1080p');
+    } else if (proj && proj.width && proj.height) {
       if (proj.width === 1080 && proj.height === 1920) {
         this.exportResolution.set('short_9_16');
       } else if (proj.width === 1080 && proj.height === 1080) {
@@ -6747,8 +7185,8 @@ export class StudioStateService implements OnDestroy {
   }
 
   build(): void {
-    const projectId = this.store.projectId();
-    if (!projectId || this.blockedReason() !== null) return;
+    const projectId = this.loadedProjectId;
+    if (!this.ownsCurrentProject(projectId) || this.blockedReason() !== null) return;
 
     const includedClips = this.included().map((r) => r.clip.id);
     if (includedClips.length === 0) {
@@ -6783,6 +7221,7 @@ export class StudioStateService implements OnDestroy {
         fit: fitMode,
         outputWidth: outW,
         outputHeight: outH,
+        quality: this.exportQuality(),
         transition: globalTrans,
         transitionSeconds: globalSecs,
         junctions: this.junctionsList().map((j, k) => {
@@ -6814,6 +7253,7 @@ export class StudioStateService implements OnDestroy {
         clipAudio: this.clipAudioPayload(),
         musicDuckWindows: this.musicDuckWindowsPayload(),
         watermark: this.exportIncludeWatermark() ? wm : { ...wm, kind: "None" as any },
+        includeOutro: this.exportIncludeOutro(),
       }),
       (job: RenderJob) => {
         this.job.set(job);
@@ -6827,8 +7267,8 @@ export class StudioStateService implements OnDestroy {
   }
 
   buildShort(clipIds?: string[]): void {
-    const projectId = this.store.projectId();
-    if (!projectId || this.blockedReason() !== null) return;
+    const projectId = this.loadedProjectId;
+    if (!this.ownsCurrentProject(projectId) || this.blockedReason() !== null) return;
 
     const ids = clipIds && clipIds.length > 0
       ? clipIds
@@ -6855,6 +7295,7 @@ export class StudioStateService implements OnDestroy {
         fit: fitMode,
         outputWidth: 1080,
         outputHeight: 1920,
+        quality: this.exportQuality(),
         transition: globalTrans,
         transitionSeconds: globalSecs,
         junctions: this.junctionsList().map((j, k) => {
@@ -6886,6 +7327,7 @@ export class StudioStateService implements OnDestroy {
         clipAudio: this.clipAudioPayload(),
         musicDuckWindows: this.musicDuckWindowsPayload(),
         watermark: this.exportIncludeWatermark() ? wm : { ...wm, kind: "None" as any },
+        includeOutro: this.exportIncludeOutro(),
       }),
       (job: RenderJob) => {
         this.job.set(job);
@@ -6963,5 +7405,9 @@ export class StudioStateService implements OnDestroy {
 
   downloadUrl(jobId: string): string {
     return this.api.downloadUrl(jobId);
+  }
+
+  timelineUrl(jobId: string, format: ExportTimelineFormat): string {
+    return this.api.timelineUrl(jobId, format);
   }
 }

@@ -25,6 +25,9 @@ public sealed class FakeProjectRepository : IProjectRepository
     public Task<IReadOnlyList<Project>> ListAsync(string userId, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<Project>>([.. Items.Where(p => p.UserId == userId)]);
 
+    public Task<IReadOnlyList<Project>> ListAllAsync(CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<Project>>([.. Items]);
+
     public Task InsertAsync(Project project, CancellationToken ct)
     {
         project.Id = project.Id.Length > 0 ? project.Id : Guid.NewGuid().ToString("n");

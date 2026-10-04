@@ -1,14 +1,17 @@
-import { Component, ElementRef, HostListener, OnInit, ViewChild, effect, inject, signal } from '@angular/core';
+import { Component, ElementRef, HostListener, OnDestroy, ViewChild, computed, effect, inject, signal, untracked } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute } from '@angular/router';
-import { Clip } from '../../core/models/api.models';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { map } from 'rxjs';
+import { Clip, DEFAULT_BRAND_CHANNEL } from '../../core/models/api.models';
 import { StudioStateService } from './services/studio-state.service';
 import { StudioHeaderComponent } from './components/studio-header/studio-header.component';
 import { MediaDockComponent } from './components/media-dock/media-dock.component';
 import { VideoViewportComponent } from './components/video-viewport/video-viewport.component';
 import { InspectorDockComponent } from './components/inspector-dock/inspector-dock.component';
 import { TimelineDockComponent } from './components/timeline-dock/timeline-dock.component';
+import { clipboardFiles } from '../../shared/file-drop.directive';
 
 @Component({
   selector: 'app-clip-studio',
@@ -22,19 +25,57 @@ import { TimelineDockComponent } from './components/timeline-dock/timeline-dock.
     VideoViewportComponent,
     InspectorDockComponent,
     TimelineDockComponent,
+    RouterLink,
   ],
   templateUrl: './clip-studio.component.html',
   styleUrls: ['./clip-studio.component.css'],
 })
-export class ClipStudioComponent implements OnInit {
+export class ClipStudioComponent implements OnDestroy {
   readonly state = inject(StudioStateService);
+
+  /** Only the id: a reload of the same project must not throw the open timeline away. */
+  private readonly openProjectId = computed(() => this.state.store.project()?.id ?? null);
+
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly editParam = toSignal(
+    this.route.queryParamMap.pipe(map((p) => p.get('edit'))), { initialValue: null });
 
   readonly splitPreviewingPart = signal<number | null>(null);
   @ViewChild('part1Video') part1VideoRef?: ElementRef<HTMLVideoElement>;
   @ViewChild('part2Video') part2VideoRef?: ElementRef<HTMLVideoElement>;
 
   constructor() {
+    // Loads once the project lands, and again whenever a DIFFERENT project does. This route's
+    // own paramMap never changes - :projectId belongs to the parent route - so subscribing
+    // to it loaded nothing on a direct visit and never noticed a switch of project.
+    // Which cut (video / Short) is open lives in the URL, so a link or a reload reopens it.
+    effect(() => {
+      const projectId = this.openProjectId();
+      const editId = this.editParam();
+      if (!projectId) return;
+      untracked(() => {
+        if (editId) {
+          this.state.loadStudio(editId);
+          this.setEndCardPreview(null);
+          return;
+        }
+        // No cut named: open the one worked on most recently.
+        this.state.api.listEdits(projectId).subscribe({
+          next: (list) => {
+            if (this.openProjectId() !== projectId || !list[0]) return;
+            this.router.navigate([], {
+              relativeTo: this.route,
+              queryParams: { edit: list[0].id },
+              queryParamsHandling: 'merge',
+              replaceUrl: true,
+            });
+          },
+          error: () => this.state.status.error.set("Could not load this project's videos."),
+        });
+      });
+    });
+
     effect(() => {
       // Sync frame preview when split point changes
       const prompt = this.state.splitPrompt();
@@ -43,12 +84,60 @@ export class ClipStudioComponent implements OnInit {
         setTimeout(() => this.updateSplitVideoFrames(), 30);
       }
     });
+
+    // The end card falls back to the project's brand channel, so it follows the project.
+    effect(() => {
+      const project = this.state.store.project();
+      if (!project) return;
+      const channelId = project.brandChannelId || DEFAULT_BRAND_CHANNEL;
+      untracked(() => this.state.api.listBrandChannels().subscribe({
+        next: (list) => {
+          if (this.openProjectId() !== project.id) return; // answered after a project switch
+          const channel = list.find((c) => c.id === channelId) ?? list.find((c) => c.isDefault);
+          this.state.globalOutro.set(channel?.outro ?? null);
+          this.state.brandChannelName.set(channel?.name ?? null);
+          this.state.channelWatermark.set(channel?.watermark ?? null);
+        },
+        error: () => this.state.globalOutro.set(null),
+      }));
+    });
   }
 
-  ngOnInit(): void {
-    this.route.paramMap.subscribe(() => {
-      this.state.loadStudio();
+  ngOnDestroy(): void {
+    this.setEndCardPreview(null);
+  }
+
+  // --- Export dialog: which end card the export appends, and a rendered preview of it ---
+
+  readonly endCardPreviewUrl = signal<string | null>(null);
+  readonly endCardPreviewBusy = signal(false);
+  readonly endCardPreviewError = signal<string | null>(null);
+
+  previewEndCard(): void {
+    const projectId = this.state.store.projectId();
+    if (!projectId) return;
+    const res = this.state.exportResolution();
+    const format = res === 'short_9_16' ? 'vertical' : res === 'square_1_1' ? 'square' : 'landscape';
+    this.endCardPreviewBusy.set(true);
+    this.endCardPreviewError.set(null);
+    this.state.api.previewProjectOutro(projectId, null, format).subscribe({
+      next: (blob) => {
+        if (this.openProjectId() !== projectId) return;
+        this.setEndCardPreview(blob);
+        this.endCardPreviewBusy.set(false);
+      },
+      error: () => {
+        this.setEndCardPreview(null);
+        this.endCardPreviewBusy.set(false);
+        this.endCardPreviewError.set('Could not render the end card. Check Settings → Outro or Admin → Branding.');
+      },
     });
+  }
+
+  private setEndCardPreview(blob: Blob | null): void {
+    const previous = this.endCardPreviewUrl();
+    if (previous) URL.revokeObjectURL(previous);
+    this.endCardPreviewUrl.set(blob ? URL.createObjectURL(blob) : null);
   }
 
   updateSplitVideoFrames(): void {
@@ -140,6 +229,23 @@ export class ClipStudioComponent implements OnInit {
   }
 
 
+  /** Ctrl+V: files or a screenshot on the clipboard go to the media dock, otherwise copied clips. */
+  @HostListener('document:paste', ['$event'])
+  handleGlobalPaste(event: ClipboardEvent): void {
+    if (event.defaultPrevented) return; // a file-drop zone (e.g. an open dialog) already took it
+    const target = event.target as HTMLElement | null;
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+      return;
+    }
+    event.preventDefault();
+    const files = clipboardFiles(event);
+    if (files.length > 0) {
+      this.state.uploadFiles(files);
+    } else {
+      this.state.pasteClips();
+    }
+  }
+
   // Global Keyboard Shortcuts Guardrail (Guardrail 5)
   @HostListener('window:keydown', ['$event'])
   handleGlobalKeydown(event: KeyboardEvent): void {
@@ -170,8 +276,9 @@ export class ClipStudioComponent implements OnInit {
         event.preventDefault();
         this.state.cutSelectedClips();
       } else if (event.key.toLowerCase() === 'v') {
-        event.preventDefault();
-        this.state.pasteClips();
+        // Left to the browser so a paste event fires: handleGlobalPaste decides between
+        // uploading copied files and pasting copied clips. Preventing it here would
+        // swallow the event and the files with it.
       } else if (event.code === 'ArrowLeft') {
         // The one-second jog used to live on Shift+Arrow; Shift now extends the
         // clip selection, which is the more useful thing to have on the easier chord.

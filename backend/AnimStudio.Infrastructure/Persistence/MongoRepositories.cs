@@ -18,6 +18,9 @@ public sealed class MongoProjectRepository(MongoDbService mongo) : IProjectRepos
     public async Task<Project?> GetAsync(string id, CancellationToken ct) =>
         await Collection.Find(p => p.Id == id).FirstOrDefaultAsync(ct).ConfigureAwait(false);
 
+    public async Task<IReadOnlyList<Project>> ListAllAsync(CancellationToken ct) =>
+        await Collection.Find(FilterDefinition<Project>.Empty).ToListAsync(ct).ConfigureAwait(false);
+
     public async Task<IReadOnlyList<Project>> ListAsync(string userId, CancellationToken ct) =>
         await Collection.Find(p => p.UserId == userId)
             .SortByDescending(p => p.UpdatedAt)
@@ -90,6 +93,30 @@ public sealed class MongoSceneRepository(MongoDbService mongo) : ISceneRepositor
 
     public Task DeleteByProjectAsync(string projectId, CancellationToken ct) =>
         Collection.DeleteManyAsync(s => s.ProjectId == projectId, ct);
+}
+
+public sealed class MongoProjectEditRepository(MongoDbService mongo) : IProjectEditRepository
+{
+    private IMongoCollection<ProjectEdit> Collection =>
+        mongo.GetCollection<ProjectEdit>(MongoCollections.ProjectEdits);
+
+    public async Task<ProjectEdit?> GetAsync(string id, CancellationToken ct) =>
+        await Collection.Find(e => e.Id == id).FirstOrDefaultAsync(ct).ConfigureAwait(false);
+
+    public async Task<IReadOnlyList<ProjectEdit>> ListByProjectAsync(string projectId, CancellationToken ct) =>
+        await Collection.Find(e => e.ProjectId == projectId)
+            .Project<ProjectEdit>(Builders<ProjectEdit>.Projection.Exclude(e => e.DraftJson))
+            .SortByDescending(e => e.UpdatedAt)
+            .ToListAsync(ct).ConfigureAwait(false);
+
+    public Task InsertAsync(ProjectEdit edit, CancellationToken ct) =>
+        Collection.InsertOneAsync(edit, cancellationToken: ct);
+
+    public Task ReplaceAsync(ProjectEdit edit, CancellationToken ct) =>
+        Collection.ReplaceOneAsync(e => e.Id == edit.Id, edit, cancellationToken: ct);
+
+    public Task DeleteAsync(string id, CancellationToken ct) =>
+        Collection.DeleteOneAsync(e => e.Id == id, ct);
 }
 
 public sealed class MongoAssetFolderRepository(MongoDbService mongo) : IAssetFolderRepository

@@ -257,6 +257,8 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         ArgumentNullException.ThrowIfNull(plan);
         plan.Canvas.Validate();
 
+        if (plan.EndCard is { } card) return BuildEndCard(plan, card);
+
         var canvas = plan.Canvas;
         var rate = canvas.FrameRate;
         var warnings = new List<string>();
@@ -300,16 +302,12 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
             fit = ClipFit.Contain;
         }
 
-        // 4:4:4 is carried through the chain ONLY when something is actually composited
-        // onto it: it exists so a mark's edges are not blended in chroma-subsampled space,
-        // which shows as colour fringing on a logo's outline. On a clip with no mark there
-        // is nothing to blend, and paying for it anyway means scaling, padding and framerate
-        // conversion all run at three full-resolution planes instead of one and a half -
-        // measured at roughly a quarter of the conform pass, for a file that is written out
-        // as 4:2:0 regardless.
-        // What will actually be drawn is decided BEFORE the fit chain is emitted, because
-        // that decision picks the working pixel format. Deciding it twice is how the chain
-        // ends up at 4:4:4 for a mark that then turns out to be un-drawable.
+        // The whole chain runs in the delivery pixel format, mark or no mark. Compositing a
+        // watermark in 4:4:4 used to be the rule here, to keep chroma fringing off a logo's
+        // edges - but it converts every full-resolution frame up and back down to soften a
+        // 60-pixel strip. Measured on 1080p clips with the logo mark: 4:4:4 cost 29% of the
+        // conform pass at veryfast, for an SSIM difference of 0.001 against a lossless
+        // reference. Every clip of a watermarked stitch pays it, so it is not worth it.
         var mark = plan.Watermark;
 
         var drawsLogo = mark is { Kind: WatermarkKind.Logo }
@@ -330,9 +328,22 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         if (wantsText && !canDrawText) warnings.Add("WATERMARK_UNAVAILABLE");
 
         var drawsText = wantsText && canDrawText;
-        var working = drawsLogo || drawsText ? "yuv444p" : plan.Encoder.PixelFormat;
 
-        graph.Append(FitChain(fit, canvas, rate, working, plan));
+        // Another mark burned into the source is wiped first, on the untouched frame, so
+        // the region means the same patch of footage however the clip is then framed - and
+        // our own watermark, drawn below, is never under it.
+        var source = EraseFilters.Append(
+            graph, "0:v", plan.EraseRegions, out var markAlreadyInBox, mark, capabilities, inputs, warnings);
+
+        // A "My mark" box already put our watermark where theirs was; a second copy in the
+        // corner is only drawn when the box asked for it.
+        if (markAlreadyInBox)
+        {
+            drawsLogo = false;
+            drawsText = false;
+        }
+
+        graph.Append(FitChain(fit, canvas, rate, plan.Encoder.PixelFormat, plan, source));
 
         var current = "base";
         var stage = 0;
@@ -387,6 +398,92 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         graph.Append($"[{current}]format={plan.Encoder.PixelFormat}[vout];\n");
 
         // --- audio.
+        graph.Append(ClipAudio(plan, inputs));
+
+        return new FilterGraphPlan
+        {
+            Inputs = inputs,
+            FilterComplex = graph.ToString(),
+            OutputArguments = ClipOutputArguments(plan),
+            OutputRelativePath = plan.OutputRelativePath,
+            ExpectedFrames = plan.ExpectedFrames,
+            Warnings = warnings
+        };
+    }
+
+    /// <summary>
+    /// A "support us" end card: plain background, QR code on a white quiet-zone square,
+    /// headline above and small text below. Output arguments and the silent audio stream
+    /// are a normal clip's, so the card joins a stitch by stream copy like any other clip.
+    /// <para>
+    /// The code is scaled with <c>neighbor</c>: any smoothing blurs module edges, and a
+    /// blurred QR code is one a phone takes noticeably longer to lock on to.
+    /// </para>
+    /// </summary>
+    private FilterGraphPlan BuildEndCard(ClipRenderPlan plan, EndCardPlan card)
+    {
+        var canvas = plan.Canvas;
+        var rate = canvas.FrameRate;
+        var warnings = new List<string>();
+        var duration = FilterExpr.N(plan.ImageDurationSeconds);
+
+        var inputs = new List<FfmpegInputSpec>
+        {
+            new(["-f", "lavfi"],
+                $"color=c=0x{card.BackgroundRgb}:s={canvas.Width}x{canvas.Height}"
+                + $":r={rate.ToFfmpegRate()}:d={duration}")
+            { IsLavfi = true }
+        };
+
+        var graph = new StringBuilder();
+        graph.Append("[0:v]setsar=1");
+        if (card.BoxSize > 0)
+        {
+            graph.Append($",drawbox=x={card.BoxX}:y={card.BoxY}:w={card.BoxSize}:h={card.BoxSize}")
+                 .Append(":color=white:t=fill");
+        }
+        graph.Append("[bg];\n");
+        var current = "bg";
+
+        if (card.QrRelativePath is { Length: > 0 } qr && card.BoxSize > 0)
+        {
+            // One frame, held by eof_action=repeat - the same trick the logo watermark uses.
+            var qrInput = inputs.Count;
+            inputs.Add(new FfmpegInputSpec([], qr));
+
+            graph.Append($"[{qrInput}:v]scale={card.QrSize}:{card.QrSize}")
+                 .Append(":force_original_aspect_ratio=decrease:flags=neighbor,format=rgba[qr];\n")
+                 .Append($"[{current}][qr]overlay=x={card.BoxX}+({card.BoxSize}-overlay_w)/2")
+                 .Append($":y={card.BoxY}+({card.BoxSize}-overlay_h)/2:eof_action=repeat:format=auto[cq];\n");
+            current = "cq";
+        }
+
+        var canDrawText = capabilities.Supports(RenderFeature.DrawText);
+        if (card.Lines.Count > 0 && !canDrawText) warnings.Add("ENDCARD_TEXT_UNAVAILABLE");
+
+        if (canDrawText)
+        {
+            // text_shaping is on by default where ffmpeg has HarfBuzz; it is what joins
+            // Devanagari conjuncts and places vowel signs instead of drawing them loose.
+            for (var i = 0; i < card.Lines.Count; i++)
+            {
+                var line = card.Lines[i];
+                var label = $"ct{i}";
+
+                graph.Append($"[{current}]drawtext=")
+                     .Append($"textfile={FilterExpr.Quote(FilterExpr.Path(line.TextRelativePath))}")
+                     .Append($":fontfile={FilterExpr.Quote(FilterExpr.Path(line.FontFilePath))}")
+                     .Append($":reload=0:fontsize={line.FontPixels}")
+                     .Append($":fontcolor=0x{card.TextRgb}@{FilterExpr.N(line.Opacity)}")
+                     .Append($":x=(w-text_w)/2:y={line.Y}[{label}];\n");
+                current = label;
+            }
+        }
+
+        var fadeIn = card.FadeInSeconds > 0
+            ? $"fade=t=in:st=0:d={FilterExpr.N(card.FadeInSeconds)},"
+            : string.Empty;
+        graph.Append($"[{current}]{fadeIn}format={plan.Encoder.PixelFormat}[vout];\n");
         graph.Append(ClipAudio(plan, inputs));
 
         return new FilterGraphPlan
@@ -459,7 +556,7 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
 
             // normalize=0 inside Mix is what makes the two levels mean what they say;
             // amix's default would halve both the moment a second input appeared.
-            var own = $"[0:a]{format},asetpts=N/SR/TB{headDelay},volume={FilterExpr.N(ownVolume)},apad";
+            var own = $"[0:a]{format},{AudioFilters.FollowTimestamps}{headDelay},volume={FilterExpr.N(ownVolume)},apad";
             var limiter = capabilities.Supports(RenderFeature.AudioLimiter);
 
             return $"{own}[a0];\n{extra}[a1];\n[a0][a1]{AudioFilters.Mix(2, limiter)}[aout]";
@@ -478,7 +575,7 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
                 ? string.Empty
                 : $",volume={FilterExpr.N(ownVolume)}{guard}";
 
-            return $"[0:a]{format},asetpts=N/SR/TB{headDelay}{level},apad[aout]";
+            return $"[0:a]{format},{AudioFilters.FollowTimestamps}{headDelay}{level},apad[aout]";
         }
 
         var silence = inputs.Count;
@@ -500,11 +597,10 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
     /// </para>
     /// </summary>
     /// <param name="working">
-    /// The pixel format the chain runs in - 4:4:4 when a watermark will be composited onto
-    /// the result, otherwise the delivery format, which is roughly half the plane data to
-    /// scale, pad and blur.
+    /// The pixel format the chain runs in - the delivery format, which is roughly half the
+    /// plane data of 4:4:4 to scale, pad and blur.
     /// </param>
-    private static string FitChain(ClipFit fit, Canvas canvas, FrameRate rate, string working, ClipRenderPlan plan)
+    private static string FitChain(ClipFit fit, Canvas canvas, FrameRate rate, string working, ClipRenderPlan plan, string source = "0:v")
     {
         var size = $"{FilterExpr.N(canvas.Width)}:{FilterExpr.N(canvas.Height)}";
         var conform = $"setsar=1,fps={rate.ToFfmpegRate()},format={working}";
@@ -524,14 +620,14 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         {
             // Fill and centre-crop. No bars, at the cost of the edges.
             ClipFit.Cover => matchesExactCanvas
-                ? $"[0:v]{conform}[base];\n"
-                : $"[0:v]{cropPrefix}scale={size}:force_original_aspect_ratio=increase:flags=bicubic,"
+                ? $"[{source}]{conform}[base];\n"
+                : $"[{source}]{cropPrefix}scale={size}:force_original_aspect_ratio=increase:flags=bicubic,"
                   + $"crop={size},{conform}[base];\n",
 
             // Letterbox over a blurred, cropped copy of the same frame. split comes first
             // so the source is decoded once and used twice.
             ClipFit.BlurredBackdrop =>
-                $"[0:v]{cropPrefix}split=2[bgsrc][fgsrc];\n"
+                $"[{source}]{cropPrefix}split=2[bgsrc][fgsrc];\n"
                 + $"[bgsrc]scale={size}:force_original_aspect_ratio=increase,crop={size},"
                 + $"gblur=sigma={FilterExpr.N(Math.Max(canvas.Height / 40, 4))}:steps=2,"
                 + $"setsar=1,format={working}[bgblur];\n"
@@ -542,8 +638,8 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
 
             // Letterbox on black. Loses nothing.
             _ => matchesExactCanvas
-                ? $"[0:v]{conform}[base];\n"
-                : $"[0:v]{cropPrefix}scale={size}:force_original_aspect_ratio=decrease:flags=bicubic,"
+                ? $"[{source}]{conform}[base];\n"
+                : $"[{source}]{cropPrefix}scale={size}:force_original_aspect_ratio=decrease:flags=bicubic,"
                   + $"pad={size}:(ow-iw)/2:(oh-ih)/2:color=black,{conform}[base];\n"
         };
     }
@@ -579,16 +675,57 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
     private static List<string> ClipOutputArguments(ClipRenderPlan plan)
     {
         var rate = plan.Canvas.FrameRate;
-        List<string> args =
-        [
+        var enc = plan.Encoder;
+
+        // Assemble video-codec-specific quality arguments. GPU encoders each have a
+        // different quality-control argument; the universal -crf only applies to libx264.
+        IEnumerable<string> qualityArgs = enc.VideoCodec switch
+        {
+            "h264_nvenc" =>
+            [
+                "-preset", enc.Preset,          // p1-p7 (p3 = balanced)
+                "-rc", "vbr",                   // variable bitrate with quality target
+                "-cq", FilterExpr.N(enc.Crf),   // analogous to CRF
+                "-b:v", "0"                     // let -cq do the driving
+            ],
+            "h264_qsv" =>
+            [
+                "-preset", enc.Preset,
+                "-global_quality", FilterExpr.N(enc.Crf),
+                "-look_ahead", "1"
+            ],
+            "h264_videotoolbox" =>
+            [
+                "-q:v", FilterExpr.N(enc.Crf)
+            ],
+            _ =>
+            [
+                // CPU libx264 — original path.
+                "-preset", enc.Preset,
+                "-crf", FilterExpr.N(enc.Crf)
+            ]
+        };
+
+        var args = new List<string>
+        {
             "-map", "[vout]",
             "-map", "[aout]",
             "-shortest",
-            ..(plan.SourceIsImage ? new[] { "-frames:v", FilterExpr.N(plan.ExpectedFrames.Value) } : []),
-            "-c:v", plan.Encoder.VideoCodec,
-            "-preset", plan.Encoder.Preset,
-            "-crf", FilterExpr.N(plan.Encoder.Crf),
-            "-pix_fmt", plan.Encoder.PixelFormat,
+        };
+
+        if (plan.SourceIsImage)
+        {
+            args.Add("-frames:v");
+            args.Add(FilterExpr.N(plan.ExpectedFrames.Value));
+        }
+
+        args.Add("-c:v");
+        args.Add(enc.VideoCodec);
+
+        args.AddRange(qualityArgs);
+
+        args.AddRange([
+            "-pix_fmt", enc.PixelFormat,
             "-profile:v", "high",
             "-r", rate.ToFfmpegRate(),
             "-fps_mode", "cfr",
@@ -600,23 +737,31 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
             "-colorspace", "bt709",
             "-color_primaries", "bt709",
             "-color_trc", "bt709",
-            "-c:a", plan.Encoder.AudioCodec,
-            "-b:a", $"{plan.Encoder.AudioBitrateKbps}k",
-            "-ar", FilterExpr.N(plan.Encoder.AudioSampleRate),
-            "-ac", FilterExpr.N(plan.Encoder.AudioChannels),
+            "-c:a", enc.AudioCodec,
+            "-b:a", $"{enc.AudioBitrateKbps}k",
+            "-ar", FilterExpr.N(enc.AudioSampleRate),
+            "-ac", FilterExpr.N(enc.AudioChannels),
             "-video_track_timescale", FilterExpr.N((int)(rate.AsDouble * 1000)),
-            "-movflags", "+faststart",
-            ..(plan.EncoderThreads > 0 ? new[] { "-threads", FilterExpr.N(plan.EncoderThreads) } : [])
-        ];
+            "-movflags", "+faststart"
+        ]);
 
-        if (plan.Encoder.Preset is "ultrafast" or "superfast" or "veryfast")
+        if (plan.EncoderThreads > 0 && !enc.IsHardwareEncoder)
         {
+            // -threads is a software-only option; GPU encoders manage their own threading.
+            args.Add("-threads");
+            args.Add(FilterExpr.N(plan.EncoderThreads));
+        }
+
+        if (!enc.IsHardwareEncoder && enc.Preset is "ultrafast" or "superfast" or "veryfast")
+        {
+            // -tune fastdecode is libx264-only; GPU encoders don't understand it.
             args.Add("-tune");
             args.Add("fastdecode");
         }
 
         return args;
     }
+
 
     public FilterGraphPlan BuildMerge(MergePlan plan)
     {
@@ -675,9 +820,13 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         var graph = new StringBuilder();
         var audioFormat = AudioFilters.Format(plan.Encoder);
 
-        // Normalize the concatenated clip audio stream and ensure it matches full video duration
+        // The concat list gives every clip its exact video length, so the demuxer stamps each
+        // clip's audio where its picture starts. Following those stamps - not renumbering
+        // the samples - is what stops the per-clip shortfall accumulating into drift. Then
+        // held to exactly the video's length at both ends.
         var totalSeconds = FilterExpr.Sec(total, rate);
-        graph.Append($"[0:a]{audioFormat},asetpts=N/SR/TB,apad=whole_dur={totalSeconds}[clipaudio];\n");
+        graph.Append($"[0:a]{audioFormat},{AudioFilters.FollowTimestamps},")
+             .Append($"apad=whole_dur={totalSeconds},atrim=end={totalSeconds}[clipaudio];\n");
         var mixLabels = new List<string> { "clipaudio" };
 
         var duckEnvelope = AudioFilters.DuckEnvelope(
@@ -873,9 +1022,14 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         // arithmetic xfade uses, so driving both from the same durations keeps them locked.
         // Using concat here instead would leave audio long by the sum of all transitions -
         // twenty 0.5s transitions is ten seconds of drift by the end.
+        // Each clip's audio is held to exactly its video length first: a conformed clip's
+        // sound ends a few ms short of its picture, and acrossfade would otherwise carry
+        // every one of those shortfalls forward into the next clip.
         for (var i = 0; i < plan.Scenes.Count; i++)
         {
-            graph.Append($"[{i}:a]{AudioFilters.Format(plan.Encoder)},asetpts=N/SR/TB[a{i}];\n");
+            var seconds = FilterExpr.Sec(lengths[i], rate);
+            graph.Append($"[{i}:a]{AudioFilters.Format(plan.Encoder)},{AudioFilters.FollowTimestamps},")
+                 .Append($"apad=whole_dur={seconds},atrim=end={seconds}[a{i}];\n");
         }
 
         var audioLabel = "a0";

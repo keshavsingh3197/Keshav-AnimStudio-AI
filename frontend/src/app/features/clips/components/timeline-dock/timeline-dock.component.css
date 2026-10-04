@@ -27,6 +27,9 @@
 
 /* ── Timeline Toolbar ────────────────────────────────────────── */
 .tl-toolbar {
+  /* Queried below: icon buttons gain text labels when the toolbar has the room. */
+  container-type: inline-size;
+  container-name: tl-toolbar;
   display: flex;
   align-items: center;
   height: 38px;
@@ -2293,3 +2296,38 @@
   margin-left: 2px;
   margin-right: 4px;
 }
+
+/* Toolbar labels: hidden until the toolbar is wide (ultra-wide monitors), where icon-only
+   buttons leave most of the bar empty and the icons alone are hard to tell apart. */
+.tool-btn-label { display: none; }
+
+@container tl-toolbar (min-width: 1900px) {
+  .tool-btn.icon-only { width: auto; padding: 0 9px; gap: 5px; }
+  .tool-btn-label { display: inline; font-size: 0.72rem; white-space: nowrap; }
+}
+
+@container tl-toolbar (min-width: 2600px) {
+  .tl-toolbar .tool-btn { height: 30px; }
+  .tool-btn.icon-only { padding: 0 11px; }
+  .tool-btn-label { font-size: 0.8rem; }
+}
+
+/* End card the export appends after the cut (read-only marker on V1). */
+.tl-end-card-marker {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px dashed rgba(108, 140, 255, 0.7);
+  border-radius: 5px;
+  background: repeating-linear-gradient(135deg, rgba(108, 140, 255, 0.14) 0 6px, rgba(108, 140, 255, 0.05) 6px 12px);
+  color: #c7d2fe;
+  font-size: 0.68rem;
+  font-weight: 600;
+  pointer-events: auto;
+  cursor: help;
+}
+.tl-end-card-marker-text { white-space: nowrap; padding: 0 4px; }

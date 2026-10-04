@@ -500,7 +500,9 @@
                   }
                 </select>
 
-                <div class="upload-button-wrapper">
+                <div class="upload-button-wrapper"
+                     appFileDrop="image/*" [fileDropDisabled]="isUploadingClosed()"
+                     (filesDropped)="uploadClosedSprite($event[0])">
                   <label class="btn-upload">
                     <span>📁 Upload Image</span>
                     <input
@@ -547,7 +549,9 @@
                   }
                 </select>
 
-                <div class="upload-button-wrapper">
+                <div class="upload-button-wrapper"
+                     appFileDrop="image/*" [fileDropDisabled]="isUploadingOpen()"
+                     (filesDropped)="uploadOpenSprite($event[0])">
                   <label class="btn-upload">
                     <span>📁 Upload Image</span>
                     <input

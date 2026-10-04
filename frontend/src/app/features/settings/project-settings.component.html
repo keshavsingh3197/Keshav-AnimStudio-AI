@@ -9,6 +9,16 @@
       </div>
     </div>
     <div class="settings-top-actions">
+      @if (channels().length > 1) {
+        <label class="channel-picker" title="Which YouTube channel this project publishes under: its watermark and end card">
+          <span>📺 Channel</span>
+          <select class="form-select" [ngModel]="form.brandChannelId" (ngModelChange)="onChannelChange($event)">
+            @for (c of channels(); track c.id) {
+              <option [value]="c.id">{{ c.name }}{{ c.isDefault ? ' (default)' : '' }}</option>
+            }
+          </select>
+        </label>
+      }
       @if (saveSuccess()) {
         <div class="save-toast-pill">
           <span>✓</span> Settings Saved
@@ -217,22 +227,47 @@
         <div class="hallmark-badge-group">
           <div class="status-dot-pulse"></div>
           <span style="font-size: 0.85rem; color: #fff; font-weight: 500;">
-            Global Studio Hallmark configured: <strong>{{ globalWatermark()?.kind }}</strong> ({{ globalWatermark()?.position }})
+            "{{ selectedChannel()?.name ?? 'Default' }}" channel hallmark: <strong>{{ globalWatermark()?.kind }}</strong> ({{ globalWatermark()?.position }})
           </span>
         </div>
         <button type="button" class="btn-outline" (click)="applyGlobalBranding()" style="font-size: 0.82rem; padding: 4px 12px;">
-          Sync from Global Hallmark
+          Sync from Channel Hallmark
         </button>
       } @else {
         <div style="font-size: 0.84rem; color: #8b9bb4;">
           No global server-wide hallmark configured yet.
         </div>
-        <a routerLink="/admin/branding" style="font-size: 0.84rem; color: var(--brand, #6c8cff); text-decoration: none; font-weight: 600;">
+        <a routerLink="/admin/branding/watermark" style="font-size: 0.84rem; color: var(--brand, #6c8cff); text-decoration: none; font-weight: 600;">
           Configure Global Studio Hallmark &rarr;
         </a>
       }
     </div>
 
+    <!-- Where the watermark comes from: the channel (live) or this project -->
+    <div class="form-group">
+      <label class="form-label">Watermark Source</label>
+      <div class="segmented-row">
+        <button type="button" class="segment-btn" [class.active]="form.followChannelWatermark"
+                (click)="setWatermarkSource(true)">
+          📺 Follow "{{ selectedChannel()?.name ?? 'Default' }}" channel
+        </button>
+        <button type="button" class="segment-btn" [class.active]="!form.followChannelWatermark"
+                (click)="setWatermarkSource(false)">
+          ✎ Custom for this project
+        </button>
+      </div>
+      <p class="field-hint" style="margin: 0.4rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
+        @if (form.followChannelWatermark) {
+          Shown below as the channel has it. Change it in
+          <a routerLink="/admin/branding/watermark" style="color: var(--brand, #6c8cff);">Settings → Watermark</a>
+          and this project follows automatically.
+        } @else {
+          This project's own watermark - channel changes do not affect it.
+        }
+      </p>
+    </div>
+
+    <fieldset class="watermark-editor" [disabled]="form.followChannelWatermark">
     <!-- Watermark Style Segmented Controls -->
     <div class="form-group">
       <label class="form-label">Watermark Style</label>
@@ -280,15 +315,20 @@
               <label class="form-label" for="wm-logo">Logo Asset</label>
               <select class="form-select" id="wm-logo" [(ngModel)]="form.defaultWatermarkLogoId">
                 <option value="">Select an image from library...</option>
+                @if (globalWatermark()?.logoAssetId; as channelLogo) {
+                  <option [value]="channelLogo">📺 "{{ selectedChannel()?.name ?? 'Default' }}" channel logo</option>
+                }
                 @for (asset of store.imagesOnly(); track asset.id) {
                   <option [value]="asset.id">{{ asset.name }}</option>
                 }
               </select>
-              <div style="margin-top: 0.5rem;">
+              <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem; align-items: center;"
+                   appFileDrop="image/png,image/jpeg,image/webp" (filesDropped)="uploadLogo($event[0])">
                 <label class="btn-outline" style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 0.8rem; padding: 4px 10px;">
                   <input type="file" accept="image/png,image/jpeg,image/webp" (change)="onPickLogo($event)" style="display: none;" />
                   <span>⬆ Upload New Transparent PNG</span>
                 </label>
+                <span class="file-drop-hint">or drop / Ctrl+V</span>
               </div>
             </div>
           }
@@ -378,6 +418,7 @@
         </div>
       </div>
     }
+    </fieldset>
 
     <div style="display: flex; justify-content: flex-end; margin-top: 1rem;">
       <button type="button" class="btn-primary-glow" (click)="save()" [disabled]="status.busy() || !form.name.trim()">
@@ -401,17 +442,17 @@
         <div class="hallmark-badge-group">
           <div class="status-dot-pulse"></div>
           <span style="font-size: 0.85rem; color: #fff; font-weight: 500;">
-            Global Studio Outro active: <strong>{{ globalOutro()?.kind }}</strong> ({{ globalOutro()?.transition }} transition)
+            "{{ selectedChannel()?.name ?? 'Default' }}" channel outro: <strong>{{ globalOutro()?.kind }}</strong> ({{ globalOutro()?.transition }} transition)
           </span>
         </div>
         <button type="button" class="btn-outline" (click)="applyGlobalOutro()" style="font-size: 0.82rem; padding: 4px 12px;">
-          Sync from Global Outro
+          Sync from Channel Outro
         </button>
       } @else {
         <div style="font-size: 0.84rem; color: #8b9bb4;">
           No global studio outro configured on server.
         </div>
-        <a routerLink="/admin/branding" style="font-size: 0.84rem; color: var(--brand, #6c8cff); text-decoration: none; font-weight: 600;">
+        <a routerLink="/admin/branding/end-card" style="font-size: 0.84rem; color: var(--brand, #6c8cff); text-decoration: none; font-weight: 600;">
           Configure Global Studio Outro &rarr;
         </a>
       }
@@ -444,11 +485,13 @@
                   <option [value]="asset.id">🎬 {{ asset.name }} ({{ asset.durationSeconds | number: '1.1-1' }}s)</option>
                 }
               </select>
-              <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem; align-items: center;">
+              <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem; align-items: center;"
+                   appFileDrop="video/mp4,video/webm,video/quicktime" (filesDropped)="uploadOutroMedia($event[0])">
                 <label class="btn-outline" style="cursor: pointer; font-size: 0.8rem; padding: 4px 10px;">
                   <input type="file" accept="video/mp4,video/webm,video/quicktime" (change)="onPickOutroMedia($event)" style="display: none;" />
                   <span>⬆ Upload New Outro MP4</span>
                 </label>
+                <span class="file-drop-hint">or drop / Ctrl+V</span>
                 @if (form.defaultOutroAssetId) {
                   <button type="button" class="btn-outline" style="color: #f87171; border-color: rgba(239,68,68,0.3); font-size: 0.8rem; padding: 4px 10px;" (click)="clearOutroMedia()">
                     ✕ Clear
@@ -467,11 +510,13 @@
                   <option [value]="asset.id">🖼️ {{ asset.name }}</option>
                 }
               </select>
-              <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem; align-items: center;">
+              <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem; align-items: center;"
+                   appFileDrop="image/png,image/jpeg,image/webp" (filesDropped)="uploadOutroMedia($event[0])">
                 <label class="btn-outline" style="cursor: pointer; font-size: 0.8rem; padding: 4px 10px;">
                   <input type="file" accept="image/png,image/jpeg,image/webp" (change)="onPickOutroMedia($event)" style="display: none;" />
                   <span>⬆ Upload New End-Card PNG</span>
                 </label>
+                <span class="file-drop-hint">or drop / Ctrl+V</span>
                 @if (form.defaultOutroAssetId) {
                   <button type="button" class="btn-outline" style="color: #f87171; border-color: rgba(239,68,68,0.3); font-size: 0.8rem; padding: 4px 10px;" (click)="clearOutroMedia()">
                     ✕ Clear
@@ -549,6 +594,32 @@
         </div>
       </div>
     }
+
+    <!-- What the export will actually end with: own outro, or the studio's global card -->
+    <div class="end-card-effective" [class.is-none]="endCardSource() === 'none'">
+      <div class="end-card-effective-head">
+        <div>
+          <span class="form-label" style="margin: 0;">Your exports end with</span>
+          <div class="end-card-effective-label">{{ endCardLabel() }}</div>
+          @if (endCardSource() === 'global') {
+            <a routerLink="/admin/branding/end-card" class="end-card-effective-link">Edit the studio end card &rarr;</a>
+          }
+        </div>
+        @if (endCardSource() !== 'none') {
+          <button type="button" class="btn-outline" [disabled]="endCardPreviewBusy()" (click)="previewEndCard()">
+            {{ endCardPreviewBusy() ? 'Rendering…' : (endCardPreviewUrl() ? '↻ Re-render preview' : '▶ Preview end card') }}
+          </button>
+        }
+      </div>
+      @if (endCardPreviewError(); as err) {
+        <p class="end-card-effective-error">{{ err }}</p>
+      }
+      @if (endCardPreviewUrl(); as url) {
+        <video class="end-card-effective-video" [src]="url" controls autoplay playsinline
+               [style.aspect-ratio]="form.width + '/' + form.height"></video>
+        <p class="end-card-effective-note">Rendered at this project's canvas ({{ form.width }}&times;{{ form.height }}), exactly as the export appends it.</p>
+      }
+    </div>
 
     <div style="display: flex; justify-content: flex-end; margin-top: 1rem;">
       <button type="button" class="btn-primary-glow" (click)="save()" [disabled]="status.busy() || !form.name.trim()">

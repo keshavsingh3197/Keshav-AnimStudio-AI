@@ -2035,9 +2035,9 @@ app-timeline-dock {
   font-size: 0.85rem;
   font-weight: 600;
   color: #f8fafc;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* Wraps rather than truncating: "1080p F..." told nobody which format it was. */
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
 .res-card-dim {
@@ -2087,6 +2087,14 @@ app-timeline-dock {
 .export-pill:hover {
   background: rgba(30, 41, 59, 0.7);
   border-color: rgba(255, 255, 255, 0.2);
+}
+
+.export-pill-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.7rem;
+  font-weight: 400;
+  opacity: 0.7;
 }
 
 .export-pill.active {
@@ -2935,6 +2943,19 @@ app-timeline-dock {
   gap: 10px;
 }
 
+.timeline-downloads {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.timeline-downloads-label {
+  font-size: 0.8rem;
+  opacity: 0.75;
+}
+
 .export-download-btn {
   background: #10b981 !important;
   color: #000 !important;
@@ -3039,6 +3060,11 @@ app-timeline-dock {
   font-size: 0.74rem;
   font-weight: 700;
   color: #38bdf8;
+}
+
+.engine-badge--gpu {
+  color: #34d399;
+  text-shadow: 0 0 8px rgba(52, 211, 153, 0.35);
 }
 
 .engine-details {
@@ -3227,4 +3253,41 @@ app-timeline-dock {
   padding: 0.8rem 1.2rem;
   background: rgba(15, 23, 42, 0.9);
   border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Export dialog on wide and ultra-wide screens: room for every format on one row,
+   and a taller end-card preview. */
+@media (min-width: 1900px) {
+  .export-dialog { max-width: 1040px; }
+  .export-res-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .export-end-card .end-card-effective-video { max-height: 420px; }
+}
+@media (min-width: 2560px) {
+  .export-dialog { max-width: 1240px; }
+  .export-dialog-title h3 { font-size: 1.3rem; }
+  .export-end-card .end-card-effective-video { max-height: 520px; }
+}
+
+/* Export progress monitor: one stack by default; on wide screens the progress, live item and
+   clip matrix sit beside the metrics and pipeline stages instead of a long narrow scroll. */
+.monitor-columns,
+.monitor-col { display: flex; flex-direction: column; gap: 1.2rem; min-width: 0; }
+
+@media (min-width: 1900px) {
+  .render-monitor-dialog { width: min(1500px, 92vw); max-height: 90vh; }
+  .monitor-columns { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 1.4rem; align-items: start; }
+  .timeline-clip-matrix-container { max-height: 340px; }
+}
+@media (min-width: 2560px) {
+  .render-monitor-dialog { width: min(1800px, 90vw); }
+  .render-monitor-body { padding: 1.5rem 1.8rem; }
+  .timeline-clip-matrix-container { max-height: 460px; }
+}
+
+/* The other studio dialogs on wide screens: roomier shortcut columns, transition previews big
+   enough to actually judge the effect. */
+@media (min-width: 1900px) {
+  .shortcuts-dialog { max-width: 1200px; }
+  .transition-dialog { max-width: 900px; }
+  .transition-preview-dialog { max-width: 1000px; }
 }

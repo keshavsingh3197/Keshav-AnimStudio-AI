@@ -29,7 +29,7 @@
   </p>
 </div>
 
-<div class="card">
+<div class="card" appFileDrop=".zip,application/zip,application/x-zip-compressed" (filesDropped)="chooseFile($event[0])">
   <h3>2. Upload it back</h3>
   <p class="muted">
     Put your images and audio in <code>media/</code>, refer to them from the sheets by their
@@ -38,6 +38,7 @@
   </p>
   <label for="bundle">Bundle file</label>
   <input id="bundle" type="file" accept=".zip,application/zip" (change)="choose($event)" />
+  <span class="file-drop-hint">or drop the .zip anywhere on this card / paste with Ctrl+V</span>
 
   @if (fileName(); as name) {
     <p class="muted mono">{{ name }}</p>

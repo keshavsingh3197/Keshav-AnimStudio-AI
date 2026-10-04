@@ -1,7 +1,5 @@
 import { Routes } from '@angular/router';
 
-import { ProjectStore } from './core/services/project-store';
-
 /**
  * Feature areas are lazy: the dashboard is the only thing most visits need, and the scene
  * editor is by far the largest screen.
@@ -18,8 +16,8 @@ export const routes: Routes = [
 
   {
     path: 'projects/:projectId',
-    // Scoped here so the open project's state is created on entry and dropped on exit.
-    providers: [ProjectStore],
+    // ProjectStore is provided by ProjectEditorComponent, not here: a route-level injector
+    // outlives navigation, so it kept the previous project's state alive into the next one.
     loadComponent: () =>
       import('./features/projects/project-editor.component').then((m) => m.ProjectEditorComponent),
     children: [
@@ -48,6 +46,12 @@ export const routes: Routes = [
         title: 'Assets - AnimStudio AI',
         loadComponent: () =>
           import('./features/assets/asset-library.component').then((m) => m.AssetLibraryComponent),
+      },
+      {
+        path: 'videos',
+        title: 'Videos & Shorts - AnimStudio AI',
+        loadComponent: () =>
+          import('./features/videos/videos-page.component').then((m) => m.VideosPageComponent),
       },
       {
         path: 'clips',
@@ -121,11 +125,42 @@ export const routes: Routes = [
             .then((m) => m.AdminProvidersComponent),
       },
       {
-        path: 'branding',
-        title: 'Branding & Hallmark - AnimStudio AI',
+        path: 'channels',
+        title: 'Channels - AnimStudio AI',
+        loadComponent: () =>
+          import('./features/admin/admin-channels.component').then((m) => m.AdminChannelsComponent),
+      },
+      // One branding component, three pages: the route data says which section it shows.
+      { path: 'branding', pathMatch: 'full', redirectTo: 'branding/watermark' },
+      {
+        path: 'branding/watermark',
+        title: 'Watermark - AnimStudio AI',
+        data: { section: 'watermark' },
         loadComponent: () =>
           import('./features/admin/admin-branding.component')
             .then((m) => m.AdminBrandingComponent),
+      },
+      {
+        path: 'branding/end-card',
+        title: 'End card - AnimStudio AI',
+        data: { section: 'outro' },
+        loadComponent: () =>
+          import('./features/admin/admin-branding.component')
+            .then((m) => m.AdminBrandingComponent),
+      },
+      {
+        path: 'media/chunking',
+        title: 'Video chunking - AnimStudio AI',
+        data: { section: 'chunking' },
+        loadComponent: () =>
+          import('./features/admin/admin-branding.component')
+            .then((m) => m.AdminBrandingComponent),
+      },
+      {
+        path: 'storage',
+        title: 'Storage - AnimStudio AI',
+        loadComponent: () =>
+          import('./features/admin/admin-storage.component').then((m) => m.AdminStorageComponent),
       },
       {
         path: 'usage',

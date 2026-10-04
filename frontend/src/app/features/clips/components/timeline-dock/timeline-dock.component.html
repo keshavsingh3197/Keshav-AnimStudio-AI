@@ -8,17 +8,17 @@
     <div class="tl-toolbar">
       <div class="tool-group">
         <button class="tool-btn icon-only" type="button" title="Undo (Ctrl+Z)" disabled>
-          <span class="tool-btn-icon">↩</span>
+          <span class="tool-btn-icon">↩</span><span class="tool-btn-label">Undo</span>
         </button>
         <button class="tool-btn icon-only" type="button" title="Redo (Ctrl+Y)" disabled>
-          <span class="tool-btn-icon">↪</span>
+          <span class="tool-btn-icon">↪</span><span class="tool-btn-label">Redo</span>
         </button>
         <button class="tool-btn icon-only btn-danger-action" type="button" (click)="state.deleteOrRemoveCurrentSelection()" [disabled]="!state.hasAnySelection()" title="Delete / Remove selected (Del / Backspace)">
-          <span class="tool-btn-icon">🗑</span>
+          <span class="tool-btn-icon">🗑</span><span class="tool-btn-label">Delete</span>
         </button>
         @if (state.hasAnySelection()) {
           <button class="tool-btn icon-only btn-clear-action" type="button" (click)="state.clearAllSelections()" title="Deselect all (Esc)">
-            <span class="tool-btn-icon">✕</span>
+            <span class="tool-btn-icon">✕</span><span class="tool-btn-label">Deselect</span>
           </button>
         }
       </div>
@@ -27,13 +27,13 @@
 
       <div class="tool-group">
         <button class="tool-btn icon-only" type="button" (click)="state.splitClipAtPlayhead()" title="Split clip at playhead needle (S)">
-          <span class="tool-btn-icon">✂</span>
+          <span class="tool-btn-icon">✂</span><span class="tool-btn-label">Split</span>
         </button>
         <button class="tool-btn icon-only" type="button" [disabled]="!state.canMergeClips()" (click)="state.mergeSelectedOrAdjacentClips()" title="Merge adjacent parts of the same clip back together (Join)">
-          <span class="tool-btn-icon">🔗</span>
+          <span class="tool-btn-icon">🔗</span><span class="tool-btn-label">Merge</span>
         </button>
         <button class="tool-btn icon-only" type="button" [disabled]="!state.hasAnySelection()" (click)="state.duplicateSelectedTimelineItem()" title="Duplicate selected timeline clip or overlay (Ctrl+D)">
-          <span class="tool-btn-icon">⧉</span>
+          <span class="tool-btn-icon">⧉</span><span class="tool-btn-label">Duplicate</span>
         </button>
       </div>
 
@@ -45,25 +45,25 @@
                 [disabled]="!state.canNudgeSelected()"
                 (click)="state.nudgeAnySelected(-1)"
                 title="Move selected earlier (◀ or ←)">
-          <span class="tool-btn-icon">◀</span>
+          <span class="tool-btn-icon">◀</span><span class="tool-btn-label">Earlier</span>
         </button>
         <button class="tool-btn icon-only" type="button"
                 [disabled]="!state.canNudgeSelected()"
                 (click)="state.nudgeAnySelected(1)"
                 title="Move selected later (▶ or →)">
-          <span class="tool-btn-icon">▶</span>
+          <span class="tool-btn-icon">▶</span><span class="tool-btn-label">Later</span>
         </button>
         <button class="tool-btn icon-only" type="button"
                 [disabled]="state.selectedCutIndices().length === 0"
                 (click)="state.copySelectedClips()"
                 title="Copy selected clips (Ctrl+C)">
-          <span class="tool-btn-icon">📄</span>
+          <span class="tool-btn-icon">📄</span><span class="tool-btn-label">Copy</span>
         </button>
         <button class="tool-btn icon-only" type="button"
                 [disabled]="state.clipboardCount() === 0"
                 (click)="state.pasteClips()"
                 [title]="state.clipboardCount() === 0 ? 'Nothing copied yet' : 'Paste ' + state.clipboardCount() + ' clip(s) ' + state.insertPointLabel() + ' (Ctrl+V)'">
-          <span class="tool-btn-icon">📋</span>
+          <span class="tool-btn-icon">📋</span><span class="tool-btn-label">Paste</span>
           @if (state.clipboardCount() > 0) {
             <span class="tool-badge-count">{{ state.clipboardCount() }}</span>
           }
@@ -71,7 +71,7 @@
         <button class="tool-btn icon-only tool-btn-subtle" type="button"
                 (click)="state.moveInsertCaretToPlayhead()"
                 [title]="'Insert caret is ' + state.insertPointLabel() + ' — click to move it to the playhead'">
-          <span class="tool-btn-icon">⌶</span>
+          <span class="tool-btn-icon">⌶</span><span class="tool-btn-label">Caret</span>
         </button>
       </div>
 
@@ -80,25 +80,25 @@
       <!-- Inspector tabs and overlay quick actions -->
       <div class="tool-group">
         <button class="tool-btn icon-only" type="button" [class.active]="state.activeInspectorTab() === 'clip'" [disabled]="!state.selectedClip()" (click)="state.activeInspectorTab.set('clip')" title="Crop, Framing & Clip Settings (C)">
-          <span class="tool-btn-icon">📐</span>
+          <span class="tool-btn-icon">📐</span><span class="tool-btn-label">Crop</span>
         </button>
         <button class="tool-btn icon-only" type="button" [class.active]="state.activeInspectorTab() === 'color'" (click)="state.activeInspectorTab.set('color')" title="Color grading & filters">
-          <span class="tool-btn-icon">🎨</span>
+          <span class="tool-btn-icon">🎨</span><span class="tool-btn-label">Color</span>
         </button>
         <button class="tool-btn icon-only" type="button" [class.active]="state.activeInspectorTab() === 'audio'" (click)="state.onTimelineAudioClicked()" title="Audio Hub & Sound Effects">
-          <span class="tool-btn-icon">🎵</span>
+          <span class="tool-btn-icon">🎵</span><span class="tool-btn-label">Audio</span>
         </button>
         <button class="tool-btn icon-only" type="button" [class.active]="state.activeInspectorTab() === 'text'" (click)="state.onTextToolbarClicked()" title="Text & Subtitle Overlays">
-          <span class="tool-btn-icon">𝐓</span>
+          <span class="tool-btn-icon">𝐓</span><span class="tool-btn-label">Text</span>
         </button>
         <button class="tool-btn icon-only tool-btn-subtle" type="button" (click)="state.addTextOverlay()" title="Add Text / Subtitle Overlay on TXT1">
-          <span class="tool-btn-icon">➕</span>
+          <span class="tool-btn-icon">➕</span><span class="tool-btn-label">Add text</span>
         </button>
         <button class="tool-btn icon-only" type="button" [class.active]="state.activeInspectorTab() === 'effects'" (click)="state.activeInspectorTab.set('effects')" title="Visual Effects">
-          <span class="tool-btn-icon">✨</span>
+          <span class="tool-btn-icon">✨</span><span class="tool-btn-label">Effects</span>
         </button>
         <button class="tool-btn icon-only" type="button" [class.active]="state.activeInspectorTab() === 'transitions'" (click)="state.openTransitionsTab()" title="Transitions & Cuts">
-          <span class="tool-btn-icon">⚡</span>
+          <span class="tool-btn-icon">⚡</span><span class="tool-btn-label">Transitions</span>
         </button>
       </div>
 
@@ -114,18 +114,18 @@
         <button class="tool-btn icon-only" type="button"
                 (click)="state.showShortcutsModal.set(true)"
                 title="Keyboard Shortcuts & Timeline Hotkeys Guide (?)">
-          <span class="tool-btn-icon">⌨</span>
+          <span class="tool-btn-icon">⌨</span><span class="tool-btn-label">Shortcuts</span>
         </button>
 
         <button class="tool-btn icon-only" type="button"
                 [class.active]="state.timelineThumbnailMode() === 'filmstrip'"
                 (click)="state.timelineThumbnailMode.set(state.timelineThumbnailMode() === 'filmstrip' ? 'simple' : 'filmstrip')"
                 [title]="state.timelineThumbnailMode() === 'filmstrip' ? 'Switch to Compact timeline view' : 'Switch to Filmstrip thumbnails view'">
-          <span class="tool-btn-icon">{{ state.timelineThumbnailMode() === 'filmstrip' ? '🖼' : '☰' }}</span>
+          <span class="tool-btn-icon">{{ state.timelineThumbnailMode() === 'filmstrip' ? '🖼' : '☰' }}</span><span class="tool-btn-label">View</span>
         </button>
 
         <button class="tool-btn icon-only" type="button" (click)="fitTimeline()" title="Fit timeline to screen (Zoom Fit)">
-          <span class="tool-btn-icon">⤢</span>
+          <span class="tool-btn-icon">⤢</span><span class="tool-btn-label">Fit</span>
         </button>
 
         <div class="tl-zoom-ctrl">
@@ -398,6 +398,16 @@
                    [title]="'New and pasted clips land ' + state.insertPointLabel()">
                 <span class="tl-insert-caret-flag">{{ state.effectiveInsertIndex() + 1 }}</span>
               </div>
+
+              <!-- What the export appends after the cut: not editable here, but visible. -->
+              @if (state.endCardTailSeconds() > 0 && state.endCard(); as card) {
+                <div class="tl-end-card-marker"
+                     [style.left.px]="state.secondsToPx(state.contentDurationSeconds())"
+                     [style.width.px]="state.secondsToPx(card.seconds)"
+                     [title]="card.label + ' - appended by the export (' + card.seconds + 's). Change it in Settings or Admin → Branding; untick it in the Export dialog.'">
+                  <span class="tl-end-card-marker-text">🏁 End card</span>
+                </div>
+              }
 
               @for (sched of state.clipSchedule(); track sched.clip.id; let i = $index) {
                 <div class="tl-clip"

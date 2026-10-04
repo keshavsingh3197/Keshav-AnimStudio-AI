@@ -65,4 +65,36 @@ public class MergeGraphBuilderTests
         Assert.Single(built.Inputs);
         Assert.Contains("copy", built.OutputArguments);
     }
+
+    private const string FollowTimestamps = "aresample=async=1:min_hard_comp=0.005:first_pts=0";
+
+    [Fact]
+    public void A_stream_copy_join_with_music_places_clip_audio_by_timestamp_not_end_to_end()
+    {
+        // Each conformed clip's sound ends ~10ms short of its picture. Renumbering samples
+        // end to end (asetpts=N/SR/TB) carried every shortfall forward, so the sound ran
+        // further ahead of the lips with each clip - 111ms after four clips.
+        var built = NewBuilder().BuildMerge(
+            Plan(4, transitionFrames: 0) with { BackgroundMusicRelativePath = "in/music.mp3" });
+
+        Assert.True(built.IsStreamCopy);
+        Assert.Contains($"stereo,{FollowTimestamps},apad=whole_dur=40,atrim=end=40[clipaudio]",
+            built.FilterComplex);
+        Assert.DoesNotContain("[0:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,asetpts",
+            built.FilterComplex);
+    }
+
+    [Fact]
+    public void A_crossfade_join_holds_every_clips_audio_to_exactly_its_video_length()
+    {
+        // acrossfade consumes audio with xfade's arithmetic, which only stays locked if each
+        // input is exactly as long as the video it belongs to.
+        var built = NewBuilder().BuildMerge(Plan(3, transitionFrames: 15));
+
+        for (var i = 0; i < 3; i++)
+        {
+            Assert.Contains($"[{i}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
+                + $"{FollowTimestamps},apad=whole_dur=10,atrim=end=10[a{i}]", built.FilterComplex);
+        }
+    }
 }

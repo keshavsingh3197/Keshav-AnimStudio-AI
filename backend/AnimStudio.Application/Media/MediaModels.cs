@@ -15,7 +15,10 @@ public sealed record MediaProbeResponse(
     bool IsShort,
     string AspectLabel,
     IReadOnlyList<string> AvailableResolutions,
-    IReadOnlyList<string> AvailableAudioFormats);
+    IReadOnlyList<string> AvailableAudioFormats,
+    string PlatformId = "youtube",
+    string PlatformName = "YouTube",
+    bool AspectKnown = true);
 
 public sealed record MediaDownloadRequest(
     string Url,
@@ -25,7 +28,10 @@ public sealed record MediaDownloadRequest(
     string? ProjectId = null,
     bool ImportAsAsset = false,
     string? AssetName = null,
-    string CompressionPreset = "original"); // "original", "balanced", "high", "ultracompact"
+    string CompressionPreset = "original", // "original", "balanced", "high", "ultracompact"
+    string? FolderId = null,
+    string? FolderName = null,
+    bool AddToClipOrder = true);
 
 public sealed record MediaDownloadResult(
     string Ticket,
@@ -35,7 +41,26 @@ public sealed record MediaDownloadResult(
     double DurationSeconds,
     bool IsAudioOnly,
     string? AssetId,
-    string StreamUrl);
+    string StreamUrl,
+    string? ProjectId = null,
+    string? FolderId = null,
+    string? FolderName = null);
+
+/// <summary>One downloadable source, for the "where can I download from" list.</summary>
+public sealed record SupportedPlatformInfo(
+    string Id,
+    string Name,
+    IReadOnlyList<string> Domains,
+    string Example,
+    string Notes,
+    bool LoginOftenRequired);
+
+public sealed record MediaSourcesResponse(
+    bool DownloadEnabled,
+    bool DownloaderAvailable,
+    string? DownloaderVersion,
+    bool CookiesConfigured,
+    IReadOnlyList<SupportedPlatformInfo> Platforms);
 
 public sealed record VideoChunkRequest(
     string? AssetId = null,

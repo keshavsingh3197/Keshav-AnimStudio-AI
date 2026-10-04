@@ -947,6 +947,31 @@
             </div>
           </div>
 
+          <!-- Section: Delivered picture quality -->
+          <div class="export-sec">
+            <label class="export-sec-label">Video Quality</label>
+            <div class="export-pills">
+              <button type="button" class="export-pill"
+                      [class.active]="state.exportQuality() === 'Fast'"
+                      (click)="state.exportQuality.set('Fast')">
+                <span>⚡ Fast</span>
+                <span class="export-pill-sub">Draft · smallest file</span>
+              </button>
+              <button type="button" class="export-pill"
+                      [class.active]="state.exportQuality() === 'High'"
+                      (click)="state.exportQuality.set('High')">
+                <span>⭐ High</span>
+                <span class="export-pill-sub">Recommended · sharp &amp; quick</span>
+              </button>
+              <button type="button" class="export-pill"
+                      [class.active]="state.exportQuality() === 'Best'"
+                      (click)="state.exportQuality.set('Best')">
+                <span>💎 Best</span>
+                <span class="export-pill-sub">Master · ~3× slower</span>
+              </button>
+            </div>
+          </div>
+
           <!-- Section: Aspect Ratio Fit Mode -->
           <div class="export-sec">
             <label class="export-sec-label">Framing & Aspect Fit</label>
@@ -1033,9 +1058,44 @@
                   <input type="checkbox" [ngModel]="state.exportIncludeWatermark()" (ngModelChange)="state.exportIncludeWatermark.set($event)" />
                   <span>Include Watermark / Logo</span>
                 </label>
+                <label class="export-check-item" title="Set up in Admin → Branding → Global Channel Outro">
+                  <input type="checkbox" [ngModel]="state.exportIncludeOutro()" (ngModelChange)="state.exportIncludeOutro.set($event)" />
+                  <span>Include End Card / Outro (support QR)</span>
+                </label>
               </div>
             </div>
           </div>
+
+          <!-- What the export appends at the end, and a real render of it -->
+          @if (state.exportIncludeOutro()) {
+            <div class="end-card-effective export-end-card" [class.is-none]="!state.endCard()">
+              <div class="end-card-effective-head">
+                <div>
+                  <span class="export-sec-label" style="margin: 0;">End card</span>
+                  <div class="end-card-effective-label">
+                    @if (state.endCard(); as card) {
+                      {{ card.label }} &middot; {{ card.seconds | number:'1.0-1' }}s
+                    } @else {
+                      No end card set up - the export finishes on the last clip.
+                    }
+                  </div>
+                </div>
+                @if (state.endCard()) {
+                  <button type="button" class="btn btn-outline-info" [disabled]="endCardPreviewBusy()" (click)="previewEndCard()">
+                    {{ endCardPreviewBusy() ? 'Rendering…' : (endCardPreviewUrl() ? '↻ Re-render' : '▶ Preview end card') }}
+                  </button>
+                } @else {
+                  <a class="end-card-effective-link" routerLink="/admin/branding/end-card">Set one up in Settings › End card &rarr;</a>
+                }
+              </div>
+              @if (endCardPreviewError(); as err) {
+                <p class="end-card-effective-error">{{ err }}</p>
+              }
+              @if (endCardPreviewUrl(); as url) {
+                <video class="end-card-effective-video" [src]="url" controls autoplay playsinline></video>
+              }
+            </div>
+          }
 
           <!-- System & Engine Capacity Info Footer -->
           <div class="export-limits-info">
@@ -1077,7 +1137,7 @@
             <div>
               <h3>Export &amp; Render Diagnostics</h3>
               <p class="monitor-subtitle">
-                Project: <strong>{{ state.exportName() || 'AnimStudio Video' }}</strong> &middot; Target: <strong>{{ state.exportResolution() }}</strong> &middot; Timeline: <strong>{{ state.timelineDurationFormatted() }}</strong>
+                Project: <strong>{{ state.exportName() || 'AnimStudio Video' }}</strong> &middot; Target: <strong>{{ state.exportResolution() }}</strong> &middot; Quality: <strong>{{ state.exportQuality() }}</strong> &middot; Timeline: <strong>{{ state.timelineDurationFormatted() }}</strong>
               </p>
             </div>
           </div>
@@ -1096,6 +1156,9 @@
 
         <!-- Body -->
         <div class="render-monitor-body">
+          <!-- Two columns on wide screens (progress + clips | metrics + stages), one stack otherwise -->
+          <div class="monitor-columns">
+          <div class="monitor-col">
           <!-- Main Progress Indicator -->
           <div class="monitor-progress-hero">
             <div class="hero-top-row">
@@ -1181,6 +1244,8 @@
             </div>
           </div>
 
+          </div>
+          <div class="monitor-col">
           <!-- 4 Core Metrics Grid -->
           <div class="monitor-metrics-grid">
             <div class="metric-card">
@@ -1264,6 +1329,9 @@
             </div>
           </div>
 
+          </div>
+          </div>
+
           <!-- Completed Celebration / Success Banner -->
           @if (state.exportIsCompleted() && state.job(); as completedJob) {
             <div class="export-success-banner">
@@ -1287,6 +1355,29 @@
                     ▶ Preview Video
                   </button>
                 </div>
+                @if (completedJob.hasTimeline) {
+                  <div class="timeline-downloads">
+                    <span class="timeline-downloads-label"
+                          title="Where every clip, sound, music track and overlay starts and ends in this video">
+                      Timeline details:
+                    </span>
+                    <a [href]="state.timelineUrl(completedJob.jobId, 'youtube')" download
+                       class="btn btn-sm btn-outline-light"
+                       title="Description draft with chapters (0:00 …), music credits and the footage list">
+                      📝 YouTube description
+                    </a>
+                    <a [href]="state.timelineUrl(completedJob.jobId, 'csv')" download
+                       class="btn btn-sm btn-outline-light"
+                       title="One row per item with start/end timecodes, source trims and credits">
+                      📊 CSV
+                    </a>
+                    <a [href]="state.timelineUrl(completedJob.jobId, 'json')" download
+                       class="btn btn-sm btn-outline-light"
+                       title="Full timeline for scripts and other tools">
+                      &#123; &#125; JSON
+                    </a>
+                  </div>
+                }
               </div>
             </div>
           }
@@ -1321,9 +1412,26 @@
         <!-- Footer -->
         <div class="render-monitor-footer">
           <div class="monitor-footer-left">
-            <span class="engine-badge">⚡ Hardware Engine Active</span>
-            <span class="engine-details">Multi-core Concurrency &middot; Preset: fast intermediate</span>
+            @if (state.job()?.diagnostics?.hardwareEncoder; as hw) {
+              @if (hw === 'h264_nvenc') {
+                <span class="engine-badge engine-badge--gpu">⚡ NVIDIA NVENC GPU</span>
+                <span class="engine-details">Parallel GPU Encoding &middot; Preset: p3 VBR</span>
+              } @else if (hw === 'h264_qsv') {
+                <span class="engine-badge engine-badge--gpu">⚡ Intel QSV GPU</span>
+                <span class="engine-details">Parallel GPU Encoding &middot; Look-Ahead On</span>
+              } @else if (hw === 'h264_videotoolbox') {
+                <span class="engine-badge engine-badge--gpu">⚡ Apple VideoToolbox GPU</span>
+                <span class="engine-details">Parallel GPU Encoding</span>
+              } @else {
+                <span class="engine-badge">🖥 CPU Encoder</span>
+                <span class="engine-details">Multi-core Concurrency &middot; Preset: ultrafast</span>
+              }
+            } @else {
+              <span class="engine-badge">⚡ Hardware Engine Active</span>
+              <span class="engine-details">Multi-core Concurrency &middot; Quality: {{ state.exportQuality() }}</span>
+            }
           </div>
+
 
           <div class="monitor-footer-right">
             @if (state.running()) {

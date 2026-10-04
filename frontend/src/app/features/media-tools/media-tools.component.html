@@ -1,221 +1,451 @@
-<div class="page-head">
+<div class="page-head studio-head">
   <div>
-    <h2>🎬 Media Studio &amp; Video Chunker</h2>
+    <h2><span class="studio-title">🎬 Media Studio</span></h2>
     <p class="muted">
-      Download YouTube Shorts or videos in multiple formats (MP4, WebM, MP3, WAV, etc.), or split any video into clips
-      with customizable duration (default 10s).
+      Download video or audio from YouTube, LinkedIn, Instagram, X, TikTok and more, straight to your computer or into a
+      project, or split any video into clips.
     </p>
   </div>
 </div>
 
 <div class="tabs-bar">
   <button type="button" class="tab-btn" [class.active]="activeTab() === 'downloader'" (click)="activeTab.set('downloader')">
-    <span>⬇️</span> Video &amp; Audio Downloader
+    <span>⬇️</span> Downloader
   </button>
   <button type="button" class="tab-btn" [class.active]="activeTab() === 'chunker'" (click)="activeTab.set('chunker')">
     <span>✂️</span> Smart Video Chunker ({{ chunkDurationSeconds() }}s)
   </button>
 </div>
 
+<!-- Shared error panel: what went wrong, what to do, and the tool's own words on request. -->
+<ng-template #errorPanel let-e>
+  <div class="dl-error" role="alert">
+    <div class="dl-error-title">⚠️ {{ e.message }}</div>
+    @if (e.hint) {
+      <div class="dl-error-hint"><strong>What to try:</strong> {{ e.hint }}</div>
+    }
+    @if (e.detail) {
+      <details class="dl-error-detail">
+        <summary>Technical details</summary>
+        <code>{{ e.detail }}</code>
+      </details>
+    }
+  </div>
+</ng-template>
+
 <!-- ========================================================================= -->
 <!-- TAB 1: DOWNLOADER                                                         -->
 <!-- ========================================================================= -->
 @if (activeTab() === 'downloader') {
-  <div class="card">
+  <div class="card dl-card">
     <div class="section-head">
-      <h3>Download from YouTube / Web Video</h3>
-      <button type="button" class="secondary" (click)="sampleShortsUrl()">
-        Paste Sample Short
+      <h3>Download from a link</h3>
+      <button type="button" class="link-btn" (click)="showSources.set(!showSources())" [attr.aria-expanded]="showSources()">
+        {{ showSources() ? 'Hide' : 'Where can I download from?' }}
       </button>
     </div>
 
-    <p class="muted">
-      Enter any YouTube video or Shorts link (e.g. <span class="mono">https://www.youtube.com/shorts/...</span>).
-    </p>
-
-    <div class="probe-input-group">
-      <input type="text" [ngModel]="url()" (ngModelChange)="url.set($event)"
-             placeholder="https://www.youtube.com/shorts/..."
-             (keyup.enter)="probe()" />
-      <button type="button" (click)="probe()" [disabled]="probing() || !url().trim()">
-        {{ probing() ? 'Inspecting...' : '🔍 Inspect URL' }}
-      </button>
+    <!-- Supported sources -->
+    <div class="source-strip" aria-label="Supported sources">
+      @for (p of sources()?.platforms ?? []; track p.id) {
+        <span class="source-chip"
+              [class.on]="detected().state === 'supported' && $any(detected()).platform.id === p.id"
+              [title]="p.notes">
+          <span class="source-chip-icon">{{ platformIcon(p.id) }}</span>{{ p.name }}
+        </span>
+      }
+      @if (sources(); as s) {
+        <span class="source-status" [class.bad]="!s.downloaderAvailable">
+          @if (s.downloaderAvailable) {
+            ● yt-dlp {{ s.downloaderVersion }}
+          } @else {
+            ● downloader missing
+          }
+        </span>
+      }
     </div>
 
-    @if (probeError()) {
-      <div class="callout warning" style="margin-top: 1rem;">
-        <strong>Inspection Error:</strong> {{ probeError() }}
+    @if (showSources()) {
+      <div class="sources-table-wrap">
+        <table class="sources-table">
+          <thead>
+            <tr><th>Source</th><th>Link looks like</th><th>Notes</th></tr>
+          </thead>
+          <tbody>
+            @for (p of sources()?.platforms ?? []; track p.id) {
+              <tr>
+                <td><span class="source-chip-icon">{{ platformIcon(p.id) }}</span> <strong>{{ p.name }}</strong></td>
+                <td class="mono">{{ p.example }}</td>
+                <td>
+                  {{ p.notes }}
+                  @if (p.loginOftenRequired && !sources()?.cookiesConfigured) {
+                    <span class="sign-in-tag" title="Set Ingest:YtDlp:CookiesFromBrowser on the API to use your browser's signed-in session">may need sign-in</span>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+        <p class="muted small">
+          Only these sites are accepted. Paste the post's own link (Share → Copy link); link shorteners such as
+          lnkd.in or t.co are not followed.
+          @if (sources()?.cookiesConfigured) {
+            Signed-in browser cookies are enabled for private or login-only posts.
+          }
+        </p>
       </div>
     }
 
-    <!-- Probed Preview Card -->
+    @if (downloaderProblem(); as e) {
+      <ng-container [ngTemplateOutlet]="errorPanel" [ngTemplateOutletContext]="{ $implicit: e }" />
+    }
+
+    <!-- URL input with live source detection -->
+    <div class="url-bar" [class.ok]="detected().state === 'supported'"
+         [class.bad]="detected().state === 'unsupported' || detected().state === 'invalid'">
+      <span class="url-bar-badge">
+        @switch (detected().state) {
+          @case ('supported') { <span class="source-chip-icon">{{ platformIcon($any(detected()).platform.id) }}</span>{{ $any(detected()).platform.name }} }
+          @case ('unsupported') { Not supported }
+          @case ('invalid') { Not a link }
+          @default { 🔗 Link }
+        }
+      </span>
+      <input type="url" [ngModel]="url()" (ngModelChange)="url.set($event)"
+             placeholder="Paste a link from YouTube, LinkedIn, Instagram, X, TikTok, Vimeo…"
+             aria-label="Video link"
+             (paste)="onUrlPaste()"
+             (keyup.enter)="probe()" />
+      @if (url()) {
+        <button type="button" class="icon-btn" (click)="clearUrl()" title="Clear" aria-label="Clear link">✕</button>
+      } @else {
+        <button type="button" class="secondary" (click)="pasteFromClipboard()">📋 Paste</button>
+      }
+      <button type="button" (click)="probe()" [disabled]="probing() || !url().trim() || !!downloaderProblem()">
+        {{ probing() ? 'Checking…' : 'Inspect' }}
+      </button>
+    </div>
+    <div class="url-bar-help muted small">
+      @switch (detected().state) {
+        @case ('supported') { Detected {{ $any(detected()).platform.name }} - {{ $any(detected()).platform.notes }} }
+        @case ('unsupported') { {{ $any(detected()).host }} isn't on the supported list. }
+        @default {
+          Paste a link to detect the source automatically.
+          <button type="button" class="link-btn" (click)="sampleShortsUrl()">Try a sample</button>
+        }
+      }
+    </div>
+
+    @if (probing()) {
+      <div class="probe-skeleton">
+        <div class="sk-thumb"></div>
+        <div class="sk-lines"><div></div><div></div><div></div></div>
+      </div>
+    }
+
+    @if (probeError(); as e) {
+      <ng-container [ngTemplateOutlet]="errorPanel" [ngTemplateOutletContext]="{ $implicit: e }" />
+    }
+
+    <!-- Probed preview -->
     @if (probeResult(); as meta) {
       <div class="media-preview-card">
-        <div class="thumb-wrapper">
-          <img [src]="meta.thumbnailUrl" [alt]="meta.title" class="thumb-img" />
+        <div class="thumb-wrapper" [class.vertical]="meta.isShort">
+          @if (meta.thumbnailUrl) {
+            <img [src]="meta.thumbnailUrl" [alt]="meta.title" class="thumb-img" referrerpolicy="no-referrer" />
+          } @else {
+            <div class="thumb-placeholder">{{ platformIcon(meta.platformId) }}</div>
+          }
           <span class="aspect-badge">{{ meta.aspectLabel }}</span>
         </div>
         <div class="preview-details">
-          <h4 class="video-title">{{ meta.title }}</h4>
+          <span class="platform-pill">{{ platformIcon(meta.platformId) }} {{ meta.platformName }}</span>
+          <h4 class="video-title" [title]="meta.title">{{ meta.title }}</h4>
           <div class="channel-meta">
-            👤 {{ meta.channel }} &nbsp;•&nbsp; ⏱️ {{ meta.durationFormatted }} ({{ meta.durationSeconds | number:'1.1-1' }}s)
+            <span>👤 {{ meta.channel }}</span>
+            <span>⏱️ {{ meta.durationFormatted || 'Length unknown' }}</span>
             @if (meta.width && meta.height) {
-              &nbsp;•&nbsp; 📐 {{ meta.width }}x{{ meta.height }}
+              <span>📐 {{ meta.width }}×{{ meta.height }}</span>
             }
           </div>
-
-          <div class="row" style="gap: 0.5rem; margin-top: 0.5rem;">
-            <button type="button" class="secondary" (click)="sendToChunker()">
-              ✂️ Send to Chunker ({{ globalDefaultDuration() }}s)
-            </button>
+          <div class="row preview-actions">
+            <a class="pill-option" [href]="meta.canonicalUrl" target="_blank" rel="noopener noreferrer">↗ Open original</a>
             @if (sourceYoutubeEmbedUrl()) {
-              <button type="button" class="secondary" (click)="toggleSourcePlayer()">
-                {{ showSourcePlayer() ? '🙈 Hide Player' : '▶️ Preview Video' }}
+              <button type="button" class="pill-option" (click)="toggleSourcePlayer()">
+                {{ showSourcePlayer() ? 'Hide preview' : '▶ Preview' }}
               </button>
             }
+            <button type="button" class="pill-option" (click)="sendToChunker()">✂️ Send to chunker</button>
           </div>
         </div>
       </div>
 
-      <!-- Embedded YouTube Player -->
       @if (showSourcePlayer() && sourceYoutubeEmbedUrl()) {
         <div class="source-player-wrap">
-          <div class="source-player-header">
-            <span class="badge">📺 Source Preview</span>
-            <button type="button" class="icon-btn" (click)="toggleSourcePlayer()">✕</button>
-          </div>
           <div [class.vertical-player]="meta.isShort" [class.horizontal-player]="!meta.isShort">
             <iframe [src]="sourceYoutubeEmbedUrl()" frameborder="0"
                     allow="autoplay; encrypted-media" allowfullscreen
-                    class="yt-embed"></iframe>
+                    class="yt-embed" title="Source preview"></iframe>
           </div>
         </div>
       }
 
-      <!-- Format & Quality Options -->
-      <div class="card" style="background: rgba(30, 41, 59, 0.4); border: 1px solid #334155; margin-top: 1rem;">
-        <h4>Download Configuration</h4>
+      <div class="dl-grid">
+        <!-- Step 1: format -->
+        <section class="dl-panel" data-tone="violet">
+          <h4><span class="step">1</span> Format</h4>
 
-        <div style="margin: 0.8rem 0;">
-          <label style="font-weight: 600; font-size: 0.85rem;">Media Type:</label>
-          <div class="pills-container">
-            <button type="button" class="pill-option" [class.active]="downloadType() === 'video'" (click)="downloadType.set('video')">
-              🎥 Video (MP4 / WebM / MOV)
-            </button>
-            <button type="button" class="pill-option" [class.active]="downloadType() === 'audio'" (click)="downloadType.set('audio')">
-              🎵 Audio Only (MP3 / WAV / M4A)
-            </button>
+          <div class="segmented" role="group" aria-label="Media type">
+            <button type="button" [class.active]="downloadType() === 'video'" (click)="downloadType.set('video')">🎥 Video</button>
+            <button type="button" [class.active]="downloadType() === 'audio'" (click)="downloadType.set('audio')">🎵 Audio only</button>
           </div>
-        </div>
 
-        @if (downloadType() === 'video') {
-          <div style="margin: 0.8rem 0;">
-            <label style="font-weight: 600; font-size: 0.85rem;">Video Format:</label>
-            <div class="pills-container">
-              @for (fmt of videoFormats; track fmt) {
-                <button type="button" class="pill-option" [class.active]="selectedVideoFormat() === fmt" (click)="selectedVideoFormat.set(fmt)">
-                  {{ fmt | uppercase }}
-                </button>
+          @if (downloadType() === 'video') {
+            <div class="field">
+              <span class="field-label">Container</span>
+              <div class="pills-container">
+                @for (fmt of videoFormats; track fmt) {
+                  <button type="button" class="pill-option" [class.active]="selectedVideoFormat() === fmt" (click)="selectedVideoFormat.set(fmt)">
+                    {{ fmt | uppercase }}
+                  </button>
+                }
+              </div>
+            </div>
+
+            <div class="field">
+              <span class="field-label">Max resolution</span>
+              <div class="pills-container">
+                @for (res of meta.availableResolutions; track res) {
+                  <button type="button" class="pill-option pill-sized" [class.active]="selectedResolution() === res.toLowerCase()" (click)="selectedResolution.set(res.toLowerCase())">
+                    {{ res }}
+                    @if (resolutionSizes()[res.toLowerCase()]; as mb) {
+                      <small>~{{ mb | number:'1.0-1' }} MB</small>
+                    }
+                  </button>
+                }
+              </div>
+              @if (meta.availableResolutions.length === 1) {
+                <span class="muted small">{{ meta.platformName }} doesn't list resolutions - the best available is downloaded.</span>
               }
             </div>
-          </div>
 
-          <div style="margin: 0.8rem 0;">
-            <label style="font-weight: 600; font-size: 0.85rem;">Max Resolution:</label>
-            <div class="pills-container">
-              @for (res of resolutions; track res) {
-                <button type="button" class="pill-option" [class.active]="selectedResolution() === res" (click)="selectedResolution.set(res)">
-                  {{ res }}
-                </button>
+            <div class="field">
+              <span class="field-label">Compression <span class="muted">· estimated size for this video</span></span>
+              <div class="comp-grid" role="radiogroup" aria-label="Compression">
+                @for (c of compressionOptions(); track c.id) {
+                  <button type="button" role="radio" class="comp-card" [attr.data-tone]="c.tone"
+                          [class.active]="selectedCompression() === c.id"
+                          [attr.aria-checked]="selectedCompression() === c.id"
+                          (click)="selectedCompression.set(c.id)">
+                    <span class="comp-head">
+                      <span class="comp-icon">{{ c.icon }}</span>
+                      <span class="comp-name">{{ c.label }}</span>
+                      <span class="comp-check" aria-hidden="true">✓</span>
+                    </span>
+                    <span class="comp-size">
+                      @if (c.sizeMB !== null) { ~{{ c.sizeMB | number:'1.0-1' }} <small>MB</small> } @else { - }
+                    </span>
+                    <span class="comp-bar"><span [style.width.%]="c.barPct"></span></span>
+                    <span class="comp-saving">{{ c.saving }}</span>
+                    <span class="comp-desc">{{ c.desc }}</span>
+                  </button>
+                }
+              </div>
+            </div>
+          } @else {
+            <div class="field">
+              <span class="field-label">Audio format</span>
+              <div class="pills-container">
+                @for (fmt of audioFormats; track fmt) {
+                  <button type="button" class="pill-option" [class.active]="selectedAudioFormat() === fmt" (click)="selectedAudioFormat.set(fmt)">
+                    {{ fmt | uppercase }}
+                  </button>
+                }
+              </div>
+            </div>
+
+            <div class="field">
+              <span class="field-label">Quality</span>
+              <div class="pills-container">
+                @for (br of audioBitrates; track br) {
+                  <button type="button" class="pill-option pill-sized" [class.active]="selectedAudioBitrate() === br" (click)="selectedAudioBitrate.set(br)">
+                    {{ br }}
+                    @if (audioBitrateSizes()[br]; as mb) {
+                      <small>~{{ mb | number:'1.0-1' }} MB</small>
+                    }
+                  </button>
+                }
+              </div>
+            </div>
+          }
+
+          @if (downloadSizeEstimate(); as est) {
+            <div class="est-summary">
+              <span class="est-icon">📦</span>
+              <span>
+                <strong>~{{ est.sizeMB | number:'1.1-1' }} MB</strong>
+                <span class="muted small"> estimated · {{ est.durationFormatted }}
+                  @if (est.isCompressed) { · re-encoded after download }</span>
+              </span>
+            </div>
+          }
+        </section>
+
+        <!-- Step 2: destination -->
+        <section class="dl-panel" data-tone="teal">
+          <h4><span class="step">2</span> Save to</h4>
+
+          <label class="dest-option" [class.active]="saveToComputer()">
+            <input type="checkbox" [ngModel]="saveToComputer()" (ngModelChange)="saveToComputer.set($event)" />
+            <span>
+              <strong>💻 My computer</strong>
+              <span class="muted small">
+                @if (supportsSavePicker) {
+                  Your browser's Downloads folder, or pick a folder below.
+                } @else {
+                  Saved to your browser's Downloads folder. To choose a folder each time, turn on "Always ask where to save files" in your browser settings.
+                }
+              </span>
+            </span>
+          </label>
+          @if (saveToComputer() && supportsSavePicker) {
+            <label class="sub-option">
+              <input type="checkbox" [ngModel]="askWhereToSave()" (ngModelChange)="askWhereToSave.set($event)" />
+              Choose the folder and file name when downloading
+            </label>
+          }
+
+          <label class="dest-option" [class.active]="addToProject()">
+            <input type="checkbox" [ngModel]="addToProject()" (ngModelChange)="addToProject.set($event)" />
+            <span>
+              <strong>🎞️ A project's asset library</strong>
+              <span class="muted small">Ready to edit in the Video Editor and Clip Studio.</span>
+            </span>
+          </label>
+
+          @if (addToProject()) {
+            <div class="dest-details">
+              <div class="field">
+                <label class="field-label" for="dl-project">Project</label>
+                <select id="dl-project" [ngModel]="projectChoice()" (ngModelChange)="selectProject($event)">
+                  <option value="">- Choose a project -</option>
+                  <option [value]="NEW_PROJECT">＋ Create a new project…</option>
+                  @for (p of projects(); track p.id) {
+                    <option [value]="p.id">{{ p.name }}</option>
+                  }
+                </select>
+              </div>
+
+              @if (projectChoice() === NEW_PROJECT) {
+                <div class="field">
+                  <label class="field-label" for="dl-new-project">New project name</label>
+                  <input id="dl-new-project" type="text" maxlength="100" [ngModel]="newProjectName()" (ngModelChange)="newProjectName.set($event)" />
+                  <span class="muted small">Created as {{ meta.isShort ? '1080×1920 (vertical)' : '1920×1080 (landscape)' }}, 30 fps - change it later in project settings.</span>
+                </div>
+              }
+
+              @if (projectChoice()) {
+                <div class="field">
+                  <label class="field-label" for="dl-folder">Folder</label>
+                  <select id="dl-folder" [ngModel]="folderChoice()" (ngModelChange)="folderChoice.set($event)">
+                    <option value="">Library root (no folder)</option>
+                    <option [value]="NEW_FOLDER">＋ New folder…</option>
+                    @for (f of projectFolders(); track f.id) {
+                      <option [value]="f.id">📁 {{ f.name }}</option>
+                    }
+                  </select>
+                </div>
+                @if (folderChoice() === NEW_FOLDER) {
+                  <div class="field">
+                    <label class="field-label" for="dl-new-folder">Folder name</label>
+                    <input id="dl-new-folder" type="text" maxlength="100" [ngModel]="newFolderName()" (ngModelChange)="newFolderName.set($event)" placeholder="Downloads" />
+                    <span class="muted small">Reuses an existing folder with the same name.</span>
+                  </div>
+                }
+                @if (downloadType() === 'video') {
+                  <label class="sub-option">
+                    <input type="checkbox" [ngModel]="addToTimeline()" (ngModelChange)="addToTimeline.set($event)" />
+                    Also add to the project's clip order
+                  </label>
+                }
               }
             </div>
-          </div>
+          }
+        </section>
+      </div>
 
-          <div style="margin: 0.8rem 0;">
-            <label style="font-weight: 600; font-size: 0.85rem;">Compression &amp; File Size:</label>
-            <div class="pills-container">
-              @for (preset of compressionPresets; track preset.id) {
-                <button type="button" class="pill-option"
-                        [class.active]="selectedCompression() === preset.id"
-                        (click)="selectedCompression.set(preset.id)"
-                        [title]="preset.desc">
-                  {{ preset.label }}
-                </button>
-              }
-            </div>
-          </div>
-        } @else {
-          <div style="margin: 0.8rem 0;">
-            <label style="font-weight: 600; font-size: 0.85rem;">Audio Format:</label>
-            <div class="pills-container">
-              @for (fmt of audioFormats; track fmt) {
-                <button type="button" class="pill-option" [class.active]="selectedAudioFormat() === fmt" (click)="selectedAudioFormat.set(fmt)">
-                  {{ fmt | uppercase }}
-                </button>
-              }
-            </div>
-          </div>
-
-          <div style="margin: 0.8rem 0;">
-            <label style="font-weight: 600; font-size: 0.85rem;">Audio Quality / Bitrate:</label>
-            <div class="pills-container">
-              @for (br of audioBitrates; track br) {
-                <button type="button" class="pill-option" [class.active]="selectedAudioBitrate() === br" (click)="selectedAudioBitrate.set(br)">
-                  {{ br }}
-                </button>
-              }
-            </div>
-          </div>
-        }
-
-        <!-- Download Size Estimate -->
+      <!-- Actions -->
+      <div class="dl-actions">
+        <button type="button" class="primary-lg" [disabled]="downloading() || !!destinationProblem()" (click)="download(false)">
+          {{ downloading() ? 'Working…' : '⬇️ ' + primaryActionLabel() }}
+        </button>
+        <button type="button" class="secondary split-btn" [disabled]="downloading() || chunking()" (click)="download(true)">
+          ✂️ Split into {{ chunkDurationSeconds() }}s clips instead
+        </button>
         @if (downloadSizeEstimate(); as est) {
-          <div class="size-estimate-banner" style="margin-top: 1rem;">
-            <div class="size-est-row">
-              <span class="size-est-icon">📦</span>
-              <span class="size-est-label">Estimated download:</span>
-              <strong class="size-est-value">~{{ est.sizeMB | number:'1.1-1' }} MB</strong>
-              <span class="size-est-sep">·</span>
-              <span class="size-est-label">Duration: {{ est.durationFormatted }}</span>
-              @if (est.isCompressed) {
-                <span class="size-est-sep">·</span>
-                <span style="color: #4ade80; font-size: 0.82rem;">🗜️ Compressed</span>
-              }
-            </div>
-          </div>
+          <span class="action-summary">
+            <span class="tag tag-violet">{{ downloadType() === 'video' ? (selectedVideoFormat() | uppercase) : (selectedAudioFormat() | uppercase) }}</span>
+            @if (downloadType() === 'video') {
+              <span class="tag tag-sky">{{ selectedResolution() === 'best' ? 'Best' : selectedResolution() }}</span>
+              <span class="tag tag-green">{{ compressionLabel() }}</span>
+            } @else {
+              <span class="tag tag-sky">{{ selectedAudioBitrate() }}</span>
+            }
+            <span class="tag tag-amber">~{{ est.sizeMB | number:'1.0-1' }} MB</span>
+          </span>
         }
+        @if (destinationProblem(); as why) {
+          <span class="muted small">{{ why }}</span>
+        }
+      </div>
 
-        <div class="row" style="gap: 0.75rem; margin-top: 1.25rem;">
-          <button type="button" [disabled]="downloading()" (click)="download(false)">
-            {{ downloading() ? '⬇️ Processing Download...' : '⬇️ Download File to Computer' }}
-          </button>
-          <button type="button" class="secondary" [disabled]="downloading()" (click)="download(true)">
-            ✂️ Download &amp; Split into Chunks ({{ chunkDurationSeconds() }}s)
-          </button>
+      @if (downloading()) {
+        <div class="dl-progress" aria-live="polite">
+          <div class="dl-progress-bar"><div></div></div>
+          <span>{{ downloadProgressText() }} <span class="muted">{{ elapsedSeconds() }}s</span></span>
         </div>
+      }
 
-        @if (downloading()) {
-          <div class="callout" style="margin-top: 1rem;">
-            ⏳ {{ downloadProgressText() }}
-          </div>
-        }
+      @if (downloadError(); as e) {
+        <ng-container [ngTemplateOutlet]="errorPanel" [ngTemplateOutletContext]="{ $implicit: e }" />
+      }
 
-        @if (downloadResult(); as dl) {
-          <div class="callout success" style="margin-top: 1rem;">
-            ✅ <strong>Ready!</strong> {{ dl.fileName }} ({{ dl.fileSizeBytes / (1024 * 1024) | number:'1.1-2' }} MB)
-            <div style="margin-top: 0.5rem;">
-              <a [href]="dl.streamUrl" [download]="dl.fileName" class="pill-option active" style="display: inline-block; text-decoration: none;">
-                ⬇️ Click here if download did not start automatically
-              </a>
-            </div>
-          </div>
-        }
+      @if (downloadResult(); as dl) {
+        <div class="dl-success">
+          <div class="dl-success-title">✅ {{ dl.result.fileName }} <span class="muted">· {{ formatBytes(dl.result.fileSizeBytes) }}</span></div>
+          <ul class="dl-success-list">
+            @if (dl.savedLocally) {
+              <li>
+                💻 Saved to your computer.
+                <a [href]="dl.result.streamUrl" [download]="dl.result.fileName">Download again</a>
+              </li>
+            }
+            @if (dl.projectName && dl.result.projectId) {
+              <li>
+                🎞️ Added to <strong>{{ dl.projectName }}</strong>
+                @if (dl.result.folderName) { › 📁 {{ dl.result.folderName }} }
+                <button type="button" class="link-btn" (click)="openProjectAssets(dl.result.projectId!)">Open assets →</button>
+              </li>
+            }
+          </ul>
+        </div>
+      }
+    }
 
-        @if (downloadError()) {
-          <div class="callout warning" style="margin-top: 1rem;">
-            ⚠️ {{ downloadError() }}
-          </div>
-        }
+    @if (recentDownloads().length > 1) {
+      <div class="recent">
+        <h4>Recent downloads (this session)</h4>
+        <ul>
+          @for (r of recentDownloads(); track r.result.ticket) {
+            <li>
+              <span class="platform-pill">{{ r.platformName }}</span>
+              <span class="recent-title" [title]="r.title">{{ r.title }}</span>
+              <span class="muted small">{{ formatBytes(r.result.fileSizeBytes) }}</span>
+              @if (r.projectName) { <span class="muted small">→ {{ r.projectName }}</span> }
+              <a [href]="r.result.streamUrl" [download]="r.result.fileName">⬇</a>
+            </li>
+          }
+        </ul>
       </div>
     }
   </div>
@@ -240,7 +470,7 @@
       <label style="font-weight: 600; font-size: 0.85rem;">Video Source:</label>
       <div class="pills-container">
         <button type="button" class="pill-option" [class.active]="chunkSourceType() === 'url'" (click)="chunkSourceType.set('url')">
-          🌐 From YouTube / Web URL
+          🌐 From a link
         </button>
         <button type="button" class="pill-option" [class.active]="chunkSourceType() === 'file'" (click)="chunkSourceType.set('file')">
           📁 Upload Video File
@@ -255,7 +485,7 @@
 
     @if (chunkSourceType() === 'url') {
       <div style="margin-bottom: 1rem;">
-        <label for="chunk-url">YouTube or Video URL:</label>
+        <label for="chunk-url">Video link (YouTube, LinkedIn, Instagram, X, TikTok…):</label>
         <div class="probe-input-group">
           <input id="chunk-url" type="text" [ngModel]="chunkUrl()" (ngModelChange)="chunkUrl.set($event)"
                  placeholder="https://www.youtube.com/shorts/..." />
@@ -286,13 +516,14 @@
     }
 
     @if (chunkSourceType() === 'file') {
-      <div class="drop-zone" (drop)="onFileDrop($event)" (dragover)="onDragOver($event)" (click)="fileInput.click()">
+      <div class="drop-zone" (drop)="onFileDrop($event)" (dragover)="onDragOver($event)" (click)="fileInput.click()"
+           appFileDrop="video/*" [fileDropPasteOnly]="true" (filesDropped)="useFile($event[0])">
         <input #fileInput type="file" accept="video/*" style="display: none;" (change)="onFileChange($event)" />
         <div style="font-size: 2rem; margin-bottom: 0.5rem;">📹</div>
         @if (selectedFile(); as f) {
           <strong style="color: #38bdf8;">{{ f.name }}</strong> ({{ f.size / (1024 * 1024) | number:'1.1-2' }} MB)
         } @else {
-          <strong>Drop a video file here, or click to browse</strong>
+          <strong>Drop a video file here, paste with Ctrl+V, or click to browse</strong>
           <div class="muted" style="font-size: 0.8rem; margin-top: 0.25rem;">Supports MP4, MOV, WebM, MKV up to 512 MB</div>
         }
       </div>
@@ -385,13 +616,23 @@
       <!-- Compression Level Option -->
       <div style="margin-top: 1rem;">
         <label style="font-weight: 600; font-size: 0.85rem;">Compression &amp; File Size (Chunks):</label>
-        <div class="pills-container" style="margin-top: 0.4rem;">
-          @for (preset of compressionPresets; track preset.id) {
-            <button type="button" class="pill-option"
-                    [class.active]="chunkCompression() === preset.id"
-                    (click)="chunkCompression.set(preset.id)"
-                    [title]="preset.desc">
-              {{ preset.label }}
+        <div class="comp-grid" role="radiogroup" aria-label="Chunk compression" style="margin-top: 0.4rem;">
+          @for (c of chunkCompressionOptions(); track c.id) {
+            <button type="button" role="radio" class="comp-card" [attr.data-tone]="c.tone"
+                    [class.active]="chunkCompression() === c.id"
+                    [attr.aria-checked]="chunkCompression() === c.id"
+                    (click)="chunkCompression.set(c.id)">
+              <span class="comp-head">
+                <span class="comp-icon">{{ c.icon }}</span>
+                <span class="comp-name">{{ c.label }}</span>
+                <span class="comp-check" aria-hidden="true">✓</span>
+              </span>
+              @if (c.sizeMB !== null) {
+                <span class="comp-size">~{{ c.sizeMB | number:'1.0-1' }} <small>MB total</small></span>
+              }
+              <span class="comp-bar"><span [style.width.%]="c.factor * 100"></span></span>
+              <span class="comp-saving">{{ c.saving }}</span>
+              <span class="comp-desc">{{ c.desc }}</span>
             </button>
           }
         </div>

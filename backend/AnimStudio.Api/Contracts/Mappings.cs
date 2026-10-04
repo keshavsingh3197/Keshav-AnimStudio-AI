@@ -1,3 +1,4 @@
+using AnimStudio.Domain.Ai;
 using AnimStudio.Domain.Assets;
 using AnimStudio.Application.Clips;
 using AnimStudio.Domain.Characters;
@@ -31,7 +32,19 @@ public static class Mappings
         p.IsPinned,
         p.CustomThumbnail,
         p.Settings.DefaultWatermark.ToResponse(),
-        p.Settings.DefaultOutro.ToResponse());
+        p.Settings.DefaultOutro.ToResponse(),
+        p.Settings.BrandChannelId,
+        p.Settings.FollowsChannelWatermark);
+
+    /// <summary>Every channel, the built-in default first.</summary>
+    public static IReadOnlyList<BrandChannelResponse> ToChannelResponses(this AiSettings? s) =>
+    [
+        new BrandChannelResponse(
+            BrandChannel.DefaultId, s?.DefaultChannelName ?? "Default", true,
+            s?.DefaultWatermark.ToResponse(), s?.DefaultOutro.ToResponse()),
+        .. (s?.Channels ?? []).Select(c => new BrandChannelResponse(
+            c.Id, c.Name, false, c.Watermark.ToResponse(), c.Outro.ToResponse())),
+    ];
 
     public static WatermarkResponse? ToResponse(this WatermarkSettings? w) =>
         w is null ? null : new WatermarkResponse(
@@ -51,7 +64,9 @@ public static class Mappings
             o.AssetId,
             o.DurationSeconds,
             o.Transition.ToString(),
-            o.TransitionDurationFrames);
+            o.TransitionDurationFrames,
+            o.QrAssetId, o.Headline, o.Subtext, o.BackgroundHex, o.TextHex,
+            o.HeadlineSecondary, o.SubtextSecondary);
 
     public static CharacterResponse ToResponse(this Character c) => new(
         c.Id, c.Name, c.Description, c.Aliases,
@@ -154,7 +169,8 @@ public static class Mappings
                 job.Diagnostics.ItemsCount,
                 job.Diagnostics.OutputDurationSeconds,
                 job.Diagnostics.SpeedFactor,
-                job.Diagnostics.CompletedAt)
+                job.Diagnostics.CompletedAt,
+                job.Diagnostics.HardwareEncoder)
             : null;
 
         return new RenderJobResponse(
@@ -168,7 +184,8 @@ public static class Mappings
                 : null,
             job.CreatedAt, job.CompletedAt,
             job.Width, job.Height, job.TargetFormat,
-            diag);
+            diag,
+            job.Timeline is { Entries.Count: > 0 });
     }
 
     /// <summary>One video or image clip, with the facts a running order is laid out from.</summary>
@@ -184,4 +201,23 @@ public static class Mappings
             new ClipOrderLineResponse(l.Number, l.Text, l.AssetId, l.Match.ToString()))],
         result.AppendedAssetIds,
         result.IsExact);
+}
+
+public static class StorageMappings
+{
+    private const double BytesPerGb = 1024d * 1024 * 1024;
+
+    public static StorageSummaryResponse ToSummary(this AnimStudio.Application.Abstractions.Storage.StorageUsage usage, double? quotaGb)
+    {
+        var (capacity, source) = quotaGb is > 0
+            ? ((long?)(quotaGb.Value * BytesPerGb), "quota")
+            : usage.DiskTotalBytes is { } disk ? (disk, "disk") : ((long?)null, "none");
+
+        return new StorageSummaryResponse(
+            usage.Provider, usage.IsMeasurable, usage.UsedBytes, capacity, source, usage.MeasuredAt);
+    }
+
+    public static StorageDetailResponse ToDetail(this AnimStudio.Application.Abstractions.Storage.StorageUsage usage, double? quotaGb) =>
+        new(usage.ToSummary(quotaGb), quotaGb, usage.FileCount, usage.DiskTotalBytes, usage.DiskFreeBytes,
+            usage.Folders.Select(f => new StorageFolderResponse(f.Name, f.Bytes, f.Files)).ToList());
 }

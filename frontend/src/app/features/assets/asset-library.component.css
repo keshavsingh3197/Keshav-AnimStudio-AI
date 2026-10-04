@@ -990,3 +990,99 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ── Pagination Bar ──────────────────────────────────────────────── */
+.pagination-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  margin-top: 1rem;
+  background: color-mix(in srgb, var(--surface, #0f1117) 85%, transparent);
+  border: 1px solid var(--border, #21293a);
+  border-radius: 8px;
+  font-size: 0.8rem;
+}
+
+.pagination-info {
+  color: #8b9bb4;
+}
+
+.pagination-buttons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.page-btn {
+  background: var(--surface-2, #141923);
+  border: 1px solid var(--border, #21293a);
+  color: #d1d5db;
+  padding: 4px 10px;
+  border-radius: 5px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.page-btn:hover:not(:disabled) {
+  border-color: var(--brand, #6c8cff);
+  color: #ffffff;
+}
+
+.page-btn.num.active {
+  background: var(--brand, #6c8cff);
+  border-color: var(--brand, #6c8cff);
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.page-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.page-ellipsis {
+  padding: 0 4px;
+  color: #8b9bb4;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+/* ── Dynamic Storage Mini Bar ────────────────────────────────────── */
+.storage-bar-mini {
+  display: inline-block;
+  width: 60px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+  vertical-align: middle;
+  margin-left: 4px;
+}
+
+.storage-bar-mini .storage-bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--brand, #6c8cff);
+  transition: width 0.4s ease;
+}
+
+/* ── Exports Folder Special Item ─────────────────────────────────── */
+.exports-folder-item {
+  border-color: color-mix(in srgb, #a855f7 35%, var(--border, #21293a));
+  background: color-mix(in srgb, #a855f7 6%, var(--surface-2, #141923));
+}
+
+.exports-folder-item:hover {
+  border-color: #a855f7;
+  background: color-mix(in srgb, #a855f7 14%, var(--surface-2, #141923));
+}
+
+.exports-folder-item.active {
+  background: color-mix(in srgb, #a855f7 18%, var(--surface-2, #141923));
+  border-color: #a855f7;
+}
+

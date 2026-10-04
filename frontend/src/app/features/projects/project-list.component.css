@@ -687,7 +687,6 @@
   background: color-mix(in srgb, var(--surface, #0f1117) 92%, transparent);
   border: 1px solid var(--border, #1e2433);
   border-radius: 12px;
-  overflow: hidden;
   display: flex;
   flex-direction: column;
   position: relative;
@@ -700,6 +699,13 @@
   transform: translateY(-3px);
   border-color: color-mix(in srgb, var(--brand, #6c8cff) 50%, var(--border, #1e2433));
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 0 16px rgba(108, 140, 255, 0.1);
+}
+
+/* A transform would become the fixed menu's containing block and trap it in the card. */
+.project-card.menu-open,
+.project-card.menu-open:hover {
+  transform: none;
+  z-index: 20;
 }
 
 .project-card.is-selected {
@@ -985,11 +991,13 @@
   color: #ffffff;
 }
 
+/* Fixed, positioned from the toggle button in toggleProjectMenu(), so the table's
+   overflow and neighbouring cards can never clip or cover it. */
 .studio-dropdown-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  min-width: 170px;
+  position: fixed;
+  min-width: 190px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
   background: #0b1120;
   border: 1px solid #1e293b;
   border-radius: 8px;
@@ -998,7 +1006,7 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  z-index: 100;
+  z-index: 9999;
   animation: fadeIn 0.12s ease-out;
 }
 
@@ -1341,3 +1349,25 @@
   font-weight: 600;
   cursor: pointer;
 }
+
+@media (min-width: 2200px) {
+  .projects-dashboard-page { max-width: 2400px; }
+}
+@media (min-width: 3000px) {
+  .projects-dashboard-page { max-width: 3000px; }
+}
+
+/* Channel the project publishes under */
+.card-channel-row { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
+.channel-chip {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
+  padding: 1px 8px; border-radius: 999px; font-size: 0.7rem; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+  color: #c7d2fe; background: color-mix(in srgb, #6366f1 18%, transparent);
+  border: 1px solid color-mix(in srgb, #6366f1 35%, transparent);
+}
+.channel-chip.small { font-size: 0.66rem; margin-top: 3px; align-self: flex-start; }
+.channel-own { font-size: 0.66rem; color: var(--muted, #8b9bb4); font-style: italic; }
+
+/* Filters size to their content instead of the global full-width select rule */
+.toolbar-left .toolbar-select { width: auto; flex: 0 0 auto; min-width: 150px; max-width: 220px; }

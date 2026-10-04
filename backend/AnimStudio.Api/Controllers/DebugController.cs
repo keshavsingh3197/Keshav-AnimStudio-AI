@@ -1,13 +1,14 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
+using AnimStudio.Infrastructure.Storage;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AnimStudio.Api.Controllers;
 
 [ApiController]
 [Route("api/debug")]
-public class DebugController : ControllerBase
+public class DebugController(AppDataPaths dataPaths) : ControllerBase
 {
     public sealed record ScreenshotRequest
     {
@@ -21,7 +22,7 @@ public class DebugController : ControllerBase
     {
         try
         {
-            var folder = @"D:\AI_STUDIO";
+            var folder = dataPaths.Screenshots;
             if (!Directory.Exists(folder))
             {
                 Directory.CreateDirectory(folder);

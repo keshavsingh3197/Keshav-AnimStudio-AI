@@ -1016,3 +1016,7 @@
   align-items: center;
   gap: 4px;
 }
+
+@media (min-width: 2200px) {
+  .character-studio { max-width: 2400px; }
+}

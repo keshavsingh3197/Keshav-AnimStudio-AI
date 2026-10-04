@@ -21,8 +21,21 @@ public sealed class SystemController(
     IOptionsMonitor<AdminOptions> adminOptions,
     IAiSettingsRepository aiSettingsRepo,
     IAssetRepository assets,
-    IObjectStore store) : ControllerBase
+    IObjectStore store,
+    IStorageUsageService storageUsage) : ControllerBase
 {
+    /// <summary>
+    /// How full the media store is, for the project hub's storage bar. Measured from the
+    /// store itself (cached for a minute) against the quota set in server settings.
+    /// </summary>
+    [HttpGet("storage")]
+    public async Task<ActionResult<ApiResponse<StorageSummaryResponse>>> GetStorage(CancellationToken ct)
+    {
+        var settings = await aiSettingsRepo.GetAsync(ct);
+        var usage = await storageUsage.GetAsync(refresh: false, ct);
+        return Ok(ApiResponse<StorageSummaryResponse>.Ok(usage.ToSummary(settings?.StorageQuotaGb)));
+    }
+
     /// <summary>
     /// Whether this caller may administer the server.
     /// <para>
@@ -107,21 +120,34 @@ public sealed class SystemController(
     /// Global branding & hallmark watermark configuration.
     /// Publicly readable so any project or client can inspect or inherit default branding.
     /// </summary>
+    /// <param name="channel">A brand channel id; omitted (or unknown) means the default channel.</param>
     [HttpGet("branding")]
-    public async Task<ActionResult<ApiResponse<WatermarkResponse?>>> GetBranding(CancellationToken ct)
+    public async Task<ActionResult<ApiResponse<WatermarkResponse?>>> GetBranding(
+        [FromQuery] string? channel, CancellationToken ct)
     {
         var settings = await aiSettingsRepo.GetAsync(ct);
-        return Ok(ApiResponse<WatermarkResponse?>.Ok(settings?.DefaultWatermark.ToResponse()));
+        return Ok(ApiResponse<WatermarkResponse?>.Ok(settings?.WatermarkFor(channel).ToResponse()));
+    }
+
+    /// <summary>
+    /// The studio's brand channels (one per YouTube channel), default first - for a project
+    /// to pick which channel's watermark and end card it uses.
+    /// </summary>
+    [HttpGet("branding/channels")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<BrandChannelResponse>>>> GetBrandChannels(CancellationToken ct)
+    {
+        var settings = await aiSettingsRepo.GetAsync(ct);
+        return Ok(ApiResponse<IReadOnlyList<BrandChannelResponse>>.Ok(settings.ToChannelResponses()));
     }
 
     /// <summary>
     /// Serves the global branding logo image file.
     /// </summary>
     [HttpGet("branding/logo")]
-    public async Task<IActionResult> GetBrandingLogo(CancellationToken ct)
+    public async Task<IActionResult> GetBrandingLogo([FromQuery] string? channel, CancellationToken ct)
     {
         var settings = await aiSettingsRepo.GetAsync(ct);
-        var logoId = settings?.DefaultWatermark?.LogoAssetId;
+        var logoId = settings?.WatermarkFor(channel)?.LogoAssetId;
         if (string.IsNullOrWhiteSpace(logoId))
             return NotFound();
 
@@ -147,20 +173,21 @@ public sealed class SystemController(
     /// Global branding &amp; channel outro bumper configuration.
     /// </summary>
     [HttpGet("branding/outro")]
-    public async Task<ActionResult<ApiResponse<OutroResponse?>>> GetBrandingOutro(CancellationToken ct)
+    public async Task<ActionResult<ApiResponse<OutroResponse?>>> GetBrandingOutro(
+        [FromQuery] string? channel, CancellationToken ct)
     {
         var settings = await aiSettingsRepo.GetAsync(ct);
-        return Ok(ApiResponse<OutroResponse?>.Ok(settings?.DefaultOutro.ToResponse()));
+        return Ok(ApiResponse<OutroResponse?>.Ok(settings?.OutroFor(channel).ToResponse()));
     }
 
     /// <summary>
     /// Serves or streams the global outro video or image file.
     /// </summary>
     [HttpGet("branding/outro/media")]
-    public async Task<IActionResult> GetBrandingOutroMedia(CancellationToken ct)
+    public async Task<IActionResult> GetBrandingOutroMedia([FromQuery] string? channel, CancellationToken ct)
     {
         var settings = await aiSettingsRepo.GetAsync(ct);
-        var outroAssetId = settings?.DefaultOutro?.AssetId;
+        var outroAssetId = settings?.OutroFor(channel)?.AssetId;
         if (string.IsNullOrWhiteSpace(outroAssetId))
             return NotFound();
 
@@ -199,7 +226,9 @@ public sealed class SystemController(
     /// <summary>
     /// Updates the global default chunk duration in seconds.
     /// </summary>
+    // A server-wide default: changing it is administration, like every other global setting.
     [HttpPut("chunk-duration")]
+    [Microsoft.AspNetCore.Authorization.Authorize(Policy = AnimStudio.Api.Security.AdminAccess.Policy)]
     public async Task<ActionResult<ApiResponse<double>>> UpdateChunkDuration(
         [FromBody] UpdateChunkDurationRequest request, CancellationToken ct)
     {

@@ -2,10 +2,10 @@
   <!-- Header -->
   <div class="branding-header">
     <div class="branding-header-title">
-      <div class="branding-header-icon">🎨</div>
+      <div class="branding-header-icon">{{ heading().icon }}</div>
       <div>
-        <h2>Server Studio Branding &amp; Video Defaults</h2>
-        <p>Configure server-wide hallmark watermarks, outro bumpers/end-cards, and video segmentation.</p>
+        <h2>{{ heading().title }}</h2>
+        <p>{{ heading().subtitle }}</p>
       </div>
     </div>
     <div class="branding-top-actions">
@@ -15,11 +15,30 @@
     </div>
   </div>
 
+  @if (shows('watermark') || shows('outro')) {
+  <!-- Which channel these settings belong to. A picker, not tabs: it has to work for 1000. -->
+  <div class="branding-card branding-card-wide channel-bar">
+    <div class="channel-pick-row">
+      <div>
+        <span class="form-label" style="margin: 0 0 4px; display: block;">Editing channel</span>
+        <app-channel-picker [channels]="channels()" [selectedId]="selectedChannelId()"
+                            (selectedIdChange)="selectChannel($event)" />
+      </div>
+      <p class="channel-pick-hint">
+        Everything below belongs to this channel. Projects on it follow it unless they set their own.
+        {{ channels().length }} {{ channels().length === 1 ? 'channel' : 'channels' }} -
+        <a routerLink="/admin/channels">add, rename or remove them in Channels</a>.
+      </p>
+    </div>
+  </div>
+  }
+
+  @if (shows('watermark')) {
   <!-- Card 1: Studio Hallmark & Watermark -->
   <div class="branding-card">
     <div class="card-section-head">
       <div>
-        <h3>🛡️ Global Studio Hallmark &amp; Watermark</h3>
+        <h3>🛡️ Hallmark &amp; Watermark <span class="channel-heading-name">· {{ selectedChannel()?.name ?? 'Default' }}</span></h3>
         <p>Set a server-wide hallmark or logo watermark. All projects can inherit this branding automatically for consistent attribution.</p>
       </div>
       @if (saveSuccess()) {
@@ -72,13 +91,14 @@
           }
 
           @if (form.kind === 'Logo') {
-            <div class="form-group">
+            <div class="form-group" appFileDrop="image/png,image/jpeg,image/webp" (filesDropped)="uploadLogo($event[0])">
               <label class="form-label">Studio Logo Image</label>
               <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
                 <label class="btn-outline" style="cursor: pointer;">
                   <input type="file" accept="image/png,image/jpeg,image/webp" (change)="onUploadLogo($event)" style="display: none;" />
                   <span>⬆ Upload New Logo (PNG / JPG / WEBP)</span>
                 </label>
+                <span class="file-drop-hint">or drop a file here / paste with Ctrl+V</span>
                 @if (form.logoAssetId) {
                   <button type="button" class="btn-outline" style="color: #f87171; border-color: rgba(239,68,68,0.3);" (click)="clearLogo()">
                     ✕ Remove Logo
@@ -138,44 +158,29 @@
 
         <!-- Right Column: Interactive 16:9 Canvas Mockup -->
         <div>
-          <label class="form-label">Live Hallmark Simulation</label>
+          <label class="form-label">Live preview</label>
           <div class="mockup-wrapper">
             <div class="mockup-header-row">
-              <span>Preview Viewport (16:9 Ratio)</span>
+              <div class="aspect-toggle" role="group" aria-label="Preview format">
+                @for (a of previewAspects; track a.label) {
+                  <button type="button" [class.active]="previewAspect() === a" (click)="previewAspect.set(a)">{{ a.label }}</button>
+                }
+              </div>
               <span style="color: #93c5fd; font-family: ui-monospace, monospace;">{{ form.position }} &bull; {{ (form.opacity * 100) | number: '1.0-0' }}%</span>
             </div>
 
-            <div class="watermark-viewport"
-                 [style.padding.px]="(form.margin / 100) * 280"
-                 [style.align-items]="form.position.startsWith('Top') ? 'flex-start' : 'flex-end'"
-                 [style.justify-content]="form.position.endsWith('Left') ? 'flex-start' : form.position.endsWith('Right') ? 'flex-end' : 'center'">
-              <div class="watermark-viewport-grid"></div>
-              <div class="viewport-center-cross"></div>
-
-              @if (form.kind === 'Logo') {
-                @if (logoPreviewUrl(); as url) {
-                  <img class="mockup-watermark-item" [src]="url" alt="Hallmark logo"
-                       [style.height.px]="(form.height / 100) * 280"
-                       [style.opacity]="form.opacity"
-                       style="object-fit: contain; max-width: 180px; display: block;" />
-                } @else {
-                  <div class="mockup-watermark-item" style="padding: 6px 12px; background: rgba(0,0,0,0.6); border-radius: 4px; font-size: 0.75rem; color: #8b9bb4; border: 1px dashed #374151;">
-                    No logo image uploaded yet
-                  </div>
-                }
-              } @else {
-                <div class="mockup-watermark-item"
-                     [style.font-size.px]="((form.height / 100) * 280 * 0.75)"
-                     [style.color]="form.color"
-                     [style.opacity]="form.opacity"
-                     [style.background]="'rgba(0,0,0,' + form.backplate + ')'"
-                     style="padding: 4px 10px; border-radius: 4px; font-weight: 600; line-height: 1.2; letter-spacing: 0.02em; border: 1px solid rgba(255,255,255,0.08); backdrop-filter: blur(2px);">
-                  {{ form.text || 'AnimStudio AI' }}
-                </div>
-              }
+            <div class="preview-stage">
+              <app-watermark-preview
+                [watermark]="formAsBody()"
+                [width]="previewAspect().width"
+                [height]="previewAspect().height"
+                [logoUrl]="logoPreviewUrl()"
+                [boxHeight]="previewAspect().height > previewAspect().width ? 300 : 200"
+                [label]="previewAspect().width + '×' + previewAspect().height" />
             </div>
             <p style="margin: 0; font-size: 0.78rem; color: #8b9bb4; text-align: center;">
-              This watermark is automatically composited over finished video frames.
+              Drawn with the renderer's own sizing, including the safe margin on upright videos -
+              what you see here is the export, scaled down.
             </p>
           </div>
         </div>
@@ -188,12 +193,14 @@
       </button>
     </div>
   </div>
+  }
 
+  @if (shows('outro')) {
   <!-- Card 2: Global Channel Outro & End-Card Bumper -->
-  <div class="branding-card">
+  <div class="branding-card branding-card-wide">
     <div class="card-section-head">
       <div>
-        <h3>🎬 Global Channel Outro &amp; End-Card Bumper</h3>
+        <h3>🎬 Channel Outro &amp; End-Card Bumper <span class="channel-heading-name">· {{ selectedChannel()?.name ?? 'Default' }}</span></h3>
         <p>Attach a small channel outro video (e.g. subscribe animation, channel stinger) or static end-card graphic at the end of every video.</p>
       </div>
       @if (saveOutroSuccess()) {
@@ -217,11 +224,148 @@
       </div>
     </div>
 
-    @if (outroForm.kind !== 'None') {
+    @if (outroForm.kind === 'Card') {
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 1.5rem; margin-bottom: 1.25rem;">
+        <!-- Left: card content -->
+        <div>
+          <div class="form-group" appFileDrop="image/png,image/jpeg,image/webp" (filesDropped)="uploadOutroQr($event[0])">
+            <label class="form-label">QR Code Image (PNG / JPG / WEBP)</label>
+            <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+              <label class="btn-outline" style="cursor: pointer;">
+                <input type="file" accept="image/png,image/jpeg,image/webp"
+                       (change)="onUploadOutroQr($event)" style="display: none;" />
+                <span>⬆ {{ outroForm.qrAssetId ? 'Replace QR Code' : 'Upload QR Code' }}</span>
+              </label>
+              <span class="file-drop-hint">or drop a file here / paste with Ctrl+V</span>
+              @if (outroForm.qrAssetId) {
+                <button type="button" class="btn-outline" style="color: #f87171; border-color: rgba(239,68,68,0.3);" (click)="clearOutroQr()">
+                  ✕ Remove QR
+                </button>
+              }
+            </div>
+            <p style="margin: 0.35rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
+              Your UPI / Ko-fi / Patreon / membership QR. It is placed on a white square with a quiet zone, so it scans on any background colour.
+            </p>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Language</label>
+            <div class="segmented-row">
+              @for (p of cardLanguagePresets; track p.label) {
+                <button type="button" class="segment-btn" (click)="applyCardLanguagePreset(p)">{{ p.label }}</button>
+              }
+            </div>
+            <p style="margin: 0.35rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
+              Fills in ready-made wording - edit it freely afterwards. Hindi and other Indian scripts are drawn with a font that has their letters.
+            </p>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="outro-headline">Headline (above the code)</label>
+            <input id="outro-headline" class="form-control" type="text" maxlength="80"
+                   placeholder="Support us for more videos like this"
+                   [(ngModel)]="outroForm.headline" />
+            <input id="outro-headline-2" class="form-control" type="text" maxlength="80"
+                   style="margin-top: 0.4rem;" aria-label="Headline, second language"
+                   placeholder="Second language (optional) - e.g. इस तरह के और वीडियो के लिए हमारा समर्थन करें"
+                   [(ngModel)]="outroForm.headlineSecondary" />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="outro-subtext">Small text (below the code)</label>
+            <input id="outro-subtext" class="form-control" type="text" maxlength="120"
+                   placeholder="Scan the QR code · upi://… / ko-fi.com/…"
+                   [(ngModel)]="outroForm.subtext" />
+            <input id="outro-subtext-2" class="form-control" type="text" maxlength="120"
+                   style="margin-top: 0.4rem;" aria-label="Small text, second language"
+                   placeholder="Second language (optional) - e.g. QR कोड स्कैन करें"
+                   [(ngModel)]="outroForm.subtextSecondary" />
+            <p style="margin: 0.35rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
+              A second-language line sits just under its partner, a little smaller and softer.
+            </p>
+          </div>
+
+          <div style="display: flex; gap: 1.25rem; flex-wrap: wrap;">
+            <div class="form-group">
+              <label class="form-label" for="outro-bg">Background</label>
+              <input id="outro-bg" type="color" [(ngModel)]="outroForm.backgroundHex" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="outro-fg">Text colour</label>
+              <input id="outro-fg" type="color" [(ngModel)]="outroForm.textHex" />
+            </div>
+          </div>
+
+          <div class="slider-container" style="margin-bottom: 1.25rem;">
+            <div class="slider-meta">
+              <label class="form-label" style="margin-bottom: 0;">End Card Duration</label>
+              <span class="slider-val-badge">{{ outroForm.durationSeconds }}s</span>
+            </div>
+            <input class="form-range" type="range" min="1" max="30" step="0.5"
+                   [(ngModel)]="outroForm.durationSeconds" />
+            <p style="margin: 0.25rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
+              5–10 seconds gives viewers time to get their phone out and scan.
+            </p>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Fade In</label>
+            <div class="segmented-row">
+              <button type="button" class="segment-btn" [class.active]="outroForm.transition !== 'None'"
+                      (click)="setOutroTransition('Fade')">Fade up from black</button>
+              <button type="button" class="segment-btn" [class.active]="outroForm.transition === 'None'"
+                      (click)="setOutroTransition('None')">Hard cut</button>
+            </div>
+            <p style="margin: 0.35rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
+              The card fades in on its own, so adding it never forces the whole video to re-encode.
+            </p>
+          </div>
+        </div>
+
+        <!-- Right: what the card is made of -->
+        <div>
+          <label class="form-label">QR Code</label>
+          <div class="mockup-wrapper">
+            <div class="outro-preview-box" [style.background]="outroForm.backgroundHex">
+              <div style="text-align: center; padding: 1.25rem; width: 100%;">
+                <div [style.color]="outroForm.textHex" style="font-weight: 700; font-size: 1rem; margin-bottom: 0.75rem;">
+                  {{ outroForm.headline || 'Headline' }}
+                </div>
+                @if (outroForm.headlineSecondary) {
+                  <div [style.color]="outroForm.textHex" style="font-size: 0.82rem; opacity: 0.85; margin: -0.5rem 0 0.75rem;">
+                    {{ outroForm.headlineSecondary }}
+                  </div>
+                }
+                @if (qrImageUrl(); as qr) {
+                  <img [src]="qr" alt="QR code" style="width: 40%; max-width: 160px; background: #fff; padding: 6px; image-rendering: pixelated;" />
+                } @else {
+                  <div style="display: inline-block; width: 120px; height: 120px; background: #fff; color: #555; font-size: 0.75rem; line-height: 120px;">QR code</div>
+                }
+                <div [style.color]="outroForm.textHex" style="font-size: 0.8rem; margin-top: 0.75rem; opacity: 0.9;">
+                  {{ outroForm.subtext }}
+                </div>
+                @if (outroForm.subtextSecondary) {
+                  <div [style.color]="outroForm.textHex" style="font-size: 0.72rem; margin-top: 0.15rem; opacity: 0.8;">
+                    {{ outroForm.subtextSecondary }}
+                  </div>
+                }
+              </div>
+            </div>
+            <p style="margin: 0; font-size: 0.78rem; color: #8b9bb4; text-align: center;">
+              Rough layout only. Use “Render Preview” below to see the exact card.
+            </p>
+          </div>
+        </div>
+      </div>
+    }
+
+    @if (outroForm.kind === 'Video' || outroForm.kind === 'Image') {
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 1.5rem; margin-bottom: 1.25rem;">
         <!-- Left: Upload & Config -->
         <div>
-          <div class="form-group">
+          <div class="form-group"
+               [appFileDrop]="outroForm.kind === 'Video' ? 'video/mp4,video/webm,video/quicktime' : 'image/png,image/jpeg,image/webp'"
+               (filesDropped)="uploadOutro($event[0])">
             <label class="form-label">
               Upload Outro {{ outroForm.kind === 'Video' ? 'Video (MP4 / WebM / MOV)' : 'Graphic (PNG / JPG / WEBP)' }}
             </label>
@@ -232,6 +376,7 @@
                        (change)="onUploadOutro($event)" style="display: none;" />
                 <span>⬆ Upload Channel Outro File</span>
               </label>
+              <span class="file-drop-hint">or drop a file here / paste with Ctrl+V</span>
               @if (outroForm.assetId) {
                 <button type="button" class="btn-outline" style="color: #f87171; border-color: rgba(239,68,68,0.3);" (click)="clearOutro()">
                   ✕ Remove Outro
@@ -318,13 +463,47 @@
       </div>
     }
 
+    @if (outroForm.kind !== 'None') {
+      <!-- The exact end video exports will finish with, rendered on demand -->
+      <div class="form-group" style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 1rem;">
+        <label class="form-label">Preview &amp; Download the End Video</label>
+        <p style="margin: 0 0 0.6rem; font-size: 0.78rem; color: #8b9bb4;">
+          Renders exactly what exports will end with, from the form as it is now (save to make exports use it).
+          Download it to add to videos already on YouTube.
+        </p>
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+          <button type="button" class="btn-outline" [disabled]="outroPreviewBusy()" (click)="previewOutro('landscape')">▶ Landscape 16:9</button>
+          <button type="button" class="btn-outline" [disabled]="outroPreviewBusy()" (click)="previewOutro('vertical')">▶ Shorts 9:16</button>
+          <button type="button" class="btn-outline" [disabled]="outroPreviewBusy()" (click)="previewOutro('square')">▶ Square 1:1</button>
+          @if (outroPreviewBusy()) {
+            <span style="font-size: 0.8rem; color: #93c5fd;">Rendering…</span>
+          }
+        </div>
+        @if (outroPreviewError(); as err) {
+          <p style="margin: 0.5rem 0 0; font-size: 0.8rem; color: #f87171;">{{ err }}</p>
+        }
+        @if (outroPreviewUrl(); as url) {
+          <div style="margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-start;">
+            <video [src]="url" controls autoplay playsinline
+                   [style.max-width]="outroPreviewFormat() === 'landscape' ? '520px' : '260px'"
+                   style="width: 100%; border-radius: 8px; background: #000;"></video>
+            <button type="button" class="btn-primary-glow" (click)="downloadOutroPreview()">
+              ⬇ Download End Video (MP4, {{ outroPreviewFormat() }})
+            </button>
+          </div>
+        }
+      </div>
+    }
+
     <div style="display: flex; justify-content: flex-end; margin-top: 1rem;">
       <button type="button" class="btn-primary-glow" (click)="saveOutro()" [disabled]="status.busy()">
         Save Global Outro Settings
       </button>
     </div>
   </div>
+  }
 
+  @if (shows('chunking')) {
   <!-- Card 3: Global Video Chunking & Splitting -->
   <div class="branding-card">
     <div class="card-section-head">
@@ -388,4 +567,5 @@
       </button>
     </div>
   </div>
+  }
 </div>
