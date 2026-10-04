@@ -238,14 +238,19 @@
               </label>
               <span class="file-drop-hint">or drop a file here / paste with Ctrl+V</span>
               @if (outroForm.qrAssetId) {
+                <button type="button" class="btn-outline" (click)="cropCurrentQr()">✂ Crop / rotate</button>
                 <button type="button" class="btn-outline" style="color: #f87171; border-color: rgba(239,68,68,0.3);" (click)="clearOutroQr()">
                   ✕ Remove QR
                 </button>
               }
             </div>
             <p style="margin: 0.35rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
-              Your UPI / Ko-fi / Patreon / membership QR. It is placed on a white square with a quiet zone, so it scans on any background colour.
+              Your UPI / Ko-fi / Patreon / membership QR. You can crop it down to just the code before it is saved. It is placed on a white square with a quiet zone, so it scans on any background colour.
             </p>
+            @if (qrCropSource(); as src) {
+              <app-image-crop-dialog [source]="src" [square]="true" title="Crop the QR code" fileName="qr-code.png"
+                                     (cropped)="onQrCropped($event)" (cancelled)="qrCropSource.set(null)" />
+            }
           </div>
 
           <div class="form-group">

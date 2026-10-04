@@ -15,11 +15,12 @@ import { StatusService } from '../../core/services/status.service';
 import { FileDropDirective } from '../../shared/file-drop.directive';
 import { WatermarkPreviewComponent } from '../../shared/watermark-preview.component';
 import { ChannelPickerComponent } from '../../shared/channel-picker.component';
+import { ImageCropDialogComponent } from '../../shared/image-crop-dialog.component';
 
 @Component({
   selector: 'app-admin-branding',
   standalone: true,
-  imports: [FormsModule, DecimalPipe, FileDropDirective, WatermarkPreviewComponent, ChannelPickerComponent, RouterLink],
+  imports: [FormsModule, DecimalPipe, FileDropDirective, WatermarkPreviewComponent, ChannelPickerComponent, ImageCropDialogComponent, RouterLink],
   templateUrl: './admin-branding.component.html',
   styleUrls: ['./admin-branding.component.css'],
 })
@@ -337,7 +338,25 @@ export class AdminBrandingComponent {
     if (file) this.uploadOutroQr(file);
   }
 
+  /** The image waiting in the crop dialog; every way of adding a QR goes through it. */
+  readonly qrCropSource = signal<Blob | null>(null);
+
   uploadOutroQr(file: File): void {
+    this.qrCropSource.set(file);
+  }
+
+  /** Re-opens the saved QR in the crop dialog, e.g. to trim a payment-app screenshot. */
+  cropCurrentQr(): void {
+    const id = this.outroForm.qrAssetId;
+    if (id) this.status.run(this.api.assetContent(id), (blob) => this.qrCropSource.set(blob));
+  }
+
+  onQrCropped(file: File): void {
+    this.qrCropSource.set(null);
+    this.sendOutroQr(file);
+  }
+
+  private sendOutroQr(file: File): void {
     this.saveOutroSuccess.set(false);
     this.status.run(this.api.uploadGlobalOutroQr(file, this.selectedChannelId()), (res) => {
       if (res) {

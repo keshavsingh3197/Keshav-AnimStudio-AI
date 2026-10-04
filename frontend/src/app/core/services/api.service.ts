@@ -646,6 +646,11 @@ export class ApiService {
     return `${this.base}/api/assets/${encodeURIComponent(assetId)}/content`;
   }
 
+  /** The asset's bytes, fetched through HttpClient so it can be edited on a canvas. */
+  assetContent(assetId: string): Observable<Blob> {
+    return this.http.get(this.assetContentUrl(assetId), { responseType: 'blob' });
+  }
+
   private unwrap<T>(source: Observable<ApiResponse<T>>): Observable<T> {
     return source.pipe(map((response) => response.data as T));
   }
