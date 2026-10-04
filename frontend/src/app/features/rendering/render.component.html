@@ -291,6 +291,9 @@
                 <span>&#128229;</span> Download MP4 Video
               </button>
             </a>
+            <a routerLink="/live" [queryParams]="{ renderJobId: current.jobId }" style="text-decoration: none">
+              <button class="secondary" type="button" title="Stream this video to YouTube Live">🔴 Go live</button>
+            </a>
             @if (subtitlesUrl(); as srtUrl) {
               <a [href]="srtUrl" download="subtitles.srt" style="text-decoration: none">
                 <button class="secondary" type="button">Download Subtitles (.srt)</button>
@@ -349,6 +352,9 @@
               @if (item.hasOutput) {
                 <a [href]="downloadUrl(item.jobId)" download>
                   <button class="secondary" type="button">&#128229; Download</button>
+                </a>
+                <a routerLink="/live" [queryParams]="{ renderJobId: item.jobId }">
+                  <button class="secondary" type="button" title="Stream this video to YouTube Live">🔴 Go live</button>
                 </a>
               }
             </td>

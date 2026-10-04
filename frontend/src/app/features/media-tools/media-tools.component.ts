@@ -658,6 +658,12 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
     void this.router.navigate(['/projects', projectId, 'assets']);
   }
 
+  /** Opens Go Live with the imported asset already in the playlist. */
+  goLive(dl: RecentDownload): void {
+    if (!dl.result.assetId) return;
+    void this.router.navigate(['/live'], { queryParams: { assetId: dl.result.assetId, title: dl.title.slice(0, 200) } });
+  }
+
   sendToChunker(): void {
     const rawUrl = this.url().trim();
     this.activeTab.set('chunker');

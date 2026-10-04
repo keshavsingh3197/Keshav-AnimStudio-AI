@@ -3,6 +3,7 @@ using AnimStudio.Domain.Assets;
 using AnimStudio.Domain.Characters;
 using AnimStudio.Domain.Ingest;
 using AnimStudio.Domain.Jobs;
+using AnimStudio.Domain.LiveStreams;
 using AnimStudio.Domain.Projects;
 using AnimStudio.Domain.Scenes;
 using AnimStudio.Domain.Scripts;
@@ -68,6 +69,9 @@ public static class MongoMappingRegistrar
 
             // App-assigned GUID ids, valid on SQL Server too - not ObjectIds.
             MapWithLiteralId<ProjectEdit>();
+
+            // "{channelId}:{destinationId}" - the id is what keeps one key per channel per destination.
+            MapWithLiteralId<LiveStreamKey>();
         }
     }
 

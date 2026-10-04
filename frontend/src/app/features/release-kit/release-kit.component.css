@@ -135,3 +135,10 @@
 .rk-empty-icon { font-size: 2.4rem; }
 .rk-empty h3 { margin: .5rem 0 1rem; }
 .rk-checklist { list-style: none; padding: 0; margin: 0 auto; display: inline-grid; gap: .45rem; text-align: left; color: var(--text-dim, var(--text)); }
+
+.rk-cover-actions { display: flex; flex-wrap: wrap; gap: .4rem; }
+.rk-remember { display: flex; align-items: center; gap: .45rem; margin-top: 1rem; font-size: .85rem; font-weight: 500; }
+.rk-live { border-color: color-mix(in srgb, var(--err) 35%, var(--border)); }
+.rk-live p { margin: 0 0 .75rem; }
+.rk-live-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.rk-live-actions a { text-decoration: none; }

@@ -1,0 +1,115 @@
+# P14 — Live streaming
+
+Lets the studio send to YouTube Live directly: a render, a Clip Studio export, project media, songs with their
+covers, a release kit, or links on supported sites, alone or as a playlist, including 24/7 loops, without OBS.
+The server is the encoder and pushes RTMPS the way OBS would.
+
+---
+
+## Design: prepare, preview, send
+
+A stream runs in two stages:
+
+1. **Prepare.** Each playlist item is fetched (links via yt-dlp) and converted into a segment with *identical*
+   encoding. The settings follow YouTube's ingest recommendations: x264 high profile at the stream bitrate
+   (3 Mbps 720p30, 6 Mbps 1080p30), a keyframe every 2 s with scene-cut keyframes off, AAC 128k at 44.1 kHz
+   stereo, one MP4 timescale. Videos are letterboxed, and a silent video gets a silent track. A song becomes its
+   cover over a blurred copy of itself (or a plain backdrop) with a live waveform.
+2. **Send.** The segments are joined with the concat demuxer (safe mode, generated names only) and *copied* to the
+   ingest at playback speed (`-re -c copy`).
+
+Why this way:
+- **Previewable.** The prepared segments *are* the broadcast, so the owner can watch each item, or the whole
+  program in order, before anything goes out.
+- **Cheap to send.** A loop costs a file read, not a real-time encode, so 24/7 streams barely use CPU.
+  `MaxConcurrentStreams` is bounded by upload bandwidth; `MaxConcurrentPreparations` bounds the x264 work.
+- **Resumable.** If the connection drops after going live, the push restarts from the item that was playing
+  (`PlaylistContent` + `Position`) with backoff, up to `ReconnectAttempts`. An ended or stopped stream can be sent
+  again without preparing it again.
+- **Forgiving.** Items that fail to prepare (a dead link, a broken file) are skipped, so the rest of the playlist
+  still goes out.
+
+Lifecycle: `Preparing → Ready → Connecting → Live (⇄ Reconnecting) → Ended / Stopped / Failed`. A stream that has
+ended can go to `Connecting` again.
+
+## Stream keys
+
+YouTube stream keys are **reusable**: a key keeps working until someone presses *Reset* in YouTube Studio. Keys
+can therefore be saved once per brand channel and destination:
+
+- **Saving.** Admins save keys on *Settings → Channels → 🔑 Stream key*. They are encrypted with the same
+  AES-256-GCM `DataProtector` as AI provider keys (`Encryption:DataKey`). The UI only ever shows `••••last4` and a
+  fingerprint, and every change is audited. Deleting a channel deletes its keys.
+- **Refused keys.** If the ingest refuses a saved key before any media is accepted, the key is marked **Rejected**:
+  - Go Live answers `409 stream-key-rejected` up front.
+  - The Channels page shows a banner and a *Key refused* filter.
+  - Go Live links straight to the channel's key panel.
+
+  A network failure never marks a key rejected. Missing keys give `409 stream-key-missing`, so the user is asked
+  to configure one instead of watching a stream fail.
+- **Who can use saved keys.** Only admins, unless `LiveStream:AllowSavedKeysForNonAdmins` is set. Everyone else
+  pastes a key for the stream; a pasted key is held in memory only until it is sent, and is never stored or logged.
+
+## API — `/api/live-streams`
+
+| Endpoint | |
+| --- | --- |
+| `GET setup` | Destinations, channels with masked key states, and what the caller may do. |
+| `POST` (multipart) | `settings` JSON, `items` JSON (see below), files as `file0…`/`cover0…`, optional `goLive` JSON to send as soon as it's ready. |
+| `GET` / `GET {id}` | The caller's streams with per-item state and progress. |
+| `GET {id}/items/{n}/preview` | A prepared segment (range requests supported). |
+| `POST {id}/go-live` | `{ channelId }` or `{ streamKey }`. Also sends an ended stream again. |
+| `POST {id}/stop` | Stops sending or preparing; segments are kept. |
+| `DELETE {id}` | Stops the stream and deletes it with its segments. |
+| `PUT/DELETE keys/{channelId}/{destinationId}` | Admin: save or remove a channel's key. |
+
+Item sources:
+- `Upload`: an MP4, or a song with an optional cover.
+- `Render`: a project render or Clip Studio export.
+- `Asset`: a video or audio asset, with an optional image asset as cover.
+- `Url`: a link on a supported site, with `audioOnly` to show it radio-style.
+- `ReleaseKit`: the master with its cover, or the visualizer.
+
+## Guards
+
+- **Stream key.** Allowlisted shape (`[A-Za-z0-9_-]`, 8–128), so it can't re-point the ingest URL. Masked in
+  ffmpeg stderr before logging, and never in a URL or browser storage.
+- **Destinations.** Taken from config by id. Only `rtmps://` without userinfo is accepted, so there is no SSRF via
+  the ingest URL.
+- **Links.** Rebuilt by `MediaSourceValidator` (https only, host allowlist) before reaching yt-dlp. Gated by
+  `Ingest:AllowMediaDownload` and capped at `MaxFetchBytes`. yt-dlp verifies TLS certificates
+  (`--no-check-certificates` was removed from the downloader).
+- **Ownership.** Streams, renders, assets (via their project) and release kits are owner-scoped; anyone else's
+  read as not found and are logged. Upload part names are a fixed pattern, and every file on disk gets a generated
+  name.
+- **Uploads.** Checked by magic bytes before anything is written. MP4 up to 2 GB; songs and covers go through the
+  release-kit validators.
+- **Capacity.** At most `MaxStreamsPerUser` streams are held, `MaxConcurrentStreams` sending and
+  `MaxConcurrentPreparations` converting. Each send ends at `MaxHours`, even "until stopped".
+- **Cleanup.** Segments are kept for `KeepIdleMinutes` after a stream stops working. Leftover folders are cleared
+  at startup; nothing about a stream survives a restart.
+- **Rights.** The caller must confirm they hold the rights to everything in the playlist.
+
+## Actions
+
+### A14.1 — Go Live ✅
+Single-source streaming over RTMPS.
+
+### A14.3 — Playlists, previews, saved keys, reconnect ✅
+Everything above, plus **🔴 Go live** entry points:
+- the render page
+- Clip Studio's export banner
+- Media Studio downloads imported as assets
+- the release kit (song + cover, or visualizer)
+
+### A14.2 — Broadcast control through the YouTube Live API
+Create the broadcast, bind a stream, and move it live and complete through `liveBroadcasts` / `liveStreams`, so
+the user never copies a key and the title and description are set from the app. Needs Google OAuth with the
+`youtube` scope and per-user refresh tokens in Key Vault, the same groundwork as A13.2.
+
+### A14.4 — Hardware encoding for preparation
+QSV works on the render host; nvenc and amf are listed but broken, so probe by test-encoding. Preparing is the
+only encode now, so QSV would shorten the wait before a long playlist is ready.
+
+### A14.5 — Scheduled streams
+Start a prepared stream at a set time, and keep a 24/7 stream's playlist refreshing from a folder or channel.

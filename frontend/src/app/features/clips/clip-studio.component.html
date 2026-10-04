@@ -1354,6 +1354,11 @@
                   <button type="button" class="btn btn-outline-info" (click)="state.openExportPreview()">
                     ▶ Preview Video
                   </button>
+                  <a routerLink="/live"
+                     [queryParams]="{ renderJobId: completedJob.jobId, title: state.exportName() || null }"
+                     class="btn btn-outline-danger" title="Stream this export to YouTube Live">
+                    🔴 Go live
+                  </a>
                 </div>
                 @if (completedJob.hasTimeline) {
                   <div class="timeline-downloads">

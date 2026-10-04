@@ -600,7 +600,8 @@ public sealed class AdminController(
     /// </param>
     [HttpDelete("branding/channels/{channelId}")]
     public async Task<ActionResult<ApiResponse<IReadOnlyList<BrandChannelResponse>>>> DeleteChannel(
-        string channelId, [FromQuery] string? moveProjectsTo, CancellationToken ct)
+        string channelId, [FromQuery] string? moveProjectsTo,
+        [FromServices] AnimStudio.Infrastructure.LiveStreams.LiveStreamKeyStore liveKeys, CancellationToken ct)
     {
         if (BrandChannel.IsDefault(channelId))
         {
@@ -632,6 +633,11 @@ public sealed class AdminController(
 
         stored.Channels.Remove(channel);
         await aiSettingsRepo.SaveAsync(stored, ct);
+
+        // A deleted channel's stream keys would otherwise linger as orphaned secrets.
+        var removedKeys = await liveKeys.DeleteChannelAsync(channelId, ct);
+        if (removedKeys > 0)
+            await audit.RecordAsync("live.key-removed", ChannelAuditTarget(channelId), $"{removedKeys} key(s)", "channel deleted", RemoteAddress(), ct);
 
         await audit.RecordAsync("branding.channel-deleted", ChannelAuditTarget(channelId),
             channel.Name, $"{moved} project(s) moved to {destination?.Name ?? stored.DefaultChannelName}",

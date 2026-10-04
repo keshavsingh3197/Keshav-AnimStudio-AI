@@ -16,6 +16,7 @@ public static class MongoCollections
     public const string AiCredentials = "aiCredentials";
     public const string PromptTemplates = "promptTemplates";
     public const string AiSettings = "aiSettings";
+    public const string LiveStreamKeys = "liveStreamKeys";
     public const string AdminAudit = "adminAudit";
     public const string HubConfig = "hubConfig";
 }

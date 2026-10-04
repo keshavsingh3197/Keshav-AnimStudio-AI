@@ -185,6 +185,13 @@ Order is dependency-driven. `P3` unlocks most of the rest.
 - [ ] **A13.4** Build a release kit and lyric video from a rendered project
 - [ ] **A13.5** DDEX ERN metadata export (exploratory)
 
+### P14 — Live streaming — [detail](plans/P14-live-streaming.md)
+- [x] **A14.1** Go Live: stream a video, a render, or cover + song (live waveform) to YouTube Live over RTMPS
+- [ ] **A14.2** Create and end the broadcast through the YouTube Live API instead of a stream key
+- [x] **A14.3** Playlists from any source (renders, Clip Studio, assets, release kits, links), prepare → preview → copy-send, saved per-channel keys with refused-key prompts, auto-reconnect
+- [ ] **A14.4** Hardware encoding (QSV) for the prepare stage when it benchmarks faster than x264
+- [ ] **A14.5** Scheduled streams and auto-refreshing 24/7 playlists
+
 ### P12 — Hardening — [detail](plans/P12-hardening.md)
 - [ ] **A12.1** Rate limiting and request size caps on every ingest/AI endpoint
 - [ ] **A12.2** Structured logging with personal-data scrubbing on the AI and ingest paths

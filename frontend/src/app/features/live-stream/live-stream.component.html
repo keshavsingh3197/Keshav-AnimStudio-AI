@@ -1,0 +1,491 @@
+<div class="page-head">
+  <div>
+    <h2>🔴 Go Live</h2>
+    <p class="muted ls-lede">
+      Build a playlist from your videos, renders, Clip Studio exports, songs, release kits and links, watch exactly
+      what will be sent, then stream it to YouTube Live. This server is the encoder, so you don't need OBS and the
+      stream keeps running after you close this tab.
+    </p>
+  </div>
+</div>
+
+<ol class="ls-flow" aria-label="How it works">
+  <li><strong>Add</strong> what to stream</li>
+  <li><strong>Prepare</strong> - every item is converted to the exact stream format</li>
+  <li><strong>Preview</strong> each item, or play the whole program</li>
+  <li><strong>Go live</strong> with a channel's saved key or a pasted one</li>
+</ol>
+
+<div class="ls-grid">
+  <div class="ls-col">
+    <!-- 1. Playlist -->
+    <section class="card">
+      <div class="ls-step-row">
+        <h3 class="ls-step"><span>1</span> Playlist</h3>
+        @if (playlist().length > 0) {
+          <span class="muted ls-total">
+            {{ playlist().length }} item{{ playlist().length === 1 ? '' : 's' }}
+            @if (totalSeconds() > 0) { · {{ unknownDurations() ? 'at least ' : '' }}{{ formatClock(totalSeconds()) }} }
+          </span>
+        }
+      </div>
+
+      <div class="ls-tabs" role="tablist" aria-label="Add from">
+        <button type="button" role="tab" [class.active]="addMode() === 'upload'" [attr.aria-selected]="addMode() === 'upload'"
+                (click)="setAddMode('upload')">📁 Files</button>
+        <button type="button" role="tab" [class.active]="addMode() === 'renders'" [attr.aria-selected]="addMode() === 'renders'"
+                (click)="setAddMode('renders')">🎞️ Renders &amp; exports</button>
+        <button type="button" role="tab" [class.active]="addMode() === 'assets'" [attr.aria-selected]="addMode() === 'assets'"
+                (click)="setAddMode('assets')">🗂️ Project media</button>
+        @if (setup()?.allowLinks !== false) {
+          <button type="button" role="tab" [class.active]="addMode() === 'links'" [attr.aria-selected]="addMode() === 'links'"
+                  (click)="setAddMode('links')">🔗 Links</button>
+        }
+      </div>
+
+      @switch (addMode()) {
+        @case ('upload') {
+          <div class="ls-drop" [appFileDrop]="mediaAccept" (filesDropped)="addFiles($event)" (click)="mediaInput.click()">
+            <input #mediaInput type="file" multiple [accept]="mediaAccept" hidden (change)="onMediaPicked($event)" />
+            <div class="ls-drop-icon">📥</div>
+            <strong>Drop videos and songs here, or click to browse</strong>
+            <div class="muted">MP4 videos, or WAV / FLAC / AIFF / MP3 / M4A songs - several at once. Add a cover to each song below.</div>
+          </div>
+        }
+        @case ('renders') {
+          <div class="ls-picker">
+            <select [ngModel]="pickerProject()" (ngModelChange)="pickProject($event)" aria-label="Project">
+              @for (p of projects(); track p.id) { <option [value]="p.id">{{ p.name }}</option> }
+            </select>
+            @if (pickerLoading()) {
+              <p class="muted">Loading…</p>
+            } @else {
+              <ul class="ls-pick-list">
+                @for (job of renders(); track job.jobId) {
+                  <li>
+                    <span>
+                      <strong>{{ job.kind === 'ClipMerge' ? '✂️ Clip Studio export' : '🎞️ Project render' }}</strong>
+                      <span class="muted"> · {{ job.width }}×{{ job.height }}
+                        @if (job.outputDurationSeconds) { · {{ formatClock(job.outputDurationSeconds) }} }
+                        · {{ (job.completedAt ?? job.createdAt) | date: 'short' }}</span>
+                    </span>
+                    <button type="button" class="secondary ls-small" (click)="addRender(job)">＋ Add</button>
+                  </li>
+                } @empty {
+                  <li class="muted">No finished renders or exports in this project yet.</li>
+                }
+              </ul>
+            }
+          </div>
+        }
+        @case ('assets') {
+          <div class="ls-picker">
+            <select [ngModel]="pickerProject()" (ngModelChange)="pickProject($event)" aria-label="Project">
+              @for (p of projects(); track p.id) { <option [value]="p.id">{{ p.name }}</option> }
+            </select>
+            @if (pickerLoading()) {
+              <p class="muted">Loading…</p>
+            } @else {
+              <ul class="ls-pick-list">
+                @for (a of streamableAssets(); track a.id) {
+                  <li>
+                    <span>
+                      <strong>{{ a.kind === 'Audio' ? '🎵' : '🎬' }} {{ a.name }}</strong>
+                      <span class="muted"> · {{ formatSize(a.fileSizeBytes) }}
+                        @if (a.durationSeconds) { · {{ formatClock(a.durationSeconds) }} }</span>
+                    </span>
+                    <button type="button" class="secondary ls-small" (click)="addAsset(a)">＋ Add</button>
+                  </li>
+                } @empty {
+                  <li class="muted">No video or audio in this project. Downloads from Media Studio land here when imported.</li>
+                }
+              </ul>
+            }
+          </div>
+        }
+        @case ('links') {
+          <div class="ls-links">
+            <textarea rows="4" [ngModel]="linkText()" (ngModelChange)="linkText.set($event)"
+                      placeholder="Paste one or more links, one per line - YouTube, Vimeo, Instagram, TikTok, X, Facebook, Twitch clips, Dailymotion, Reddit…"
+                      aria-label="Links to stream"></textarea>
+            <div class="ls-links-bar">
+              <label><input type="checkbox" [ngModel]="linkAudioOnly()" (ngModelChange)="linkAudioOnly.set($event)" /> Audio only (shown radio-style)</label>
+              <button type="button" class="secondary" (click)="addLinks()" [disabled]="!linkText().trim()">🔍 Check &amp; add</button>
+            </div>
+            @if (linkChecks().length > 0) {
+              <ul class="ls-link-checks">
+                @for (c of linkChecks(); track c.url) {
+                  <li [attr.data-state]="c.state">
+                    <span>{{ c.state === 'checking' ? '⏳' : c.state === 'ok' ? '✅' : '⚠️' }}</span>
+                    <span class="ls-ellipsis">{{ c.url }}</span>
+                    @if (c.message) { <span class="ls-err-text">{{ c.message }}</span> }
+                  </li>
+                }
+              </ul>
+            }
+            <p class="muted ls-small-print">
+              Links are checked now and downloaded on the server while the stream is prepared, so you'll see each one
+              before it goes out. Only stream what you have the rights to.
+            </p>
+          </div>
+        }
+      }
+
+      @if (playlist().length > 0) {
+        <ol class="ls-playlist">
+          @for (e of playlist(); track e.key; let i = $index, first = $first, last = $last) {
+            <li class="ls-entry">
+              <span class="ls-entry-num">{{ i + 1 }}</span>
+              @if (e.cover) {
+                <img class="ls-entry-thumb" [src]="coverUrl(e.cover)" alt="" />
+              } @else if (e.thumbnailUrl) {
+                <img class="ls-entry-thumb" [src]="e.thumbnailUrl" alt="" referrerpolicy="no-referrer" />
+              } @else {
+                <span class="ls-entry-icon">{{ sourceIcon(e.source, isSong(e) ? 'CoverAndAudio' : 'Video') }}</span>
+              }
+              <div class="ls-entry-main">
+                <input class="ls-entry-title" type="text" maxlength="200" [ngModel]="e.title" (ngModelChange)="rename(e, $event)"
+                       [attr.aria-label]="'Title of item ' + (i + 1)" />
+                <span class="muted ls-entry-detail">
+                  {{ e.detail }}
+                  @if (e.durationSeconds) { · {{ formatClock(e.durationSeconds) }} }
+                </span>
+                @if (isSong(e)) {
+                  <span class="ls-entry-cover">
+                    <button type="button" class="secondary ls-small" (click)="coverInput.click()">🖼 {{ e.cover ? 'Change cover' : 'Add cover' }}</button>
+                    <input #coverInput type="file" hidden [accept]="coverAccept" (change)="onCoverPicked($event, e)" />
+                    @if (e.cover) {
+                      <button type="button" class="secondary ls-small" (click)="setCover(e, undefined)">No cover</button>
+                      @if (songsWithoutCover() > 0) {
+                        <button type="button" class="secondary ls-small" (click)="coverAllSongs(e)">Use for {{ songsWithoutCover() }} other song{{ songsWithoutCover() === 1 ? '' : 's' }}</button>
+                      }
+                    } @else {
+                      <span class="muted">Without one, a plain backdrop with the waveform is shown.</span>
+                    }
+                  </span>
+                }
+              </div>
+              <div class="ls-entry-actions">
+                <button type="button" class="secondary ls-icon" (click)="move(e, -1)" [disabled]="first" aria-label="Move up">▲</button>
+                <button type="button" class="secondary ls-icon" (click)="move(e, 1)" [disabled]="last" aria-label="Move down">▼</button>
+                <button type="button" class="secondary ls-icon" (click)="remove(e)" aria-label="Remove">✕</button>
+              </div>
+            </li>
+          }
+        </ol>
+        <div class="ls-playlist-foot">
+          <button type="button" class="secondary ls-small" (click)="clearPlaylist()">Clear playlist</button>
+        </div>
+      } @else {
+        <p class="muted ls-empty-playlist">Nothing added yet. Mix and match: a render, a few songs and a link can all go in one stream.</p>
+      }
+    </section>
+
+    <!-- 2. Destination and look -->
+    <section class="card">
+      <h3 class="ls-step"><span>2</span> Where and how</h3>
+      <div class="ls-fields">
+        <div class="ls-field">
+          <label for="ls-dest">Destination</label>
+          <select id="ls-dest" [(ngModel)]="form.destination" [disabled]="(setup()?.destinations?.length ?? 0) === 0">
+            @for (d of setup()?.destinations ?? []; track d.id) {
+              <option [value]="d.id">{{ d.name }}</option>
+            } @empty {
+              <option value="">No destinations configured</option>
+            }
+          </select>
+        </div>
+        <div class="ls-field">
+          <label for="ls-label">Name (only shown here)</label>
+          <input id="ls-label" type="text" maxlength="120" [(ngModel)]="form.label" placeholder="Sunday lo-fi radio" />
+        </div>
+        <div class="ls-field">
+          <label for="ls-quality">Quality</label>
+          <select id="ls-quality" [(ngModel)]="form.quality">
+            <option value="Hd720">720p30 · 3 Mbps (recommended)</option>
+            <option value="Hd1080">1080p30 · 6 Mbps</option>
+          </select>
+        </div>
+        <div class="ls-field">
+          <label for="ls-orient">Frame</label>
+          <select id="ls-orient" [(ngModel)]="form.orientation">
+            <option value="Landscape">Landscape 16:9</option>
+            <option value="Portrait">Vertical 9:16 (Shorts feed)</option>
+          </select>
+        </div>
+        <div class="ls-field ls-span-2 ls-checks">
+          <label><input type="checkbox" [(ngModel)]="form.loopForever" /> Loop the playlist until I stop it</label>
+          @if (!form.loopForever) {
+            <label class="ls-loop-count">
+              Play it
+              <input type="number" min="1" max="1000" [(ngModel)]="form.loops" aria-label="Number of plays" />
+              time(s), then end
+            </label>
+          }
+          <label><input type="checkbox" [(ngModel)]="form.shuffle" /> Shuffle the order</label>
+          <label><input type="checkbox" [(ngModel)]="form.autoReconnect" /> Reconnect automatically if the connection drops</label>
+        </div>
+      </div>
+      <p class="muted ls-small-print">
+        Upload speed matters: 1080p needs a steady 8 Mbps up, 720p about 4. Even a looped stream ends after this
+        server's time limit, so a forgotten stream doesn't run forever.
+      </p>
+    </section>
+
+    <!-- 3. Stream key -->
+    <section class="card">
+      <h3 class="ls-step"><span>3</span> Stream key</h3>
+
+      <div class="ls-key-modes" role="radiogroup" aria-label="Stream key source">
+        <label [class.disabled]="!setup()?.canUseSavedKeys">
+          <input type="radio" name="keyMode" value="channel" [(ngModel)]="form.keyMode" [disabled]="!setup()?.canUseSavedKeys" />
+          A channel's saved key
+        </label>
+        <label>
+          <input type="radio" name="keyMode" value="paste" [(ngModel)]="form.keyMode" />
+          Paste a key for this stream
+        </label>
+      </div>
+
+      @if (form.keyMode === 'channel') {
+        <div class="ls-field">
+          <label for="ls-channel">Channel</label>
+          <select id="ls-channel" [(ngModel)]="form.channelId">
+            @for (c of setup()?.channels ?? []; track c.id) {
+              <option [value]="c.id">{{ c.name }} - {{ keyLabel(keyStatus(c)) }}</option>
+            }
+          </select>
+        </div>
+
+        @if (channelKeyNeedsSetup()) {
+          <div class="ls-reconfigure" role="alert">
+            <strong>
+              @switch (keyStatus(selectedChannel())?.state) {
+                @case ('Rejected') { YouTube refused this channel's saved key last time. }
+                @case ('Unreadable') { This channel's saved key can't be read on this server. }
+                @default { This channel has no saved key for {{ destinationName(form.destination) }} yet. }
+              }
+            </strong>
+            <p>
+              Keys keep working until someone resets them in YouTube Studio, so a refused key almost always means it was
+              reset. Copy the current key from YouTube Studio and save it once for the channel - every stream after that uses it.
+            </p>
+            @if (setup()?.canManageKeys) {
+              <a routerLink="/admin/channels" [queryParams]="{ keys: form.channelId || null }"><button type="button">🔑 Set the channel's stream key</button></a>
+            } @else {
+              <p class="muted">Ask an admin to set it, or paste a key for this stream instead.</p>
+            }
+            <button type="button" class="secondary" (click)="form.keyMode = 'paste'">Paste a key instead</button>
+          </div>
+        } @else if (keyStatus(selectedChannel()); as k) {
+          <p class="muted ls-small-print">
+            Using {{ k.masked }}
+            @if (k.lastUsedAt) { · last went live {{ k.lastUsedAt | date: 'medium' }} }
+            · the key itself never leaves the server.
+          </p>
+        }
+      } @else {
+        <div class="ls-field">
+          <label for="ls-key">Stream key</label>
+          <div class="ls-key">
+            <input id="ls-key" [type]="showKey() ? 'text' : 'password'" [(ngModel)]="streamKey"
+                   autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="128"
+                   placeholder="Paste from YouTube Studio → Stream settings → Stream key" />
+            <button type="button" class="secondary" (click)="showKey.set(!showKey())"
+                    [attr.aria-label]="showKey() ? 'Hide stream key' : 'Show stream key'">
+              {{ showKey() ? '🙈' : '👁' }}
+            </button>
+          </div>
+          <span class="muted ls-small-print">
+            Sent over an encrypted connection, used for this stream only, and never saved.
+            @if (keyHelpUrl(); as help) { <a [href]="help" target="_blank" rel="noopener noreferrer">Find it in YouTube Studio ↗</a> }
+          </span>
+        </div>
+      }
+
+      <details class="ls-faq">
+        <summary>Does the stream key change?</summary>
+        <p>
+          No - not on its own. YouTube's default stream key is reusable and stays the same until you press
+          <em>Reset</em> in YouTube Studio, or create another key. That's why it can be saved once per channel. If it's
+          ever reset, the next stream is refused, the channel is flagged here, and you're asked to save the new key.
+          Turn on <em>auto-start</em> and <em>auto-stop</em> in the stream settings so the broadcast starts and ends with the stream.
+        </p>
+      </details>
+    </section>
+
+    <!-- 4. Confirm -->
+    <section class="card ls-confirm">
+      <label class="ls-rights">
+        <input type="checkbox" [(ngModel)]="form.rightsConfirmed" />
+        <span>I own, or am licensed to broadcast, everything in this stream: video, music, artwork and linked content.
+          YouTube ends live streams that get a copyright claim, and can strike the channel.</span>
+      </label>
+
+      <div class="ls-submit">
+        <button type="button" class="secondary ls-prepare" (click)="submit(false)" [disabled]="!!submitting() || missing(false).length > 0">
+          @if (submitting() === 'prepare') { Uploading… } @else { 🧪 Prepare &amp; preview }
+        </button>
+        <button type="button" class="ls-start" (click)="submit(true)" [disabled]="!!submitting() || missing(true).length > 0">
+          @if (submitting() === 'live') { Uploading… } @else { 🔴 Prepare &amp; go live }
+        </button>
+      </div>
+      @if (!submitting() && missing(true).length > 0) {
+        <p class="muted ls-small-print">Still needed: {{ missing(true).join(', ') }}.</p>
+      }
+      <p class="muted ls-small-print">
+        <strong>Prepare &amp; preview</strong> lets you watch every item before anything is sent.
+        <strong>Prepare &amp; go live</strong> sends it as soon as it's ready.
+      </p>
+    </section>
+
+    @if (error(); as e) {
+      <section class="card ls-error" role="alert">
+        <strong>{{ e.message }}</strong>
+        @if (e.hint) { <p>{{ e.hint }}</p> }
+        @if (e.keyProblem && setup()?.canManageKeys) {
+          <a routerLink="/admin/channels" [queryParams]="{ keys: form.channelId || null }"><button type="button" class="secondary">🔑 Set the channel's stream key</button></a>
+        }
+      </section>
+    }
+  </div>
+
+  <!-- Streams -->
+  <div class="ls-col">
+    <section class="card">
+      <div class="ls-step-row">
+        <h3>Your streams</h3>
+        @if (setup(); as s) { <span class="muted ls-total">{{ streams().length }} / {{ s.maxStreamsPerUser }}</span> }
+      </div>
+
+      @for (s of streams(); track s.id) {
+        <article class="ls-stream" [class.ls-stream-live]="s.state === 'Live'">
+          <header class="ls-stream-head">
+            <button type="button" class="ls-stream-toggle" (click)="toggle(s)" [attr.aria-expanded]="isExpanded(s)">
+              <strong>{{ s.label }}</strong>
+              <span class="muted ls-stream-meta">
+                {{ s.destinationName }} · {{ qualityLabel(s) }} · {{ s.items.length }} item{{ s.items.length === 1 ? '' : 's' }}
+                @if (s.playlistDurationSeconds > 0) { · {{ formatClock(s.playlistDurationSeconds) }} } · {{ loopsLabel(s) }}
+              </span>
+            </button>
+            <span class="ls-state" [attr.data-state]="s.state">{{ stateLabel(s) }}</span>
+          </header>
+
+          @if (isSending(s)) {
+            <div class="ls-meters">
+              <div class="ls-meter"><span class="muted">Sent</span><strong class="mono">{{ formatClock(s.streamedSeconds) }}</strong></div>
+              <div class="ls-meter"><span class="muted">Speed</span><strong class="mono">{{ s.speed != null ? (s.speed | number: '1.2-2') + '×' : '—' }}</strong></div>
+              <div class="ls-meter ls-meter-wide">
+                <span class="muted">Now playing</span>
+                <strong class="ls-ellipsis">{{ s.currentItem != null ? s.items[s.currentItem]?.title : '—' }}</strong>
+              </div>
+              @if (s.reconnects > 0) {
+                <div class="ls-meter"><span class="muted">Reconnects</span><strong class="mono">{{ s.reconnects }}</strong></div>
+              }
+            </div>
+          }
+
+          @if (isSlow(s)) {
+            <p class="ls-warn">⚠️ Sending slower than real time, so viewers will see buffering. Check this machine's upload speed.</p>
+          }
+          @if (s.message) {
+            <p class="ls-message" [class.ls-message-err]="s.state === 'Failed'">{{ s.message }}</p>
+          }
+          @if (s.keyNeedsAttention) {
+            <div class="ls-reconfigure">
+              <strong>The stream key needs attention.</strong>
+              @if (setup()?.canManageKeys) {
+                <a routerLink="/admin/channels" [queryParams]="{ keys: s.channelId || form.channelId || null }"><button type="button" class="secondary">🔑 Set the channel's stream key</button></a>
+              } @else {
+                <span class="muted">Ask an admin to set it again, or paste a key and press Go live.</span>
+              }
+            </div>
+          }
+
+          @if (isExpanded(s)) {
+            @if (isPreviewing(s)) {
+              <div class="ls-monitor" [class.ls-monitor-vertical]="s.orientation === 'Portrait'">
+                <video [src]="previewUrl(s, previewing()!.index)" controls autoplay playsinline (ended)="onPreviewEnded(s)"></video>
+                <div class="ls-monitor-bar">
+                  <span class="ls-ellipsis">
+                    {{ previewing()!.playAll ? 'Program preview' : 'Preview' }} · {{ previewing()!.index + 1 }}. {{ s.items[previewing()!.index]?.title }}
+                  </span>
+                  <button type="button" class="secondary ls-small" (click)="previewing.set(null)">Close</button>
+                </div>
+              </div>
+            }
+
+            <ol class="ls-items">
+              @for (item of s.items; track item.index) {
+                <li class="ls-item" [attr.data-state]="item.state"
+                    [class.ls-item-now]="isSending(s) && s.currentItem === item.index"
+                    [class.ls-item-previewing]="isPreviewing(s, item.index)">
+                  <span class="ls-item-icon">{{ sourceIcon(item.source, item.kind) }}</span>
+                  <div class="ls-item-main">
+                    <span class="ls-ellipsis">{{ item.index + 1 }}. {{ item.title }}</span>
+                    @if (item.state === 'Preparing' || item.state === 'Fetching') {
+                      <span class="ls-progress" [class.ls-progress-indeterminate]="item.state === 'Fetching'">
+                        <span [style.width.%]="item.progress * 100"></span>
+                      </span>
+                    }
+                    @if (item.message) { <span class="ls-err-text">{{ item.message }}</span> }
+                  </div>
+                  <span class="muted ls-item-state">{{ itemStateLabel(item) }}</span>
+                  @if (item.state === 'Ready') {
+                    <button type="button" class="secondary ls-small" (click)="preview(s, item)"
+                            [attr.aria-label]="'Preview item ' + (item.index + 1)">▶</button>
+                  }
+                </li>
+              }
+            </ol>
+          }
+
+          <footer class="ls-stream-foot">
+            <span class="muted">
+              Created {{ s.createdAt | date: 'shortTime' }}
+              @if (s.liveSince) { · live {{ s.liveSince | date: 'shortTime' }} }
+              @if (s.endedAt) { · ended {{ s.endedAt | date: 'shortTime' }} }
+            </span>
+            <span class="ls-stream-actions">
+              @if (preparedCount(s) > 0 && !isPreviewing(s)) {
+                <button type="button" class="secondary ls-small" (click)="playAll(s)">▶ Play all</button>
+              }
+              @if (s.canGoLive) {
+                <button type="button" class="ls-go" (click)="goLive(s)" [disabled]="busyStream() === s.id"
+                        [title]="'Go live with ' + keyChoiceLabel()">
+                  {{ busyStream() === s.id ? 'Starting…' : (s.state === 'Ready' ? '🔴 Go live' : '🔁 Go live again') }}
+                </button>
+              }
+              @if (isBusy(s)) {
+                <button type="button" class="ls-stop" (click)="stop(s)" [disabled]="busyStream() === s.id">
+                  {{ busyStream() === s.id ? 'Stopping…' : '■ Stop' }}
+                </button>
+              } @else {
+                <button type="button" class="secondary ls-small" (click)="discard(s)" [disabled]="busyStream() === s.id" aria-label="Delete stream">🗑</button>
+              }
+            </span>
+          </footer>
+          @if (s.canGoLive) {
+            <p class="muted ls-small-print ls-go-with">Goes live with {{ keyChoiceLabel() }} (change it under "Stream key").</p>
+          }
+        </article>
+      } @empty {
+        <div class="ls-empty">
+          <div class="ls-empty-icon">📡</div>
+          <p class="muted">No streams yet. Prepared streams run on the server: close this tab and come back to preview, start or stop them.</p>
+        </div>
+      }
+    </section>
+
+    <section class="card">
+      <h3>Good to know</h3>
+      <ul class="ls-tips">
+        <li>Sending a prepared stream copies files instead of encoding live, so a 24/7 loop barely touches the CPU.</li>
+        <li>A prepared stream can be sent again - after it ends, or after a drop - without preparing it again.</li>
+        <li>YouTube takes 10–30 seconds to show a new stream as live.</li>
+        <li>With <em>Dual stream</em> on, YouTube also crops a vertical feed for Shorts from a landscape stream.</li>
+        <li>Prepared streams are kept for a few hours, and are cleared when the server restarts.</li>
+      </ul>
+    </section>
+  </div>
+</div>

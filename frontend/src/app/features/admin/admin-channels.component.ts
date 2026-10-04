@@ -1,11 +1,14 @@
+import { DatePipe } from '@angular/common';
 import { Component, computed, inject, signal } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import { BrandChannel, DEFAULT_BRAND_CHANNEL } from '../../core/models/api.models';
+import { LiveStreamKeyStatus, LiveStreamSetup } from '../../core/models/live-stream.models';
 import { ApiService } from '../../core/services/api.service';
+import { LiveStreamService } from '../../core/services/live-stream.service';
 import { StatusService } from '../../core/services/status.service';
 
-type Filter = 'all' | 'logo' | 'text' | 'no-watermark' | 'no-end-card' | 'unused';
+type Filter = 'all' | 'logo' | 'text' | 'no-watermark' | 'no-end-card' | 'unused' | 'key-refused';
 type Sort = 'name' | 'projects' | 'recent';
 
 const PAGE_SIZE = 25;
@@ -22,7 +25,7 @@ const MAX_CHANNELS = 1000;
  */
 @Component({
   selector: 'app-admin-channels',
-  imports: [RouterLink],
+  imports: [RouterLink, DatePipe],
   template: `
     <section class="ch">
       <header class="ch-head">
@@ -32,6 +35,14 @@ const MAX_CHANNELS = 1000;
         </div>
         <span class="ch-count">{{ channels().length }} / {{ max }}</span>
       </header>
+
+      @if (rejectedKeys() > 0) {
+        <div class="ch-alert" role="alert">
+          ⚠️ YouTube refused the saved stream key of {{ rejectedKeys() }} channel{{ rejectedKeys() === 1 ? '' : 's' }} -
+          usually because it was reset in YouTube Studio. Go Live won't use it until it's set again.
+          <button type="button" class="btn-outline" (click)="filter.set('key-refused'); page.set(0)">Show them</button>
+        </div>
+      }
 
       <form class="ch-new" (submit)="$event.preventDefault(); create()">
         <input #newName type="text" maxlength="60" placeholder="New channel name, e.g. Bhakti Kids"
@@ -92,12 +103,21 @@ const MAX_CHANNELS = 1000;
                 <span [class.off]="!hasWatermark(c)">🛡 {{ hasWatermark(c) ? c.watermark!.kind : 'No watermark' }}</span>
                 <span [class.off]="!hasEndCard(c)">🎬 {{ hasEndCard(c) ? c.outro!.kind : 'No end card' }}</span>
                 <span>📁 {{ projectsOf(c) }} {{ projectsOf(c) === 1 ? 'project' : 'projects' }}</span>
+                @if (liveSetup()) {
+                  <span [class.off]="keySummary(c).state === 'Missing'" [class.warn]="keySummary(c).state === 'Rejected'">
+                    🔴 {{ keySummary(c).label }}
+                  </span>
+                }
               </span>
             </div>
 
             <div class="ch-actions">
               <a class="btn-outline" routerLink="/admin/branding/watermark" [queryParams]="linkParams(c)">Watermark</a>
               <a class="btn-outline" routerLink="/admin/branding/end-card" [queryParams]="linkParams(c)">End card</a>
+              @if (liveSetup()?.destinations?.length) {
+                <button type="button" class="btn-outline" [class.warn]="keySummary(c).state === 'Rejected'"
+                        (click)="toggleKeys(c)" [attr.aria-expanded]="editingKeys() === c.id">🔑 Stream key</button>
+              }
               <button type="button" class="btn-outline icon" title="Rename" (click)="startRename(c)">✎</button>
               <button type="button" class="btn-outline icon" title="Duplicate" (click)="duplicate(c)"
                       [disabled]="channels().length >= max">⧉</button>
@@ -105,6 +125,41 @@ const MAX_CHANNELS = 1000;
                 <button type="button" class="btn-outline icon danger" title="Delete" (click)="startDelete(c)">🗑</button>
               }
             </div>
+
+            @if (editingKeys() === c.id) {
+              <div class="ch-keys">
+                <p class="muted">
+                  The key from YouTube Studio → <em>Go live</em> → <em>Stream settings</em>. It's encrypted on the server,
+                  never shown again, and used by Go Live whenever this channel is picked. YouTube keys don't expire; if you
+                  reset it in YouTube Studio, paste the new one here.
+                </p>
+                @for (d of liveSetup()!.destinations; track d.id) {
+                  @let k = keyFor(c.id, d.id);
+                  <div class="ch-key-row">
+                    <span class="ch-key-dest">{{ d.name }}</span>
+                    <span class="ch-key-state" [attr.data-state]="k?.state ?? 'Missing'">
+                      @switch (k?.state) {
+                        @case ('Saved') { ✅ {{ k!.masked }} @if (k!.lastUsedAt) { · last live {{ k!.lastUsedAt | date: 'short' }} } }
+                        @case ('Rejected') { ⚠️ Refused {{ k!.rejectedAt | date: 'short' }} - paste the current key }
+                        @default { No key saved }
+                      }
+                    </span>
+                    <form class="ch-key-form" (submit)="$event.preventDefault(); saveKey(c, d.id, keyInput.value); keyInput.value = ''">
+                      <input #keyInput type="password" autocomplete="off" spellcheck="false" maxlength="128"
+                             [placeholder]="k?.state === 'Saved' ? 'Paste a new key to replace it' : 'Paste the stream key'"
+                             [attr.aria-label]="'Stream key for ' + c.name + ' on ' + d.name" />
+                      <button type="submit" class="btn-outline">{{ k?.state === 'Missing' || !k ? 'Save' : 'Replace' }}</button>
+                      @if (k && k.state !== 'Missing') {
+                        <button type="button" class="btn-outline danger" (click)="removeKey(c, d.id)">Remove</button>
+                      }
+                      @if (d.keyHelpUrl) {
+                        <a class="ch-help" [href]="d.keyHelpUrl" target="_blank" rel="noopener noreferrer">Open YouTube Studio ↗</a>
+                      }
+                    </form>
+                  </div>
+                }
+              </div>
+            }
 
             @if (deleting() === c.id) {
               <div class="ch-delete">
@@ -193,6 +248,20 @@ const MAX_CHANNELS = 1000;
     .ch-delete { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: .82rem;
       padding-top: 8px; border-top: 1px dashed var(--border, #1e2433); }
     .ch-delete select { width: auto; max-width: 240px; }
+    .ch-meta .warn, .btn-outline.warn { color: #fbbf24; }
+    .ch-alert { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; padding: 8px 12px;
+      border: 1px solid #fbbf24; border-left-width: 3px; border-radius: 8px; font-size: .82rem;
+      background: color-mix(in srgb, #fbbf24 8%, transparent); }
+    .ch-keys { grid-column: 1 / -1; display: grid; gap: 8px; padding-top: 8px; border-top: 1px dashed var(--border, #1e2433); font-size: .82rem; }
+    .ch-keys p { margin: 0; }
+    .ch-key-row { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 4px 12px; align-items: center; }
+    .ch-key-dest { font-weight: 600; }
+    .ch-key-state[data-state='Rejected'] { color: #fbbf24; }
+    .ch-key-state[data-state='Missing'] { color: var(--muted, #8b9bb4); }
+    .ch-key-form { grid-column: 2; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+    .ch-key-form input { flex: 1 1 240px; max-width: 360px; font-family: var(--mono, monospace); }
+    .ch-help { font-size: .76rem; }
+    @media (max-width: 560px) { .ch-key-row { grid-template-columns: minmax(0, 1fr); } .ch-key-form { grid-column: 1; } }
     .ch-empty { padding: 1.5rem; text-align: center; border: 1px dashed var(--border, #1e2433); border-radius: 10px; }
     .ch-pages { display: flex; gap: 12px; align-items: center; justify-content: flex-end; margin-top: 12px; font-size: .8rem; }
     @media (max-width: 760px) { .ch-row { grid-template-columns: auto minmax(0, 1fr); } .ch-actions { grid-column: 1 / -1; justify-content: flex-start; } }
@@ -228,7 +297,16 @@ export class AdminChannelsComponent {
     { id: 'no-watermark', label: 'No watermark' },
     { id: 'no-end-card', label: 'No end card' },
     { id: 'unused', label: 'Unused' },
+    { id: 'key-refused', label: 'Key refused' },
   ];
+
+  // ---- Go Live stream keys, saved per channel and destination
+  private readonly live = inject(LiveStreamService);
+  readonly liveSetup = signal<LiveStreamSetup | null>(null);
+  readonly editingKeys = signal<string | null>(inject(ActivatedRoute).snapshot.queryParamMap.get('keys'));
+
+  readonly rejectedKeys = computed(() =>
+    this.channels().filter((c) => this.keySummary(c).state === 'Rejected').length);
 
   readonly byName = computed(() => [...this.channels()].sort((a, b) =>
     a.isDefault ? -1 : b.isDefault ? 1 : a.name.localeCompare(b.name)));
@@ -264,6 +342,48 @@ export class AdminChannelsComponent {
       this.loaded.set(true);
     });
     this.api.brandChannelUsage().subscribe({ next: (u) => this.usage.set(u), error: () => this.usage.set({}) });
+    this.loadKeys();
+  }
+
+  private loadKeys(): void {
+    // Optional: without Go Live configured the page works exactly as before.
+    this.live.setup().subscribe({ next: (s) => this.liveSetup.set(s), error: () => this.liveSetup.set(null) });
+  }
+
+  keyFor(channelId: string, destinationId: string): LiveStreamKeyStatus | undefined {
+    return this.liveSetup()?.channels.find((c) => c.id === channelId)?.keys.find((k) => k.destinationId === destinationId);
+  }
+
+  /** The worst state across a channel's destinations - a refused key is what needs doing first. */
+  keySummary(c: BrandChannel): { state: 'Missing' | 'Saved' | 'Rejected'; label: string } {
+    const keys = this.liveSetup()?.channels.find((x) => x.id === c.id)?.keys ?? [];
+    if (keys.some((k) => k.state === 'Rejected' || k.state === 'Unreadable')) return { state: 'Rejected', label: 'Key refused' };
+    const saved = keys.filter((k) => k.state === 'Saved');
+    if (saved.length > 0) return { state: 'Saved', label: saved.length === 1 ? `Key ${saved[0].masked}` : `${saved.length} keys` };
+    return { state: 'Missing', label: 'No stream key' };
+  }
+
+  toggleKeys(c: BrandChannel): void {
+    this.renaming.set(null);
+    this.deleting.set(null);
+    this.editingKeys.set(this.editingKeys() === c.id ? null : c.id);
+  }
+
+  saveKey(c: BrandChannel, destinationId: string, value: string): void {
+    const key = value.trim();
+    if (!key) return;
+    this.status.run(this.live.saveKey(c.id, destinationId, key), (saved) => {
+      this.loadKeys();
+      this.status.notify([`Stream key ${saved.masked} saved for "${c.name}".`]);
+    });
+  }
+
+  removeKey(c: BrandChannel, destinationId: string): void {
+    if (!confirm(`Remove "${c.name}"'s saved stream key? Go Live will ask for a key until a new one is saved.`)) return;
+    this.status.run(this.live.deleteKey(c.id, destinationId), () => {
+      this.loadKeys();
+      this.status.notify([`Stream key removed from "${c.name}".`]);
+    });
   }
 
   private apply(list: BrandChannel[]): void {
@@ -285,6 +405,7 @@ export class AdminChannelsComponent {
       case 'no-watermark': return !this.hasWatermark(c);
       case 'no-end-card': return !this.hasEndCard(c);
       case 'unused': return this.projectsOf(c) === 0;
+      case 'key-refused': return this.keySummary(c).state === 'Rejected';
       default: return true;
     }
   }

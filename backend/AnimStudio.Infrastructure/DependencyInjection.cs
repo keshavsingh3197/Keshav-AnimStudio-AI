@@ -27,6 +27,7 @@ using AnimStudio.Infrastructure.Ffmpeg;
 using AnimStudio.Infrastructure.Ffmpeg.Graph;
 using AnimStudio.Infrastructure.Ingest;
 using AnimStudio.Infrastructure.Jobs;
+using AnimStudio.Infrastructure.LiveStreams;
 using AnimStudio.Infrastructure.Persistence;
 using AnimStudio.Infrastructure.Releases;
 using AnimStudio.Infrastructure.Persistence.SqlServer;
@@ -58,6 +59,7 @@ public static class DependencyInjection
         services.Configure<FfmpegOptions>(configuration.GetSection(FfmpegOptions.Section));
         services.Configure<RenderOptions>(configuration.GetSection(RenderOptions.Section));
         services.Configure<IngestOptions>(configuration.GetSection(IngestOptions.Section));
+        services.Configure<LiveStreamOptions>(configuration.GetSection(LiveStreamOptions.Section));
         services.Configure<SegmentationOptions>(configuration.GetSection("Segmentation"));
         services.Configure<ParsingOptions>(configuration.GetSection("Parsing"));
         services.Configure<AiOptions>(configuration.GetSection(AiOptions.Section));
@@ -105,6 +107,7 @@ public static class DependencyInjection
             services.AddScoped<IRenderJobRepository, SqlRenderJobRepository>();
             services.AddScoped<IAiUsageRepository, SqlAiUsageRepository>();
             services.AddScoped<IAiCredentialRepository, SqlAiCredentialRepository>();
+            services.AddScoped<ILiveStreamKeyRepository, SqlLiveStreamKeyRepository>();
             services.AddScoped<IPromptTemplateRepository, SqlPromptTemplateRepository>();
             services.AddScoped<IAiSettingsRepository, SqlAiSettingsRepository>();
             services.AddScoped<IAdminAuditRepository, SqlAdminAuditRepository>();
@@ -135,6 +138,7 @@ public static class DependencyInjection
             services.AddScoped<IRenderJobRepository, MongoRenderJobRepository>();
             services.AddScoped<IAiUsageRepository, MongoAiUsageRepository>();
             services.AddScoped<IAiCredentialRepository, MongoAiCredentialRepository>();
+            services.AddScoped<ILiveStreamKeyRepository, MongoLiveStreamKeyRepository>();
             services.AddScoped<IPromptTemplateRepository, MongoPromptTemplateRepository>();
             services.AddScoped<IAiSettingsRepository, MongoAiSettingsRepository>();
             services.AddScoped<IAdminAuditRepository, MongoAdminAuditRepository>();
@@ -230,6 +234,16 @@ public static class DependencyInjection
         services.AddSingleton<YtDlpMediaDownloader>();
         services.AddSingleton<FfmpegVideoChunker>();
         services.AddSingleton<FfmpegReleaseKitBuilder>();
+        services.AddSingleton<ReleaseKitStore>();
+
+        // One instance is both the stream table the controller reads and the hosted service
+        // that stops every stream on shutdown.
+        services.AddSingleton<LiveStreamManager>();
+        services.AddHostedService(sp => sp.GetRequiredService<LiveStreamManager>());
+
+        // Saved per-channel stream keys, encrypted with the same data protector as provider keys.
+        services.AddScoped<LiveStreamKeyStore>();
+
         services.AddScoped<ProjectRenderOrchestrator>();
 
         // The clip stitch. Shares the queue, the workspace and the merge with the project

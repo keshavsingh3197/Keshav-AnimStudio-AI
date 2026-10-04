@@ -434,6 +434,12 @@
                 <button type="button" class="link-btn" (click)="openProjectAssets(dl.result.projectId!)">Open assets →</button>
               </li>
             }
+            @if (dl.result.assetId) {
+              <li>
+                🔴 Stream it live, alone or in a playlist.
+                <button type="button" class="link-btn" (click)="goLive(dl)">Go live →</button>
+              </li>
+            }
           </ul>
         </div>
       }

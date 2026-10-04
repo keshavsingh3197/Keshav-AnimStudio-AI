@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Text.Json;
 using AnimStudio.Api.Common;
 using AnimStudio.Application.Releases;
@@ -19,6 +18,7 @@ namespace AnimStudio.Api.Controllers;
 [Route("api/releases")]
 public sealed class ReleaseKitController(
     FfmpegReleaseKitBuilder builder,
+    ReleaseKitStore kits,
     ICurrentUser currentUser,
     AppDataPaths dataPaths,
     TimeProvider clock,
@@ -26,11 +26,6 @@ public sealed class ReleaseKitController(
 {
     private const long MaxRequestBytes = ReleaseUploadValidator.MaxAudioBytes + ReleaseUploadValidator.MaxCoverBytes + 1024 * 1024;
     private const int MaxJsonFieldLength = 64 * 1024;
-    private static readonly TimeSpan KitLifetime = TimeSpan.FromHours(24);
-
-    private sealed record KitTicket(string OwnerUserId, string WorkDirectory, IReadOnlySet<string> Files, DateTime CreatedAt);
-
-    private static readonly ConcurrentDictionary<string, KitTicket> Kits = new(StringComparer.Ordinal);
 
     // A full-song visualizer is a long encode; two at once is what one machine handles
     // without starving the render queue.
@@ -100,7 +95,7 @@ public sealed class ReleaseKitController(
                 new ApiError("busy", "The release kit builder is busy.")));
         }
 
-        PurgeExpiredKits();
+        kits.PurgeExpired();
 
         var jobId = Guid.NewGuid().ToString("n");
         var workDir = Path.Combine(dataPaths.Releases, jobId);
@@ -130,8 +125,8 @@ public sealed class ReleaseKitController(
             System.IO.File.Delete(Path.Combine(workDir, audioFile));
             if (coverFile is not null) System.IO.File.Delete(Path.Combine(workDir, coverFile));
 
-            Kits[jobId] = new KitTicket(userId, workDir,
-                result.Files.Select(f => f.Name).ToHashSet(StringComparer.Ordinal), clock.GetUtcNow().UtcDateTime);
+            kits.Add(jobId, new ReleaseKitTicket(userId, workDir,
+                result.Files.Select(f => f.Name).ToHashSet(StringComparer.Ordinal), clock.GetUtcNow().UtcDateTime));
 
             logger.LogInformation("Release kit {JobId} finished with {FileCount} files", jobId, result.Files.Count);
             return Ok(ApiResponse<ReleaseKitResult>.Ok(result));
@@ -178,20 +173,13 @@ public sealed class ReleaseKitController(
     [HttpGet("kits/{jobId}/files/{name}")]
     public IActionResult DownloadFile(string jobId, string name)
     {
-        if (!Kits.TryGetValue(jobId, out var kit)
-            || !string.Equals(kit.OwnerUserId, currentUser.UserId, StringComparison.Ordinal))
-        {
-            if (kit is not null)
-                logger.LogWarning("User {UserId} was refused release kit {JobId} owned by another user", currentUser.UserId, jobId);
-            return KitNotFound();
-        }
+        var kit = kits.TryGetOwned(jobId, currentUser.UserId);
+        if (kit is null) return KitNotFound();
 
         // The kit's own file list is the allowlist, so a name can never point outside it.
-        if (!kit.Files.Contains(name) || !FfmpegReleaseKitBuilder.KitFiles.TryGetValue(name, out var info))
+        if (ReleaseKitStore.FilePath(kit, name) is not { } path
+            || !FfmpegReleaseKitBuilder.KitFiles.TryGetValue(name, out var info))
             return KitNotFound();
-
-        var path = Path.Combine(kit.WorkDirectory, name);
-        if (!System.IO.File.Exists(path)) return KitNotFound();
 
         var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.Asynchronous);
         return File(stream, info.Mime, name, enableRangeProcessing: true);
@@ -224,26 +212,6 @@ public sealed class ReleaseKitController(
     {
         await using var target = new FileStream(path, FileMode.CreateNew, FileAccess.Write);
         await file.CopyToAsync(target, ct);
-    }
-
-    /// <summary>Kits are scratch output: anything older than a day is removed, listed or not.</summary>
-    private void PurgeExpiredKits()
-    {
-        var cutoff = clock.GetUtcNow().UtcDateTime - KitLifetime;
-
-        foreach (var (id, kit) in Kits)
-        {
-            if (kit.CreatedAt < cutoff && Kits.TryRemove(id, out _))
-                TryDelete(kit.WorkDirectory);
-        }
-
-        // Kits from before a restart are no longer in the table but are still on disk.
-        if (!Directory.Exists(dataPaths.Releases)) return;
-        foreach (var directory in Directory.EnumerateDirectories(dataPaths.Releases))
-        {
-            if (Directory.GetLastWriteTimeUtc(directory) < cutoff && !Kits.ContainsKey(Path.GetFileName(directory)))
-                TryDelete(directory);
-        }
     }
 
     private void TryDelete(string directory)

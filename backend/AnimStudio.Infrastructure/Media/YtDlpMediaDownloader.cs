@@ -51,7 +51,7 @@ public sealed class YtDlpMediaDownloader(
                 "--skip-download",
                 "--no-warnings",
                 "--geo-bypass",
-                "--no-check-certificates",
+                // TLS certificates are always verified: no --no-check-certificates.
                 "--extractor-args", "youtube:player_client=ios,android,web",
             };
             AddCookies(arguments);
@@ -233,7 +233,6 @@ public sealed class YtDlpMediaDownloader(
             "--no-warnings",
             "--restrict-filenames",
             "--geo-bypass",
-            "--no-check-certificates",
             "--extractor-args", "youtube:player_client=ios,android,web",
             "-o", Path.Combine(targetDirectory, stem + ".%(ext)s"),
             "--print-to-file", "%(title)s\t%(duration)s", Path.Combine(targetDirectory, "meta.txt"),

@@ -60,11 +60,14 @@
               <p class="rk-inline-warn">⚠️ Smaller than 3000 px, so it will be enlarged and may look soft.</p>
             }
             @if (coverNotSquare()) {
-              <p class="rk-inline-warn">⚠️ Not square, so the edges will be cropped.</p>
+              <p class="rk-inline-warn">⚠️ Not square, so the edges would be centre-cropped. Choose the square yourself instead:</p>
             }
           }
           @if (coverFile()) {
-            <button type="button" class="secondary rk-small" (click)="clearCover()">Remove cover</button>
+            <div class="rk-cover-actions">
+              <button type="button" class="secondary rk-small" (click)="cropCover()">✂ {{ coverNotSquare() ? 'Crop to square' : 'Crop' }}</button>
+              <button type="button" class="secondary rk-small" (click)="clearCover()">Remove cover</button>
+            </div>
           }
         </div>
       </div>
@@ -154,6 +157,10 @@
           </div>
         }
       </div>
+      <label class="rk-remember">
+        <input type="checkbox" [ngModel]="rememberDetails()" (ngModelChange)="onRememberChange($event)" />
+        Remember the artist, credits, genre and label lines on this browser for my next release
+      </label>
     </section>
 
     <section class="card">
@@ -270,6 +277,24 @@
         }
       </section>
 
+      <section class="card rk-live">
+        <h3>🔴 Go live with it</h3>
+        <p class="muted">
+          Premiere the song on YouTube Live, or keep it running as a 24/7 stream - straight from this kit, nothing to
+          upload again. You can add more songs to the same stream on the next page.
+        </p>
+        <div class="rk-live-actions">
+          <a routerLink="/live" [queryParams]="{ kitId: r.jobId, title: r.primaryArtist + ' - ' + r.title }">
+            <button type="button">🎵 Cover + song with live waveform</button>
+          </a>
+          @if (hasVisualizer()) {
+            <a routerLink="/live" [queryParams]="{ kitId: r.jobId, visualizer: 1, title: r.primaryArtist + ' - ' + r.title }">
+              <button type="button" class="secondary">📺 Stream the visualizer</button>
+            </a>
+          }
+        </div>
+      </section>
+
       @if (mediaFiles().length > 0) {
         <section class="card">
           <h3>Preview</h3>
@@ -338,3 +363,8 @@
     }
   </div>
 </div>
+
+@if (cropSource(); as src) {
+  <app-image-crop-dialog [source]="src" [square]="true" title="Crop the cover to a square" fileName="cover-square.png"
+                         (cropped)="onCropped($event)" (cancelled)="cropSource.set(null)" />
+}

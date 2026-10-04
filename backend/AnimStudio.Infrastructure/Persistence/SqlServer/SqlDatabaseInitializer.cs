@@ -400,6 +400,14 @@ public sealed class SqlDatabaseInitializer(
             );
         END;
 
+        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'LiveStreamKeys')
+        BEGIN
+            CREATE TABLE LiveStreamKeys (
+                Id NVARCHAR(200) NOT NULL PRIMARY KEY,
+                DataJson NVARCHAR(MAX) NOT NULL
+            );
+        END;
+
         IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'PromptTemplates')
         BEGIN
             CREATE TABLE PromptTemplates (

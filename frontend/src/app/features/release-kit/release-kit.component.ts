@@ -1,6 +1,7 @@
 import { DecimalPipe } from '@angular/common';
 import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
@@ -13,10 +14,19 @@ import {
 import { ReleaseKitService } from '../../core/services/release-kit.service';
 import { StatusService } from '../../core/services/status.service';
 import { FileDropDirective } from '../../shared/file-drop.directive';
+import { ImageCropDialogComponent } from '../../shared/image-crop-dialog.component';
 
 const AUDIO_ACCEPT = '.wav,.wave,.flac,.aif,.aiff,.mp3,.m4a';
 const COVER_ACCEPT = '.png,.jpg,.jpeg,.webp';
 const LOSSY = /\.(mp3|m4a)$/i;
+
+/** The details that stay the same from one release to the next, remembered on this browser when asked. */
+const REMEMBER_KEY = 'animstudio.release.artist';
+const REMEMBERED_FIELDS = [
+  'primaryArtist', 'songwriters', 'producers', 'genre', 'secondaryGenre', 'language',
+  'recordLabel', 'recordingCopyright', 'compositionCopyright',
+] as const;
+type RememberedField = (typeof REMEMBERED_FIELDS)[number];
 
 /** The form as the user edits it: list fields are comma-separated text until submit. */
 interface ReleaseForm {
@@ -48,7 +58,7 @@ interface KitError {
 
 @Component({
   selector: 'app-release-kit',
-  imports: [FormsModule, DecimalPipe, FileDropDirective],
+  imports: [FormsModule, DecimalPipe, FileDropDirective, ImageCropDialogComponent, RouterLink],
   templateUrl: './release-kit.component.html',
   styleUrls: ['./release-kit.component.css'],
 })
@@ -125,9 +135,18 @@ export class ReleaseKitComponent {
     (this.result()?.files ?? []).filter((f) => f.mimeType.startsWith('audio/') || f.mimeType.startsWith('video/')),
   );
 
+  readonly hasVisualizer = computed(() => (this.result()?.files ?? []).some((f) => f.name.startsWith('visualizer_')));
+
+  /** The cover being cropped to a square, when the crop dialog is open. */
+  readonly cropSource = signal<File | null>(null);
+
+  /** Opt-in: keep the artist, credits and label lines on this browser for the next release. */
+  readonly rememberDetails = signal(false);
+
   private timer: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
+    this.restoreDetails();
     inject(DestroyRef).onDestroy(() => {
       this.stopTimer();
       this.revokePreviews();
@@ -183,6 +202,27 @@ export class ReleaseKitComponent {
     image.src = url;
   }
 
+  /** Opens the crop dialog on the current cover, locked to a square - better than the server's centre crop. */
+  cropCover(): void {
+    const cover = this.coverFile();
+    if (cover) this.cropSource.set(cover);
+  }
+
+  onCropped(file: File): void {
+    this.cropSource.set(null);
+    const original = this.coverFile()?.name.replace(/\.[^.]+$/, '') ?? 'cover';
+    this.useCover(new File([file], `${original}-square.png`, { type: file.type || 'image/png' }));
+  }
+
+  onRememberChange(value: boolean): void {
+    this.rememberDetails.set(value);
+    if (value) {
+      this.saveDetails();
+    } else {
+      try { localStorage.removeItem(REMEMBER_KEY); } catch { /* storage unavailable */ }
+    }
+  }
+
   clearCover(): void {
     const old = this.coverPreview();
     if (old) URL.revokeObjectURL(old);
@@ -205,6 +245,7 @@ export class ReleaseKitComponent {
     this.revokePreviews();
     this.building.set(true);
     this.startTimer();
+    if (this.rememberDetails()) this.saveDetails();
 
     try {
       const result = await firstValueFrom(
@@ -311,6 +352,30 @@ export class ReleaseKitComponent {
       lyrics: f.instrumental ? undefined : optional(f.lyrics),
       rightsConfirmed: f.rightsConfirmed,
     };
+  }
+
+  private saveDetails(): void {
+    const saved: Partial<Record<RememberedField, string>> = {};
+    for (const field of REMEMBERED_FIELDS) saved[field] = String(this.form[field] ?? '').slice(0, 500);
+    try {
+      localStorage.setItem(REMEMBER_KEY, JSON.stringify(saved));
+    } catch {
+      // Storage unavailable: nothing is remembered, which is the safe outcome.
+    }
+  }
+
+  private restoreDetails(): void {
+    try {
+      const raw = localStorage.getItem(REMEMBER_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw) as Partial<Record<RememberedField, unknown>>;
+      for (const field of REMEMBERED_FIELDS) {
+        if (typeof saved[field] === 'string') this.form[field] = saved[field] as string;
+      }
+      this.rememberDetails.set(true);
+    } catch {
+      // Unreadable or unavailable: start blank.
+    }
   }
 
   private safeName(value: string): string {

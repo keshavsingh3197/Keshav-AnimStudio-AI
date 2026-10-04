@@ -112,6 +112,14 @@ export const routes: Routes = [
   },
 
   {
+    path: 'live',
+    title: 'Go Live - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/live-stream/live-stream.component')
+        .then((m) => m.LiveStreamComponent),
+  },
+
+  {
     path: 'logs',
     title: 'Application Logs - AnimStudio AI',
     loadComponent: () =>
