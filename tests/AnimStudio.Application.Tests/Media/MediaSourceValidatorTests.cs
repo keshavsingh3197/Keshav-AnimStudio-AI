@@ -15,6 +15,11 @@ public class MediaSourceValidatorTests
     [InlineData("https://www.facebook.com/watch?v=123456789", "facebook")]
     [InlineData("https://vimeo.com/123456789", "vimeo")]
     [InlineData("https://clips.twitch.tv/SomeClipSlug", "twitch")]
+    [InlineData("https://www.instagram.com/share/BAbCdEfGh/", "instagram")]
+    [InlineData("https://www.instagram.com/share/reel/BAbCdEfGh/", "instagram")]
+    [InlineData("https://dms.licdn.com/playlist/vid/v2/D4D05AQ/mp4-720p-30fp-crf28/0/1699", "direct")]
+    [InlineData("https://scontent-lhr8-1.cdninstagram.com/o1/v/t16/f1/m86/clip.mp4", "direct")]
+    [InlineData("https://video.twimg.com/ext_tw_video/123/pu/vid/720x1280/abc.mp4", "direct")]
     public void Detects_the_platform_of_supported_video_links(string url, string platformId)
     {
         var result = MediaSourceValidator.Validate(url);
@@ -34,6 +39,63 @@ public class MediaSourceValidatorTests
         Assert.Equal(
             "https://www.linkedin.com/posts/renucorpsolutions_survival-ugcPost-7509870755388755968-cpYB/",
             result.CanonicalUrl);
+    }
+
+    [Theory]
+    // The groupPost URN is {groupId}-{activityId}; only the activity form resolves.
+    [InlineData(
+        "https://www.linkedin.com/feed/update/urn:li:groupPost:1976445-7512089900419018752/?origin=SOCIAL_SHARE",
+        "https://www.linkedin.com/feed/update/urn:li:activity:7512089900419018752/")]
+    [InlineData(
+        "https://www.linkedin.com/feed/update/urn%3Ali%3AgroupPost%3A1976445-7512089900419018752/",
+        "https://www.linkedin.com/feed/update/urn:li:activity:7512089900419018752/")]
+    public void Rewrites_a_linkedin_group_post_to_its_activity_url(string url, string expected)
+    {
+        var result = MediaSourceValidator.Validate(url);
+
+        Assert.True(result.IsValid, result.ErrorMessage);
+        Assert.Equal(expected, result.CanonicalUrl);
+    }
+
+    [Theory]
+    // ugcPost and share URNs resolve on their own, and their ids are not activity ids.
+    [InlineData("https://www.linkedin.com/feed/update/urn:li:ugcPost:7509870755388755968/")]
+    [InlineData("https://www.linkedin.com/feed/update/urn:li:share:7509870755388755968/")]
+    public void Leaves_other_linkedin_urns_alone(string url)
+    {
+        var result = MediaSourceValidator.Validate(url);
+
+        Assert.True(result.IsValid, result.ErrorMessage);
+        Assert.Equal(url, result.CanonicalUrl);
+    }
+
+    [Fact]
+    public void Keeps_a_signed_cdn_query_byte_for_byte()
+    {
+        // Re-encoding would turn the '+' into %20 and invalidate the CDN's signature.
+        const string url = "https://dms.licdn.com/playlist/vid/v2/D4D05AQ/mp4-720p-30fp-crf28/0/1699"
+                           + "?e=1700000000&v=beta&t=aB+cD_eF-gH%3D";
+
+        var result = MediaSourceValidator.Validate(url);
+
+        Assert.True(result.IsValid, result.ErrorMessage);
+        Assert.Equal(url, result.CanonicalUrl);
+    }
+
+    [Theory]
+    // A CDN host still has to point at something that looks like media.
+    [InlineData("https://dms.licdn.com/", "url-not-a-video")]
+    [InlineData("https://media.licdn.com/dms/image/C4D/profile.jpg", "url-not-a-video")]
+    // ...and a lookalike of a wildcarded CDN is still not that CDN.
+    [InlineData("https://evil-cdninstagram.com/clip.mp4", "url-host-not-allowed")]
+    [InlineData("https://cdninstagram.com.attacker.tld/clip.mp4", "url-host-not-allowed")]
+    [InlineData("https://127.0.0.1/clip.mp4", "url-host-not-allowed")]
+    public void Direct_links_still_have_to_clear_the_allowlist(string url, string expectedCode)
+    {
+        var result = MediaSourceValidator.Validate(url);
+
+        Assert.False(result.IsValid);
+        Assert.Equal(expectedCode, result.ErrorCode);
     }
 
     [Fact]
@@ -101,7 +163,8 @@ public class MediaDownloadFailureClassifierTests
     [InlineData("ERROR: Unable to download webpage: HTTP Error 429: Too Many Requests", "rate-limited")]
     [InlineData("ERROR: [generic] Unsupported URL: https://example.com/", "unsupported-url")]
     [InlineData("ERROR: Unable to download webpage: <urlopen error [Errno 11001] getaddrinfo failed>", "network")]
-    [InlineData("ERROR: [LinkedIn] 123: Unable to extract video; please report this issue on https://github.com/yt-dlp/yt-dlp/issues", "downloader-outdated")]
+    [InlineData("ERROR: [LinkedIn] 123: Unable to extract video; please report this issue on https://github.com/yt-dlp/yt-dlp/issues", "page-not-readable")]
+    [InlineData("ERROR: [LinkedIn] 123: Unable to extract uploader id; please report this issue on https://github.com/yt-dlp/yt-dlp/issues", "downloader-outdated")]
     [InlineData("ERROR: ffmpeg not found. Please install or provide the path using --ffmpeg-location", "ffmpeg-missing")]
     [InlineData("something entirely unexpected", "download-failed")]
     public void Maps_yt_dlp_errors_to_actionable_causes(string stderr, string expectedCode)

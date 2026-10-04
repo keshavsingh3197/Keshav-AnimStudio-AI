@@ -47,7 +47,7 @@ public sealed class MediaToolsController(
     {
         var version = await ytDlp.GetVersionAsync(ct);
         var platforms = MediaSourceValidator.Platforms
-            .Select(p => new SupportedPlatformInfo(p.Id, p.Name, p.Hosts, p.Example, p.Notes, p.LoginOftenRequired))
+            .Select(p => new SupportedPlatformInfo(p.Id, p.Name, p.DisplayHosts, p.Example, p.Notes, p.LoginOftenRequired))
             .ToList();
 
         return Ok(ApiResponse<MediaSourcesResponse>.Ok(new MediaSourcesResponse(

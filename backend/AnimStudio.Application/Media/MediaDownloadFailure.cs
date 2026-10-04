@@ -26,6 +26,10 @@ public static partial class MediaDownloadFailureClassifier
     private const string CookiesHint =
         "Sign in to the site in your browser and set Ingest:YtDlp:CookiesFromBrowser (e.g. \"firefox\" or \"chrome\") in the API settings, then restart the API.";
 
+    private const string DirectLinkHint =
+        "Open the post, play the video, then in the browser's DevTools → Network (filter \"Media\") " +
+        "right-click the video request → Copy → Copy URL, and paste that here instead.";
+
     // First match wins, so specific causes come before the generic ones at the bottom.
     private static readonly (string Code, string[] Needles, string Message, string Hint)[] Rules =
     [
@@ -33,8 +37,11 @@ public static partial class MediaDownloadFailureClassifier
             "{0} is asking for a bot check before serving this video.", CookiesHint),
         ("login-required", ["login required", "log in", "logged-in", "requires authentication", "private video",
                             "this video is private", "rate-limit reached or login required", "use --cookies",
-                            "only available for registered users", "members-only", "join this channel"],
-            "This {0} video is private or needs you to be signed in.", CookiesHint),
+                            "only available for registered users", "members-only", "join this channel",
+                            // LinkedIn bounces a signed-out fetch to one of these instead of erroring.
+                            "authwall", "cold-join", "/signup/", "sign up to view"],
+            "This {0} video is private or needs you to be signed in.",
+            CookiesHint + " If cookies don't help, the post is members-only: " + DirectLinkHint),
         ("age-restricted", ["age-restricted", "confirm your age", "age restricted", "inappropriate for some users"],
             "This {0} video is age-restricted.", CookiesHint),
         ("geo-blocked", ["not available in your country", "geo restriction", "geo-restricted", "not made this video available in your country"],
@@ -59,6 +66,15 @@ public static partial class MediaDownloadFailureClassifier
                      "connection refused", "connection reset", "timed out", "urlopen error", "network is unreachable",
                      "ssl: ", "certificate verify failed"],
             "Couldn't reach {0}.", "Check the API machine's internet connection, VPN or proxy, then try again."),
+
+        // yt-dlp reads LinkedIn/Instagram posts out of the HTML a signed-out visitor gets. A
+        // members-only post (a group post, a private audience) serves a sign-in wall instead, so
+        // the scrape finds no <video> at all - indistinguishable from a layout change, hence the
+        // hint covering both. Must stay ahead of "downloader-outdated", which matches the same line.
+        ("page-not-readable", ["unable to extract video", "unable to extract post", "unable to extract media"],
+            "{0} didn't return a playable video for that post.",
+            "Most often the post is only visible to signed-in members - a group post, or a private audience - and those cannot be fetched by link. " +
+            DirectLinkHint + " If the post is public, the site may have changed its layout: " + UpdateHint),
 
         ("downloader-outdated", ["unable to extract", "please report this issue", "extractor error"],
             "The downloader couldn't read this {0} page.", UpdateHint),

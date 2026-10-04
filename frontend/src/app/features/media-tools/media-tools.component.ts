@@ -116,7 +116,11 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
       return { state: 'invalid' };
     }
 
-    const platform = this.sources()?.platforms.find((p) => p.domains.includes(host));
+    // Media CDNs are listed as wildcards ("*.cdninstagram.com"); the leading dot has to stay
+    // in the comparison so a lookalike host like "evil-cdninstagram.com" is not matched.
+    const platform = this.sources()?.platforms.find((p) =>
+      p.domains.some((d) => (d.startsWith('*') ? host.endsWith(d.slice(1)) : d === host)),
+    );
     return platform ? { state: 'supported', host, platform } : { state: 'unsupported', host };
   });
 
@@ -904,6 +908,7 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
       case 'reddit': return 'r/';
       case 'dailymotion': return 'd';
       case 'twitch': return '⌁';
+      case 'direct': return '⬇';
       default: return '🔗';
     }
   }
