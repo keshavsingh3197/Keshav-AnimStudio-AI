@@ -1,7 +1,7 @@
 import { DatePipe, DecimalPipe, NgStyle } from '@angular/common';
 import { Component, OnDestroy, computed, effect, inject, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
 import {
   RenderJob, aspectRatioLabel, isTerminal, videoFormat,
@@ -9,15 +9,21 @@ import {
 import { ApiService } from '../../core/services/api.service';
 import { ProjectStore } from '../../core/services/project-store';
 import { StatusService } from '../../core/services/status.service';
+import { YouTubePublishDialogComponent } from '../../shared/youtube-publish-dialog.component';
 
-/** Queue a render, watch it, then play or download the result. */
+/** Queue a render, watch it, then play, download or publish the result. */
 @Component({
   selector: 'app-render',
-  imports: [DatePipe, DecimalPipe, FormsModule, NgStyle, RouterLink],
+  imports: [DatePipe, DecimalPipe, FormsModule, NgStyle, RouterLink, YouTubePublishDialogComponent],
   templateUrl: './render.component.html',
 })
 export class RenderComponent implements OnDestroy {
   private readonly api = inject(ApiService);
+  private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
+
+  /** The render whose Publish to YouTube dialog is open. */
+  readonly publishJobId = signal<string | null>(null);
 
   readonly store = inject(ProjectStore);
   readonly status = inject(StatusService);
@@ -351,6 +357,23 @@ export class RenderComponent implements OnDestroy {
       if (!this.openProjectId()) return;
       untracked(() => this.reload());
     });
+
+    // Back from connecting a channel on Google: reopen the dialog for the same render.
+    const reopen = this.route.snapshot.queryParamMap.get('youtubePublish');
+    if (reopen && /^[A-Za-z0-9_-]{1,64}$/.test(reopen)) {
+      this.publishJobId.set(reopen);
+      void this.router.navigate([], { relativeTo: this.route, queryParams: { youtubePublish: null }, replaceUrl: true });
+    }
+  }
+
+  openPublish(jobId: string): void {
+    this.publishJobId.set(jobId);
+  }
+
+  /** Where Google sign-in returns to: this page, with the dialog reopened for the same render. */
+  publishReturnPath(jobId: string): string {
+    const path = this.router.url.split('?')[0];
+    return `${path}?youtubePublish=${encodeURIComponent(jobId)}`;
   }
 
   private destroyed = false;

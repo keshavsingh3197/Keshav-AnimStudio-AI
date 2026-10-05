@@ -112,6 +112,14 @@ export const routes: Routes = [
   },
 
   {
+    path: 'youtube/callback',
+    title: 'Connecting YouTube - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/youtube/youtube-callback.component')
+        .then((m) => m.YouTubeCallbackComponent),
+  },
+
+  {
     path: 'live',
     title: 'Go Live - AnimStudio AI',
     loadComponent: () =>

@@ -5,6 +5,7 @@ using AnimStudio.Domain.Ingest;
 using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.LiveStreams;
 using AnimStudio.Domain.Projects;
+using AnimStudio.Domain.Publishing;
 using AnimStudio.Domain.Scenes;
 using AnimStudio.Domain.Scripts;
 using MongoDB.Bson;
@@ -72,6 +73,9 @@ public static class MongoMappingRegistrar
 
             // "{channelId}:{destinationId}" - the id is what keeps one key per channel per destination.
             MapWithLiteralId<LiveStreamKey>();
+
+            // "{userId}:{channelId}" - one connection per user per channel.
+            MapWithLiteralId<YouTubeChannelConnection>();
         }
     }
 

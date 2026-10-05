@@ -147,6 +147,16 @@ BEGIN
     );
 END;
 
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'YouTubeConnections')
+BEGIN
+    CREATE TABLE YouTubeConnections (
+        Id NVARCHAR(300) NOT NULL PRIMARY KEY,
+        UserId NVARCHAR(200) NOT NULL,
+        DataJson NVARCHAR(MAX) NOT NULL
+    );
+    CREATE INDEX IX_YouTubeConnections_UserId ON YouTubeConnections (UserId);
+END;
+
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'PromptTemplates')
 BEGIN
     CREATE TABLE PromptTemplates (

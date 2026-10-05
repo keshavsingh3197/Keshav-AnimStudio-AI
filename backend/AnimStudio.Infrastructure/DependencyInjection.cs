@@ -29,6 +29,7 @@ using AnimStudio.Infrastructure.Ingest;
 using AnimStudio.Infrastructure.Jobs;
 using AnimStudio.Infrastructure.LiveStreams;
 using AnimStudio.Infrastructure.Persistence;
+using AnimStudio.Infrastructure.Publishing;
 using AnimStudio.Infrastructure.Releases;
 using AnimStudio.Infrastructure.Persistence.SqlServer;
 using AnimStudio.Infrastructure.Storage;
@@ -108,6 +109,7 @@ public static class DependencyInjection
             services.AddScoped<IAiUsageRepository, SqlAiUsageRepository>();
             services.AddScoped<IAiCredentialRepository, SqlAiCredentialRepository>();
             services.AddScoped<ILiveStreamKeyRepository, SqlLiveStreamKeyRepository>();
+            services.AddScoped<IYouTubeConnectionRepository, SqlYouTubeConnectionRepository>();
             services.AddScoped<IPromptTemplateRepository, SqlPromptTemplateRepository>();
             services.AddScoped<IAiSettingsRepository, SqlAiSettingsRepository>();
             services.AddScoped<IAdminAuditRepository, SqlAdminAuditRepository>();
@@ -139,6 +141,7 @@ public static class DependencyInjection
             services.AddScoped<IAiUsageRepository, MongoAiUsageRepository>();
             services.AddScoped<IAiCredentialRepository, MongoAiCredentialRepository>();
             services.AddScoped<ILiveStreamKeyRepository, MongoLiveStreamKeyRepository>();
+            services.AddScoped<IYouTubeConnectionRepository, MongoYouTubeConnectionRepository>();
             services.AddScoped<IPromptTemplateRepository, MongoPromptTemplateRepository>();
             services.AddScoped<IAiSettingsRepository, MongoAiSettingsRepository>();
             services.AddScoped<IAdminAuditRepository, MongoAdminAuditRepository>();
@@ -254,6 +257,20 @@ public static class DependencyInjection
             sp.GetRequiredService<IOptionsMonitor<YouTubeDataOptions>>(),
             sp.GetRequiredService<TimeProvider>(),
             sp.GetRequiredService<ILogger<YouTubeAudienceService>>()));
+
+        // Publish to YouTube: per-user connected channels (encrypted refresh tokens) and
+        // resumable uploads that run in the background.
+        services.Configure<YouTubePublishOptions>(configuration.GetSection(YouTubePublishOptions.Section));
+        services.AddSingleton(sp => new YouTubeOAuthClient(
+            sp.GetRequiredService<IOptionsMonitor<YouTubePublishOptions>>(),
+            sp.GetRequiredService<ILogger<YouTubeOAuthClient>>()));
+        services.AddSingleton(sp => new YouTubeVideoUploader(
+            sp.GetRequiredService<IOptionsMonitor<YouTubePublishOptions>>(),
+            sp.GetRequiredService<ILogger<YouTubeVideoUploader>>()));
+        services.AddSingleton<YouTubeOAuthStateCache>();
+        services.AddScoped<YouTubeConnectionStore>();
+        services.AddSingleton<YouTubeUploadManager>();
+        services.AddHostedService(sp => sp.GetRequiredService<YouTubeUploadManager>());
 
         services.AddScoped<ProjectRenderOrchestrator>();
 

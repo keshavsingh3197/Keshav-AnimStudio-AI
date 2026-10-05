@@ -291,6 +291,9 @@
                 <span>&#128229;</span> Download MP4 Video
               </button>
             </a>
+            <button type="button" (click)="openPublish(current.jobId)" title="Upload this video to your YouTube channel">
+              ▶ Publish to YouTube
+            </button>
             <a routerLink="/live" [queryParams]="{ renderJobId: current.jobId }" style="text-decoration: none">
               <button class="secondary" type="button" title="Stream this video to YouTube Live">🔴 Go live</button>
             </a>
@@ -353,6 +356,7 @@
                 <a [href]="downloadUrl(item.jobId)" download>
                   <button class="secondary" type="button">&#128229; Download</button>
                 </a>
+                <button class="secondary" type="button" (click)="openPublish(item.jobId)" title="Upload this video to your YouTube channel">▶ Publish</button>
                 <a routerLink="/live" [queryParams]="{ renderJobId: item.jobId }">
                   <button class="secondary" type="button" title="Stream this video to YouTube Live">🔴 Go live</button>
                 </a>
@@ -366,6 +370,14 @@
 }
 
 <!-- Diagnostics Modal -->
+@if (publishJobId(); as publishId) {
+  <app-youtube-publish-dialog
+    [jobId]="publishId"
+    [previewSrc]="previewUrl(publishId)"
+    [returnPath]="publishReturnPath(publishId)"
+    (closed)="publishJobId.set(null)" />
+}
+
 @if (diagnosticsModalOpen() && selectedDiagnosticsJob(); as diagJob) {
   <div class="diag-modal-backdrop" (click)="closeDiagnostics()">
     <div class="diag-modal-card" (click)="$event.stopPropagation()">
