@@ -74,6 +74,14 @@ interface PublishPrefs {
                   }
                 </div>
 
+                @if (draft(); as d) {
+                  @if (brandLinked()) {
+                    <p class="yt-muted">Brand channel <strong>{{ d.brandChannelName }}</strong> publishes here; details below start from its defaults.</p>
+                  } @else if (brandMissing()) {
+                    <p class="yt-warn">Brand channel <strong>{{ d.brandChannelName }}</strong> publishes to a YouTube channel you haven't connected. Use ＋ Add to connect it.</p>
+                  }
+                }
+
                 <label>Title
                   <input type="text" [ngModel]="title()" (ngModelChange)="title.set($event)" [disabled]="uploading()"
                          [class.invalid]="fieldError('title')" maxlength="200" />
@@ -227,6 +235,7 @@ interface PublishPrefs {
     .bar div { height: 100%; background: #ef4444; transition: width .4s ease; }
     .yt-muted { color: var(--muted, #94a3b8); font-size: .85rem; margin: 0; }
     .yt-err { color: #fca5a5; font-size: .9rem; }
+    .yt-warn { color: #fcd34d; font-size: .85rem; margin: 0; }
     .yt-actions { display: flex; justify-content: flex-end; gap: .5rem; margin-top: 1rem; }
   `],
 })
@@ -246,6 +255,10 @@ export class YouTubePublishDialogComponent implements OnInit {
   readonly draft = signal<YouTubeDraft | null>(null);
   readonly upload = signal<YouTubeUpload | null>(null);
   readonly serverErrors = signal<YouTubeCheck[]>([]);
+  /** The project's brand channel names a connected YouTube channel - preselected. */
+  readonly brandLinked = signal(false);
+  /** The brand channel names a YouTube channel this user hasn't connected. */
+  readonly brandMissing = signal(false);
 
   readonly channelId = signal('');
   readonly title = signal('');
@@ -308,12 +321,24 @@ export class YouTubePublishDialogComponent implements OnInit {
         this.title.set(draft.title);
         this.description.set(draft.description);
         this.tagsText.set(draft.tags.join(', '));
-        this.categoryId.set(status.categories.some((c) => c.id === prefs.categoryId) ? prefs.categoryId! : draft.categoryId);
-        this.privacy.set(prefs.privacy ?? draft.privacy);
-        this.madeForKids.set(prefs.madeForKids ?? draft.madeForKids);
+        this.notify.set(draft.notifySubscribers);
 
-        const remembered = status.channels.find((c) => c.channelId === prefs.channelId);
-        this.channelId.set(remembered?.channelId ?? status.channels[0]?.channelId ?? '');
+        // A brand channel with a publishing setup decides; otherwise this browser's last choices.
+        const brand = draft.channelId ? status.channels.find((c) => c.channelId === draft.channelId) : undefined;
+        this.brandLinked.set(Boolean(brand));
+        this.brandMissing.set(Boolean(draft.channelId) && !brand);
+        if (brand) {
+          this.categoryId.set(draft.categoryId);
+          this.privacy.set(draft.privacy);
+          this.madeForKids.set(draft.madeForKids);
+          this.channelId.set(brand.channelId);
+        } else {
+          this.categoryId.set(status.categories.some((c) => c.id === prefs.categoryId) ? prefs.categoryId! : draft.categoryId);
+          this.privacy.set(prefs.privacy ?? draft.privacy);
+          this.madeForKids.set(prefs.madeForKids ?? draft.madeForKids);
+          const remembered = status.channels.find((c) => c.channelId === prefs.channelId);
+          this.channelId.set(remembered?.channelId ?? status.channels[0]?.channelId ?? '');
+        }
 
         // Reattach to an upload of this render that is still going (or just finished).
         const latest = uploads[0];

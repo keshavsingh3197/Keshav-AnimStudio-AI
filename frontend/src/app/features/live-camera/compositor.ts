@@ -1,7 +1,9 @@
 import { BackgroundStyle, BuiltInCharacterId, BUILT_IN_CHARACTERS, CharacterRef, OverlayCorner, SceneId, StudioSettings } from './studio-settings';
 import { drawBuiltIn, drawImageCharacter, Expression, expressionFrom, ImageCharacter } from './characters';
 import { drawDesigned } from './character-designer';
-import { drawQrCard, drawSeal, qrCardSize, QrSprite, scannableColors } from './brand-overlays';
+import {
+  drawQrCard, drawSeal, drawSupportCard, qrCardSize, QrSprite, scannableColors, SupportCardArt, supportCardWidth,
+} from './brand-overlays';
 import { PrivacyVerdict, TrackedFace } from './face-tracker';
 import { ReactionKind } from './gestures';
 import { BodyPose, MotionFrame, POSE } from './motion';
@@ -30,7 +32,28 @@ export interface FrameInput {
   viewers: number | null;
   /** When the "starting soon" countdown ends, ms since epoch. */
   countdownEnds: number | null;
+  /** The chosen brand channel's support card, once loaded. */
+  supportCard?: SupportCardArt | null;
+  /** "Show now" pressed: the card stays up until this time, whatever its schedule. */
+  supportCardUntil?: number | null;
   now: number;
+}
+
+/** How long the support card takes to fade in or out. */
+const CARD_FADE_MS = 400;
+
+/** 0-1: whether the support card is on screen now, with a fade at each end of an interval showing. */
+export function supportCardAlpha(
+  mode: 'always' | 'interval', everyMinutes: number, showSeconds: number,
+  now: number, since: number, forcedUntil: number | null | undefined,
+): number {
+  if (forcedUntil && now < forcedUntil) return Math.min(1, (forcedUntil - now) / CARD_FADE_MS);
+  if (mode === 'always') return 1;
+  const period = everyMinutes * 60_000;
+  const show = Math.min(showSeconds * 1000, period);
+  const t = (((now - since) % period) + period) % period;
+  if (t >= show) return 0;
+  return Math.min(1, t / CARD_FADE_MS, (show - t) / CARD_FADE_MS);
 }
 
 interface Crop { sx: number; sy: number; sw: number; sh: number; }
@@ -80,6 +103,8 @@ export class Compositor {
   private placement: CameraPlacement | null = null;
   private readonly reactions = new Reactions();
   private readonly qr = new QrSprite();
+  /** Off air, the support card's schedule counts from when the studio opened. */
+  private readonly startedAt = Date.now();
   private mascotAct: { kind: ReactionKind; started: number } | null = null;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
@@ -152,9 +177,11 @@ export class Compositor {
     const cameraOn = !!camera && camera.readyState >= 2 && camera.videoWidth > 0;
     const screenOn = !!screen && screen.readyState >= 2 && screen.videoWidth > 0;
 
-    if (settings.source === 'camera' || !screenOn) {
+    // A video file takes the camera's place, so faces and bodies in it get the same treatment.
+    if (settings.source === 'camera' || settings.source === 'video' || !screenOn) {
       if (cameraOn) this.drawCameraLayer(input, { x: 0, y: 0, w: W, h: H });
-      else this.drawWaiting(W, H, settings.source === 'camera' ? 'Waiting for the camera…' : 'Choose a screen or window to share…');
+      else this.drawWaiting(W, H, settings.source === 'camera' ? 'Waiting for the camera…'
+        : settings.source === 'video' ? 'Choose a video file…' : 'Choose a screen or window to share…');
       return;
     }
 
@@ -798,6 +825,16 @@ export class Compositor {
         const size = qrCardSize(height, b.qrCaption);
         const at = place(b.qrCorner, size.w, size.h);
         drawQrCard(c, sprite, at.x, at.y, height, b.qrCaption, colors.light, o.accent);
+      }
+    }
+
+    if (b.card && input.supportCard) {
+      const alpha = supportCardAlpha(b.cardMode, b.cardEveryMinutes, b.cardShowSeconds,
+        input.now, input.liveSince ?? this.startedAt, input.supportCardUntil);
+      if (alpha > 0) {
+        const height = Math.round(H * b.cardSize);
+        const at = place(b.cardCorner, supportCardWidth(height), height);
+        drawSupportCard(c, input.supportCard, at.x, at.y, height, b.cardLines, alpha);
       }
     }
 

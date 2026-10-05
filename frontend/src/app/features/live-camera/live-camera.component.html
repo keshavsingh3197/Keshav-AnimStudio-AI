@@ -535,6 +535,49 @@
         <!-- ------------------------------------------------ brand -->
         @case ('brand') {
           <fieldset class="cs-field">
+            <legend>Channel support card</legend>
+            <div class="cs-widget">
+              <label class="cs-switchrow"><input type="checkbox" [ngModel]="settings().brand.card" (ngModelChange)="patch('brand', { card: $event })" /><span>💳 Show a channel's support card</span></label>
+              <select class="cs-corner" [ngModel]="settings().brand.cardCorner" (ngModelChange)="patch('brand', { cardCorner: $event })" aria-label="Corner"><option value="top-left">↖</option><option value="top-right">↗</option><option value="bottom-left">↙</option><option value="bottom-right">↘</option></select>
+            </div>
+            <div class="cs-two">
+              <select [ngModel]="settings().brand.cardChannel" (ngModelChange)="patch('brand', { cardChannel: $event })" aria-label="Brand channel">
+                @for (c of brandChannels(); track c.id) { <option [value]="c.isDefault ? 'default' : c.id">{{ c.name }}</option> }
+              </select>
+              <select [ngModel]="settings().brand.cardLines" (ngModelChange)="patch('brand', { cardLines: $event })" aria-label="Lines">
+                <option value="both">Both languages</option>
+                <option value="primary">First language</option>
+                <option value="secondary">Second language</option>
+              </select>
+            </div>
+            <div class="cs-two">
+              <select [ngModel]="settings().brand.cardMode" (ngModelChange)="patch('brand', { cardMode: $event })" aria-label="When">
+                <option value="interval">Every few minutes</option>
+                <option value="always">Always on screen</option>
+              </select>
+              <label class="cs-range">Size <span>{{ settings().brand.cardSize * 100 | number: '1.0-0' }}%</span>
+                <input type="range" min="0.2" max="0.7" step="0.01" [ngModel]="settings().brand.cardSize" (ngModelChange)="patch('brand', { cardSize: +$event })" />
+              </label>
+            </div>
+            @if (settings().brand.cardMode === 'interval') {
+              <div class="cs-two">
+                <label class="cs-compact">Every <input type="number" min="1" max="60" [ngModel]="settings().brand.cardEveryMinutes" (ngModelChange)="patch('brand', { cardEveryMinutes: +$event })" /> min</label>
+                <label class="cs-compact">for <input type="number" min="5" max="300" [ngModel]="settings().brand.cardShowSeconds" (ngModelChange)="patch('brand', { cardShowSeconds: +$event })" /> s</label>
+              </div>
+            }
+            <div class="cs-two">
+              <button type="button" class="secondary" (click)="showSupportCardNow()">📣 Show now</button>
+              <button type="button" class="secondary" (click)="reloadSupportCard()" title="Reload after editing the card in Settings">↻ Reload card</button>
+            </div>
+            @switch (supportCardState()) {
+              @case ('loading') { <span class="muted cs-note">Loading the channel's card…</span> }
+              @case ('missing') { <span class="cs-warn-text cs-note">This channel has no support card yet. Set one under <a routerLink="/admin/branding/end-card" [queryParams]="settings().brand.cardChannel === 'default' ? null : { channel: settings().brand.cardChannel }">Settings → End card</a>.</span> }
+              @case ('failed') { <span class="cs-warn-text cs-note">The channel's card couldn't be loaded.</span> }
+              @case ('ready') { <span class="muted cs-note">Uses the QR code and lines from Settings → End card, so viewers see the same card as at the end of your videos.</span> }
+            }
+          </fieldset>
+
+          <fieldset class="cs-field">
             <legend>QR code</legend>
             <div class="cs-widget">
               <label class="cs-switchrow"><input type="checkbox" [ngModel]="settings().brand.qr" (ngModelChange)="patch('brand', { qr: $event })" /><span>🔳 Show a QR code</span></label>
@@ -684,15 +727,46 @@
               <button type="button" [class.active]="settings().source === 'camera'" (click)="setSource('camera')">🎥 Camera</button>
               <button type="button" [class.active]="settings().source === 'screen'" (click)="setSource('screen')">🖥️ Screen</button>
               <button type="button" [class.active]="settings().source === 'screen-camera'" (click)="setSource('screen-camera')">🖥️+🎥 Screen with camera</button>
+              <button type="button" [class.active]="settings().source === 'video'" (click)="setSource('video')">🎞️ Video file</button>
             </div>
-            @if (settings().source !== 'camera' && running()) {
+            @if (settings().source === 'video') {
+              <div class="cs-video">
+                <label class="secondary cs-small cs-file">📂 {{ videoName() ? 'Choose another video' : 'Choose video' }}
+                  <input type="file" accept="video/*" (change)="pickVideo($event)" hidden />
+                </label>
+                @if (videoName(); as name) {
+                  <span class="muted cs-note" [title]="name">🎞️ {{ name }}</span>
+                  @if (running()) {
+                    <div class="cs-two">
+                      <button type="button" class="secondary cs-small" (click)="toggleVideoPlay()" [disabled]="processing()">{{ videoPlaying() ? '⏸ Pause' : '▶ Play' }}</button>
+                      <label class="cs-compact"><input type="checkbox" [ngModel]="videoLoop()" (ngModelChange)="setVideoLoop($event)" [disabled]="processing()" /> Loop</label>
+                    </div>
+                    <label class="cs-range">{{ formatClock(videoTime()) }} / {{ formatClock(videoDuration()) }}
+                      <input type="range" min="0" [max]="videoDuration() || 0" step="0.1" [ngModel]="videoTime()" (ngModelChange)="seekVideo(+$event)" [disabled]="processing()" aria-label="Position" />
+                    </label>
+                    @if (processing()) {
+                      <button type="button" class="cs-small" (click)="cancelProcessing()">⏹ Stop and save ({{ videoDuration() ? (videoTime() / videoDuration() * 100 | number: '1.0-0') : 0 }}%)</button>
+                    } @else {
+                      <button type="button" class="cs-small" (click)="processVideo()" [disabled]="recording() || !format">🎬 Process whole video</button>
+                    }
+                  } @else {
+                    <span class="muted cs-note">Press Start to play it through the studio.</span>
+                  }
+                }
+                <p class="muted cs-note">Faces and people in the video get your current character, mask, body and background settings, plus overlays.
+                  "Process whole video" plays it once from the start (in real time) and saves the result to your downloads. The file never leaves this computer.</p>
+              </div>
+            }
+            @if ((settings().source === 'screen' || settings().source === 'screen-camera') && running()) {
               <button type="button" class="secondary cs-small" (click)="shareScreen()">{{ screenShared() ? '🔁 Share something else' : '🖥️ Share screen' }}</button>
               <p class="muted cs-note">Share a window or tab rather than your whole screen, so notifications and other windows stay private. Don't share this tab - it would show itself forever.</p>
             }
-            <select [ngModel]="cameraId" (ngModelChange)="switchCamera($event)" aria-label="Camera">
-              <option value="">Default camera</option>
-              @for (d of cameras(); track d.deviceId) { <option [value]="d.deviceId">{{ d.label || 'Camera' }}</option> }
-            </select>
+            @if (settings().source !== 'video') {
+              <select [ngModel]="cameraId" (ngModelChange)="switchCamera($event)" aria-label="Camera">
+                <option value="">Default camera</option>
+                @for (d of cameras(); track d.deviceId) { <option [value]="d.deviceId">{{ d.label || 'Camera' }}</option> }
+              </select>
+            }
           </fieldset>
 
           @if (settings().source === 'screen-camera') {

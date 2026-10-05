@@ -18,6 +18,7 @@ public static class MongoCollections
     public const string AiSettings = "aiSettings";
     public const string LiveStreamKeys = "liveStreamKeys";
     public const string YouTubeConnections = "youTubeConnections";
+    public const string WebSettings = "webSettings";
     public const string AdminAudit = "adminAudit";
     public const string HubConfig = "hubConfig";
 }

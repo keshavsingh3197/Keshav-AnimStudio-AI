@@ -1,4 +1,5 @@
 using AnimStudio.Domain.Projects;
+using AnimStudio.Domain.Publishing;
 using AnimStudio.Domain.Rendering;
 
 namespace AnimStudio.Domain.Ai;
@@ -112,6 +113,17 @@ public sealed class AiSettings
     /// <summary>A channel's end card, with the same fallback as <see cref="WatermarkFor"/>.</summary>
     public OutroSettings? OutroFor(string? channelId) =>
         FindChannel(channelId)?.Outro ?? DefaultOutro;
+
+    /// <summary>The default channel's YouTube publishing setup.</summary>
+    public ChannelPublishSettings? DefaultPublishing { get; set; }
+
+    /// <summary>
+    /// A channel's publishing setup. Unlike the look, a channel without its own does NOT
+    /// fall back to the default's YouTube channel - that would upload one brand's video to
+    /// another brand's channel. Only the default channel itself uses <see cref="DefaultPublishing"/>.
+    /// </summary>
+    public ChannelPublishSettings? PublishingFor(string? channelId) =>
+        BrandChannel.IsDefault(channelId) ? DefaultPublishing : FindChannel(channelId)?.Publishing;
 
     /// <summary>
     /// Global default duration in seconds when chunking or splitting videos (default: 10.0s).

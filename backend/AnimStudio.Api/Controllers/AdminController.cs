@@ -533,6 +533,8 @@ public sealed class AdminController(
             Name = name,
             Watermark = Copy(source?.Watermark ?? stored.DefaultWatermark) ?? new WatermarkSettings(),
             Outro = Copy(source?.Outro ?? stored.DefaultOutro) ?? new OutroSettings(),
+            // Visibility, tags and footer carry over; the YouTube channel link does not.
+            Publishing = (source is null ? stored.DefaultPublishing : source.Publishing)?.CopyDefaults(),
         };
         stored.Channels.Add(channel);
         await aiSettingsRepo.SaveAsync(stored, ct);

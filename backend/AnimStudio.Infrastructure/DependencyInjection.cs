@@ -31,6 +31,8 @@ using AnimStudio.Infrastructure.LiveStreams;
 using AnimStudio.Infrastructure.Persistence;
 using AnimStudio.Infrastructure.Publishing;
 using AnimStudio.Infrastructure.Releases;
+using AnimStudio.Infrastructure.Settings;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using AnimStudio.Infrastructure.Persistence.SqlServer;
 using AnimStudio.Infrastructure.Storage;
 using AnimStudio.Infrastructure.Subtitles;
@@ -64,6 +66,18 @@ public static class DependencyInjection
         services.Configure<SegmentationOptions>(configuration.GetSection("Segmentation"));
         services.Configure<ParsingOptions>(configuration.GetSection("Parsing"));
         services.Configure<AiOptions>(configuration.GetSection(AiOptions.Section));
+
+        // Settings changed from the admin console (the WebSettings table) reach these options
+        // without a restart: IOptions<T> answers with the monitor's current value. Program.cs
+        // attaches the source to configuration; the fallback here only keeps DI resolvable.
+        services.TryAddSingleton(new WebSettingsConfigurationSource());
+        services.AddSingleton<WebSettingsRuntime>();
+        services.AddScoped<WebSettingsService>();
+        services.AddSingleton<IOptions<FfmpegOptions>, LiveOptions<FfmpegOptions>>();
+        services.AddSingleton<IOptions<RenderOptions>, LiveOptions<RenderOptions>>();
+        services.AddSingleton<IOptions<IngestOptions>, LiveOptions<IngestOptions>>();
+        services.AddSingleton<IOptions<LiveStreamOptions>, LiveOptions<LiveStreamOptions>>();
+        services.AddSingleton<IOptions<SegmentationOptions>, LiveOptions<SegmentationOptions>>();
 
         // The administrator-editable half of the AI configuration, laid over the values
         // bound above. Registered as a post-configure plus a change-token source so that
@@ -110,6 +124,7 @@ public static class DependencyInjection
             services.AddScoped<IAiCredentialRepository, SqlAiCredentialRepository>();
             services.AddScoped<ILiveStreamKeyRepository, SqlLiveStreamKeyRepository>();
             services.AddScoped<IYouTubeConnectionRepository, SqlYouTubeConnectionRepository>();
+            services.AddScoped<IWebSettingRepository, SqlWebSettingRepository>();
             services.AddScoped<IPromptTemplateRepository, SqlPromptTemplateRepository>();
             services.AddScoped<IAiSettingsRepository, SqlAiSettingsRepository>();
             services.AddScoped<IAdminAuditRepository, SqlAdminAuditRepository>();
@@ -142,6 +157,7 @@ public static class DependencyInjection
             services.AddScoped<IAiCredentialRepository, MongoAiCredentialRepository>();
             services.AddScoped<ILiveStreamKeyRepository, MongoLiveStreamKeyRepository>();
             services.AddScoped<IYouTubeConnectionRepository, MongoYouTubeConnectionRepository>();
+            services.AddScoped<IWebSettingRepository, MongoWebSettingRepository>();
             services.AddScoped<IPromptTemplateRepository, MongoPromptTemplateRepository>();
             services.AddScoped<IAiSettingsRepository, MongoAiSettingsRepository>();
             services.AddScoped<IAdminAuditRepository, MongoAdminAuditRepository>();

@@ -70,6 +70,7 @@ export class AudioMixer {
   private readonly levels: Float32Array<ArrayBuffer>;
   private micSource: MediaStreamAudioSourceNode | null = null;
   private screenSource: MediaStreamAudioSourceNode | null = null;
+  private fileSource: MediaElementAudioSourceNode | null = null;
   private chain: AudioNode[] = [];
   private oscillators: OscillatorNode[] = [];
   private workletReady = false;
@@ -132,6 +133,18 @@ export class AudioMixer {
     this.screenSource?.connect(this.screenOut);
   }
 
+  /**
+   * A video file's own soundtrack, when the studio's source is a video: into the program
+   * and to the speakers, so it can be heard while it is processed. An element can only be
+   * attached to one audio context, so a restarted studio needs a fresh element.
+   */
+  setMediaElement(video: HTMLVideoElement | null): void {
+    this.fileSource?.disconnect();
+    this.fileSource = video ? this.context.createMediaElementSource(video) : null;
+    this.fileSource?.connect(this.destination);
+    this.fileSource?.connect(this.context.destination);
+  }
+
   get hasScreenAudio(): boolean {
     return this.screenSource !== null;
   }
@@ -165,6 +178,7 @@ export class AudioMixer {
     this.teardown();
     this.micSource?.disconnect();
     this.screenSource?.disconnect();
+    this.fileSource?.disconnect();
     await this.context.close();
   }
 

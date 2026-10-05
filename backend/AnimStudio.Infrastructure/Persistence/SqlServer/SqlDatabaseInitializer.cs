@@ -418,6 +418,14 @@ public sealed class SqlDatabaseInitializer(
             CREATE INDEX IX_YouTubeConnections_UserId ON YouTubeConnections (UserId);
         END;
 
+        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'WebSettings')
+        BEGIN
+            CREATE TABLE WebSettings (
+                Id NVARCHAR(200) NOT NULL PRIMARY KEY,
+                DataJson NVARCHAR(MAX) NOT NULL
+            );
+        END;
+
         IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'PromptTemplates')
         BEGIN
             CREATE TABLE PromptTemplates (

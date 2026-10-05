@@ -181,6 +181,27 @@ public sealed class SystemController(
     }
 
     /// <summary>
+    /// A channel's support-card QR image, for Camera Studio to put on air. Only an image
+    /// asset is served, whatever the stored id points at.
+    /// </summary>
+    [HttpGet("branding/outro/qr")]
+    public async Task<IActionResult> GetBrandingOutroQr([FromQuery] string? channel, CancellationToken ct)
+    {
+        var settings = await aiSettingsRepo.GetAsync(ct);
+        var qrAssetId = settings?.OutroFor(channel)?.QrAssetId;
+        if (string.IsNullOrWhiteSpace(qrAssetId)) return NotFound();
+
+        var asset = await assets.GetAsync(qrAssetId, ct);
+        if (asset is null || asset.MimeType is not ("image/png" or "image/jpeg" or "image/webp")) return NotFound();
+
+        var stream = await store.OpenAsync(asset.StorageKey, ct);
+        if (stream is null) return NotFound();
+
+        Response.Headers.XContentTypeOptions = "nosniff";
+        return File(stream, asset.MimeType);
+    }
+
+    /// <summary>
     /// Serves or streams the global outro video or image file.
     /// </summary>
     [HttpGet("branding/outro/media")]

@@ -8,7 +8,7 @@
 import { CharacterDesign, defaultDesign, sanitizeDesign } from './character-designer';
 import { GESTURE_ACTION_IDS, GESTURE_IDS, GestureBindings, defaultBindings } from './gestures';
 
-export type SourceMode = 'camera' | 'screen' | 'screen-camera';
+export type SourceMode = 'camera' | 'screen' | 'screen-camera' | 'video';
 export type PipCorner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 export type FaceMaskStyle = 'character' | 'pixelate' | 'blur' | 'emoji' | 'block' | 'none';
 export type BodyStyle = 'none' | 'silhouette' | 'blur' | 'pixelate';
@@ -205,7 +205,23 @@ export interface BrandSettings {
   mascotReacts: boolean;
   mascotCorner: OverlayCorner;
   mascotSize: number;
+  /** A brand channel's support card (its uploaded QR + headline), as set under Settings → End card. */
+  card: boolean;
+  /** "default" or a brand channel id. */
+  cardChannel: string;
+  cardCorner: OverlayCorner;
+  /** Height of the card, as a share of the frame's height. */
+  cardSize: number;
+  /** Always on screen, or for `cardShowSeconds` every `cardEveryMinutes`. */
+  cardMode: SupportCardMode;
+  cardEveryMinutes: number;
+  cardShowSeconds: number;
+  /** Which of the channel's lines to show: its first language, its second, or both. */
+  cardLines: SupportCardLines;
 }
+
+export type SupportCardMode = 'always' | 'interval';
+export type SupportCardLines = 'primary' | 'secondary' | 'both';
 
 export interface StudioSettings {
   version: 1;
@@ -339,6 +355,14 @@ export function defaultSettings(): StudioSettings {
       mascotReacts: true,
       mascotCorner: 'bottom-left',
       mascotSize: 0.36,
+      card: false,
+      cardChannel: 'default',
+      cardCorner: 'bottom-right',
+      cardSize: 0.42,
+      cardMode: 'interval',
+      cardEveryMinutes: 5,
+      cardShowSeconds: 20,
+      cardLines: 'both',
     },
     designer: defaultDesign(),
   };
@@ -346,7 +370,7 @@ export function defaultSettings(): StudioSettings {
 
 // ------------------------------------------------------------------ sanitising
 
-const SOURCE: readonly SourceMode[] = ['camera', 'screen', 'screen-camera'];
+const SOURCE: readonly SourceMode[] = ['camera', 'screen', 'screen-camera', 'video'];
 const CORNERS: readonly OverlayCorner[] = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
 const FACE_STYLES: readonly FaceMaskStyle[] = ['character', 'pixelate', 'blur', 'emoji', 'block', 'none'];
 const BODY: readonly BodyStyle[] = ['none', 'silhouette', 'blur', 'pixelate'];
@@ -360,6 +384,10 @@ const COLOR = /^#[0-9a-f]{6}$/i;
 /** Link schemes a QR code may carry. Anything else that looks like a scheme is refused. */
 const QR_SCHEMES = ['http', 'https', 'mailto', 'tel', 'sms', 'upi', 'geo'];
 const CHARACTER = /^(?:[a-z]{2,16}|upload|project:[A-Za-z0-9_-]{1,64})$/;
+/** "default", or a brand channel's id as the server generates them. */
+const BRAND_CHANNEL = /^(?:default|[A-Za-z0-9_-]{1,64})$/;
+const CARD_MODES: readonly SupportCardMode[] = ['always', 'interval'];
+const CARD_LINES: readonly SupportCardLines[] = ['primary', 'secondary', 'both'];
 
 function pick<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
   return allowed.includes(value as T) ? (value as T) : fallback;
@@ -521,6 +549,14 @@ export function sanitizeSettings(raw: unknown): StudioSettings {
       mascotReacts: bool(b['mascotReacts'], d.brand.mascotReacts),
       mascotCorner: pick(b['mascotCorner'], CORNERS, d.brand.mascotCorner),
       mascotSize: num(b['mascotSize'], 0.2, 0.6, d.brand.mascotSize),
+      card: bool(b['card'], d.brand.card),
+      cardChannel: typeof b['cardChannel'] === 'string' && BRAND_CHANNEL.test(b['cardChannel']) ? b['cardChannel'] : d.brand.cardChannel,
+      cardCorner: pick(b['cardCorner'], CORNERS, d.brand.cardCorner),
+      cardSize: num(b['cardSize'], 0.2, 0.7, d.brand.cardSize),
+      cardMode: pick(b['cardMode'], CARD_MODES, d.brand.cardMode),
+      cardEveryMinutes: Math.round(num(b['cardEveryMinutes'], 1, 60, d.brand.cardEveryMinutes)),
+      cardShowSeconds: Math.round(num(b['cardShowSeconds'], 5, 300, d.brand.cardShowSeconds)),
+      cardLines: pick(b['cardLines'], CARD_LINES, d.brand.cardLines),
     },
     designer: sanitizeDesign(r['designer']),
   };

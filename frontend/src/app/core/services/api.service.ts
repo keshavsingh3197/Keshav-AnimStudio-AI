@@ -92,6 +92,11 @@ export class ApiService {
       this.http.get<ApiResponse<OutroBody | null>>(`${this.base}/api/system/branding/outro${channelQuery(channel)}`));
   }
 
+  /** A channel's support-card QR image. Always carries a query string, so callers add cache-busters with `&`. */
+  globalOutroQrUrl(channel?: string | null): string {
+    return `${this.base}/api/system/branding/outro/qr${channelQuery(channel, true)}`;
+  }
+
   /** Always carries a query string, so callers add cache-busters with `&`. */
   globalOutroMediaUrl(channel?: string | null): string {
     return `${this.base}/api/system/branding/outro/media${channelQuery(channel, true)}`;

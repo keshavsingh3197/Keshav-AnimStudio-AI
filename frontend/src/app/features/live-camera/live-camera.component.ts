@@ -6,7 +6,8 @@ import { RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
-import { Character, Project } from '../../core/models/api.models';
+import { BrandChannel, Character, Project } from '../../core/models/api.models';
+import { SupportCardArt } from './brand-overlays';
 import {
   CAMERA_ACTIVE_STATES,
   CameraStreamStatus,
@@ -201,6 +202,25 @@ export class LiveCameraComponent {
   readonly teaching = signal<{ slot: number; phase: 'ready' | 'recording'; until: number } | null>(null);
   readonly qrFailed = signal(false);
 
+  // A brand channel's support card (its uploaded QR + headline from Settings → End card)
+  readonly brandChannels = signal<BrandChannel[]>([]);
+  readonly supportCardState = signal<'off' | 'loading' | 'ready' | 'missing' | 'failed'>('off');
+  private supportArt: SupportCardArt | null = null;
+
+  // A video file as the source (read locally, never uploaded)
+  readonly videoName = signal<string | null>(null);
+  readonly videoTime = signal(0);
+  readonly videoDuration = signal(0);
+  readonly videoPlaying = signal(false);
+  readonly videoLoop = signal(true);
+  /** Playing the file once from the start while recording the result. */
+  readonly processing = signal(false);
+  private videoUrl: string | null = null;
+  private fileVideo: HTMLVideoElement | null = null;
+  private fileVideoMixer: AudioMixer | null = null;
+  private supportCardKey = '';
+  private supportCardUntil: number | null = null;
+
   // Stream
   readonly stream = signal<CameraStreamStatus | null>(null);
   readonly uplink = signal<UplinkStats | null>(null);
@@ -249,6 +269,11 @@ export class LiveCameraComponent {
   readonly checks = computed<Check[]>(() => this.computeChecks());
   readonly blockers = computed(() => this.checks().filter((c) => c.blocking && !c.ok));
   readonly facesVisible = computed(() => this.faces().filter((f) => f.visible).length);
+  /** What the compositor draws with: a video file is shown as recorded, never mirrored like a selfie camera. */
+  private readonly programSettings = computed(() => {
+    const s = this.settings();
+    return s.source === 'video' && s.picture.mirror ? { ...s, picture: { ...s.picture, mirror: false } } : s;
+  });
 
   private readonly vision = new VisionEngine();
   private readonly tracker = new FaceTracker();
@@ -295,6 +320,8 @@ export class LiveCameraComponent {
     this.restore();
     this.loadPresets();
     this.loadSigns();
+    void this.ensureSupportCard();
+    this.api.listBrandChannels().subscribe({ next: (c) => this.brandChannels.set(c), error: () => undefined });
     inject(DestroyRef).onDestroy(() => void this.teardown());
     void this.loadSetup();
     void this.listDevices();
@@ -314,7 +341,135 @@ export class LiveCameraComponent {
     const before = this.settings().source;
     this.settings.update((s) => ({ ...s, source }));
     this.afterSettingsChange();
-    if (this.running() && before !== source) void this.applySources();
+    if (!this.running() || before === source) return;
+    void this.applySources();
+    if (source === 'video') {
+      this.micMedia?.getTracks().forEach((t) => t.stop());
+      this.micMedia = null;
+      this.mixer?.setMicrophone(null);
+    } else if (before === 'video') {
+      void this.openMicrophone();
+    }
+  }
+
+  // ------------------------------------------------------------------ video file source
+
+  /**
+   * Chooses an existing video to run through the studio: its faces become characters, its
+   * people can be cut out or replaced exactly as on camera, and "Process whole video" saves
+   * the result. The file is read locally by the browser; nothing is uploaded.
+   */
+  pickVideo(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('video/')) {
+      this.error.set('That isn\'t a video file.');
+      return;
+    }
+
+    this.cancelProcessing();
+    this.detachVideoFile();
+    if (this.videoUrl) URL.revokeObjectURL(this.videoUrl);
+    this.videoUrl = URL.createObjectURL(file);
+    this.videoName.set(file.name);
+    this.videoTime.set(0);
+    this.videoDuration.set(0);
+
+    if (this.settings().source !== 'video') this.setSource('video');
+    else if (this.running()) void this.applySources();
+  }
+
+  toggleVideoPlay(): void {
+    const v = this.fileVideo;
+    if (!v) return;
+    if (v.paused) void v.play();
+    else v.pause();
+  }
+
+  seekVideo(seconds: number): void {
+    if (this.fileVideo && Number.isFinite(seconds)) this.fileVideo.currentTime = seconds;
+  }
+
+  setVideoLoop(loop: boolean): void {
+    this.videoLoop.set(loop);
+    if (this.fileVideo) this.fileVideo.loop = loop && !this.processing();
+  }
+
+  /**
+   * Plays the video once from the start while recording the program - characters, masks,
+   * background and overlays included - and saves it when the video ends. Runs in real time.
+   */
+  async processVideo(): Promise<void> {
+    const v = this.fileVideo;
+    if (!v || !this.running() || this.recording()) return;
+    if (!this.format) {
+      this.error.set('This browser can\'t record video. Use Chrome or Edge.');
+      return;
+    }
+
+    v.pause();
+    v.loop = false;
+    v.currentTime = 0;
+    await new Promise<void>((resolve) => v.addEventListener('seeked', () => resolve(), { once: true }));
+    this.tracker.reset();
+    this.smoother.reset();
+
+    const base = (this.videoName() ?? 'video').replace(/\.[^.]+$/, '').replace(/[^\w.-]+/g, '-').slice(0, 60);
+    this.processing.set(true);
+    this.startLocalRecording(`${base}-characters`);
+    v.addEventListener('ended', this.onProcessedEnd, { once: true });
+    await v.play();
+  }
+
+  /** Stops processing early; what was recorded so far is still saved. */
+  cancelProcessing(): void {
+    if (!this.processing()) return;
+    this.fileVideo?.removeEventListener('ended', this.onProcessedEnd);
+    this.fileVideo?.pause();
+    this.onProcessedEnd();
+  }
+
+  private readonly onProcessedEnd = () => {
+    this.stopLocalRecording();
+    this.processing.set(false);
+    if (this.fileVideo) this.fileVideo.loop = this.videoLoop();
+    this.notice.set('Processed video saved to your downloads.');
+  };
+
+  /** Builds the playing element for the chosen file - a fresh one per studio run, as an element binds to one audio context for good. */
+  private attachVideoFile(): void {
+    if (!this.videoUrl || !this.mixer) return;
+    if (this.fileVideo && this.fileVideoMixer === this.mixer) return;
+
+    this.detachVideoFile();
+    const video = document.createElement('video');
+    video.src = this.videoUrl;
+    video.playsInline = true;
+    video.preload = 'auto';
+    video.loop = this.videoLoop();
+    video.addEventListener('loadedmetadata', () => this.videoDuration.set(Number.isFinite(video.duration) ? video.duration : 0));
+    video.addEventListener('play', () => this.videoPlaying.set(true));
+    video.addEventListener('pause', () => this.videoPlaying.set(false));
+    video.addEventListener('error', () => this.error.set('This video can\'t be played in the browser. Try an MP4 (H.264) or WebM file.'));
+    this.mixer.setMediaElement(video);
+    this.fileVideo = video;
+    this.fileVideoMixer = this.mixer;
+    this.tracker.reset();
+    void video.play().catch(() => undefined);
+  }
+
+  private detachVideoFile(): void {
+    if (!this.fileVideo) return;
+    this.fileVideo.pause();
+    if (this.fileVideoMixer === this.mixer) this.mixer?.setMediaElement(null);
+    this.fileVideo.removeAttribute('src');
+    this.fileVideo.load();
+    if (this.cameraVideo === this.fileVideo) this.cameraVideo = null;
+    this.fileVideo = null;
+    this.fileVideoMixer = null;
+    this.videoPlaying.set(false);
   }
 
   resetSettings(): void {
@@ -331,7 +486,59 @@ export class LiveCameraComponent {
     if (this.motionWanted() && this.running() && this.motionState() === 'idle') void this.loadMotion();
     if (this.vision.motionState === 'ready') void this.vision.configureMotion(s.identity.maxFaces);
     this.ensureAudiencePolling();
+    void this.ensureSupportCard();
     this.scheduleRemember();
+  }
+
+  /** Loads the chosen brand channel's card when it is switched on or the channel changes. */
+  private async ensureSupportCard(force = false): Promise<void> {
+    const b = this.settings().brand;
+    const key = b.card ? b.cardChannel : '';
+    if (!force && key === this.supportCardKey) return;
+    this.supportCardKey = key;
+    if (!key) {
+      this.supportArt?.qr?.close();
+      this.supportArt = null;
+      this.supportCardState.set('off');
+      return;
+    }
+
+    this.supportCardState.set('loading');
+    const channel = key === 'default' ? null : key;
+    try {
+      const outro = await firstValueFrom(this.api.getGlobalOutro(channel));
+      let qr: ImageBitmap | null = null;
+      if (outro?.qrAssetId) {
+        const blob = await firstValueFrom(this.http.get(`${this.api.globalOutroQrUrl(channel)}&v=${encodeURIComponent(outro.qrAssetId)}`, { responseType: 'blob' }));
+        qr = await createImageBitmap(blob);
+      }
+      if (this.supportCardKey !== key) { qr?.close(); return; } // switched again while loading
+
+      this.supportArt?.qr?.close();
+      this.supportArt = {
+        qr,
+        headline: outro?.headline ?? '',
+        subtext: outro?.subtext ?? '',
+        headlineSecondary: outro?.headlineSecondary ?? '',
+        subtextSecondary: outro?.subtextSecondary ?? '',
+        background: /^#[0-9a-f]{6}$/i.test(outro?.backgroundHex ?? '') ? outro!.backgroundHex! : '#0f172a',
+        text: /^#[0-9a-f]{6}$/i.test(outro?.textHex ?? '') ? outro!.textHex! : '#ffffff',
+      };
+      this.supportCardState.set(qr || outro?.headline ? 'ready' : 'missing');
+    } catch {
+      if (this.supportCardKey === key) this.supportCardState.set('failed');
+    }
+  }
+
+  /** Re-reads the channel's card, after it was changed under Settings → End card. */
+  reloadSupportCard(): void {
+    void this.ensureSupportCard(true);
+  }
+
+  /** Puts the card up now for its usual length, whatever its schedule. */
+  showSupportCardNow(): void {
+    if (!this.settings().brand.card) this.patch('brand', { card: true });
+    this.supportCardUntil = Date.now() + this.settings().brand.cardShowSeconds * 1000;
   }
 
   /** Hides faces again instantly - the one switch that is always one press away (F). */
@@ -369,7 +576,8 @@ export class LiveCameraComponent {
       this.compositor = new Compositor(canvas);
       this.sizeProgram();
 
-      await this.openMicrophone();
+      // Processing a video file uses its own soundtrack; the microphone isn't needed.
+      if (this.settings().source !== 'video') await this.openMicrophone();
       await this.applySources();
       this.mixer.apply(this.settings().voice);
 
@@ -395,7 +603,9 @@ export class LiveCameraComponent {
   async stopStudio(): Promise<void> {
     if (this.onAir() && !confirm('You\'re live. Stopping the studio ends the stream. Continue?')) return;
     await this.endStream(false);
+    this.cancelProcessing();
     this.stopLocalRecording();
+    this.detachVideoFile();
     this.clock?.stop();
     this.clock = null;
     for (const media of [this.cameraMedia, this.micMedia, this.screenMedia]) media?.getTracks().forEach((t) => t.stop());
@@ -456,13 +666,21 @@ export class LiveCameraComponent {
   /** Opens or closes the camera and the screen to match the chosen source. */
   private async applySources(reopenCamera = false): Promise<void> {
     const source = this.settings().source;
-    const wantCamera = source !== 'screen';
-    const wantScreen = source !== 'camera';
+    const wantCamera = source === 'camera' || source === 'screen-camera';
+    const wantScreen = source === 'screen' || source === 'screen-camera';
 
     if (!wantCamera || reopenCamera) {
       this.cameraMedia?.getTracks().forEach((t) => t.stop());
       this.cameraMedia = null;
       this.cameraVideo = null;
+    }
+
+    // A video file stands in for the camera: the same face, body and character pipeline runs on it.
+    if (source === 'video') {
+      this.attachVideoFile();
+      this.cameraVideo = this.fileVideo;
+    } else {
+      this.detachVideoFile();
     }
     if (wantCamera && !this.cameraMedia) {
       const frame = this.frameSize();
@@ -638,7 +856,7 @@ export class LiveCameraComponent {
       : { curtain: false, reason: null };
 
     this.compositor.render({
-      settings: s,
+      settings: this.programSettings(),
       scene: this.scene(),
       camera: cameraUsed ? this.cameraVideo : null,
       screen: this.screenVideo,
@@ -654,6 +872,8 @@ export class LiveCameraComponent {
       subscribersHidden: this.subscribersHidden(),
       viewers: this.viewers(),
       countdownEnds: this.countdownEnds,
+      supportCard: this.supportArt,
+      supportCardUntil: this.supportCardUntil,
       now: Date.now(),
     });
 
@@ -675,6 +895,7 @@ export class LiveCameraComponent {
       this.handReadout.set(this.handLabels);
       this.heldGestures.set(this.held.map((h) => ({ ...this.gestureInfo(h.id), progress: h.progress })));
       this.qrFailed.set(this.compositor.qrFailed);
+      if (this.fileVideo) this.videoTime.set(this.fileVideo.currentTime);
       this.advanceTeaching(now);
     }
   }
@@ -1026,8 +1247,11 @@ export class LiveCameraComponent {
         hint: 'Sit in front of the camera and check the preview shows your character.',
       });
     }
-    if (s.source !== 'camera') {
+    if (s.source === 'screen' || s.source === 'screen-camera') {
       checks.push({ label: 'Screen shared', ok: this.screenShared(), blocking: s.source === 'screen', hint: 'Press "Share screen".' });
+    }
+    if (s.source === 'video') {
+      checks.push({ label: 'Video file chosen', ok: !!this.videoName(), blocking: true, hint: 'Press "Choose video" under Source.' });
     }
     if (s.overlays.subscribers || s.overlays.viewers) {
       checks.push({
@@ -1048,7 +1272,9 @@ export class LiveCameraComponent {
     if (s.brand.qr) {
       checks.push({ label: 'QR code fits', ok: !!s.brand.qrText && !this.qrFailed(), blocking: false, hint: 'Enter a link or text short enough for a QR code.' });
     }
-    checks.push({ label: 'Microphone connected', ok: !!this.micMedia || s.voice.muted, blocking: false, hint: 'The stream will go out silent.' });
+    if (s.source !== 'video') {
+      checks.push({ label: 'Microphone connected', ok: !!this.micMedia || s.voice.muted, blocking: false, hint: 'The stream will go out silent.' });
+    }
     return checks;
   }
 
@@ -1393,14 +1619,14 @@ export class LiveCameraComponent {
   }
 
   /** Saves exactly what viewers see - masked - to a file on this machine. Useful for rehearsals. */
-  private startLocalRecording(): void {
+  private startLocalRecording(name = 'camera-studio'): void {
     if (!this.programMedia || !this.format) return;
     this.localChunks = [];
     const recorder = new MediaRecorder(this.programMedia, { mimeType: this.format.mimeType, videoBitsPerSecond: 6_000_000 });
     recorder.ondataavailable = (e) => e.data.size && this.localChunks.push(e.data);
     recorder.onstop = () => {
       const extension = this.format!.container === 'Mp4' ? 'mp4' : 'webm';
-      this.download(new Blob(this.localChunks, { type: this.format!.mimeType }), `camera-studio-${this.stamp()}.${extension}`);
+      this.download(new Blob(this.localChunks, { type: this.format!.mimeType }), `${name}-${this.stamp()}.${extension}`);
       this.localChunks = [];
     };
     recorder.start(1000);
@@ -1519,5 +1745,9 @@ export class LiveCameraComponent {
     await this.stopStudio();
     this.vision.close();
     this.backgroundImage?.close();
+    this.supportArt?.qr?.close();
+    this.supportArt = null;
+    if (this.videoUrl) URL.revokeObjectURL(this.videoUrl);
+    this.videoUrl = null;
   }
 }

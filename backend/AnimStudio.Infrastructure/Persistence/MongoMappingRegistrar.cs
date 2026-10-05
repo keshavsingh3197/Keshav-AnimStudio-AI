@@ -8,6 +8,7 @@ using AnimStudio.Domain.Projects;
 using AnimStudio.Domain.Publishing;
 using AnimStudio.Domain.Scenes;
 using AnimStudio.Domain.Scripts;
+using AnimStudio.Domain.System;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
 using MongoDB.Bson.Serialization.Conventions;
@@ -76,6 +77,9 @@ public static class MongoMappingRegistrar
 
             // "{userId}:{channelId}" - one connection per user per channel.
             MapWithLiteralId<YouTubeChannelConnection>();
+
+            // The configuration path, e.g. "Render:Crf" - one value per key.
+            MapWithLiteralId<WebSetting>();
         }
     }
 

@@ -206,3 +206,9 @@ kbd {
 }
 .cs-gesture-fired { color: var(--brand); }
 .cs-gesture-teach { font-weight: 600; }
+
+/* Video file as the source */
+.cs-video { display: grid; gap: .5rem; margin-top: .5rem; }
+.cs-file { display: inline-flex; align-items: center; justify-content: center; cursor: pointer; border-radius: 8px;
+  border: 1px solid var(--border, rgba(148, 163, 184, .3)); width: fit-content; }
+.cs-video .cs-note { overflow-wrap: anywhere; }

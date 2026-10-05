@@ -1,4 +1,5 @@
 using System.Text;
+using AnimStudio.Domain.Publishing;
 
 namespace AnimStudio.Application.Publishing;
 
@@ -143,6 +144,70 @@ public static class YouTubePublishValidator
             new NormalizedYouTubeMetadata(title, description, tags, categoryId, privacy, input.MadeForKids!.Value, input.NotifySubscribers),
             errors, warnings);
     }
+
+    /// <summary>
+    /// A brand channel's publishing defaults, checked with the same rules as an upload. The
+    /// footer is held to half the description budget, so a video's own text still fits.
+    /// </summary>
+    public static (ChannelPublishSettings? Settings, IReadOnlyList<YouTubeCheck> Errors) NormalizeChannelDefaults(
+        ChannelPublishSettings? input)
+    {
+        var errors = new List<YouTubeCheck>();
+        if (input is null)
+        {
+            errors.Add(new("publishing", "publishing-missing", "Publishing settings are required."));
+            return (null, errors);
+        }
+
+        var channelId = string.IsNullOrWhiteSpace(input.YouTubeChannelId) ? null : input.YouTubeChannelId.Trim();
+        if (channelId is not null && !IsYouTubeChannelId(channelId))
+            errors.Add(new("youTubeChannelId", "channel-invalid", "That isn't a YouTube channel id."));
+
+        var footer = Clean(input.DescriptionFooter, keepNewLines: true);
+        if (Encoding.UTF8.GetByteCount(footer) > MaxDescriptionBytes / 2)
+            errors.Add(new("descriptionFooter", "footer-too-long", $"The footer can be at most {MaxDescriptionBytes / 2} bytes."));
+        if (HasAngleBrackets(footer))
+            errors.Add(new("descriptionFooter", "description-invalid-character", "YouTube doesn't allow < or > in a description."));
+
+        var tags = NormalizeTags(input.Tags, errors);
+
+        var categoryId = (input.CategoryId ?? string.Empty).Trim();
+        if (!Categories.ContainsKey(categoryId))
+            errors.Add(new("categoryId", "category-invalid", "Choose a category from the list."));
+
+        var privacy = (input.Privacy ?? string.Empty).Trim().ToLowerInvariant();
+        if (!Privacies.Contains(privacy))
+            errors.Add(new("privacy", "privacy-invalid", "Visibility must be Public, Unlisted or Private."));
+
+        if (errors.Count > 0) return (null, errors);
+
+        var title = Clean(input.YouTubeChannelTitle);
+        return (new ChannelPublishSettings
+        {
+            YouTubeChannelId = channelId,
+            YouTubeChannelTitle = channelId is null || title.Length == 0 ? null : title[..Math.Min(title.Length, 200)],
+            Privacy = privacy,
+            CategoryId = categoryId,
+            MadeForKids = input.MadeForKids,
+            NotifySubscribers = input.NotifySubscribers,
+            Tags = tags,
+            DescriptionFooter = footer.Length == 0 ? null : footer
+        }, errors);
+    }
+
+    /// <summary>A video's description with the channel footer below it, if both fit together.</summary>
+    public static string WithFooter(string description, string? footer)
+    {
+        if (string.IsNullOrWhiteSpace(footer)) return description;
+        if (description.Contains(footer.Trim(), StringComparison.Ordinal)) return description;
+
+        var combined = string.IsNullOrWhiteSpace(description) ? footer.Trim() : $"{description.TrimEnd()}\n\n{footer.Trim()}";
+        return Encoding.UTF8.GetByteCount(combined) <= MaxDescriptionBytes ? combined : description;
+    }
+
+    public static bool IsYouTubeChannelId(string? value) =>
+        value is { Length: 24 } && value.StartsWith("UC", StringComparison.Ordinal)
+        && value.Skip(2).All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-');
 
     /// <summary>The file-only half, for the dialog to show before anything is typed.</summary>
     public static IReadOnlyList<YouTubeCheck> CheckVideo(YouTubeVideoFacts video, out IReadOnlyList<YouTubeCheck> warnings)

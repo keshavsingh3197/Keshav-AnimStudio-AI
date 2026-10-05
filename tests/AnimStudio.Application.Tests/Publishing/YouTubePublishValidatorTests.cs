@@ -159,6 +159,44 @@ public class YouTubePublishValidatorTests
     }
 
     [Fact]
+    public void Normalizes_a_brand_channels_publishing_defaults()
+    {
+        var (settings, errors) = YouTubePublishValidator.NormalizeChannelDefaults(new()
+        {
+            YouTubeChannelId = "UCabcdefghijklmnopqrstuv",
+            YouTubeChannelTitle = "Synthetic Channel",
+            Privacy = "Unlisted",
+            CategoryId = "15",
+            Tags = ["#Wildlife", "wildlife", "Kalahari"],
+            DescriptionFooter = "Support us: https://example.com/support"
+        });
+
+        Assert.Empty(errors);
+        Assert.Equal("unlisted", settings!.Privacy);
+        Assert.Equal(["Wildlife", "Kalahari"], settings.Tags);
+    }
+
+    [Theory]
+    [InlineData("not-a-channel")]
+    [InlineData("UCshort")]
+    public void Refuses_a_malformed_youtube_channel_id(string channelId)
+    {
+        var (_, errors) = YouTubePublishValidator.NormalizeChannelDefaults(new() { YouTubeChannelId = channelId });
+
+        Assert.Contains(errors, e => e.Code == "channel-invalid");
+    }
+
+    [Fact]
+    public void Appends_the_footer_once_and_only_if_it_fits()
+    {
+        Assert.Equal("Story\n\nFooter", YouTubePublishValidator.WithFooter("Story", "Footer"));
+        Assert.Equal("Story\n\nFooter", YouTubePublishValidator.WithFooter("Story\n\nFooter", "Footer"));
+
+        var full = new string('a', 4990);
+        Assert.Equal(full, YouTubePublishValidator.WithFooter(full, "A footer that would not fit"));
+    }
+
+    [Fact]
     public void A_short_vertical_video_has_no_warnings()
     {
         var vertical = new YouTubeVideoFacts(true, true, 10_000_000, 45, 1080, 1920);

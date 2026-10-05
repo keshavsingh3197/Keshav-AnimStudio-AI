@@ -114,6 +114,7 @@ const MAX_CHANNELS = 1000;
             <div class="ch-actions">
               <a class="btn-outline" routerLink="/admin/branding/watermark" [queryParams]="linkParams(c)">Watermark</a>
               <a class="btn-outline" routerLink="/admin/branding/end-card" [queryParams]="linkParams(c)">End card</a>
+              <a class="btn-outline" routerLink="/admin/branding/publishing" [queryParams]="linkParams(c)">▶ Publishing</a>
               @if (liveSetup()?.destinations?.length) {
                 <button type="button" class="btn-outline" [class.warn]="keySummary(c).state === 'Rejected'"
                         (click)="toggleKeys(c)" [attr.aria-expanded]="editingKeys() === c.id">🔑 Stream key</button>

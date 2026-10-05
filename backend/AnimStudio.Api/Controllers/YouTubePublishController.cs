@@ -30,6 +30,7 @@ public sealed partial class YouTubePublishController(
     YouTubeOAuthClient oauth,
     IRenderJobRepository jobs,
     IProjectRepository projects,
+    IAiSettingsRepository settingsRepo,
     ICurrentUser currentUser,
     AdminAuditService audit,
     ILogger<YouTubePublishController> logger) : ControllerBase
@@ -110,13 +111,22 @@ public sealed partial class YouTubePublishController(
         var facts = Facts(job);
         var errors = YouTubePublishValidator.CheckVideo(facts, out var warnings);
 
+        // The project's brand channel decides where it goes and what every upload starts with.
+        var brandChannelId = project?.Settings.BrandChannelId;
+        var brandSettings = await settingsRepo.GetAsync(ct);
+        var defaults = brandSettings?.PublishingFor(brandChannelId);
+        var brandName = brandSettings?.FindChannel(brandChannelId)?.Name ?? brandSettings?.DefaultChannelName ?? "Default";
+
         return Ok(ApiResponse<YouTubeDraftResponse>.Ok(new YouTubeDraftResponse(
             title,
-            description.Trim(),
-            [],
-            "1",
-            "public",
-            false,
+            YouTubePublishValidator.WithFooter(description.Trim(), defaults?.DescriptionFooter),
+            defaults?.Tags ?? [],
+            defaults?.CategoryId ?? "1",
+            defaults?.Privacy ?? "public",
+            defaults?.MadeForKids ?? false,
+            defaults?.NotifySubscribers ?? true,
+            defaults?.YouTubeChannelId,
+            brandName,
             new YouTubeVideoFactsResponse(facts.DurationSeconds, facts.SizeBytes, facts.Width, facts.Height, facts.IsVertical),
             errors,
             warnings)));
@@ -255,6 +265,10 @@ public sealed record YouTubeDraftResponse(
     string CategoryId,
     string Privacy,
     bool MadeForKids,
+    bool NotifySubscribers,
+    /// <summary>The YouTube channel the project's brand channel publishes to, if one is set up.</summary>
+    string? ChannelId,
+    string BrandChannelName,
     YouTubeVideoFactsResponse Video,
     IReadOnlyList<YouTubeCheck> Errors,
     IReadOnlyList<YouTubeCheck> Warnings);

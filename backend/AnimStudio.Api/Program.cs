@@ -3,6 +3,7 @@ using AnimStudio.Api.Common;
 using AnimStudio.Api.Security;
 using AnimStudio.Application.Security;
 using AnimStudio.Infrastructure;
+using AnimStudio.Infrastructure.Settings;
 using AnimStudio.Infrastructure.Storage;
 using KeshavSingh.Core;
 using Microsoft.AspNetCore.Mvc;
@@ -17,6 +18,13 @@ builder.Services.AddSingleton(dataPaths);
 
 // Rolling logs under <DataRoot>/logs - one file per day.
 builder.Logging.AddProvider(new DailyFileLoggerProvider(dataPaths.Logs, "animstudio"));
+
+// Settings changed in the admin console live in the WebSettings table. This source goes
+// last, so a stored value wins over appsettings.json and the environment; it is filled from
+// the database just before the app starts (below) and on every save or refresh.
+var webSettings = new WebSettingsConfigurationSource();
+((IConfigurationBuilder)builder.Configuration).Add(webSettings);
+builder.Services.AddSingleton(webSettings);
 
 builder.Services.AddAnimStudioInfrastructure(builder.Configuration);
 
@@ -66,6 +74,9 @@ builder.Services.AddKeshavSsoCors(
     allowLocalhost: builder.Environment.IsDevelopment());
 
 var app = builder.Build();
+
+// Before any hosted service starts and reads its options.
+await WebSettingsService.LoadAtStartupAsync(app.Services, CancellationToken.None);
 
 app.UseExceptionHandler();
 

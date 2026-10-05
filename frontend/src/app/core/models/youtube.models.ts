@@ -48,6 +48,10 @@ export interface YouTubeDraft {
   categoryId: string;
   privacy: YouTubePrivacy;
   madeForKids: boolean;
+  notifySubscribers: boolean;
+  /** The YouTube channel the project's brand channel publishes to, if set up. */
+  channelId?: string;
+  brandChannelName: string;
   video: {
     durationSeconds?: number;
     sizeBytes?: number;

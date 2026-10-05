@@ -98,6 +98,102 @@ export function drawQrCard(c: Ctx, sprite: HTMLCanvasElement, x: number, y: numb
   c.restore();
 }
 
+/** A brand channel's support card, loaded from its end-card settings. */
+export interface SupportCardArt {
+  qr: ImageBitmap | null;
+  headline: string;
+  subtext: string;
+  headlineSecondary: string;
+  subtextSecondary: string;
+  background: string;
+  text: string;
+}
+
+/** Card width for a given height: portrait, like the channel's end card. */
+export function supportCardWidth(height: number): number {
+  return Math.round(height * 0.74);
+}
+
+/**
+ * The channel's support card: headline lines, the uploaded QR on a white square with a quiet
+ * zone (so it scans on any background), and the small text under it. `alpha` fades it in and out.
+ */
+export function drawSupportCard(
+  c: Ctx, art: SupportCardArt, x: number, y: number, height: number,
+  lines: 'primary' | 'secondary' | 'both', alpha: number,
+): void {
+  const w = supportCardWidth(height);
+  const pad = w * 0.07;
+  const pick = (primary: string, secondary: string) =>
+    (lines === 'primary' ? [primary] : lines === 'secondary' ? [secondary || primary] : [primary, secondary])
+      .map((s) => s.trim()).filter(Boolean);
+  const top = pick(art.headline, art.headlineSecondary);
+  const bottom = pick(art.subtext, art.subtextSecondary);
+
+  c.save();
+  c.globalAlpha = alpha;
+  c.shadowColor = 'rgba(0,0,0,.4)';
+  c.shadowBlur = height * 0.05;
+  c.fillStyle = art.background;
+  c.beginPath();
+  c.roundRect(x, y, w, height, w * 0.07);
+  c.fill();
+  c.shadowBlur = 0;
+
+  c.fillStyle = art.text;
+  c.textAlign = 'center';
+  c.textBaseline = 'top';
+  const lineH = height * 0.062;
+  let ty = y + pad * 0.8;
+  for (const [i, line] of top.entries()) {
+    c.font = `${i === 0 ? 800 : 600} ${Math.round(lineH * (i === 0 ? 0.95 : 0.8))}px system-ui, 'Nirmala UI', sans-serif`;
+    for (const part of wrap(c, line, w - pad * 2, 2)) {
+      c.fillText(part, x + w / 2, ty, w - pad * 2);
+      ty += lineH * 1.1;
+    }
+  }
+
+  const bottomH = bottom.length * lineH * 1.05 + pad * 0.6;
+  const qrSide = Math.max(0, Math.min(w - pad * 2, y + height - bottomH - ty - pad * 0.5));
+  const qx = x + (w - qrSide) / 2;
+  const qy = ty + pad * 0.3;
+  c.fillStyle = '#ffffff';
+  c.beginPath();
+  c.roundRect(qx, qy, qrSide, qrSide, qrSide * 0.05);
+  c.fill();
+  if (art.qr && qrSide > 0) {
+    const quiet = qrSide * 0.07;
+    const inner = qrSide - quiet * 2;
+    const scale = Math.min(inner / art.qr.width, inner / art.qr.height);
+    const dw = art.qr.width * scale;
+    const dh = art.qr.height * scale;
+    c.drawImage(art.qr, qx + (qrSide - dw) / 2, qy + (qrSide - dh) / 2, dw, dh);
+  }
+
+  c.fillStyle = art.text;
+  let by = qy + qrSide + pad * 0.4;
+  for (const line of bottom) {
+    c.font = `600 ${Math.round(lineH * 0.72)}px system-ui, 'Nirmala UI', sans-serif`;
+    c.fillText(line, x + w / 2, by, w - pad * 2);
+    by += lineH * 1.05;
+  }
+  c.restore();
+}
+
+/** Word-wraps to at most `max` lines; the last one is squeezed by fillText's maxWidth if needed. */
+function wrap(c: Ctx, text: string, width: number, max: number): string[] {
+  const lines: string[] = [];
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    const last = lines.length - 1;
+    if (last >= 0 && (lines.length === max || c.measureText(`${lines[last]} ${word}`).width <= width)) {
+      lines[last] = `${lines[last]} ${word}`;
+    } else {
+      lines.push(word);
+    }
+  }
+  return lines;
+}
+
 const FINISH: Record<Exclude<SealFinish, 'accent'>, [string, string, string]> = {
   gold: ['#fff1b8', '#e0a526', '#8a5a07'],
   silver: ['#ffffff', '#b9c2cf', '#5d6676'],

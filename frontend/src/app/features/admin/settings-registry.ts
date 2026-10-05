@@ -39,6 +39,11 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
     keywords: ['outro', 'bumper', 'end screen', 'qr', 'support', 'headline', 'language', 'hindi', 'transition', 'card'],
   },
   {
+    id: 'publishing', group: 'Branding', label: 'YouTube publishing', icon: '▶️', route: 'branding/publishing',
+    description: 'Which YouTube channel each brand channel uploads to, and its default visibility, tags and description footer.',
+    keywords: ['youtube', 'publish', 'upload', 'privacy', 'visibility', 'category', 'tags', 'footer', 'kids', 'connect', 'oauth'],
+  },
+  {
     id: 'storage', group: 'Media', label: 'Storage', icon: '💾', route: 'storage',
     description: 'Space used by media and renders, by folder, and the storage quota.',
     keywords: ['disk', 'space', 'quota', 'gb', 'folder', 'usage', 'size', 'free'],
@@ -57,6 +62,11 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
     id: 'usage', group: 'AI', label: 'AI usage', icon: '📊', route: 'usage',
     description: 'Requests and spend per provider over recent days.',
     keywords: ['cost', 'tokens', 'limit', 'quota', 'requests', 'daily'],
+  },
+  {
+    id: 'app-settings', group: 'System', label: 'Application settings', icon: '⚙️', route: 'settings',
+    description: 'Render quality, timeouts, import limits, streaming and YouTube options - stored in the database, applied without a deploy.',
+    keywords: ['config', 'configuration', 'appsettings', 'websettings', 'refresh', 'reload', 'crf', 'preset', 'fps', 'timeout', 'limit', 'restart', 'yt-dlp', 'client id', 'redirect'],
   },
   {
     id: 'health', group: 'System', label: 'This machine', icon: '🖥️', route: 'health',

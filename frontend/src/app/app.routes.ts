@@ -181,6 +181,20 @@ export const routes: Routes = [
             .then((m) => m.AdminBrandingComponent),
       },
       {
+        path: 'branding/publishing',
+        title: 'YouTube publishing - AnimStudio AI',
+        loadComponent: () =>
+          import('./features/admin/admin-publishing.component')
+            .then((m) => m.AdminPublishingComponent),
+      },
+      {
+        path: 'settings',
+        title: 'Application settings - AnimStudio AI',
+        loadComponent: () =>
+          import('./features/admin/admin-settings.component')
+            .then((m) => m.AdminSettingsComponent),
+      },
+      {
         path: 'media/chunking',
         title: 'Video chunking - AnimStudio AI',
         data: { section: 'chunking' },

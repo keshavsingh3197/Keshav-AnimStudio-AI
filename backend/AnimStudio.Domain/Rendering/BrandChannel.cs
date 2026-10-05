@@ -1,3 +1,5 @@
+using AnimStudio.Domain.Publishing;
+
 namespace AnimStudio.Domain.Rendering;
 
 /// <summary>
@@ -25,6 +27,9 @@ public sealed class BrandChannel
     public string Name { get; set; } = string.Empty;
     public WatermarkSettings Watermark { get; set; } = new();
     public OutroSettings Outro { get; set; } = new();
+
+    /// <summary>Where and how this channel's videos are published to YouTube. Null until set up.</summary>
+    public ChannelPublishSettings? Publishing { get; set; }
 
     /// <summary>Null, blank and "default" all mean the built-in channel.</summary>
     public static bool IsDefault(string? id) =>
