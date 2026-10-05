@@ -16,11 +16,16 @@ export interface FaceObservation {
   roll: number;
   /** -1 (turned to its left) to 1 (turned to its right). */
   yaw: number;
+  /** Nose height below the eyes as a share of the face's height; changes with a nod. */
+  pitch: number;
   mouthOpen: number;
   blinkLeft: number;
   blinkRight: number;
   smile: number;
   browUp: number;
+  /** Where the eyes look, -1 to 1, in picture directions: positive is toward the right and down. */
+  lookX: number;
+  lookY: number;
 }
 
 export interface TrackedFace extends FaceObservation {
@@ -106,11 +111,14 @@ function smooth(previous: TrackedFace, obs: FaceObservation, now: number): Track
     h: Math.max(obs.h, p(previous.h, obs.h)),
     roll: p(previous.roll, obs.roll),
     yaw: p(previous.yaw, obs.yaw),
+    pitch: p(previous.pitch, obs.pitch),
     mouthOpen: e(previous.mouthOpen, obs.mouthOpen),
     blinkLeft: e(previous.blinkLeft, obs.blinkLeft),
     blinkRight: e(previous.blinkRight, obs.blinkRight),
     smile: e(previous.smile, obs.smile),
     browUp: e(previous.browUp, obs.browUp),
+    lookX: e(previous.lookX, obs.lookX),
+    lookY: e(previous.lookY, obs.lookY),
     visible: true,
     lastSeen: now,
   };

@@ -470,6 +470,7 @@ public sealed record MusicDuckWindowRequest
 /// </summary>
 public sealed record ClipMergeRequest
 {
+    [MaxLength(200)]
     public string? ExportName { get; init; }
     [Required, MinLength(1), MaxLength(ClipMergeSpec.MaxClips)]
     public List<string> AssetIds { get; init; } = [];

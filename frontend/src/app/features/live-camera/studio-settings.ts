@@ -5,6 +5,9 @@
  * which keeps only known values.
  */
 
+import { CharacterDesign, defaultDesign, sanitizeDesign } from './character-designer';
+import { GESTURE_ACTION_IDS, GESTURE_IDS, GestureBindings, defaultBindings } from './gestures';
+
 export type SourceMode = 'camera' | 'screen' | 'screen-camera';
 export type PipCorner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 export type FaceMaskStyle = 'character' | 'pixelate' | 'blur' | 'emoji' | 'block' | 'none';
@@ -14,9 +17,20 @@ export type VoiceEffect = 'off' | 'deep' | 'high' | 'robot' | 'radio' | 'alien';
 export type SceneId = 'camera' | 'starting' | 'brb' | 'ending' | 'privacy';
 export type OverlayCorner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 export type LookFilter = 'none' | 'warm' | 'cool' | 'mono' | 'vintage' | 'vivid' | 'noir';
+/** The body puppet: off, drawn over the camera picture, or replacing the person entirely. */
+export type AvatarBody = 'off' | 'overlay' | 'replace';
+export type SealFinish = 'gold' | 'silver' | 'rose' | 'accent';
+/** The corner mascot either idles and reacts, or copies the presenter's every move. */
+export type MascotMode = 'idle' | 'mirror';
 
 /** Built-in characters, drawn in code so they need no image files. */
 export const BUILT_IN_CHARACTERS = [
+  // The 3D-look characters: lit and shaded, and their heads turn and nod with yours.
+  { id: 'hero', name: 'Hero (3D)', icon: '🧑' },
+  { id: 'star', name: 'Pop star (3D)', icon: '👩‍🎤' },
+  { id: 'grandpa', name: 'Grandpa (3D)', icon: '👴' },
+  { id: 'kid', name: 'Kid (3D)', icon: '🧒' },
+  { id: 'cyborg', name: 'Chrome bot (3D)', icon: '🦾' },
   { id: 'robot', name: 'Robot', icon: '🤖' },
   { id: 'cat', name: 'Cat', icon: '🐱' },
   { id: 'fox', name: 'Fox', icon: '🦊' },
@@ -140,6 +154,59 @@ export interface SceneSettings {
   countdownMinutes: number;
 }
 
+export interface AvatarSettings {
+  body: AvatarBody;
+  /** Pose the character's fingers from hand tracking (thumbs-up, peace sign...). */
+  fingers: boolean;
+  /** Draw legs when the knees are in frame. */
+  legs: boolean;
+  /** Limb thickness, 0.6-1.6. */
+  thickness: number;
+}
+
+export interface GestureSettings {
+  enabled: boolean;
+  hands: boolean;
+  /** Eye and face gestures: winks, raised brows, nods... */
+  face: boolean;
+  /** How long a sign must be held before it counts. */
+  holdMs: number;
+  /** The least time between two firings of the same gesture. */
+  cooldownMs: number;
+  bindings: GestureBindings;
+  /** Names for the three signs the presenter can teach. */
+  signNames: string[];
+}
+
+export interface BrandSettings {
+  qr: boolean;
+  /** A link (http, https, mailto, tel, sms, upi, geo) or plain text. */
+  qrText: string;
+  qrCaption: string;
+  qrCorner: OverlayCorner;
+  /** Height of the QR card, as a share of the frame's height. */
+  qrSize: number;
+  qrDark: string;
+  qrLight: string;
+  seal: boolean;
+  sealTop: string;
+  sealBottom: string;
+  /** The big mark in the middle: a few letters, digits or one emoji. */
+  sealCenter: string;
+  sealSerial: string;
+  sealDate: boolean;
+  sealFinish: SealFinish;
+  sealCorner: OverlayCorner;
+  sealSize: number;
+  mascot: boolean;
+  mascotCharacter: CharacterRef;
+  mascotMode: MascotMode;
+  /** The mascot acts out each gesture reaction. */
+  mascotReacts: boolean;
+  mascotCorner: OverlayCorner;
+  mascotSize: number;
+}
+
 export interface StudioSettings {
   version: 1;
   source: SourceMode;
@@ -148,6 +215,10 @@ export interface StudioSettings {
   picture: PictureSettings;
   overlays: OverlaySettings;
   scenes: SceneSettings;
+  avatar: AvatarSettings;
+  gestures: GestureSettings;
+  brand: BrandSettings;
+  designer: CharacterDesign;
 }
 
 export function defaultSettings(): StudioSettings {
@@ -230,6 +301,46 @@ export function defaultSettings(): StudioSettings {
       subtitle: '',
       countdownMinutes: 5,
     },
+    avatar: {
+      body: 'off',
+      fingers: true,
+      legs: true,
+      thickness: 1,
+    },
+    gestures: {
+      enabled: false,
+      hands: true,
+      face: true,
+      holdMs: 600,
+      cooldownMs: 2500,
+      bindings: defaultBindings(),
+      signNames: ['My sign 1', 'My sign 2', 'My sign 3'],
+    },
+    brand: {
+      qr: false,
+      qrText: '',
+      qrCaption: 'Scan me',
+      qrCorner: 'bottom-right',
+      qrSize: 0.24,
+      qrDark: '#111318',
+      qrLight: '#ffffff',
+      seal: false,
+      sealTop: 'ORIGINAL CONTENT',
+      sealBottom: 'CERTIFIED CREATOR',
+      sealCenter: '★',
+      sealSerial: '',
+      sealDate: true,
+      sealFinish: 'gold',
+      sealCorner: 'top-right',
+      sealSize: 0.2,
+      mascot: false,
+      mascotCharacter: 'custom',
+      mascotMode: 'idle',
+      mascotReacts: true,
+      mascotCorner: 'bottom-left',
+      mascotSize: 0.36,
+    },
+    designer: defaultDesign(),
   };
 }
 
@@ -242,7 +353,12 @@ const BODY: readonly BodyStyle[] = ['none', 'silhouette', 'blur', 'pixelate'];
 const BACKGROUND: readonly BackgroundStyle[] = ['none', 'blur', 'color', 'image', 'gradient'];
 const VOICE: readonly VoiceEffect[] = ['off', 'deep', 'high', 'robot', 'radio', 'alien'];
 const LOOKS: readonly LookFilter[] = ['none', 'warm', 'cool', 'mono', 'vintage', 'vivid', 'noir'];
+const AVATAR: readonly AvatarBody[] = ['off', 'overlay', 'replace'];
+const FINISHES: readonly SealFinish[] = ['gold', 'silver', 'rose', 'accent'];
+const MASCOT: readonly MascotMode[] = ['idle', 'mirror'];
 const COLOR = /^#[0-9a-f]{6}$/i;
+/** Link schemes a QR code may carry. Anything else that looks like a scheme is refused. */
+const QR_SCHEMES = ['http', 'https', 'mailto', 'tel', 'sms', 'upi', 'geo'];
 const CHARACTER = /^(?:[a-z]{2,16}|upload|project:[A-Za-z0-9_-]{1,64})$/;
 
 function pick<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
@@ -281,6 +397,11 @@ export function sanitizeSettings(raw: unknown): StudioSettings {
   const p = (r['picture'] ?? {}) as Record<string, unknown>;
   const o = (r['overlays'] ?? {}) as Record<string, unknown>;
   const s = (r['scenes'] ?? {}) as Record<string, unknown>;
+  const a = (r['avatar'] ?? {}) as Record<string, unknown>;
+  const g = (r['gestures'] ?? {}) as Record<string, unknown>;
+  const b = (r['brand'] ?? {}) as Record<string, unknown>;
+  const bindings = (g['bindings'] ?? {}) as Record<string, unknown>;
+  const signNames: unknown[] = Array.isArray(g['signNames']) ? g['signNames'] : [];
 
   return {
     version: 1,
@@ -362,7 +483,63 @@ export function sanitizeSettings(raw: unknown): StudioSettings {
       subtitle: text(s['subtitle'], 120, d.scenes.subtitle),
       countdownMinutes: Math.round(num(s['countdownMinutes'], 0, 120, d.scenes.countdownMinutes)),
     },
+    avatar: {
+      body: pick(a['body'], AVATAR, d.avatar.body),
+      fingers: bool(a['fingers'], d.avatar.fingers),
+      legs: bool(a['legs'], d.avatar.legs),
+      thickness: num(a['thickness'], 0.6, 1.6, d.avatar.thickness),
+    },
+    gestures: {
+      enabled: bool(g['enabled'], d.gestures.enabled),
+      hands: bool(g['hands'], d.gestures.hands),
+      face: bool(g['face'], d.gestures.face),
+      holdMs: num(g['holdMs'], 200, 2000, d.gestures.holdMs),
+      cooldownMs: num(g['cooldownMs'], 500, 10_000, d.gestures.cooldownMs),
+      bindings: Object.fromEntries(GESTURE_IDS.map((id) => [id, pick(bindings[id], GESTURE_ACTION_IDS, d.gestures.bindings[id])])) as GestureBindings,
+      signNames: d.gestures.signNames.map((fallback, i) => text(signNames[i], 20, fallback) || fallback),
+    },
+    brand: {
+      qr: bool(b['qr'], d.brand.qr),
+      qrText: qrText(b['qrText'], d.brand.qrText),
+      qrCaption: text(b['qrCaption'], 40, d.brand.qrCaption),
+      qrCorner: pick(b['qrCorner'], CORNERS, d.brand.qrCorner),
+      qrSize: num(b['qrSize'], 0.12, 0.45, d.brand.qrSize),
+      qrDark: color(b['qrDark'], d.brand.qrDark),
+      qrLight: color(b['qrLight'], d.brand.qrLight),
+      seal: bool(b['seal'], d.brand.seal),
+      sealTop: text(b['sealTop'], 28, d.brand.sealTop),
+      sealBottom: text(b['sealBottom'], 28, d.brand.sealBottom),
+      sealCenter: text(b['sealCenter'], 6, d.brand.sealCenter),
+      sealSerial: text(b['sealSerial'], 24, d.brand.sealSerial),
+      sealDate: bool(b['sealDate'], d.brand.sealDate),
+      sealFinish: pick(b['sealFinish'], FINISHES, d.brand.sealFinish),
+      sealCorner: pick(b['sealCorner'], CORNERS, d.brand.sealCorner),
+      sealSize: num(b['sealSize'], 0.1, 0.4, d.brand.sealSize),
+      mascot: bool(b['mascot'], d.brand.mascot),
+      mascotCharacter: typeof b['mascotCharacter'] === 'string' && CHARACTER.test(b['mascotCharacter']) ? b['mascotCharacter'] : d.brand.mascotCharacter,
+      mascotMode: pick(b['mascotMode'], MASCOT, d.brand.mascotMode),
+      mascotReacts: bool(b['mascotReacts'], d.brand.mascotReacts),
+      mascotCorner: pick(b['mascotCorner'], CORNERS, d.brand.mascotCorner),
+      mascotSize: num(b['mascotSize'], 0.2, 0.6, d.brand.mascotSize),
+    },
+    designer: sanitizeDesign(r['designer']),
   };
+}
+
+/**
+ * What a QR code may say: plain text, or a link whose scheme is on the allowlist. A
+ * `javascript:` or `data:` link, say, is dropped - viewers scan what's on screen.
+ */
+function qrText(value: unknown, fallback: string): string {
+  const clean = text(value, 300, fallback).trim();
+  const scheme = clean.match(/^([a-z][a-z0-9+.-]*):(?!\s)/i);
+  if (scheme && !QR_SCHEMES.includes(scheme[1].toLowerCase())) return fallback;
+  return clean;
+}
+
+/** Whether a QR text is a link (and so opens something when scanned) rather than plain text. */
+export function qrIsLink(value: string): boolean {
+  return /^(https?|mailto|tel|sms|upi|geo):/i.test(value.trim());
 }
 
 /**

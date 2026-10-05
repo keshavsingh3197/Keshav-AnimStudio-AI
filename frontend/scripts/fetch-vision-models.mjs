@@ -24,6 +24,17 @@ const MODELS = [
     url: 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/1/selfie_segmenter.tflite',
     sha256: '191ac9529ae506ee0beefa6b2c945a172dab9d07d1e802a290a4e4038226658b',
   },
+  // Body puppet, gestures and the copying mascot. Loaded by the page only when one is switched on.
+  {
+    file: 'pose_landmarker_lite.task',
+    url: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
+    sha256: '59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a',
+  },
+  {
+    file: 'gesture_recognizer.task',
+    url: 'https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task',
+    sha256: '97952348cf6a6a4915c2ea1496b4b37ebabc50cbbf80571435643c455f2b0482',
+  },
 ];
 
 const sha256 = (buffer) => createHash('sha256').update(buffer).digest('hex');
@@ -52,5 +63,5 @@ for (const model of MODELS) {
 }
 
 if (failed > 0) {
-  console.warn('vision: Camera Studio face hiding will stay off until "npm run vision:models" succeeds.');
+  console.warn('vision: Camera Studio face hiding, body puppet and gestures stay off until "npm run vision:models" succeeds.');
 }

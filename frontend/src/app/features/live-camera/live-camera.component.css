@@ -175,3 +175,34 @@ kbd {
 .cs-dl dt { color: var(--muted); }
 .cs-dl dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .cs-keys { margin: 0; padding-left: 1rem; font-size: .84rem; display: grid; gap: .2rem; }
+
+/* ---------------------------------------------------------------- designer, motion, brand */
+
+.cs-designer { display: grid; justify-items: center; gap: .4rem; margin-bottom: .8rem; }
+.cs-designer-canvas {
+  width: min(100%, 260px); height: auto; aspect-ratio: 360 / 420;
+  border-radius: var(--radius-sm); border: 1px solid var(--border); background: #0b0e17;
+}
+.cs-designer-actions { display: flex; gap: .3rem; flex-wrap: wrap; justify-content: center; }
+.cs-part { display: grid; gap: .25rem; }
+.cs-part-label { font-size: .74rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-top: .25rem; }
+.cs-colors { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: .4rem; }
+.cs-action { max-width: 55%; }
+.cs-sign { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+.cs-sign-count { flex: 1; font-size: .78rem; }
+
+.cs-gesture-strip {
+  display: flex; align-items: center; gap: .4rem; flex-wrap: wrap;
+  margin-top: .6rem; padding: .45rem .6rem; font-size: .82rem;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2);
+}
+.cs-gesture-chip {
+  padding: .15rem .5rem; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--surface, transparent); white-space: nowrap;
+}
+.cs-gesture-held {
+  border-color: var(--brand);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--brand) 30%, transparent) calc(var(--p, 0) * 100%), transparent 0);
+}
+.cs-gesture-fired { color: var(--brand); }
+.cs-gesture-teach { font-weight: 600; }

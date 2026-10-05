@@ -1,6 +1,12 @@
-import { BuiltInCharacterId, BUILT_IN_CHARACTERS, CharacterRef, OverlayCorner, SceneId, StudioSettings } from './studio-settings';
-import { drawBuiltIn, drawImageCharacter, Expression, ImageCharacter } from './characters';
+import { BackgroundStyle, BuiltInCharacterId, BUILT_IN_CHARACTERS, CharacterRef, OverlayCorner, SceneId, StudioSettings } from './studio-settings';
+import { drawBuiltIn, drawImageCharacter, Expression, expressionFrom, ImageCharacter } from './characters';
+import { drawDesigned } from './character-designer';
+import { drawQrCard, drawSeal, qrCardSize, QrSprite, scannableColors } from './brand-overlays';
 import { PrivacyVerdict, TrackedFace } from './face-tracker';
+import { ReactionKind } from './gestures';
+import { BodyPose, MotionFrame, POSE } from './motion';
+import { drawPuppetBody, lookFor, MascotAct, mascotSkeleton, P, Skeleton, skeletonFromPose } from './puppet';
+import { Reactions } from './reactions';
 import { PersonMask } from './vision-engine';
 
 /** Everything one frame needs. The compositor keeps no state about the stream itself. */
@@ -12,6 +18,8 @@ export interface FrameInput {
   /** Faces in the camera picture's own coordinates (0-1, not mirrored). */
   faces: readonly TrackedFace[];
   mask: PersonMask | null;
+  /** Bodies and hands, when the motion models run. */
+  motion: MotionFrame | null;
   privacy: PrivacyVerdict;
   characters: ReadonlyMap<CharacterRef, ImageCharacter>;
   backgroundImage: ImageBitmap | HTMLImageElement | null;
@@ -27,6 +35,8 @@ export interface FrameInput {
 
 interface Crop { sx: number; sy: number; sw: number; sh: number; }
 interface Rect { x: number; y: number; w: number; h: number; }
+/** How the last frame placed the camera in the program, so a gesture's spot can be found on screen. */
+interface CameraPlacement { rect: Rect; w: number; h: number; crop: Crop; vw: number; vh: number; mirror: boolean; }
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -34,6 +44,9 @@ const CHARACTER_IDS = BUILT_IN_CHARACTERS.map((c) => c.id) as readonly string[];
 const COVER_COLOR = '#262b3a';
 /** How far above the face's middle a mask is centred, as a share of the face's height. */
 const HAIR_RAISE = 0.14;
+const MASCOT_ACT_MS = 1700;
+/** In "replace" mode, room backgrounds would show the person, so they become the animated stage. */
+const STAGE_BACKGROUNDS: readonly BackgroundStyle[] = ['color', 'gradient', 'image'];
 
 const LOOK_FILTERS: Record<string, string> = {
   none: '',
@@ -64,6 +77,10 @@ export class Compositor {
   private focus = { x: 0.5, y: 0.5, zoom: 1 };
   private tickerOffset = 0;
   private lastFrame = 0;
+  private placement: CameraPlacement | null = null;
+  private readonly reactions = new Reactions();
+  private readonly qr = new QrSprite();
+  private mascotAct: { kind: ReactionKind; started: number } | null = null;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d', { alpha: false })!;
@@ -79,12 +96,39 @@ export class Compositor {
     }
   }
 
+  /**
+   * Starts a reaction burst where a gesture was made (0-1 of the camera picture), or in the
+   * lower middle of the program when the camera isn't showing. The mascot acts it out too.
+   */
+  react(kind: ReactionKind, cameraX: number | null, cameraY: number | null, mascot: boolean): void {
+    const at = cameraX !== null && cameraY !== null ? this.cameraToProgram(cameraX, cameraY) : null;
+    const W = this.canvas.width;
+    const H = this.canvas.height;
+    this.reactions.burst(kind, at?.x ?? W / 2, at?.y ?? H * 0.7, H);
+    if (mascot) this.mascotAct = { kind, started: Date.now() };
+  }
+
+  /** Whether the QR text could be encoded (it can be too long). */
+  get qrFailed(): boolean {
+    return this.qr.failed;
+  }
+
+  private cameraToProgram(x: number, y: number): P | null {
+    const m = this.placement;
+    if (!m) return null;
+    let px = ((x * m.vw - m.crop.sx) / m.crop.sw) * m.w;
+    const py = ((y * m.vh - m.crop.sy) / m.crop.sh) * m.h;
+    if (m.mirror) px = m.w - px;
+    return { x: m.rect.x + px * (m.rect.w / m.w), y: m.rect.y + py * (m.rect.h / m.h) };
+  }
+
   render(input: FrameInput): void {
     const { ctx, canvas } = this;
     const W = canvas.width;
     const H = canvas.height;
     const dt = this.lastFrame ? Math.min(100, input.now - this.lastFrame) : 33;
     this.lastFrame = input.now;
+    this.placement = null;
 
     ctx.save();
     ctx.fillStyle = '#05060a';
@@ -154,6 +198,8 @@ export class Compositor {
     const crop = this.cropFor(video.videoWidth, video.videoHeight, w, h, input);
     const mirror = picture.mirror;
     const filter = this.pictureFilter(settings);
+    this.placement = { rect, w, h, crop, vw: video.videoWidth, vh: video.videoHeight, mirror };
+    const avatar = settings.avatar.body;
 
     if (privacy.curtain) {
       // Fail closed: no camera pixel is drawn at all.
@@ -163,7 +209,10 @@ export class Compositor {
       const body = identity.bodyStyle;
       const useMask = !!mask && (background !== 'none' || body !== 'none');
 
-      if (useMask) {
+      if (avatar === 'replace') {
+        // No camera pixel at all: a stage, and the characters acting out what the camera sees.
+        this.drawBackground(lc, input, video, crop, w, h, mirror, filter, STAGE_BACKGROUNDS.includes(background) ? background : 'gradient');
+      } else if (useMask) {
         this.drawBackground(lc, input, video, crop, w, h, mirror, filter);
         this.drawPerson(lc, input, video, crop, w, h, mirror, filter);
       } else {
@@ -172,7 +221,12 @@ export class Compositor {
         lc.filter = 'none';
       }
 
-      if (identity.hideFaces && identity.faceStyle !== 'none') {
+      if (avatar !== 'off') this.drawBodies(lc, input, video, crop, w, h, mirror);
+
+      if (avatar === 'replace') {
+        this.drawFaceMasks(lc, input, video, crop, w, h, mirror, true);
+        this.drawHeadsWithoutFaces(lc, input, video, crop, w, h, mirror);
+      } else if (identity.hideFaces && identity.faceStyle !== 'none') {
         this.drawFaceMasks(lc, input, video, crop, w, h, mirror);
       }
     }
@@ -258,9 +312,10 @@ export class Compositor {
     return parts.filter(Boolean).join(' ');
   }
 
-  private drawBackground(c: Ctx, input: FrameInput, video: HTMLVideoElement, crop: Crop, w: number, h: number, mirror: boolean, filter: string): void {
+  private drawBackground(c: Ctx, input: FrameInput, video: HTMLVideoElement, crop: Crop, w: number, h: number, mirror: boolean, filter: string,
+    style: BackgroundStyle = input.settings.identity.background): void {
     const identity = input.settings.identity;
-    switch (identity.background) {
+    switch (style) {
       case 'blur':
         c.filter = `blur(${Math.round(identity.backgroundBlur * w / 1280)}px) ${filter}`.trim();
         this.drawSource(c, video, crop, w, h, mirror);
@@ -365,26 +420,35 @@ export class Compositor {
     return { x, y, r: (size * scale) / 2, roll: mirror ? -face.roll : face.roll, yaw: mirror ? -face.yaw : face.yaw };
   }
 
-  private drawFaceMasks(c: Ctx, input: FrameInput, video: HTMLVideoElement, crop: Crop, w: number, h: number, mirror: boolean): void {
+  /** Draws one character's head centred on the origin: a designed, image or built-in character. */
+  private drawHead(c: Ctx, ref: CharacterRef, r: number, expression: Expression, input: FrameInput): void {
+    const image = input.characters.get(ref);
+    if (ref === 'custom') drawDesigned(c, input.settings.designer, r, expression);
+    else if (image) drawImageCharacter(c, image, r, expression, COVER_COLOR);
+    else drawBuiltIn(c, (CHARACTER_IDS.includes(ref) ? ref : 'robot') as BuiltInCharacterId, r, expression);
+  }
+
+  /** `forceCharacters` (body replace mode) draws characters whatever the face style, as there is no picture to blur. */
+  private drawFaceMasks(c: Ctx, input: FrameInput, video: HTMLVideoElement, crop: Crop, w: number, h: number, mirror: boolean, forceCharacters = false): void {
     const identity = input.settings.identity;
     // Bigger faces last, so a close face is never hidden behind a mask of someone further away.
     const faces = [...input.faces].sort((a, b) => a.w * a.h - b.w * b.h);
+    const style = forceCharacters ? 'character' : identity.faceStyle;
 
     for (const face of faces) {
       const spot = this.placeFace(face, video, crop, w, h, mirror, identity.maskScale);
-      const expression: Expression = identity.animateCharacter ? face : { ...face, mouthOpen: 0, blinkLeft: 0, blinkRight: 0, smile: 0.3, browUp: 0 };
+      const expression: Expression = identity.animateCharacter
+        ? expressionFrom(face, mirror)
+        : { mouthOpen: 0, blinkLeft: 0, blinkRight: 0, smile: 0.3, browUp: 0 };
 
-      switch (identity.faceStyle) {
+      switch (style) {
         case 'character': {
           c.save();
           c.translate(spot.x, spot.y);
           c.rotate(identity.animateCharacter ? spot.roll : 0);
           // A slight turn with the head, without ever narrowing below the face's box.
           if (identity.animateCharacter) c.transform(1, 0, spot.yaw * 0.12, 1, 0, 0);
-          const ref = this.characterFor(identity.character, identity.characterPerPerson, face.number);
-          const image = input.characters.get(ref);
-          if (image) drawImageCharacter(c, image, spot.r, expression, COVER_COLOR);
-          else drawBuiltIn(c, (CHARACTER_IDS.includes(ref) ? ref : 'robot') as BuiltInCharacterId, spot.r, expression);
+          this.drawHead(c, this.characterFor(identity.character, identity.characterPerPerson, face.number), spot.r, expression, input);
           c.restore();
           break;
         }
@@ -452,6 +516,68 @@ export class Compositor {
           break;
         }
       }
+    }
+  }
+
+  // ------------------------------------------------------------------ bodies
+
+  /** Camera coordinates (0-1) to layer pixels, through the crop and the mirror. */
+  private toLayer(x: number, y: number, video: HTMLVideoElement, crop: Crop, w: number, h: number, mirror: boolean): P {
+    let px = ((x * video.videoWidth - crop.sx) / crop.sw) * w;
+    const py = ((y * video.videoHeight - crop.sy) / crop.sh) * h;
+    if (mirror) px = w - px;
+    return { x: px, y: py };
+  }
+
+  /** The face (if any) that belongs to a body: the one nearest its nose. */
+  private faceForBody(body: BodyPose, faces: readonly TrackedFace[]): TrackedFace | null {
+    const nose = body.points[POSE.nose];
+    let best: TrackedFace | null = null;
+    let bestDistance = Infinity;
+    for (const face of faces) {
+      const d = Math.hypot(face.cx - nose.x, face.cy - nose.y) / Math.max(0.02, face.w);
+      if (d < bestDistance) {
+        bestDistance = d;
+        best = face;
+      }
+    }
+    return bestDistance <= 1.5 ? best : null;
+  }
+
+  private bodySkeletons(input: FrameInput, video: HTMLVideoElement, crop: Crop, w: number, h: number, mirror: boolean): { body: BodyPose; skeleton: Skeleton; ref: CharacterRef; face: TrackedFace | null }[] {
+    const motion = input.motion;
+    if (!motion) return [];
+    const avatar = input.settings.avatar;
+    const identity = input.settings.identity;
+    const map = (x: number, y: number) => this.toLayer(x, y, video, crop, w, h, mirror);
+    const hands = avatar.fingers ? motion.hands : [];
+    const result = [];
+    for (let i = 0; i < motion.bodies.length; i++) {
+      const body = motion.bodies[i];
+      const skeleton = skeletonFromPose(body, hands, map, avatar.thickness, avatar.legs);
+      if (!skeleton) continue;
+      const face = this.faceForBody(body, input.faces);
+      const ref = this.characterFor(identity.character, identity.characterPerPerson, face?.number ?? i + 1);
+      result.push({ body, skeleton, ref, face });
+    }
+    return result;
+  }
+
+  /** The body puppets, posed from each tracked body and its hands. Heads come after, as face masks. */
+  private drawBodies(c: Ctx, input: FrameInput, video: HTMLVideoElement, crop: Crop, w: number, h: number, mirror: boolean): void {
+    for (const { skeleton, ref } of this.bodySkeletons(input, video, crop, w, h, mirror)) {
+      drawPuppetBody(c, skeleton, lookFor(ref, input.settings.designer, input.settings.overlays.accent));
+    }
+  }
+
+  /** In replace mode, a body whose face isn't tracked (turned away) still gets a head, placed from the pose. */
+  private drawHeadsWithoutFaces(c: Ctx, input: FrameInput, video: HTMLVideoElement, crop: Crop, w: number, h: number, mirror: boolean): void {
+    for (const { skeleton, ref, face } of this.bodySkeletons(input, video, crop, w, h, mirror)) {
+      if (face) continue;
+      c.save();
+      c.translate(skeleton.head.x, skeleton.head.y);
+      this.drawHead(c, ref, skeleton.head.r * 1.15, { mouthOpen: 0, blinkLeft: 0, blinkRight: 0, smile: 0.3, browUp: 0 }, input);
+      c.restore();
     }
   }
 
@@ -651,6 +777,50 @@ export class Compositor {
       c.textBaseline = 'top';
       c.fillText(o.watermarkText, W - margin, margin + stacks['top-right']);
       c.restore();
+      stacks['top-right'] += 30 * u;
+    }
+
+    // Branding: each item takes the next free spot in its corner.
+    const place = (corner: OverlayCorner, bw: number, bh: number) => {
+      const offset = stacks[corner];
+      const x = corner.endsWith('left') ? margin : W - margin - bw;
+      const y = corner.startsWith('top') ? margin + offset : H - margin - bh - offset;
+      stacks[corner] = offset + bh + 12 * u;
+      return { x, y };
+    };
+    const b = input.settings.brand;
+
+    if (b.qr && b.qrText) {
+      const colors = scannableColors(b.qrDark, b.qrLight);
+      const sprite = this.qr.get(b.qrText, colors.dark, colors.light);
+      if (sprite) {
+        const height = Math.round(H * b.qrSize);
+        const size = qrCardSize(height, b.qrCaption);
+        const at = place(b.qrCorner, size.w, size.h);
+        drawQrCard(c, sprite, at.x, at.y, height, b.qrCaption, colors.light, o.accent);
+      }
+    }
+
+    if (b.seal) {
+      const d = H * b.sealSize;
+      const at = place(b.sealCorner, d, d);
+      const date = new Date(input.now);
+      drawSeal(c, at.x + d / 2, at.y + d / 2, d / 2, {
+        top: b.sealTop,
+        bottom: b.sealBottom,
+        center: b.sealCenter,
+        serial: b.sealSerial,
+        date: b.sealDate ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}` : null,
+        finish: b.sealFinish,
+        accent: o.accent,
+      }, input.now);
+    }
+
+    if (b.mascot) {
+      const mh = H * b.mascotSize;
+      const mw = mh * 0.62;
+      const at = place(b.mascotCorner, mw, mh);
+      this.drawMascot(input, { x: at.x, y: at.y, w: mw, h: mh });
     }
 
     if (o.lowerThird && input.scene === 'camera' && (o.lowerThirdName || o.lowerThirdTitle)) {
@@ -695,6 +865,114 @@ export class Compositor {
       for (let x = -this.tickerOffset; x < W; x += tw) c.fillText(text, x, y + th / 2 + 2);
       c.restore();
     }
+
+    this.reactions.draw(c, dt, H);
+  }
+
+  // ------------------------------------------------------------------ mascot
+
+  /**
+   * The corner mascot. In mirror mode it copies the presenter's body, hands and face, scaled
+   * into its box; otherwise it idles, talks when the presenter talks, and acts out reactions.
+   */
+  private drawMascot(input: FrameInput, box: Rect): void {
+    const c = this.ctx;
+    const b = input.settings.brand;
+    const t = input.now / 1000;
+    const person = [...input.faces].filter((f) => f.visible).sort((x, y) => y.w * y.h - x.w * x.h)[0] ?? null;
+
+    let act: MascotAct | null = null;
+    if (this.mascotAct) {
+      const progress = (input.now - this.mascotAct.started) / MASCOT_ACT_MS;
+      if (progress >= 1) this.mascotAct = null;
+      else act = { kind: this.mascotAct.kind, progress };
+    }
+
+    const mirror = input.settings.picture.mirror;
+    let skeleton: Skeleton | null = null;
+    let expression: Expression | null = null;
+    // Head tilt: copied from the presenter in mirror mode, a gentle idle sway otherwise.
+    let roll = Math.sin(t * 0.9) * 0.05;
+    if (b.mascotMode === 'mirror' && !act) {
+      const copied = this.mirroredSkeleton(input, box, person);
+      if (copied) {
+        ({ skeleton, expression } = copied);
+        if (person) roll = mirror ? -person.roll : person.roll;
+      }
+    }
+    if (!skeleton || !expression) {
+      const idle = mascotSkeleton(box, t, act);
+      skeleton = idle.skeleton;
+      expression = {
+        // Talks along with the presenter, and blinks on its own.
+        mouthOpen: Math.max(idle.face.mouthOpen, person?.mouthOpen ?? 0),
+        blinkLeft: idle.face.blink,
+        blinkRight: idle.face.blink,
+        smile: Math.max(idle.face.smile, person?.smile ?? 0),
+        browUp: act?.kind === 'wow' ? 0.9 : person?.browUp ?? 0,
+        // Glances around now and then, so it never looks frozen.
+        yaw: Math.sin(t * 0.45) * 0.25,
+        nod: Math.sin(t * 0.7 + 1) * 0.15,
+        lookX: Math.sin(t * 0.6) * 0.5,
+        lookY: Math.sin(t * 0.37) * 0.2,
+      };
+    }
+
+    c.save();
+    // A soft floor shadow grounds it in the corner.
+    c.fillStyle = 'rgba(0,0,0,.28)';
+    c.beginPath();
+    c.ellipse(box.x + box.w / 2, box.y + box.h * 0.975, box.w * 0.32, box.h * 0.025, 0, 0, Math.PI * 2);
+    c.fill();
+    drawPuppetBody(c, skeleton, lookFor(b.mascotCharacter, input.settings.designer, input.settings.overlays.accent));
+    c.translate(skeleton.head.x, skeleton.head.y);
+    c.rotate(roll);
+    this.drawHead(c, b.mascotCharacter, skeleton.head.r, expression, input);
+    c.restore();
+  }
+
+  /** The presenter's pose retargeted into the mascot's box: shoulders fixed in place, everything else relative to them. */
+  private mirroredSkeleton(input: FrameInput, box: Rect, person: TrackedFace | null): { skeleton: Skeleton; expression: Expression } | null {
+    const body = input.motion?.bodies[0];
+    const video = input.camera;
+    if (!body || !video || !video.videoWidth || input.scene !== 'camera') return null;
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    const mirror = input.settings.picture.mirror;
+    const toPx = (x: number, y: number): P => ({ x: mirror ? vw - x * vw : x * vw, y: y * vh });
+
+    const ls = toPx(body.points[POSE.leftShoulder].x, body.points[POSE.leftShoulder].y);
+    const rs = toPx(body.points[POSE.rightShoulder].x, body.points[POSE.rightShoulder].y);
+    const shoulders = Math.hypot(ls.x - rs.x, ls.y - rs.y);
+    if (shoulders < 4) return null;
+    const k = (box.w * 0.34) / shoulders;
+    const mid = { x: (ls.x + rs.x) / 2, y: (ls.y + rs.y) / 2 };
+    const anchor = { x: box.x + box.w / 2, y: box.y + box.h * 0.47 };
+    const map = (x: number, y: number): P => {
+      const p = toPx(x, y);
+      return { x: anchor.x + (p.x - mid.x) * k, y: anchor.y + (p.y - mid.y) * k };
+    };
+
+    const skeleton = skeletonFromPose(body, input.settings.avatar.fingers ? input.motion!.hands : [], map, 1, false);
+    if (!skeleton) return null;
+    // The mascot stands: legs straight down from wherever the hips are.
+    const floor = box.y + box.h * 0.96;
+    for (const side of ['l', 'r'] as const) {
+      const hip = side === 'l' ? skeleton.lHip : skeleton.rHip;
+      const knee = { x: hip.x, y: hip.y + (floor - hip.y) * 0.5 };
+      const ankle = { x: hip.x, y: floor };
+      if (side === 'l') Object.assign(skeleton, { lKnee: knee, lAnkle: ankle });
+      else Object.assign(skeleton, { rKnee: knee, rAnkle: ankle });
+    }
+    skeleton.unit = box.w * 0.075;
+    skeleton.head.r = Math.min(box.w * 0.3, Math.max(box.w * 0.2, skeleton.head.r * 1.1));
+    if (person) {
+      const head = map(person.cx, person.cy - person.h * HAIR_RAISE);
+      skeleton.head.x = head.x;
+      skeleton.head.y = head.y;
+    }
+    const expression: Expression = person ? expressionFrom(person, mirror) : { mouthOpen: 0, blinkLeft: 0, blinkRight: 0, smile: 0.4, browUp: 0 };
+    return { skeleton, expression };
   }
 }
 

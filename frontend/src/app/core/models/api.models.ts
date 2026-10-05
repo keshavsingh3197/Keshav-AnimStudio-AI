@@ -417,6 +417,8 @@ export interface Clip {
   width?: number;
   height?: number;
   hasAudio: boolean;
+  /** A finished render saved back to the project; the media panel hides these. */
+  isExport?: boolean;
 }
 
 /**

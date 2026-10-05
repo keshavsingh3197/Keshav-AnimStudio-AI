@@ -260,8 +260,16 @@ export class StudioStateService implements OnDestroy {
     return mediaList;
   });
 
+  /**
+   * What the media panel lists. Finished exports live on the Render page, so they are left
+   * out - unless one is already on this cut's timeline, which must stay findable.
+   */
+  readonly libraryRows = computed<ClipRow[]>(() =>
+    this.allMediaRows().filter((r) => !r.clip.isExport || this.isClipOnTimeline(r.clip.id)),
+  );
+
   readonly filteredRows = computed(() => {
-    let list = this.allMediaRows();
+    let list = this.libraryRows();
     const cat = this.activeCategory();
     if (cat !== 'all') {
       list = list.filter((r) => this.getClipType(r.clip) === cat);
@@ -290,13 +298,13 @@ export class StudioStateService implements OnDestroy {
   readonly endIndex = computed(() => Math.min((this.currentPage() + 1) * this.pageSize(), this.totalItems()));
 
   readonly selectedCount = computed(() => this.selectedLibraryIds().size);
-  readonly videoCount = computed(() => this.allMediaRows().filter((r) => this.getClipType(r.clip) === 'video').length);
-  readonly imageCount = computed(() => this.allMediaRows().filter((r) => this.getClipType(r.clip) === 'image').length);
-  readonly audioCount = computed(() => this.allMediaRows().filter((r) => this.getClipType(r.clip) === 'audio').length);
+  readonly videoCount = computed(() => this.libraryRows().filter((r) => this.getClipType(r.clip) === 'video').length);
+  readonly imageCount = computed(() => this.libraryRows().filter((r) => this.getClipType(r.clip) === 'image').length);
+  readonly audioCount = computed(() => this.libraryRows().filter((r) => this.getClipType(r.clip) === 'audio').length);
   readonly totalMediaCount = computed(() => this.videoCount() + this.imageCount() + this.audioCount());
 
-  readonly unusedCount = computed(() => this.allMediaRows().filter((r) => !this.isClipOnTimeline(r.clip.id)).length);
-  readonly inCutCount = computed(() => this.allMediaRows().filter((r) => this.isClipOnTimeline(r.clip.id)).length);
+  readonly unusedCount = computed(() => this.libraryRows().filter((r) => !this.isClipOnTimeline(r.clip.id)).length);
+  readonly inCutCount = computed(() => this.libraryRows().filter((r) => this.isClipOnTimeline(r.clip.id)).length);
 
   readonly selectedUnplacedCount = computed(() => {
     let count = 0;
@@ -6657,6 +6665,8 @@ export class StudioStateService implements OnDestroy {
         this.autoSaveTimer = null;
       }
       this.currentEdit.set(null);
+      // The last cut's name must not end up on this cut's file.
+      this.exportName.set('');
       this.selectedEraseIndex.set(null);
       this.stopPolling();
       this.stopExportTimer();
@@ -7131,14 +7141,13 @@ export class StudioStateService implements OnDestroy {
     }
   }
 
+  /** The open Short/Video's own name - what the downloaded file is called, not the project. */
+  defaultExportName(): string {
+    return this.currentEdit()?.name?.trim() || this.store.project()?.name || 'AnimStudio Video';
+  }
+
   openExportModal(): void {
-    if (!this.exportName()) {
-      const projName = this.store.project()?.name || 'AnimStudio';
-      const now = new Date();
-      const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-      const cut = this.currentEdit()?.name;
-      this.exportName.set(cut ? `${projName} - ${cut} ${dateStr}` : `${projName} - Export ${dateStr}`);
-    }
+    if (!this.exportName()) this.exportName.set(this.defaultExportName());
     const proj = this.store.project();
     const ef = this.editFormat();
     if (ef === 'Short') {
@@ -7216,7 +7225,7 @@ export class StudioStateService implements OnDestroy {
 
     this.status.run(
       this.api.mergeClips(projectId, {
-        exportName: this.exportName() || undefined,
+        exportName: this.exportName() || this.defaultExportName(),
         assetIds: includedClips,
         fit: fitMode,
         outputWidth: outW,
@@ -7291,6 +7300,7 @@ export class StudioStateService implements OnDestroy {
 
     this.status.run(
       this.api.mergeClips(projectId, {
+        exportName: this.exportName() || this.defaultExportName(),
         assetIds: ids,
         fit: fitMode,
         outputWidth: 1080,

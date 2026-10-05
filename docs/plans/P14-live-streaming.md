@@ -130,6 +130,17 @@ and while detections are stale. Strict mode also covers it when a face is lost (
 seen without a face. Every mask starts with an opaque disc, centred above the face to cover the hairline. Go live is
 blocked until face tracking is running.
 
+**Characters, motion and gestures.** Body (`pose_landmarker_lite`) and hand (`gesture_recognizer`) models load
+only when the body puppet, gestures or a copying mascot is on, and are pinned like the face models. Landmarks are
+smoothed with a One Euro filter (`motion.ts`). `puppet.ts` turns a pose and its hands into a cartoon body, filling in
+joints the model can't see; in *replace* mode no camera pixel is drawn, only a stage and the characters.
+`gestures.ts` is a pure state machine: a sign must be held (`holdMs`), fires once per hold, then waits out a cooldown;
+waves, nods and head shakes come from swings over the last 1.2 s. Gesture actions can only add decoration or make the
+stream safer (privacy card and mute turn on, never off). Taught signs (`sign-learner.ts`) are k-NN over hand shapes
+normalised for position, scale, rotation and handedness; only the 42 numbers per example are stored, in the browser.
+`character-designer.ts` draws designed characters; `qr-code.ts` is an in-house QR encoder (byte mode, versions
+1-40), so no package is added; `brand-overlays.ts` draws the QR card and the seal.
+
 **Transport.** HTTP chunks rather than a WebSocket, so the normal bearer-token auth applies unchanged (a browser
 WebSocket can't send the header). Chunks are written strictly in order. A repeated chunk is acknowledged without being
 written twice, so the page can retry. The first chunk of each recording must start with the declared container's magic

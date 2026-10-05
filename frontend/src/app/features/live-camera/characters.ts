@@ -1,4 +1,5 @@
 import { BuiltInCharacterId } from './studio-settings';
+import { CHARACTER_3D_IDS, Character3DId, drawCharacter3D, volumeShade } from './characters-3d';
 
 /** What a character mirrors from the presenter, each 0-1. */
 export interface Expression {
@@ -7,9 +8,41 @@ export interface Expression {
   blinkRight: number;
   smile: number;
   browUp: number;
+  /** Head turn as the viewer sees it, -1 (toward the picture's left) to 1. */
+  yaw?: number;
+  /** Nod, -1 (looking up) to 1 (looking down). */
+  nod?: number;
+  /** Gaze as the viewer sees it, -1 to 1: right and down are positive. */
+  lookX?: number;
+  lookY?: number;
 }
 
 export const NEUTRAL: Expression = { mouthOpen: 0, blinkLeft: 0, blinkRight: 0, smile: 0.3, browUp: 0 };
+
+/** The face mesh's nose-below-the-eyes measure (FaceObservation.pitch) for a head held level. */
+const PITCH_LEVEL = 0.22;
+
+/**
+ * A tracked face as a character expression, as the viewer sees it: with the picture mirrored,
+ * turning and looking to the right appears on the left, so the character turns that way too.
+ */
+export function expressionFrom(
+  face: Expression & { yaw: number; pitch: number; lookX: number; lookY: number },
+  mirror: boolean,
+): Expression {
+  const flip = mirror ? -1 : 1;
+  return {
+    mouthOpen: face.mouthOpen,
+    blinkLeft: face.blinkLeft,
+    blinkRight: face.blinkRight,
+    smile: face.smile,
+    browUp: face.browUp,
+    yaw: face.yaw * flip,
+    nod: Math.max(-1, Math.min(1, (face.pitch - PITCH_LEVEL) * 5)),
+    lookX: face.lookX * flip,
+    lookY: face.lookY,
+  };
+}
 
 /** A character from a project (closed / open mouth images) or an uploaded image. */
 export interface ImageCharacter {
@@ -25,9 +58,15 @@ type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
  * underneath is always fully covered.
  */
 export function drawBuiltIn(ctx: Ctx, id: BuiltInCharacterId, r: number, e: Expression): void {
-  const draw = DRAWERS[id] ?? DRAWERS.robot;
+  if ((CHARACTER_3D_IDS as readonly string[]).includes(id)) {
+    drawCharacter3D(ctx, id as Character3DId, r, e);
+    return;
+  }
+  const draw = DRAWERS[id as FlatCharacterId] ?? DRAWERS.robot;
   ctx.save();
   draw(ctx, r, e);
+  // A little light and shade, so the flat characters look rounded beside the 3D ones.
+  volumeShade(ctx, r);
   ctx.restore();
 }
 
@@ -70,10 +109,15 @@ function eyes(ctx: Ctx, r: number, e: Expression, opts: { y?: number; gap?: numb
   const gap = (opts.gap ?? 0.32) * r;
   const size = (opts.size ?? 0.11) * r;
   const color = opts.color ?? '#1b1b1f';
+  // The eyes follow the presenter's gaze.
+  const lookX = (e.lookX ?? 0) * size * 0.45;
+  const lookY = (e.lookY ?? 0) * size * 0.3;
   for (const [side, blink] of [[-1, e.blinkLeft], [1, e.blinkRight]] as const) {
     const open = Math.max(0.12, 1 - blink);
-    ellipse(ctx, side * gap, y - e.browUp * 0.05 * r, size, size * 1.15 * open, color);
-    if (opts.shine !== false && open > 0.4) ellipse(ctx, side * gap + size * 0.35, y - size * 0.45, size * 0.3, size * 0.3, 'rgba(255,255,255,.85)');
+    const x = side * gap + lookX;
+    const ey = y - e.browUp * 0.05 * r + lookY;
+    ellipse(ctx, x, ey, size, size * 1.15 * open, color);
+    if (opts.shine !== false && open > 0.4) ellipse(ctx, x + size * 0.35, ey - size * 0.45, size * 0.3, size * 0.3, 'rgba(255,255,255,.85)');
   }
 }
 
@@ -114,7 +158,9 @@ function triangle(ctx: Ctx, points: [number, number][], fill: string): void {
 
 // ------------------------------------------------------------------ characters
 
-const DRAWERS: Record<BuiltInCharacterId, (ctx: Ctx, r: number, e: Expression) => void> = {
+type FlatCharacterId = Exclude<BuiltInCharacterId, Character3DId>;
+
+const DRAWERS: Record<FlatCharacterId, (ctx: Ctx, r: number, e: Expression) => void> = {
   robot(ctx, r, e) {
     disc(ctx, r, '#9aa4b2');
     ctx.fillStyle = '#c6cdd8';

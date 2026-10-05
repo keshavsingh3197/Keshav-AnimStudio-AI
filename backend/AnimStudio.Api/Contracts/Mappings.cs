@@ -193,7 +193,9 @@ public static class Mappings
         a.Id, a.Name, a.FileSizeBytes,
         a.Probe.DurationSeconds ?? (a.Kind == AssetKind.Image ? 5.0 : null),
         a.Probe.Width, a.Probe.Height,
-        !string.IsNullOrEmpty(a.Probe.AudioCodec));
+        !string.IsNullOrEmpty(a.Probe.AudioCodec),
+        // Renders publish under renders/ and are saved back as assets in the Exports folder.
+        a.StorageKey.StartsWith("renders/", StringComparison.Ordinal));
 
     public static ClipOrderResponse ToResponse(this ClipOrderResult result) => new(
         result.AssetIds,

@@ -1347,7 +1347,7 @@
                 </p>
                 <div class="success-actions">
                   <a [href]="state.downloadUrl(completedJob.jobId)"
-                     [download]="(state.exportName() ? state.exportName() : completedJob.jobId) + '.mp4'"
+                     [download]="(state.exportName() || state.defaultExportName()) + '.mp4'"
                      class="btn btn-success btn-lg export-download-btn">
                     ⬇ Download MP4 Video
                   </a>
@@ -1487,7 +1487,7 @@
 
       @if (state.exportIsCompleted()) {
         <a [href]="state.downloadUrl(minJob.jobId)"
-           [download]="(state.exportName() ? state.exportName() : minJob.jobId) + '.mp4'"
+           [download]="(state.exportName() || state.defaultExportName()) + '.mp4'"
            (click)="$event.stopPropagation()"
            class="hud-download-btn">
           ⬇ Download MP4
@@ -1511,7 +1511,7 @@
         </div>
         <div class="preview-dialog-footer">
           <a [href]="state.downloadUrl(prevJob.jobId)"
-             [download]="(state.exportName() ? state.exportName() : prevJob.jobId) + '.mp4'"
+             [download]="(state.exportName() || state.defaultExportName()) + '.mp4'"
              class="btn btn-success">
             ⬇ Download MP4
           </a>

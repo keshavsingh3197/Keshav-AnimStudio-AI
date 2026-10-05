@@ -22,10 +22,26 @@ import { LiveStreamService } from '../../core/services/live-stream.service';
 import { StatusService } from '../../core/services/status.service';
 import { AudioMixer } from './audio-mixer';
 import { BACKLOG_WARNING, CameraUplink, RecorderFormat, UplinkStats, pickRecorderFormat } from './camera-uplink';
-import { ImageCharacter } from './characters';
+import { EARS, EYES, FINISHES, GLASSES, HAIRS, HATS, HEADS, MOUTHS, CharacterDesign, drawDesigned, randomDesign } from './character-designer';
+import { expressionFrom, ImageCharacter } from './characters';
 import { Compositor, compact } from './compositor';
-import { FaceTracker, PrivacyVerdict, TrackedFace, privacyVerdict } from './face-tracker';
+import { DETECTION_STALE_MS, FaceTracker, PrivacyVerdict, TrackedFace, privacyVerdict } from './face-tracker';
 import { FrameClock } from './frame-clock';
+import {
+  GESTURES,
+  GESTURE_ACTIONS,
+  GESTURE_IDS,
+  GestureAction,
+  GestureDetector,
+  GestureEvent,
+  GestureId,
+  HandSignal,
+  REACTIONS,
+  ReactionKind,
+} from './gestures';
+import { MotionFrame, MotionSmoother, palmCentre } from './motion';
+import { MascotAct, drawPuppetBody, lookFor, mascotSkeleton } from './puppet';
+import { MAX_SAMPLES, MIN_SAMPLES, SIGN_SLOTS, SignLearner, normalizeHand } from './sign-learner';
 import {
   BUILT_IN_CHARACTERS,
   CharacterRef,
@@ -36,11 +52,12 @@ import {
   defaultSettings,
   parseYouTubeChannel,
   parseYouTubeVideo,
+  qrIsLink,
   sanitizeSettings,
 } from './studio-settings';
 import { PersonMask, VisionEngine } from './vision-engine';
 
-type Panel = 'identity' | 'voice' | 'picture' | 'overlays' | 'scenes' | 'stream' | 'health';
+type Panel = 'identity' | 'designer' | 'motion' | 'brand' | 'voice' | 'picture' | 'overlays' | 'scenes' | 'stream' | 'health';
 type KeyMode = 'channel' | 'paste';
 type Sections = Omit<StudioSettings, 'version' | 'source'>;
 
@@ -76,6 +93,11 @@ interface Remembered {
 
 const REMEMBER_KEY = 'animstudio.live.camera';
 const PRESETS_KEY = 'animstudio.live.camera.presets';
+/** Taught hand signs: normalised hand shapes only, never pictures, kept in this browser. */
+const SIGNS_KEY = 'animstudio.live.camera.signs';
+const TEACH_GET_READY_MS = 1500;
+const TEACH_RECORD_MS = 3000;
+const LAST_GESTURE_SHOWN_MS = 2500;
 const MAX_PRESETS = 30;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
@@ -85,6 +107,12 @@ const STATUS_POLL_MS = 3000;
 const AUDIENCE_POLL_MS = 30_000;
 /** Share of a frame (ms) face detection may take before it runs only every other frame, or less. */
 const DETECTION_BUDGET_MS = 20;
+/**
+ * However slow detection is, it is started at least this often. Spacing detections by frame
+ * count alone let a slow machine (slow detection and slow drawing) drift past the stale-detection
+ * limit, so the privacy curtain flickered on and off between detections.
+ */
+const MAX_DETECTION_GAP_MS = Math.floor(DETECTION_STALE_MS / 3);
 
 export const SCENES: { id: SceneId; label: string; icon: string; key: string }[] = [
   { id: 'camera', label: 'Live', icon: '🎥', key: '1' },
@@ -121,8 +149,15 @@ export class LiveCameraComponent {
   readonly emojis = MASK_EMOJIS;
   readonly minMaskScale = MIN_MASK_SCALE;
   readonly backlogWarning = BACKLOG_WARNING;
+  readonly gestureList = GESTURES;
+  readonly gestureActions = GESTURE_ACTIONS;
+  readonly reactions = REACTIONS;
+  readonly signSlots = Array.from({ length: SIGN_SLOTS }, (_, i) => i);
+  readonly minSamples = MIN_SAMPLES;
+  readonly designParts = { HEADS, EYES, MOUTHS, EARS, HAIRS, HATS, GLASSES, FINISHES };
 
   private readonly programCanvas = viewChild<ElementRef<HTMLCanvasElement>>('program');
+  private readonly designerCanvas = viewChild<ElementRef<HTMLCanvasElement>>('designerPreview');
 
   readonly setup = signal<LiveStreamSetup | null>(null);
   readonly settings = signal<StudioSettings>(defaultSettings());
@@ -152,6 +187,19 @@ export class LiveCameraComponent {
   readonly visionDelegate = signal<string | null>(null);
   readonly personCoverage = signal<number | null>(null);
   readonly lastFaceSeenAt = signal<number | null>(null);
+
+  // Body, hands and gestures
+  readonly motionState = signal<'idle' | 'loading' | 'ready' | 'failed'>('idle');
+  readonly motionError = signal<string | null>(null);
+  readonly bodiesSeen = signal(0);
+  /** What each tracked hand is doing right now, for the page (never drawn on the program). */
+  readonly handReadout = signal<string[]>([]);
+  readonly heldGestures = signal<{ icon: string; label: string; progress: number }[]>([]);
+  readonly lastGesture = signal<{ icon: string; label: string; action: string; at: number } | null>(null);
+  readonly signCounts = signal<number[]>(new Array<number>(SIGN_SLOTS).fill(0));
+  /** The sign being taught, and whether it is recording yet or still counting down. */
+  readonly teaching = signal<{ slot: number; phase: 'ready' | 'recording'; until: number } | null>(null);
+  readonly qrFailed = signal(false);
 
   // Stream
   readonly stream = signal<CameraStreamStatus | null>(null);
@@ -204,6 +252,14 @@ export class LiveCameraComponent {
 
   private readonly vision = new VisionEngine();
   private readonly tracker = new FaceTracker();
+  private readonly smoother = new MotionSmoother();
+  private readonly gestureDetector = new GestureDetector();
+  private signs = new SignLearner();
+  private motion: MotionFrame | null = null;
+  private held: { id: GestureId; progress: number }[] = [];
+  private handLabels: string[] = [];
+  private designerFrame = 0;
+  private previewAct: { kind: ReactionKind; started: number } | null = null;
   private compositor: Compositor | null = null;
   private mixer: AudioMixer | null = null;
   private clock: FrameClock | null = null;
@@ -220,6 +276,9 @@ export class LiveCameraComponent {
   private backgroundImage: ImageBitmap | null = null;
   private lastMask: PersonMask | null = null;
   private lastDetectionAt: number | null = null;
+  private lastDetectionStartedAt = -Infinity;
+  private detectionCount = 0;
+  private detectionFailureLogged = false;
   private liveSinceMs: number | null = null;
   private countdownEnds: number | null = null;
   private frames = 0;
@@ -235,6 +294,7 @@ export class LiveCameraComponent {
   constructor() {
     this.restore();
     this.loadPresets();
+    this.loadSigns();
     inject(DestroyRef).onDestroy(() => void this.teardown());
     void this.loadSetup();
     void this.listDevices();
@@ -268,6 +328,8 @@ export class LiveCameraComponent {
     this.mixer?.apply(s.voice);
     if (this.vision.state === 'ready') void this.vision.configure(s.identity.maxFaces, s.identity.sensitivity);
     if (s.identity.hideFaces && this.running() && this.vision.state === 'idle') void this.loadVision();
+    if (this.motionWanted() && this.running() && this.motionState() === 'idle') void this.loadMotion();
+    if (this.vision.motionState === 'ready') void this.vision.configureMotion(s.identity.maxFaces);
     this.ensureAudiencePolling();
     this.scheduleRemember();
   }
@@ -321,6 +383,7 @@ export class LiveCameraComponent {
       this.running.set(true);
       void this.listDevices();
       if (this.settings().identity.hideFaces) void this.loadVision();
+      if (this.motionWanted()) void this.loadMotion();
     } catch (err: unknown) {
       this.error.set(this.describeMediaError(err));
       await this.stopStudio();
@@ -344,6 +407,10 @@ export class LiveCameraComponent {
     await this.mixer?.close().catch(() => undefined);
     this.mixer = null;
     this.tracker.reset();
+    this.smoother.reset();
+    this.gestureDetector.reset();
+    this.motion = null;
+    this.teaching.set(null);
     this.running.set(false);
   }
 
@@ -472,7 +539,32 @@ export class LiveCameraComponent {
 
   retryVision(): void {
     this.vision.close();
-    void this.loadVision();
+    this.motionState.set('idle');
+    void this.loadVision().then(() => (this.motionWanted() ? this.loadMotion() : undefined));
+  }
+
+  /** Whether anything on now needs the body and hand models. */
+  motionWanted(): boolean {
+    const s = this.settings();
+    return s.avatar.body !== 'off'
+      || (s.gestures.enabled && s.gestures.hands)
+      || (s.brand.mascot && s.brand.mascotMode === 'mirror')
+      || this.teaching() !== null;
+  }
+
+  async loadMotion(): Promise<void> {
+    if (this.vision.state !== 'ready') await this.loadVision();
+    if (this.vision.state !== 'ready') return;
+    this.motionState.set('loading');
+    try {
+      await this.vision.loadMotion();
+      await this.vision.configureMotion(this.settings().identity.maxFaces);
+      this.motionState.set('ready');
+      this.motionError.set(null);
+    } catch {
+      this.motionState.set('failed');
+      this.motionError.set(this.vision.motionError);
+    }
   }
 
   // ------------------------------------------------------------------ the frame loop
@@ -485,30 +577,51 @@ export class LiveCameraComponent {
     const cameraUsed = s.source !== 'screen' && !!this.cameraVideo;
 
     // On a slow machine, detection runs less often than drawing: the picture stays smooth with
-    // the latest faces, and the stale-detection rule still covers the camera if it falls too far behind.
-    const detectEvery = Math.min(6, Math.max(1, Math.ceil(this.inferenceMs() / DETECTION_BUDGET_MS)));
-    const dueForDetection = ++this.frameIndex % detectEvery === 0;
-    if (cameraUsed && dueForDetection && this.vision.state === 'ready' && !this.detecting && (identity.hideFaces || s.overlays.peopleCount || s.overlays.faceLabels || s.picture.autoFrame)) {
+    // the latest faces. The gap is measured in time, not frames, and capped well inside the
+    // stale-detection limit, so slow drawing can't push a detection late enough to close the curtain.
+    this.frameIndex++;
+    const gap = Math.min(MAX_DETECTION_GAP_MS, (this.inferenceMs() / DETECTION_BUDGET_MS) * (1000 / FPS));
+    const dueForDetection = now - this.lastDetectionStartedAt >= gap;
+    const wantMotion = this.motionWanted() && this.vision.motionState === 'ready';
+    const facesUsed = identity.hideFaces || s.overlays.peopleCount || s.overlays.faceLabels || s.picture.autoFrame
+      || s.gestures.enabled || s.avatar.body !== 'off' || s.brand.mascot;
+    if (cameraUsed && dueForDetection && this.vision.state === 'ready' && !this.detecting && (facesUsed || wantMotion)) {
       // Segmentation costs as much again as faces, so it only runs when something uses it.
-      const needMask = identity.background !== 'none' || identity.bodyStyle !== 'none' || (identity.hideFaces && identity.strictMode);
+      const needMask = s.avatar.body !== 'replace'
+        && (identity.background !== 'none' || identity.bodyStyle !== 'none' || (identity.hideFaces && identity.strictMode));
+      // Faces (which privacy depends on) run every time; when detection is slow, the body and
+      // hand models run every other time, so no single frame carries all four models.
+      const motionNow = wantMotion && (this.inferenceMs() <= DETECTION_BUDGET_MS * 2 || this.detectionCount % 2 === 0);
       this.detecting = true;
+      this.lastDetectionStartedAt = now;
+      this.detectionCount++;
       try {
-        const result = this.vision.detect(this.cameraVideo!, needMask);
+        const result = this.vision.detect(this.cameraVideo!, { mask: needMask || (identity.hideFaces && identity.strictMode), motion: motionNow });
         if (result) {
           this.lastDetectionAt = now;
           this.lastMask = result.mask;
           this.tracker.update(result.faces, now, identity.holdMs);
           if (result.faces.length > 0) this.lastFaceSeenAt.set(Date.now());
           this.inferenceMs.update((v) => v * 0.9 + result.inferenceMs * 0.1);
+          if (result.motion) this.motion = this.smoother.update(result.motion, now);
+          else if (!wantMotion) this.motion = null;
+          if ((s.gestures.enabled || this.teaching()) && (result.motion || !wantMotion)) this.processGestures(now);
         }
-      } catch {
+      } catch (err) {
         // A failed frame is treated as no detection: the privacy rules cover the camera.
         this.lastMask = null;
+        if (!this.detectionFailureLogged) {
+          this.detectionFailureLogged = true;
+          console.warn('Face detection failed on a frame; the camera stays covered until it recovers.', err);
+        }
       } finally {
         this.detecting = false;
       }
     }
-    if (!cameraUsed) this.lastMask = null;
+    if (!cameraUsed) {
+      this.lastMask = null;
+      this.motion = null;
+    }
 
     const faces = this.tracker.tracked;
     const verdict = cameraUsed
@@ -529,8 +642,9 @@ export class LiveCameraComponent {
       scene: this.scene(),
       camera: cameraUsed ? this.cameraVideo : null,
       screen: this.screenVideo,
-      faces: identity.hideFaces || s.overlays.faceLabels || s.overlays.peopleCount ? faces : [],
+      faces: facesUsed ? faces : [],
       mask: this.lastMask,
+      motion: this.motion,
       privacy: verdict,
       characters: this.characters,
       backgroundImage: this.backgroundImage,
@@ -557,7 +671,278 @@ export class LiveCameraComponent {
       this.personCoverage.set(this.lastMask?.coverage ?? null);
       this.micLevel.set(this.mixer?.level() ?? 0);
       if (this.vision.state !== this.visionState() && this.vision.state !== 'idle') this.visionState.set(this.vision.state);
+      this.bodiesSeen.set(this.motion?.bodies.length ?? 0);
+      this.handReadout.set(this.handLabels);
+      this.heldGestures.set(this.held.map((h) => ({ ...this.gestureInfo(h.id), progress: h.progress })));
+      this.qrFailed.set(this.compositor.qrFailed);
+      this.advanceTeaching(now);
     }
+  }
+
+  // ------------------------------------------------------------------ gestures
+
+  /** Reads hands and the main face, teaches or recognises signs, and runs whatever the gestures are bound to. */
+  private processGestures(now: number): void {
+    const s = this.settings();
+    const video = this.cameraVideo;
+    if (!video?.videoWidth) return;
+    const aspect = video.videoWidth / video.videoHeight;
+    const teaching = this.teaching();
+
+    const hands: HandSignal[] = (this.motion?.hands ?? []).map((hand, i) => {
+      const shape = normalizeHand(hand.points, aspect, hand.side === 'Left');
+      if (shape && i === 0 && teaching?.phase === 'recording' && this.frameIndex % 2 === 0) this.signs.add(teaching.slot, shape);
+      const match = shape && !teaching ? this.signs.classify(shape) : null;
+      const palm = palmCentre(hand);
+      return { gesture: hand.gesture, score: hand.score, x: palm.x, y: palm.y, sign: match ? (`sign-${match.slot + 1}` as GestureId) : null };
+    });
+    this.handLabels = hands.map((h) => {
+      const id = h.sign ?? (h.score >= 0.6 && h.gesture !== 'None' ? h.gesture : null);
+      return id ? `${this.gestureInfo(id as GestureId).icon} ${this.gestureInfo(id as GestureId).label}` : '🖐️ hand';
+    });
+    if (teaching) {
+      this.held = [];
+      return;
+    }
+
+    const person = this.tracker.tracked.filter((f) => f.visible).sort((a, b) => b.w * b.h - a.w * a.h)[0];
+    const bindings = s.gestures.bindings;
+    const reading = this.gestureDetector.update(
+      { now, hands, face: person ?? null },
+      {
+        holdMs: s.gestures.holdMs,
+        cooldownMs: s.gestures.cooldownMs,
+        hand: s.gestures.hands,
+        face: s.gestures.face,
+        armed: new Set(GESTURE_IDS.filter((id) => bindings[id] !== 'none' && (!id.startsWith('sign-') || this.signs.ready(+id.slice(5) - 1)))),
+      },
+    );
+    this.held = reading.held;
+    for (const event of reading.events) this.runGesture(event);
+  }
+
+  gestureInfo(id: GestureId): { icon: string; label: string } {
+    const g = GESTURES.find((x) => x.id === id);
+    if (!g) return { icon: '✋', label: id };
+    if (g.kind === 'sign') return { icon: g.icon, label: this.settings().gestures.signNames[+id.slice(5) - 1] ?? g.label };
+    return { icon: g.icon, label: g.label };
+  }
+
+  actionLabel(action: GestureAction): string {
+    return GESTURE_ACTIONS.find((a) => a.id === action)?.label ?? action;
+  }
+
+  /**
+   * Does what a gesture is bound to. Gestures can only make the stream safer or add decoration:
+   * they can turn the privacy card and mute on, but never off, and never show a face.
+   */
+  private runGesture(event: GestureEvent): void {
+    const s = this.settings();
+    const action = s.gestures.bindings[event.id];
+    switch (action) {
+      case 'none':
+        return;
+      case 'scene-brb':
+        if (this.scene() === 'privacy') return;
+        this.setScene(this.scene() === 'brb' ? 'camera' : 'brb');
+        break;
+      case 'scene-camera':
+        if (this.scene() === 'privacy') return;
+        this.setScene('camera');
+        break;
+      case 'privacy':
+        this.setScene('privacy');
+        break;
+      case 'mute':
+        this.patch('voice', { muted: true });
+        break;
+      case 'snapshot':
+        this.snapshot();
+        break;
+      case 'next-character':
+        this.nextCharacter();
+        break;
+      case 'toggle-qr':
+        this.patch('brand', { qr: !s.brand.qr });
+        break;
+      case 'toggle-seal':
+        this.patch('brand', { seal: !s.brand.seal });
+        break;
+      default:
+        this.compositor?.react(action.slice('react-'.length) as ReactionKind, event.x, event.y, s.brand.mascot && s.brand.mascotReacts);
+    }
+    this.lastGesture.set({ ...this.gestureInfo(event.id), action: this.actionLabel(action), at: Date.now() });
+    setTimeout(() => {
+      if (Date.now() - (this.lastGesture()?.at ?? 0) >= LAST_GESTURE_SHOWN_MS) this.lastGesture.set(null);
+    }, LAST_GESTURE_SHOWN_MS);
+  }
+
+  /** A reaction from a button rather than a gesture - also handy for trying the mascot. */
+  react(kind: ReactionKind): void {
+    const s = this.settings();
+    this.compositor?.react(kind, null, null, s.brand.mascot && s.brand.mascotReacts);
+    this.previewAct = { kind, started: performance.now() };
+  }
+
+  setBinding(id: GestureId, action: GestureAction): void {
+    this.patch('gestures', { bindings: { ...this.settings().gestures.bindings, [id]: action } });
+  }
+
+  setSignName(slot: number, name: string): void {
+    const names = [...this.settings().gestures.signNames];
+    names[slot] = name;
+    this.patch('gestures', { signNames: names });
+  }
+
+  private nextCharacter(): void {
+    const order: CharacterRef[] = ['custom', ...this.builtIns.map((c) => c.id), ...this.projectCharacters().map((c) => c.ref)];
+    if (this.uploadedCharacter()) order.push('upload');
+    const at = order.indexOf(this.settings().identity.character);
+    this.patch('identity', { character: order[(at + 1) % order.length] });
+  }
+
+  // ------------------------------------------------------------------ teaching signs
+
+  /** Teaches a sign: a short countdown to get into position, then a few seconds of examples. */
+  teachSign(slot: number): void {
+    if (!this.running()) {
+      this.notice.set('Start the studio first, then hold the sign up to the camera.');
+      return;
+    }
+    this.signs.clear(slot);
+    this.signCounts.set(this.signSlots.map((i) => this.signs.count(i)));
+    this.teaching.set({ slot, phase: 'ready', until: performance.now() + TEACH_GET_READY_MS });
+    if (this.motionState() === 'idle') void this.loadMotion();
+  }
+
+  forgetSign(slot: number): void {
+    this.signs.clear(slot);
+    this.storeSigns();
+  }
+
+  private advanceTeaching(now: number): void {
+    const teaching = this.teaching();
+    if (!teaching) return;
+    this.signCounts.set(this.signSlots.map((i) => this.signs.count(i)));
+    if (now < teaching.until) return;
+    if (teaching.phase === 'ready') {
+      this.teaching.set({ ...teaching, phase: 'recording', until: now + TEACH_RECORD_MS });
+      return;
+    }
+    this.teaching.set(null);
+    this.gestureDetector.reset();
+    this.storeSigns();
+    const learned = this.signs.count(teaching.slot);
+    if (learned < MIN_SAMPLES) {
+      this.notice.set('No hand was seen clearly enough. Hold the sign in front of the camera, in good light, and try again.');
+    } else {
+      this.status.notify([`Learned "${this.settings().gestures.signNames[teaching.slot]}" from ${learned} examples`]);
+      if (this.settings().gestures.bindings[`sign-${teaching.slot + 1}` as GestureId] === 'none') {
+        this.setBinding(`sign-${teaching.slot + 1}` as GestureId, 'react-stars');
+      }
+    }
+  }
+
+  teachingSecondsLeft(): number {
+    const t = this.teaching();
+    return t ? Math.max(0, Math.ceil((t.until - performance.now()) / 1000)) : 0;
+  }
+
+  readonly maxSamples = MAX_SAMPLES;
+
+  private loadSigns(): void {
+    try {
+      this.signs = SignLearner.from(JSON.parse(localStorage.getItem(SIGNS_KEY) ?? '[]'));
+    } catch {
+      this.signs = new SignLearner();
+    }
+    this.signCounts.set(this.signSlots.map((i) => this.signs.count(i)));
+  }
+
+  private storeSigns(): void {
+    this.signCounts.set(this.signSlots.map((i) => this.signs.count(i)));
+    try {
+      localStorage.setItem(SIGNS_KEY, JSON.stringify(this.signs.export()));
+    } catch {
+      this.notice.set('This browser wouldn\'t save your taught signs; they last until you leave the page.');
+    }
+  }
+
+  // ------------------------------------------------------------------ character designer
+
+  openPanel(panel: Panel): void {
+    this.panel.set(panel);
+    if (panel === 'identity' || panel === 'brand') void this.loadProjects();
+    if (panel === 'designer') this.startDesignerPreview();
+  }
+
+  design<K extends keyof CharacterDesign>(key: K, value: CharacterDesign[K]): void {
+    this.patch('designer', { [key]: value } as Partial<CharacterDesign>);
+  }
+
+  surpriseDesign(): void {
+    this.patch('designer', { ...randomDesign(), name: this.settings().designer.name });
+  }
+
+  wearDesign(): void {
+    this.patch('identity', { character: 'custom', faceStyle: 'character', characterPerPerson: false });
+    this.status.notify([`Wearing "${this.settings().designer.name}"`]);
+  }
+
+  qrIsLink(text: string): boolean {
+    return qrIsLink(text);
+  }
+
+  /** Animates the designer's preview while that tab is open: idling, copying your face when the studio runs, and acting out reactions. */
+  private startDesignerPreview(): void {
+    cancelAnimationFrame(this.designerFrame);
+    const draw = () => {
+      const canvas = this.designerCanvas()?.nativeElement;
+      if (this.panel() !== 'designer') return;
+      if (canvas) this.drawDesignerPreview(canvas);
+      this.designerFrame = requestAnimationFrame(draw);
+    };
+    this.designerFrame = requestAnimationFrame(draw);
+  }
+
+  private drawDesignerPreview(canvas: HTMLCanvasElement): void {
+    const c = canvas.getContext('2d');
+    if (!c) return;
+    const W = canvas.width;
+    const H = canvas.height;
+    const now = performance.now();
+    const s = this.settings();
+
+    const g = c.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#1a2142');
+    g.addColorStop(1, '#0b0e17');
+    c.fillStyle = g;
+    c.fillRect(0, 0, W, H);
+    c.fillStyle = 'rgba(255,255,255,.06)';
+    c.fillRect(0, H * 0.9, W, H * 0.1);
+
+    let act: MascotAct | null = null;
+    if (this.previewAct) {
+      const progress = (now - this.previewAct.started) / 1700;
+      if (progress >= 1) this.previewAct = null;
+      else act = { kind: this.previewAct.kind, progress };
+    }
+    const box = { x: W * 0.2, y: H * 0.06, w: W * 0.6, h: H * 0.88 };
+    const { skeleton, face } = mascotSkeleton(box, now / 1000, act);
+    const you = this.running() ? this.tracker.tracked.find((f) => f.visible) : undefined;
+
+    drawPuppetBody(c, skeleton, lookFor('custom', s.designer, s.overlays.accent));
+    c.save();
+    c.translate(skeleton.head.x, skeleton.head.y);
+    if (you) c.rotate(s.picture.mirror ? -you.roll : you.roll);
+    drawDesigned(c, s.designer, skeleton.head.r, you ? expressionFrom(you, s.picture.mirror) : {
+      mouthOpen: face.mouthOpen,
+      blinkLeft: face.blink,
+      blinkRight: face.blink,
+      smile: face.smile,
+      browUp: act?.kind === 'wow' ? 0.9 : 0,
+    });
+    c.restore();
   }
 
   private frameSize(): { width: number; height: number } {
@@ -583,7 +968,7 @@ export class LiveCameraComponent {
     }
   }
 
-  /** Hotkeys: 1-5 scenes, P privacy, F faces, M mute. Ignored while typing. */
+  /** Hotkeys: 1-5 scenes, P privacy, F faces, M mute, G gestures. Ignored while typing. */
   onKey(event: KeyboardEvent): void {
     const target = event.target as HTMLElement | null;
     if (!this.running() || event.ctrlKey || event.metaKey || event.altKey) return;
@@ -604,6 +989,9 @@ export class LiveCameraComponent {
         break;
       case 'm':
         this.patch('voice', { muted: !this.settings().voice.muted });
+        break;
+      case 'g':
+        this.patch('gestures', { enabled: !this.settings().gestures.enabled });
         break;
       default:
         return;
@@ -648,6 +1036,17 @@ export class LiveCameraComponent {
         blocking: false,
         hint: this.audienceError() ?? 'Ask an admin to set YouTube:ApiKey on the server.',
       });
+    }
+    if (this.motionWanted() && s.source !== 'screen') {
+      checks.push({
+        label: 'Body & hand tracking running',
+        ok: this.motionState() === 'ready',
+        blocking: false,
+        hint: this.motionError() ?? 'The body puppet and gestures start once it has loaded.',
+      });
+    }
+    if (s.brand.qr) {
+      checks.push({ label: 'QR code fits', ok: !!s.brand.qrText && !this.qrFailed(), blocking: false, hint: 'Enter a link or text short enough for a QR code.' });
     }
     checks.push({ label: 'Microphone connected', ok: !!this.micMedia || s.voice.muted, blocking: false, hint: 'The stream will go out silent.' });
     return checks;
@@ -912,6 +1311,7 @@ export class LiveCameraComponent {
 
   characterName(ref: CharacterRef): string {
     if (ref === 'upload') return 'Your image';
+    if (ref === 'custom') return this.settings().designer.name || 'My character';
     return this.builtIns.find((c) => c.id === ref)?.name
       ?? this.projectCharacters().find((c) => c.ref === ref)?.name ?? 'Character';
   }
@@ -1113,6 +1513,7 @@ export class LiveCameraComponent {
   private async teardown(): Promise<void> {
     if (this.audiencePoll) clearInterval(this.audiencePoll);
     if (this.rememberTimer) clearTimeout(this.rememberTimer);
+    cancelAnimationFrame(this.designerFrame);
     // Leaving the page ends the stream: it is drawn here, so nothing would be left to send.
     await this.endStream(false);
     await this.stopStudio();

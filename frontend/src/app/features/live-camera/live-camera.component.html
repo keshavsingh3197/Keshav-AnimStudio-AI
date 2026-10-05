@@ -89,6 +89,10 @@
                 (click)="setScene(scene() === 'privacy' ? 'camera' : 'privacy')" [disabled]="!running()">
           🔒 Privacy cover <kbd>P</kbd>
         </button>
+        <button type="button" class="cs-toggle" [class.on]="settings().gestures.enabled"
+                (click)="patch('gestures', { enabled: !settings().gestures.enabled })" [disabled]="!running()">
+          🤚 Gestures <kbd>G</kbd>
+        </button>
         <span class="cs-spacer"></span>
         <button type="button" class="secondary cs-small" (click)="snapshot()" [disabled]="!running()">📸 Snapshot</button>
         <button type="button" class="secondary cs-small" (click)="toggleLocalRecording()" [disabled]="!running()">
@@ -122,6 +126,13 @@
             <strong>{{ fps() }} fps</strong>
             <span class="muted">{{ form.quality === 'Hd1080' ? '1080p' : '720p' }} {{ form.orientation === 'Portrait' ? 'vertical' : 'landscape' }}</span>
           </div>
+          @if (motionWanted()) {
+            <div class="cs-reading">
+              <span class="cs-reading-label">Body &amp; hands</span>
+              <strong>{{ motionState() === 'ready' ? '🕺 ' + bodiesSeen() + ' · 🖐️ ' + handReadout().length : motionState() === 'loading' ? '⏳ Loading' : motionState() === 'failed' ? '⚠️ Failed' : '— Off' }}</strong>
+              @if (motionState() === 'ready') { <span class="muted">bodies · hands</span> }
+            </div>
+          }
           <div class="cs-reading cs-meter-reading">
             <span class="cs-reading-label">Mic</span>
             <div class="cs-meter" [attr.aria-label]="'Microphone level ' + (micLevel() * 100 | number: '1.0-0') + '%'">
@@ -133,6 +144,30 @@
           <div class="cs-banner cs-banner-err">
             <span>⚠️ {{ visionError() }} While face hiding is on, the camera stays covered.</span>
             <button type="button" class="secondary cs-small" (click)="retryVision()">Try again</button>
+          </div>
+        }
+        @if (motionState() === 'failed') {
+          <div class="cs-banner cs-banner-err">
+            <span>⚠️ {{ motionError() }}</span>
+            <button type="button" class="secondary cs-small" (click)="retryVision()">Try again</button>
+          </div>
+        }
+        @if (settings().gestures.enabled || teaching()) {
+          <!-- Only on this page, never on the program: what the camera sees your hands and face doing. -->
+          <div class="cs-gesture-strip" aria-live="polite">
+            @if (teaching(); as t) {
+              <span class="cs-gesture-teach">
+                {{ t.phase === 'ready' ? '⏳ Get ready: hold "' + settings().gestures.signNames[t.slot] + '" up to the camera… ' + teachingSecondsLeft() : '⏺ Learning "' + settings().gestures.signNames[t.slot] + '" · ' + signCounts()[t.slot] + ' examples' }}
+              </span>
+            } @else {
+              @for (h of handReadout(); track $index) { <span class="cs-gesture-chip">{{ h }}</span> }
+              @if (handReadout().length === 0) { <span class="muted">No hands in view</span> }
+              @for (g of heldGestures(); track g.label) {
+                <span class="cs-gesture-chip cs-gesture-held" [style.--p]="g.progress">{{ g.icon }} {{ g.label }}</span>
+              }
+              <span class="cs-spacer"></span>
+              @if (lastGesture(); as g) { <strong class="cs-gesture-fired">{{ g.icon }} {{ g.label }} → {{ g.action }}</strong> }
+            }
           </div>
         }
       }
@@ -183,12 +218,13 @@
     <section class="card cs-panel">
       <div class="cs-tabs" role="tablist" aria-label="Studio settings">
         @for (t of [
-          { id: 'identity', label: '🛡️ Identity' }, { id: 'voice', label: '🎙️ Voice' }, { id: 'picture', label: '🎨 Picture' },
+          { id: 'identity', label: '🛡️ Identity' }, { id: 'designer', label: '🧑‍🎨 Designer' }, { id: 'motion', label: '🕺 Motion' },
+          { id: 'brand', label: '🔖 Brand' }, { id: 'voice', label: '🎙️ Voice' }, { id: 'picture', label: '🎨 Picture' },
           { id: 'overlays', label: '📊 Overlays' }, { id: 'scenes', label: '🎬 Scenes' }, { id: 'stream', label: '📡 Stream' },
           { id: 'health', label: '💾 Presets' }
         ]; track t.id) {
           <button type="button" role="tab" [class.active]="panel() === t.id" [attr.aria-selected]="panel() === t.id"
-                  (click)="panel.set($any(t.id)); t.id === 'identity' && loadProjects()">{{ t.label }}</button>
+                  (click)="openPanel($any(t.id))">{{ t.label }}</button>
         }
       </div>
 
@@ -217,6 +253,10 @@
 
             @if (settings().identity.faceStyle === 'character') {
               <div class="cs-characters">
+                <button type="button" class="cs-char" [class.active]="settings().identity.character === 'custom'"
+                        (click)="patch('identity', { character: 'custom', characterPerPerson: false })" [title]="settings().designer.name">
+                  <span class="cs-char-icon">🧑‍🎨</span><span>{{ settings().designer.name || 'My character' }}</span>
+                </button>
                 @for (c of builtIns; track c.id) {
                   <button type="button" class="cs-char" [class.active]="settings().identity.character === c.id"
                           (click)="patch('identity', { character: c.id })" [title]="c.name">
@@ -339,6 +379,243 @@
               </label>
             }
             <p class="muted cs-note">Hiding the room helps too: posters, windows and mail can give away where you are.</p>
+          </fieldset>
+        }
+
+        <!-- ------------------------------------------------ designer -->
+        @case ('designer') {
+          <div class="cs-designer">
+            <canvas #designerPreview class="cs-designer-canvas" width="360" height="420" aria-label="Preview of your character"></canvas>
+            <div class="cs-designer-actions">
+              @for (r of reactions.slice(0, 6); track r.id) {
+                <button type="button" class="secondary cs-small" (click)="react(r.id)" [title]="'Preview: ' + r.label">{{ r.icon }}</button>
+              }
+            </div>
+            <p class="muted cs-note">{{ running() ? 'The preview copies your face. Try blinking, smiling and talking.' : 'Start the studio and the preview copies your face.' }}</p>
+          </div>
+
+          <fieldset class="cs-field">
+            <legend>Your character</legend>
+            <div class="cs-two">
+              <input [ngModel]="settings().designer.name" (ngModelChange)="design('name', $event)" maxlength="24" placeholder="Name" aria-label="Character name" />
+              <button type="button" class="secondary" (click)="surpriseDesign()">🎲 Surprise me</button>
+            </div>
+            @for (part of [
+              { key: 'head', label: 'Head', options: designParts.HEADS },
+              { key: 'eyes', label: 'Eyes', options: designParts.EYES },
+              { key: 'mouth', label: 'Mouth', options: designParts.MOUTHS },
+              { key: 'ears', label: 'Ears', options: designParts.EARS },
+              { key: 'hair', label: 'Hair', options: designParts.HAIRS },
+              { key: 'hat', label: 'Hat', options: designParts.HATS },
+              { key: 'glasses', label: 'Glasses', options: designParts.GLASSES },
+              { key: 'finish', label: 'Look', options: designParts.FINISHES }
+            ]; track part.key) {
+              <div class="cs-part">
+                <span class="cs-part-label">{{ part.label }}</span>
+                <div class="cs-chips">
+                  @for (o of part.options; track o) {
+                    <button type="button" [class.active]="$any(settings().designer)[part.key] === o" (click)="design($any(part.key), $any(o))">{{ o }}</button>
+                  }
+                </div>
+              </div>
+            }
+            <label class="cs-switchrow">
+              <input type="checkbox" [ngModel]="settings().designer.cheeks" (ngModelChange)="design('cheeks', $event)" /><span>Rosy cheeks</span>
+            </label>
+          </fieldset>
+
+          <fieldset class="cs-field">
+            <legend>Colours</legend>
+            <div class="cs-colors">
+              <label class="cs-compact">Skin <input type="color" [ngModel]="settings().designer.skin" (ngModelChange)="design('skin', $event)" /></label>
+              <label class="cs-compact">Eyes <input type="color" [ngModel]="settings().designer.eyeColor" (ngModelChange)="design('eyeColor', $event)" /></label>
+              <label class="cs-compact">Hair <input type="color" [ngModel]="settings().designer.hairColor" (ngModelChange)="design('hairColor', $event)" /></label>
+              <label class="cs-compact">Hat <input type="color" [ngModel]="settings().designer.hatColor" (ngModelChange)="design('hatColor', $event)" /></label>
+              <label class="cs-compact">Shirt <input type="color" [ngModel]="settings().designer.outfit" (ngModelChange)="design('outfit', $event)" /></label>
+              <label class="cs-compact">Trousers <input type="color" [ngModel]="settings().designer.pants" (ngModelChange)="design('pants', $event)" /></label>
+              <label class="cs-compact">Gloves <input type="color" [ngModel]="settings().designer.gloves" (ngModelChange)="design('gloves', $event)" /></label>
+            </div>
+          </fieldset>
+
+          <div class="cs-inline">
+            <button type="button" (click)="wearDesign()">🎭 Wear it on camera</button>
+            <button type="button" class="secondary" (click)="patch('brand', { mascot: true, mascotCharacter: 'custom' }); openPanel('brand')">🧸 Use as corner mascot</button>
+          </div>
+          <p class="muted cs-note">Your design is saved with presets and exported preset files. It's drawn on this machine, like the built-in characters.</p>
+        }
+
+        <!-- ------------------------------------------------ motion -->
+        @case ('motion') {
+          <fieldset class="cs-field">
+            <legend>Body puppet</legend>
+            <p class="muted cs-note">Your character gets a body that copies yours: arms, hands and fingers (thumbs-up, peace sign, waving), and legs when they're in frame.</p>
+            <div class="cs-chips">
+              @for (b of [
+                { id: 'off', label: 'Off' }, { id: 'overlay', label: '🧥 Over my body' }, { id: 'replace', label: '🎭 Replace me completely' }
+              ]; track b.id) {
+                <button type="button" [class.active]="settings().avatar.body === b.id" (click)="patch('avatar', { body: $any(b.id) })">{{ b.label }}</button>
+              }
+            </div>
+            @if (settings().avatar.body === 'replace') {
+              <p class="muted cs-note">No camera picture is shown at all - only your character on a stage (your background colour, image or the animated gradient). The safest look.</p>
+            }
+            @if (settings().avatar.body === 'overlay') {
+              <p class="muted cs-note">Drawn over the camera picture, so parts of you can still show around it. Use "Replace me" to hide everything.</p>
+            }
+            <label class="cs-switchrow"><input type="checkbox" [ngModel]="settings().avatar.fingers" (ngModelChange)="patch('avatar', { fingers: $event })" /><span>Copy my fingers</span></label>
+            <label class="cs-switchrow"><input type="checkbox" [ngModel]="settings().avatar.legs" (ngModelChange)="patch('avatar', { legs: $event })" /><span>Legs (when my knees are in frame)</span></label>
+            <label class="cs-range">Limb thickness <span>{{ settings().avatar.thickness | number: '1.1-1' }}×</span>
+              <input type="range" min="0.6" max="1.6" step="0.05" [ngModel]="settings().avatar.thickness" (ngModelChange)="patch('avatar', { thickness: +$event })" />
+            </label>
+          </fieldset>
+
+          <fieldset class="cs-field">
+            <legend>Gestures</legend>
+            <label class="cs-switchrow">
+              <input type="checkbox" [ngModel]="settings().gestures.enabled" (ngModelChange)="patch('gestures', { enabled: $event })" />
+              <span><strong>Control the studio with gestures</strong><small class="muted">Hand signs, winks, raised eyebrows, nods. Recognised on this machine by on-device models.</small></span>
+            </label>
+            <div class="cs-two">
+              <label class="cs-switchrow"><input type="checkbox" [ngModel]="settings().gestures.hands" (ngModelChange)="patch('gestures', { hands: $event })" /><span>🖐️ Hands</span></label>
+              <label class="cs-switchrow"><input type="checkbox" [ngModel]="settings().gestures.face" (ngModelChange)="patch('gestures', { face: $event })" /><span>👁️ Eyes &amp; face</span></label>
+            </div>
+            <label class="cs-range">Hold a sign for <span>{{ settings().gestures.holdMs / 1000 | number: '1.1-1' }} s</span>
+              <input type="range" min="200" max="2000" step="50" [ngModel]="settings().gestures.holdMs" (ngModelChange)="patch('gestures', { holdMs: +$event })" />
+            </label>
+            <label class="cs-range">Wait before repeating <span>{{ settings().gestures.cooldownMs / 1000 | number: '1.1-1' }} s</span>
+              <input type="range" min="500" max="10000" step="250" [ngModel]="settings().gestures.cooldownMs" (ngModelChange)="patch('gestures', { cooldownMs: +$event })" />
+            </label>
+            <p class="muted cs-note">Gestures can turn the privacy card and mute <em>on</em>, never off, and can never show your face. Undo those with a click or a key.</p>
+          </fieldset>
+
+          <fieldset class="cs-field" [disabled]="!settings().gestures.enabled">
+            <legend>What each gesture does</legend>
+            @for (kind of [{ id: 'hand', label: 'Hands' }, { id: 'face', label: 'Eyes & face' }, { id: 'sign', label: 'Signs you teach' }]; track kind.id) {
+              <span class="cs-part-label">{{ kind.label }}</span>
+              @for (g of gestureList; track g.id) {
+                @if (g.kind === kind.id) {
+                  <div class="cs-widget">
+                    <span>{{ gestureInfo(g.id).icon }} {{ gestureInfo(g.id).label }}</span>
+                    <select class="cs-action" [ngModel]="settings().gestures.bindings[g.id]" (ngModelChange)="setBinding(g.id, $event)" [attr.aria-label]="'Action for ' + gestureInfo(g.id).label">
+                      @for (a of gestureActions; track a.id) { <option [value]="a.id">{{ a.label }}</option> }
+                    </select>
+                  </div>
+                }
+              }
+            }
+          </fieldset>
+
+          <fieldset class="cs-field">
+            <legend>Teach your own signs</legend>
+            <p class="muted cs-note">Hold any hand shape up to the camera for 3 seconds and the studio learns it (nearest-neighbour matching on your hand's shape, wherever it is in frame, with either hand). Only the shape is kept, in this browser - never a picture.</p>
+            @for (slot of signSlots; track slot) {
+              <div class="cs-sign">
+                <input class="cs-short" [ngModel]="settings().gestures.signNames[slot]" (ngModelChange)="setSignName(slot, $event)" maxlength="20" [attr.aria-label]="'Name of sign ' + (slot + 1)" />
+                <span class="muted cs-sign-count">{{ signCounts()[slot] >= minSamples ? '✅ ' + signCounts()[slot] + ' examples' : 'Not taught' }}</span>
+                <button type="button" class="secondary cs-small" (click)="teachSign(slot)" [disabled]="!!teaching()">
+                  {{ teaching()?.slot === slot ? 'Learning…' : signCounts()[slot] >= minSamples ? 'Re-teach' : 'Teach' }}
+                </button>
+                @if (signCounts()[slot] > 0 && !teaching()) {
+                  <button type="button" class="secondary cs-small" (click)="forgetSign(slot)" aria-label="Forget this sign">✕</button>
+                }
+              </div>
+            }
+          </fieldset>
+
+          <fieldset class="cs-field">
+            <legend>Try a reaction</legend>
+            <div class="cs-chips">
+              @for (r of reactions; track r.id) {
+                <button type="button" (click)="react(r.id)" [disabled]="!running()">{{ r.icon }} {{ r.label }}</button>
+              }
+            </div>
+          </fieldset>
+        }
+
+        <!-- ------------------------------------------------ brand -->
+        @case ('brand') {
+          <fieldset class="cs-field">
+            <legend>QR code</legend>
+            <div class="cs-widget">
+              <label class="cs-switchrow"><input type="checkbox" [ngModel]="settings().brand.qr" (ngModelChange)="patch('brand', { qr: $event })" /><span>🔳 Show a QR code</span></label>
+              <select class="cs-corner" [ngModel]="settings().brand.qrCorner" (ngModelChange)="patch('brand', { qrCorner: $event })" aria-label="Corner"><option value="top-left">↖</option><option value="top-right">↗</option><option value="bottom-left">↙</option><option value="bottom-right">↘</option></select>
+            </div>
+            <input [ngModel]="settings().brand.qrText" (ngModelChange)="patch('brand', { qrText: $event })" maxlength="300"
+                   placeholder="https://… link, upi://pay?… or any text" aria-label="QR code contents" />
+            @if (settings().brand.qrText) {
+              <span class="muted cs-note">{{ qrIsLink(settings().brand.qrText) ? '🔗 Opens: ' + settings().brand.qrText : '📝 Shows as text when scanned' }}</span>
+            }
+            @if (qrFailed()) { <span class="cs-warn-text cs-note">That's too long for a QR code. Shorten it.</span> }
+            <div class="cs-two">
+              <input [ngModel]="settings().brand.qrCaption" (ngModelChange)="patch('brand', { qrCaption: $event })" maxlength="40" placeholder="Caption (e.g. Scan to subscribe)" aria-label="QR caption" />
+              <label class="cs-range">Size <span>{{ settings().brand.qrSize * 100 | number: '1.0-0' }}%</span>
+                <input type="range" min="0.12" max="0.45" step="0.01" [ngModel]="settings().brand.qrSize" (ngModelChange)="patch('brand', { qrSize: +$event })" />
+              </label>
+            </div>
+            <div class="cs-two">
+              <label class="cs-compact">Code <input type="color" [ngModel]="settings().brand.qrDark" (ngModelChange)="patch('brand', { qrDark: $event })" /></label>
+              <label class="cs-compact">Card <input type="color" [ngModel]="settings().brand.qrLight" (ngModelChange)="patch('brand', { qrLight: $event })" /></label>
+            </div>
+            <p class="muted cs-note">Only http, https, mailto, tel, sms, upi and geo links are allowed. Colours too low in contrast to scan fall back to black on white. Test it with your phone before going live.</p>
+          </fieldset>
+
+          <fieldset class="cs-field">
+            <legend>Seal</legend>
+            <div class="cs-widget">
+              <label class="cs-switchrow"><input type="checkbox" [ngModel]="settings().brand.seal" (ngModelChange)="patch('brand', { seal: $event })" /><span>🏅 Authenticity seal</span></label>
+              <select class="cs-corner" [ngModel]="settings().brand.sealCorner" (ngModelChange)="patch('brand', { sealCorner: $event })" aria-label="Corner"><option value="top-left">↖</option><option value="top-right">↗</option><option value="bottom-left">↙</option><option value="bottom-right">↘</option></select>
+            </div>
+            <div class="cs-two">
+              <input [ngModel]="settings().brand.sealTop" (ngModelChange)="patch('brand', { sealTop: $event })" maxlength="28" placeholder="Top ring text" aria-label="Seal top text" />
+              <input [ngModel]="settings().brand.sealBottom" (ngModelChange)="patch('brand', { sealBottom: $event })" maxlength="28" placeholder="Bottom ring text" aria-label="Seal bottom text" />
+            </div>
+            <div class="cs-two">
+              <input [ngModel]="settings().brand.sealCenter" (ngModelChange)="patch('brand', { sealCenter: $event })" maxlength="6" placeholder="Centre mark (★, AS, 916)" aria-label="Seal centre mark" />
+              <input [ngModel]="settings().brand.sealSerial" (ngModelChange)="patch('brand', { sealSerial: $event })" maxlength="24" placeholder="Serial / ID (optional)" aria-label="Seal serial" />
+            </div>
+            <div class="cs-chips">
+              @for (f of [{ id: 'gold', label: '🥇 Gold' }, { id: 'silver', label: '🥈 Silver' }, { id: 'rose', label: '🌸 Rose gold' }, { id: 'accent', label: '🎨 Accent colour' }]; track f.id) {
+                <button type="button" [class.active]="settings().brand.sealFinish === f.id" (click)="patch('brand', { sealFinish: $any(f.id) })">{{ f.label }}</button>
+              }
+            </div>
+            <div class="cs-two">
+              <label class="cs-switchrow"><input type="checkbox" [ngModel]="settings().brand.sealDate" (ngModelChange)="patch('brand', { sealDate: $event })" /><span>Today's date</span></label>
+              <label class="cs-range">Size <span>{{ settings().brand.sealSize * 100 | number: '1.0-0' }}%</span>
+                <input type="range" min="0.1" max="0.4" step="0.01" [ngModel]="settings().brand.sealSize" (ngModelChange)="patch('brand', { sealSize: +$event })" />
+              </label>
+            </div>
+            <p class="muted cs-note">A decorative seal with your own words. It isn't an official hallmark, so don't use it to claim a certification you don't hold.</p>
+          </fieldset>
+
+          <fieldset class="cs-field">
+            <legend>Corner mascot</legend>
+            <div class="cs-widget">
+              <label class="cs-switchrow"><input type="checkbox" [ngModel]="settings().brand.mascot" (ngModelChange)="patch('brand', { mascot: $event })" /><span>🧸 A character in the corner</span></label>
+              <select class="cs-corner" [ngModel]="settings().brand.mascotCorner" (ngModelChange)="patch('brand', { mascotCorner: $event })" aria-label="Corner"><option value="top-left">↖</option><option value="top-right">↗</option><option value="bottom-left">↙</option><option value="bottom-right">↘</option></select>
+            </div>
+            <div class="cs-characters">
+              <button type="button" class="cs-char" [class.active]="settings().brand.mascotCharacter === 'custom'" (click)="patch('brand', { mascotCharacter: 'custom' })">
+                <span class="cs-char-icon">🧑‍🎨</span><span>{{ settings().designer.name || 'My character' }}</span>
+              </button>
+              @for (c of builtIns; track c.id) {
+                <button type="button" class="cs-char" [class.active]="settings().brand.mascotCharacter === c.id" (click)="patch('brand', { mascotCharacter: c.id })" [title]="c.name">
+                  <span class="cs-char-icon">{{ c.icon }}</span><span>{{ c.name }}</span>
+                </button>
+              }
+              @for (c of projectCharacters(); track c.ref) {
+                <button type="button" class="cs-char" [class.active]="settings().brand.mascotCharacter === c.ref" (click)="patch('brand', { mascotCharacter: c.ref })" [title]="c.name">
+                  <img [src]="c.thumbnail" alt="" class="cs-char-img" /><span>{{ c.name }}</span>
+                </button>
+              }
+            </div>
+            <div class="cs-chips">
+              <button type="button" [class.active]="settings().brand.mascotMode === 'idle'" (click)="patch('brand', { mascotMode: 'idle' })">😊 Idles, talks with me, reacts</button>
+              <button type="button" [class.active]="settings().brand.mascotMode === 'mirror'" (click)="patch('brand', { mascotMode: 'mirror' })">🪞 Copies everything I do</button>
+            </div>
+            <label class="cs-switchrow"><input type="checkbox" [ngModel]="settings().brand.mascotReacts" (ngModelChange)="patch('brand', { mascotReacts: $event })" /><span>Acts out gesture reactions (waves back, thumbs-up, cheers)</span></label>
+            <label class="cs-range">Size <span>{{ settings().brand.mascotSize * 100 | number: '1.0-0' }}%</span>
+              <input type="range" min="0.2" max="0.6" step="0.01" [ngModel]="settings().brand.mascotSize" (ngModelChange)="patch('brand', { mascotSize: +$event })" />
+            </label>
           </fieldset>
         }
 

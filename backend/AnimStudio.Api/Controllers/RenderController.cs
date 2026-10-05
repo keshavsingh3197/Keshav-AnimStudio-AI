@@ -10,6 +10,7 @@ using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Projects;
 using AnimStudio.Domain.Rendering;
 using Microsoft.AspNetCore.Mvc;
+using System.Globalization;
 using System.Text;
 
 namespace AnimStudio.Api.Controllers;
@@ -141,7 +142,7 @@ public sealed class RenderController(
         // A deleted project costs a plainer filename, not a failed download.
         var project = await projects.GetAsync(job.ProjectId, ct);
 
-        return File(stream, "video/mp4", DownloadName(project, jobId));
+        return File(stream, "video/mp4", DownloadName(job, project, jobId));
     }
 
     /// <summary>
@@ -179,7 +180,7 @@ public sealed class RenderController(
 
         var (content, contentType, extension) = ExportTimelineFormatter.Format(timeline, parsed, title);
         var suffix = parsed == ExportTimelineFormat.YouTube ? "youtube-description" : "timeline";
-        var name = $"{Path.GetFileNameWithoutExtension(DownloadName(project, jobId))}-{suffix}.{extension}";
+        var name = $"{Path.GetFileNameWithoutExtension(DownloadName(job, project, jobId))}-{suffix}.{extension}";
 
         // A BOM so Excel reads a CSV of non-ASCII labels as UTF-8 rather than the ANSI codepage.
         var bytes = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(content)).ToArray();
@@ -193,9 +194,16 @@ public sealed class RenderController(
     /// whatever it is given per RFC 6266, so this is about a name that is readable and
     /// portable across filesystems rather than about escaping.
     /// </para>
+    /// <para>
+    /// A clip export carries the name of the Short/Video it was built from, and that name
+    /// wins as-is: the file is called what the person called the cut, not the project.
+    /// </para>
     /// </summary>
-    private static string DownloadName(Project? project, string jobId)
+    private static string DownloadName(RenderJob job, Project? project, string jobId)
     {
+        if (ReadableName(job.ClipMerge?.ExportName) is { } exportName)
+            return $"{exportName}.mp4";
+
         var format = project is null
             ? "video"
             : Canvas.Describe(project.Settings.Width, project.Settings.Height)
@@ -206,6 +214,34 @@ public sealed class RenderController(
         var suffix = jobId.Length > 8 ? jobId[..8] : jobId;
 
         return $"{slug}-{format}-{suffix}.mp4";
+    }
+
+    /// <summary>
+    /// The name kept readable - case, spaces, any script - but reduced to characters every
+    /// filesystem accepts. Anything outside the allowlist becomes a space, so a slash or a
+    /// colon cannot turn the name into a path. Null when nothing usable is left.
+    /// </summary>
+    private static string? ReadableName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return null;
+
+        const string allowedPunctuation = " -_.,()[]!&'+#";
+        var builder = new StringBuilder(name.Length);
+        foreach (var ch in name)
+        {
+            // Marks are kept so Devanagari and other combining scripts stay intact.
+            var keep = char.IsLetterOrDigit(ch)
+                || char.GetUnicodeCategory(ch) is UnicodeCategory.NonSpacingMark or UnicodeCategory.SpacingCombiningMark
+                || allowedPunctuation.Contains(ch);
+            var c = keep ? ch : ' ';
+            if (c == ' ' && (builder.Length == 0 || builder[^1] == ' ')) continue;
+            builder.Append(c);
+        }
+
+        // Trailing dots and spaces are invalid on Windows.
+        var cleaned = builder.ToString().Trim().TrimEnd('.', ' ');
+        if (cleaned.Length == 0) return null;
+        return cleaned.Length <= 120 ? cleaned : cleaned[..120].TrimEnd('.', ' ');
     }
 
     private static string Slug(string? name)

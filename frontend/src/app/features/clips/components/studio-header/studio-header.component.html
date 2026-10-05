@@ -84,7 +84,7 @@
           <span style="font-size:0.75rem; color:var(--text-dim); text-decoration:underline;">📊 Diagnostics</span>
         </button>
         @if (current.hasOutput) {
-          <a [href]="state.downloadUrl(current.jobId)" [download]="state.exportName() ? state.exportName() + '.mp4' : current.jobId + '.mp4'" style="text-decoration:none;">
+          <a [href]="state.downloadUrl(current.jobId)" [download]="(state.exportName() || state.defaultExportName()) + '.mp4'" style="text-decoration:none;">
             <button type="button" class="btn-sm" style="background:var(--ok, #10b981); border:none; border-radius:4px; padding:3px 8px; font-weight:bold; color:#000; font-size:0.72rem; cursor:pointer;" title="Download rendered MP4">&#11123; MP4</button>
           </a>
         }
