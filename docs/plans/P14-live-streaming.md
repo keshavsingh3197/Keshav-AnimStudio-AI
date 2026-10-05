@@ -113,3 +113,38 @@ only encode now, so QSV would shorten the wait before a long playlist is ready.
 
 ### A14.5 — Scheduled streams
 Start a prepared stream at a set time, and keep a 24/7 stream's playlist refreshing from a folder or channel.
+
+### A14.6 — Camera Studio ✅
+Go live from the browser's camera or a shared screen, at `/live/camera`, without showing who you are.
+
+**Design: the browser draws, the server encodes.** The page composites the program on a canvas (camera, masks,
+overlays, scene cards), records it with `MediaRecorder` (WebM, or fragmented MP4 on Safari), and sends one-second
+chunks to `POST api/live-streams/camera/{id}/chunks?generation=&sequence=`. The server pipes them into ffmpeg's stdin
+(`IFfmpegPipe`), which encodes x264 `veryfast`/`zerolatency` at the stream bitrate with a 2 s keyframe interval and
+sends RTMPS. Unlike a playlist this is a real-time encode, so `LiveStream:Camera:MaxConcurrent` is bounded by CPU.
+
+**Privacy by construction.** Face tracking and person segmentation run on-device (MediaPipe Tasks, Apache-2.0,
+served by this app: `npm run vision:models` fetches the models pinned by URL and SHA-256). The unmasked camera picture
+is never recorded or sent. With face hiding on, the page **fails closed**: the camera is covered until the model runs
+and while detections are stale. Strict mode also covers it when a face is lost (beyond a per-face hold) or a person is
+seen without a face. Every mask starts with an opaque disc, centred above the face to cover the hairline. Go live is
+blocked until face tracking is running.
+
+**Transport.** HTTP chunks rather than a WebSocket, so the normal bearer-token auth applies unchanged (a browser
+WebSocket can't send the header). Chunks are written strictly in order. A repeated chunk is acknowledged without being
+written twice, so the page can retry. The first chunk of each recording must start with the declared container's magic
+bytes. If the ingest connection drops after going live, the encoder restarts under a new *generation* and the page
+starts a fresh recording, because a recording's header is only in its first chunk. A page that stops sending for
+`IdleTimeoutSeconds` ends the stream.
+
+**Audience numbers.** `GET api/live-streams/audience?channel=&video=` reads public subscriber and live-viewer counts
+from the YouTube Data API. The key (`YouTube:ApiKey`, a secret) goes in the `X-Goog-Api-Key` header, never in a URL;
+the host is fixed; ids are checked against YouTube's shapes; answers are cached (`YouTube:CacheSeconds`).
+
+| Endpoint | |
+| --- | --- |
+| `POST camera` | `{ settings, goLive }`: starts the encoder. One active camera stream per user. |
+| `GET camera` / `GET camera/{id}` | Status: state, generation, next chunk, bytes, speed, reconnects. |
+| `POST camera/{id}/chunks` | Raw bytes. `409 restart-recording` / `chunk-out-of-order` / `camera-ended` carry the status. |
+| `POST camera/{id}/stop` | Closes stdin so what was sent goes out, then ends. |
+| `GET audience` | Subscribers (UC… id or @handle) and live viewers (video id). |

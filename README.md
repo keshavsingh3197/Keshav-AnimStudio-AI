@@ -71,6 +71,14 @@ Craft viral Shorts, Reels, YouTube videos, animated stories, and narrated slides
 - **Saved Keys per Channel**: YouTube stream keys don't expire until reset, so admins save one per brand channel (encrypted, only ever shown masked). If YouTube refuses a key, the channel is flagged and you're asked to set it again. You can still paste a one-off key.
 - **Resilient**: Automatic reconnect from the item that was playing, "go live again" without re-preparing, 720p or 1080p, landscape or vertical (Shorts feed).
 
+### 📷 Camera Studio (live camera with identity protection)
+- **Hide who you are**: On-device face tracking (MediaPipe, in the browser) covers every face with an animated character that copies your mouth, blinks and head tilt. You can pick one of 10 built-in characters, your project's own characters (they switch to the open-mouth image while you talk), your own image, an emoji, a block, pixelation or blur. Each person can get a different character.
+- **Fails closed**: Until faces are tracked, while a face is briefly lost, or when a person is seen without a face (strict mode), the whole camera is covered. Go live is blocked until face tracking runs. Your real camera image never leaves your machine.
+- **Body, background and voice**: Solid-silhouette, blurred or pixelated body; blurred, plain, animated or image background; voice changer (deep, high, robot, radio, alien) with noise suppression.
+- **Overlays, each switchable**: LIVE badge with timer, people-on-camera count, name tags, live YouTube subscriber count with goal bar, live viewers, clock, name banner, scrolling ticker, watermark.
+- **Show control**: Camera, screen, or screen plus camera in a corner; Starting soon (with countdown), Be right back, Ending and Privacy cards; hotkeys (1-5, P, F, M); auto-framing, looks and colour controls; presets with import/export; record to file; snapshot; pre-flight checklist and stream health.
+- Subscriber and viewer counts need a YouTube Data API key on the server: `dotnet user-secrets set "YouTube:ApiKey" "…"` (or the `YouTube__ApiKey` env var / Key Vault). The face models are fetched by `npm run vision:models` (runs automatically before `npm start` / `npm run build`).
+
 ### 🎨 Color Grading & Effects
 - **9 Cinematic LUT Filter Presets**: Natural, Cinematic Warm, Cool Sci-Fi, Vivid Pop, Golden Hour, Teal & Orange, Cyberpunk, Film Noir, and Faded 90s.
 - **Text & Logo Watermarks**: Positionable text or logo watermarks (Top-Left, Top-Right, Bottom-Left, Bottom-Right, Center) with font and opacity controls.

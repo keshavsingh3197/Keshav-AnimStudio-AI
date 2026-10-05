@@ -1,0 +1,702 @@
+<div class="page-head cs-head">
+  <div>
+    <h2>📷 Camera Studio</h2>
+    <p class="muted cs-lede">
+      Go live from your camera or screen without showing who you are. Each face is covered by a character, a blur
+      or a block, your voice can be disguised, and overlays show who's watching. All of it is drawn on this machine
+      before anything is sent, so your real face never leaves it.
+    </p>
+  </div>
+  <a routerLink="/live" class="cs-switch">🎞️ Playlist streaming →</a>
+</div>
+
+@if (error(); as message) {
+  <div class="cs-banner cs-banner-err" role="alert">
+    <span>⚠️ {{ message }}</span>
+    <button type="button" class="cs-x" (click)="error.set(null)" aria-label="Dismiss">✕</button>
+  </div>
+}
+@if (notice(); as message) {
+  <div class="cs-banner" role="status">
+    <span>ℹ️ {{ message }}</span>
+    <button type="button" class="cs-x" (click)="notice.set(null)" aria-label="Dismiss">✕</button>
+  </div>
+}
+
+<div class="cs-grid">
+  <!-- ============================================================ program -->
+  <div class="cs-col">
+    <section class="card cs-program-card">
+      <div class="cs-onair" [attr.data-state]="stream()?.state ?? 'Off'">
+        <span class="cs-onair-dot"></span>
+        <strong>{{ stateLabel() }}</strong>
+        @if (stream(); as s) {
+          @if (onAir()) {
+            <span class="muted">{{ formatClock(s.streamedSeconds) }} sent · {{ s.destinationName }}</span>
+            @if (s.speed && s.state === 'Live' && s.speed < 0.95) { <span class="cs-warn-text">· encoder behind ({{ s.speed | number: '1.2-2' }}×)</span> }
+          } @else if (s.message) {
+            <span class="muted cs-ellipsis">{{ s.message }}</span>
+          }
+        }
+        <span class="cs-spacer"></span>
+        @if (recording()) { <span class="cs-rec">⏺ REC {{ formatClock(recordingSeconds()) }}</span> }
+      </div>
+
+      <div class="cs-stage" [class.portrait]="form.orientation === 'Portrait'">
+        <canvas #program class="cs-canvas" aria-label="Program preview - exactly what viewers see"></canvas>
+        @if (!running()) {
+          <div class="cs-stage-empty">
+            <div class="cs-stage-icon">🎥</div>
+            <strong>The preview shows exactly what viewers will see.</strong>
+            <span class="muted">Pick your camera and microphone, then start the studio. Nothing goes live until you press Go live.</span>
+            <div class="cs-device-row">
+              <select [(ngModel)]="cameraId" (ngModelChange)="scheduleRemember()" aria-label="Camera">
+                <option value="">Default camera</option>
+                @for (d of cameras(); track d.deviceId) { <option [value]="d.deviceId">{{ d.label || 'Camera' }}</option> }
+              </select>
+              <select [(ngModel)]="micId" (ngModelChange)="scheduleRemember()" aria-label="Microphone">
+                <option value="">Default microphone</option>
+                @for (d of mics(); track d.deviceId) { <option [value]="d.deviceId">{{ d.label || 'Microphone' }}</option> }
+              </select>
+            </div>
+            <button type="button" class="cs-primary" (click)="startStudio()" [disabled]="starting()">
+              {{ starting() ? 'Starting…' : '▶ Start studio' }}
+            </button>
+          </div>
+        }
+      </div>
+
+      <!-- Scene bar -->
+      <div class="cs-scenes" role="toolbar" aria-label="Scenes">
+        @for (s of scenes; track s.id) {
+          <button type="button" [class.active]="scene() === s.id" (click)="setScene(s.id)" [disabled]="!running()"
+                  [attr.aria-pressed]="scene() === s.id" [title]="s.label + ' (key ' + s.key + ')'">
+            <span>{{ s.icon }}</span> {{ s.label }} <kbd>{{ s.key }}</kbd>
+          </button>
+        }
+      </div>
+
+      <!-- Quick switches -->
+      <div class="cs-quick">
+        <button type="button" class="cs-toggle" [class.on]="settings().identity.hideFaces" (click)="toggleFaces()" [disabled]="!running()">
+          🛡️ Hide faces <kbd>F</kbd>
+        </button>
+        <button type="button" class="cs-toggle" [class.on]="!settings().voice.muted"
+                (click)="patch('voice', { muted: !settings().voice.muted })" [disabled]="!running()">
+          {{ settings().voice.muted ? '🔇 Muted' : '🎙️ Mic on' }} <kbd>M</kbd>
+        </button>
+        <button type="button" class="cs-toggle" [class.on]="scene() === 'privacy'"
+                (click)="setScene(scene() === 'privacy' ? 'camera' : 'privacy')" [disabled]="!running()">
+          🔒 Privacy cover <kbd>P</kbd>
+        </button>
+        <span class="cs-spacer"></span>
+        <button type="button" class="secondary cs-small" (click)="snapshot()" [disabled]="!running()">📸 Snapshot</button>
+        <button type="button" class="secondary cs-small" (click)="toggleLocalRecording()" [disabled]="!running()">
+          {{ recording() ? '⏹ Stop recording' : '⏺ Record to file' }}
+        </button>
+        @if (running()) {
+          <button type="button" class="secondary cs-small" (click)="stopStudio()">⏏ Stop studio</button>
+        }
+      </div>
+
+      <!-- Live readings -->
+      @if (running()) {
+        <div class="cs-readings">
+          <div class="cs-reading" [class.bad]="privacy().curtain">
+            <span class="cs-reading-label">Privacy</span>
+            <strong>{{ !settings().identity.hideFaces ? 'Faces shown' : privacy().curtain ? '🛡️ Covered' : '✅ Masked' }}</strong>
+            @if (privacy().reason) { <span class="muted">{{ privacy().reason }}</span> }
+          </div>
+          <div class="cs-reading">
+            <span class="cs-reading-label">On camera</span>
+            <strong>👥 {{ faces().length }}</strong>
+            <span class="muted">{{ facesVisible() }} tracked{{ faces().length > facesVisible() ? ' · ' + (faces().length - facesVisible()) + ' held' : '' }}</span>
+          </div>
+          <div class="cs-reading">
+            <span class="cs-reading-label">Face model</span>
+            <strong>{{ visionState() === 'ready' ? '✅ ' + (visionDelegate() ?? '') : visionState() === 'loading' ? '⏳ Loading' : visionState() === 'failed' ? '⚠️ Failed' : '— Off' }}</strong>
+            @if (visionState() === 'ready') { <span class="muted">{{ inferenceMs() | number: '1.0-0' }} ms / frame</span> }
+          </div>
+          <div class="cs-reading">
+            <span class="cs-reading-label">Program</span>
+            <strong>{{ fps() }} fps</strong>
+            <span class="muted">{{ form.quality === 'Hd1080' ? '1080p' : '720p' }} {{ form.orientation === 'Portrait' ? 'vertical' : 'landscape' }}</span>
+          </div>
+          <div class="cs-reading cs-meter-reading">
+            <span class="cs-reading-label">Mic</span>
+            <div class="cs-meter" [attr.aria-label]="'Microphone level ' + (micLevel() * 100 | number: '1.0-0') + '%'">
+              <span [style.width.%]="settings().voice.muted ? 0 : micLevel() * 100"></span>
+            </div>
+          </div>
+        </div>
+        @if (visionState() === 'failed') {
+          <div class="cs-banner cs-banner-err">
+            <span>⚠️ {{ visionError() }} While face hiding is on, the camera stays covered.</span>
+            <button type="button" class="secondary cs-small" (click)="retryVision()">Try again</button>
+          </div>
+        }
+      }
+    </section>
+
+    <!-- ============================================================ go live -->
+    <section class="card">
+      <h3 class="cs-h3">🔴 Go live</h3>
+
+      <ul class="cs-checks">
+        @for (c of checks(); track c.label) {
+          <li [class.ok]="c.ok" [class.blocking]="c.blocking && !c.ok">
+            <span>{{ c.ok ? '✅' : c.blocking ? '⛔' : '⚠️' }}</span>
+            <span>{{ c.label }}@if (!c.ok && c.hint) { <span class="muted"> - {{ c.hint }}</span> }</span>
+          </li>
+        }
+      </ul>
+
+      <div class="cs-golive-row">
+        @if (!onAir()) {
+          <button type="button" class="cs-live-btn" (click)="goLive()" [disabled]="blockers().length > 0 || goingLive()">
+            {{ goingLive() ? 'Starting…' : '🔴 Go live now' }}
+          </button>
+          @if (blockers().length > 0) {
+            <span class="muted">{{ blockers().length }} thing{{ blockers().length === 1 ? '' : 's' }} to fix first.</span>
+          }
+        } @else {
+          <button type="button" class="cs-end-btn" (click)="endStream()">⏹ End stream</button>
+          <span class="muted">Keep this tab open - the stream is drawn here. Switching tabs is fine.</span>
+        }
+      </div>
+
+      @if (uplink(); as u) {
+        @if (onAir()) {
+          <div class="cs-upload" [class.bad]="u.queued >= backlogWarning">
+            ⬆️ {{ u.kbps | number }} kbps · {{ formatSize(u.sentBytes) }} sent · reply {{ u.lastAckMs }} ms
+            @if (u.queued > 1) { · <strong>{{ u.queued }} s waiting</strong> }
+            @if (u.retries) { · {{ u.retries }} retries }
+            @if (u.queued >= backlogWarning) { <div>The upload can't keep up. Lower the quality, or close other uploads.</div> }
+          </div>
+        }
+      }
+    </section>
+  </div>
+
+  <!-- ============================================================ controls -->
+  <div class="cs-col">
+    <section class="card cs-panel">
+      <div class="cs-tabs" role="tablist" aria-label="Studio settings">
+        @for (t of [
+          { id: 'identity', label: '🛡️ Identity' }, { id: 'voice', label: '🎙️ Voice' }, { id: 'picture', label: '🎨 Picture' },
+          { id: 'overlays', label: '📊 Overlays' }, { id: 'scenes', label: '🎬 Scenes' }, { id: 'stream', label: '📡 Stream' },
+          { id: 'health', label: '💾 Presets' }
+        ]; track t.id) {
+          <button type="button" role="tab" [class.active]="panel() === t.id" [attr.aria-selected]="panel() === t.id"
+                  (click)="panel.set($any(t.id)); t.id === 'identity' && loadProjects()">{{ t.label }}</button>
+        }
+      </div>
+
+      @switch (panel()) {
+        <!-- ------------------------------------------------ identity -->
+        @case ('identity') {
+          <label class="cs-switchrow">
+            <input type="checkbox" [ngModel]="settings().identity.hideFaces" (ngModelChange)="patch('identity', { hideFaces: $event })" />
+            <span><strong>Hide every face on camera</strong><small class="muted">Uses on-device face tracking. Nothing is analysed online.</small></span>
+          </label>
+
+          <fieldset class="cs-field" [disabled]="!settings().identity.hideFaces">
+            <legend>Cover faces with</legend>
+            <div class="cs-chips">
+              @for (f of [
+                { id: 'character', label: '🤖 Character' }, { id: 'emoji', label: '😎 Emoji' }, { id: 'block', label: '⬛ Block' },
+                { id: 'pixelate', label: '▦ Pixelate' }, { id: 'blur', label: '🌫️ Blur' }
+              ]; track f.id) {
+                <button type="button" [class.active]="settings().identity.faceStyle === f.id"
+                        (click)="patch('identity', { faceStyle: $any(f.id) })">{{ f.label }}</button>
+              }
+            </div>
+            @if (settings().identity.faceStyle === 'pixelate' || settings().identity.faceStyle === 'blur') {
+              <p class="muted cs-note">Blur and pixelate still show skin tone and hair. A character, emoji or block hides more.</p>
+            }
+
+            @if (settings().identity.faceStyle === 'character') {
+              <div class="cs-characters">
+                @for (c of builtIns; track c.id) {
+                  <button type="button" class="cs-char" [class.active]="settings().identity.character === c.id"
+                          (click)="patch('identity', { character: c.id })" [title]="c.name">
+                    <span class="cs-char-icon">{{ c.icon }}</span><span>{{ c.name }}</span>
+                  </button>
+                }
+                @for (c of projectCharacters(); track c.ref) {
+                  <button type="button" class="cs-char" [class.active]="settings().identity.character === c.ref"
+                          (click)="patch('identity', { character: c.ref, characterPerPerson: false })" [title]="c.name">
+                    <img [src]="c.thumbnail" alt="" class="cs-char-img" /><span>{{ c.name }}</span>
+                  </button>
+                }
+                @if (uploadedCharacter()) {
+                  <button type="button" class="cs-char" [class.active]="settings().identity.character === 'upload'"
+                          (click)="patch('identity', { character: 'upload', characterPerPerson: false })">
+                    <span class="cs-char-icon">🖼️</span><span>Your image</span>
+                  </button>
+                }
+              </div>
+
+              <div class="cs-inline">
+                @if (projects().length > 0) {
+                  <label class="cs-compact">Project characters
+                    <select [ngModel]="characterProject()" (ngModelChange)="pickCharacterProject($event)">
+                      @for (p of projects(); track p.id) { <option [value]="p.id">{{ p.name }}</option> }
+                    </select>
+                  </label>
+                }
+                @if (loadingCharacters()) { <span class="muted">Loading characters…</span> }
+                <label class="secondary cs-file">🖼️ Use my own image
+                  <input type="file" accept="image/png,image/jpeg,image/webp" hidden (change)="onCharacterImage($event)" />
+                </label>
+              </div>
+              <p class="muted cs-note">Project characters with an open-mouth image switch to it while you talk. Your own image stays on this machine.</p>
+
+              <label class="cs-switchrow">
+                <input type="checkbox" [ngModel]="settings().identity.characterPerPerson" (ngModelChange)="patch('identity', { characterPerPerson: $event })" />
+                <span>A different character for each person</span>
+              </label>
+              <label class="cs-switchrow">
+                <input type="checkbox" [ngModel]="settings().identity.animateCharacter" (ngModelChange)="patch('identity', { animateCharacter: $event })" />
+                <span>Copy my mouth, blinks and head tilt onto the character</span>
+              </label>
+            }
+
+            @if (settings().identity.faceStyle === 'emoji') {
+              <div class="cs-chips">
+                @for (e of emojis; track e) {
+                  <button type="button" class="cs-emoji" [class.active]="settings().identity.emoji === e" (click)="patch('identity', { emoji: e })">{{ e }}</button>
+                }
+              </div>
+            }
+
+            <label class="cs-range">Mask size <span>{{ settings().identity.maskScale | number: '1.1-1' }}×</span>
+              <input type="range" [min]="minMaskScale" max="2.6" step="0.05" [ngModel]="settings().identity.maskScale"
+                     (ngModelChange)="patch('identity', { maskScale: +$event })" />
+            </label>
+          </fieldset>
+
+          <fieldset class="cs-field" [disabled]="!settings().identity.hideFaces">
+            <legend>Safety</legend>
+            <label class="cs-switchrow">
+              <input type="checkbox" [ngModel]="settings().identity.strictMode" (ngModelChange)="patch('identity', { strictMode: $event })" />
+              <span><strong>Strict mode (recommended)</strong>
+                <small class="muted">Covers the whole camera if a face is lost, or if a person is seen without a face (turned away, partly in frame).</small></span>
+            </label>
+            <label class="cs-range">Keep a lost face covered for <span>{{ settings().identity.holdMs / 1000 | number: '1.1-1' }} s</span>
+              <input type="range" min="0" max="5000" step="100" [ngModel]="settings().identity.holdMs" (ngModelChange)="patch('identity', { holdMs: +$event })" />
+            </label>
+            <label class="cs-range">Most people to track <span>{{ settings().identity.maxFaces }}</span>
+              <input type="range" min="1" max="10" step="1" [ngModel]="settings().identity.maxFaces" (ngModelChange)="patch('identity', { maxFaces: +$event })" />
+            </label>
+            <label class="cs-range">Detection threshold <span>{{ settings().identity.sensitivity | number: '1.2-2' }}</span>
+              <input type="range" min="0.3" max="0.9" step="0.05" [ngModel]="settings().identity.sensitivity" (ngModelChange)="patch('identity', { sensitivity: +$event })" />
+            </label>
+            <p class="muted cs-note">A lower threshold finds faces that are further away or turned, but may mask things that aren't faces.</p>
+          </fieldset>
+
+          <fieldset class="cs-field">
+            <legend>Body &amp; background</legend>
+            <div class="cs-two">
+              <label class="cs-compact">Body
+                <select [ngModel]="settings().identity.bodyStyle" (ngModelChange)="patch('identity', { bodyStyle: $event })">
+                  <option value="none">As it is</option>
+                  <option value="silhouette">Solid silhouette</option>
+                  <option value="blur">Blurred</option>
+                  <option value="pixelate">Pixelated</option>
+                </select>
+              </label>
+              @if (settings().identity.bodyStyle === 'silhouette') {
+                <label class="cs-compact">Colour
+                  <input type="color" [ngModel]="settings().identity.bodyColor" (ngModelChange)="patch('identity', { bodyColor: $event })" />
+                </label>
+              }
+            </div>
+            <div class="cs-two">
+              <label class="cs-compact">Background
+                <select [ngModel]="settings().identity.background" (ngModelChange)="patch('identity', { background: $event })">
+                  <option value="none">Real room</option>
+                  <option value="blur">Blurred room</option>
+                  <option value="color">Plain colour</option>
+                  <option value="gradient">Animated gradient</option>
+                  <option value="image">Image</option>
+                </select>
+              </label>
+              @if (settings().identity.background === 'color') {
+                <label class="cs-compact">Colour
+                  <input type="color" [ngModel]="settings().identity.backgroundColor" (ngModelChange)="patch('identity', { backgroundColor: $event })" />
+                </label>
+              }
+              @if (settings().identity.background === 'image') {
+                <label class="secondary cs-file">🖼️ {{ backgroundName() ?? 'Choose image' }}
+                  <input type="file" accept="image/png,image/jpeg,image/webp" hidden (change)="onBackgroundImage($event)" />
+                </label>
+              }
+            </div>
+            @if (settings().identity.background === 'blur') {
+              <label class="cs-range">Blur strength <span>{{ settings().identity.backgroundBlur }}</span>
+                <input type="range" min="2" max="40" [ngModel]="settings().identity.backgroundBlur" (ngModelChange)="patch('identity', { backgroundBlur: +$event })" />
+              </label>
+            }
+            <p class="muted cs-note">Hiding the room helps too: posters, windows and mail can give away where you are.</p>
+          </fieldset>
+        }
+
+        <!-- ------------------------------------------------ voice -->
+        @case ('voice') {
+          <fieldset class="cs-field">
+            <legend>Voice changer</legend>
+            <div class="cs-chips">
+              @for (v of [
+                { id: 'off', label: '🙂 Natural' }, { id: 'deep', label: '🐻 Deep' }, { id: 'high', label: '🐿️ High' },
+                { id: 'robot', label: '🤖 Robot' }, { id: 'radio', label: '📻 Radio' }, { id: 'alien', label: '👽 Alien' }
+              ]; track v.id) {
+                <button type="button" [class.active]="settings().voice.effect === v.id" (click)="patch('voice', { effect: $any(v.id) })">{{ v.label }}</button>
+              }
+            </div>
+            @if (settings().voice.effect === 'deep' || settings().voice.effect === 'high') {
+              <label class="cs-range">Pitch shift <span>{{ settings().voice.pitch > 0 ? '+' : '' }}{{ settings().voice.pitch }} semitones</span>
+                <input type="range" min="-12" max="12" step="1" [ngModel]="settings().voice.pitch" (ngModelChange)="patch('voice', { pitch: +$event })" />
+              </label>
+            }
+            <p class="muted cs-note">A pitch change disguises a voice but can be partly undone by someone determined. Robot is much harder to reverse.</p>
+            <label class="cs-switchrow">
+              <input type="checkbox" [ngModel]="monitor()" (ngModelChange)="setMonitor($event)" [disabled]="!running()" />
+              <span>Let me hear it <small class="muted">(headphones only, or it echoes)</small></span>
+            </label>
+          </fieldset>
+
+          <fieldset class="cs-field">
+            <legend>Microphone</legend>
+            <select [ngModel]="micId" (ngModelChange)="switchMic($event)" aria-label="Microphone">
+              <option value="">Default microphone</option>
+              @for (d of mics(); track d.deviceId) { <option [value]="d.deviceId">{{ d.label || 'Microphone' }}</option> }
+            </select>
+            <label class="cs-switchrow">
+              <input type="checkbox" [ngModel]="settings().voice.muted" (ngModelChange)="patch('voice', { muted: $event })" />
+              <span>Mute</span>
+            </label>
+            <label class="cs-range">Volume <span>{{ settings().voice.gain * 100 | number: '1.0-0' }}%</span>
+              <input type="range" min="0" max="3" step="0.05" [ngModel]="settings().voice.gain" (ngModelChange)="patch('voice', { gain: +$event })" />
+            </label>
+            <label class="cs-switchrow"><input type="checkbox" [ngModel]="settings().voice.noiseSuppression"
+                   (ngModelChange)="patch('voice', { noiseSuppression: $event }); openMicrophone()" /><span>Noise suppression</span></label>
+            <label class="cs-switchrow"><input type="checkbox" [ngModel]="settings().voice.echoCancellation"
+                   (ngModelChange)="patch('voice', { echoCancellation: $event }); openMicrophone()" /><span>Echo cancellation</span></label>
+            <label class="cs-switchrow"><input type="checkbox" [ngModel]="settings().voice.autoGainControl"
+                   (ngModelChange)="patch('voice', { autoGainControl: $event }); openMicrophone()" /><span>Automatic level</span></label>
+          </fieldset>
+
+          <fieldset class="cs-field">
+            <legend>Screen sound</legend>
+            <label class="cs-switchrow">
+              <input type="checkbox" [ngModel]="settings().voice.screenAudio" (ngModelChange)="patch('voice', { screenAudio: $event })" />
+              <span>Include the shared screen's sound <small class="muted">(when you share a tab or screen with audio)</small></span>
+            </label>
+            <label class="cs-range">Screen volume <span>{{ settings().voice.screenAudioGain * 100 | number: '1.0-0' }}%</span>
+              <input type="range" min="0" max="2" step="0.05" [ngModel]="settings().voice.screenAudioGain" (ngModelChange)="patch('voice', { screenAudioGain: +$event })" />
+            </label>
+          </fieldset>
+        }
+
+        <!-- ------------------------------------------------ picture -->
+        @case ('picture') {
+          <fieldset class="cs-field">
+            <legend>Source</legend>
+            <div class="cs-chips">
+              <button type="button" [class.active]="settings().source === 'camera'" (click)="setSource('camera')">🎥 Camera</button>
+              <button type="button" [class.active]="settings().source === 'screen'" (click)="setSource('screen')">🖥️ Screen</button>
+              <button type="button" [class.active]="settings().source === 'screen-camera'" (click)="setSource('screen-camera')">🖥️+🎥 Screen with camera</button>
+            </div>
+            @if (settings().source !== 'camera' && running()) {
+              <button type="button" class="secondary cs-small" (click)="shareScreen()">{{ screenShared() ? '🔁 Share something else' : '🖥️ Share screen' }}</button>
+              <p class="muted cs-note">Share a window or tab rather than your whole screen, so notifications and other windows stay private. Don't share this tab - it would show itself forever.</p>
+            }
+            <select [ngModel]="cameraId" (ngModelChange)="switchCamera($event)" aria-label="Camera">
+              <option value="">Default camera</option>
+              @for (d of cameras(); track d.deviceId) { <option [value]="d.deviceId">{{ d.label || 'Camera' }}</option> }
+            </select>
+          </fieldset>
+
+          @if (settings().source === 'screen-camera') {
+            <fieldset class="cs-field">
+              <legend>Camera box</legend>
+              <div class="cs-chips">
+                @for (c of ['top-left', 'top-right', 'bottom-left', 'bottom-right']; track c) {
+                  <button type="button" [class.active]="settings().picture.pipCorner === c" (click)="patch('picture', { pipCorner: $any(c) })">{{ c }}</button>
+                }
+              </div>
+              <label class="cs-range">Size <span>{{ settings().picture.pipSize * 100 | number: '1.0-0' }}%</span>
+                <input type="range" min="0.15" max="0.5" step="0.01" [ngModel]="settings().picture.pipSize" (ngModelChange)="patch('picture', { pipSize: +$event })" />
+              </label>
+              <label class="cs-switchrow"><input type="checkbox" [ngModel]="settings().picture.pipRound" (ngModelChange)="patch('picture', { pipRound: $event })" /><span>Round</span></label>
+            </fieldset>
+          }
+
+          <fieldset class="cs-field">
+            <legend>Framing</legend>
+            <label class="cs-switchrow"><input type="checkbox" [ngModel]="settings().picture.autoFrame" (ngModelChange)="patch('picture', { autoFrame: $event })" />
+              <span><strong>Auto-frame</strong> <small class="muted">Follow the people on camera and keep them centred.</small></span></label>
+            <label class="cs-switchrow"><input type="checkbox" [ngModel]="settings().picture.mirror" (ngModelChange)="patch('picture', { mirror: $event })" /><span>Mirror</span></label>
+            <label class="cs-range">Zoom <span>{{ settings().picture.zoom | number: '1.1-1' }}×</span>
+              <input type="range" min="1" max="3" step="0.05" [ngModel]="settings().picture.zoom" (ngModelChange)="patch('picture', { zoom: +$event })" />
+            </label>
+          </fieldset>
+
+          <fieldset class="cs-field">
+            <legend>Look</legend>
+            <div class="cs-chips">
+              @for (l of ['none', 'warm', 'cool', 'vivid', 'vintage', 'mono', 'noir']; track l) {
+                <button type="button" [class.active]="settings().picture.look === l" (click)="patch('picture', { look: $any(l) })">{{ l === 'none' ? 'Natural' : l }}</button>
+              }
+            </div>
+            <label class="cs-range">Brightness <span>{{ settings().picture.brightness | number: '1.2-2' }}</span>
+              <input type="range" min="0.5" max="1.6" step="0.02" [ngModel]="settings().picture.brightness" (ngModelChange)="patch('picture', { brightness: +$event })" />
+            </label>
+            <label class="cs-range">Contrast <span>{{ settings().picture.contrast | number: '1.2-2' }}</span>
+              <input type="range" min="0.5" max="1.6" step="0.02" [ngModel]="settings().picture.contrast" (ngModelChange)="patch('picture', { contrast: +$event })" />
+            </label>
+            <label class="cs-range">Saturation <span>{{ settings().picture.saturation | number: '1.2-2' }}</span>
+              <input type="range" min="0" max="2" step="0.02" [ngModel]="settings().picture.saturation" (ngModelChange)="patch('picture', { saturation: +$event })" />
+            </label>
+          </fieldset>
+        }
+
+        <!-- ------------------------------------------------ overlays -->
+        @case ('overlays') {
+          <fieldset class="cs-field">
+            <legend>On-screen widgets</legend>
+            <div class="cs-widget">
+              <label class="cs-switchrow"><input type="checkbox" [ngModel]="settings().overlays.liveBadge" (ngModelChange)="patch('overlays', { liveBadge: $event })" /><span>● LIVE badge with timer</span></label>
+              <select class="cs-corner" [ngModel]="settings().overlays.liveBadgeCorner" (ngModelChange)="patch('overlays', { liveBadgeCorner: $event })" aria-label="Corner">
+                <option value="top-left">↖</option><option value="top-right">↗</option><option value="bottom-left">↙</option><option value="bottom-right">↘</option>
+              </select>
+            </div>
+            <div class="cs-widget">
+              <label class="cs-switchrow"><input type="checkbox" [ngModel]="settings().overlays.peopleCount" (ngModelChange)="patch('overlays', { peopleCount: $event })" />
+                <span>👥 People on camera <small class="muted">(counted by face tracking)</small></span></label>
+              <select class="cs-corner" [ngModel]="settings().overlays.peopleCountCorner" (ngModelChange)="patch('overlays', { peopleCountCorner: $event })" aria-label="Corner">
+                <option value="top-left">↖</option><option value="top-right">↗</option><option value="bottom-left">↙</option><option value="bottom-right">↘</option>
+              </select>
+            </div>
+            <div class="cs-widget">
+              <label class="cs-switchrow"><input type="checkbox" [ngModel]="settings().overlays.faceLabels" (ngModelChange)="patch('overlays', { faceLabels: $event })" /><span>Name tag over each person</span></label>
+              <input class="cs-short" [ngModel]="settings().overlays.faceLabelPrefix" (ngModelChange)="patch('overlays', { faceLabelPrefix: $event })" maxlength="24" aria-label="Name tag prefix" placeholder="Guest" />
+            </div>
+            <div class="cs-widget">
+              <label class="cs-switchrow"><input type="checkbox" [ngModel]="settings().overlays.clock" (ngModelChange)="patch('overlays', { clock: $event })" /><span>🕒 Clock</span></label>
+              <select class="cs-corner" [ngModel]="settings().overlays.clockCorner" (ngModelChange)="patch('overlays', { clockCorner: $event })" aria-label="Corner">
+                <option value="top-left">↖</option><option value="top-right">↗</option><option value="bottom-left">↙</option><option value="bottom-right">↘</option>
+              </select>
+            </div>
+          </fieldset>
+
+          <fieldset class="cs-field">
+            <legend>YouTube numbers</legend>
+            @if (!setup()?.audienceStatsEnabled) {
+              <p class="cs-note cs-warn-text">Live subscriber and viewer counts need a YouTube Data API key on the server (YouTube:ApiKey). Ask an admin.</p>
+            }
+            <label class="cs-switchrow"><input type="checkbox" [ngModel]="settings().overlays.subscribers" (ngModelChange)="patch('overlays', { subscribers: $event })" /><span>▶ Live subscriber count</span></label>
+            <input [ngModel]="settings().overlays.youtubeChannel" (ngModelChange)="patch('overlays', { youtubeChannel: $event })" maxlength="200"
+                   placeholder="Channel: @handle, UC… id or channel link" aria-label="YouTube channel" />
+            @if (settings().overlays.youtubeChannel && !channelRef()) { <span class="cs-warn-text cs-note">That isn't a channel handle, id or link.</span> }
+            @if (channelTitle()) {
+              <span class="muted cs-note">{{ channelTitle() }} · {{ subscribersHidden() ? 'subscriber count hidden' : subscribers() !== null ? compact(subscribers()!) + ' subscribers' : '' }}</span>
+            }
+            <div class="cs-two">
+              <label class="cs-switchrow"><input type="checkbox" [ngModel]="settings().overlays.showGoalBar" (ngModelChange)="patch('overlays', { showGoalBar: $event })" /><span>Goal bar</span></label>
+              <label class="cs-compact">Goal <input type="number" min="0" [ngModel]="settings().overlays.subscriberGoal" (ngModelChange)="patch('overlays', { subscriberGoal: +$event })" /></label>
+            </div>
+            <label class="cs-switchrow"><input type="checkbox" [ngModel]="settings().overlays.viewers" (ngModelChange)="patch('overlays', { viewers: $event })" /><span>👁 Live viewers</span></label>
+            <input [ngModel]="settings().overlays.youtubeVideo" (ngModelChange)="patch('overlays', { youtubeVideo: $event })" maxlength="200"
+                   placeholder="This broadcast's watch link (from YouTube Studio)" aria-label="Live video link" />
+            @if (settings().overlays.youtubeVideo && !videoRef()) { <span class="cs-warn-text cs-note">That isn't a YouTube video link.</span> }
+            <div class="cs-two">
+              <label class="cs-compact">Corner
+                <select [ngModel]="settings().overlays.subscribersCorner" (ngModelChange)="patch('overlays', { subscribersCorner: $event })">
+                  <option value="top-left">Top left</option><option value="top-right">Top right</option><option value="bottom-left">Bottom left</option><option value="bottom-right">Bottom right</option>
+                </select>
+              </label>
+              <button type="button" class="secondary cs-small" (click)="refreshAudience()" [disabled]="!setup()?.audienceStatsEnabled">↻ Refresh now</button>
+            </div>
+            @if (audienceError()) { <span class="cs-warn-text cs-note">{{ audienceError() }}</span> }
+            <p class="muted cs-note">Refreshed every 30 s. YouTube rounds public subscriber counts.</p>
+          </fieldset>
+
+          <fieldset class="cs-field">
+            <legend>Name banner &amp; ticker</legend>
+            <label class="cs-switchrow"><input type="checkbox" [ngModel]="settings().overlays.lowerThird" (ngModelChange)="patch('overlays', { lowerThird: $event })" /><span>Name banner</span></label>
+            <div class="cs-two">
+              <input [ngModel]="settings().overlays.lowerThirdName" (ngModelChange)="patch('overlays', { lowerThirdName: $event })" maxlength="60" placeholder="Stage name" aria-label="Stage name" />
+              <input [ngModel]="settings().overlays.lowerThirdTitle" (ngModelChange)="patch('overlays', { lowerThirdTitle: $event })" maxlength="80" placeholder="Subtitle" aria-label="Banner subtitle" />
+            </div>
+            <p class="muted cs-note">Use a stage name: a real name on screen undoes the face masking.</p>
+            <label class="cs-switchrow"><input type="checkbox" [ngModel]="settings().overlays.ticker" (ngModelChange)="patch('overlays', { ticker: $event })" /><span>Scrolling ticker</span></label>
+            <textarea rows="2" [ngModel]="settings().overlays.tickerText" (ngModelChange)="patch('overlays', { tickerText: $event })" maxlength="300" aria-label="Ticker text"></textarea>
+            <label class="cs-range">Ticker speed <span>{{ settings().overlays.tickerSpeed | number: '1.1-1' }}×</span>
+              <input type="range" min="0.3" max="3" step="0.1" [ngModel]="settings().overlays.tickerSpeed" (ngModelChange)="patch('overlays', { tickerSpeed: +$event })" />
+            </label>
+            <div class="cs-widget">
+              <label class="cs-switchrow"><input type="checkbox" [ngModel]="settings().overlays.watermark" (ngModelChange)="patch('overlays', { watermark: $event })" /><span>Watermark</span></label>
+              <input class="cs-short" [ngModel]="settings().overlays.watermarkText" (ngModelChange)="patch('overlays', { watermarkText: $event })" maxlength="60" placeholder="@yourchannel" aria-label="Watermark text" />
+            </div>
+          </fieldset>
+
+          <fieldset class="cs-field">
+            <legend>Style</legend>
+            <div class="cs-two">
+              <label class="cs-compact">Accent <input type="color" [ngModel]="settings().overlays.accent" (ngModelChange)="patch('overlays', { accent: $event })" /></label>
+              <label class="cs-range">Size <span>{{ settings().overlays.overlayScale | number: '1.1-1' }}×</span>
+                <input type="range" min="0.6" max="1.8" step="0.05" [ngModel]="settings().overlays.overlayScale" (ngModelChange)="patch('overlays', { overlayScale: +$event })" />
+              </label>
+            </div>
+          </fieldset>
+        }
+
+        <!-- ------------------------------------------------ scenes -->
+        @case ('scenes') {
+          <p class="muted cs-note">Switch scenes from the bar under the preview or with keys 1-5. <kbd>P</kbd> covers the camera at once, whatever is happening.</p>
+          <fieldset class="cs-field">
+            <legend>Card titles</legend>
+            <label class="cs-compact">⏳ Starting soon <input [ngModel]="settings().scenes.startingTitle" (ngModelChange)="patch('scenes', { startingTitle: $event })" maxlength="60" /></label>
+            <label class="cs-compact">Countdown (minutes, 0 for none)
+              <input type="number" min="0" max="120" [ngModel]="settings().scenes.countdownMinutes" (ngModelChange)="patch('scenes', { countdownMinutes: +$event })" />
+            </label>
+            <label class="cs-compact">☕ Be right back <input [ngModel]="settings().scenes.brbTitle" (ngModelChange)="patch('scenes', { brbTitle: $event })" maxlength="60" /></label>
+            <label class="cs-compact">👋 Ending <input [ngModel]="settings().scenes.endingTitle" (ngModelChange)="patch('scenes', { endingTitle: $event })" maxlength="60" /></label>
+            <label class="cs-compact">🔒 Privacy <input [ngModel]="settings().scenes.privacyTitle" (ngModelChange)="patch('scenes', { privacyTitle: $event })" maxlength="60" /></label>
+            <label class="cs-compact">Subtitle on every card <input [ngModel]="settings().scenes.subtitle" (ngModelChange)="patch('scenes', { subtitle: $event })" maxlength="120" /></label>
+          </fieldset>
+        }
+
+        <!-- ------------------------------------------------ stream -->
+        @case ('stream') {
+          <fieldset class="cs-field" [disabled]="onAir()">
+            <legend>Where &amp; how</legend>
+            <label class="cs-compact">Destination
+              <select [(ngModel)]="form.destination">
+                @for (d of setup()?.destinations ?? []; track d.id) { <option [value]="d.id">{{ d.name }}</option> }
+              </select>
+            </label>
+            <div class="cs-two">
+              <label class="cs-compact">Quality
+                <select [(ngModel)]="form.quality" (ngModelChange)="sizeProgram()">
+                  <option value="Hd720">720p · 3 Mbps</option>
+                  <option value="Hd1080">1080p · 6 Mbps</option>
+                </select>
+              </label>
+              <label class="cs-compact">Shape
+                <select [(ngModel)]="form.orientation" (ngModelChange)="sizeProgram()">
+                  <option value="Landscape">Landscape 16:9</option>
+                  <option value="Portrait">Vertical 9:16 (Shorts)</option>
+                </select>
+              </label>
+            </div>
+            <label class="cs-compact">Label (only in this app)
+              <input [(ngModel)]="form.label" maxlength="120" placeholder="Friday Q&amp;A" />
+            </label>
+            <label class="cs-switchrow"><input type="checkbox" [(ngModel)]="form.autoReconnect" /><span>Reconnect automatically if the connection drops</span></label>
+          </fieldset>
+
+          <fieldset class="cs-field" [disabled]="onAir()">
+            <legend>Stream key</legend>
+            @if (setup()?.canUseSavedKeys) {
+              <div class="cs-chips">
+                <button type="button" [class.active]="form.keyMode === 'channel'" (click)="form.keyMode = 'channel'">🔑 Channel's saved key</button>
+                <button type="button" [class.active]="form.keyMode === 'paste'" (click)="form.keyMode = 'paste'">📋 Paste a key</button>
+              </div>
+            }
+            @if (form.keyMode === 'channel') {
+              <select [(ngModel)]="form.channelId" aria-label="Channel">
+                @for (c of setup()?.channels ?? []; track c.id) {
+                  <option [value]="c.id">{{ c.name }} - {{ keyStatus(c)?.state === 'Saved' ? 'key ' + keyStatus(c)?.masked : 'no usable key' }}</option>
+                }
+              </select>
+              @if (setup()?.canManageKeys && keyStatus(selectedChannel())?.state !== 'Saved') {
+                <a routerLink="/admin/channels" class="cs-note">Set this channel's key →</a>
+              }
+            } @else {
+              <div class="cs-keyrow">
+                <input [type]="showKey() ? 'text' : 'password'" [(ngModel)]="streamKey" autocomplete="off" spellcheck="false"
+                       placeholder="xxxx-xxxx-xxxx-xxxx-xxxx" aria-label="Stream key" />
+                <button type="button" class="secondary cs-small" (click)="showKey.set(!showKey())">{{ showKey() ? 'Hide' : 'Show' }}</button>
+              </div>
+              @if (keyHelpUrl(); as help) { <a [href]="help" target="_blank" rel="noopener noreferrer" class="cs-note">Find your key in YouTube Studio ↗</a> }
+              <p class="muted cs-note">A pasted key is used for this stream only. It is never saved or logged.</p>
+            }
+          </fieldset>
+
+          <label class="cs-switchrow cs-consent">
+            <input type="checkbox" [(ngModel)]="form.consent" />
+            <span><strong>Everyone on camera agreed to be broadcast</strong>, and I have the rights to everything I show and play.</span>
+          </label>
+        }
+
+        <!-- ------------------------------------------------ presets & health -->
+        @case ('health') {
+          <fieldset class="cs-field">
+            <legend>Presets</legend>
+            <div class="cs-keyrow">
+              <input [(ngModel)]="presetName" maxlength="40" placeholder="Name this setup, e.g. 'Gaming night'" aria-label="Preset name" (keydown.enter)="savePreset()" />
+              <button type="button" class="secondary cs-small" (click)="savePreset()" [disabled]="!presetName.trim()">💾 Save</button>
+            </div>
+            <ul class="cs-presets">
+              @for (p of presets(); track p.name) {
+                <li>
+                  <span>{{ p.name }} <small class="muted">· {{ characterName(p.settings.identity.character) }} · {{ p.settings.voice.effect }} voice</small></span>
+                  <span>
+                    <button type="button" class="secondary cs-small" (click)="applyPreset(p)">Use</button>
+                    <button type="button" class="secondary cs-small" (click)="deletePreset(p)" aria-label="Delete preset">🗑</button>
+                  </span>
+                </li>
+              } @empty {
+                <li class="muted">No presets yet. Save the current setup to switch back to it in one click.</li>
+              }
+            </ul>
+            <div class="cs-inline">
+              <button type="button" class="secondary cs-small" (click)="exportPreset()">⬇ Export current</button>
+              <label class="secondary cs-file cs-small">⬆ Import
+                <input type="file" accept="application/json,.json" hidden (change)="importPreset($event)" />
+              </label>
+              <button type="button" class="secondary cs-small" (click)="resetSettings()">↺ Reset everything</button>
+            </div>
+          </fieldset>
+
+          <fieldset class="cs-field">
+            <legend>Stream health</legend>
+            @if (stream(); as s) {
+              <dl class="cs-dl">
+                <dt>State</dt><dd>{{ stateLabel() }}</dd>
+                <dt>Sent to {{ s.destinationName }}</dt><dd>{{ formatClock(s.streamedSeconds) }}</dd>
+                <dt>Received by server</dt><dd>{{ formatSize(s.receivedBytes) }}</dd>
+                <dt>Encoder speed</dt><dd>{{ s.speed ? (s.speed | number: '1.2-2') + '×' : '—' }}</dd>
+                <dt>Reconnects</dt><dd>{{ s.reconnects }}</dd>
+                <dt>Recording</dt><dd>#{{ s.generation }} · chunk {{ s.nextSequence }}</dd>
+                @if (uplink(); as u) {
+                  <dt>Upload</dt><dd>{{ u.kbps | number }} kbps · {{ u.queued }} waiting · {{ u.retries }} retries · {{ u.restarts }} restarts</dd>
+                }
+              </dl>
+            } @else {
+              <p class="muted">Not streaming.</p>
+            }
+            <dl class="cs-dl">
+              <dt>Recording format</dt><dd>{{ format?.mimeType ?? 'not supported' }}</dd>
+              <dt>Face model</dt><dd>{{ visionState() }}{{ visionDelegate() ? ' on ' + visionDelegate() : '' }}</dd>
+              <dt>Person detected</dt><dd>{{ personCoverage() === null ? '—' : (personCoverage()! * 100 | number: '1.0-0') + '% of frame' }}</dd>
+            </dl>
+          </fieldset>
+
+          <fieldset class="cs-field">
+            <legend>Shortcuts</legend>
+            <ul class="cs-keys">
+              <li><kbd>1</kbd>-<kbd>5</kbd> Switch scene</li>
+              <li><kbd>P</kbd> Privacy cover on / off</li>
+              <li><kbd>F</kbd> Hide faces on / off</li>
+              <li><kbd>M</kbd> Mute</li>
+            </ul>
+          </fieldset>
+        }
+      }
+    </section>
+  </div>
+</div>

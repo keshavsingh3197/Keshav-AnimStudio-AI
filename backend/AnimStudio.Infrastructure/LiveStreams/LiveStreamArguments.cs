@@ -220,6 +220,49 @@ public static class LiveStreamArguments
         return (loop, item);
     }
 
+    /// <summary>
+    /// Encodes what the browser records - read from stdin as it arrives - and sends it to the
+    /// ingest. The browser has already drawn the picture (masks, overlays, scenes), so this
+    /// only fits it to the frame and meets YouTube's ingest rules: constant 30 fps, a
+    /// keyframe every two seconds, AAC stereo at 44.1 kHz. <c>zerolatency</c> keeps x264
+    /// from holding frames back for look-ahead.
+    /// </summary>
+    public static IReadOnlyList<string> CameraPush(CameraContainer container, CameraStreamSettings settings, string preset, string outputUrl)
+    {
+        var frame = FrameFor(settings.Orientation, settings.Quality);
+        var (w, h) = (Num(frame.Width), Num(frame.Height));
+        var kbps = frame.VideoKbps;
+        var gop = Num(Fps * 2);
+
+        return
+        [
+            "-hide_banner", "-nostats", "-loglevel", "warning",
+            // Timestamps come from the recorder; regenerate any it leaves out.
+            "-fflags", "+genpts",
+            "-thread_queue_size", "1024",
+            "-f", container == CameraContainer.Mp4 ? "mp4" : "matroska",
+            "-i", "pipe:0",
+            "-filter_complex",
+            $"[0:v:0]scale={w}:{h}:force_original_aspect_ratio=decrease,"
+            + $"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps={Num(Fps)},format=yuv420p[v];"
+            + "[0:a:0]aresample=44100:async=1,aformat=channel_layouts=stereo[a]",
+            "-map", "[v]", "-map", "[a]",
+            "-c:v", "libx264", "-preset", SafePreset(preset), "-tune", "zerolatency", "-profile:v", "high", "-pix_fmt", "yuv420p",
+            "-b:v", $"{Num(kbps)}k", "-maxrate", $"{Num(kbps)}k", "-bufsize", $"{Num(kbps * 2)}k",
+            "-g", gop, "-keyint_min", gop, "-sc_threshold", "0",
+            "-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2",
+            "-progress", "pipe:1",
+            "-flvflags", "no_duration_filesize",
+            "-f", "flv", outputUrl
+        ];
+    }
+
+    private static readonly string[] Presets = ["ultrafast", "superfast", "veryfast", "faster", "fast", "medium"];
+
+    /// <summary>Only x264's own preset names reach the command line; anything else falls back to veryfast.</summary>
+    public static string SafePreset(string? preset) =>
+        Presets.FirstOrDefault(p => string.Equals(p, preset, StringComparison.OrdinalIgnoreCase)) ?? "veryfast";
+
     public static string OutputUrl(string ingestUrl, string streamKey) =>
         ingestUrl.TrimEnd('/') + "/" + streamKey;
 

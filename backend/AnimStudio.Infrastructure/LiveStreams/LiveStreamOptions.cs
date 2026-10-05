@@ -51,6 +51,48 @@ public sealed class LiveStreamOptions
     /// ignored and logged at startup.
     /// </summary>
     public Dictionary<string, LiveStreamDestinationOptions> Destinations { get; set; } = new(StringComparer.Ordinal);
+
+    /// <summary>Streaming from the browser's camera or screen.</summary>
+    public CameraStreamOptions Camera { get; set; } = new();
+}
+
+public sealed class CameraStreamOptions
+{
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// Camera streams sent at once, across all users. Unlike a playlist, each one is a
+    /// real-time x264 encode, so this is bounded by CPU as well as upload bandwidth.
+    /// </summary>
+    public int MaxConcurrent { get; set; } = 2;
+
+    /// <summary>The largest single chunk the browser may send. About two seconds of 1080p at a generous bitrate.</summary>
+    public int MaxChunkBytes { get; set; } = 8 * 1024 * 1024;
+
+    /// <summary>A stream whose page stops sending for this long is ended, so a closed tab doesn't hold an encoder.</summary>
+    public int IdleTimeoutSeconds { get; set; } = 20;
+
+    /// <summary>x264 preset for the real-time encode. Slower presets look better but must keep up with 1.0× speed.</summary>
+    public string Preset { get; set; } = "veryfast";
+
+    /// <summary>How long a finished camera stream stays in the list.</summary>
+    public int KeepFinishedMinutes { get; set; } = 30;
+}
+
+/// <summary>
+/// The YouTube Data API, used only to read public audience numbers (subscribers, live
+/// viewers) for the camera page's overlays. The key is a secret: set it with
+/// <c>dotnet user-secrets set "YouTube:ApiKey" "…"</c>, the <c>YouTube__ApiKey</c>
+/// environment variable, or Key Vault - never in appsettings.json.
+/// </summary>
+public sealed class YouTubeDataOptions
+{
+    public const string Section = "YouTube";
+
+    public string? ApiKey { get; set; }
+
+    /// <summary>How long one lookup is reused. Each one costs quota, and YouTube itself only updates these numbers every few seconds.</summary>
+    public int CacheSeconds { get; set; } = 30;
 }
 
 public sealed class LiveStreamDestinationOptions

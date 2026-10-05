@@ -36,8 +36,10 @@ namespace AnimStudio.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/live-streams")]
-public sealed class LiveStreamsController(
+public sealed partial class LiveStreamsController(
     LiveStreamManager streams,
+    CameraStreamManager cameras,
+    YouTubeAudienceService audience,
     LiveStreamKeyStore keys,
     ReleaseKitStore releaseKits,
     IRenderJobRepository jobs,
@@ -85,7 +87,10 @@ public sealed class LiveStreamsController(
             CanManageKeys: isAdmin,
             AllowLinks: ingestOptions.Value.AllowMediaDownload,
             MaxItems: LiveStreamValidator.MaxItems,
-            MaxStreamsPerUser: streams.MaxStreamsPerUser)));
+            MaxStreamsPerUser: streams.MaxStreamsPerUser,
+            CameraEnabled: cameras.Enabled,
+            CameraMaxChunkBytes: cameras.MaxChunkBytes,
+            AudienceStatsEnabled: audience.IsConfigured)));
     }
 
     [HttpGet("destinations")]

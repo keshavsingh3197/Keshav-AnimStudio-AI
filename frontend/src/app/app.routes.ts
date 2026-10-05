@@ -120,6 +120,14 @@ export const routes: Routes = [
   },
 
   {
+    path: 'live/camera',
+    title: 'Camera Studio - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/live-camera/live-camera.component')
+        .then((m) => m.LiveCameraComponent),
+  },
+
+  {
     path: 'logs',
     title: 'Application Logs - AnimStudio AI',
     loadComponent: () =>

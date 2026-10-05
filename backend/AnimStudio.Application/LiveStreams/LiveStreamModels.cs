@@ -203,7 +203,9 @@ public sealed record LiveStreamChannel(
     bool IsDefault,
     IReadOnlyList<LiveStreamKeyStatus> Keys);
 
-/// <summary>What the Go Live page needs up front.</summary>
+/// <summary>What the Go Live and camera pages need up front.</summary>
+/// <param name="CameraEnabled">Whether this server accepts camera / screen streams.</param>
+/// <param name="AudienceStatsEnabled">Whether a YouTube Data API key is configured, so subscriber and viewer counts can be shown.</param>
 public sealed record LiveStreamSetup(
     IReadOnlyList<LiveStreamDestination> Destinations,
     IReadOnlyList<LiveStreamChannel> Channels,
@@ -211,7 +213,10 @@ public sealed record LiveStreamSetup(
     bool CanManageKeys,
     bool AllowLinks,
     int MaxItems,
-    int MaxStreamsPerUser);
+    int MaxStreamsPerUser,
+    bool CameraEnabled = false,
+    int CameraMaxChunkBytes = 0,
+    bool AudienceStatsEnabled = false);
 
 public sealed record LiveStreamItemStatus(
     int Index,

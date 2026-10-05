@@ -1,10 +1,12 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, map } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../models/api.models';
 import {
+  CameraStreamSettings,
+  CameraStreamStatus,
   LiveStreamGoLive,
   LiveStreamItemRequest,
   LiveStreamKeyStatus,
@@ -12,6 +14,7 @@ import {
   LiveStreamSetup,
   LiveStreamStatus,
   PlaylistEntry,
+  YouTubeAudienceStats,
 } from '../models/live-stream.models';
 
 @Injectable({ providedIn: 'root' })
@@ -108,5 +111,51 @@ export class LiveStreamService {
   deleteKey(channelId: string, destinationId: string): Observable<void> {
     return this.http.delete<void>(
       `${this.base}/keys/${encodeURIComponent(channelId)}/${encodeURIComponent(destinationId)}`);
+  }
+
+  // ------------------------------------------------------------------ camera / screen
+
+  /** Starts the server's encoder. As with a playlist, a pasted key travels only in this body. */
+  startCamera(settings: CameraStreamSettings, goLive: LiveStreamGoLive): Observable<CameraStreamStatus> {
+    return this.http
+      .post<ApiResponse<CameraStreamStatus>>(`${this.base}/camera`, { settings, goLive })
+      .pipe(map((r) => r.data as CameraStreamStatus));
+  }
+
+  cameraStreams(): Observable<CameraStreamStatus[]> {
+    return this.http.get<ApiResponse<CameraStreamStatus[]>>(`${this.base}/camera`).pipe(map((r) => r.data ?? []));
+  }
+
+  cameraStream(id: string): Observable<CameraStreamStatus> {
+    return this.http
+      .get<ApiResponse<CameraStreamStatus>>(`${this.base}/camera/${encodeURIComponent(id)}`)
+      .pipe(map((r) => r.data as CameraStreamStatus));
+  }
+
+  /** One numbered chunk of the recording. Safe to retry: the server acknowledges a repeat without writing it twice. */
+  sendCameraChunk(id: string, generation: number, sequence: number, chunk: Blob): Observable<CameraStreamStatus> {
+    const params = new HttpParams().set('generation', generation).set('sequence', sequence);
+    return this.http
+      .post<ApiResponse<CameraStreamStatus>>(`${this.base}/camera/${encodeURIComponent(id)}/chunks`, chunk, {
+        params,
+        headers: { 'Content-Type': 'application/octet-stream' },
+      })
+      .pipe(map((r) => r.data as CameraStreamStatus));
+  }
+
+  stopCamera(id: string): Observable<CameraStreamStatus> {
+    return this.http
+      .post<ApiResponse<CameraStreamStatus>>(`${this.base}/camera/${encodeURIComponent(id)}/stop`, {})
+      .pipe(map((r) => r.data as CameraStreamStatus));
+  }
+
+  /** Public subscriber / live viewer numbers, looked up by the server so the API key never reaches the browser. */
+  audience(channel?: string, video?: string): Observable<YouTubeAudienceStats> {
+    let params = new HttpParams();
+    if (channel) params = params.set('channel', channel);
+    if (video) params = params.set('video', video);
+    return this.http
+      .get<ApiResponse<YouTubeAudienceStats>>(`${this.base}/audience`, { params })
+      .pipe(map((r) => r.data as YouTubeAudienceStats));
   }
 }

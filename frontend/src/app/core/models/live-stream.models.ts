@@ -100,6 +100,10 @@ export interface LiveStreamSetup {
   allowLinks: boolean;
   maxItems: number;
   maxStreamsPerUser: number;
+  cameraEnabled: boolean;
+  cameraMaxChunkBytes: number;
+  /** A YouTube Data API key is set on the server, so subscriber and viewer counts can be shown. */
+  audienceStatsEnabled: boolean;
 }
 
 export interface LiveStreamItemStatus {
@@ -144,3 +148,69 @@ export const BUSY_STATES: readonly LiveStreamState[] = ['Preparing', 'Connecting
 
 /** States in which media is going out. */
 export const SENDING_STATES: readonly LiveStreamState[] = ['Connecting', 'Live', 'Reconnecting'];
+
+// ------------------------------------------------------------------ camera / screen streams
+
+export type CameraContainer = 'WebM' | 'Mp4';
+export type CameraStreamState = 'Connecting' | 'Live' | 'Reconnecting' | 'Ended' | 'Stopped' | 'Failed';
+
+export interface CameraStreamSettings {
+  destination: string;
+  orientation: LiveStreamOrientation;
+  quality: LiveStreamQuality;
+  container: CameraContainer;
+  autoReconnect: boolean;
+  label?: string;
+  /** Everyone on camera agreed to be broadcast, and the presenter holds the rights to what is shown. */
+  rightsConfirmed: boolean;
+}
+
+export interface CameraStreamStatus {
+  id: string;
+  label: string;
+  destinationId: string;
+  destinationName: string;
+  orientation: LiveStreamOrientation;
+  quality: LiveStreamQuality;
+  container: CameraContainer;
+  state: CameraStreamState;
+  channelId?: string | null;
+  createdAt: string;
+  liveSince?: string | null;
+  endedAt?: string | null;
+  /** Which recording the server expects; it changes when the encoder restarts. */
+  generation: number;
+  nextSequence: number;
+  receivedBytes: number;
+  streamedSeconds: number;
+  speed?: number | null;
+  reconnects: number;
+  message?: string | null;
+  keyNeedsAttention: boolean;
+}
+
+export interface YouTubeChannelStats {
+  channelId: string;
+  title: string;
+  subscriberCount?: number | null;
+  subscribersHidden: boolean;
+  viewCount?: number | null;
+  videoCount?: number | null;
+}
+
+export interface YouTubeLiveStats {
+  videoId: string;
+  title: string;
+  isLive: boolean;
+  concurrentViewers?: number | null;
+  likeCount?: number | null;
+  viewCount?: number | null;
+}
+
+export interface YouTubeAudienceStats {
+  channel?: YouTubeChannelStats | null;
+  live?: YouTubeLiveStats | null;
+  fetchedAt: string;
+}
+
+export const CAMERA_ACTIVE_STATES: readonly CameraStreamState[] = ['Connecting', 'Live', 'Reconnecting'];

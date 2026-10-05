@@ -191,6 +191,7 @@ Order is dependency-driven. `P3` unlocks most of the rest.
 - [x] **A14.3** Playlists from any source (renders, Clip Studio, assets, release kits, links), prepare → preview → copy-send, saved per-channel keys with refused-key prompts, auto-reconnect
 - [ ] **A14.4** Hardware encoding (QSV) for the prepare stage when it benchmarks faster than x264
 - [ ] **A14.5** Scheduled streams and auto-refreshing 24/7 playlists
+- [x] **A14.6** Camera Studio: live camera / screen with on-device identity protection (characters, fail-closed strict mode), voice changer, switchable overlays (people count, YouTube subscribers and viewers), scenes, presets
 
 ### P12 — Hardening — [detail](plans/P12-hardening.md)
 - [ ] **A12.1** Rate limiting and request size caps on every ingest/AI endpoint

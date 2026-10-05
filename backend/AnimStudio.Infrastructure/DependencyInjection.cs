@@ -244,6 +244,17 @@ public static class DependencyInjection
         // Saved per-channel stream keys, encrypted with the same data protector as provider keys.
         services.AddScoped<LiveStreamKeyStore>();
 
+        // Camera / screen streams: the browser draws and records, the server encodes as it arrives.
+        services.Configure<YouTubeDataOptions>(configuration.GetSection(YouTubeDataOptions.Section));
+        services.AddSingleton<IFfmpegPipeFactory, FfmpegPipeFactory>();
+        services.AddSingleton<ILiveStreamKeyLookup, ScopedLiveStreamKeyLookup>();
+        services.AddSingleton<CameraStreamManager>();
+        services.AddHostedService(sp => sp.GetRequiredService<CameraStreamManager>());
+        services.AddSingleton(sp => new YouTubeAudienceService(
+            sp.GetRequiredService<IOptionsMonitor<YouTubeDataOptions>>(),
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<ILogger<YouTubeAudienceService>>()));
+
         services.AddScoped<ProjectRenderOrchestrator>();
 
         // The clip stitch. Shares the queue, the workspace and the merge with the project
