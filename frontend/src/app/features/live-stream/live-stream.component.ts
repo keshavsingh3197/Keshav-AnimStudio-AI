@@ -24,7 +24,9 @@ import { ApiService } from '../../core/services/api.service';
 import { LiveStreamService } from '../../core/services/live-stream.service';
 import { MediaToolsService } from '../../core/services/media-tools.service';
 import { StatusService } from '../../core/services/status.service';
+import { environment } from '../../../environments/environment';
 import { FileDropDirective } from '../../shared/file-drop.directive';
+import { MediaPreview, MediaPreviewDialogComponent } from '../../shared/media-preview-dialog.component';
 
 type AddMode = 'upload' | 'renders' | 'assets' | 'links';
 type KeyMode = 'channel' | 'paste';
@@ -63,7 +65,7 @@ const MAX_LINKS_PER_PASTE = 50;
 
 @Component({
   selector: 'app-live-stream',
-  imports: [FormsModule, DatePipe, DecimalPipe, RouterLink, FileDropDirective],
+  imports: [FormsModule, DatePipe, DecimalPipe, RouterLink, FileDropDirective, MediaPreviewDialogComponent],
   templateUrl: './live-stream.component.html',
   styleUrls: ['./live-stream.component.css'],
 })
@@ -89,6 +91,10 @@ export class LiveStreamComponent {
   /** Which stream's items are expanded, and which item is in the preview player. */
   readonly expanded = signal<Record<string, boolean>>({});
   readonly previewing = signal<{ streamId: string; index: number; playAll: boolean } | null>(null);
+
+  /** The centred preview of a source, before anything is prepared. */
+  readonly sourcePreview = signal<{ preview: MediaPreview; entryKey?: string; add?: () => void } | null>(null);
+  private previewObjectUrl: string | null = null;
 
   // Pickers
   readonly projects = signal<Project[]>([]);
@@ -131,6 +137,7 @@ export class LiveStreamComponent {
     inject(DestroyRef).onDestroy(() => {
       this.stopPolling();
       this.coverUrls.forEach((url) => URL.revokeObjectURL(url));
+      if (this.previewObjectUrl) URL.revokeObjectURL(this.previewObjectUrl);
     });
 
     void this.loadSetup();
@@ -153,10 +160,13 @@ export class LiveStreamComponent {
         rejected.push(`${file.name} (over 2 GB)`);
         continue;
       }
-      if (VIDEO_EXT.test(file.name)) {
-        this.push({ source: 'Upload', title: this.stem(file.name), detail: `Video · ${this.formatSize(file.size)}`, file });
-      } else if (AUDIO_EXT.test(file.name)) {
-        this.push({ source: 'Upload', title: this.stem(file.name), detail: `Song · ${this.formatSize(file.size)}`, file });
+      if (VIDEO_EXT.test(file.name) || AUDIO_EXT.test(file.name)) {
+        const isVideo = VIDEO_EXT.test(file.name);
+        const key = this.push({
+          source: 'Upload', title: this.stem(file.name), typeLabel: isVideo ? 'Video' : 'Song',
+          detail: `${file.name.split('.').pop()!.toUpperCase()} · ${this.formatSize(file.size)}`, file,
+        });
+        if (key) this.measureFile(key, file, isVideo);
       } else {
         rejected.push(file.name);
       }
@@ -246,24 +256,42 @@ export class LiveStreamComponent {
   }
 
   addRender(job: RenderJob): void {
-    const project = this.projects().find((p) => p.id === job.projectId)?.name ?? 'Project';
-    this.push({
-      source: 'Render',
-      title: `${project} · ${job.kind === 'ClipMerge' ? 'Clip Studio export' : 'render'}`,
-      detail: `${job.width ?? '?'}×${job.height ?? '?'} · ${new Date(job.completedAt ?? job.createdAt).toLocaleString()}`,
-      renderJobId: job.jobId,
-      durationSeconds: job.outputDurationSeconds,
-    });
+    this.push(this.renderEntry(job));
   }
 
   addAsset(asset: Asset): void {
-    this.push({
+    this.push(this.assetEntry(asset));
+  }
+
+  renderType(job: RenderJob): string {
+    return job.kind === 'ClipMerge' ? 'Clip Studio export' : 'Project render';
+  }
+
+  private renderEntry(job: RenderJob, title?: string): Omit<PlaylistEntry, 'key'> {
+    const project = this.projects().find((p) => p.id === job.projectId)?.name;
+    return {
+      source: 'Render',
+      title: title || `${project ?? 'Project'} · ${this.renderType(job)}`,
+      typeLabel: this.renderType(job),
+      detail: `${project ? project + ' · ' : ''}${new Date(job.completedAt ?? job.createdAt).toLocaleString()}`,
+      renderJobId: job.jobId,
+      durationSeconds: job.outputDurationSeconds,
+      width: job.width,
+      height: job.height,
+    };
+  }
+
+  private assetEntry(asset: Asset): Omit<PlaylistEntry, 'key'> {
+    return {
       source: 'Asset',
       title: this.stem(asset.name),
-      detail: `${asset.kind === 'Audio' ? 'Song asset' : 'Video asset'} · ${this.formatSize(asset.fileSizeBytes)}`,
+      typeLabel: asset.kind === 'Audio' ? 'Song (project media)' : 'Video (project media)',
+      detail: `${asset.mimeType} · ${this.formatSize(asset.fileSizeBytes)}`,
       assetId: asset.id,
       durationSeconds: asset.durationSeconds,
-    });
+      width: asset.width,
+      height: asset.height,
+    };
   }
 
   isFinished(job: RenderJob): boolean {
@@ -290,10 +318,13 @@ export class LiveStreamComponent {
         this.push({
           source: 'Url',
           title: probe.title || url,
-          detail: `${probe.channel ? probe.channel + ' · ' : ''}${probe.platformId}${this.linkAudioOnly() ? ' · audio only' : ''}`,
+          typeLabel: this.linkAudioOnly() ? 'Link · audio only' : `Link · ${probe.aspectLabel || 'video'}`,
+          detail: `${probe.channel ? probe.channel + ' · ' : ''}${probe.platformId}`,
           url: probe.canonicalUrl || url,
           audioOnly: this.linkAudioOnly(),
           durationSeconds: probe.durationSeconds || undefined,
+          width: probe.width,
+          height: probe.height,
           thumbnailUrl: probe.thumbnailUrl || undefined,
         });
         this.markLink(url, 'ok');
@@ -454,7 +485,106 @@ export class LiveStreamComponent {
     }
   }
 
-  // ------------------------------------------------------------------ preview
+  // ------------------------------------------------------------------ source preview (before preparing)
+
+  /** Opens the centred preview for a playlist row. */
+  previewEntry(entry: PlaylistEntry): void {
+    const facts = [entry.detail];
+    const base: Omit<MediaPreview, 'type'> = {
+      title: entry.title,
+      durationSeconds: entry.durationSeconds,
+      facts,
+    };
+
+    switch (entry.source) {
+      case 'Upload': {
+        const song = this.isSong(entry);
+        this.openSourcePreview({
+          ...base,
+          type: entry.typeLabel,
+          src: this.objectUrl(entry.file!),
+          audio: song,
+          coverSrc: entry.cover ? this.coverUrl(entry.cover) : undefined,
+          note: song ? (entry.cover ? 'On air: this cover over a blurred copy of itself, with a live waveform.'
+                                    : 'On air: a plain backdrop with a live waveform. Add a cover to show artwork.') : undefined,
+        }, { entryKey: entry.key });
+        break;
+      }
+      case 'Render':
+        this.openSourcePreview({ ...base, type: entry.typeLabel, src: this.api.previewUrl(entry.renderJobId!) }, { entryKey: entry.key });
+        break;
+      case 'Asset':
+        this.openSourcePreview({
+          ...base, type: entry.typeLabel, src: this.api.assetUrl(entry.assetId!), audio: entry.typeLabel.startsWith('Song'),
+          note: entry.typeLabel.startsWith('Song') ? 'On air: a plain backdrop with a live waveform.' : undefined,
+        }, { entryKey: entry.key });
+        break;
+      case 'ReleaseKit': {
+        const kit = `${environment.apiUrl}/api/releases/kits/${encodeURIComponent(entry.releaseKitId!)}/files`;
+        this.openSourcePreview(entry.useVisualizer
+          ? { ...base, type: entry.typeLabel, src: `${kit}/visualizer_1920x1080.mp4` }
+          : { ...base, type: entry.typeLabel, src: `${kit}/master.wav`, audio: true, coverSrc: `${kit}/cover_3000x3000.jpg`,
+              note: 'On air: the cover over a blurred copy of itself, with a live waveform.' },
+          { entryKey: entry.key });
+        break;
+      }
+      case 'Url':
+        this.openSourcePreview({ ...base, type: entry.typeLabel, externalUrl: entry.url, thumbnailUrl: entry.thumbnailUrl });
+        break;
+    }
+  }
+
+  previewRender(job: RenderJob): void {
+    const entry = this.renderEntry(job);
+    this.openSourcePreview({
+      title: entry.title, type: entry.typeLabel, src: this.api.previewUrl(job.jobId),
+      durationSeconds: job.outputDurationSeconds, facts: [entry.detail],
+    }, { add: () => this.addRender(job) });
+  }
+
+  previewAsset(asset: Asset): void {
+    const entry = this.assetEntry(asset);
+    const song = asset.kind === 'Audio';
+    this.openSourcePreview({
+      title: entry.title, type: entry.typeLabel, src: this.api.assetUrl(asset.id), audio: song,
+      durationSeconds: asset.durationSeconds, facts: [entry.detail],
+      note: song ? 'On air: a plain backdrop with a live waveform.' : undefined,
+    }, { add: () => this.addAsset(asset) });
+  }
+
+  addFromPreview(): void {
+    this.sourcePreview()?.add?.();
+    this.closeSourcePreview();
+  }
+
+  /** Keeps what the player measured, so the row and the total show the real length. */
+  onPreviewMeasured(m: { durationSeconds: number; width?: number; height?: number }): void {
+    const key = this.sourcePreview()?.entryKey;
+    if (!key) return;
+    this.updateEntry(key, { durationSeconds: m.durationSeconds, width: m.width ?? undefined, height: m.height ?? undefined });
+  }
+
+  closeSourcePreview(): void {
+    if (this.previewObjectUrl) URL.revokeObjectURL(this.previewObjectUrl);
+    this.previewObjectUrl = null;
+    this.sourcePreview.set(null);
+  }
+
+  private openSourcePreview(preview: MediaPreview, options: { entryKey?: string; add?: () => void } = {}): void {
+    if (this.previewObjectUrl && preview.src !== this.previewObjectUrl) {
+      URL.revokeObjectURL(this.previewObjectUrl);
+      this.previewObjectUrl = null;
+    }
+    this.sourcePreview.set({ preview, ...options });
+  }
+
+  private objectUrl(file: File): string {
+    if (this.previewObjectUrl) URL.revokeObjectURL(this.previewObjectUrl);
+    this.previewObjectUrl = URL.createObjectURL(file);
+    return this.previewObjectUrl;
+  }
+
+  // ------------------------------------------------------------------ prepared preview
 
   previewUrl(stream: LiveStreamStatus, index: number): string {
     return this.live.previewUrl(stream.id, index);
@@ -555,6 +685,19 @@ export class LiveStreamComponent {
     return h > 0 ? `${h}:${mm}:${ss}` : `${m}:${ss}`;
   }
 
+  /** "1920×1080 · vertical"-style label, when the size is known. */
+  pictureLabel(width?: number, height?: number): string | null {
+    if (!width || !height) return null;
+    const shape = width === height ? 'square' : width > height ? 'landscape' : 'vertical';
+    return `${width}×${height} ${shape}`;
+  }
+
+  /** A vertical source in a landscape stream (or the reverse) is letterboxed; worth saying before preparing. */
+  letterboxed(entry: PlaylistEntry): boolean {
+    if (!entry.width || !entry.height || this.isSong(entry)) return false;
+    return (entry.height > entry.width) !== (this.form.orientation === 'Portrait');
+  }
+
   formatSize(bytes: number): string {
     if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
     if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
@@ -563,13 +706,43 @@ export class LiveStreamComponent {
 
   // ------------------------------------------------------------------ private
 
-  private push(entry: Omit<PlaylistEntry, 'key'>): void {
+  /** Adds a row and returns its key, or null when the playlist is full. */
+  private push(entry: Omit<PlaylistEntry, 'key'>): string | null {
     const max = this.setup()?.maxItems ?? 50;
     if (this.playlist().length >= max) {
       this.error.set({ message: `A stream can have at most ${max} items.` });
-      return;
+      return null;
     }
-    this.playlist.update((list) => [...list, { ...entry, key: `e${this.nextKey++}` }]);
+    const key = `e${this.nextKey++}`;
+    this.playlist.update((list) => [...list, { ...entry, key }]);
+    return key;
+  }
+
+  private updateEntry(key: string, change: Partial<PlaylistEntry>): void {
+    this.playlist.update((list) => list.map((e) => (e.key === key ? { ...e, ...change } : e)));
+  }
+
+  /** Reads an upload's length (and picture size) from its own header, without playing or uploading it. */
+  private measureFile(key: string, file: File, isVideo: boolean): void {
+    const url = URL.createObjectURL(file);
+    const media = document.createElement(isVideo ? 'video' : 'audio');
+    const done = () => {
+      URL.revokeObjectURL(url);
+      media.removeAttribute('src');
+    };
+    media.preload = 'metadata';
+    media.onloadedmetadata = () => {
+      const video = media as HTMLVideoElement;
+      this.updateEntry(key, {
+        durationSeconds: Number.isFinite(media.duration) ? media.duration : undefined,
+        width: isVideo && video.videoWidth ? video.videoWidth : undefined,
+        height: isVideo && video.videoHeight ? video.videoHeight : undefined,
+      });
+      done();
+    };
+    // Some formats (e.g. AIFF) don't play in browsers; the length is then known after preparing.
+    media.onerror = done;
+    media.src = url;
   }
 
   private replace(stream: LiveStreamStatus): void {
@@ -601,17 +774,23 @@ export class LiveStreamComponent {
     const title = query.get('title')?.slice(0, 200);
 
     if (renderJobId) {
-      this.push({ source: 'Render', title: title || 'Finished render', detail: 'From the render page', renderJobId });
+      // The job's own details give the row its real type, length and size.
+      try {
+        this.push(this.renderEntry(await firstValueFrom(this.api.job(renderJobId)), title));
+      } catch {
+        this.push({ source: 'Render', title: title || 'Finished render', typeLabel: 'Render', detail: 'From the render page', renderJobId });
+      }
     }
     if (assetId) {
-      this.push({ source: 'Asset', title: title || 'Project asset', detail: 'From the media library', assetId });
+      this.push({ source: 'Asset', title: title || 'Project media', typeLabel: 'Project media', detail: 'From Media Studio', assetId });
     }
     if (kitId) {
       const visualizer = query.get('visualizer') === '1';
       this.push({
         source: 'ReleaseKit',
         title: title || (visualizer ? 'Release visualizer' : 'Release master'),
-        detail: visualizer ? 'Release kit · visualizer video' : 'Release kit · cover + song',
+        typeLabel: visualizer ? 'Release kit · visualizer' : 'Release kit · song + cover',
+        detail: visualizer ? '1920×1080 visualizer video' : 'Mastered WAV with the 3000×3000 cover',
         releaseKitId: kitId,
         useVisualizer: visualizer,
       });

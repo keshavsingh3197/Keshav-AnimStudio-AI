@@ -52,8 +52,12 @@ export interface PlaylistEntry {
   audioOnly?: boolean;
   releaseKitId?: string;
   useVisualizer?: boolean;
-  /** Known up front for links (from the probe); otherwise filled in when prepared. */
+  /** "Video", "Song", "Clip Studio export", ... */
+  typeLabel: string;
+  /** Known up front where the source says so; measured in the browser for uploads and on preview. */
   durationSeconds?: number;
+  width?: number;
+  height?: number;
   thumbnailUrl?: string;
 }
 

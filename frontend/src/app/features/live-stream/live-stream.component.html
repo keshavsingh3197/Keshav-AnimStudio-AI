@@ -65,11 +65,14 @@
                   <li>
                     <span>
                       <strong>{{ job.kind === 'ClipMerge' ? '✂️ Clip Studio export' : '🎞️ Project render' }}</strong>
-                      <span class="muted"> · {{ job.width }}×{{ job.height }}
+                      <span class="muted"> · {{ pictureLabel(job.width, job.height) ?? 'size unknown' }}
                         @if (job.outputDurationSeconds) { · {{ formatClock(job.outputDurationSeconds) }} }
                         · {{ (job.completedAt ?? job.createdAt) | date: 'short' }}</span>
                     </span>
-                    <button type="button" class="secondary ls-small" (click)="addRender(job)">＋ Add</button>
+                    <span class="ls-pick-actions">
+                      <button type="button" class="secondary ls-small" (click)="previewRender(job)">▶ Preview</button>
+                      <button type="button" class="secondary ls-small" (click)="addRender(job)">＋ Add</button>
+                    </span>
                   </li>
                 } @empty {
                   <li class="muted">No finished renders or exports in this project yet.</li>
@@ -91,10 +94,14 @@
                   <li>
                     <span>
                       <strong>{{ a.kind === 'Audio' ? '🎵' : '🎬' }} {{ a.name }}</strong>
-                      <span class="muted"> · {{ formatSize(a.fileSizeBytes) }}
-                        @if (a.durationSeconds) { · {{ formatClock(a.durationSeconds) }} }</span>
+                      <span class="muted"> · {{ a.kind === 'Audio' ? 'Song' : (pictureLabel(a.width, a.height) ?? 'Video') }}
+                        @if (a.durationSeconds) { · {{ formatClock(a.durationSeconds) }} }
+                        · {{ formatSize(a.fileSizeBytes) }}</span>
                     </span>
-                    <button type="button" class="secondary ls-small" (click)="addAsset(a)">＋ Add</button>
+                    <span class="ls-pick-actions">
+                      <button type="button" class="secondary ls-small" (click)="previewAsset(a)">▶ Preview</button>
+                      <button type="button" class="secondary ls-small" (click)="addAsset(a)">＋ Add</button>
+                    </span>
                   </li>
                 } @empty {
                   <li class="muted">No video or audio in this project. Downloads from Media Studio land here when imported.</li>
@@ -136,20 +143,28 @@
           @for (e of playlist(); track e.key; let i = $index, first = $first, last = $last) {
             <li class="ls-entry">
               <span class="ls-entry-num">{{ i + 1 }}</span>
-              @if (e.cover) {
-                <img class="ls-entry-thumb" [src]="coverUrl(e.cover)" alt="" />
-              } @else if (e.thumbnailUrl) {
-                <img class="ls-entry-thumb" [src]="e.thumbnailUrl" alt="" referrerpolicy="no-referrer" />
-              } @else {
-                <span class="ls-entry-icon">{{ sourceIcon(e.source, isSong(e) ? 'CoverAndAudio' : 'Video') }}</span>
-              }
+              <button type="button" class="ls-entry-preview" (click)="previewEntry(e)" [attr.aria-label]="'Preview ' + e.title" title="Preview">
+                @if (e.cover) {
+                  <img class="ls-entry-thumb" [src]="coverUrl(e.cover)" alt="" />
+                } @else if (e.thumbnailUrl) {
+                  <img class="ls-entry-thumb" [src]="e.thumbnailUrl" alt="" referrerpolicy="no-referrer" />
+                } @else {
+                  <span class="ls-entry-icon">{{ sourceIcon(e.source, isSong(e) ? 'CoverAndAudio' : 'Video') }}</span>
+                }
+                <span class="ls-entry-play" aria-hidden="true">▶</span>
+              </button>
               <div class="ls-entry-main">
                 <input class="ls-entry-title" type="text" maxlength="200" [ngModel]="e.title" (ngModelChange)="rename(e, $event)"
                        [attr.aria-label]="'Title of item ' + (i + 1)" />
-                <span class="muted ls-entry-detail">
-                  {{ e.detail }}
-                  @if (e.durationSeconds) { · {{ formatClock(e.durationSeconds) }} }
+                <span class="ls-entry-facts">
+                  <span class="ls-chip">{{ e.typeLabel }}</span>
+                  <span class="ls-chip ls-chip-num">{{ e.durationSeconds ? formatClock(e.durationSeconds) : '–:––' }}</span>
+                  @if (pictureLabel(e.width, e.height); as pic) { <span class="ls-chip">{{ pic }}</span> }
+                  <span class="muted ls-entry-detail">{{ e.detail }}</span>
                 </span>
+                @if (letterboxed(e)) {
+                  <span class="ls-hint">Shown with black bars in a {{ form.orientation === 'Portrait' ? 'vertical' : 'landscape' }} stream.</span>
+                }
                 @if (isSong(e)) {
                   <span class="ls-entry-cover">
                     <button type="button" class="secondary ls-small" (click)="coverInput.click()">🖼 {{ e.cover ? 'Change cover' : 'Add cover' }}</button>
@@ -166,6 +181,7 @@
                 }
               </div>
               <div class="ls-entry-actions">
+                <button type="button" class="secondary ls-icon" (click)="previewEntry(e)" aria-label="Preview">▶</button>
                 <button type="button" class="secondary ls-icon" (click)="move(e, -1)" [disabled]="first" aria-label="Move up">▲</button>
                 <button type="button" class="secondary ls-icon" (click)="move(e, 1)" [disabled]="last" aria-label="Move down">▼</button>
                 <button type="button" class="secondary ls-icon" (click)="remove(e)" aria-label="Remove">✕</button>
@@ -489,3 +505,8 @@
     </section>
   </div>
 </div>
+
+@if (sourcePreview(); as sp) {
+  <app-media-preview-dialog [preview]="sp.preview" [canAdd]="!!sp.add"
+                            (add)="addFromPreview()" (measured)="onPreviewMeasured($event)" (closed)="closeSourcePreview()" />
+}
