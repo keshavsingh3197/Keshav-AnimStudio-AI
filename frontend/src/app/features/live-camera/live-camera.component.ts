@@ -205,6 +205,15 @@ export class LiveCameraComponent {
   // A brand channel's support card (its uploaded QR + headline from Settings → End card)
   readonly brandChannels = signal<BrandChannel[]>([]);
   readonly supportCardState = signal<'off' | 'loading' | 'ready' | 'missing' | 'failed'>('off');
+  readonly supportHasQr = signal(false);
+  /** The brand channel the studio works as (Channel picker at the top). */
+  readonly studioChannel = computed(() =>
+    this.brandChannels().find((c) => (c.isDefault ? 'default' : c.id) === this.settings().brand.cardChannel));
+  /** That channel's saved stream key, masked. */
+  readonly channelKey = computed(() => {
+    const live = this.setup()?.channels.find((c) => c.id === this.studioChannel()?.id);
+    return live ? this.keyStatus(live) : undefined;
+  });
   private supportArt: SupportCardArt | null = null;
 
   // A video file as the source (read locally, never uploaded)
@@ -492,16 +501,10 @@ export class LiveCameraComponent {
 
   /** Loads the chosen brand channel's card when it is switched on or the channel changes. */
   private async ensureSupportCard(force = false): Promise<void> {
-    const b = this.settings().brand;
-    const key = b.card ? b.cardChannel : '';
+    // Loaded for the chosen channel even while the card is off, so the channel bar can say whether it has a QR.
+    const key = this.settings().brand.cardChannel;
     if (!force && key === this.supportCardKey) return;
     this.supportCardKey = key;
-    if (!key) {
-      this.supportArt?.qr?.close();
-      this.supportArt = null;
-      this.supportCardState.set('off');
-      return;
-    }
 
     this.supportCardState.set('loading');
     const channel = key === 'default' ? null : key;
@@ -524,9 +527,29 @@ export class LiveCameraComponent {
         background: /^#[0-9a-f]{6}$/i.test(outro?.backgroundHex ?? '') ? outro!.backgroundHex! : '#0f172a',
         text: /^#[0-9a-f]{6}$/i.test(outro?.textHex ?? '') ? outro!.textHex! : '#ffffff',
       };
+      this.supportHasQr.set(!!qr);
       this.supportCardState.set(qr || outro?.headline ? 'ready' : 'missing');
     } catch {
       if (this.supportCardKey === key) this.supportCardState.set('failed');
+    }
+  }
+
+  /**
+   * Works as one brand channel: its support card QR, its saved stream key (when this user
+   * may use saved keys and one is saved) and its YouTube channel for subscriber numbers.
+   */
+  useChannel(id: string): void {
+    const channel = this.brandChannels().find((c) => (c.isDefault ? 'default' : c.id) === id);
+    if (!channel) return;
+
+    this.patch('brand', { cardChannel: id });
+    if (channel.youTubeChannelId) this.patch('overlays', { youtubeChannel: channel.youTubeChannelId });
+
+    const live = this.setup()?.channels.find((c) => c.id === channel.id);
+    if (live && !this.onAir()) {
+      this.form.channelId = live.id;
+      if (this.setup()?.canUseSavedKeys && this.keyStatus(live)?.state === 'Saved') this.form.keyMode = 'channel';
+      this.scheduleRemember();
     }
   }
 

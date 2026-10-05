@@ -218,7 +218,11 @@ export interface BrandSettings {
   cardShowSeconds: number;
   /** Which of the channel's lines to show: its first language, its second, or both. */
   cardLines: SupportCardLines;
+  /** Just the QR image, or the full card with the channel's headline and small text. */
+  cardStyle: SupportCardStyle;
 }
+
+export type SupportCardStyle = 'qr' | 'full';
 
 export type SupportCardMode = 'always' | 'interval';
 export type SupportCardLines = 'primary' | 'secondary' | 'both';
@@ -363,6 +367,7 @@ export function defaultSettings(): StudioSettings {
       cardEveryMinutes: 5,
       cardShowSeconds: 20,
       cardLines: 'both',
+      cardStyle: 'qr',
     },
     designer: defaultDesign(),
   };
@@ -388,6 +393,7 @@ const CHARACTER = /^(?:[a-z]{2,16}|upload|project:[A-Za-z0-9_-]{1,64})$/;
 const BRAND_CHANNEL = /^(?:default|[A-Za-z0-9_-]{1,64})$/;
 const CARD_MODES: readonly SupportCardMode[] = ['always', 'interval'];
 const CARD_LINES: readonly SupportCardLines[] = ['primary', 'secondary', 'both'];
+const CARD_STYLES: readonly SupportCardStyle[] = ['qr', 'full'];
 
 function pick<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
   return allowed.includes(value as T) ? (value as T) : fallback;
@@ -557,6 +563,7 @@ export function sanitizeSettings(raw: unknown): StudioSettings {
       cardEveryMinutes: Math.round(num(b['cardEveryMinutes'], 1, 60, d.brand.cardEveryMinutes)),
       cardShowSeconds: Math.round(num(b['cardShowSeconds'], 5, 300, d.brand.cardShowSeconds)),
       cardLines: pick(b['cardLines'], CARD_LINES, d.brand.cardLines),
+      cardStyle: pick(b['cardStyle'], CARD_STYLES, d.brand.cardStyle),
     },
     designer: sanitizeDesign(r['designer']),
   };

@@ -59,6 +59,9 @@ export interface BrandChannel {
   isDefault: boolean;
   watermark: WatermarkBody | null;
   outro: OutroBody | null;
+  /** The YouTube channel this brand publishes to, from Settings → YouTube publishing. */
+  youTubeChannelId?: string | null;
+  youTubeChannelTitle?: string | null;
 }
 
 export interface UpdateProjectBody extends CreateProjectBody {

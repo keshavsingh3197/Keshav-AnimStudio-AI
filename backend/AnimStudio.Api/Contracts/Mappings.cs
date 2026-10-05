@@ -41,9 +41,11 @@ public static class Mappings
     [
         new BrandChannelResponse(
             BrandChannel.DefaultId, s?.DefaultChannelName ?? "Default", true,
-            s?.DefaultWatermark.ToResponse(), s?.DefaultOutro.ToResponse()),
+            s?.DefaultWatermark.ToResponse(), s?.DefaultOutro.ToResponse(),
+            s?.DefaultPublishing?.YouTubeChannelId, s?.DefaultPublishing?.YouTubeChannelTitle),
         .. (s?.Channels ?? []).Select(c => new BrandChannelResponse(
-            c.Id, c.Name, false, c.Watermark.ToResponse(), c.Outro.ToResponse())),
+            c.Id, c.Name, false, c.Watermark.ToResponse(), c.Outro.ToResponse(),
+            c.Publishing?.YouTubeChannelId, c.Publishing?.YouTubeChannelTitle)),
     ];
 
     public static WatermarkResponse? ToResponse(this WatermarkSettings? w) =>

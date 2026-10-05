@@ -216,6 +216,25 @@
   <!-- ============================================================ controls -->
   <div class="cs-col">
     <section class="card cs-panel">
+      <!-- One choice of channel drives its QR code, saved stream key and YouTube numbers. -->
+      <div class="cs-channelbar">
+        <label class="cs-channelpick">📺 Channel
+          <select [ngModel]="settings().brand.cardChannel" (ngModelChange)="useChannel($event)" [disabled]="onAir()" aria-label="Studio channel">
+            @for (c of brandChannels(); track c.id) { <option [value]="c.isDefault ? 'default' : c.id">{{ c.name }}</option> }
+          </select>
+        </label>
+        <div class="cs-channelfacts">
+          <span [class.off]="!supportHasQr()" title="QR image from Settings → End card">🔳 {{ supportHasQr() ? 'QR image' : 'No QR image' }}</span>
+          @if (setup()?.canUseSavedKeys) {
+            <span [class.off]="channelKey()?.state !== 'Saved'" title="Saved stream key">🔑 {{ channelKey()?.state === 'Saved' ? 'Key ' + channelKey()?.masked : 'No saved key' }}</span>
+          }
+          <span [class.off]="!studioChannel()?.youTubeChannelId" title="YouTube channel from Settings → YouTube publishing">
+            ▶ {{ studioChannel()?.youTubeChannelTitle || studioChannel()?.youTubeChannelId || 'No YouTube channel linked' }}
+          </span>
+          <a routerLink="/admin/channels" class="cs-note">Manage</a>
+        </div>
+      </div>
+
       <div class="cs-tabs" role="tablist" aria-label="Studio settings">
         @for (t of [
           { id: 'identity', label: '🛡️ Identity' }, { id: 'designer', label: '🧑‍🎨 Designer' }, { id: 'motion', label: '🕺 Motion' },
@@ -541,15 +560,19 @@
               <select class="cs-corner" [ngModel]="settings().brand.cardCorner" (ngModelChange)="patch('brand', { cardCorner: $event })" aria-label="Corner"><option value="top-left">↖</option><option value="top-right">↗</option><option value="bottom-left">↙</option><option value="bottom-right">↘</option></select>
             </div>
             <div class="cs-two">
-              <select [ngModel]="settings().brand.cardChannel" (ngModelChange)="patch('brand', { cardChannel: $event })" aria-label="Brand channel">
-                @for (c of brandChannels(); track c.id) { <option [value]="c.isDefault ? 'default' : c.id">{{ c.name }}</option> }
+              <select [ngModel]="settings().brand.cardStyle" (ngModelChange)="patch('brand', { cardStyle: $event })" aria-label="Style">
+                <option value="qr">QR image only</option>
+                <option value="full">QR with headline &amp; text</option>
               </select>
-              <select [ngModel]="settings().brand.cardLines" (ngModelChange)="patch('brand', { cardLines: $event })" aria-label="Lines">
-                <option value="both">Both languages</option>
-                <option value="primary">First language</option>
-                <option value="secondary">Second language</option>
-              </select>
+              @if (settings().brand.cardStyle === 'full') {
+                <select [ngModel]="settings().brand.cardLines" (ngModelChange)="patch('brand', { cardLines: $event })" aria-label="Lines">
+                  <option value="both">Both languages</option>
+                  <option value="primary">First language</option>
+                  <option value="secondary">Second language</option>
+                </select>
+              }
             </div>
+            <span class="muted cs-note">From the channel chosen at the top: <strong>{{ studioChannel()?.name ?? 'Default' }}</strong>.</span>
             <div class="cs-two">
               <select [ngModel]="settings().brand.cardMode" (ngModelChange)="patch('brand', { cardMode: $event })" aria-label="When">
                 <option value="interval">Every few minutes</option>
@@ -573,7 +596,13 @@
               @case ('loading') { <span class="muted cs-note">Loading the channel's card…</span> }
               @case ('missing') { <span class="cs-warn-text cs-note">This channel has no support card yet. Set one under <a routerLink="/admin/branding/end-card" [queryParams]="settings().brand.cardChannel === 'default' ? null : { channel: settings().brand.cardChannel }">Settings → End card</a>.</span> }
               @case ('failed') { <span class="cs-warn-text cs-note">The channel's card couldn't be loaded.</span> }
-              @case ('ready') { <span class="muted cs-note">Uses the QR code and lines from Settings → End card, so viewers see the same card as at the end of your videos.</span> }
+              @case ('ready') {
+                @if (settings().brand.cardStyle === 'qr' && !supportHasQr()) {
+                  <span class="cs-warn-text cs-note">This channel has no QR image. Upload one under <a routerLink="/admin/branding/end-card" [queryParams]="settings().brand.cardChannel === 'default' ? null : { channel: settings().brand.cardChannel }">Settings → End card</a>.</span>
+                } @else {
+                  <span class="muted cs-note">Uses the QR image{{ settings().brand.cardStyle === 'full' ? ' and lines' : '' }} from Settings → End card.</span>
+                }
+              }
             }
           </fieldset>
 

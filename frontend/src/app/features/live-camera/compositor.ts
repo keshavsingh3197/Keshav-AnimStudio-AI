@@ -2,7 +2,7 @@ import { BackgroundStyle, BuiltInCharacterId, BUILT_IN_CHARACTERS, CharacterRef,
 import { drawBuiltIn, drawImageCharacter, Expression, expressionFrom, ImageCharacter } from './characters';
 import { drawDesigned } from './character-designer';
 import {
-  drawQrCard, drawSeal, drawSupportCard, qrCardSize, QrSprite, scannableColors, SupportCardArt, supportCardWidth,
+  drawQrCard, drawSeal, drawSupportCard, drawSupportQr, qrCardSize, QrSprite, scannableColors, SupportCardArt, supportCardWidth,
 } from './brand-overlays';
 import { PrivacyVerdict, TrackedFace } from './face-tracker';
 import { ReactionKind } from './gestures';
@@ -833,8 +833,16 @@ export class Compositor {
         input.now, input.liveSince ?? this.startedAt, input.supportCardUntil);
       if (alpha > 0) {
         const height = Math.round(H * b.cardSize);
-        const at = place(b.cardCorner, supportCardWidth(height), height);
-        drawSupportCard(c, input.supportCard, at.x, at.y, height, b.cardLines, alpha);
+        const qr = input.supportCard.qr;
+        if (b.cardStyle === 'qr') {
+          if (qr) {
+            const at = place(b.cardCorner, height, height);
+            drawSupportQr(c, qr, at.x, at.y, height, alpha);
+          }
+        } else {
+          const at = place(b.cardCorner, supportCardWidth(height), height);
+          drawSupportCard(c, input.supportCard, at.x, at.y, height, b.cardLines, alpha);
+        }
       }
     }
 

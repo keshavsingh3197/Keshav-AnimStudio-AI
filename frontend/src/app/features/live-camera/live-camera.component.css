@@ -212,3 +212,10 @@ kbd {
 .cs-file { display: inline-flex; align-items: center; justify-content: center; cursor: pointer; border-radius: 8px;
   border: 1px solid var(--border, rgba(148, 163, 184, .3)); width: fit-content; }
 .cs-video .cs-note { overflow-wrap: anywhere; }
+
+/* Studio channel: drives the QR, the saved stream key and the YouTube numbers */
+.cs-channelbar { display: grid; gap: .4rem; padding-bottom: .75rem; margin-bottom: .75rem; border-bottom: 1px solid var(--border, rgba(148, 163, 184, .2)); }
+.cs-channelpick { display: flex; align-items: center; gap: .5rem; font-weight: 600; }
+.cs-channelpick select { flex: 1; min-width: 0; }
+.cs-channelfacts { display: flex; flex-wrap: wrap; gap: .3rem .9rem; font-size: .8rem; align-items: center; }
+.cs-channelfacts .off { opacity: .55; }

@@ -40,7 +40,9 @@ public sealed record ProjectResponse(
 
 /// <summary>A brand channel and its look. The built-in default comes first, with IsDefault set.</summary>
 public sealed record BrandChannelResponse(
-    string Id, string Name, bool IsDefault, WatermarkResponse? Watermark, OutroResponse? Outro);
+    string Id, string Name, bool IsDefault, WatermarkResponse? Watermark, OutroResponse? Outro,
+    // The YouTube channel this brand publishes to (Settings → YouTube publishing): an id, not a secret.
+    string? YouTubeChannelId = null, string? YouTubeChannelTitle = null);
 
 public sealed record CharacterResponse(
     string Id, string Name, string? Description, IReadOnlyList<string> Aliases,

@@ -180,6 +180,26 @@ export function drawSupportCard(
   c.restore();
 }
 
+/** Just the channel's QR image, on a white rounded square with a quiet zone so it scans on any picture. */
+export function drawSupportQr(c: Ctx, qr: ImageBitmap, x: number, y: number, side: number, alpha: number): void {
+  c.save();
+  c.globalAlpha = alpha;
+  c.shadowColor = 'rgba(0,0,0,.35)';
+  c.shadowBlur = side * 0.06;
+  c.fillStyle = '#ffffff';
+  c.beginPath();
+  c.roundRect(x, y, side, side, side * 0.06);
+  c.fill();
+  c.shadowBlur = 0;
+  const quiet = side * 0.07;
+  const inner = side - quiet * 2;
+  const scale = Math.min(inner / qr.width, inner / qr.height);
+  const dw = qr.width * scale;
+  const dh = qr.height * scale;
+  c.drawImage(qr, x + (side - dw) / 2, y + (side - dh) / 2, dw, dh);
+  c.restore();
+}
+
 /** Word-wraps to at most `max` lines; the last one is squeezed by fillText's maxWidth if needed. */
 function wrap(c: Ctx, text: string, width: number, max: number): string[] {
   const lines: string[] = [];
