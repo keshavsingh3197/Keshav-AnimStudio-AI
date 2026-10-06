@@ -47,10 +47,14 @@ public sealed record BrandChannelResponse(
 public sealed record CharacterResponse(
     string Id, string Name, string? Description, IReadOnlyList<string> Aliases,
     string? ClosedMouthAssetId, string? OpenMouthAssetId, bool IsNarrator, string? SubtitleColorHex,
-    CharacterAppearanceResponse Appearance);
+    CharacterAppearanceResponse Appearance, CharacterVoiceResponse? Voice = null);
 
 public sealed record CharacterAppearanceResponse(
     int? Age, string? Gender, string? Hair, string? Clothes, string? AdditionalDetails);
+
+public sealed record CharacterVoiceResponse(
+    string? Preset, double PitchSemitones, double BassDecibels, double TrebleDecibels,
+    double Drive, double Robot, double RobotHertz, bool Radio, double Echo, double Reverb);
 
 public sealed record AssetResponse(
     string Id, string Name, string Kind, string MimeType, long FileSizeBytes,

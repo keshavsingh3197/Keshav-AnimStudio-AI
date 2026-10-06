@@ -8,6 +8,7 @@ import { firstValueFrom } from 'rxjs';
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
 import { Asset, Project } from '../../core/models/api.models';
 import { ApiService } from '../../core/services/api.service';
+import { CharacterVoice, describeVoice, sanitizeVoice } from '../../shared/voice/character-voice';
 import { FrameClock } from '../live-camera/frame-clock';
 import { VisionEngine } from '../live-camera/vision-engine';
 import {
@@ -18,15 +19,35 @@ import {
   MIN_SPOT,
   SYNC_LIMIT_MS,
   StitchPhase,
+  Turn,
+  cueAt,
   defaultCollabSettings,
   frameSize,
   sanitizeCollabSettings,
   suggestLayout,
+  takesTurns,
+  voiceHeard,
 } from './collab-layout';
 import { CollabMixer, MixLevels } from './collab-mixer';
 
 type RecState = 'idle' | 'countdown' | 'recording' | 'rendering' | 'saving';
 type SourceTab = 'computer' | 'project';
+
+/** Who you were speaking as, from `at` seconds after the original started. */
+interface VoiceCue {
+  at: number;
+  characterId: string | null;
+  name: string;
+  /** A copy, so editing the character later doesn't change a take already made. */
+  voice: CharacterVoice | null;
+}
+
+/** A project character you can speak as. */
+interface Speaker {
+  id: string;
+  name: string;
+  voice: CharacterVoice;
+}
 
 /** One recording: the finished mix, plus the raw camera take it can be rebuilt from. */
 interface Take {
@@ -49,6 +70,10 @@ interface Take {
   syncMs: number;
   /** The settings the mix was made with, to tell when it's out of date. */
   look: string;
+  /** When the original paused for you and carried on; one entry for a take that never paused. */
+  turns: Turn[];
+  /** Which voice you spoke in, and when you switched. */
+  voices: VoiceCue[];
   savedAs: string | null;
 }
 
@@ -69,22 +94,26 @@ const FORMATS = [
   'video/webm;codecs=vp8,opus',
   'video/webm',
 ];
+/** For a microphone-only take (a dub): just your voice, no picture. */
+const AUDIO_FORMATS = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm'];
 const REMEMBER_KEY = 'animstudio.collab';
 const FPS = 30;
 const UI_REFRESH_MS = 200;
 const MAX_TAKES = 6;
 /** The longest a recording may run, so a forgotten take can't fill the browser's memory. */
 const MAX_RECORD_SECONDS = 10 * 60;
-/** In a stitch, your part ends by itself after this long if you don't stop it. */
+/** Number keys pick a voice: 0 is your own, 1-9 the project's characters in order. */
+const MAX_VOICE_KEYS = 9;
+/** In a stitch (or after a commentary's last part), your part ends by itself after this long if you don't stop it. */
 const MAX_YOUR_TURN_SECONDS = 3 * 60;
 /** "Your turn" shows this long before the original stops in a stitch. */
 const TURN_WARNING_SECONDS = 3;
 /** A segmentation slower than this per frame runs every other frame. */
 const SEGMENT_BUDGET_MS = 18;
 
-function pickFormat(): string | null {
+function pickFormat(formats: readonly string[] = FORMATS): string | null {
   if (typeof MediaRecorder === 'undefined') return null;
-  return FORMATS.find((f) => MediaRecorder.isTypeSupported(f)) ?? null;
+  return formats.find((f) => MediaRecorder.isTypeSupported(f)) ?? null;
 }
 
 /** Everything that changes how the mix looks or sounds. */
@@ -147,7 +176,10 @@ export class CollabStudioComponent {
   // Camera
   readonly cameras = signal<MediaDeviceInfo[]>([]);
   readonly mics = signal<MediaDeviceInfo[]>([]);
+  /** The camera, or for a dub just the microphone, is open: you're ready to record. */
   readonly cameraOn = signal(false);
+  /** Only the microphone is open (no picture of you). */
+  readonly micOnly = signal(false);
   readonly openingCamera = signal(false);
   readonly micLevel = signal(0);
   readonly cutoutState = signal<'off' | 'loading' | 'ready' | 'failed'>('off');
@@ -161,6 +193,15 @@ export class CollabStudioComponent {
   readonly phase = signal<StitchPhase>('source');
   readonly yourTurnIn = signal<number | null>(null);
   readonly renderProgress = signal(0);
+  /** How many times you've talked in the take being recorded. */
+  readonly talkCount = signal(0);
+
+  // Speaking as a character
+  readonly speakers = signal<Speaker[]>([]);
+  readonly speakAsId = signal<string | null>(null);
+  readonly hearVoice = signal(false);
+  readonly pitchUnavailable = signal(false);
+  readonly describeVoice = describeVoice;
   readonly takes = signal<Take[]>([]);
   readonly selectedId = signal<number | null>(null);
   /** The sync correction being tried on the selected take, ms. */
@@ -172,6 +213,8 @@ export class CollabStudioComponent {
   readonly square = computed(() => this.settings().aspect === 'square');
   readonly rangeSeconds = computed(() => Math.max(0, this.rangeOut() - this.rangeIn()));
   readonly layoutHint = computed(() => LAYOUTS.find((l) => l.id === this.settings().layout)?.hint ?? '');
+  readonly turnBased = computed(() => takesTurns(this.settings().layout));
+  readonly speakingAs = computed(() => this.speakers().find((c) => c.id === this.speakAsId()) ?? null);
   /** The selected take was made with other settings, and can be rebuilt with these. */
   readonly takeOutdated = computed(() => {
     const take = this.selected();
@@ -179,11 +222,13 @@ export class CollabStudioComponent {
       && (take.look !== lookOf(this.settings()) || take.syncMs !== this.syncMs());
   });
   readonly canRecord = computed(() =>
-    !this.busy() && this.cameraOn() && !!this.sourceName() && !!this.format && this.rangeSeconds() > 0.5);
+    !this.busy() && this.cameraOn() && !!this.sourceName() && !!this.format && this.rangeSeconds() > 0.5
+    && (!this.micOnly() || this.settings().layout === 'dub'));
   readonly recordBlocker = computed(() => {
     if (!this.format) return 'This browser can\'t record video. Use a current Chrome or Edge.';
     if (!this.sourceName()) return 'Pick a video to collab with first.';
-    if (!this.cameraOn()) return 'Turn on your camera first.';
+    if (!this.cameraOn()) return this.settings().layout === 'dub' ? 'Turn on your microphone first.' : 'Turn on your camera first.';
+    if (this.micOnly() && this.settings().layout !== 'dub') return 'This layout shows you: turn the camera on, or pick the Dub layout.';
     if (this.rangeSeconds() <= 0.5) return 'The chosen part of the video is too short.';
     return null;
   });
@@ -218,7 +263,11 @@ export class CollabStudioComponent {
     canvasTrack: MediaStreamTrack;
     startedAt: number;
     lead: number;
+    /** Set when the original reaches its end and the last turn is yours. */
     yourTurnAt: number | null;
+    turns: Turn[];
+    voices: VoiceCue[];
+    resuming: boolean;
   } | null = null;
   private render: {
     take: Take;
@@ -228,8 +277,12 @@ export class CollabStudioComponent {
     startAt: number;
     sourceIn: number;
     phase: StitchPhase;
+    turn: Turn;
+    cue: VoiceCue;
     tick: () => void;
   } | null = null;
+  /** The phase the preview last drew, so the bubble is only dragged when it's on screen. */
+  private drawnPhase: StitchPhase = 'source';
   private nextTakeId = 1;
   private rememberTimer: ReturnType<typeof setTimeout> | null = null;
   private drag: { kind: 'spot' | 'split'; pointerId: number; dx: number; dy: number } | null = null;
@@ -314,6 +367,7 @@ export class CollabStudioComponent {
       if (this.projectId && !this.projects().some((p) => p.id === this.projectId)) this.projectId = '';
       if (!this.projectId && this.projects().length) this.projectId = this.projects()[0].id;
       if (this.sourceTab() === 'project') void this.loadProjectVideos();
+      void this.loadSpeakers();
     } catch {
       // Projects are optional here: a file from this computer still works.
     }
@@ -322,6 +376,62 @@ export class CollabStudioComponent {
   onProjectChange(): void {
     this.scheduleRemember();
     if (this.sourceTab() === 'project') void this.loadProjectVideos();
+    if (!this.busy()) void this.loadSpeakers();
+  }
+
+  // ------------------------------------------------------------------ speaking as a character
+
+  /** The project's characters that have a voice, to speak as. */
+  async loadSpeakers(): Promise<void> {
+    if (!this.projectId) {
+      this.speakers.set([]);
+      this.speakAs(null);
+      return;
+    }
+    try {
+      const list = await firstValueFrom(this.api.listCharacters(this.projectId));
+      const speakers: Speaker[] = [];
+      for (const c of list) {
+        const voice = sanitizeVoice(c.voice);
+        if (voice) speakers.push({ id: c.id, name: c.name, voice });
+      }
+      this.speakers.set(speakers);
+    } catch {
+      // Voices are optional: without them you record in your own voice.
+      this.speakers.set([]);
+    }
+    if (!this.speakingAs()) this.speakAs(null);
+    else this.mixer?.setCharacterVoice(this.speakingAs()!.voice);
+  }
+
+  /** Switches voice; mid-take too, which the take remembers so a rebuild switches at the same moment. */
+  speakAs(characterId: string | null): void {
+    if (this.state() === 'rendering') return;
+    const speaker = this.speakers().find((c) => c.id === characterId) ?? null;
+    this.speakAsId.set(speaker?.id ?? null);
+    this.mixer?.setCharacterVoice(speaker?.voice ?? null);
+    const rec = this.recording;
+    if (rec) rec.voices.push(this.voiceCue((performance.now() - rec.startedAt) / 1000));
+  }
+
+  setHearVoice(on: boolean): void {
+    this.hearVoice.set(on);
+    this.mixer?.setVoiceMonitor(on);
+  }
+
+  private voiceCue(at: number): VoiceCue {
+    const speaker = this.speakingAs();
+    return { at, characterId: speaker?.id ?? null, name: speaker?.name ?? 'You', voice: speaker ? { ...speaker.voice } : null };
+  }
+
+  /** "You, Vishnu and Ravana" for a take's card. */
+  voicesUsed(take: Take): string {
+    const names = [...new Set(take.voices.map((v) => v.name))];
+    return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0] ?? 'You';
+  }
+
+  talksIn(take: Take): number {
+    return take.turns.filter((t) => t.phase === 'you').length;
   }
 
   showTab(tab: SourceTab): void {
@@ -419,6 +529,11 @@ export class CollabStudioComponent {
   }
 
   togglePlay(): void {
+    // In a commentary take, pausing the video is how you take your turn, and playing it hands back.
+    if (this.state() === 'recording' && this.settings().layout === 'commentary') {
+      void this.toggleTurn();
+      return;
+    }
     const v = this.sourceVideo;
     if (!v || this.busy()) return;
     void this.mixer?.resume();
@@ -465,7 +580,8 @@ export class CollabStudioComponent {
 
   private readonly onDeviceChange = () => void this.listDevices();
 
-  async openCamera(): Promise<void> {
+  /** `withVideo` false opens only the microphone, for a dub. */
+  async openCamera(withVideo = true): Promise<void> {
     if (this.openingCamera()) return;
     if (!navigator.mediaDevices?.getUserMedia) {
       this.error.set('This browser can\'t open a camera. Use Chrome, Edge, Firefox or Safari over https or localhost.');
@@ -476,12 +592,12 @@ export class CollabStudioComponent {
     this.error.set(null);
     try {
       const media = await navigator.mediaDevices.getUserMedia({
-        video: {
+        video: withVideo ? {
           deviceId: this.cameraId ? { exact: this.cameraId } : undefined,
           width: { ideal: 1280 },
           height: { ideal: 720 },
           frameRate: { ideal: FPS },
-        },
+        } : false,
         // The browser's echo cancelling keeps the original (from the speakers) out of your voice.
         audio: {
           deviceId: this.micId ? { exact: this.micId } : undefined,
@@ -492,12 +608,15 @@ export class CollabStudioComponent {
       });
       this.closeCameraMedia();
       this.cameraMedia = media;
-      const video = document.createElement('video');
-      video.muted = true;
-      video.playsInline = true;
-      video.srcObject = new MediaStream(media.getVideoTracks());
-      await video.play();
-      this.cameraVideo = video;
+      if (withVideo) {
+        const video = document.createElement('video');
+        video.muted = true;
+        video.playsInline = true;
+        video.srcObject = new MediaStream(media.getVideoTracks());
+        await video.play();
+        this.cameraVideo = video;
+      }
+      this.micOnly.set(!withVideo);
       this.mixer!.setVoice(new MediaStream(media.getAudioTracks()));
       void this.mixer!.resume();
       this.cameraOn.set(true);
@@ -513,7 +632,7 @@ export class CollabStudioComponent {
 
   async switchDevice(): Promise<void> {
     this.scheduleRemember();
-    if (this.cameraOn() && !this.busy()) await this.openCamera();
+    if (this.cameraOn() && !this.busy()) await this.openCamera(!this.micOnly());
   }
 
   closeCamera(): void {
@@ -521,6 +640,7 @@ export class CollabStudioComponent {
     this.closeCameraMedia();
     this.mixer?.setVoice(null);
     this.cameraOn.set(false);
+    this.micOnly.set(false);
   }
 
   private closeCameraMedia(): void {
@@ -547,6 +667,9 @@ export class CollabStudioComponent {
     if (this.mixer) return;
     this.mixer = new CollabMixer(true);
     this.mixer.apply(this.levels());
+    this.mixer.setCharacterVoice(this.speakingAs()?.voice ?? null);
+    this.mixer.setVoiceMonitor(this.hearVoice());
+    void this.mixer.init().then((pitch) => this.pitchUnavailable.set(!pitch));
     this.attachSource();
   }
 
@@ -571,8 +694,9 @@ export class CollabStudioComponent {
 
     if (recording) this.recordTick(recording);
 
-    // A stitch preview shows you while the original is paused, so you can frame yourself.
-    const phase: StitchPhase = recording ? this.phase() : s.layout === 'stitch' && (!v || v.paused) ? 'you' : 'source';
+    // A stitch or commentary preview shows you while the original is paused, so you can frame yourself.
+    const phase: StitchPhase = recording ? this.phase() : takesTurns(s.layout) && (!v || v.paused) ? 'you' : 'source';
+    this.drawnPhase = phase;
     this.updateMask(this.cameraVideo);
     this.painter.draw({ settings: s, source: v, camera: this.cameraVideo, mask: this.mask, phase });
 
@@ -615,6 +739,7 @@ export class CollabStudioComponent {
     await once(v, 'seeked');
     this.phase.set('source');
     this.yourTurnIn.set(null);
+    this.talkCount.set(0);
 
     const seconds = this.settings().countdown;
     if (seconds > 0) {
@@ -652,15 +777,26 @@ export class CollabStudioComponent {
     const canvas = this.canvasRef()!.nativeElement;
     const s = this.settings();
     this.state.set('recording');
-    this.mixer!.setVoiceOn(s.layout !== 'stitch');
+    this.mixer!.setVoiceOn(voiceHeard(s, 'source'));
 
     try {
       const canvasTrack = canvas.captureStream(FPS).getVideoTracks()[0];
       const program = new MediaStream([canvasTrack, ...this.mixer!.stream.getAudioTracks()]);
       const bitrate = s.quality === 1080 ? 10_000_000 : 6_000_000;
-      const raw = new MediaRecorder(this.cameraMedia!, { mimeType: this.format!, videoBitsPerSecond: 6_000_000 });
+      // Without a camera the raw take is just your voice; a video format can't record that everywhere.
+      const rawFormat = this.micOnly() ? pickFormat(AUDIO_FORMATS) : this.format!;
+      if (!rawFormat) throw new Error('this browser can\'t record the microphone on its own');
+      const raw = new MediaRecorder(this.cameraMedia!, this.micOnly()
+        ? { mimeType: rawFormat, audioBitsPerSecond: 128_000 }
+        : { mimeType: rawFormat, videoBitsPerSecond: 6_000_000 });
       const mix = new MediaRecorder(program, { mimeType: this.format!, videoBitsPerSecond: bitrate });
-      const rec = { mix, raw, mixChunks: [] as Blob[], rawChunks: [] as Blob[], canvasTrack, startedAt: 0, lead: 0, yourTurnAt: null as number | null };
+      const rec = {
+        mix, raw, mixChunks: [] as Blob[], rawChunks: [] as Blob[], canvasTrack, startedAt: 0, lead: 0,
+        yourTurnAt: null as number | null,
+        turns: [{ at: 0, phase: 'source', sourceTime: this.rangeIn() }] as Turn[],
+        voices: [this.voiceCue(0)],
+        resuming: false,
+      };
       raw.ondataavailable = (e) => e.data.size && rec.rawChunks.push(e.data);
       mix.ondataavailable = (e) => e.data.size && rec.mixChunks.push(e.data);
 
@@ -692,7 +828,7 @@ export class CollabStudioComponent {
     }
 
     const atEnd = v.ended || v.currentTime >= this.rangeOut() - 0.02;
-    if (this.settings().layout !== 'stitch') {
+    if (!takesTurns(this.settings().layout)) {
       if (atEnd) void this.stopRecording();
       return;
     }
@@ -700,16 +836,57 @@ export class CollabStudioComponent {
     if (this.phase() === 'source') {
       const left = this.rangeOut() - v.currentTime;
       this.yourTurnIn.set(left <= TURN_WARNING_SECONDS ? Math.max(1, Math.ceil(left)) : null);
-      if (atEnd) {
+      if (atEnd && !rec.resuming) {
         v.pause();
-        this.phase.set('you');
-        this.yourTurnIn.set(null);
-        this.mixer!.setVoiceOn(true);
+        this.switchTurn(rec, 'you', v.currentTime);
         rec.yourTurnAt = now;
       }
     } else if (rec.yourTurnAt && (now - rec.yourTurnAt) / 1000 > MAX_YOUR_TURN_SECONDS) {
       void this.stopRecording();
     }
+  }
+
+  /**
+   * Commentary: pauses the original so you can talk, or plays its next part. Each switch is
+   * kept with the take, so a rebuild pauses and resumes at the same moments.
+   */
+  async toggleTurn(): Promise<void> {
+    const rec = this.recording;
+    const v = this.sourceVideo;
+    if (!rec || !v || this.settings().layout !== 'commentary' || rec.resuming) return;
+
+    if (this.phase() === 'source') {
+      v.pause();
+      this.switchTurn(rec, 'you', v.currentTime);
+      return;
+    }
+    if (v.ended || v.currentTime >= this.rangeOut() - 0.05) {
+      this.notice.set('That was the end of the chosen part. Press stop when you\'ve finished talking.');
+      return;
+    }
+    rec.resuming = true;
+    try {
+      await v.play();
+    } catch (err: unknown) {
+      this.error.set(`The original couldn't carry on: ${err instanceof Error ? err.message : 'unknown error'}.`);
+      return;
+    } finally {
+      rec.resuming = false;
+    }
+    // Stopped while it was starting up: leave it paused.
+    if (this.recording !== rec) {
+      v.pause();
+      return;
+    }
+    this.switchTurn(rec, 'source', v.currentTime);
+  }
+
+  private switchTurn(rec: NonNullable<typeof this.recording>, phase: StitchPhase, sourceTime: number): void {
+    rec.turns.push({ at: (performance.now() - rec.startedAt) / 1000, phase, sourceTime });
+    this.phase.set(phase);
+    this.yourTurnIn.set(null);
+    this.mixer!.setVoiceOn(voiceHeard(this.settings(), phase));
+    if (phase === 'you') this.talkCount.update((n) => n + 1);
   }
 
   async stopRecording(): Promise<void> {
@@ -728,7 +905,7 @@ export class CollabStudioComponent {
 
     const seconds = (performance.now() - rec.startedAt) / 1000;
     const mix = new Blob(rec.mixChunks, { type: this.format! });
-    const raw = new Blob(rec.rawChunks, { type: this.format! });
+    const raw = new Blob(rec.rawChunks, { type: rec.raw.mimeType || this.format! });
     const take: Take = {
       id: this.nextTakeId++,
       mix,
@@ -744,6 +921,8 @@ export class CollabStudioComponent {
       sourceKey: this.sourceKeyNow(),
       syncMs: 0,
       look: lookOf(this.settings()),
+      turns: rec.turns,
+      voices: rec.voices,
       savedAs: null,
     };
 
@@ -812,7 +991,9 @@ export class CollabStudioComponent {
       mixer.setSource(source);
       mixer.setVoice(camera);
       mixer.apply(this.levels());
-      mixer.setVoiceOn(s.layout !== 'stitch');
+      mixer.setVoiceOn(voiceHeard(s, 'source'));
+      await mixer.init();
+      mixer.setCharacterVoice(take.voices[0]?.voice ?? null);
       void mixer.resume();
       await Promise.all([once(source, 'loadeddata'), once(camera, 'loadeddata')]);
 
@@ -836,6 +1017,7 @@ export class CollabStudioComponent {
         let started = false;
         const job = {
           take, source, camera, mixer, startAt, sourceIn, phase: 'source' as StitchPhase,
+          turn: take.turns[0], cue: take.voices[0],
           tick: () => {
             try {
               // Before the original starts the camera runs on its own, unrecorded, to reach its spot.
@@ -845,7 +1027,7 @@ export class CollabStudioComponent {
                 void source.play();
                 activeRecorder.start(1000);
               }
-              if (started) this.renderStep(job, take, s.layout === 'stitch', resolve);
+              if (started) this.renderStep(job, take, s, resolve);
               this.updateMask(camera);
               this.painter!.draw({ settings: s, source, camera, mask: this.mask, phase: job.phase });
               mixer.tick();
@@ -887,31 +1069,57 @@ export class CollabStudioComponent {
     }
   }
 
-  /** One frame of a rebuild: keeps the camera take in step with the original, and finds the end. */
-  private renderStep(job: NonNullable<typeof this.render>, take: Take, stitch: boolean, finish: () => void): void {
+  /**
+   * One frame of a rebuild: replays the take's turns and voice switches at the times they
+   * happened, keeps the camera take in step with the original, and finds the end.
+   */
+  private renderStep(job: NonNullable<typeof this.render>, take: Take, s: CollabSettings, finish: () => void): void {
     const { source, camera } = job;
-    const atEnd = source.ended || source.currentTime >= take.sourceOut - 0.02;
+    const elapsed = camera.currentTime - job.startAt;
+
+    const cue = cueAt(take.voices, elapsed);
+    if (cue && cue !== job.cue) {
+      job.cue = cue;
+      job.mixer.setCharacterVoice(cue.voice);
+    }
+
+    const turn = cueAt(take.turns, elapsed);
+    if (turn !== job.turn) {
+      job.turn = turn;
+      job.phase = turn.phase;
+      job.mixer.setVoiceOn(voiceHeard(s, turn.phase));
+      camera.playbackRate = 1;
+      if (turn.phase === 'you') {
+        source.pause();
+      } else {
+        source.currentTime = turn.sourceTime + Math.max(0, elapsed - turn.at);
+        void source.play();
+      }
+    }
 
     if (job.phase === 'source') {
-      // Nudges the take's speed rather than seeking: a browser recording often can't seek.
-      const expected = job.startAt + (source.currentTime - job.sourceIn);
-      const drift = camera.currentTime - expected;
-      camera.playbackRate = Math.abs(drift) < 0.03 ? 1 : Math.min(1.1, Math.max(0.9, 1 - drift));
+      const atEnd = source.ended || source.currentTime >= take.sourceOut - 0.02;
       if (atEnd) {
-        if (!stitch) {
+        if (!takesTurns(s.layout)) {
           finish();
           return;
         }
+        // The original is over: the rest is yours (also when the take was recorded in another layout).
         source.pause();
         camera.playbackRate = 1;
         job.phase = 'you';
-        job.mixer.setVoiceOn(true);
+        job.mixer.setVoiceOn(voiceHeard(s, 'you'));
+      } else if (!source.paused && !source.seeking) {
+        // Nudges the take's speed rather than seeking: a browser recording often can't seek.
+        const expected = job.startAt + job.turn.at + (source.currentTime - job.turn.sourceTime);
+        const drift = camera.currentTime - expected;
+        camera.playbackRate = Math.abs(drift) < 0.03 ? 1 : Math.min(1.1, Math.max(0.9, 1 - drift));
       }
     }
 
     // The rebuild is as long as the take was, however much camera footage follows it.
     const total = Math.max(1, take.seconds);
-    const done = Math.max(0, camera.currentTime - job.startAt);
+    const done = Math.max(0, elapsed);
     if (done >= take.seconds) {
       finish();
       return;
@@ -961,10 +1169,11 @@ export class CollabStudioComponent {
     const p = this.toFrame(event);
     if (!p) return;
 
-    if (s.layout === 'react' || s.layout === 'green') {
+    const spotKey = this.spotKey();
+    if (spotKey) {
       const r = this.painter.lastCamera;
       if (!r || p.x < r.x || p.x > r.x + r.w || p.y < r.y || p.y > r.y + r.h) return;
-      const spot = s[s.layout];
+      const spot = s[spotKey];
       this.drag = { kind: 'spot', pointerId: event.pointerId, dx: spot.x - p.nx, dy: spot.y - p.ny };
     } else if (s.layout === 'side' || s.layout === 'stack') {
       const along = s.layout === 'side' ? p.nx : p.ny;
@@ -985,8 +1194,9 @@ export class CollabStudioComponent {
     const s = this.settings();
     if (drag.kind === 'split') {
       this.patch({ split: s.layout === 'side' ? p.nx : p.ny });
-    } else if (s.layout === 'react' || s.layout === 'green') {
-      this.patchSpot(s.layout, { x: p.nx + drag.dx, y: p.ny + drag.dy });
+    } else {
+      const spotKey = this.spotKey();
+      if (spotKey) this.patchSpot(spotKey, { x: p.nx + drag.dx, y: p.ny + drag.dy });
     }
   }
 
@@ -996,11 +1206,19 @@ export class CollabStudioComponent {
 
   /** The mouse wheel over the bubble (or you, on the green screen) resizes it. */
   onWheel(event: WheelEvent): void {
-    const s = this.settings();
-    if (s.layout !== 'react' && s.layout !== 'green') return;
+    const spotKey = this.spotKey();
+    if (!spotKey) return;
     event.preventDefault();
-    const spot = s[s.layout];
-    this.patchSpot(s.layout, { size: spot.size * (event.deltaY < 0 ? 1.06 : 1 / 1.06) });
+    const spot = this.settings()[spotKey];
+    this.patchSpot(spotKey, { size: spot.size * (event.deltaY < 0 ? 1.06 : 1 / 1.06) });
+  }
+
+  /** Which movable spot the preview shows right now, if any (a commentary's bubble only while the original plays). */
+  private spotKey(): 'react' | 'green' | null {
+    const s = this.settings();
+    if (s.layout === 'react' || s.layout === 'green') return s.layout;
+    if (s.layout === 'commentary' && s.commentaryBubble && this.drawnPhase === 'source') return 'react';
+    return null;
   }
 
   private toFrame(event: PointerEvent): { x: number; y: number; nx: number; ny: number } | null {
@@ -1025,6 +1243,14 @@ export class CollabStudioComponent {
       this.cancelCountdown();
     } else if (event.key === 'k' || event.key === 'K') {
       this.togglePlay();
+    } else if (event.key === 't' || event.key === 'T' || event.key === 'Enter') {
+      if (this.state() !== 'recording') return;
+      event.preventDefault();
+      void this.toggleTurn();
+    } else if (/^[0-9]$/.test(event.key) && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      const index = Number(event.key);
+      if (index === 0) this.speakAs(null);
+      else if (index <= MAX_VOICE_KEYS && this.speakers()[index - 1]) this.speakAs(this.speakers()[index - 1].id);
     }
   }
 

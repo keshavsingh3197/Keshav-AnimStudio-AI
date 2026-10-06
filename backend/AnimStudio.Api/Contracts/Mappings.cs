@@ -75,7 +75,12 @@ public static class Mappings
         c.Sprites.ClosedMouthAssetId, c.Sprites.OpenMouthAssetId, c.IsNarrator, c.SubtitleColorHex,
         new CharacterAppearanceResponse(
             c.Appearance.Age, c.Appearance.Gender, c.Appearance.Hair,
-            c.Appearance.Clothes, c.Appearance.AdditionalDetails));
+            c.Appearance.Clothes, c.Appearance.AdditionalDetails),
+        c.Voice is { } v
+            ? new CharacterVoiceResponse(
+                v.Preset, v.PitchSemitones, v.BassDecibels, v.TrebleDecibels,
+                v.Drive, v.Robot, v.RobotHertz, v.Radio, v.Echo, v.Reverb)
+            : null);
 
     public static AssetResponse ToResponse(this Asset a) => new(
         a.Id, a.Name, a.Kind.ToString(), a.MimeType, a.FileSizeBytes,

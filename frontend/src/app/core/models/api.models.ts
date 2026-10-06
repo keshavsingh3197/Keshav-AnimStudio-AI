@@ -1,3 +1,5 @@
+import { CharacterVoice } from '../../shared/voice/character-voice';
+
 /** Mirrors the backend's single response envelope. */
 export interface ApiResponse<T> {
   success: boolean;
@@ -117,6 +119,8 @@ export interface Character {
   isNarrator: boolean;
   subtitleColorHex?: string;
   appearance: CharacterAppearance;
+  /** Absent: the performer's own voice. */
+  voice?: CharacterVoice | null;
 }
 
 export interface CharacterBody {
@@ -128,6 +132,8 @@ export interface CharacterBody {
   openMouthAssetId?: string | null;
   subtitleColorHex?: string | null;
   appearance?: CharacterAppearance;
+  /** Omitted leaves the voice as it is; `enabled: false` clears it. */
+  voice?: (CharacterVoice & { enabled: true }) | { enabled: false };
 }
 
 export interface IngestResult {

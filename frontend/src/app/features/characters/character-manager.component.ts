@@ -1,4 +1,5 @@
 import { Component, OnDestroy, computed, inject, signal } from '@angular/core';
+import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
 import { Character } from '../../core/models/api.models';
@@ -6,6 +7,8 @@ import { ApiService } from '../../core/services/api.service';
 import { ProjectStore } from '../../core/services/project-store';
 import { StatusService } from '../../core/services/status.service';
 import { FileDropDirective } from '../../shared/file-drop.directive';
+import { CharacterVoice, VOICE_PRESETS, describeVoice, sanitizeVoice, voiceFromPreset } from '../../shared/voice/character-voice';
+import { TEST_LINE_SECONDS, VoiceTester } from '../../shared/voice/voice-tester';
 
 export interface ArchetypePreset {
   id: string;
@@ -19,12 +22,14 @@ export interface ArchetypePreset {
   hair: string;
   clothes: string;
   additionalDetails: string;
+  /** A voice preset to start from; none keeps the performer's own voice. */
+  voice?: string;
 }
 
 /** The cast: who appears, what they look like, and what colour their subtitles are. */
 @Component({
   selector: 'app-character-manager',
-  imports: [FormsModule, FileDropDirective],
+  imports: [FormsModule, DecimalPipe, FileDropDirective],
   templateUrl: './character-manager.component.html',
   styleUrls: ['./character-manager.component.css'],
 })
@@ -56,6 +61,14 @@ export class CharacterManagerComponent implements OnDestroy {
 
   // Subtitle preview line
   readonly sampleDialogue = signal<string>('Welcome to the studio! Let us bring this story to life.');
+
+  // Character voice: presets, and a recorded line to hear it on
+  readonly voicePresets = VOICE_PRESETS;
+  readonly describeVoice = describeVoice;
+  readonly testLineSeconds = TEST_LINE_SECONDS;
+  readonly testerState = signal<'idle' | 'recording' | 'ready' | 'playing'>('idle');
+  readonly testerError = signal<string | null>(null);
+  private readonly tester = new VoiceTester((state) => this.testerState.set(state));
 
   // Pre-configured color palette
   readonly presetColors: string[] = [
@@ -96,6 +109,7 @@ export class CharacterManagerComponent implements OnDestroy {
       hair: 'Long flowing white hair and neatly trimmed silver beard',
       clothes: 'Traditional draped saffron and white robes with embroidered borders',
       additionalDetails: 'Calm and enlightened gaze, wooden prayer beads, gentle posture',
+      voice: 'sage',
     },
     {
       id: 'narrator',
@@ -109,6 +123,7 @@ export class CharacterManagerComponent implements OnDestroy {
       hair: 'Polished sleek dark hair',
       clothes: 'Formal dark studio blazer with satin lapel',
       additionalDetails: 'Authoritative presence, clear resonant cadence, neutral background framing',
+      voice: 'narrator',
     },
     {
       id: 'action-hero',
@@ -163,6 +178,7 @@ export class CharacterManagerComponent implements OnDestroy {
     hair: '',
     clothes: '',
     additionalDetails: '',
+    voice: null as CharacterVoice | null,
   };
 
   // Filtered characters list computed from store and current active filters
@@ -215,6 +231,51 @@ export class CharacterManagerComponent implements OnDestroy {
   ngOnDestroy(): void {
     this.stopFlap();
     this.stopFormFlap();
+    this.tester.close();
+  }
+
+  // ── Character Voice ──
+  /** Null is the performer's own voice. */
+  setVoicePreset(id: string | null): void {
+    this.form.voice = id === null ? null : voiceFromPreset(id);
+    this.tester.setVoice(this.form.voice);
+  }
+
+  /** A hand change turns the preset into a custom voice. */
+  patchVoice(change: Partial<CharacterVoice>): void {
+    this.form.voice = sanitizeVoice({ ...(this.form.voice ?? voiceFromPreset('custom')), ...change, preset: 'custom' });
+    this.tester.setVoice(this.form.voice);
+  }
+
+  async recordTestLine(): Promise<void> {
+    this.testerError.set(null);
+    if (this.testerState() === 'recording') {
+      this.tester.stopRecording();
+      return;
+    }
+    try {
+      this.tester.setVoice(this.form.voice);
+      await this.tester.record();
+    } catch (err: unknown) {
+      const refused = err instanceof DOMException && err.name === 'NotAllowedError';
+      this.testerError.set(refused
+        ? 'Microphone permission was refused. Allow it in the address bar, then try again.'
+        : "The microphone couldn't be opened.");
+    }
+  }
+
+  async toggleTestPlayback(): Promise<void> {
+    this.testerError.set(null);
+    if (this.testerState() === 'playing') {
+      this.tester.stopPlaying();
+      return;
+    }
+    try {
+      await this.tester.play();
+      if (this.tester.pitchUnavailable) this.testerError.set("Pitch changes can't run in this browser; the other effects still play.");
+    } catch {
+      this.testerError.set("The test line couldn't be played.");
+    }
   }
 
   // ── Lip-Flap Animation in Character List ──
@@ -353,6 +414,7 @@ export class CharacterManagerComponent implements OnDestroy {
     this.form.hair = preset.hair;
     this.form.clothes = preset.clothes;
     this.form.additionalDetails = preset.additionalDetails;
+    this.setVoicePreset(preset.voice ?? null);
     this.status.notify([`Applied archetype preset: ${preset.label}`]);
     this.scrollToForm();
   }
@@ -364,6 +426,7 @@ export class CharacterManagerComponent implements OnDestroy {
   // ── Edit, Duplicate, Cancel & Save ──
   edit(character: Character): void {
     this.editing.set(character.id);
+    this.tester.setVoice(sanitizeVoice(character.voice));
     this.form = {
       name: character.name,
       description: character.description ?? '',
@@ -376,12 +439,14 @@ export class CharacterManagerComponent implements OnDestroy {
       hair: character.appearance.hair ?? '',
       clothes: character.appearance.clothes ?? '',
       additionalDetails: character.appearance.additionalDetails ?? '',
+      voice: sanitizeVoice(character.voice),
     };
     this.scrollToForm();
   }
 
   duplicate(character: Character): void {
     this.editing.set(null);
+    this.tester.setVoice(sanitizeVoice(character.voice));
     this.form = {
       name: `${character.name} (Copy)`,
       description: character.description ?? '',
@@ -394,6 +459,7 @@ export class CharacterManagerComponent implements OnDestroy {
       hair: character.appearance.hair ?? '',
       clothes: character.appearance.clothes ?? '',
       additionalDetails: character.appearance.additionalDetails ?? '',
+      voice: sanitizeVoice(character.voice),
     };
     this.status.notify([`Duplicated "${character.name}" into form.`]);
     this.scrollToForm();
@@ -414,7 +480,9 @@ export class CharacterManagerComponent implements OnDestroy {
       hair: '',
       clothes: '',
       additionalDetails: '',
+      voice: null,
     };
+    this.tester.setVoice(null);
   }
 
   save(): void {
@@ -435,6 +503,7 @@ export class CharacterManagerComponent implements OnDestroy {
         clothes: this.form.clothes.trim() || undefined,
         additionalDetails: this.form.additionalDetails.trim() || undefined,
       },
+      voice: this.form.voice ? { ...this.form.voice, enabled: true as const } : { enabled: false as const },
     };
 
     const id = this.editing();

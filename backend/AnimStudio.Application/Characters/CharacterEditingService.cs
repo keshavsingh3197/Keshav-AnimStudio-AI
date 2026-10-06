@@ -15,6 +15,22 @@ public sealed record CharacterAppearanceCommand
     public string? AdditionalDetails { get; init; }
 }
 
+public sealed record CharacterVoiceCommand
+{
+    /// <summary>False clears the voice: the character speaks in the performer's own voice.</summary>
+    public bool Enabled { get; init; }
+    public string? Preset { get; init; }
+    public double PitchSemitones { get; init; }
+    public double BassDecibels { get; init; }
+    public double TrebleDecibels { get; init; }
+    public double Drive { get; init; }
+    public double Robot { get; init; }
+    public double RobotHertz { get; init; } = 60;
+    public bool Radio { get; init; }
+    public double Echo { get; init; }
+    public double Reverb { get; init; }
+}
+
 public sealed record UpsertCharacterCommand
 {
     /// <summary>Null when creating; the character being edited otherwise.</summary>
@@ -33,6 +49,9 @@ public sealed record UpsertCharacterCommand
 
     /// <summary>Null leaves the recorded appearance untouched.</summary>
     public CharacterAppearanceCommand? Appearance { get; init; }
+
+    /// <summary>Null leaves the recorded voice untouched.</summary>
+    public CharacterVoiceCommand? Voice { get; init; }
 }
 
 /// <summary>
@@ -61,6 +80,8 @@ public sealed class CharacterEditingService(
             throw EditingException.Invalid("colour-invalid",
                 "A subtitle colour must look like #RRGGBB.");
         }
+
+        var voice = command.Voice is { } voiceCommand ? ToVoice(voiceCommand) : null;
 
         await EnsureSpriteAsync(command.ClosedMouthAssetId, project.Id, ct).ConfigureAwait(false);
         await EnsureSpriteAsync(command.OpenMouthAssetId, project.Id, ct).ConfigureAwait(false);
@@ -105,6 +126,9 @@ public sealed class CharacterEditingService(
                 AdditionalDetails = Blank(appearance.AdditionalDetails)
             };
         }
+
+        if (command.Voice is not null)
+            character.Voice = voice;
 
         character.UpdatedAt = now;
 
@@ -198,6 +222,51 @@ public sealed class CharacterEditingService(
             throw new UnauthorizedAccessException();
 
         return project;
+    }
+
+    /// <summary>
+    /// Out-of-range amounts are refused rather than clamped: the editor never sends them, so
+    /// one arriving means a broken client, and saving a quietly different voice would hide it.
+    /// </summary>
+    private static CharacterVoice? ToVoice(CharacterVoiceCommand command)
+    {
+        if (!command.Enabled) return null;
+
+        var preset = Blank(command.Preset);
+        if (preset is not null && (preset.Length > 40 || !preset.All(c => c is >= 'a' and <= 'z' or >= '0' and <= '9' or '-')))
+            throw EditingException.Invalid("voice-preset-invalid", "A voice preset is a short lowercase name.");
+
+        Require(command.PitchSemitones, -CharacterVoice.MaxPitchSemitones, CharacterVoice.MaxPitchSemitones, "pitch");
+        Require(command.BassDecibels, -CharacterVoice.MaxToneDecibels, CharacterVoice.MaxToneDecibels, "bass");
+        Require(command.TrebleDecibels, -CharacterVoice.MaxToneDecibels, CharacterVoice.MaxToneDecibels, "treble");
+        Require(command.Drive, 0, 1, "drive");
+        Require(command.Robot, 0, 1, "robot");
+        Require(command.RobotHertz, CharacterVoice.MinRobotHertz, CharacterVoice.MaxRobotHertz, "robot tone");
+        Require(command.Echo, 0, 1, "echo");
+        Require(command.Reverb, 0, 1, "reverb");
+
+        return new CharacterVoice
+        {
+            Preset = preset,
+            PitchSemitones = command.PitchSemitones,
+            BassDecibels = command.BassDecibels,
+            TrebleDecibels = command.TrebleDecibels,
+            Drive = command.Drive,
+            Robot = command.Robot,
+            RobotHertz = command.RobotHertz,
+            Radio = command.Radio,
+            Echo = command.Echo,
+            Reverb = command.Reverb
+        };
+
+        static void Require(double value, double min, double max, string what)
+        {
+            if (!double.IsFinite(value) || value < min || value > max)
+            {
+                throw EditingException.Invalid("voice-out-of-range",
+                    $"The voice's {what} must be between {min} and {max}.");
+            }
+        }
     }
 
     private static string? Blank(string? value) =>

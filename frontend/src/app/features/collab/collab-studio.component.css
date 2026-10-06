@@ -82,6 +82,7 @@ kbd {
   background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%); color: #fff;
 }
 .co-record.stop { background: #1f2937; border-color: #ef4444; color: #fff; }
+.co-record.co-turn-btn { background: linear-gradient(135deg, var(--brand) 0%, #4338ca 100%); }
 .co-meter { width: 5rem; height: 6px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
 .co-meter > i { display: block; height: 100%; background: var(--ok); transition: width .1s linear; }
 
@@ -140,3 +141,11 @@ kbd {
 .co-more { margin-top: .9rem; }
 .co-more summary { cursor: pointer; font-weight: 600; margin-bottom: .5rem; }
 .co-off { margin-top: .8rem; }
+.co-mic-only { margin-top: .5rem; }
+.co-voices { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: .4rem; }
+.co-voice {
+  font-size: .82rem; padding: .35rem .7rem; border-radius: 99px;
+  background: var(--surface-2); color: var(--text-dim, var(--text)); border: 1px solid var(--border);
+}
+.co-voice.active { border-color: var(--brand); color: var(--text); box-shadow: 0 0 0 1px var(--brand); }
+.co-voice kbd { font-size: .7rem; opacity: .7; }

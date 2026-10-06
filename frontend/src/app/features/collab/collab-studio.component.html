@@ -3,7 +3,7 @@
     <h2>🤝 Collab Studio</h2>
     <p class="muted co-lede">
       Record yourself with an existing video: side by side, stacked, reacting in a bubble, cut out in front of it,
-      or answering after a part of it. Change the layout, sync or volume after recording without filming again.
+      answering after a part of it, or commenting part by part. Speak as one of your characters if you like. Change the layout, sync or volume after recording without filming again.
       Everything stays on this machine until you save it.
     </p>
   </div>
@@ -43,7 +43,8 @@
         }
         @if (state() === 'recording') {
           <div class="co-rec" aria-live="polite">⏺ {{ formatClock(recordSeconds()) }}
-            @if (settings().layout === 'stitch' && phase() === 'you') { · your turn }
+            @if (turnBased() && phase() === 'you') { · your turn }
+            @if (speakingAs(); as speaker) { · 🗣️ {{ speaker.name }} }
           </div>
         }
         @if (yourTurnIn(); as n) {
@@ -57,7 +58,8 @@
       <!-- Transport: the original's play head and the part to use -->
       @if (sourceName()) {
         <div class="co-transport">
-          <button type="button" class="secondary co-small" (click)="togglePlay()" [disabled]="busy()"
+          <button type="button" class="secondary co-small" (click)="togglePlay()"
+                  [disabled]="busy() && !(state() === 'recording' && settings().layout === 'commentary')"
                   [title]="sourcePlaying() ? 'Pause (K)' : 'Play the chosen part (K)'">
             {{ sourcePlaying() ? '⏸' : '▶' }}
           </button>
@@ -78,6 +80,7 @@
           </button>
           <span class="muted">· {{ formatClock(rangeSeconds()) }}
             @if (settings().layout === 'stitch') { of the original, then you }
+            @if (settings().layout === 'commentary') { of the original, with you in between }
           </span>
           @if (rangeIn() > 0 || rangeOut() < sourceDuration()) {
             <button type="button" class="co-link" (click)="setIn(0); setOut(sourceDuration())" [disabled]="busy()">Whole video</button>
@@ -88,6 +91,11 @@
       <!-- The one big button -->
       <div class="co-record-row">
         @if (state() === 'recording') {
+          @if (settings().layout === 'commentary') {
+            <button type="button" class="co-record co-turn-btn" (click)="toggleTurn()">
+              {{ phase() === 'source' ? '⏸ Pause & talk' : '▶ Play next part' }} <kbd>T</kbd>
+            </button>
+          }
           <button type="button" class="co-record stop" (click)="stopRecording()">■ Stop <kbd>Space</kbd></button>
         } @else {
           <button type="button" class="co-record" (click)="toggleRecord()" [disabled]="!canRecord() && state() !== 'countdown'">
@@ -96,12 +104,20 @@
         }
         <div class="co-meter" [title]="'Microphone level'" aria-hidden="true"><i [style.width.%]="micLevel() * 100"></i></div>
       </div>
+      @if (state() === 'recording' && settings().layout === 'commentary') {
+        <p class="muted co-center">
+          {{ phase() === 'source' ? 'Press T when you want to talk.' : 'Talking. Press T to play the next part.' }}
+          · {{ talkCount() }} {{ talkCount() === 1 ? 'comment' : 'comments' }} so far
+        </p>
+      }
       @if (recordBlocker(); as why) {
         @if (!busy()) { <p class="muted co-center">{{ why }}</p> }
       } @else if (!busy()) {
         <p class="muted co-center">
           🎧 Wear headphones so the original isn't picked up by your mic.
           @if (settings().layout === 'react' || settings().layout === 'green') { Drag yourself on the preview; scroll to resize. }
+          @if (settings().layout === 'commentary') { Start recording, then pause the video (⏸, K or T) whenever you want to talk, and play it (▶, K or T) to carry on. }
+          @if (settings().layout === 'dub') { Turn the original's sound down (or mute it) to replace its voices with yours. Number keys switch character as you go. }
           @if (settings().layout === 'side' || settings().layout === 'stack') { Drag the line on the preview to resize. }
         </p>
       }
@@ -116,6 +132,8 @@
             <button type="button" class="co-take" [class.active]="t.id === selectedId()" (click)="selectTake(t)" [disabled]="busy()">
               <strong>Take {{ t.id }}</strong>
               <span class="muted">{{ formatClock(t.seconds) }} · {{ formatSize(t.mix.size) }}</span>
+              @if (talksIn(t) > 1) { <span class="muted">💬 {{ talksIn(t) }} comments</span> }
+              @if (t.voices.length > 1 || t.voices[0]?.voice) { <span class="muted">🗣️ {{ voicesUsed(t) }}</span> }
               @if (t.savedAs) { <span class="pill ok">Saved</span> }
             </button>
           }
@@ -249,6 +267,18 @@
               <input type="range" [min]="minSpot" max="0.6" step="0.01" [value]="settings().react.size" (input)="patchSpot('react', { size: +$any($event.target).value })" />
             </label>
           }
+          @case ('commentary') {
+            <label class="co-check"><input type="checkbox" [checked]="settings().commentaryBubble" (change)="patch({ commentaryBubble: !settings().commentaryBubble })" [disabled]="busy()" /> Show me in a bubble while the video plays</label>
+            @if (settings().commentaryBubble) {
+              <label class="co-check"><input type="checkbox" [checked]="settings().react.round" (change)="patchSpot('react', { round: !settings().react.round })" /> Round bubble</label>
+              <label class="co-slider">Bubble size
+                <input type="range" [min]="minSpot" max="0.6" step="0.01" [value]="settings().react.size" (input)="patchSpot('react', { size: +$any($event.target).value })" />
+              </label>
+            }
+          }
+          @case ('dub') {
+            <label class="co-check"><input type="checkbox" [checked]="settings().sourceVolume === 0" (change)="patch({ sourceVolume: settings().sourceVolume === 0 ? 0.9 : 0 })" /> Mute the original's sound (replace its voices with mine)</label>
+          }
           @case ('green') {
             <label class="co-slider">Your size
               <input type="range" [min]="minSpot" max="1.2" step="0.01" [value]="settings().green.size" (input)="patchSpot('green', { size: +$any($event.target).value })" />
@@ -270,6 +300,11 @@
         <button type="button" class="co-wide" (click)="openCamera()" [disabled]="openingCamera()">
           {{ openingCamera() ? 'Opening…' : '📷 Turn on camera & mic' }}
         </button>
+        <button type="button" class="secondary co-wide co-mic-only" (click)="openCamera(false)" [disabled]="openingCamera()">
+          🎙️ Microphone only <span class="muted">(for a dub)</span>
+        </button>
+      } @else if (micOnly()) {
+        <p class="muted co-note">🎙️ Microphone only: your voice, no picture. Use the Dub layout, or turn the camera on for the others.</p>
       }
       <div class="co-devices">
         <select [(ngModel)]="cameraId" (ngModelChange)="switchDevice()" aria-label="Camera" [disabled]="busy()">
@@ -281,6 +316,26 @@
           @for (d of mics(); track d.deviceId) { <option [value]="d.deviceId">{{ d.label || 'Microphone' }}</option> }
         </select>
       </div>
+
+      <label>Speak as</label>
+      <div class="co-voices">
+        <button type="button" class="co-voice" [class.active]="!speakAsId()" (click)="speakAs(null)" [disabled]="state() === 'rendering'"
+                title="Your own voice (key 0)">🙂 Me <kbd>0</kbd></button>
+        @for (c of speakers(); track c.id; let i = $index) {
+          <button type="button" class="co-voice" [class.active]="speakAsId() === c.id" (click)="speakAs(c.id)" [disabled]="state() === 'rendering'"
+                  [title]="describeVoice(c.voice)">🗣️ {{ c.name }} @if (i < 9) { <kbd>{{ i + 1 }}</kbd> }</button>
+        }
+      </div>
+      @if (!speakers().length) {
+        <p class="muted co-note">
+          Give your characters a voice and speak as them here: your own voice, changed as you talk.
+          @if (projectId) { <a [routerLink]="['/projects', projectId, 'characters']">Set up character voices →</a> }
+        </p>
+      } @else {
+        <p class="muted co-note">Switch voices while recording with the number keys: each line comes out in the voice you picked.</p>
+        <label class="co-check"><input type="checkbox" [checked]="hearVoice()" (change)="setHearVoice(!hearVoice())" /> Let me hear my character voice <span class="muted">(headphones only)</span></label>
+        @if (pitchUnavailable()) { <p class="muted co-note">Pitch changes can't run in this browser; the other voice effects still work.</p> }
+      }
 
       <label>Countdown</label>
       <div class="seg">
@@ -308,9 +363,9 @@
       </details>
 
       @if (cameraOn()) {
-        <button type="button" class="secondary co-small co-off" (click)="closeCamera()" [disabled]="busy()">Turn camera off</button>
+        <button type="button" class="secondary co-small co-off" (click)="closeCamera()" [disabled]="busy()">{{ micOnly() ? 'Turn microphone off' : 'Turn camera off' }}</button>
       }
-      <p class="muted co-note">Keys: <kbd>Space</kbd> record / stop · <kbd>K</kbd> play the original · <kbd>Esc</kbd> cancel countdown</p>
+      <p class="muted co-note">Keys: <kbd>Space</kbd> record / stop · <kbd>T</kbd> pause &amp; talk / play on (commentary) · <kbd>0</kbd>–<kbd>9</kbd> voice · <kbd>K</kbd> play the original · <kbd>Esc</kbd> cancel countdown</p>
     </section>
   </div>
 </div>

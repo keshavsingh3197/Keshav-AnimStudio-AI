@@ -698,7 +698,8 @@
             <div class="cs-chips">
               @for (v of [
                 { id: 'off', label: '🙂 Natural' }, { id: 'deep', label: '🐻 Deep' }, { id: 'high', label: '🐿️ High' },
-                { id: 'robot', label: '🤖 Robot' }, { id: 'radio', label: '📻 Radio' }, { id: 'alien', label: '👽 Alien' }
+                { id: 'robot', label: '🤖 Robot' }, { id: 'radio', label: '📻 Radio' }, { id: 'alien', label: '👽 Alien' },
+                { id: 'character', label: '🎭 Worn character' }
               ]; track v.id) {
                 <button type="button" [class.active]="settings().voice.effect === v.id" (click)="patch('voice', { effect: $any(v.id) })">{{ v.label }}</button>
               }
@@ -707,6 +708,15 @@
               <label class="cs-range">Pitch shift <span>{{ settings().voice.pitch > 0 ? '+' : '' }}{{ settings().voice.pitch }} semitones</span>
                 <input type="range" min="-12" max="12" step="1" [ngModel]="settings().voice.pitch" (ngModelChange)="patch('voice', { pitch: +$event })" />
               </label>
+            }
+            @if (settings().voice.effect === 'character') {
+              <p class="muted cs-note">
+                @if (wornCharacterVoice(); as wornVoice) {
+                  Speaking as {{ characterName(settings().identity.character) }}: {{ describeVoice(wornVoice) }}.
+                } @else {
+                  The character you're wearing has no voice yet, so you sound like yourself. Give a project character a voice on its Characters page, then wear it.
+                }
+              </p>
             }
             <p class="muted cs-note">A pitch change disguises a voice but can be partly undone by someone determined. Robot is much harder to reverse.</p>
             <label class="cs-switchrow">

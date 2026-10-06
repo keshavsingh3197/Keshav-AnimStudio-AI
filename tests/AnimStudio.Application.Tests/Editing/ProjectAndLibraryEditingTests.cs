@@ -2,6 +2,7 @@ using AnimStudio.Application.Characters;
 using AnimStudio.Application.Common;
 using AnimStudio.Application.Projects;
 using AnimStudio.Domain.Assets;
+using AnimStudio.Domain.Characters;
 using AnimStudio.Domain.Rendering;
 using AnimStudio.Domain.Scenes;
 
@@ -173,6 +174,82 @@ public class CharacterEditingServiceTests
 
         Assert.Equal("colour-invalid", error.Code);
     }
+
+    [Fact]
+    public async Task A_voice_is_saved_with_the_character()
+    {
+        var world = new EditingWorld();
+
+        var saved = await world.CharacterEditing.UpsertAsync(
+            VoiceCommand(world, new CharacterVoiceCommand
+            {
+                Enabled = true, Preset = "divine", PitchSemitones = -3, BassDecibels = 4, Reverb = 0.6
+            }), CancellationToken.None);
+
+        Assert.NotNull(saved.Voice);
+        Assert.Equal("divine", saved.Voice.Preset);
+        Assert.Equal(-3, saved.Voice.PitchSemitones);
+        Assert.Equal(0.6, saved.Voice.Reverb);
+    }
+
+    [Fact]
+    public async Task Leaving_the_voice_out_keeps_it_and_disabling_it_clears_it()
+    {
+        var world = new EditingWorld();
+        var hero = world.AddCharacter("hero", "Hero");
+        hero.Voice = new CharacterVoice { Preset = "giant", PitchSemitones = -9 };
+
+        var kept = await world.CharacterEditing.UpsertAsync(
+            VoiceCommand(world, null) with { CharacterId = "hero" }, CancellationToken.None);
+        Assert.Equal(-9, kept.Voice?.PitchSemitones);
+
+        var cleared = await world.CharacterEditing.UpsertAsync(
+            VoiceCommand(world, new CharacterVoiceCommand { Enabled = false, PitchSemitones = 99 })
+                with { CharacterId = "hero" }, CancellationToken.None);
+        Assert.Null(cleared.Voice);
+    }
+
+    [Theory]
+    [InlineData(13, 0, 60, "voice-out-of-range")]
+    [InlineData(0, 1.5, 60, "voice-out-of-range")]
+    [InlineData(0, 0, 5, "voice-out-of-range")]
+    [InlineData(double.NaN, 0, 60, "voice-out-of-range")]
+    public async Task A_voice_out_of_range_is_refused_rather_than_clamped(
+        double pitch, double reverb, double robotHertz, string code)
+    {
+        var world = new EditingWorld();
+
+        var error = await Assert.ThrowsAsync<EditingException>(() =>
+            world.CharacterEditing.UpsertAsync(
+                VoiceCommand(world, new CharacterVoiceCommand
+                {
+                    Enabled = true, PitchSemitones = pitch, Reverb = reverb, RobotHertz = robotHertz
+                }), CancellationToken.None));
+
+        Assert.Equal(code, error.Code);
+        Assert.Empty(world.Characters.Items);
+    }
+
+    [Fact]
+    public async Task A_voice_preset_name_is_a_short_lowercase_slug()
+    {
+        var world = new EditingWorld();
+
+        var error = await Assert.ThrowsAsync<EditingException>(() =>
+            world.CharacterEditing.UpsertAsync(
+                VoiceCommand(world, new CharacterVoiceCommand { Enabled = true, Preset = "<b>Divine</b>" }),
+                CancellationToken.None));
+
+        Assert.Equal("voice-preset-invalid", error.Code);
+    }
+
+    private static UpsertCharacterCommand VoiceCommand(EditingWorld world, CharacterVoiceCommand? voice) => new()
+    {
+        ProjectId = world.Project.Id,
+        UserId = EditingWorld.UserId,
+        Name = "Hero",
+        Voice = voice
+    };
 }
 
 public class AssetLibraryServiceTests

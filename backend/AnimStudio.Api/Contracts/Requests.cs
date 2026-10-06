@@ -139,6 +139,25 @@ public sealed record CreateCharacterRequest
     [StringLength(9)] public string? SubtitleColorHex { get; init; }
 
     public CharacterAppearanceRequest? Appearance { get; init; }
+
+    /// <summary>Null leaves the voice as it is; <c>Enabled = false</c> clears it.</summary>
+    public CharacterVoiceRequest? Voice { get; init; }
+}
+
+/// <summary>The ranges are checked again by the editing service, which owns the rules.</summary>
+public sealed record CharacterVoiceRequest
+{
+    public bool Enabled { get; init; }
+    [StringLength(40)] public string? Preset { get; init; }
+    [Range(-12, 12)] public double PitchSemitones { get; init; }
+    [Range(-12, 12)] public double BassDecibels { get; init; }
+    [Range(-12, 12)] public double TrebleDecibels { get; init; }
+    [Range(0, 1)] public double Drive { get; init; }
+    [Range(0, 1)] public double Robot { get; init; }
+    [Range(20, 400)] public double RobotHertz { get; init; } = 60;
+    public bool Radio { get; init; }
+    [Range(0, 1)] public double Echo { get; init; }
+    [Range(0, 1)] public double Reverb { get; init; }
 }
 
 public sealed record AssignSceneBackgroundRequest
