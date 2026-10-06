@@ -89,9 +89,12 @@
     }
 
     @case ('SubtitleFile') {
-      <label for="subtitle-upload">Upload an SRT or WebVTT file</label>
-      <input id="subtitle-upload" type="file" accept=".srt,.vtt,text/vtt,application/x-subrip"
-             (change)="uploadSubtitle($event)" />
+      <div appFileDrop=".srt,.vtt,text/vtt,application/x-subrip" (filesDropped)="uploadSubtitleFile($event[0])">
+        <label for="subtitle-upload">Upload an SRT or WebVTT file</label>
+        <input id="subtitle-upload" type="file" accept=".srt,.vtt,text/vtt,application/x-subrip"
+               (change)="uploadSubtitle($event)" />
+        <span class="file-drop-hint">or drop it here / paste with Ctrl+V</span>
+      </div>
 
       @if (store.subtitles().length > 0) {
         <label for="subtitle-asset" style="margin-top: .8rem">Or use one already uploaded</label>

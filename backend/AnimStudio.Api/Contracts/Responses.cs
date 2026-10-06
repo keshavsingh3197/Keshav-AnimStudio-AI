@@ -16,7 +16,14 @@ public sealed record OutroResponse(
     string? AssetId,
     double DurationSeconds,
     string Transition,
-    int TransitionDurationFrames);
+    int TransitionDurationFrames,
+    string? QrAssetId = null,
+    string? Headline = null,
+    string? Subtext = null,
+    string BackgroundHex = "#101828",
+    string TextHex = "#FFFFFF",
+    string? HeadlineSecondary = null,
+    string? SubtextSecondary = null);
 
 public sealed record ProjectResponse(
     string Id, string Name, string? Description, string Status,
@@ -27,7 +34,15 @@ public sealed record ProjectResponse(
     bool IsPinned = false,
     string? CustomThumbnail = null,
     WatermarkResponse? DefaultWatermark = null,
-    OutroResponse? DefaultOutro = null);
+    OutroResponse? DefaultOutro = null,
+    string? BrandChannelId = null,
+    bool FollowChannelWatermark = true);
+
+/// <summary>A brand channel and its look. The built-in default comes first, with IsDefault set.</summary>
+public sealed record BrandChannelResponse(
+    string Id, string Name, bool IsDefault, WatermarkResponse? Watermark, OutroResponse? Outro,
+    // The YouTube channel this brand publishes to (Settings → YouTube publishing): an id, not a secret.
+    string? YouTubeChannelId = null, string? YouTubeChannelTitle = null);
 
 public sealed record CharacterResponse(
     string Id, string Name, string? Description, IReadOnlyList<string> Aliases,
@@ -91,7 +106,9 @@ public sealed record RenderDiagnosticsResponse(
     int ItemsCount,
     double? OutputDurationSeconds,
     string? SpeedFactor,
-    DateTime? CompletedAt);
+    DateTime? CompletedAt,
+    string? HardwareEncoder = null);
+
 
 public sealed record RenderJobResponse(
     string JobId, string ProjectId, string Kind, string Status, int Progress, string? Message,
@@ -100,7 +117,8 @@ public sealed record RenderJobResponse(
     bool HasOutput, double? OutputDurationSeconds,
     DateTime CreatedAt, DateTime? CompletedAt,
     int? Width = null, int? Height = null, string? TargetFormat = null,
-    RenderDiagnosticsResponse? Diagnostics = null);
+    RenderDiagnosticsResponse? Diagnostics = null,
+    bool HasTimeline = false);
 
 public sealed record RendererStatusResponse(
     bool Available, string? Version, string? UnavailableReason,
@@ -182,7 +200,7 @@ public sealed record AiCapabilitiesResponse(IReadOnlyList<AiCapabilityResponse> 
 /// </summary>
 public sealed record ClipResponse(
     string Id, string Name, long FileSizeBytes,
-    double? DurationSeconds, int? Width, int? Height, bool HasAudio);
+    double? DurationSeconds, int? Width, int? Height, bool HasAudio, bool IsExport);
 
 public sealed record ClipOrderLineResponse(int Number, string Text, string? AssetId, string Match);
 
@@ -222,3 +240,27 @@ public sealed record ClipStudioResponse(
     bool TransitionsAvailable,
     bool BlurredBackdropAvailable,
     string? StudioDraftJson = null);
+
+/// <summary>
+/// What the storage bar fills against. <c>CapacitySource</c> is "quota" when an
+/// administrator set one, "disk" when the bar falls back to the drive's size, and "none"
+/// when neither is known. No paths: this one is shown to every user.
+/// </summary>
+public sealed record StorageSummaryResponse(
+    string Provider,
+    bool IsMeasurable,
+    long UsedBytes,
+    long? CapacityBytes,
+    string CapacitySource,
+    DateTimeOffset MeasuredAt);
+
+public sealed record StorageFolderResponse(string Name, long Bytes, long Files);
+
+/// <summary>The settings page's view: the summary plus where the space went.</summary>
+public sealed record StorageDetailResponse(
+    StorageSummaryResponse Summary,
+    double? QuotaGb,
+    long FileCount,
+    long? DiskTotalBytes,
+    long? DiskFreeBytes,
+    IReadOnlyList<StorageFolderResponse> Folders);

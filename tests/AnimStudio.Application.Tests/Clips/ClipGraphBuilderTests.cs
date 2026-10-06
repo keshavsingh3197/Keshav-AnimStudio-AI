@@ -142,6 +142,23 @@ public class ClipGraphBuilderTests
     }
 
     [Fact]
+    public void Keeps_the_sources_audio_offset_instead_of_renumbering_samples_from_zero()
+    {
+        // A source whose sound starts after its picture is normal for phone and generated
+        // footage. asetpts=N/SR/TB threw that offset away and put the sound ahead of the
+        // lips - 79ms on a measured clip.
+        const string followTimestamps = "aresample=async=1:min_hard_comp=0.005:first_pts=0";
+
+        var own = NewBuilder().BuildClip(Plan()).FilterComplex;
+        var mixed = NewBuilder().BuildClip(
+            Plan(extraAudio: "in/sfx.m4a", keepOwnAudio: true)).FilterComplex;
+
+        Assert.Contains(followTimestamps, own);
+        Assert.DoesNotContain("asetpts", own);
+        Assert.Contains($"stereo,{followTimestamps}", mixed);
+    }
+
+    [Fact]
     public void Generates_silence_for_a_clip_that_has_no_audio_track()
     {
         // Without this, the concat demuxer produces a file that stops at the first silent
@@ -487,12 +504,15 @@ public class ClipGraphBuilderTests
     }
 
     [Fact]
-    public void Composites_the_mark_in_4_4_4_and_converts_once_at_the_end()
+    public void Composites_the_mark_in_the_delivery_format_rather_than_4_4_4()
     {
+        // 4:4:4 cost 29% of the conform pass for an SSIM difference of 0.001 on the logo
+        // strip, and a watermarked stitch pays it on every frame of every clip.
         var graph = NewBuilder().BuildClip(Plan(watermark: LogoMark())).FilterComplex;
 
-        Assert.Contains("format=yuv444p[base]", graph);
+        Assert.Contains("format=yuv420p[base]", graph);
         Assert.Contains("format=yuv420p[vout]", graph);
+        Assert.DoesNotContain("yuv444p", graph);
     }
 
     // --- working pixel format ------------------------------------------------

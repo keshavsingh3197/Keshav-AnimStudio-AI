@@ -3,9 +3,12 @@ using AnimStudio.Domain.Assets;
 using AnimStudio.Domain.Characters;
 using AnimStudio.Domain.Ingest;
 using AnimStudio.Domain.Jobs;
+using AnimStudio.Domain.LiveStreams;
 using AnimStudio.Domain.Projects;
+using AnimStudio.Domain.Publishing;
 using AnimStudio.Domain.Scenes;
 using AnimStudio.Domain.Scripts;
+using AnimStudio.Domain.System;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
 using MongoDB.Bson.Serialization.Conventions;
@@ -65,6 +68,18 @@ public static class MongoMappingRegistrar
             // Not an ObjectId: this document's id is the fixed literal "ai-settings", which
             // is what guarantees there is exactly one of it.
             MapWithLiteralId<AiSettings>();
+
+            // App-assigned GUID ids, valid on SQL Server too - not ObjectIds.
+            MapWithLiteralId<ProjectEdit>();
+
+            // "{channelId}:{destinationId}" - the id is what keeps one key per channel per destination.
+            MapWithLiteralId<LiveStreamKey>();
+
+            // "{userId}:{channelId}" - one connection per user per channel.
+            MapWithLiteralId<YouTubeChannelConnection>();
+
+            // The configuration path, e.g. "Render:Crf" - one value per key.
+            MapWithLiteralId<WebSetting>();
         }
     }
 

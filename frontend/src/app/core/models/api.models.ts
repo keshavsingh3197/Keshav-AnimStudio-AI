@@ -10,6 +10,8 @@ export interface ApiError {
   code: string;
   message: string;
   field?: string;
+  hint?: string;
+  detail?: string;
 }
 
 export interface Project {
@@ -30,6 +32,10 @@ export interface Project {
   customThumbnail?: string | null;
   defaultWatermark?: any;
   defaultOutro?: OutroBody | null;
+  /** The brand channel (YouTube channel) this project publishes under; null = default. */
+  brandChannelId?: string | null;
+  /** True: the watermark is the channel's, live. False: defaultWatermark is this project's own. */
+  followChannelWatermark?: boolean;
 }
 
 export interface CreateProjectBody {
@@ -39,6 +45,23 @@ export interface CreateProjectBody {
   height: number;
   fps: number;
   distributionIntent: string;
+  /** Channel to publish under; its watermark is copied into the new project. */
+  brandChannelId?: string | null;
+}
+
+/** The id of the built-in brand channel (the studio's original single branding). */
+export const DEFAULT_BRAND_CHANNEL = 'default';
+
+/** One channel's look: the watermark on its videos and the end card they finish with. */
+export interface BrandChannel {
+  id: string;
+  name: string;
+  isDefault: boolean;
+  watermark: WatermarkBody | null;
+  outro: OutroBody | null;
+  /** The YouTube channel this brand publishes to, from Settings → YouTube publishing. */
+  youTubeChannelId?: string | null;
+  youTubeChannelTitle?: string | null;
 }
 
 export interface UpdateProjectBody extends CreateProjectBody {
@@ -47,6 +70,8 @@ export interface UpdateProjectBody extends CreateProjectBody {
   backgroundMusicVolume: number;
   defaultWatermark?: WatermarkBody | null;
   defaultOutro?: OutroBody | null;
+  /** Omitted leaves it unchanged. */
+  followChannelWatermark?: boolean;
   isPinned?: boolean;
   customThumbnail?: string | null;
 }
@@ -325,7 +350,12 @@ export interface RenderJob {
   createdAt: string;
   completedAt?: string;
   diagnostics?: RenderDiagnostics;
+  /** True when the export recorded where each clip, sound and overlay landed. */
+  hasTimeline?: boolean;
 }
+
+/** Downloadable forms of an export's timeline: a YouTube description draft, CSV or JSON. */
+export type ExportTimelineFormat = 'youtube' | 'csv' | 'json';
 
 export interface RenderDiagnostics {
   totalSeconds: number;
@@ -337,6 +367,8 @@ export interface RenderDiagnostics {
   outputDurationSeconds?: number;
   speedFactor?: string;
   completedAt?: string;
+  /** GPU or CPU encoder used for Step 2 clip conformance, e.g. "h264_nvenc", "h264_qsv", "CPU". */
+  hardwareEncoder?: string;
 }
 
 export interface RendererStatus {
@@ -388,6 +420,8 @@ export interface Clip {
   width?: number;
   height?: number;
   hasAudio: boolean;
+  /** A finished render saved back to the project; the media panel hides these. */
+  isExport?: boolean;
 }
 
 /**
@@ -455,7 +489,7 @@ export interface WatermarkBody {
   backplateOpacity: number;
 }
 
-export const OUTRO_KINDS = ['None', 'Video', 'Image'] as const;
+export const OUTRO_KINDS = ['None', 'Video', 'Image', 'Card'] as const;
 export type OutroKind = (typeof OUTRO_KINDS)[number];
 
 export interface OutroBody {
@@ -464,11 +498,25 @@ export interface OutroBody {
   durationSeconds: number;
   transition: string;
   transitionDurationFrames: number;
+  /** Card only: the QR code shown in the middle, and the lines above and below it. */
+  qrAssetId?: string | null;
+  headline?: string | null;
+  subtext?: string | null;
+  /** Optional second-language lines, drawn under the headline and the subtext. */
+  headlineSecondary?: string | null;
+  subtextSecondary?: string | null;
+  backgroundHex?: string | null;
+  textHex?: string | null;
 }
 
 export const CLIP_FITS = ['Contain', 'Cover', 'BlurredBackdrop'] as const;
 
 export type ClipFit = (typeof CLIP_FITS)[number];
+
+/** Delivered picture quality. High is the default and what an omitted value means. */
+export const EXPORT_QUALITIES = ['Fast', 'High', 'Best'] as const;
+
+export type ExportQuality = (typeof EXPORT_QUALITIES)[number];
 
 /** One gap between two consecutive clips, overriding the timeline's default transition. */
 export interface ClipJunctionBody {
@@ -536,6 +584,8 @@ export interface TimelineItemTransform {
   cropLinked?: boolean;
   /** Request video stabilization for this clip */
   stabilization?: boolean;
+  /** Existing marks in the source footage to wipe before our own watermark is drawn */
+  eraseRegions?: EraseRegion[];
   /** Transition In style for image overlay */
   transitionIn?: 'none' | 'fade' | 'slide-left' | 'slide-right' | 'slide-up' | 'slide-down' | 'zoom' | 'zoom-in' | 'zoom-out';
   transitionInDuration?: number;
@@ -543,6 +593,47 @@ export interface TimelineItemTransform {
   transitionOut?: 'none' | 'fade' | 'slide-left' | 'slide-right' | 'slide-up' | 'slide-down' | 'zoom' | 'zoom-in' | 'zoom-out';
   transitionOutDuration?: number;
 }
+
+/**
+ * Blur smears the mark; Patch covers it with the footage beside it; Fill paints a box;
+ * Brand patches it and draws the project's own watermark in its place.
+ */
+export type EraseStyle = 'Blur' | 'Fill' | 'Patch' | 'Brand';
+
+/** Which neighbouring footage a Patch / Brand box copies from. */
+export type EraseSource = 'Auto' | 'Above' | 'Below' | 'Left' | 'Right';
+
+/**
+ * A rectangle of a clip's SOURCE frame to erase, in percent of that frame - so it means
+ * the same patch of footage whatever the crop, fit or output size. Mirrors EraseRegionSpec.
+ */
+export interface EraseRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  style: EraseStyle;
+  /** #rrggbb, used by 'Fill' */
+  fillColor?: string;
+  /** 0-100: blur amount, or how much a patch is softened */
+  strength?: number;
+  /** 0-100: how far the edge fades into the footage around the box */
+  feather?: number;
+  /** 0-100: density of a Fill */
+  opacity?: number;
+  /** Patch / Brand: where the cover footage is copied from */
+  source?: EraseSource;
+  /** Brand: also draw the watermark at its usual corner (default: only in this box) */
+  keepCornerMark?: boolean;
+}
+
+/** Mirrors EraseRegionSpec.DefaultStrength / DefaultFeather on the server. */
+export const ERASE_DEFAULT_STRENGTH = 60;
+export const ERASE_DEFAULT_FEATHER = 30;
+
+/** Mirrors EraseRegionSpec.MaxPerClip / MinSizePercent on the server. */
+export const MAX_ERASE_REGIONS = 8;
+export const MIN_ERASE_SIZE = 1;
 
 export interface TimelineItemTextStyle {
   fontSize: number;
@@ -592,6 +683,7 @@ export interface ClipMergeBody {
   fit: ClipFit;
   outputWidth?: number;
   outputHeight?: number;
+  quality?: ExportQuality;
   transition: string;
   transitionSeconds: number;
   /** One entry per gap between clips; omitted or empty means every gap uses the default. */
@@ -603,6 +695,8 @@ export interface ClipMergeBody {
   /** One entry per clip in the cut; omitted means every clip plays as recorded. */
   clipAudio?: ClipAudioBody[] | null;
   watermark: WatermarkBody;
+  /** End with the saved outro or QR end card (Admin &gt; Branding, or the project's own). */
+  includeOutro?: boolean;
   timelineItems?: TimelineItem[] | null;
   /**
    * Stretches where the music must drop under the clips above it. Ducking the music cannot be
@@ -962,3 +1056,97 @@ export interface HubConfig {
   templates: HubTemplate[];
   quickStarts: HubQuickStart[];
 }
+
+/** How full the media store is. Mirrors StorageSummaryResponse. */
+export interface StorageSummary {
+  provider: string;
+  isMeasurable: boolean;
+  usedBytes: number;
+  /** What the bar fills against: the admin's quota, else the drive's size. */
+  capacityBytes: number | null;
+  capacitySource: 'quota' | 'disk' | 'none';
+  measuredAt: string;
+}
+
+export interface StorageFolder { name: string; bytes: number; files: number; }
+
+/** The settings page's view of storage. Mirrors StorageDetailResponse. */
+export interface StorageDetail {
+  summary: StorageSummary;
+  quotaGb: number | null;
+  fileCount: number;
+  diskTotalBytes: number | null;
+  diskFreeBytes: number | null;
+  folders: StorageFolder[];
+}
+
+/** "1.4 GB", "820 MB" - binary units, as the server counts them. */
+export function formatBytes(bytes: number | null | undefined): string {
+  if (bytes == null || !Number.isFinite(bytes)) return '—';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let v = Math.max(0, bytes), i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return `${v >= 100 || i === 0 ? v.toFixed(0) : v.toFixed(1)} ${units[i]}`;
+}
+
+// --- cuts: several videos / Shorts per project, each with its own editor timeline ---
+
+export type EditFormat = 'Video' | 'Short' | 'Square';
+
+/** One cut of a project, as the "Videos & Shorts" page lists it. Mirrors ProjectEdit. */
+export interface ProjectEdit {
+  id: string;
+  name: string;
+  format: EditFormat;
+  category: string | null;
+  tags: string[];
+  durationSeconds: number;
+  clipCount: number;
+  thumbnailAssetId: string | null;
+  sourceEditId: string | null;
+  /** Set until the editor has trimmed a copied timeline down to the chosen part. */
+  pendingRangeStart: number | null;
+  pendingRangeEnd: number | null;
+  createdAt: string;
+  updatedAt: string;
+  /** Only on a single-cut fetch. */
+  draftJson?: string | null;
+}
+
+export type CreateEditMode = 'Blank' | 'Copy' | 'Range';
+
+export interface CreateEditBody {
+  name: string;
+  format: EditFormat;
+  category?: string | null;
+  tags?: string[];
+  mode: CreateEditMode;
+  sourceEditId?: string | null;
+  rangeStart?: number | null;
+  rangeEnd?: number | null;
+}
+
+export interface UpdateEditBody {
+  name?: string;
+  format?: EditFormat;
+  category?: string;
+  tags?: string[];
+}
+
+export interface SaveEditDraftBody {
+  draftJson: string;
+  durationSeconds: number;
+  clipCount: number;
+  thumbnailAssetId?: string | null;
+  clearPendingRange?: boolean;
+}
+
+/** Output size per format, matching the editor's export presets. */
+export const EDIT_FORMATS: { value: EditFormat; label: string; ratio: string; width: number; height: number }[] = [
+  { value: 'Video', label: 'Video', ratio: '16:9', width: 1920, height: 1080 },
+  { value: 'Short', label: 'Short / Reel', ratio: '9:16', width: 1080, height: 1920 },
+  { value: 'Square', label: 'Square', ratio: '1:1', width: 1080, height: 1080 },
+];
+
+/** Suggested categories; any text is allowed. */
+export const EDIT_CATEGORY_SUGGESTIONS = ['Full video', 'Short', 'Teaser', 'Highlight', 'Trailer', 'Reel', 'Clip'];

@@ -9,9 +9,10 @@ import {
   BundleImportResult, BundlePreview, Character, CharacterBody, ClipMergeBody, ClipOrder,
   ClipStudio, CreateProjectBody,
   CreateSceneBody, DialogueBody, IngestCapabilities, IngestResult, IngestSummary,
-  PlacementBody, Project, RenderJob, RendererStatus, Scene, SceneAudioBody, SceneDetail,
+  PlacementBody, Project, RenderJob, ExportTimelineFormat, RendererStatus, Scene, SceneAudioBody, SceneDetail,
   SceneGenerationResult, ScriptDetail, ScriptSummary, UpdateProjectBody, UpdateSceneBody,
-  WatermarkBody, OutroBody,
+  WatermarkBody, OutroBody, BrandChannel, DEFAULT_BRAND_CHANNEL, StorageSummary, StorageDetail,
+  ProjectEdit, CreateEditBody, UpdateEditBody, SaveEditDraftBody,
 } from '../models/api.models';
 
 /**
@@ -28,8 +29,6 @@ export class ApiService {
       catchError(err => {
         console.warn('Could not fetch HubConfig from backend. Using static fallbacks.');
         return of({
-          storageUsedGb: 14.2,
-          storageTotalGb: 50,
           presets: [
             { label: '9:16 Shorts', width: 1080, height: 1920 },
             { label: '16:9 Landscape', width: 1920, height: 1080 },
@@ -55,6 +54,11 @@ export class ApiService {
   private readonly base = environment.apiUrl;
 
   // --- system
+  /** How full the media store is, measured on the server against the configured quota. */
+  storageSummary(): Observable<StorageSummary> {
+    return this.unwrap(this.http.get<ApiResponse<StorageSummary>>(`${this.base}/api/system/storage`));
+  }
+
   rendererStatus(): Observable<RendererStatus> {
     return this.unwrap(this.http.get<ApiResponse<RendererStatus>>(`${this.base}/api/system/renderer`));
   }
@@ -70,22 +74,38 @@ export class ApiService {
       this.http.get<ApiResponse<IngestCapabilities>>(`${this.base}/api/ingest/capabilities`));
   }
 
-  getGlobalBranding(): Observable<WatermarkBody | null> {
+  // Branding is per brand channel (one per YouTube channel). `channel` omitted or null means
+  // the built-in default channel; an unknown id also reads as the default.
+
+  getGlobalBranding(channel?: string | null): Observable<WatermarkBody | null> {
     return this.unwrap(
-      this.http.get<ApiResponse<WatermarkBody | null>>(`${this.base}/api/system/branding`));
+      this.http.get<ApiResponse<WatermarkBody | null>>(`${this.base}/api/system/branding${channelQuery(channel)}`));
   }
 
-  globalLogoUrl(): string {
-    return `${this.base}/api/system/branding/logo`;
+  /** Always carries a query string, so callers add cache-busters with `&`. */
+  globalLogoUrl(channel?: string | null): string {
+    return `${this.base}/api/system/branding/logo${channelQuery(channel, true)}`;
   }
 
-  getGlobalOutro(): Observable<OutroBody | null> {
+  getGlobalOutro(channel?: string | null): Observable<OutroBody | null> {
     return this.unwrap(
-      this.http.get<ApiResponse<OutroBody | null>>(`${this.base}/api/system/branding/outro`));
+      this.http.get<ApiResponse<OutroBody | null>>(`${this.base}/api/system/branding/outro${channelQuery(channel)}`));
   }
 
-  globalOutroMediaUrl(): string {
-    return `${this.base}/api/system/branding/outro/media`;
+  /** A channel's support-card QR image. Always carries a query string, so callers add cache-busters with `&`. */
+  globalOutroQrUrl(channel?: string | null): string {
+    return `${this.base}/api/system/branding/outro/qr${channelQuery(channel, true)}`;
+  }
+
+  /** Always carries a query string, so callers add cache-busters with `&`. */
+  globalOutroMediaUrl(channel?: string | null): string {
+    return `${this.base}/api/system/branding/outro/media${channelQuery(channel, true)}`;
+  }
+
+  /** Every brand channel, the default first. Readable by any signed-in user. */
+  listBrandChannels(): Observable<BrandChannel[]> {
+    return this.unwrap(
+      this.http.get<ApiResponse<BrandChannel[]>>(`${this.base}/api/system/branding/channels`));
   }
 
   // --- projects
@@ -346,6 +366,11 @@ export class ApiService {
     return `${this.base}/api/render-jobs/${jobId}/download`;
   }
 
+  /** Where each clip, sound and overlay sits in the finished export. */
+  timelineUrl(jobId: string, format: ExportTimelineFormat): string {
+    return `${this.base}/api/render-jobs/${encodeURIComponent(jobId)}/timeline?format=${format}`;
+  }
+
   // --- clips: several finished clips joined into one downloadable file
 
   /** The clips, what can mark or score them, and what this server's renderer can do. */
@@ -375,6 +400,44 @@ export class ApiService {
   saveStudioDraft(projectId: string, draftJson: string): Observable<unknown> {
     return this.unwrap(this.http.put<ApiResponse<unknown>>(
       `${this.base}/api/projects/${projectId}/clips/draft`, { draftJson }));
+  }
+
+  // --- cuts (videos / Shorts) of a project
+
+  listEdits(projectId: string): Observable<ProjectEdit[]> {
+    return this.unwrap(this.http.get<ApiResponse<ProjectEdit[]>>(
+      `${this.base}/api/projects/${projectId}/edits`));
+  }
+
+  /** One cut with its timeline document. */
+  getEdit(projectId: string, editId: string): Observable<ProjectEdit> {
+    return this.unwrap(this.http.get<ApiResponse<ProjectEdit>>(
+      `${this.base}/api/projects/${projectId}/edits/${encodeURIComponent(editId)}`));
+  }
+
+  createEdit(projectId: string, body: CreateEditBody): Observable<ProjectEdit> {
+    return this.unwrap(this.http.post<ApiResponse<ProjectEdit>>(
+      `${this.base}/api/projects/${projectId}/edits`, body));
+  }
+
+  updateEdit(projectId: string, editId: string, body: UpdateEditBody): Observable<ProjectEdit> {
+    return this.unwrap(this.http.patch<ApiResponse<ProjectEdit>>(
+      `${this.base}/api/projects/${projectId}/edits/${encodeURIComponent(editId)}`, body));
+  }
+
+  saveEditDraft(projectId: string, editId: string, body: SaveEditDraftBody): Observable<ProjectEdit> {
+    return this.unwrap(this.http.put<ApiResponse<ProjectEdit>>(
+      `${this.base}/api/projects/${projectId}/edits/${encodeURIComponent(editId)}/draft`, body));
+  }
+
+  duplicateEdit(projectId: string, editId: string): Observable<ProjectEdit> {
+    return this.unwrap(this.http.post<ApiResponse<ProjectEdit>>(
+      `${this.base}/api/projects/${projectId}/edits/${encodeURIComponent(editId)}/duplicate`, {}));
+  }
+
+  deleteEdit(projectId: string, editId: string): Observable<unknown> {
+    return this.unwrap(this.http.delete<ApiResponse<unknown>>(
+      `${this.base}/api/projects/${projectId}/edits/${encodeURIComponent(editId)}`));
   }
 
   /** Queues the stitch. Polled and downloaded through the same job endpoints as a render. */
@@ -430,6 +493,15 @@ export class ApiService {
   // message rather than a blank screen.
 
   private readonly admin = `${this.base}/api/admin`;
+
+  adminStorage(refresh = false): Observable<StorageDetail> {
+    return this.unwrap(this.http.get<ApiResponse<StorageDetail>>(
+      `${this.admin}/storage${refresh ? '?refresh=true' : ''}`));
+  }
+
+  updateStorageQuota(quotaGb: number | null): Observable<StorageDetail> {
+    return this.unwrap(this.http.put<ApiResponse<StorageDetail>>(`${this.admin}/storage`, { quotaGb }));
+  }
 
   adminProviders(): Observable<AdminProviders> {
     return this.unwrap(this.http.get<ApiResponse<AdminProviders>>(`${this.admin}/providers`));
@@ -499,28 +571,89 @@ export class ApiService {
       this.http.get<ApiResponse<AdminAuditEntry[]>>(`${this.admin}/audit?limit=${limit}`));
   }
 
-  updateGlobalBranding(body: WatermarkBody): Observable<WatermarkBody | null> {
-    return this.unwrap(
-      this.http.put<ApiResponse<WatermarkBody | null>>(`${this.admin}/branding`, body));
+  createBrandChannel(name: string, copyFromChannelId?: string | null): Observable<BrandChannel[]> {
+    return this.unwrap(this.http.post<ApiResponse<BrandChannel[]>>(
+      `${this.admin}/branding/channels`, { name, copyFromChannelId: copyFromChannelId ?? null }));
   }
 
-  uploadGlobalLogo(file: File): Observable<WatermarkBody | null> {
+  renameBrandChannel(channelId: string, name: string): Observable<BrandChannel[]> {
+    return this.unwrap(this.http.put<ApiResponse<BrandChannel[]>>(
+      `${this.admin}/branding/channels/${encodeURIComponent(channelId)}`, { name }));
+  }
+
+  /** `moveProjectsTo`: where the channel's projects go; omitted, they go to the default. */
+  deleteBrandChannel(channelId: string, moveProjectsTo?: string | null): Observable<BrandChannel[]> {
+    const move = moveProjectsTo ? `?moveProjectsTo=${encodeURIComponent(moveProjectsTo)}` : '';
+    return this.unwrap(this.http.delete<ApiResponse<BrandChannel[]>>(
+      `${this.admin}/branding/channels/${encodeURIComponent(channelId)}${move}`));
+  }
+
+  /** Projects per channel id; projects with no (or a vanished) channel count under the default. */
+  brandChannelUsage(): Observable<Record<string, number>> {
+    return this.unwrap(this.http.get<ApiResponse<Record<string, number>>>(`${this.admin}/branding/channels/usage`));
+  }
+
+  updateGlobalBranding(body: WatermarkBody, channel?: string | null): Observable<WatermarkBody | null> {
+    return this.unwrap(
+      this.http.put<ApiResponse<WatermarkBody | null>>(`${this.admin}/branding${channelQuery(channel)}`, body));
+  }
+
+  uploadGlobalLogo(file: File, channel?: string | null): Observable<WatermarkBody | null> {
     const form = new FormData();
     form.append('file', file, file.name);
     return this.unwrap(
-      this.http.post<ApiResponse<WatermarkBody | null>>(`${this.admin}/branding/logo`, form));
+      this.http.post<ApiResponse<WatermarkBody | null>>(`${this.admin}/branding/logo${channelQuery(channel)}`, form));
   }
 
-  updateGlobalOutro(body: OutroBody): Observable<OutroBody | null> {
+  updateGlobalOutro(body: OutroBody, channel?: string | null): Observable<OutroBody | null> {
     return this.unwrap(
-      this.http.put<ApiResponse<OutroBody | null>>(`${this.admin}/branding/outro`, body));
+      this.http.put<ApiResponse<OutroBody | null>>(`${this.admin}/branding/outro${channelQuery(channel)}`, body));
   }
 
-  uploadGlobalOutro(file: File): Observable<OutroBody | null> {
+  uploadGlobalOutro(file: File, channel?: string | null): Observable<OutroBody | null> {
     const form = new FormData();
     form.append('file', file, file.name);
     return this.unwrap(
-      this.http.post<ApiResponse<OutroBody | null>>(`${this.admin}/branding/outro/upload`, form));
+      this.http.post<ApiResponse<OutroBody | null>>(`${this.admin}/branding/outro/upload${channelQuery(channel)}`, form));
+  }
+
+  /** Uploads the end card's QR code; the outro switches to a Card. */
+  uploadGlobalOutroQr(file: File, channel?: string | null): Observable<OutroBody | null> {
+    const form = new FormData();
+    form.append('file', file, file.name);
+    return this.unwrap(
+      this.http.post<ApiResponse<OutroBody | null>>(`${this.admin}/branding/outro/qr${channelQuery(channel)}`, form));
+  }
+
+  /**
+   * Renders the outro AS GIVEN (saved or not) to an MP4, for previewing and for
+   * downloading to attach to videos uploaded before the card existed.
+   */
+  previewGlobalOutro(body: OutroBody, format: 'landscape' | 'vertical' | 'square'): Observable<Blob> {
+    return this.http.post(`${this.admin}/branding/outro/preview?format=${format}`, body, { responseType: 'blob' });
+  }
+
+  /**
+   * The end card this project's export would finish with (its own outro, else the studio's),
+   * rendered at the project's canvas unless `format` says otherwise. Pass `body` to preview
+   * unsaved project settings.
+   */
+  previewProjectOutro(
+    projectId: string, body: OutroBody | null = null, format?: 'landscape' | 'vertical' | 'square',
+  ): Observable<Blob> {
+    const query = format ? `?format=${format}` : '';
+    return this.http.post(
+      `${this.base}/api/projects/${encodeURIComponent(projectId)}/outro/preview${query}`, body, { responseType: 'blob' });
+  }
+
+  /** Global (studio-wide) assets such as the QR code are readable by any signed-in user. */
+  assetContentUrl(assetId: string): string {
+    return `${this.base}/api/assets/${encodeURIComponent(assetId)}/content`;
+  }
+
+  /** The asset's bytes, fetched through HttpClient so it can be edited on a canvas. */
+  assetContent(assetId: string): Observable<Blob> {
+    return this.http.get(this.assetContentUrl(assetId), { responseType: 'blob' });
   }
 
   private unwrap<T>(source: Observable<ApiResponse<T>>): Observable<T> {
@@ -530,4 +663,10 @@ export class ApiService {
     return this.unwrap(this.http.post<ApiResponse<unknown>>(`${this.base}/api/debug/screenshot`, { base64Image, viewName }));
   }
 
+}
+
+/** `?channel=<id>` for a named brand channel; for the default, nothing (or `?channel=default` when a query is required). */
+function channelQuery(channel?: string | null, alwaysQuery = false): string {
+  if (channel && channel !== DEFAULT_BRAND_CHANNEL) return `?channel=${encodeURIComponent(channel)}`;
+  return alwaysQuery ? `?channel=${DEFAULT_BRAND_CHANNEL}` : '';
 }

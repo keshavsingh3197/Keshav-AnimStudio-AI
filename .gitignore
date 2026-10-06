@@ -35,3 +35,6 @@ appsettings.Local.json
 .vs/
 .idea/
 *.log
+
+# Camera Studio face models, fetched by scripts/fetch-vision-models.mjs
+/frontend/vision-models/

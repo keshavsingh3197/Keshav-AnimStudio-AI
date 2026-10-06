@@ -5,7 +5,15 @@ import { ApiResponse } from '../models/api.models';
 
 /** A failed call, already reduced to something worth showing a user. */
 export class ApiFailure extends Error {
-  constructor(message: string, readonly code: string, readonly status: number) {
+  constructor(
+    message: string,
+    readonly code: string,
+    readonly status: number,
+    /** What the user can do about it, when the API knows. */
+    readonly hint?: string,
+    /** The underlying tool's own error line, for a "technical details" disclosure. */
+    readonly detail?: string,
+  ) {
     super(message);
     this.name = 'ApiFailure';
   }
@@ -38,7 +46,9 @@ function describe(error: unknown): ApiFailure {
     // Standard ApiResponse<T> where errors is an array of { message, code }
     if (Array.isArray(body.errors) && body.errors.length > 0) {
       const first = body.errors[0];
-      return new ApiFailure(first.message || 'Request failed.', first.code || 'error', error.status);
+      return new ApiFailure(
+        first.message || 'Request failed.', first.code || 'error', error.status,
+        first.hint || undefined, first.detail || undefined);
     }
     // Standard ASP.NET Core ValidationProblemDetails: { errors: { field: [msg, ...] } }
     if (body.errors && typeof body.errors === 'object' && !Array.isArray(body.errors)) {

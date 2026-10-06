@@ -5245,3 +5245,27 @@ audio { height: 2.2rem; vertical-align: middle; }
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+/* File-drop zones (shared/file-drop.directive.ts): drag a file over, or Ctrl+V while hovered. */
+.file-drop-zone { transition: outline-color .12s, background-color .12s; outline: 2px dashed transparent; outline-offset: 3px; }
+.file-drop-zone.file-drop-active { border-radius: 8px; outline-color: var(--brand); background-color: rgba(108, 140, 255, 0.08); }
+.file-drop-hint { font-size: 0.75rem; color: var(--muted); }
+
+/* "Your exports end with" - the effective end card (project settings, export dialog). */
+.end-card-effective { margin-top: 1rem; padding: 0.85rem 1rem; border: 1px solid rgba(108, 140, 255, 0.35); border-radius: 10px; background: rgba(108, 140, 255, 0.06); }
+.end-card-effective.is-none { border-color: var(--border); background: transparent; }
+.end-card-effective-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
+.end-card-effective-label { font-size: 0.88rem; font-weight: 600; color: var(--text); margin-top: 0.15rem; }
+.end-card-effective-link { font-size: 0.78rem; color: var(--brand); text-decoration: none; }
+.end-card-effective-error { margin: 0.5rem 0 0; font-size: 0.8rem; color: var(--err); }
+.end-card-effective-video { display: block; width: 100%; max-height: 360px; margin-top: 0.75rem; border-radius: 8px; background: #000; object-fit: contain; }
+.end-card-effective-note { margin: 0.35rem 0 0; font-size: 0.75rem; color: var(--muted); }
+
+/* Ultra-wide: the 1320px shell left two thirds of a 3440px screen empty. Pages with their
+   own cap raise it too (projects, characters, settings, branding). */
+@media (min-width: 2200px) {
+  .wrap { max-width: min(94vw, 2400px); }
+}
+@media (min-width: 3000px) {
+  .wrap { max-width: min(94vw, 3000px); }
+}

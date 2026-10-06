@@ -1,20 +1,21 @@
 import { DatePipe } from '@angular/common';
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, HostListener, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 
 import {
-  CANVAS_PRESETS, DISTRIBUTION_INTENTS, Project, aspectRatioLabel, videoFormat,
+  BrandChannel, CANVAS_PRESETS, DEFAULT_BRAND_CHANNEL, DISTRIBUTION_INTENTS, Project, aspectRatioLabel, videoFormat,
 } from '../../core/models/api.models';
 import { ApiService } from '../../core/services/api.service';
 import { StatusService } from '../../core/services/status.service';
+import { FileDropDirective } from '../../shared/file-drop.directive';
 import { optimizeThumbnailImage } from '../../core/utils/image-utils';
 
 export type StartingPoint = 'prompt' | 'bundle' | 'import' | 'clips' | 'scenes';
 
 @Component({
   selector: 'app-project-list',
-  imports: [DatePipe, FormsModule, RouterLink],
+  imports: [DatePipe, FormsModule, RouterLink, FileDropDirective],
   templateUrl: './project-list.component.html',
   styleUrl: './project-list.component.css'
 })
@@ -41,20 +42,29 @@ export class ProjectListComponent {
   name = '';
   presetIndex = 0;
   fps = 30;
+  /** Brand channel (YouTube channel) the new project publishes under; its watermark is copied in. */
+  channelId: string = DEFAULT_BRAND_CHANNEL;
+  readonly channels = signal<BrandChannel[]>([]);
   intent: string = DISTRIBUTION_INTENTS[1] ?? 'Public'; // Default to Public
 
   searchTerm = '';
   statusFilter = 'All';
   aspectFilter = 'All';
+  /** A channel id, or 'All'. */
+  channelFilter = 'All';
   selectedProjectIds = new Set<string>();
   pinnedProjectIds = new Set<string>();
 
   // Context Menu State
   activeMenuProjectId = signal<string | null>(null);
+  readonly menuPos = signal<{ top: number | null; bottom: number | null; right: number }>(
+    { top: 0, bottom: null, right: 0 });
 
+/** The channel a project publishes under; no channel is the default one. */  channelName(p: Project): string {    const id = p.brandChannelId || DEFAULT_BRAND_CHANNEL;    return this.channels().find((c) => c.id === id)?.name ?? 'Default';  }
   constructor() {
     this.loadSavedPreferences();
     this.reload();
+    this.api.listBrandChannels().subscribe({ next: (list) => this.channels.set(list), error: () => {} });
   }
 
   private loadSavedPreferences(): void {
@@ -147,6 +157,11 @@ export class ProjectListComponent {
         if (this.aspectFilter === '16:9 Video') return fmt === 'Video';
         return true;
       });
+    }
+
+    if (this.channelFilter !== 'All') {
+      // A project with no channel is on the default one, so it shows under Default.
+      list = list.filter(p => (p.brandChannelId || DEFAULT_BRAND_CHANNEL) === this.channelFilter);
     }
 
     // Sort: Pinned projects first, then according to sort option
@@ -255,6 +270,7 @@ export class ProjectListComponent {
         height: preset.height,
         fps: this.fps,
         distributionIntent: this.intent || 'Public',
+        brandChannelId: this.channelId,
       }),
       (project) => {
         this.projects.update((list) => [project, ...list]);
@@ -287,9 +303,26 @@ export class ProjectListComponent {
     event.stopPropagation();
     if (this.activeMenuProjectId() === projectId) {
       this.activeMenuProjectId.set(null);
-    } else {
-      this.activeMenuProjectId.set(projectId);
+      return;
     }
+
+    // The menu is position: fixed so neither a card's hover transform nor the table's
+    // overflow can clip it; place it under the button, or above when there is no room.
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const menuHeight = 300;
+    const right = Math.max(8, window.innerWidth - rect.right);
+    const openUp = window.innerHeight - rect.bottom < menuHeight && rect.top > menuHeight;
+    this.menuPos.set(openUp
+      ? { top: null, bottom: window.innerHeight - rect.top + 4, right }
+      : { top: rect.bottom + 4, bottom: null, right });
+    this.activeMenuProjectId.set(projectId);
+  }
+
+  /** A fixed menu would drift away from its button, so scrolling or resizing closes it. */
+  @HostListener('window:scroll')
+  @HostListener('window:resize')
+  onViewportChange(): void {
+    if (this.activeMenuProjectId()) this.closeMenus();
   }
 
   closeMenus(): void {
@@ -332,6 +365,7 @@ export class ProjectListComponent {
         height: p.height,
         fps: p.fps,
         distributionIntent: intent,
+        brandChannelId: p.brandChannelId ?? null,
       }),
       (cloned) => {
         this.projects.update(list => [cloned, ...list]);
@@ -437,12 +471,15 @@ export class ProjectListComponent {
     this.status.run(this.api.listProjects(), (list) => this.projects.set(list));
   }
 
-  async onUploadThumbnail(event: Event, p: Project): Promise<void> {
+  onUploadThumbnail(event: Event, p: Project): void {
     event.stopPropagation();
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
-    if (!file) return;
+    input.value = '';
+    if (file) void this.setThumbnail(file, p);
+  }
 
+  async setThumbnail(file: File, p: Project): Promise<void> {
     try {
       const b64 = await optimizeThumbnailImage(file);
       this.status.run(
@@ -465,8 +502,6 @@ export class ProjectListComponent {
       );
     } catch {
       this.status.notify(['Failed to process image for thumbnail.']);
-    } finally {
-      input.value = '';
     }
   }
 

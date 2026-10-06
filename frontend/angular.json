@@ -16,7 +16,18 @@
             "index": "src/index.html",
             "browser": "src/main.ts",
             "tsConfig": "tsconfig.app.json",
-            "assets": [],
+            "assets": [
+              {
+                "glob": "**/*",
+                "input": "node_modules/@mediapipe/tasks-vision/wasm",
+                "output": "vision/wasm"
+              },
+              {
+                "glob": "*.{task,tflite}",
+                "input": "vision-models",
+                "output": "vision/models"
+              }
+            ],
             "styles": [
               "src/styles.css"
             ]

@@ -23,6 +23,21 @@ public sealed class ProjectSettings
     public WatermarkSettings DefaultWatermark { get; set; } = new();
     public OutroSettings DefaultOutro { get; set; } = new();
 
+    /// <summary>
+    /// The brand channel (YouTube channel) this project publishes under: its end card is
+    /// used when the project has no outro of its own. Null means the default channel.
+    /// </summary>
+    public string? BrandChannelId { get; set; }
+
+    /// <summary>
+    /// True: the watermark is the brand channel's, live - change the channel's logo and every
+    /// project on it follows. False: <see cref="DefaultWatermark"/> is this project's own.
+    /// Null (projects from before this existed): follow unless a watermark was set up here.
+    /// </summary>
+    public bool? FollowChannelWatermark { get; set; }
+
+    public bool FollowsChannelWatermark => FollowChannelWatermark ?? DefaultWatermark.Kind == WatermarkKind.None;
+
     public List<string> ClipOrderAssetIds { get; set; } = [];
 
     public Canvas ToCanvas() => new(Width, Height, new FrameRate(FrameRateNum, FrameRateDen));

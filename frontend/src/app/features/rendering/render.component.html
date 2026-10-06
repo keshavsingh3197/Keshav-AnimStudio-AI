@@ -255,6 +255,20 @@
                 <div style="font-size: 0.66rem; text-transform: uppercase; color: #94a3b8; font-weight: 600;">Output Length</div>
                 <div class="mono" style="font-size: 0.95rem; font-weight: 700; color: #38bdf8;">{{ current.outputDurationSeconds ? (current.outputDurationSeconds | number: '1.1-1') + 's' : '—' }}</div>
               </div>
+              @if (current.diagnostics?.hardwareEncoder; as hw) {
+                <div style="background: rgba(30, 41, 59, 0.5); border-radius: 6px; padding: 6px 10px; border: 1px solid rgba(255, 255, 255, 0.05);">
+                  <div style="font-size: 0.66rem; text-transform: uppercase; color: #94a3b8; font-weight: 600;">Engine</div>
+                  @if (hw === 'h264_nvenc') {
+                    <div class="mono" style="font-size: 0.85rem; font-weight: 700; color: #34d399;">⚡ NVENC GPU</div>
+                  } @else if (hw === 'h264_qsv') {
+                    <div class="mono" style="font-size: 0.85rem; font-weight: 700; color: #34d399;">⚡ QSV GPU</div>
+                  } @else if (hw === 'h264_videotoolbox') {
+                    <div class="mono" style="font-size: 0.85rem; font-weight: 700; color: #34d399;">⚡ VideoToolbox</div>
+                  } @else {
+                    <div class="mono" style="font-size: 0.85rem; font-weight: 700; color: #94a3b8;">🖥 CPU</div>
+                  }
+                </div>
+              }
             </div>
 
             <!-- Mini Stage Breakdown Pills -->
@@ -276,6 +290,12 @@
               <button type="button" style="display: inline-flex; align-items: center; gap: .4rem">
                 <span>&#128229;</span> Download MP4 Video
               </button>
+            </a>
+            <button type="button" (click)="openPublish(current.jobId)" title="Upload this video to your YouTube channel">
+              ▶ Publish to YouTube
+            </button>
+            <a routerLink="/live" [queryParams]="{ renderJobId: current.jobId }" style="text-decoration: none">
+              <button class="secondary" type="button" title="Stream this video to YouTube Live">🔴 Go live</button>
             </a>
             @if (subtitlesUrl(); as srtUrl) {
               <a [href]="srtUrl" download="subtitles.srt" style="text-decoration: none">
@@ -336,6 +356,10 @@
                 <a [href]="downloadUrl(item.jobId)" download>
                   <button class="secondary" type="button">&#128229; Download</button>
                 </a>
+                <button class="secondary" type="button" (click)="openPublish(item.jobId)" title="Upload this video to your YouTube channel">▶ Publish</button>
+                <a routerLink="/live" [queryParams]="{ renderJobId: item.jobId }">
+                  <button class="secondary" type="button" title="Stream this video to YouTube Live">🔴 Go live</button>
+                </a>
               }
             </td>
           </tr>
@@ -346,6 +370,14 @@
 }
 
 <!-- Diagnostics Modal -->
+@if (publishJobId(); as publishId) {
+  <app-youtube-publish-dialog
+    [jobId]="publishId"
+    [previewSrc]="previewUrl(publishId)"
+    [returnPath]="publishReturnPath(publishId)"
+    (closed)="publishJobId.set(null)" />
+}
+
 @if (diagnosticsModalOpen() && selectedDiagnosticsJob(); as diagJob) {
   <div class="diag-modal-backdrop" (click)="closeDiagnostics()">
     <div class="diag-modal-card" (click)="$event.stopPropagation()">
@@ -378,6 +410,20 @@
           <span class="diag-metric-label">Speed Factor</span>
           <span class="mono diag-metric-val" style="color: #38bdf8;">{{ selectedDiagnosticsSpeed() }}</span>
         </div>
+        @if (diagJob.diagnostics?.hardwareEncoder; as hw) {
+          <div class="diag-metric-item">
+            <span class="diag-metric-label">Encoder Engine</span>
+            @if (hw === 'h264_nvenc') {
+              <span class="mono diag-metric-val" style="color: #34d399;">⚡ NVENC GPU</span>
+            } @else if (hw === 'h264_qsv') {
+              <span class="mono diag-metric-val" style="color: #34d399;">⚡ QSV GPU</span>
+            } @else if (hw === 'h264_videotoolbox') {
+              <span class="mono diag-metric-val" style="color: #34d399;">⚡ VideoToolbox</span>
+            } @else {
+              <span class="mono diag-metric-val" style="color: #94a3b8;">🖥 CPU (Multi-core)</span>
+            }
+          </div>
+        }
       </div>
 
       <!-- Stages Breakdown -->

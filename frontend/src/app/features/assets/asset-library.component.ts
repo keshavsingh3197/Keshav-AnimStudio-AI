@@ -1,15 +1,16 @@
 import { DecimalPipe } from '@angular/common';
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 
-import { Asset, AssetFolder } from '../../core/models/api.models';
+import { Asset, StorageDetail } from '../../core/models/api.models';
 import { ApiService } from '../../core/services/api.service';
 import { ProjectStore } from '../../core/services/project-store';
 import { StatusService } from '../../core/services/status.service';
+import { FileDropDirective } from '../../shared/file-drop.directive';
 import { FormsModule } from '@angular/forms';
 
 @Component({
   selector: 'app-asset-library',
-  imports: [DecimalPipe, FormsModule],
+  imports: [DecimalPipe, FormsModule, FileDropDirective],
   templateUrl: './asset-library.component.html',
   styleUrls: ['./asset-library.component.css']
 })
@@ -17,6 +18,8 @@ export class AssetLibraryComponent {
   private readonly api = inject(ApiService);
   readonly store = inject(ProjectStore);
   readonly status = inject(StatusService);
+
+  readonly Math = Math;
 
   readonly confirming = signal<string | null>(null);
   readonly previewAsset = signal<Asset | null>(null);
@@ -41,6 +44,10 @@ export class AssetLibraryComponent {
   readonly dragAssetIndex = signal<number | null>(null);
   readonly dragOverIndex = signal<number | null>(null);
 
+  // Pagination
+  readonly currentPage = signal<number>(1);
+  readonly pageSize = signal<number>(24);
+
   // Storage and type statistics
   readonly totalStorageBytes = computed(() => {
     return this.store.assets().reduce((acc, a) => acc + (a.fileSizeBytes || 0), 0);
@@ -49,6 +56,30 @@ export class AssetLibraryComponent {
   readonly audioCount = computed(() => this.store.assets().filter(a => a.kind === 'Audio').length);
   readonly imageCount = computed(() => this.store.assets().filter(a => a.kind === 'Image').length);
   readonly subtitleCount = computed(() => this.store.assets().filter(a => a.kind === 'Subtitle').length);
+
+  // Dynamic storage from server
+  readonly storageDetail = signal<StorageDetail | null>(null);
+
+  readonly dynamicStorageSummary = computed(() => {
+    const detail = this.storageDetail();
+    if (detail) {
+      return { usedBytes: detail.summary.usedBytes, capacityBytes: detail.summary.capacityBytes ?? null };
+    }
+    // fallback: sum from loaded assets
+    const used = this.store.assets().reduce((acc, a) => acc + (a.fileSizeBytes || 0), 0);
+    return { usedBytes: used, capacityBytes: null };
+  });
+
+  // Exports folder
+  readonly exportsFolder = computed(() => {
+    return this.store.folders().find(f => f.name === 'Exports') ?? null;
+  });
+
+  readonly exportCount = computed(() => {
+    const ef = this.exportsFolder();
+    if (!ef) return 0;
+    return this.store.assets().filter(a => a.folderId === ef.id).length;
+  });
 
   readonly filteredAssets = computed(() => {
     let assets = [...this.store.assets()];
@@ -89,6 +120,75 @@ export class AssetLibraryComponent {
 
     return assets;
   });
+
+  // Pagination computed properties
+  get paginatedAssets(): Asset[] {
+    const list = this.filteredAssets();
+    const start = (this.currentPage() - 1) * this.pageSize();
+    return list.slice(start, start + this.pageSize());
+  }
+
+  get totalPages(): number {
+    return Math.ceil(this.filteredAssets().length / this.pageSize()) || 1;
+  }
+
+  readonly pageNumbers = computed(() => {
+    const total = this.totalPages;
+    const current = this.currentPage();
+    if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+    const pages: number[] = [1];
+    if (current > 3) pages.push(-1); // ellipsis
+    for (let i = Math.max(2, current - 1); i <= Math.min(total - 1, current + 1); i++) pages.push(i);
+    if (current < total - 2) pages.push(-1);
+    pages.push(total);
+    return pages;
+  });
+
+  setPage(page: number): void {
+    if (page >= 1 && page <= this.totalPages) {
+      this.currentPage.set(page);
+    }
+  }
+
+  prevPage(): void {
+    if (this.currentPage() > 1) this.currentPage.update(p => p - 1);
+  }
+
+  nextPage(): void {
+    if (this.currentPage() < this.totalPages) this.currentPage.update(p => p + 1);
+  }
+
+  constructor() {
+    // Server-wide storage is an admin endpoint. For anyone else it is refused, and the
+    // header keeps the sum of this project's assets instead of raising an error banner.
+    this.api.adminStorage(false).subscribe({
+      next: (d) => this.storageDetail.set(d),
+      error: () => this.storageDetail.set(null),
+    });
+
+    // Auto-create the 'Exports' folder once per project. A project with no folders at all
+    // needs it most, so an empty list must not skip this.
+    effect(() => {
+      const folders = this.store.folders();
+      const projectId = this.store.projectId();
+      if (!projectId || this.exportsRequestedFor === projectId) return;
+      if (folders.some(f => f.name === 'Exports')) return;
+      this.exportsRequestedFor = projectId;
+      untracked(() => {
+        this.status.run(this.api.createFolder(projectId, 'Exports'), () => {
+          this.store.refreshFolders();
+        });
+      });
+    });
+
+    // Deleting, filtering or searching can shrink the list below the current page.
+    effect(() => {
+      const total = this.totalPages;
+      if (untracked(this.currentPage) > total) this.currentPage.set(total);
+    });
+  }
+
+  private exportsRequestedFor: string | null = null;
 
   upload(event: Event): void {
     const input = event.target as HTMLInputElement;
@@ -197,6 +297,7 @@ export class AssetLibraryComponent {
   selectFolder(id: string): void {
     this.selectedFolderId.set(id);
     this.searchQuery.set('');
+    this.currentPage.set(1);
   }
 
   onDragStart(event: DragEvent, asset: Asset, index: number): void {

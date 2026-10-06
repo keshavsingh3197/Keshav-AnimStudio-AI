@@ -1,0 +1,227 @@
+<section class="vp">
+  <header class="vp-head">
+    <div>
+      <h2>Videos &amp; Shorts</h2>
+      <p class="muted">
+        Every video here uses this project's assets, and each one keeps its own timeline.
+        Make a Short from part of a long video, then edit either without changing the other.
+      </p>
+    </div>
+    <button type="button" class="vp-new" (click)="openCreate()">+ New video or Short</button>
+  </header>
+
+  <!-- Filters -->
+  <div class="vp-toolbar">
+    <input type="text" class="vp-search" placeholder="Search name, category or tag…"
+           [value]="search()" (input)="search.set($any($event.target).value)" aria-label="Search videos" />
+
+    <div class="chips" role="group" aria-label="Format">
+      <button type="button" class="chip" [class.on]="formatFilter() === 'All'" (click)="formatFilter.set('All')">
+        All <span>{{ formatCounts()['All'] }}</span>
+      </button>
+      @for (f of formats; track f.value) {
+        <button type="button" class="chip" [class.on]="formatFilter() === f.value" (click)="formatFilter.set(f.value)">
+          {{ f.label }} <span>{{ formatCounts()[f.value] }}</span>
+        </button>
+      }
+    </div>
+
+    <select class="vp-sort" [value]="sort()" (change)="sort.set($any($event.target).value)" aria-label="Sort">
+      <option value="recent">Recently edited</option>
+      <option value="name">Name</option>
+      <option value="longest">Longest first</option>
+    </select>
+  </div>
+
+  @if (categories().length > 0) {
+    <div class="chips cats" role="group" aria-label="Category">
+      <span class="chips-label">Category</span>
+      <button type="button" class="chip small" [class.on]="!categoryFilter()" (click)="categoryFilter.set(null)">Any</button>
+      @for (c of categories(); track c) {
+        <button type="button" class="chip small" [class.on]="categoryFilter() === c" (click)="categoryFilter.set(c)">{{ c }}</button>
+      }
+    </div>
+  }
+
+  @if (loading()) {
+    <div class="card muted">Loading videos…</div>
+  } @else if (visible().length === 0) {
+    <div class="card vp-empty">
+      <div class="muted">No videos match these filters.</div>
+      <button type="button" class="secondary" (click)="search.set(''); formatFilter.set('All'); categoryFilter.set(null)">Clear filters</button>
+    </div>
+  } @else {
+    <div class="vp-grid">
+      @for (e of visible(); track e.id) {
+        <article class="vcard">
+          <button type="button" class="vthumb" (click)="open(e)" [title]="'Open ' + e.name + ' in the editor'">
+            <div class="vframe" [class]="'vframe f-' + e.format.toLowerCase()">
+              @if (thumbUrl(e); as url) {
+                <img [src]="url" alt="" loading="lazy" />
+              } @else {
+                <span class="vframe-empty">No clips yet</span>
+              }
+            </div>
+            <span class="badge fmt" [class]="'badge fmt f-' + e.format.toLowerCase()">{{ ratio(e.format) }}</span>
+            <span class="badge dur">{{ clock(e.durationSeconds) }}</span>
+            <span class="vopen">Open in editor →</span>
+          </button>
+
+          <div class="vbody">
+            <div class="vtitle-row">
+              <h3 class="vtitle" [title]="e.name">{{ e.name }}</h3>
+              <button type="button" class="icon" title="Rename, format, category and tags" (click)="openDetails(e)">✎</button>
+            </div>
+            <div class="vmeta">
+              {{ formatLabel(e.format) }} · {{ e.clipCount }} clip{{ e.clipCount === 1 ? '' : 's' }} · edited {{ ago(e.updatedAt) }}
+            </div>
+            <div class="vtags">
+              @if (e.category) { <span class="tag cat">{{ e.category }}</span> }
+              @for (t of e.tags; track t) { <span class="tag">#{{ t }}</span> }
+            </div>
+            @if (sourceName(e); as src) {
+              <div class="vsource">From “{{ src }}”</div>
+            }
+            @if (e.pendingRangeStart !== null && e.pendingRangeEnd !== null) {
+              <div class="vpending" title="Applied the first time you open it">
+                Keeps {{ clock(e.pendingRangeStart) }}–{{ clock(e.pendingRangeEnd) }} of the original
+              </div>
+            }
+            @if (e.format === 'Short' && e.durationSeconds > shortsMax) {
+              <div class="vwarn">Longer than {{ shortsMax / 60 }} min — too long to post as a Short.</div>
+            }
+          </div>
+
+          <footer class="vactions">
+            <button type="button" class="primary-sm" (click)="open(e)">Open</button>
+            <button type="button" class="secondary sm" title="Make a Short from part of this video" (click)="openCreate(e, 'Range', 'Short')">✂ Make Short</button>
+            <button type="button" class="secondary sm" title="Duplicate" (click)="duplicate(e)" [disabled]="busy()">⧉</button>
+            @if (confirmDeleteId() === e.id) {
+              <span class="confirm">
+                Delete?
+                <button type="button" class="danger sm" (click)="remove(e)" [disabled]="busy()">Yes</button>
+                <button type="button" class="secondary sm" (click)="confirmDeleteId.set(null)">No</button>
+              </span>
+            } @else {
+              <button type="button" class="secondary sm" title="Delete this video (the project's assets are kept)"
+                      (click)="confirmDeleteId.set(e.id)" [disabled]="edits().length <= 1">🗑</button>
+            }
+          </footer>
+        </article>
+      }
+    </div>
+  }
+</section>
+
+<!-- Create / details dialog -->
+@if (dialog(); as d) {
+  @let f = form();
+  <div class="dlg-backdrop" (click)="closeDialog()"></div>
+  <div class="dlg" [class.wide]="d.kind === 'create' && f.mode === 'Range'" role="dialog" aria-modal="true" [attr.aria-label]="d.kind === 'create' ? 'New video or Short' : 'Video details'">
+    <header class="dlg-head">
+      <h3>{{ d.kind === 'create' ? 'New video or Short' : 'Video details' }}</h3>
+      <button type="button" class="icon" (click)="closeDialog()" aria-label="Close">✕</button>
+    </header>
+
+    <div class="dlg-body">
+      <label class="fld">
+        <span>Name</span>
+        <input type="text" maxlength="120" [value]="f.name" (input)="patchForm({ name: $any($event.target).value })" />
+      </label>
+
+      <div class="fld">
+        <span>Format</span>
+        <div class="fmt-tiles">
+          @for (opt of formats; track opt.value) {
+            <button type="button" class="fmt-tile" [class.on]="f.format === opt.value" (click)="setFormat(opt.value)">
+              <span class="fmt-shape" [class]="'fmt-shape f-' + opt.value.toLowerCase()"></span>
+              <strong>{{ opt.label }}</strong>
+              <small>{{ opt.ratio }}</small>
+            </button>
+          }
+        </div>
+      </div>
+
+      @if (d.kind === 'create') {
+        <div class="fld">
+          <span>Start from</span>
+          <div class="mode-list">
+            <button type="button" class="mode-opt" [class.on]="f.mode === 'Blank'" (click)="patchForm({ mode: 'Blank' })">
+              <strong>Empty timeline</strong>
+              <small>All project assets are available; you pick what goes in.</small>
+            </button>
+            <button type="button" class="mode-opt" [class.on]="f.mode === 'Copy'" (click)="patchForm({ mode: 'Copy' })"
+                    [disabled]="edits().length === 0">
+              <strong>Copy of a video</strong>
+              <small>Same clips, edits and audio - e.g. to re-frame it as a Short.</small>
+            </button>
+            <button type="button" class="mode-opt" [class.on]="f.mode === 'Range'" (click)="patchForm({ mode: 'Range' })"
+                    [disabled]="edits().length === 0">
+              <strong>Part of a video</strong>
+              <small>Keep only the time range you choose.</small>
+            </button>
+          </div>
+        </div>
+
+        @if (f.mode !== 'Blank') {
+          <label class="fld">
+            <span>Video</span>
+            <select [value]="f.sourceEditId ?? ''" (change)="setSource($any($event.target).value)">
+              @for (e of edits(); track e.id) {
+                <option [value]="e.id" [selected]="e.id === f.sourceEditId">{{ e.name }} ({{ ratio(e.format) }}, {{ clock(e.durationSeconds) }})</option>
+              }
+            </select>
+          </label>
+        }
+
+        @if (f.mode === 'Range') {
+          <div class="fld">
+            <span>Part to keep <small class="muted">- play it, then drag the edges or mark start / end at the playhead</small></span>
+            @if (projectId(); as pid) {
+              @if (formSource(); as src) {
+                <app-range-picker
+                  [projectId]="pid"
+                  [source]="src"
+                  [start]="f.rangeStart"
+                  [end]="f.rangeEnd"
+                  [targetFormat]="f.format"
+                  [maxSeconds]="f.format === 'Short' ? shortsMax : null"
+                  (rangeChange)="setRangeBoth($event.start, $event.end)"
+                  (lengthKnown)="setSourceLength(src.id, $event)" />
+              }
+            }
+          </div>
+        }
+      }
+
+      <div class="fld-row">
+        <label class="fld">
+          <span>Category</span>
+          <input type="text" list="vp-cats" maxlength="40" placeholder="e.g. Teaser" [value]="f.category"
+                 (input)="patchForm({ category: $any($event.target).value })" />
+          <datalist id="vp-cats">
+            @for (c of categorySuggestions(); track c) { <option [value]="c"></option> }
+          </datalist>
+        </label>
+        <label class="fld">
+          <span>Tags <small class="muted">(comma separated)</small></span>
+          <input type="text" placeholder="hindi, bhajan" [value]="f.tags" (input)="patchForm({ tags: $any($event.target).value })" />
+        </label>
+      </div>
+    </div>
+
+    <footer class="dlg-foot">
+      @if (formError(); as err) { <span class="dlg-err">{{ err }}</span> }
+      @if (d.kind === 'create') {
+        <label class="open-after">
+          <input type="checkbox" [checked]="f.openAfter" (change)="patchForm({ openAfter: $any($event.target).checked })" />
+          Open in editor
+        </label>
+      }
+      <button type="button" class="secondary" (click)="closeDialog()">Cancel</button>
+      <button type="button" (click)="submit()" [disabled]="!!formError() || busy()">
+        {{ d.kind === 'create' ? 'Create' : 'Save' }}
+      </button>
+    </footer>
+  </div>
+}

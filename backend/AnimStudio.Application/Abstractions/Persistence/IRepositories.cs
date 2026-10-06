@@ -12,8 +12,24 @@ public interface IProjectRepository
 {
     Task<Project?> GetAsync(string id, CancellationToken ct);
     Task<IReadOnlyList<Project>> ListAsync(string userId, CancellationToken ct);
+
+    /// <summary>Every user's projects. Administration only - e.g. counting what uses a brand channel.</summary>
+    Task<IReadOnlyList<Project>> ListAllAsync(CancellationToken ct);
     Task InsertAsync(Project project, CancellationToken ct);
     Task ReplaceAsync(Project project, CancellationToken ct);
+    Task DeleteAsync(string id, CancellationToken ct);
+}
+
+/// <summary>
+/// A project's cuts (videos, Shorts...). Listing leaves <see cref="ProjectEdit.DraftJson"/>
+/// out: a timeline can run to megabytes, and the list page never needs one.
+/// </summary>
+public interface IProjectEditRepository
+{
+    Task<ProjectEdit?> GetAsync(string id, CancellationToken ct);
+    Task<IReadOnlyList<ProjectEdit>> ListByProjectAsync(string projectId, CancellationToken ct);
+    Task InsertAsync(ProjectEdit edit, CancellationToken ct);
+    Task ReplaceAsync(ProjectEdit edit, CancellationToken ct);
     Task DeleteAsync(string id, CancellationToken ct);
 }
 

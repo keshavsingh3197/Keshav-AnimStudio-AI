@@ -41,6 +41,20 @@ public sealed class SqlProjectRepository(ISqlConnectionFactory factory) : IProje
         return result is string json ? SqlJson.Deserialize<Project>(json) : null;
     }
 
+    public async Task<IReadOnlyList<Project>> ListAllAsync(CancellationToken ct)
+    {
+        await using var conn = await factory.OpenConnectionAsync(ct).ConfigureAwait(false);
+        await using var cmd = new SqlCommand("SELECT DataJson FROM Projects", conn);
+
+        var list = new List<Project>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
+        {
+            if (SqlJson.Deserialize<Project>(reader.GetString(0)) is { } item) list.Add(item);
+        }
+        return list;
+    }
+
     public async Task<IReadOnlyList<Project>> ListAsync(string userId, CancellationToken ct)
     {
         await using var conn = await factory.OpenConnectionAsync(ct).ConfigureAwait(false);
@@ -644,11 +658,15 @@ public sealed class SqlRenderJobRepository(ISqlConnectionFactory factory, TimePr
         var expiresAt = now + leaseDuration;
 
         await using var conn = await factory.OpenConnectionAsync(ct).ConfigureAwait(false);
-        await using var tx = conn.BeginTransaction(IsolationLevel.RepeatableRead);
+        // ReadCommitted, not RepeatableRead: RepeatableRead kept a lock on every row the
+        // scan touched until commit, which blocked heartbeats and the API's reads of the
+        // same table. UPDLOCK + ROWLOCK + READPAST is the standard queue claim: it locks
+        // only the row it picks and skips rows another worker already holds.
+        await using var tx = conn.BeginTransaction(IsolationLevel.ReadCommitted);
 
         const string findSql = """
             SELECT TOP 1 Id, DataJson
-            FROM RenderJobs WITH (UPDLOCK, READPAST)
+            FROM RenderJobs WITH (UPDLOCK, ROWLOCK, READPAST)
             WHERE Attempts < @MaxAttempts
               AND (Status = 0 OR (Status = 1 AND LeaseExpiresAt < @Now))
             ORDER BY CreatedAt ASC
@@ -909,8 +927,7 @@ public sealed class SqlRenderJobRepository(ISqlConnectionFactory factory, TimePr
             UPDATE RenderJobs
             SET Status = 0, Progress = 0, ScenesDone = 0, Attempts = 0,
                 CurrentStage = 0, Message = 'Queued again', LeaseOwner = NULL,
-                LeaseExpiresAt = NULL, StartedAt = NULL, CompletedAt = NULL,
-                DataJson = @DataJson
+                LeaseExpiresAt = NULL, StartedAt = NULL, DataJson = @DataJson
             WHERE Id = @Id AND Status IN (3, 4)
             """;
         await using var updateCmd = new SqlCommand(updateSql, conn);

@@ -1,3 +1,4 @@
+using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Rendering;
 
 namespace AnimStudio.Application.Rendering.Models;
@@ -24,6 +25,12 @@ public sealed record WatermarkPlan
 
     /// <summary>A file in the workspace holding exactly the line to draw, no newline.</summary>
     public string? TextRelativePath { get; init; }
+
+    /// <summary>
+    /// Characters in that line. drawtext cannot size text to a width, so a mark fitted
+    /// into an erase box is sized from this instead.
+    /// </summary>
+    public int TextLength { get; init; }
 
     /// <summary>The logo image, already materialized into the workspace.</summary>
     public string? LogoRelativePath { get; init; }
@@ -160,6 +167,12 @@ public sealed record ClipRenderPlan
 
     public WatermarkPlan? Watermark { get; init; }
 
+    /// <summary>
+    /// Set only for a composed end card: the clip is then drawn from a plain background
+    /// rather than decoded from <see cref="SourceRelativePath"/>, which is ignored.
+    /// </summary>
+    public EndCardPlan? EndCard { get; init; }
+
     public EncoderProfile Encoder { get; init; } = EncoderProfile.Default;
 
     /// <summary>
@@ -180,12 +193,55 @@ public sealed record ClipRenderPlan
     public double CropTop { get; init; }
     public double CropBottom { get; init; }
 
+    /// <summary>
+    /// Regions of the SOURCE frame to wipe, already normalized. Applied before crop and
+    /// fit, and so before our own watermark is composited on top.
+    /// </summary>
+    public IReadOnlyList<EraseRegionSpec> EraseRegions { get; init; } = [];
+
     /// <summary>Original probe width of source video, if known.</summary>
     public int? SourceWidth { get; init; }
 
     /// <summary>Original probe height of source video, if known.</summary>
     public int? SourceHeight { get; init; }
 
+    /// <summary>
+    /// When true, the source clip already matches canvas dimensions, frame rate, pixel format,
+    /// audio channels/sample rate, has no crops, trims, watermarks or transition padding,
+    /// allowing Step 2 to bypass the filtergraph entirely with direct stream copy (-c copy).
+    /// </summary>
+    public bool CanStreamCopy { get; init; }
+
     /// <summary>True when any crop edge is non-zero.</summary>
     public bool HasCrop => CropLeft > 0 || CropRight > 0 || CropTop > 0 || CropBottom > 0;
 }
+
+/// <summary>
+/// A "support us" end card resolved to pixels and workspace-relative paths, the same way
+/// <see cref="WatermarkPlan"/> is: texts are files (drawtext's option parser would eat a
+/// URL), and every coordinate is an integer computed once against the canvas.
+/// </summary>
+/// <param name="BoxX">Left of the white quiet-zone square behind the QR code.</param>
+/// <param name="BoxSize">Side of that square; zero when there is no QR code.</param>
+/// <param name="QrSize">The code is fitted inside this, leaving the quiet zone around it.</param>
+/// <param name="Lines">Every line of text, top to bottom, each with the font for its script.</param>
+/// <param name="FadeInSeconds">
+/// Fade up from black. This stands in for a transition into the card: a real crossfade
+/// would force the whole stitched video to be re-encoded, where a cut into a card that
+/// fades up costs nothing and still reads as a dip to black.
+/// </param>
+public sealed record EndCardPlan(
+    string BackgroundRgb,
+    string TextRgb,
+    string? QrRelativePath,
+    int BoxX, int BoxY, int BoxSize, int QrSize,
+    IReadOnlyList<EndCardLine> Lines,
+    double FadeInSeconds = 0);
+
+/// <summary>
+/// One line of an end card. The font is per line because it is per SCRIPT: a Latin face
+/// has no Devanagari glyphs and draws Hindi as a row of boxes, so a Hindi line gets a
+/// face that has them.
+/// </summary>
+public sealed record EndCardLine(
+    string TextRelativePath, int Y, int FontPixels, string FontFilePath, double Opacity = 1.0);

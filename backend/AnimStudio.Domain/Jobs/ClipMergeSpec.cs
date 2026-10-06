@@ -57,6 +57,9 @@ public sealed class ClipMergeSpec
     public int? OutputWidth { get; set; }
     public int? OutputHeight { get; set; }
 
+    /// <summary>Picture quality of the delivered encode. Defaults to High.</summary>
+    public ExportQuality Quality { get; set; } = ExportQuality.High;
+
     public WatermarkSettings Watermark { get; set; } = new();
     public OutroSettings Outro { get; set; } = new();
 
@@ -276,6 +279,175 @@ public sealed class TimelineItemTransformSpec
 
     /// <summary>Returns true when any crop edge is non-zero (crop filter needed).</summary>
     public bool HasCrop => CropLeft > 0 || CropRight > 0 || CropTop > 0 || CropBottom > 0;
+
+    /// <summary>
+    /// Areas of the SOURCE frame to wipe before anything else happens to it - another
+    /// channel's logo or a stock-site mark burned into footage the user is licensed to
+    /// edit. Applied ahead of crop and fit, so the region means the same patch of the
+    /// footage however the clip is later framed, and our own watermark is drawn after.
+    /// </summary>
+    public List<EraseRegionSpec> EraseRegions { get; set; } = [];
+}
+
+/// <summary>How an erased region is filled.</summary>
+public enum EraseStyle
+{
+    /// <summary>A heavy blur of the region's own pixels. Blends into moving footage.</summary>
+    Blur = 0,
+
+    /// <summary>A solid box. Removes the mark completely, at the cost of being visible.</summary>
+    Fill = 1,
+
+    /// <summary>
+    /// Covers the mark with the footage right next to it, feathered in. On sky, water,
+    /// grass or any other texture it reads as if nothing was ever there.
+    /// </summary>
+    Patch = 2,
+
+    /// <summary>
+    /// <see cref="Patch"/>, then the project's own watermark drawn inside the box - the old
+    /// mark is replaced by ours in the very same spot.
+    /// </summary>
+    Brand = 3
+}
+
+/// <summary>Which neighbouring footage a <see cref="EraseStyle.Patch"/> is copied from.</summary>
+public enum EraseSource
+{
+    /// <summary>Whichever side has room for a full copy; above or below first.</summary>
+    Auto = 0,
+    Above = 1,
+    Below = 2,
+    Left = 3,
+    Right = 4
+}
+
+/// <summary>
+/// One rectangle of a clip's source frame to erase, in PERCENT of the source frame so it
+/// survives any resolution and needs no probe - a phone clip's probed size ignores its
+/// rotation, and a pixel rectangle measured against the wrong orientation lands nowhere.
+/// </summary>
+public sealed class EraseRegionSpec
+{
+    /// <summary>Ceiling per clip. Each region is one more pass in the filtergraph.</summary>
+    public const int MaxPerClip = 8;
+
+    /// <summary>
+    /// Smallest region side, in percent. Below it the box is too small to hold a mark and
+    /// too small for the blur's radius to mean anything.
+    /// </summary>
+    public const double MinSizePercent = 1;
+
+    public double X { get; set; }
+    public double Y { get; set; }
+    public double Width { get; set; } = 20;
+    public double Height { get; set; } = 10;
+
+    public EraseStyle Style { get; set; } = EraseStyle.Blur;
+
+    /// <summary><c>#rrggbb</c> for <see cref="EraseStyle.Fill"/>; anything else is black.</summary>
+    public string? FillColor { get; set; }
+
+    /// <summary>
+    /// 0-100. How hard a <see cref="EraseStyle.Blur"/> smears; for a patch, how much the
+    /// copied footage is softened so its detail does not repeat visibly.
+    /// </summary>
+    public double Strength { get; set; } = DefaultStrength;
+
+    /// <summary>
+    /// 0-100. How far the edge fades into the surrounding footage, as a share of the box.
+    /// The fade is OUTSIDE the box, so the box itself stays fully covered.
+    /// </summary>
+    public double Feather { get; set; } = DefaultFeather;
+
+    /// <summary>0-100. Density of a <see cref="EraseStyle.Fill"/>; 100 is solid.</summary>
+    public double Opacity { get; set; } = 100;
+
+    /// <summary>Where a patch copies its footage from.</summary>
+    public EraseSource Source { get; set; } = EraseSource.Auto;
+
+    /// <summary>
+    /// <see cref="EraseStyle.Brand"/> only: still draw our watermark at its usual corner too.
+    /// Off by default - the box already carries the mark, and two of them looks like a mistake.
+    /// </summary>
+    public bool KeepCornerMark { get; set; }
+
+    public const double DefaultStrength = 60;
+    public const double DefaultFeather = 30;
+
+    /// <summary>
+    /// The region pulled inside the frame with a usable size, or null when it covers
+    /// nothing. Done here rather than trusted from the request: the values end up inside
+    /// an ffmpeg expression, and an out-of-frame crop fails the whole render.
+    /// </summary>
+    public EraseRegionSpec? Normalized()
+    {
+        static double Clamp(double v, double lo, double hi) =>
+            double.IsFinite(v) ? Math.Clamp(v, lo, hi) : lo;
+
+        var x = Clamp(X, 0, 100 - MinSizePercent);
+        var y = Clamp(Y, 0, 100 - MinSizePercent);
+        var w = Clamp(Width, 0, 100 - x);
+        var h = Clamp(Height, 0, 100 - y);
+        if (w < MinSizePercent || h < MinSizePercent) return null;
+
+        return new EraseRegionSpec
+        {
+            X = x, Y = y, Width = w, Height = h,
+            Style = Enum.IsDefined(Style) ? Style : EraseStyle.Blur,
+            FillColor = IsHexColor(FillColor) ? FillColor : "#000000",
+            Strength = Clamp(Strength, 0, 100),
+            Feather = Clamp(Feather, 0, 100),
+            Opacity = double.IsFinite(Opacity) ? Math.Clamp(Opacity, 0, 100) : 100,
+            Source = Enum.IsDefined(Source) ? Source : EraseSource.Auto,
+            KeepCornerMark = KeepCornerMark
+        };
+    }
+
+    /// <summary>
+    /// The box grown by its feather - the area actually redrawn, in percent of the frame.
+    /// The fade lives in the margin, so the mark under the box is never half-visible.
+    /// </summary>
+    public (double X, double Y, double Width, double Height) Outer()
+    {
+        var mx = Width * Feather / 200;
+        var my = Height * Feather / 200;
+        var x0 = Math.Max(0, X - mx);
+        var y0 = Math.Max(0, Y - my);
+        return (x0, y0, Math.Min(100, X + Width + mx) - x0, Math.Min(100, Y + Height + my) - y0);
+    }
+
+    /// <summary>
+    /// Top-left, in percent, of the footage a patch copies over <see cref="Outer"/>: the
+    /// same-sized area one full box away, so the copy never contains the mark itself. A
+    /// side without room is skipped by Auto; named explicitly it is clamped into frame.
+    /// </summary>
+    public (double X, double Y) PatchOrigin()
+    {
+        var (ox, oy, ow, oh) = Outer();
+        var room = new Dictionary<EraseSource, (double X, double Y, bool Fits)>
+        {
+            [EraseSource.Above] = (ox, oy - oh, oy - oh >= 0),
+            [EraseSource.Below] = (ox, oy + oh, oy + 2 * oh <= 100),
+            [EraseSource.Left] = (ox - ow, oy, ox - ow >= 0),
+            [EraseSource.Right] = (ox + ow, oy, ox + 2 * ow <= 100),
+        };
+
+        var side = Source;
+        if (side == EraseSource.Auto)
+        {
+            side = new[] { EraseSource.Above, EraseSource.Below, EraseSource.Left, EraseSource.Right }
+                .Where(s => room[s].Fits)
+                .DefaultIfEmpty(oy >= 100 - oy - oh ? EraseSource.Above : EraseSource.Below)
+                .First();
+        }
+
+        var (px, py, _) = room[side];
+        return (Math.Clamp(px, 0, 100 - ow), Math.Clamp(py, 0, 100 - oh));
+    }
+
+    public static bool IsHexColor(string? value) =>
+        value is { Length: 7 } && value[0] == '#' && value.Skip(1).All(char.IsAsciiHexDigit);
 }
 
 public sealed class TimelineItemSpec

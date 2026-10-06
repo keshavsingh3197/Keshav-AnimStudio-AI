@@ -46,6 +46,17 @@ public sealed partial class FfmpegCapabilityProbe(
             var buildConf = await RunAsync(workingDirectory, ["-hide_banner", "-buildconf"], ct);
             var encoders = await RunAsync(workingDirectory, ["-hide_banner", "-encoders"], ct);
 
+            var minimum = ParseMinimum(_options.MinimumVersion);
+            if (major < minimum.Major || (major == minimum.Major && minor < minimum.Minor))
+            {
+                return FfmpegCapabilities.Unavailable(
+                    $"The installed renderer is {major}.{minor}; {_options.MinimumVersion} or newer is required.");
+            }
+
+            // --- Hardware encoder detection (run in parallel, each is a short test encode) ---
+            var (nvenc, qsv, videotoolbox) = await ProbeHardwareEncodersAsync(
+                workingDirectory, encoders.StdOut, ct).ConfigureAwait(false);
+
             var capabilities = new FfmpegCapabilities
             {
                 IsAvailable = true,
@@ -63,20 +74,17 @@ public sealed partial class FfmpegCapabilityProbe(
                 HasAlimiter = HasFilter(filters.StdOut, "alimiter"),
                 HasGblur = HasFilter(filters.StdOut, "gblur"),
                 HasLibx264 = HasEncoder(encoders.StdOut, "libx264"),
-                HasAac = HasEncoder(encoders.StdOut, "aac")
+                HasAac = HasEncoder(encoders.StdOut, "aac"),
+                HasNvenc = nvenc,
+                HasQsv = qsv,
+                HasVideoToolbox = videotoolbox
             };
 
-            var minimum = ParseMinimum(_options.MinimumVersion);
-            if (major < minimum.Major || (major == minimum.Major && minor < minimum.Minor))
-            {
-                return FfmpegCapabilities.Unavailable(
-                    $"The installed renderer is {major}.{minor}; {_options.MinimumVersion} or newer is required.");
-            }
-
+            var hwLabel = capabilities.BestHardwareEncoder is { } hw ? hw : "CPU";
             logger.LogInformation(
-                "Renderer ready: {Version} (libass={Libass}, xfade={Xfade}, zoompan={Zoompan})",
+                "Renderer ready: {Version} (libass={Libass}, xfade={Xfade}, zoompan={Zoompan}, hw={HwEncoder})",
                 capabilities.Version, capabilities.HasLibass, capabilities.HasXfade,
-                capabilities.HasZoompan);
+                capabilities.HasZoompan, hwLabel);
 
             return capabilities;
         }
@@ -89,13 +97,72 @@ public sealed partial class FfmpegCapabilityProbe(
         }
     }
 
-    private Task<FfmpegResult> RunAsync(string workingDirectory, string[] arguments, CancellationToken ct) =>
+    /// <summary>
+    /// Probes each hardware encoder by attempting a single-frame test encode from a
+    /// synthetic lavfi color source to a null sink. This is the most reliable detection
+    /// method: an encoder listed in -encoders may be present but non-functional (e.g.,
+    /// h264_nvenc listed but no NVIDIA GPU or driver installed). A successful exit code
+    /// means the full pipeline initialised and the encoder is genuinely usable.
+    /// All three probes run concurrently to minimise startup overhead.
+    /// </summary>
+    private async Task<(bool Nvenc, bool Qsv, bool VideoToolbox)> ProbeHardwareEncodersAsync(
+        string workingDirectory, string encoderList, CancellationToken ct)
+    {
+        // Only probe if the encoder is listed — avoids spawning processes on machines
+        // that clearly have nothing, while still catching the "listed but broken" case.
+        var wantNvenc = HasEncoder(encoderList, "h264_nvenc");
+        var wantQsv = HasEncoder(encoderList, "h264_qsv");
+        var wantVtb = HasEncoder(encoderList, "h264_videotoolbox");
+
+        Task<bool> ProbeEncoder(string codec) => Task.Run(async () =>
+        {
+            try
+            {
+                // Single frame, small resolution, null output - completes in <200ms. Not tiny:
+                // QSV rejects frames below its minimum ("Current resolution is unsupported")
+                // and NVENC has a minimum too, so 16x16 reported working encoders as broken.
+                string[] args =
+                [
+                    "-hide_banner", "-loglevel", "error",
+                    "-f", "lavfi", "-i", "color=c=black:s=320x240:d=0.1",
+                    "-c:v", codec,
+                    "-frames:v", "1",
+                    "-f", "null", "-"
+                ];
+                var result = await RunAsync(workingDirectory, args, ct, failureExpected: true).ConfigureAwait(false);
+                if (result.ExitCode == 0) return true;
+
+                var reason = result.StderrTail
+                    .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .FirstOrDefault() ?? "no error output";
+                logger.LogInformation(
+                    "Hardware encoder {Codec} is listed but unusable (exit {ExitCode}: {Reason}); using another encoder.",
+                    codec, result.ExitCode, reason);
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }, ct);
+
+        var nvencTask = wantNvenc ? ProbeEncoder("h264_nvenc") : Task.FromResult(false);
+        var qsvTask = wantQsv ? ProbeEncoder("h264_qsv") : Task.FromResult(false);
+        var vtbTask = wantVtb ? ProbeEncoder("h264_videotoolbox") : Task.FromResult(false);
+
+        await Task.WhenAll(nvencTask, qsvTask, vtbTask).ConfigureAwait(false);
+        return (await nvencTask, await qsvTask, await vtbTask);
+    }
+
+    private Task<FfmpegResult> RunAsync(
+        string workingDirectory, string[] arguments, CancellationToken ct, bool failureExpected = false) =>
         runner.RunAsync(new FfmpegInvocation
         {
             Tool = FfmpegTool.Ffmpeg,
             WorkingDirectory = workingDirectory,
             Arguments = arguments,
-            Timeout = TimeSpan.FromSeconds(_options.ProbeTimeoutSeconds)
+            Timeout = TimeSpan.FromSeconds(_options.ProbeTimeoutSeconds),
+            FailureExpected = failureExpected
         }, progress: null, ct);
 
     /// <summary>

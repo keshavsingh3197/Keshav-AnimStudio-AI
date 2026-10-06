@@ -3,21 +3,28 @@ using AnimStudio.Api.Common;
 using AnimStudio.Api.Security;
 using AnimStudio.Application.Security;
 using AnimStudio.Infrastructure;
+using AnimStudio.Infrastructure.Settings;
+using AnimStudio.Infrastructure.Storage;
 using KeshavSingh.Core;
 using Microsoft.AspNetCore.Mvc;
 
-// Ensure AI_STUDIO directories exist on startup
-Directory.CreateDirectory("D:/AI_STUDIO/objects");
-Directory.CreateDirectory("D:/AI_STUDIO/temp");
-Directory.CreateDirectory("D:/AI_STUDIO/downloads");
-Directory.CreateDirectory("D:/AI_STUDIO/chunks");
-Directory.CreateDirectory("D:/AI_STUDIO/logs");
-Directory.CreateDirectory("D:/AI_STUDIO/thumbnails");
-
 var builder = WebApplication.CreateBuilder(args);
 
-// Write rolling logs to D:/AI_STUDIO/logs/ — one file per day.
-builder.Logging.AddProvider(new DailyFileLoggerProvider("D:/AI_STUDIO/logs", "animstudio"));
+// Every working folder hangs off Storage:DataRoot (see AppDataPaths), so the studio's files
+// land where the config says - never under bin/ - and moving drives is one setting.
+var dataPaths = AppDataPaths.Resolve(builder.Configuration, builder.Environment.ContentRootPath);
+dataPaths.EnsureCreated();
+builder.Services.AddSingleton(dataPaths);
+
+// Rolling logs under <DataRoot>/logs - one file per day.
+builder.Logging.AddProvider(new DailyFileLoggerProvider(dataPaths.Logs, "animstudio"));
+
+// Settings changed in the admin console live in the WebSettings table. This source goes
+// last, so a stored value wins over appsettings.json and the environment; it is filled from
+// the database just before the app starts (below) and on every save or refresh.
+var webSettings = new WebSettingsConfigurationSource();
+((IConfigurationBuilder)builder.Configuration).Add(webSettings);
+builder.Services.AddSingleton(webSettings);
 
 builder.Services.AddAnimStudioInfrastructure(builder.Configuration);
 
@@ -67,6 +74,9 @@ builder.Services.AddKeshavSsoCors(
     allowLocalhost: builder.Environment.IsDevelopment());
 
 var app = builder.Build();
+
+// Before any hosted service starts and reads its options.
+await WebSettingsService.LoadAtStartupAsync(app.Services, CancellationToken.None);
 
 app.UseExceptionHandler();
 

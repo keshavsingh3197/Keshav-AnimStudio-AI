@@ -10,11 +10,23 @@
   </div>
   <div class="library-header-stats">
     <span class="stat-pill"><span class="dot"></span> {{ store.assets().length }} Items</span>
-    <span class="stat-pill"><span class="icon">💾</span> {{ formatFileSize(totalStorageBytes()) }} Storage</span>
+    <span class="stat-pill">
+      <span class="icon">💾</span>
+      {{ formatFileSize(dynamicStorageSummary().usedBytes) }} Storage
+      @if (dynamicStorageSummary().capacityBytes) {
+        <span class="storage-bar-mini">
+          <span class="storage-bar-fill"
+            [style.width.%]="Math.min(100, (dynamicStorageSummary().usedBytes / dynamicStorageSummary().capacityBytes!) * 100)">
+          </span>
+        </span>
+      }
+    </span>
   </div>
 </div>
 
 <div class="library-layout"
+     appFileDrop="image/png,image/jpeg,image/webp,audio/wav,audio/mpeg,audio/mp4,video/mp4,.srt,.vtt"
+     [fileDropMultiple]="true" [fileDropPasteOnly]="true" (filesDropped)="processUploadFiles($event)"
      (dragover)="onFileDragOver($event)"
      (dragleave)="onFileDragLeave($event)"
      (drop)="onFileDrop($event)">
@@ -58,28 +70,38 @@
         <span class="folder-name"><span class="f-icon">📝</span> Subtitles</span>
         <span class="folder-count">{{ subtitleCount() }}</span>
       </button>
+
+      <!-- Exports special folder -->
+      @if (exportsFolder(); as ef) {
+        <button type="button" class="folder-item exports-folder-item"
+                [class.active]="selectedFolderId() === ef.id"
+                (click)="selectFolder(ef.id)">
+          <span class="folder-name"><span class="f-icon">🎬</span> Exports</span>
+          <span class="folder-count">{{ exportCount() }}</span>
+        </button>
+      }
     </div>
 
     <div class="sidebar-section-title" style="margin-top: 1.25rem;">Custom Folders</div>
     <div class="folder-list">
       @for (folder of store.folders(); track folder.id) {
-        <div class="folder-item"
-             [class.active]="selectedFolderId() === folder.id"
-             [class.drag-over]="dragTargetFolder() === folder.id"
-             (click)="selectFolder(folder.id)"
-             (dragover)="onDragOver($event, folder.id)"
-             (dragleave)="onDragLeave($event)"
-             (drop)="onDropToFolder($event, folder.id)">
-          <span class="folder-name">
-            <span class="f-icon">📂</span>
-            {{ folder.name }}
-          </span>
-          @if (folder.name !== 'Exports') {
+        @if (folder.name !== 'Exports') {
+          <div class="folder-item"
+               [class.active]="selectedFolderId() === folder.id"
+               [class.drag-over]="dragTargetFolder() === folder.id"
+               (click)="selectFolder(folder.id)"
+               (dragover)="onDragOver($event, folder.id)"
+               (dragleave)="onDragLeave($event)"
+               (drop)="onDropToFolder($event, folder.id)">
+            <span class="folder-name">
+              <span class="f-icon">📂</span>
+              {{ folder.name }}
+            </span>
             <div class="folder-actions">
               <button type="button" class="danger-icon-btn" (click)="deleteFolder(folder.id); $event.stopPropagation()" title="Delete folder">×</button>
             </div>
-          }
-        </div>
+          </div>
+        }
       }
     </div>
 
@@ -100,7 +122,7 @@
     <!-- Quick Dropzone Hint -->
     <div class="sidebar-dropzone-hint">
       <span class="hint-icon">📥</span>
-      <span>Drag & drop media files anywhere to upload instantly</span>
+      <span>Drag &amp; drop media files anywhere to upload instantly</span>
     </div>
   </aside>
 
@@ -112,6 +134,7 @@
         <label for="upload" class="upload-btn" title="Upload video, audio, image or subtitle files">
           <span class="btn-icon">⬆</span> Upload Media
         </label>
+        <span class="file-drop-hint">or drop / Ctrl+V anywhere</span>
         <input id="upload" type="file" multiple style="display: none"
                accept="image/png,image/jpeg,image/webp,audio/wav,audio/mpeg,audio/mp4,video/mp4,.srt,.vtt"
                (change)="upload($event)" />
@@ -132,9 +155,9 @@
         <!-- Search Box -->
         <div class="search-box">
           <span class="search-icon">🔍</span>
-          <input type="text" [(ngModel)]="searchQuery" placeholder="Search assets by name..." />
+          <input type="text" [(ngModel)]="searchQuery" (ngModelChange)="currentPage.set(1)" placeholder="Search assets by name..." />
           @if (searchQuery()) {
-            <button type="button" class="search-clear-btn" (click)="searchQuery.set('')">&times;</button>
+            <button type="button" class="search-clear-btn" (click)="searchQuery.set(''); currentPage.set(1)">&times;</button>
           }
         </div>
 
@@ -176,15 +199,15 @@
     } @else if (viewMode() === 'grid') {
       <!-- ── Visual Grid View ──────────────────────────────────────── -->
       <div class="asset-grid">
-        @for (asset of filteredAssets(); track asset.id; let i = $index) {
+        @for (asset of paginatedAssets; track asset.id; let i = $index) {
           <div class="asset-card"
                draggable="true"
-               (dragstart)="onDragStart($event, asset, i)"
-               (dragover)="onDragOverRow($event, i)"
+               (dragstart)="onDragStart($event, asset, (currentPage() - 1) * pageSize() + i)"
+               (dragover)="onDragOverRow($event, (currentPage() - 1) * pageSize() + i)"
                (dragleave)="onDragLeave($event)"
-               (drop)="onDropRow($event, i)"
-               [class.drag-over-card]="dragOverIndex() === i"
-               [class.is-dragging]="dragAssetIndex() === i"
+               (drop)="onDropRow($event, (currentPage() - 1) * pageSize() + i)"
+               [class.drag-over-card]="dragOverIndex() === (currentPage() - 1) * pageSize() + i"
+               [class.is-dragging]="dragAssetIndex() === (currentPage() - 1) * pageSize() + i"
                [class.confirming]="confirming() === asset.id">
             <!-- Media Thumbnail Container -->
             <div class="asset-thumb-container" (click)="openPreview(asset)">
@@ -284,13 +307,13 @@
             </tr>
           </thead>
           <tbody>
-            @for (asset of filteredAssets(); track asset.id; let i = $index) {
-              <tr draggable="true" 
-                  (dragstart)="onDragStart($event, asset, i)" 
-                  (dragover)="onDragOverRow($event, i)"
+            @for (asset of paginatedAssets; track asset.id; let i = $index) {
+              <tr draggable="true"
+                  (dragstart)="onDragStart($event, asset, (currentPage() - 1) * pageSize() + i)"
+                  (dragover)="onDragOverRow($event, (currentPage() - 1) * pageSize() + i)"
                   (dragleave)="onDragLeave($event)"
-                  (drop)="onDropRow($event, i)"
-                  [class.drag-over-row]="dragOverIndex() === i"
+                  (drop)="onDropRow($event, (currentPage() - 1) * pageSize() + i)"
+                  [class.drag-over-row]="dragOverIndex() === (currentPage() - 1) * pageSize() + i"
                   style="cursor: grab">
                 <td class="muted" style="cursor: grab; text-align: center; font-size: 1.1rem;" title="Drag to reorder">&#9776;</td>
                 <td>
@@ -337,6 +360,28 @@
             }
           </tbody>
         </table>
+      </div>
+    }
+
+    <!-- Pagination Controls -->
+    @if (totalPages > 1) {
+      <div class="pagination-bar">
+        <div class="pagination-info">
+          Showing {{ (currentPage() - 1) * pageSize() + 1 }} –
+          {{ currentPage() * pageSize() > filteredAssets().length ? filteredAssets().length : currentPage() * pageSize() }}
+          of {{ filteredAssets().length }} assets
+        </div>
+        <div class="pagination-buttons">
+          <button type="button" class="page-btn" [disabled]="currentPage() === 1" (click)="prevPage()">‹ Prev</button>
+          @for (page of pageNumbers(); track page) {
+            @if (page > 0) {
+              <button type="button" class="page-btn num" [class.active]="currentPage() === page" (click)="setPage(page)">{{ page }}</button>
+            } @else {
+              <span class="page-ellipsis">…</span>
+            }
+          }
+          <button type="button" class="page-btn" [disabled]="currentPage() === totalPages" (click)="nextPage()">Next ›</button>
+        </div>
       </div>
     }
   </main>

@@ -57,6 +57,32 @@ Craft viral Shorts, Reels, YouTube videos, animated stories, and narrated slides
 - **Timeline Music Cues**: Place multiple audio tracks at specific timestamps with independent volume sliders.
 - **Intelligent Audio Ducking**: Automatically lower or mute video sound when a background music cue begins playing.
 
+### 🎵 Music Release Kit
+- **Distributor-Ready Master**: Two-pass loudness normalisation to -14 LUFS / -1 dBTP (or -16 / -11), 16- or 24-bit WAV at 44.1/48/96 kHz.
+- **Artwork & Promo Videos**: 3000×3000 cover, a full-length 16:9 YouTube visualizer, and an 8-second 9:16 loop for Spotify Canvas, Reels and Shorts.
+- **Release Sheet**: Metadata checked the way distributors check it (ISRC, UPC check digit, credits-in-title), exported as a copy-paste sheet and JSON. Upload the kit to the distributor of your choice; stores only accept releases through distributors.
+- **Square Cover Crop & Remembered Details**: Crop a non-square cover yourself instead of a blind centre crop, and optionally keep artist, credits and label lines on your browser for the next release.
+- **Go Live From the Kit**: Premiere the song (cover + live waveform) or its visualizer on YouTube Live in one click.
+
+### 🔴 Go Live
+- **Stream to YouTube Live without OBS**: The server is the encoder and sends over RTMPS. Streams run on the server, so closing the tab doesn't stop them.
+- **Playlists From Anywhere**: Mix uploads, project renders, Clip Studio exports, project media, release kits and links (YouTube, Vimeo, Instagram, TikTok, X and more) in one stream. Reorder, rename, shuffle, and give songs a cover.
+- **Prepare → Preview → Go Live**: Every item is converted to the exact stream format first, so you can watch each one, or the whole program, before anything is sent. Sending then just copies the files, so a 24/7 loop barely uses the CPU.
+- **Saved Keys per Channel**: YouTube stream keys don't expire until reset, so admins save one per brand channel (encrypted, only ever shown masked). If YouTube refuses a key, the channel is flagged and you're asked to set it again. You can still paste a one-off key.
+- **Resilient**: Automatic reconnect from the item that was playing, "go live again" without re-preparing, 720p or 1080p, landscape or vertical (Shorts feed).
+
+### 📷 Camera Studio (live camera with identity protection)
+- **Hide who you are**: On-device face tracking (MediaPipe, in the browser) covers every face with an animated character that copies your mouth, blinks and head tilt. You can pick one of 10 built-in characters, your project's own characters (they switch to the open-mouth image while you talk), your own image, an emoji, a block, pixelation or blur. Each person can get a different character.
+- **Fails closed**: Until faces are tracked, while a face is briefly lost, or when a person is seen without a face (strict mode), the whole camera is covered. Go live is blocked until face tracking runs. Your real camera image never leaves your machine.
+- **Design your own character**: Build one from parts (head, eyes, mouth, ears, hair, hat, glasses, colours) with a live preview that copies your face, then wear it on camera or use it as the corner mascot. Saved with presets.
+- **A character that does what you do**: On-device body and hand tracking gives your character a body that copies your arms, hands and fingers (wave, thumbs-up, peace sign) and legs. Draw it over yourself, or replace yourself completely so no camera picture is shown at all. A corner mascot can idle, talk along with you, act out reactions, or copy every move you make.
+- **Gestures**: Hand signs (thumbs up, peace, love-you, point up, open palm, fist, wave) and eye/face gestures (winks, closing both eyes, raised eyebrows, wide mouth, big smile, nod, head shake) trigger reactions (hearts, confetti, stars…), scene changes, snapshots, mute or the privacy card. Teach up to three of your own hand signs in 3 seconds each; they're matched on-device by k-nearest-neighbours on your hand's shape. Gestures can turn privacy and mute on, but never off. Hotkey G.
+- **Brand overlays**: A scannable QR code card (links limited to http, https, mailto, tel, sms, upi and geo), a metallic authenticity seal with your own text, serial and date (a decorative design, not an official hallmark), and the corner mascot.
+- **Body, background and voice**: Solid-silhouette, blurred or pixelated body; blurred, plain, animated or image background; voice changer (deep, high, robot, radio, alien) with noise suppression.
+- **Overlays, each switchable**: LIVE badge with timer, people-on-camera count, name tags, live YouTube subscriber count with goal bar, live viewers, clock, name banner, scrolling ticker, watermark.
+- **Show control**: Camera, screen, or screen plus camera in a corner; Starting soon (with countdown), Be right back, Ending and Privacy cards; hotkeys (1-5, P, F, M, G); auto-framing, looks and colour controls; presets with import/export; record to file; snapshot; pre-flight checklist and stream health.
+- Subscriber and viewer counts need a YouTube Data API key on the server: `dotnet user-secrets set "YouTube:ApiKey" "…"` (or the `YouTube__ApiKey` env var / Key Vault). The face, body and hand models are fetched by `npm run vision:models` (runs automatically before `npm start` / `npm run build`).
+
 ### 🎨 Color Grading & Effects
 - **9 Cinematic LUT Filter Presets**: Natural, Cinematic Warm, Cool Sci-Fi, Vivid Pop, Golden Hour, Teal & Orange, Cyberpunk, Film Noir, and Faded 90s.
 - **Text & Logo Watermarks**: Positionable text or logo watermarks (Top-Left, Top-Right, Bottom-Left, Bottom-Right, Center) with font and opacity controls.

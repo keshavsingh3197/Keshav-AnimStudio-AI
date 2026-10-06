@@ -5,6 +5,7 @@ import { Character } from '../../core/models/api.models';
 import { ApiService } from '../../core/services/api.service';
 import { ProjectStore } from '../../core/services/project-store';
 import { StatusService } from '../../core/services/status.service';
+import { FileDropDirective } from '../../shared/file-drop.directive';
 
 export interface ArchetypePreset {
   id: string;
@@ -23,7 +24,7 @@ export interface ArchetypePreset {
 /** The cast: who appears, what they look like, and what colour their subtitles are. */
 @Component({
   selector: 'app-character-manager',
-  imports: [FormsModule],
+  imports: [FormsModule, FileDropDirective],
   templateUrl: './character-manager.component.html',
   styleUrls: ['./character-manager.component.css'],
 })
@@ -290,8 +291,12 @@ export class CharacterManagerComponent implements OnDestroy {
   // ── Direct File Uploading ──
   onUploadClosedSprite(event: Event): void {
     const input = event.target as HTMLInputElement;
-    if (!input.files || input.files.length === 0) return;
-    const file = input.files[0];
+    const file = input.files?.[0];
+    input.value = '';
+    if (file) this.uploadClosedSprite(file);
+  }
+
+  uploadClosedSprite(file: File): void {
     const projectId = this.store.projectId();
     if (!projectId) return;
 
@@ -305,13 +310,16 @@ export class CharacterManagerComponent implements OnDestroy {
         this.status.notify([`Uploaded closed-mouth sprite: ${asset.name}`]);
       }
     );
-    input.value = '';
   }
 
   onUploadOpenSprite(event: Event): void {
     const input = event.target as HTMLInputElement;
-    if (!input.files || input.files.length === 0) return;
-    const file = input.files[0];
+    const file = input.files?.[0];
+    input.value = '';
+    if (file) this.uploadOpenSprite(file);
+  }
+
+  uploadOpenSprite(file: File): void {
     const projectId = this.store.projectId();
     if (!projectId) return;
 
@@ -325,7 +333,6 @@ export class CharacterManagerComponent implements OnDestroy {
         this.status.notify([`Uploaded open-mouth sprite: ${asset.name}`]);
       }
     );
-    input.value = '';
   }
 
   clearClosedSprite(): void {

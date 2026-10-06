@@ -13,27 +13,74 @@ import {
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
+import { firstValueFrom } from 'rxjs';
 
+import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
+import { AssetFolder, DEFAULT_BRAND_CHANNEL, Project } from '../../core/models/api.models';
 import {
   ChunkItemResponse,
   MediaDownloadRequest,
   MediaDownloadResult,
+  MediaError,
   MediaProbeResponse,
+  MediaSources,
   MediaSystemSettings,
+  SupportedPlatform,
   VideoChunkResult,
 } from '../../core/models/media-tools.models';
+import { ApiService } from '../../core/services/api.service';
 import { MediaToolsService } from '../../core/services/media-tools.service';
 import { ProjectStore } from '../../core/services/project-store';
 import { StatusService } from '../../core/services/status.service';
+import { FileDropDirective } from '../../shared/file-drop.directive';
+
+/** What the pasted link looks like before the API has seen it. */
+type DetectedSource =
+  | { state: 'empty' }
+  | { state: 'invalid' }
+  | { state: 'unsupported'; host: string }
+  | { state: 'supported'; host: string; platform: SupportedPlatform };
+
+/** A finished download, kept for the session's "recent downloads" list. */
+interface CompressionPreset {
+  id: string;
+  label: string;
+  icon: string;
+  tone: 'sky' | 'green' | 'amber' | 'pink';
+  factor: number;
+  saving: string;
+  desc: string;
+}
+
+interface RecentDownload {
+  result: MediaDownloadResult;
+  title: string;
+  platformName: string;
+  savedLocally: boolean;
+  projectName?: string;
+}
+
+/** The File System Access API's save picker (Chromium only); typed here because lib.dom lags. */
+type SaveFileHandle = {
+  createWritable(): Promise<{ write(data: Blob): Promise<void>; close(): Promise<void> }>;
+};
+type SavePickerWindow = Window & {
+  showSaveFilePicker?: (options: { suggestedName?: string }) => Promise<SaveFileHandle>;
+};
+
+const NEW_PROJECT = '__new__';
+const NEW_FOLDER = '__new__';
+const DEFAULT_FOLDER_NAME = 'Downloads';
 
 @Component({
   selector: 'app-media-tools',
-  imports: [CommonModule, FormsModule, DecimalPipe],
+  imports: [CommonModule, FormsModule, DecimalPipe, FileDropDirective],
   templateUrl: './media-tools.component.html',
   styleUrls: ['./media-tools.component.css'],
 })
 export class MediaToolsComponent implements OnInit, AfterViewInit {
   private readonly mediaTools = inject(MediaToolsService);
+  private readonly api = inject(ApiService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly sanitizer = inject(DomSanitizer);
@@ -48,10 +95,94 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
   readonly activeTab = signal<'downloader' | 'chunker'>('downloader');
 
   // --- Downloader state ---
-  readonly url = signal<string>('https://www.youtube.com/shorts/a84JRsB_3gI?t=15&feature=share');
+  readonly url = signal<string>('');
   readonly probing = signal<boolean>(false);
   readonly probeResult = signal<MediaProbeResponse | null>(null);
-  readonly probeError = signal<string | null>(null);
+  readonly probeError = signal<MediaError | null>(null);
+
+  readonly sources = signal<MediaSources | null>(null);
+  readonly showSources = signal<boolean>(false);
+
+  readonly detected = computed<DetectedSource>(() => {
+    const raw = this.url().trim();
+    if (!raw) return { state: 'empty' };
+
+    let host: string;
+    try {
+      const parsed = new URL(raw);
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return { state: 'invalid' };
+      host = parsed.hostname.toLowerCase().replace(/\.$/, '');
+    } catch {
+      return { state: 'invalid' };
+    }
+
+    // Media CDNs are listed as wildcards ("*.cdninstagram.com"); the leading dot has to stay
+    // in the comparison so a lookalike host like "evil-cdninstagram.com" is not matched.
+    const platform = this.sources()?.platforms.find((p) =>
+      p.domains.some((d) => (d.startsWith('*') ? host.endsWith(d.slice(1)) : d === host)),
+    );
+    return platform ? { state: 'supported', host, platform } : { state: 'unsupported', host };
+  });
+
+  /** Set when the API is up but cannot download at all, so the input explains why up front. */
+  readonly downloaderProblem = computed<MediaError | null>(() => {
+    const s = this.sources();
+    if (!s) return null;
+    if (!s.downloadEnabled) {
+      return { code: 'download-disabled', message: 'Media downloading is turned off on this server.',
+        hint: 'An administrator can enable it with Ingest:AllowMediaDownload.' };
+    }
+    if (!s.downloaderAvailable) {
+      return { code: 'downloader-missing', message: 'The video downloader (yt-dlp) isn\'t installed on the API machine.',
+        hint: 'Install it with "winget install yt-dlp", or set Ingest:YtDlp:ExecutablePath, then restart the API.' };
+    }
+    return null;
+  });
+
+  // --- Destination ---
+  readonly saveToComputer = signal<boolean>(true);
+  readonly askWhereToSave = signal<boolean>(false);
+  readonly supportsSavePicker = typeof (window as SavePickerWindow).showSaveFilePicker === 'function';
+  readonly addToProject = signal<boolean>(false);
+  readonly projects = signal<Project[]>([]);
+  readonly projectChoice = signal<string>('');
+  readonly newProjectName = signal<string>('');
+  readonly projectFolders = signal<AssetFolder[]>([]);
+  readonly folderChoice = signal<string>(NEW_FOLDER);
+  readonly newFolderName = signal<string>(DEFAULT_FOLDER_NAME);
+  readonly addToTimeline = signal<boolean>(true);
+  readonly NEW_PROJECT = NEW_PROJECT;
+  readonly NEW_FOLDER = NEW_FOLDER;
+
+  readonly chosenProjectName = computed(() => {
+    const choice = this.projectChoice();
+    if (choice === NEW_PROJECT) return this.newProjectName().trim() || 'new project';
+    return this.projects().find((p) => p.id === choice)?.name ?? '';
+  });
+
+  /** Why the download button is disabled, or null when it can be pressed. */
+  readonly destinationProblem = computed<string | null>(() => {
+    if (!this.saveToComputer() && !this.addToProject()) return 'Choose at least one destination.';
+    if (this.addToProject()) {
+      if (!this.projectChoice()) return 'Pick a project, or create a new one.';
+      if (this.projectChoice() === NEW_PROJECT && !this.newProjectName().trim()) return 'Name the new project.';
+      if (this.folderChoice() === NEW_FOLDER && this.newFolderName().trim().length > 100) return 'Folder names are limited to 100 characters.';
+    }
+    return null;
+  });
+
+  readonly primaryActionLabel = computed(() => {
+    const local = this.saveToComputer();
+    const project = this.addToProject() ? this.chosenProjectName() : '';
+    if (local && project) return `Download & add to ${project}`;
+    if (project) return `Add to ${project}`;
+    return this.askWhereToSave() && this.supportsSavePicker ? 'Download — choose location…' : 'Download to computer';
+  });
+
+  readonly recentDownloads = signal<RecentDownload[]>([]);
+  readonly downloadStartedAt = signal<number | null>(null);
+  readonly elapsedSeconds = signal<number>(0);
+  private elapsedTimer: ReturnType<typeof setInterval> | null = null;
 
   readonly downloadType = signal<'video' | 'audio'>('video');
   readonly selectedVideoFormat = signal<string>('mp4');
@@ -62,8 +193,8 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
 
   readonly downloading = signal<boolean>(false);
   readonly downloadProgressText = signal<string>('');
-  readonly downloadResult = signal<MediaDownloadResult | null>(null);
-  readonly downloadError = signal<string | null>(null);
+  readonly downloadResult = signal<RecentDownload | null>(null);
+  readonly downloadError = signal<MediaError | null>(null);
 
   // --- Chunker state ---
   readonly chunkSourceType = signal<'url' | 'file' | 'asset'>('url');
@@ -105,11 +236,13 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
   readonly audioFormats = ['mp3', 'wav', 'm4a', 'aac', 'flac', 'opus'];
   readonly audioBitrates = ['320k', '192k', '128k'];
 
-  readonly compressionPresets = [
-    { id: 'original', label: 'Original Quality', desc: 'No extra re-encoding / fast' },
-    { id: 'balanced', label: 'Balanced (~35% smaller)', desc: 'CRF 24 - visually lossless' },
-    { id: 'high', label: 'High Compression (~55% smaller)', desc: 'CRF 28 - compact size' },
-    { id: 'ultracompact', label: 'Ultra Compact (~75% smaller)', desc: 'CRF 32 (720p) - minimum size' },
+  // `factor` is the share of the original size each preset keeps; `tone` picks the card's
+  // accent colour. The labels stay short because the cards show the estimate beside them.
+  readonly compressionPresets: readonly CompressionPreset[] = [
+    { id: 'original', label: 'Original', icon: '💎', tone: 'sky', factor: 1, saving: 'As downloaded', desc: 'No re-encode · fastest' },
+    { id: 'balanced', label: 'Balanced', icon: '⚖️', tone: 'green', factor: 0.65, saving: '~35% smaller', desc: 'CRF 24 · visually lossless' },
+    { id: 'high', label: 'High', icon: '🗜️', tone: 'amber', factor: 0.45, saving: '~55% smaller', desc: 'CRF 28 · compact' },
+    { id: 'ultracompact', label: 'Ultra Compact', icon: '🪶', tone: 'pink', factor: 0.25, saving: '~75% smaller', desc: 'CRF 32 · 720p · smallest' },
   ];
 
   readonly durationPresets = [5, 10, 15, 20, 30, 60];
@@ -134,9 +267,7 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
 
     if (totalSizeBytes === null || chunkDur <= 0) return null;
 
-    // Apply compression factor to estimate
-    const factor = comp === 'ultracompact' ? 0.25 : comp === 'high' ? 0.45 : comp === 'balanced' ? 0.65 : 1.0;
-    const effectiveTotalBytes = totalSizeBytes * factor;
+    const effectiveTotalBytes = totalSizeBytes * this.compressionFactor(comp);
 
     if (totalDuration && totalDuration > 0) {
       const numChunks = Math.ceil(totalDuration / chunkDur);
@@ -167,35 +298,92 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
 
     const isAudio = this.downloadType() === 'audio';
     const comp = this.selectedCompression();
-    const res = this.selectedResolution();
-
-    // Base bitrate estimates (bytes/sec) by resolution
-    let baseBytesPerSec: number;
-    if (isAudio) {
-      const br = this.selectedAudioBitrate();
-      baseBytesPerSec = br === '320k' ? 40_000 : br === '128k' ? 16_000 : 24_000;
-    } else {
-      baseBytesPerSec = res === '360p' ? 150_000
-        : res === '480p' ? 250_000
-        : res === '720p' ? 400_000
-        : res === '1080p' ? 600_000
-        : 700_000; // 'best'
-    }
-
-    let totalBytes = probe.durationSeconds * baseBytesPerSec;
-
-    // Apply compression factor
-    if (!isAudio) {
-      const factor = comp === 'ultracompact' ? 0.25 : comp === 'high' ? 0.45 : comp === 'balanced' ? 0.65 : 1.0;
-      totalBytes *= factor;
-    }
+    const bytes = isAudio
+      ? probe.durationSeconds * this.audioBytesPerSecond(this.selectedAudioBitrate())
+      : this.videoBytes(this.selectedResolution(), comp);
 
     return {
-      sizeMB: totalBytes / (1024 * 1024),
+      sizeMB: (bytes ?? 0) / (1024 * 1024),
       durationFormatted: probe.durationFormatted,
-      isCompressed: comp !== 'original',
+      isCompressed: !isAudio && comp !== 'original',
     };
   });
+
+  /** Every compression preset with its estimated output, so the cards can be compared at a glance. */
+  readonly compressionOptions = computed(() => {
+    const res = this.selectedResolution();
+    const original = this.videoBytes(res, 'original');
+    return this.compressionPresets.map((p) => {
+      const bytes = this.videoBytes(res, p.id);
+      return {
+        ...p,
+        sizeMB: bytes === null ? null : bytes / (1024 * 1024),
+        // Bar width relative to the uncompressed download, floored so the smallest stays visible.
+        barPct: bytes === null || !original ? p.factor * 100 : Math.max(8, (bytes / original) * 100),
+      };
+    });
+  });
+
+  /** Estimated MB per resolution pill, so picking a resolution shows what it costs. */
+  readonly resolutionSizes = computed(() => {
+    const comp = this.selectedCompression();
+    const sizes: Record<string, number | null> = {};
+    for (const r of this.probeResult()?.availableResolutions ?? []) {
+      const bytes = this.videoBytes(r.toLowerCase(), comp);
+      sizes[r.toLowerCase()] = bytes === null ? null : bytes / (1024 * 1024);
+    }
+    return sizes;
+  });
+
+  /** Estimated MB per audio bitrate. */
+  readonly audioBitrateSizes = computed(() => {
+    const duration = this.probeResult()?.durationSeconds ?? 0;
+    const sizes: Record<string, number | null> = {};
+    for (const br of this.audioBitrates) {
+      sizes[br] = duration > 0 ? (duration * this.audioBytesPerSecond(br)) / (1024 * 1024) : null;
+    }
+    return sizes;
+  });
+
+  /** Chunk-tab presets with the total size each would produce for the current source. */
+  readonly chunkCompressionOptions = computed(() => {
+    const est = this.sizeEstimate();
+    const currentFactor = this.compressionFactor(this.chunkCompression());
+    const baseMB = est ? est.totalSizeMB / currentFactor : null;
+    return this.compressionPresets.map((p) => ({ ...p, sizeMB: baseMB === null ? null : baseMB * p.factor }));
+  });
+
+  readonly compressionLabel = computed(
+    () => this.compressionPresets.find((p) => p.id === this.selectedCompression())?.label ?? 'Original',
+  );
+
+  compressionFactor(id: string): number {
+    return this.compressionPresets.find((p) => p.id === id)?.factor ?? 1;
+  }
+
+  private audioBytesPerSecond(bitrate: string): number {
+    const kbps = parseInt(bitrate, 10);
+    return Number.isFinite(kbps) ? (kbps * 1000) / 8 : 24_000;
+  }
+
+  /**
+   * A rough download size: a typical web bitrate for the output height times the duration,
+   * scaled by the compression preset. A resolution above the source's own height can't make
+   * the file bigger, so the source height caps it.
+   */
+  private videoBytes(resolution: string, compression: string): number | null {
+    const probe = this.probeResult();
+    if (!probe || probe.durationSeconds <= 0) return null;
+
+    const sourceHeight = probe.height && probe.width ? Math.min(probe.width, probe.height) : 1080;
+    const requested = resolution === 'best' ? sourceHeight : parseInt(resolution, 10) || sourceHeight;
+    const height = Math.min(requested, sourceHeight);
+
+    // Bytes/second at common heights (H.264, web delivery); interpolated by pixel count elsewhere.
+    const bytesPerSecondAt1080 = 600_000;
+    const bytesPerSecond = bytesPerSecondAt1080 * Math.max(0.15, (height * height) / (1080 * 1080));
+    return probe.durationSeconds * bytesPerSecond * this.compressionFactor(compression);
+  }
 
   ngOnInit(): void {
     // Load initial settings
@@ -206,6 +394,25 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
         this.chunkDurationSeconds.set(dur);
       },
       error: () => {},
+    });
+
+    this.mediaTools.getSources().subscribe({
+      next: (s) => this.sources.set(s),
+      error: (err: unknown) => this.probeError.set(this.toMediaError(err, 'Could not load the supported sources.')),
+    });
+
+    this.api.listProjects().subscribe({
+      next: (list) => {
+        this.projects.set(list);
+        // Opened inside a project: default to filing the download there.
+        const current = this.store?.projectId?.();
+        if (current && list.some((p) => p.id === current)) {
+          this.addToProject.set(true);
+          this.saveToComputer.set(false);
+          this.selectProject(current);
+        }
+      },
+      error: () => this.projects.set([]),
     });
 
     // Check query params for prefilled URL or tab
@@ -231,15 +438,29 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
   // --- Downloader actions ---
   probe(): void {
     const rawUrl = this.url().trim();
-    if (!rawUrl) {
-      this.probeError.set('Please enter a YouTube or video URL.');
+    const detected = this.detected();
+    if (detected.state === 'empty') {
+      this.probeError.set({ code: 'url-required', message: 'Paste a video link to get started.' });
+      return;
+    }
+    // Obvious problems are explained locally; the API still validates everything it receives.
+    if (detected.state === 'invalid') {
+      this.probeError.set({ code: 'url-malformed', message: 'That isn\'t a complete link.',
+        hint: 'Copy the full address, starting with https://' });
+      return;
+    }
+    if (detected.state === 'unsupported' && this.sources()) {
+      this.probeError.set({ code: 'url-host-not-allowed', message: `Downloading from ${detected.host} isn't supported.`,
+        hint: `Supported sources: ${this.sources()!.platforms.map((p) => p.name).join(', ')}.` });
       return;
     }
 
     this.probing.set(true);
     this.probeError.set(null);
+    this.probeResult.set(null);
     this.downloadResult.set(null);
     this.downloadError.set(null);
+    this.sourceYoutubeEmbedUrl.set(null);
 
     this.mediaTools.probeUrl(rawUrl).subscribe({
       next: (res) => {
@@ -249,67 +470,198 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
         if (res.isShort) {
           this.convertTo916.set(false); // Already vertical
         }
-        // Set up YouTube embed for source preview
-        if (res.videoId) {
-          const embedUrl = `https://www.youtube.com/embed/${res.videoId}?enablejsapi=1&controls=1`;
+        if (!res.availableResolutions.some((r) => r.toLowerCase() === this.selectedResolution())) {
+          this.selectedResolution.set('best');
+        }
+        if (!this.newProjectName()) {
+          this.newProjectName.set(res.title.slice(0, 80));
+        }
+        // Only YouTube ids can be embedded; other sites get the thumbnail and a link out.
+        if (res.platformId === 'youtube' && res.videoId) {
+          const embedUrl = `https://www.youtube.com/embed/${encodeURIComponent(res.videoId)}?enablejsapi=1&controls=1`;
           this.sourceYoutubeEmbedUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl(embedUrl));
-          this.showSourcePlayer.set(true);
+          this.showSourcePlayer.set(false);
         }
       },
-      error: (err) => {
+      error: (err: unknown) => {
         this.probing.set(false);
-        const msg = err.error?.message || err.message || 'Failed to inspect URL.';
-        this.probeError.set(msg);
+        this.probeError.set(this.toMediaError(err, 'Could not read that link.'));
       },
     });
   }
 
-  download(andChunk = false): void {
-    const rawUrl = this.url().trim();
-    if (!rawUrl) return;
+  /** A link pasted into the box is inspected straight away when it is from a supported site. */
+  onUrlPaste(): void {
+    setTimeout(() => {
+      if (this.detected().state === 'supported' && !this.probing()) this.probe();
+    });
+  }
 
-    this.downloading.set(true);
-    this.downloadProgressText.set(andChunk ? 'Downloading media to split into chunks...' : 'Downloading media from URL...');
-    this.downloadResult.set(null);
+  async pasteFromClipboard(): Promise<void> {
+    try {
+      const text = (await navigator.clipboard.readText()).trim();
+      if (!text) return;
+      this.url.set(text);
+      this.onUrlPaste();
+    } catch {
+      this.status.notify(['Clipboard access was blocked - paste the link with Ctrl+V instead.']);
+    }
+  }
+
+  clearUrl(): void {
+    this.url.set('');
+    this.probeResult.set(null);
+    this.probeError.set(null);
     this.downloadError.set(null);
+    this.downloadResult.set(null);
+    this.sourceYoutubeEmbedUrl.set(null);
+  }
+
+  useExample(platform: SupportedPlatform): void {
+    this.showSources.set(false);
+    this.probeError.set({ code: 'example', message: `${platform.name} links look like ${platform.example}`,
+      hint: platform.notes });
+  }
+
+  selectProject(id: string): void {
+    this.projectChoice.set(id);
+    this.projectFolders.set([]);
+    this.folderChoice.set(NEW_FOLDER);
+    this.newFolderName.set(DEFAULT_FOLDER_NAME);
+    if (!id || id === NEW_PROJECT) return;
+
+    this.api.getFolders(id).subscribe({
+      next: (list) => {
+        if (this.projectChoice() !== id) return;
+        const roots = (list ?? []).filter((f) => !f.parentId);
+        this.projectFolders.set(roots);
+        const downloads = roots.find((f) => f.name.toLowerCase() === DEFAULT_FOLDER_NAME.toLowerCase());
+        if (downloads) this.folderChoice.set(downloads.id);
+      },
+      error: () => this.projectFolders.set([]),
+    });
+  }
+
+  async download(andChunk = false): Promise<void> {
+    const rawUrl = this.url().trim();
+    const probe = this.probeResult();
+    if (!rawUrl || !probe) return;
+
+    if (andChunk) {
+      this.sendToChunker();
+      this.chunkVideo();
+      return;
+    }
+
+    if (this.destinationProblem()) return;
 
     const isAudio = this.downloadType() === 'audio';
-    const projectId = this.store?.projectId?.() || undefined;
+    const format = isAudio ? this.selectedAudioFormat() : this.selectedVideoFormat();
 
-    const req: MediaDownloadRequest = {
-      url: rawUrl,
-      format: isAudio ? this.selectedAudioFormat() : this.selectedVideoFormat(),
-      resolution: isAudio ? undefined : this.selectedResolution(),
-      audioBitrate: isAudio ? this.selectedAudioBitrate() : undefined,
-      projectId,
-      importAsAsset: !andChunk && !!projectId,
-      assetName: this.probeResult()?.title,
-      compressionPreset: this.selectedCompression(),
-    };
+    // The save picker needs the click's user activation, so it opens before anything slow.
+    let fileHandle: SaveFileHandle | null = null;
+    if (this.saveToComputer() && this.askWhereToSave() && this.supportsSavePicker) {
+      try {
+        fileHandle = await (window as SavePickerWindow).showSaveFilePicker!({
+          suggestedName: `${this.safeFileStem(probe.title)}.${format}`,
+        });
+      } catch {
+        return; // Picker dismissed.
+      }
+    }
 
-    this.mediaTools.downloadMedia(req).subscribe({
-      next: (res) => {
-        this.downloading.set(false);
-        this.downloadResult.set(res);
+    this.downloading.set(true);
+    this.downloadResult.set(null);
+    this.downloadError.set(null);
+    this.startElapsed();
 
-        if (andChunk) {
-          // Switch to chunker tab and begin chunking immediately!
-          this.activeTab.set('chunker');
-          this.chunkSourceType.set('url');
-          this.chunkUrl.set(rawUrl);
-          this.chunkVideo();
+    try {
+      let projectId: string | undefined;
+      let projectName: string | undefined;
+
+      if (this.addToProject()) {
+        if (this.projectChoice() === NEW_PROJECT) {
+          this.downloadProgressText.set('Creating project…');
+          const created = await firstValueFrom(this.api.createProject({
+            name: this.newProjectName().trim().slice(0, 100),
+            width: probe.isShort ? 1080 : 1920,
+            height: probe.isShort ? 1920 : 1080,
+            fps: 30,
+            distributionIntent: 'Public',
+            brandChannelId: DEFAULT_BRAND_CHANNEL,
+          }));
+          this.projects.update((list) => [created, ...list]);
+          this.projectChoice.set(created.id);
+          projectId = created.id;
+          projectName = created.name;
         } else {
-          // Trigger direct browser download
-          this.triggerBrowserDownload(res.streamUrl, res.fileName);
-          this.status.notify([`Downloaded ${res.fileName}`]);
+          projectId = this.projectChoice();
+          projectName = this.chosenProjectName();
         }
-      },
-      error: (err) => {
-        this.downloading.set(false);
-        const msg = err.error?.message || err.message || 'Download failed.';
-        this.downloadError.set(msg);
-      },
-    });
+      }
+
+      this.downloadProgressText.set(`Downloading from ${probe.platformName}…`);
+      const folderChoice = this.folderChoice();
+      const req: MediaDownloadRequest = {
+        url: rawUrl,
+        format,
+        resolution: isAudio ? undefined : this.selectedResolution(),
+        audioBitrate: isAudio ? this.selectedAudioBitrate() : undefined,
+        projectId,
+        importAsAsset: !!projectId,
+        assetName: probe.title,
+        compressionPreset: this.selectedCompression(),
+        folderId: projectId && folderChoice && folderChoice !== NEW_FOLDER ? folderChoice : undefined,
+        folderName: projectId && folderChoice === NEW_FOLDER ? this.newFolderName().trim() || undefined : undefined,
+        addToClipOrder: this.addToTimeline(),
+      };
+
+      const res = await firstValueFrom(this.mediaTools.downloadMedia(req));
+
+      if (this.saveToComputer()) {
+        if (fileHandle) {
+          this.downloadProgressText.set('Saving to the chosen location…');
+          const blob = await firstValueFrom(this.mediaTools.fetchFile(res.streamUrl));
+          const writable = await fileHandle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+        } else {
+          this.triggerBrowserDownload(res.streamUrl, res.fileName);
+        }
+      }
+
+      const recent: RecentDownload = {
+        result: res,
+        title: probe.title,
+        platformName: probe.platformName,
+        savedLocally: this.saveToComputer(),
+        projectName,
+      };
+      this.downloadResult.set(recent);
+      this.recentDownloads.update((list) => [recent, ...list].slice(0, 8));
+      this.status.notify([projectName ? `Added ${res.fileName} to ${projectName}` : `Downloaded ${res.fileName}`]);
+
+      if (projectId && projectId === this.store?.projectId?.()) {
+        this.store?.refreshAssets?.();
+        this.store?.refreshFolders?.();
+      }
+      if (projectId && res.folderId) this.selectProject(projectId);
+    } catch (err: unknown) {
+      this.downloadError.set(this.toMediaError(err, 'Download failed.'));
+    } finally {
+      this.downloading.set(false);
+      this.stopElapsed();
+    }
+  }
+
+  openProjectAssets(projectId: string): void {
+    void this.router.navigate(['/projects', projectId, 'assets']);
+  }
+
+  /** Opens Go Live with the imported asset already in the playlist. */
+  goLive(dl: RecentDownload): void {
+    if (!dl.result.assetId) return;
+    void this.router.navigate(['/live'], { queryParams: { assetId: dl.result.assetId, title: dl.title.slice(0, 200) } });
   }
 
   sendToChunker(): void {
@@ -354,28 +706,27 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
   onFileChange(event: Event): void {
     const input = event.target as HTMLInputElement;
     if (input.files && input.files.length > 0) {
-      const file = input.files[0];
-      this.selectedFile.set(file);
-      // Create object URL for source preview
-      const oldUrl = this.selectedFileObjectUrl();
-      if (oldUrl) URL.revokeObjectURL(oldUrl);
-      this.selectedFileObjectUrl.set(URL.createObjectURL(file));
-      this.sourceYoutubeEmbedUrl.set(null);
-      this.showSourcePlayer.set(true);
+      this.useFile(input.files[0]);
     }
   }
 
   onFileDrop(event: DragEvent): void {
     event.preventDefault();
     if (event.dataTransfer?.files && event.dataTransfer.files.length > 0) {
-      const file = event.dataTransfer.files[0];
-      this.selectedFile.set(file);
-      this.chunkSourceType.set('file');
-      const oldUrl = this.selectedFileObjectUrl();
-      if (oldUrl) URL.revokeObjectURL(oldUrl);
-      this.selectedFileObjectUrl.set(URL.createObjectURL(file));
-      this.showSourcePlayer.set(true);
+      this.useFile(event.dataTransfer.files[0]);
     }
+  }
+
+  /** Picked, dropped or pasted (Ctrl+V) source video. */
+  useFile(file: File): void {
+    this.selectedFile.set(file);
+    this.chunkSourceType.set('file');
+    // Create object URL for source preview
+    const oldUrl = this.selectedFileObjectUrl();
+    if (oldUrl) URL.revokeObjectURL(oldUrl);
+    this.selectedFileObjectUrl.set(URL.createObjectURL(file));
+    this.sourceYoutubeEmbedUrl.set(null);
+    this.showSourcePlayer.set(true);
   }
 
   onDragOver(event: DragEvent): void {
@@ -491,11 +842,11 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
           this.store?.refreshAssets?.();
         }
       },
-      error: (err) => {
+      error: (err: unknown) => {
         this.stopProgressSimulation(false);
         this.chunking.set(false);
-        const msg = err.error?.message || err.message || 'Video chunking failed.';
-        this.chunkError.set(msg);
+        const e = this.toMediaError(err, 'Video chunking failed.');
+        this.chunkError.set(e.hint ? `${e.message} ${e.hint}` : e.message);
       },
     });
   }
@@ -517,6 +868,55 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
   sampleShortsUrl(): void {
     this.url.set('https://www.youtube.com/shorts/a84JRsB_3gI?t=15&feature=share');
     this.probe();
+  }
+
+  /** The API's explanation of a failure, falling back to something generic but true. */
+  private toMediaError(err: unknown, fallback: string): MediaError {
+    if (err instanceof ApiFailure) {
+      return { code: err.code, message: err.message || fallback, hint: err.hint, detail: err.detail };
+    }
+    if (err instanceof DOMException) {
+      return { code: 'save-failed', message: 'The file was downloaded but could not be written to the chosen location.',
+        hint: 'Pick a folder you can write to, or turn off "Choose where to save".', detail: err.message };
+    }
+    return { code: 'unknown', message: fallback };
+  }
+
+  private safeFileStem(title: string): string {
+    const stem = title.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_').trim().slice(0, 120);
+    return stem || 'media';
+  }
+
+  private startElapsed(): void {
+    this.downloadStartedAt.set(Date.now());
+    this.elapsedSeconds.set(0);
+    this.elapsedTimer = setInterval(() => {
+      const started = this.downloadStartedAt();
+      if (started) this.elapsedSeconds.set(Math.floor((Date.now() - started) / 1000));
+    }, 1000);
+  }
+
+  private stopElapsed(): void {
+    if (this.elapsedTimer) clearInterval(this.elapsedTimer);
+    this.elapsedTimer = null;
+    this.downloadStartedAt.set(null);
+  }
+
+  platformIcon(id: string | undefined): string {
+    switch (id) {
+      case 'youtube': return '▶';
+      case 'linkedin': return 'in';
+      case 'instagram': return '◎';
+      case 'facebook': return 'f';
+      case 'x': return '𝕏';
+      case 'tiktok': return '♪';
+      case 'vimeo': return 'v';
+      case 'reddit': return 'r/';
+      case 'dailymotion': return 'd';
+      case 'twitch': return '⌁';
+      case 'direct': return '⬇';
+      default: return '🔗';
+    }
   }
 
   // --- Synchronized chunk playback ---

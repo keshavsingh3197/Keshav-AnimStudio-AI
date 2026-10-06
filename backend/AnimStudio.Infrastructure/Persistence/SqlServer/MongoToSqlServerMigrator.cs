@@ -3,6 +3,7 @@ using AnimStudio.Domain.Assets;
 using AnimStudio.Domain.Characters;
 using AnimStudio.Domain.Ingest;
 using AnimStudio.Domain.Jobs;
+using AnimStudio.Domain.LiveStreams;
 using AnimStudio.Domain.Projects;
 using AnimStudio.Domain.Scenes;
 using AnimStudio.Domain.Scripts;
@@ -68,6 +69,9 @@ public sealed class MongoToSqlServerMigrator(
 
             // 12. AdminAudit
             results.Add(await MigrateAdminAuditAsync(conn, ct).ConfigureAwait(false));
+
+            // 13. LiveStreamKeys (ciphertext only, so the same data key must be configured)
+            results.Add(await MigrateLiveStreamKeysAsync(conn, ct).ConfigureAwait(false));
 
             var totalMigrated = results.Sum(r => r.MigratedCount);
             return new MigrationReport(
@@ -397,6 +401,28 @@ public sealed class MongoToSqlServerMigrator(
         }
 
         return new MigrationCollectionResult(MongoCollections.AiCredentials, migrated, skipped);
+    }
+
+    private async Task<MigrationCollectionResult> MigrateLiveStreamKeysAsync(SqlConnection conn, CancellationToken ct)
+    {
+        var collection = mongo.GetCollection<LiveStreamKey>(MongoCollections.LiveStreamKeys);
+        var items = await collection.Find(FilterDefinition<LiveStreamKey>.Empty).ToListAsync(ct).ConfigureAwait(false);
+        int migrated = 0, skipped = 0;
+
+        foreach (var item in items)
+        {
+            const string sql = """
+                IF NOT EXISTS (SELECT 1 FROM LiveStreamKeys WHERE Id = @Id)
+                    INSERT INTO LiveStreamKeys (Id, DataJson) VALUES (@Id, @DataJson)
+                """;
+            await using var cmd = new SqlCommand(sql, conn);
+            cmd.Parameters.AddWithValue("@Id", item.Id);
+            cmd.Parameters.AddWithValue("@DataJson", SqlJson.Serialize(item));
+            var affected = await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            if (affected > 0) migrated++; else skipped++;
+        }
+
+        return new MigrationCollectionResult(MongoCollections.LiveStreamKeys, migrated, skipped);
     }
 
     private async Task<MigrationCollectionResult> MigratePromptTemplatesAsync(SqlConnection conn, CancellationToken ct)

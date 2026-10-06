@@ -1,3 +1,5 @@
+using AnimStudio.Domain.Rendering;
+
 namespace AnimStudio.Application.Rendering.Models;
 
 /// <summary>
@@ -37,4 +39,61 @@ public sealed record EncoderProfile(
     /// </summary>
     public EncoderProfile ForIntermediate(string preset) =>
         string.IsNullOrWhiteSpace(preset) ? this : this with { Preset = preset };
+
+    /// <summary>
+    /// The delivery encode for an export's chosen quality.
+    /// <para>
+    /// Measured on this project's 1080p clips (SSIM against a lossless reference, time for
+    /// seven clips conformed in parallel): veryfast/20 0.9586 in 13.6s, veryfast/16 0.9606
+    /// in 17.1s, medium/14 0.9617 in 47.6s. For comparison, the old default medium/18 scored
+    /// 0.9610 and ultrafast/18 - what stitches with music used to ship - 0.9567. High is
+    /// therefore the veryfast/16 point: as good as the old medium encode for a quarter of
+    /// the extra cost, and clearly better than anything the stitch shipped before.
+    /// </para>
+    /// </summary>
+    public EncoderProfile ForQuality(ExportQuality quality) => quality switch
+    {
+        ExportQuality.Fast => this with { Preset = "veryfast", Crf = 20 },
+        ExportQuality.Best => this with { Preset = "medium", Crf = 14 },
+        _ => this with { Preset = "veryfast", Crf = 16 }
+    };
+
+    /// <summary>
+    /// Returns a hardware-accelerated encoder profile for the given GPU encoder.
+    /// <para>
+    /// NVENC and QSV do not use x264 CRF; instead, they use VBR with a constant-quality
+    /// target (CQ). We map our CRF directly to CQ so quality intent is preserved.
+    /// The <see cref="Preset"/> field carries the GPU preset string
+    /// (e.g., "p3" for NVENC, "medium" for QSV) — downstream, <see cref="ClipOutputArguments"/>
+    /// detects the codec and assembles the correct argument set.
+    /// </para>
+    /// </summary>
+    /// <param name="hwEncoder">One of "h264_nvenc", "h264_qsv", "h264_videotoolbox".</param>
+    public EncoderProfile ForHardwareEncoder(string hwEncoder) => hwEncoder switch
+    {
+        "h264_nvenc" => this with
+        {
+            VideoCodec = "h264_nvenc",
+            // p3 = balanced quality/speed for NVENC; p1 is fastest, p7 is best quality.
+            Preset = "p3",
+            // NVENC uses CQ instead of CRF; same numeric intent as our CRF setting.
+            Crf = this.Crf  // kept in the record so the graph builder can emit -cq
+        },
+        "h264_qsv" => this with
+        {
+            VideoCodec = "h264_qsv",
+            Preset = "medium",
+            Crf = this.Crf
+        },
+        "h264_videotoolbox" => this with
+        {
+            VideoCodec = "h264_videotoolbox",
+            Preset = string.Empty   // VideoToolbox ignores preset; uses -b:v or -q:v
+        },
+        _ => this
+    };
+
+    /// <summary>True when this profile is using a hardware GPU encoder rather than libx264.</summary>
+    public bool IsHardwareEncoder =>
+        VideoCodec is "h264_nvenc" or "h264_qsv" or "h264_videotoolbox";
 }

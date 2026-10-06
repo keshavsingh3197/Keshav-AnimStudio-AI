@@ -57,6 +57,24 @@ public sealed record CreateProjectRequest
 
     [JsonConverter(typeof(TolerantDistributionIntentConverter))]
     public DistributionIntent DistributionIntent { get; init; } = DistributionIntent.Personal;
+
+    /// <summary>The channel to publish under; its watermark is copied in. Null means the default.</summary>
+    [StringLength(64)] public string? BrandChannelId { get; init; }
+}
+
+/// <summary>A new brand channel, optionally starting as a copy of an existing one's look.</summary>
+public sealed record CreateBrandChannelRequest
+{
+    [Required, StringLength(BrandChannel.MaxNameLength, MinimumLength = 1)]
+    public string Name { get; init; } = string.Empty;
+
+    [StringLength(64)] public string? CopyFromChannelId { get; init; }
+}
+
+public sealed record RenameBrandChannelRequest
+{
+    [Required, StringLength(BrandChannel.MaxNameLength, MinimumLength = 1)]
+    public string Name { get; init; } = string.Empty;
 }
 
 public sealed record RightsAttestationRequest
@@ -153,6 +171,12 @@ public sealed record UpdateProjectRequest
 
     public WatermarkRequest? DefaultWatermark { get; init; }
     public OutroRequest? DefaultOutro { get; init; }
+
+    /// <summary>Null leaves the channel unchanged; "default" (or blank) picks the default channel.</summary>
+    [StringLength(64)] public string? BrandChannelId { get; init; }
+
+    /// <summary>True: use the channel's watermark live; false: DefaultWatermark is custom. Null: unchanged.</summary>
+    public bool? FollowChannelWatermark { get; init; }
 }
 
 public sealed record CreateSceneRequest
@@ -302,13 +326,42 @@ public sealed record OutroRequest
     [Range(0, 120)]
     public int TransitionDurationFrames { get; init; } = 15;
 
+    [StringLength(64)]
+    public string? QrAssetId { get; init; }
+
+    [StringLength(OutroSettings.MaxHeadlineLength)]
+    public string? Headline { get; init; }
+
+    [StringLength(OutroSettings.MaxSubtextLength)]
+    public string? Subtext { get; init; }
+
+    /// <summary>Optional second-language lines, drawn under the headline and the subtext.</summary>
+    [StringLength(OutroSettings.MaxHeadlineLength)]
+    public string? HeadlineSecondary { get; init; }
+
+    [StringLength(OutroSettings.MaxSubtextLength)]
+    public string? SubtextSecondary { get; init; }
+
+    [RegularExpression("^#[0-9A-Fa-f]{6}$")]
+    public string? BackgroundHex { get; init; }
+
+    [RegularExpression("^#[0-9A-Fa-f]{6}$")]
+    public string? TextHex { get; init; }
+
     public OutroSettings ToSettings() => new()
     {
         Kind = Kind,
         AssetId = AssetId,
         DurationSeconds = DurationSeconds,
         Transition = Transition,
-        TransitionDurationFrames = TransitionDurationFrames
+        TransitionDurationFrames = TransitionDurationFrames,
+        QrAssetId = QrAssetId,
+        Headline = Headline,
+        Subtext = Subtext,
+        HeadlineSecondary = HeadlineSecondary,
+        SubtextSecondary = SubtextSecondary,
+        BackgroundHex = BackgroundHex ?? "#101828",
+        TextHex = TextHex ?? "#FFFFFF"
     };
 }
 
@@ -417,6 +470,7 @@ public sealed record MusicDuckWindowRequest
 /// </summary>
 public sealed record ClipMergeRequest
 {
+    [MaxLength(200)]
     public string? ExportName { get; init; }
     [Required, MinLength(1), MaxLength(ClipMergeSpec.MaxClips)]
     public List<string> AssetIds { get; init; } = [];
@@ -425,6 +479,10 @@ public sealed record ClipMergeRequest
 
     [Range(360, 3840)] public int? OutputWidth { get; init; }
     [Range(360, 3840)] public int? OutputHeight { get; init; }
+
+    /// <summary>Fast, High (the default) or Best - see <see cref="ExportQuality"/>.</summary>
+    [EnumDataType(typeof(ExportQuality))]
+    public ExportQuality Quality { get; init; } = ExportQuality.High;
 
     public SceneTransition Transition { get; init; } = SceneTransition.None;
 
@@ -462,7 +520,11 @@ public sealed record ClipMergeRequest
     public List<ClipAudioRequest>? ClipAudio { get; init; }
 
     public WatermarkRequest Watermark { get; init; } = new();
-    public OutroRequest Outro { get; init; } = new();
+    /// <summary>
+    /// End the video with the saved outro or QR end card. Only the switch is accepted: the
+    /// card itself always comes from the project or studio settings.
+    /// </summary>
+    public bool IncludeOutro { get; init; }
 
     public List<TimelineItemRequest>? TimelineItems { get; init; }
 }
@@ -503,10 +565,30 @@ public sealed record TimelineItemTransformRequest
     /// <summary>Request video stabilization for this clip.</summary>
     public bool Stabilization { get; init; }
 
+    /// <summary>Existing marks to wipe from the source frame before our own is drawn.</summary>
+    [MaxLength(EraseRegionSpec.MaxPerClip)]
+    public List<EraseRegionRequest>? EraseRegions { get; init; }
+
     [StringLength(32)] public string? TransitionIn { get; init; } = "fade";
     public double TransitionInDuration { get; init; } = 0.5;
     [StringLength(32)] public string? TransitionOut { get; init; } = "fade";
     public double TransitionOutDuration { get; init; } = 0.5;
+}
+
+/// <summary>One rectangle to erase, in percent of the clip's source frame.</summary>
+public sealed record EraseRegionRequest
+{
+    [Range(0, 100)] public double X { get; init; }
+    [Range(0, 100)] public double Y { get; init; }
+    [Range(EraseRegionSpec.MinSizePercent, 100)] public double Width { get; init; } = 20;
+    [Range(EraseRegionSpec.MinSizePercent, 100)] public double Height { get; init; } = 10;
+    [EnumDataType(typeof(EraseStyle))] public EraseStyle Style { get; init; } = EraseStyle.Blur;
+    [RegularExpression("^#[0-9a-fA-F]{6}$")] public string? FillColor { get; init; }
+    [Range(0, 100)] public double Strength { get; init; } = EraseRegionSpec.DefaultStrength;
+    [Range(0, 100)] public double Feather { get; init; } = EraseRegionSpec.DefaultFeather;
+    [Range(0, 100)] public double Opacity { get; init; } = 100;
+    [EnumDataType(typeof(EraseSource))] public EraseSource Source { get; init; } = EraseSource.Auto;
+    public bool KeepCornerMark { get; init; }
 }
 
 public sealed record TimelineItemRequest
@@ -523,4 +605,10 @@ public sealed record TimelineItemRequest
     public double? Volume { get; init; }
     public double? TrimStartSeconds { get; init; }
     public double? TrimEndSeconds { get; init; }
+}
+
+/// <summary>Null clears the quota; the bar then shows the drive's capacity.</summary>
+public sealed record UpdateStorageQuotaRequest
+{
+    [Range(1, 1_000_000)] public double? QuotaGb { get; init; }
 }

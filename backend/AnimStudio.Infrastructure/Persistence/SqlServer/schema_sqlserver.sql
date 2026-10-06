@@ -54,6 +54,18 @@ BEGIN
     CREATE INDEX IX_Assets_ProjectId ON Assets (ProjectId, CreatedAt DESC);
 END;
 
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'AssetFolders')
+BEGIN
+    CREATE TABLE AssetFolders (
+        Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+        ProjectId NVARCHAR(64) NOT NULL,
+        Name NVARCHAR(100) NOT NULL,
+        ParentId NVARCHAR(64) NULL,
+        CreatedAt DATETIME2 NOT NULL
+    );
+    CREATE INDEX IX_AssetFolders_ProjectId ON AssetFolders (ProjectId, CreatedAt DESC);
+END;
+
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Scripts')
 BEGIN
     CREATE TABLE Scripts (
@@ -127,6 +139,32 @@ BEGIN
     );
 END;
 
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'LiveStreamKeys')
+BEGIN
+    CREATE TABLE LiveStreamKeys (
+        Id NVARCHAR(200) NOT NULL PRIMARY KEY,
+        DataJson NVARCHAR(MAX) NOT NULL
+    );
+END;
+
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'YouTubeConnections')
+BEGIN
+    CREATE TABLE YouTubeConnections (
+        Id NVARCHAR(300) NOT NULL PRIMARY KEY,
+        UserId NVARCHAR(200) NOT NULL,
+        DataJson NVARCHAR(MAX) NOT NULL
+    );
+    CREATE INDEX IX_YouTubeConnections_UserId ON YouTubeConnections (UserId);
+END;
+
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'WebSettings')
+BEGIN
+    CREATE TABLE WebSettings (
+        Id NVARCHAR(200) NOT NULL PRIMARY KEY,
+        DataJson NVARCHAR(MAX) NOT NULL
+    );
+END;
+
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'PromptTemplates')
 BEGIN
     CREATE TABLE PromptTemplates (
@@ -157,3 +195,16 @@ BEGIN
     CREATE INDEX IX_AdminAudit_AtUtc ON AdminAudit (AtUtc DESC);
 END;
 
+
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'ProjectEdits')
+BEGIN
+    CREATE TABLE ProjectEdits (
+        Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+        ProjectId NVARCHAR(64) NOT NULL,
+        UserId NVARCHAR(100) NOT NULL,
+        UpdatedAt DATETIME2 NOT NULL,
+        MetaJson NVARCHAR(MAX) NOT NULL,
+        DraftJson NVARCHAR(MAX) NULL
+    );
+    CREATE INDEX IX_ProjectEdits_ProjectId ON ProjectEdits (ProjectId, UpdatedAt DESC);
+END;

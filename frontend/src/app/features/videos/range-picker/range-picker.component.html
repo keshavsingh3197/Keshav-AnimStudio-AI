@@ -1,0 +1,209 @@
+<div class="rp" #root tabindex="-1">
+  <!-- Preview -->
+  <div class="rp-stage-wrap">
+    <div class="rp-stage" [style.aspect-ratio]="sourceFormat().width + ' / ' + sourceFormat().height"
+         [style.--ratio]="sourceFormat().width / sourceFormat().height">
+      <video #vidA class="rp-vid" [class.front]="frontSlot() === 0" [class.cover]="timeline()?.fit === 'Cover'"
+             playsinline preload="auto" crossorigin="anonymous"></video>
+      <video #vidB class="rp-vid" [class.front]="frontSlot() === 1" [class.cover]="timeline()?.fit === 'Cover'"
+             playsinline preload="auto" crossorigin="anonymous"></video>
+
+      @for (img of activeImages(); track img.id) {
+        <img class="rp-img" [src]="mediaUrl(img.src)" alt=""
+             [style.opacity]="overlayOpacity(img)" [style.transform]="overlayTransform(img)" />
+      }
+      @for (txt of activeText(); track txt.id) {
+        <div class="rp-txt"
+             [class.pos-top]="txt.textStyle?.position === 'top'"
+             [class.pos-center]="txt.textStyle?.position === 'center'"
+             [class.pos-bottom]="!txt.textStyle?.position || txt.textStyle.position === 'bottom'"
+             [style.font-size]="textScale(txt.textStyle?.fontSize)"
+             [style.color]="txt.textStyle?.color ?? '#ffffff'"
+             [style.background-color]="txt.textStyle?.backgroundColor ?? 'rgba(0,0,0,0.6)'"
+             [style.opacity]="overlayOpacity(txt)">{{ txt.src }}</div>
+      }
+
+      @if (frameDiffers() && showFrame()) {
+        <div class="rp-frame" [style.width.%]="frameGuide().width" [style.height.%]="frameGuide().height">
+          <span>{{ targetSpec().label }} {{ targetSpec().ratio }}</span>
+        </div>
+      }
+
+      @if (loading()) {
+        <div class="rp-msg">Loading preview…</div>
+      } @else if (loadError(); as err) {
+        <div class="rp-msg">{{ err }}</div>
+      } @else if (timeline() && length() === 0) {
+        <div class="rp-msg">This video has no clips yet.</div>
+      } @else if (!playing() && !activeClip() && length() > 0) {
+        <div class="rp-msg subtle">End of video</div>
+      }
+
+      @if (length() > 0) {
+        <button type="button" class="rp-bigplay" [class.hidden]="playing()" (click)="toggle()" aria-label="Play">▶</button>
+      }
+    </div>
+  </div>
+
+  <!-- Transport -->
+  <div class="rp-transport">
+    <button type="button" class="tbtn" (click)="seek(start())" title="Go to start of the part" [disabled]="length() === 0">⇤</button>
+    <button type="button" class="tbtn" (click)="seek(time() - 5)" title="Back 5 s (Shift+←)" [disabled]="length() === 0">−5</button>
+    <button type="button" class="tbtn play" (click)="toggle()" [title]="playing() ? 'Pause (Space)' : 'Play (Space)'" [disabled]="length() === 0">
+      {{ playing() ? '❚❚' : '▶' }}
+    </button>
+    <button type="button" class="tbtn" (click)="seek(time() + 5)" title="Forward 5 s (Shift+→)" [disabled]="length() === 0">+5</button>
+    <button type="button" class="tbtn" (click)="seek(end() - 0.1)" title="Go to end of the part" [disabled]="length() === 0">⇥</button>
+
+    <span class="rp-time"><strong>{{ clock(time(), true) }}</strong> / {{ clock(length()) }}</span>
+
+    <span class="spacer"></span>
+
+    <button type="button" class="tbtn mark" (click)="setStartHere()" title="Start the part at the playhead (I)" [disabled]="length() === 0">
+      [ Start here
+    </button>
+    <button type="button" class="tbtn mark" (click)="setEndHere()" title="End the part at the playhead (O)" [disabled]="length() === 0">
+      End here ]
+    </button>
+    <button type="button" class="tbtn accent" (click)="playSelection()" title="Play only the chosen part" [disabled]="length() === 0">
+      ▶ Play part
+    </button>
+  </div>
+
+  <!-- Overview: the whole video, the part, and the playhead -->
+  @if (length() > 0) {
+    <div class="rp-overview" (pointerdown)="overviewSeek($event)" title="Click to jump">
+      <div class="ov-sel" [class.over]="overLimit()" [style.left.%]="pct(start())" [style.width.%]="pct(end() - start())"></div>
+      <div class="ov-head" [style.left.%]="pct(time())"></div>
+    </div>
+  }
+
+  <!-- Lanes -->
+  @if (timeline(); as tl) {
+    @if (tl.length > 0) {
+      <div class="rp-strip">
+        <div class="lane-names">
+          <span class="ruler-name"></span>
+          <span>Video</span>
+          @for (l of laneItems(); track l.id) { <span>{{ l.label }}</span> }
+        </div>
+
+        <div class="rp-scroller" #scroller (wheel)="onWheel($event)">
+          <div class="rp-track" #track [style.width.%]="zoom() * 100"
+               [class.dragging]="dragging() !== null"
+               (pointerdown)="startDrag($event, 'seek')"
+               (pointermove)="onDragMove($event)"
+               (pointerup)="endDrag($event)"
+               (pointercancel)="endDrag($event)">
+            <div class="ruler">
+              @for (t of ticks(); track t) {
+                <span class="tick" [style.left.%]="pct(t)">{{ clock(t) }}</span>
+              }
+            </div>
+
+            <div class="lane video">
+              @for (c of tl.clips; track $index) {
+                <div class="blk clip" [style.left.%]="pct(c.start)" [style.width.%]="pct(c.end - c.start)"
+                     [style.background-image]="thumbBackground(c.assetId)"
+                     [class.active]="activeClipIndex() === $index"
+                     [title]="c.name + ' · ' + clock(c.start) + '–' + clock(c.end) + ' · double-click to keep just this clip'"
+                     (dblclick)="selectSpan(c)">
+                  <span>{{ c.name }}</span>
+                </div>
+              }
+            </div>
+
+            @for (l of laneItems(); track l.id) {
+              <div [class]="'lane ' + l.id">
+                @for (it of l.items; track it.id) {
+                  <div [class]="'blk ' + it.kind" [style.left.%]="pct(it.start)" [style.width.%]="pct(it.end - it.start)"
+                       [title]="it.label + ' · ' + clock(it.start) + '–' + clock(it.end) + ' · double-click to keep this span'"
+                       (dblclick)="selectSpan(it)">
+                    <span>{{ it.kind === 'text' ? '“' + it.label + '”' : it.label }}</span>
+                  </div>
+                }
+              </div>
+            }
+
+            <!-- The chosen part -->
+            <div class="dim" [style.left.%]="0" [style.width.%]="pct(start())"></div>
+            <div class="dim" [style.left.%]="pct(end())" [style.right.%]="0"></div>
+            <div class="sel" [class.over]="overLimit()" [style.left.%]="pct(start())" [style.width.%]="pct(end() - start())">
+              <div class="sel-grip" title="Drag to move the part" (pointerdown)="startDrag($event, 'move')">
+                {{ clock(selLength()) }}
+              </div>
+              <div class="sel-handle left" title="Drag to change the start (Alt: no snapping)" (pointerdown)="startDrag($event, 'start')"></div>
+              <div class="sel-handle right" title="Drag to change the end (Alt: no snapping)" (pointerdown)="startDrag($event, 'end')"></div>
+            </div>
+
+            <div class="playhead" [style.left.%]="pct(time())"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="rp-zoom">
+        <button type="button" class="chip small" (click)="zoomBy(0.5)" [disabled]="zoom() <= 1" title="Zoom out">−</button>
+        <button type="button" class="chip small" (click)="zoomBy(2)" title="Zoom in (Ctrl+wheel)">+</button>
+        <button type="button" class="chip small" (click)="zoomToSelection()">Zoom to part</button>
+        <button type="button" class="chip small" (click)="setZoomAll()" [disabled]="zoom() <= 1">Whole video</button>
+        <span class="spacer"></span>
+        <label class="opt"><input type="checkbox" [checked]="loopSelection()" (change)="loopSelection.set($any($event.target).checked)" /> Loop part</label>
+        @if (frameDiffers()) {
+          <label class="opt"><input type="checkbox" [checked]="showFrame()" (change)="showFrame.set($any($event.target).checked)" /> {{ targetSpec().ratio }} frame</label>
+        }
+        <button type="button" class="chip small" (click)="toggleMute()">{{ muted() ? '🔇 Muted' : '🔊 Sound' }}</button>
+      </div>
+    }
+  }
+
+  <!-- Exact times and quick picks -->
+  <div class="rp-times">
+    <label class="clockfld">
+      <small>From</small>
+      <input type="text" class="clock" [value]="clock(start(), true)" (change)="typed('start', $any($event.target).value)" aria-label="Start time" />
+    </label>
+    <label class="clockfld">
+      <small>To</small>
+      <input type="text" class="clock" [value]="clock(end(), true)" (change)="typed('end', $any($event.target).value)" aria-label="End time" />
+    </label>
+    <span class="rp-len" [class.over]="overLimit()">= {{ clock(selLength(), true) }}</span>
+    @if (overLimit()) {
+      <button type="button" class="chip small warnchip" (click)="fitToLimit()">Cut to {{ clock(maxSeconds() ?? 0) }}</button>
+    }
+  </div>
+
+  @if (length() > 0) {
+    <div class="presets">
+      <button type="button" class="chip small" (click)="preset('playhead', 15)">15 s from playhead</button>
+      <button type="button" class="chip small" (click)="preset('playhead', 30)">30 s from playhead</button>
+      <button type="button" class="chip small" (click)="preset('playhead', 60)">60 s from playhead</button>
+      <button type="button" class="chip small" (click)="preset('first', 60)">First 60 s</button>
+      <button type="button" class="chip small" (click)="preset('middle', 60)">Middle 60 s</button>
+      <button type="button" class="chip small" (click)="preset('last', 60)">Last 60 s</button>
+    </div>
+  }
+
+  <!-- What comes along -->
+  @if (carried(); as c) {
+    <div class="rp-carried">
+      <span class="carried-title">Copied into the new one</span>
+      <span class="pill">🎬 {{ c.clips }} clip{{ c.clips === 1 ? '' : 's' }}@if (c.trimmedClips > 0) { <em>({{ c.trimmedClips }} trimmed)</em> }</span>
+      @if (c.texts.length > 0) {
+        <span class="pill" [title]="textList(c.texts)">T {{ c.texts.length }} text{{ c.texts.length === 1 ? '' : 's' }}</span>
+      }
+      @if (c.images.length > 0) {
+        <span class="pill">🖼 {{ c.images.length }} image{{ c.images.length === 1 ? '' : 's' }}</span>
+      }
+      @if (c.audio.length > 0) {
+        <span class="pill" [title]="textList(c.audio)">♪ {{ c.audio.length }} audio · {{ c.audio[0].label }}@if (c.audio.length > 1) { +{{ c.audio.length - 1 }} }</span>
+      }
+      @if (c.trimmedItems > 0) {
+        <small class="muted">Anything crossing an edge is trimmed to fit; music continues from the same point.</small>
+      }
+    </div>
+  }
+
+  <small class="rp-keys muted">
+    <kbd>Space</kbd> play · <kbd>I</kbd>/<kbd>O</kbd> start/end at playhead · <kbd>←</kbd><kbd>→</kbd> 1 s (Shift 5 s) · <kbd>,</kbd><kbd>.</kbd> 0.1 s · double-click a block to keep just it
+  </small>
+</div>

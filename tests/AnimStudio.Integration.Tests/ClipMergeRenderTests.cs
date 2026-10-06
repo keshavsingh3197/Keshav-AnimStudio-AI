@@ -4,6 +4,7 @@ using AnimStudio.Application.Abstractions.Rendering;
 using AnimStudio.Application.Abstractions.Storage;
 using AnimStudio.Application.Clips;
 using AnimStudio.Application.Rendering.Models;
+using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Rendering;
 using AnimStudio.Infrastructure.Ffmpeg;
 using AnimStudio.Infrastructure.Ffmpeg.Graph;
@@ -56,7 +57,8 @@ public sealed class ClipMergeRenderTests : IAsyncLifetime
     /// the single-pass join, so batching is exercised only where a test asks for it.
     /// </para>
     /// </summary>
-    private static FfmpegVideoRenderingService BuildService(int maxMergeInputs = 64)
+    private static FfmpegVideoRenderingService BuildService(
+        int maxMergeInputs = 64, ClipConformCache? cache = null, IFfmpegRunner? runner = null)
     {
         var ffmpegOptions = Options.Create(new FfmpegOptions
         {
@@ -67,7 +69,7 @@ public sealed class ClipMergeRenderTests : IAsyncLifetime
             MaxMergeInputs = maxMergeInputs
         });
 
-        var runner = new FfmpegRunner(ffmpegOptions, NullLogger<FfmpegRunner>.Instance);
+        runner ??= new FfmpegRunner(ffmpegOptions, NullLogger<FfmpegRunner>.Instance);
 
         var capabilities = new FfmpegCapabilities
         {
@@ -82,7 +84,86 @@ public sealed class ClipMergeRenderTests : IAsyncLifetime
             capabilities,
             ffmpegOptions,
             Options.Create(new RenderOptions()),
-            NullLogger<FfmpegVideoRenderingService>.Instance);
+            NullLogger<FfmpegVideoRenderingService>.Instance,
+            cache);
+    }
+
+    private static FfmpegOptions RealFfmpeg() => new()
+    {
+        FfmpegPath = FfmpegLocator.FfmpegPath,
+        FfprobePath = FfmpegLocator.FfprobePath,
+        SceneTimeoutMinutes = 5
+    };
+
+    private sealed class CountingRunner(IFfmpegRunner inner) : IFfmpegRunner
+    {
+        public int Encodes;
+
+        public Task<FfmpegResult> RunAsync(
+            FfmpegInvocation invocation, IProgress<FfmpegProgress>? progress, CancellationToken ct)
+        {
+            if (invocation.Tool == FfmpegTool.Ffmpeg) Interlocked.Increment(ref Encodes);
+            return inner.RunAsync(invocation, progress, ct);
+        }
+    }
+
+    private sealed class TestHost(string root) : Microsoft.Extensions.Hosting.IHostEnvironment
+    {
+        public string EnvironmentName { get; set; } = "Test";
+        public string ApplicationName { get; set; } = "AnimStudio.Tests";
+        public string ContentRootPath { get; set; } = root;
+        public Microsoft.Extensions.FileProviders.IFileProvider ContentRootFileProvider { get; set; } =
+            new Microsoft.Extensions.FileProviders.NullFileProvider();
+    }
+
+    // --- clip cache ---------------------------------------------------------
+
+    [FfmpegFact]
+    public async Task A_second_export_of_an_unchanged_clip_is_restored_without_encoding()
+    {
+        var cacheRoot = _root + "-cache";
+        try
+        {
+            var cache = new ClipConformCache(
+                Options.Create(new RenderOptions { ClipCacheRoot = cacheRoot }),
+                new TestHost(_root), NullLogger<ClipConformCache>.Instance);
+            var runner = new CountingRunner(
+                new FfmpegRunner(Options.Create(RealFfmpeg()), NullLogger<FfmpegRunner>.Instance));
+            var service = BuildService(cache: cache, runner: runner);
+
+            MakeClip("in/a.mp4", 2.0, 640, 360, 30, withAudio: true);
+            var first = await service.RenderClipAsync(Plan(0, "in/a.mp4"), _workspace, null, Ct);
+            var encodesAfterFirst = runner.Encodes;
+
+            // A new export is a new workspace holding a fresh copy of the same source.
+            await using var second = new LocalRenderWorkspace(
+                "clip-job-2", _root + "-2", new NullObjectStore(),
+                NullLogger<LocalRenderWorkspace>.Instance, keepOnFailure: false);
+            File.Copy(Path_("in/a.mp4"), second.Resolve("in/a.mp4"));
+
+            var restored = await service.RenderClipAsync(Plan(0, "in/a.mp4"), second, null, Ct);
+
+            Assert.Equal(encodesAfterFirst, runner.Encodes);
+            Assert.Equal(first.Frames, restored.Frames);
+            Assert.Equal(first.SizeBytes, new FileInfo(second.Resolve(restored.RelativePath)).Length);
+
+            // The same path holding different footage is a different clip.
+            MakeClip("in/a.mp4", 1.0, 640, 360, 30, withAudio: true);
+            File.Copy(Path_("in/a.mp4"), second.Resolve("in/a.mp4"), overwrite: true);
+
+            var changed = await service.RenderClipAsync(Plan(0, "in/a.mp4"), second, null, Ct);
+
+            Assert.True(runner.Encodes > encodesAfterFirst, "a changed source must be encoded");
+            Assert.InRange(changed.Frames.Value, 29, 31);
+
+            // Re-encoding over a restored (hard-linked) output must not have written
+            // through the link into the cached clip or the first export's copy of it.
+            Assert.Equal(first.SizeBytes, new FileInfo(_workspace.Resolve(first.RelativePath)).Length);
+        }
+        finally
+        {
+            if (Directory.Exists(cacheRoot)) Directory.Delete(cacheRoot, recursive: true);
+        }
     }
 
     public async Task DisposeAsync() => await _workspace.DisposeAsync();
@@ -243,6 +324,209 @@ public sealed class ClipMergeRenderTests : IAsyncLifetime
 
         Assert.True(Math.Abs(top - bottom) > 1.0,
             $"expected the mark to change the top band (top {top:F2} vs bottom {bottom:F2}).");
+    }
+
+    // --- erasing an existing mark ------------------------------------------
+
+    /// <summary>A black clip with a white "foreign logo" in its top-right corner.</summary>
+    private void MakeMarkedClip(string relative, int width, int height, string pixelFormat = "yuv420p")
+    {
+        Directory.CreateDirectory(Path_("in"));
+        Run($"-y -f lavfi -i color=c=black:size={width}x{height}:rate=30:duration=1 "
+          + $"-vf drawbox=x=iw-iw/8:y=0:w=iw/8:h=ih/8:color=white:t=fill "
+          + $"-c:v libx264 -pix_fmt {pixelFormat} -an \"{Path_(relative)}\"");
+    }
+
+    [FfmpegFact]
+    public async Task Fills_over_a_mark_in_the_corner_of_the_source_frame()
+    {
+        // The corner is the case that matters: watermarks sit against the edges, and the
+        // obvious filter for this (delogo) refuses any box that touches one.
+        MakeMarkedClip("in/marked.mp4", 640, 360);
+
+        var plan = Plan(0, "in/marked.mp4", hasAudio: false) with
+        {
+            EraseRegions = [new EraseRegionSpec { X = 85, Y = 0, Width = 15, Height = 15, Style = EraseStyle.Fill }]
+        };
+
+        var before = MeanLuma(Path_("in/marked.mp4"), "crop=60:30:575:5");
+        var result = await _service.RenderClipAsync(plan, _workspace, null, Ct);
+        var after = MeanLuma(_workspace.Resolve(result.RelativePath), "crop=60:30:575:5");
+
+        Assert.True(before > 200, $"fixture mark should be white, read {before:F1}");
+        Assert.True(after < 30, $"expected the mark gone, read {after:F1}");
+    }
+
+    [FfmpegFact]
+    public async Task Blurs_regions_on_the_edge_of_an_odd_sized_frame_without_failing()
+    {
+        // Odd dimensions, a 1% box in the very corner and one running off two edges: each
+        // has, at some point, made one of these filters reject its parameters.
+        // 4:4:4, because 4:2:0 cannot be odd-sized at all.
+        MakeMarkedClip("in/odd-marked.mp4", 481, 271, "yuv444p");
+
+        var plan = Plan(0, "in/odd-marked.mp4", hasAudio: false) with
+        {
+            EraseRegions =
+            [
+                new EraseRegionSpec { X = 99, Y = 99, Width = 1, Height = 1 },
+                new EraseRegionSpec { X = 80, Y = 0, Width = 20, Height = 20 }
+            ]
+        };
+
+        var result = await _service.RenderClipAsync(plan, _workspace, null, Ct);
+        var path = _workspace.Resolve(result.RelativePath);
+
+        Assert.Equal("640", ProbeStream(path, "v:0", "width"));
+        Assert.Equal("360", ProbeStream(path, "v:0", "height"));
+    }
+
+    [FfmpegFact]
+    public async Task Patches_over_a_corner_mark_with_the_footage_beside_it()
+    {
+        // The fixture is black apart from the white mark, so a patch copied from the
+        // area below it must read as black - a blur would still leave it grey.
+        MakeMarkedClip("in/marked-patch.mp4", 640, 360);
+
+        var plan = Plan(0, "in/marked-patch.mp4", hasAudio: false) with
+        {
+            EraseRegions = [new EraseRegionSpec { X = 85, Y = 0, Width = 15, Height = 15, Style = EraseStyle.Patch }]
+        };
+
+        var result = await _service.RenderClipAsync(plan, _workspace, null, Ct);
+        var after = MeanLuma(_workspace.Resolve(result.RelativePath), "crop=60:30:575:5");
+
+        Assert.True(after < 30, $"expected the mark patched away, read {after:F1}");
+    }
+
+    [FfmpegFact]
+    public async Task Replaces_a_mark_with_our_logo_for_the_whole_clip()
+    {
+        // The logo is a single frame scaled against a crop of the clip; the clip must
+        // still come out full length, with the logo still there at the end.
+        MakeMarkedClip("in/marked-brand.mp4", 481, 271, "yuv444p");
+        RenderFixtures.MakeSprite(Path_("in/brand.png"), "red", 64);
+
+        var plan = Plan(0, "in/marked-brand.mp4", hasAudio: false) with
+        {
+            EraseRegions = [new EraseRegionSpec { X = 80, Y = 0, Width = 20, Height = 20, Style = EraseStyle.Brand }],
+            Watermark = new WatermarkPlan
+            {
+                Kind = WatermarkKind.Logo,
+                Position = WatermarkPosition.TopRight,
+                LogoRelativePath = "in/brand.png",
+                HeightPixels = 20, MarginPixels = 10, MaxWidthPixels = 100,
+                Opacity = 1, ColorRgb = "FFFFFF", BackplateOpacity = 0
+            }
+        };
+
+        var result = await _service.RenderClipAsync(plan, _workspace, null, Ct);
+        var path = _workspace.Resolve(result.RelativePath);
+
+        Assert.Equal("640", ProbeStream(path, "v:0", "width"));
+        Assert.True(int.Parse(ProbeStream(path, "v:0", "nb_frames")) >= 29);
+    }
+
+    private static OutroSettings SupportCard(double seconds = 2.0) => new()
+    {
+        Kind = OutroKind.Card,
+        QrAssetId = "qr",
+        Headline = "Support us",
+        Subtext = "Scan the code",
+        DurationSeconds = seconds,
+        Transition = SceneTransition.None
+    };
+
+    [FfmpegFontFact]
+    public async Task Draws_an_end_card_with_its_qr_quiet_zone_and_headline_for_the_whole_duration()
+    {
+        // At 640x360 the layout puts the headline at y=61 and the white square at
+        // x=237,y=101, 166px wide - asserted against the pixels, since a drawtext or
+        // drawbox that did nothing still exits 0.
+        RenderFixtures.MakeSprite(Path_("in/qr.png"), "black", 64);
+        var warnings = new List<string>();
+
+        var plan = await AnimStudio.Application.Rendering.EndCardFactory.PrepareAsync(
+            _workspace, SupportCard(), TestCanvas, "in/qr.png", _ => WatermarkFontResolver.FindSystemFont(),
+            EncoderProfile.Default, 0, "clips/clip_outro.mp4", warnings, Ct);
+
+        var result = await _service.RenderClipAsync(plan, _workspace, null, Ct);
+        var path = _workspace.Resolve(result.RelativePath);
+
+        Assert.Empty(warnings);
+        Assert.Equal(60, result.Frames.Value);
+
+        var quietZone = MeanLuma(path, "crop=166:8:237:103");
+        var headline = MeanLuma(path, "crop=640:24:0:61");
+        var background = MeanLuma(path, "crop=640:20:0:10");
+
+        Assert.True(quietZone > 200, $"expected a white quiet zone, got luma {quietZone:F1}.");
+        Assert.True(headline - background > 1.0,
+            $"expected the headline to brighten its band (headline {headline:F2} vs background {background:F2}).");
+    }
+
+    [FfmpegFontFact]
+    public async Task Draws_hindi_lines_in_a_face_that_has_devanagari()
+    {
+        // The bug this guards: the Latin watermark face has no Devanagari, and drawtext
+        // draws every missing glyph as a box. The resolver must hand Hindi lines a face
+        // that covers them - and the line must actually draw, not be dropped.
+        var fonts = new WatermarkFontResolver(Options.Create(new RenderOptions()), NullLogger<WatermarkFontResolver>.Instance);
+        var hindiFont = fonts.FontFor("हिन्दी");
+        if (hindiFont is null) return; // no Devanagari face on this host to test against
+
+        Assert.NotEqual(fonts.FontFilePath, hindiFont);
+
+        var card = SupportCard();
+        card.Headline = null;
+        card.Subtext = null;
+        card.HeadlineSecondary = "इस तरह के और वीडियो के लिए हमारा समर्थन करें";
+        RenderFixtures.MakeSprite(Path_("in/qr.png"), "black", 64);
+        var warnings = new List<string>();
+
+        var plan = await AnimStudio.Application.Rendering.EndCardFactory.PrepareAsync(
+            _workspace, card, TestCanvas, "in/qr.png", fonts.FontFor,
+            EncoderProfile.Default, 0, "clips/clip_outro.mp4", warnings, Ct);
+
+        Assert.Empty(warnings);
+        var line = Assert.Single(plan.EndCard!.Lines);
+        Assert.Equal(hindiFont, line.FontFilePath);
+
+        var result = await _service.RenderClipAsync(plan, _workspace, null, Ct);
+        var path = _workspace.Resolve(result.RelativePath);
+
+        var band = MeanLuma(path, $"crop=640:{line.FontPixels}:0:{line.Y}");
+        var background = MeanLuma(path, "crop=640:20:0:10");
+        Assert.True(band - background > 1.0, $"expected the Hindi line to draw (band {band:F2} vs background {background:F2}).");
+    }
+
+    [FfmpegFact]
+    public async Task An_end_card_joins_a_clip_by_stream_copy_with_its_fade_inside_it()
+    {
+        // The card's "transition" is a fade up inside the card, so the join is a cut: the
+        // timeline is the plain sum, 1s + 2s, and nothing is re-encoded to get there.
+        MakeClip("in/a.mp4", 1.0, 640, 360, 30, withAudio: true);
+        RenderFixtures.MakeSprite(Path_("in/qr.png"), "black", 64);
+
+        var card = SupportCard();
+        card.Transition = SceneTransition.Fade;
+
+        var plan = await AnimStudio.Application.Rendering.EndCardFactory.PrepareAsync(
+            _workspace, card, TestCanvas, "in/qr.png", null,
+            EncoderProfile.Default, 1, "clips/clip_outro.mp4", new List<string>(), Ct);
+        Assert.True(plan.EndCard!.FadeInSeconds > 0);
+
+        var prepared = new List<SceneRenderResult>
+        {
+            await _service.RenderClipAsync(Plan(0, "in/a.mp4"), _workspace, null, Ct),
+            await _service.RenderClipAsync(plan, _workspace, null, Ct)
+        };
+
+        var merged = await Merge(prepared, FrameCount.Zero);
+
+        var duration = ProbeDuration(_workspace.Resolve(merged.RelativePath), "v:0");
+        Assert.True(Math.Abs(duration - 3.0) < 0.1, $"expected 3.0s, got {duration:F3}s");
+        Assert.Equal(90, merged.Frames.Value);
     }
 
     [FfmpegFact]

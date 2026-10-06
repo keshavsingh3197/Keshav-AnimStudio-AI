@@ -322,7 +322,15 @@ public sealed class ProjectRenderOrchestrator(
             ids.Add(project.Settings.DefaultOutro.AssetId!);
 
         var loaded = await assets.GetManyAsync(ids, ct).ConfigureAwait(false);
-        return loaded.ToDictionary(a => a.Id);
+
+        // Re-applied here, at the last point before a file is read off disk: a scene or a
+        // character naming another project's asset id must not pull that file into this
+        // project's render. Missing ids surface as AssetMissing further on.
+        return loaded
+            .Where(a => string.Equals(a.ProjectId, project.Id, StringComparison.Ordinal)
+                        || string.Equals(a.ProjectId, "global", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(a.ProjectId, "system", StringComparison.OrdinalIgnoreCase))
+            .ToDictionary(a => a.Id);
     }
 
     /// <summary>

@@ -9,6 +9,7 @@ import {
 import { ApiService } from '../../core/services/api.service';
 import { ProjectStore } from '../../core/services/project-store';
 import { StatusService } from '../../core/services/status.service';
+import { FileDropDirective } from '../../shared/file-drop.directive';
 
 type SourceKind = 'PastedText' | 'SubtitleFile' | 'YouTubeCaptions';
 
@@ -20,7 +21,7 @@ type SourceKind = 'PastedText' | 'SubtitleFile' | 'YouTubeCaptions';
  */
 @Component({
   selector: 'app-import',
-  imports: [DatePipe, DecimalPipe, FormsModule],
+  imports: [DatePipe, DecimalPipe, FormsModule, FileDropDirective],
   templateUrl: './import.component.html',
 })
 export class ImportComponent {
@@ -81,17 +82,19 @@ export class ImportComponent {
   /** Uploads a .srt or .vtt, then selects it - the common case is one file, once. */
   uploadSubtitle(event: Event): void {
     const input = event.target as HTMLInputElement;
-    const projectId = this.store.projectId();
     const file = input.files?.[0];
+    input.value = '';
+    if (file) this.uploadSubtitleFile(file);
+  }
 
-    if (!projectId || !file) return;
+  uploadSubtitleFile(file: File): void {
+    const projectId = this.store.projectId();
+    if (!projectId) return;
 
     this.status.run(this.api.uploadAsset(projectId, file), (asset) => {
       this.store.refreshAssets();
       this.subtitleAssetId = asset.id;
     });
-
-    input.value = '';
   }
 
   // --- "no transcript yet": a prompt for any external AI chat, no key needed here because
@@ -250,12 +253,16 @@ export class ImportComponent {
     if (!projectId) return;
 
     this.api.listIngests(projectId).subscribe({
-      next: (list) => this.ingests.set(list),
+      next: (list) => {
+        if (this.store.projectId() === projectId) this.ingests.set(list);
+      },
       error: () => undefined,
     });
 
     this.api.listScripts(projectId).subscribe({
-      next: (list) => this.scripts.set(list),
+      next: (list) => {
+        if (this.store.projectId() === projectId) this.scripts.set(list);
+      },
       error: () => undefined,
     });
   }

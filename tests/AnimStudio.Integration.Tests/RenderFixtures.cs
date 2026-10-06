@@ -22,6 +22,27 @@ public static class RenderFixtures
         Run($"-y -f lavfi -i \"sine=frequency={frequency}:duration={seconds}\" "
           + $"-ar 48000 -ac 2 \"{path}\"");
 
+    public static void MakeSilence(string path, double seconds) =>
+        Run($"-y -f lavfi -i \"anullsrc=r=48000:cl=stereo\" -t {seconds.ToString(System.Globalization.CultureInfo.InvariantCulture)} \"{path}\"");
+
+    /// <summary>A moving test pattern, with a tone unless <paramref name="withAudio"/> is false.</summary>
+    public static void MakeVideo(string path, double seconds, int width = 640, int height = 360, bool withAudio = true)
+    {
+        var duration = seconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        Run($"-y -f lavfi -i testsrc2=s={width}x{height}:r=30:d={duration} "
+          + (withAudio ? $"-f lavfi -i \"sine=frequency=440:duration={duration}\" -c:a aac " : "")
+          + $"-c:v libx264 -preset ultrafast -pix_fmt yuv420p -shortest \"{path}\"");
+    }
+
+    /// <summary>What a browser's MediaRecorder produces: VP8 video and Opus audio in WebM.</summary>
+    public static void MakeCameraRecording(string path, double seconds)
+    {
+        var duration = seconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        Run($"-y -f lavfi -i testsrc2=s=640x480:r=30:d={duration} "
+          + $"-f lavfi -i \"sine=frequency=330:duration={duration}:sample_rate=48000\" "
+          + $"-c:v libvpx -deadline realtime -b:v 1M -c:a libopus -shortest -f webm \"{path}\"");
+    }
+
     private static void Run(string arguments)
     {
         using var process = Process.Start(new ProcessStartInfo(FfmpegLocator.FfmpegPath)

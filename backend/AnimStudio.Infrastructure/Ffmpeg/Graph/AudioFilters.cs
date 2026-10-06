@@ -14,6 +14,25 @@ internal static class AudioFilters
         $"aformat=sample_fmts=fltp:sample_rates={encoder.AudioSampleRate}:channel_layouts=stereo";
 
     /// <summary>
+    /// Places audio by its own timestamps instead of packing samples end to end, padding
+    /// silence into any gap and dropping any overlap, starting from zero.
+    /// <para>
+    /// This replaces <c>asetpts=N/SR/TB</c> wherever the timestamps carry meaning. That
+    /// filter renumbers samples from zero and so discards two things: a source whose sound
+    /// starts after its picture (phone and AI-generated footage routinely does - measured
+    /// 79ms early on one clip), and the per-clip offsets the concat demuxer assigns. Each
+    /// conformed clip's audio ends ~10ms short of its video, so packing them end to end
+    /// put the sound a further 10ms ahead of the lips with every clip of the join.
+    /// </para>
+    /// <para>
+    /// <c>min_hard_comp</c> is lowered from its 100ms default so that every gap is filled
+    /// exactly; left at the default, gaps under 100ms are "soft" compensated at one sample
+    /// per second, which in practice means not at all.
+    /// </para>
+    /// </summary>
+    public const string FollowTimestamps = "aresample=async=1:min_hard_comp=0.005:first_pts=0";
+
+    /// <summary>
     /// A scene's audio, clamped to exactly the scene length.
     /// <para>
     /// This is the keystone of A/V sync. <c>atrim</c> cuts audio that runs long,

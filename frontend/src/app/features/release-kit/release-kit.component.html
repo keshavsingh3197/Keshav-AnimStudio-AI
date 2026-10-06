@@ -1,0 +1,370 @@
+<div class="page-head">
+  <div>
+    <h2>🎵 Music Release Kit</h2>
+    <p class="muted rk-lede">
+      Turn a finished song into everything a distributor asks for: a loudness-normalised WAV master,
+      3000×3000 cover art, a release sheet to copy from, and promo videos for YouTube, Reels and Spotify Canvas.
+    </p>
+  </div>
+</div>
+
+<div class="rk-note">
+  <strong>How this reaches Spotify, Apple Music and other stores:</strong> stores only take uploads from
+  distributors they have contracts with. This kit prepares your files so the upload to your distributor
+  is quick and doesn't get rejected. You can upload the visualizer video to YouTube yourself.
+</div>
+
+<div class="rk-grid">
+  <!-- ===================================================================== -->
+  <!-- LEFT: inputs                                                          -->
+  <!-- ===================================================================== -->
+  <div class="rk-col">
+    <section class="card">
+      <h3 class="rk-step"><span>1</span> Song &amp; artwork</h3>
+
+      <div class="rk-drop" [appFileDrop]="audioAccept" (filesDropped)="useAudio($event[0])" (click)="audioInput.click()">
+        <input #audioInput type="file" [accept]="audioAccept" hidden (change)="onAudioPicked($event)" />
+        @if (audioFile(); as f) {
+          <div class="rk-drop-icon">🎧</div>
+          <strong class="rk-file-name">{{ f.name }}</strong>
+          <div class="muted">{{ f.size / (1024 * 1024) | number: '1.1-1' }} MB · click to replace</div>
+        } @else {
+          <div class="rk-drop-icon">🎧</div>
+          <strong>Drop your final mix here, or click to browse</strong>
+          <div class="muted">WAV, FLAC or AIFF preferred · MP3 / M4A accepted · up to 512 MB</div>
+        }
+      </div>
+      @if (audioIsLossy()) {
+        <p class="rk-inline-warn">⚠️ MP3/M4A are lossy. Export a WAV or FLAC from your project if you can. Distributors prefer it.</p>
+      }
+
+      <div class="rk-cover-row">
+        <div class="rk-drop rk-drop-cover" [appFileDrop]="coverAccept" (filesDropped)="useCover($event[0])" (click)="coverInput.click()">
+          <input #coverInput type="file" [accept]="coverAccept" hidden (change)="onCoverPicked($event)" />
+          @if (coverPreview(); as src) {
+            <img [src]="src" alt="Cover art preview" class="rk-cover-img" />
+          } @else {
+            <div class="rk-drop-icon">🖼️</div>
+            <strong>Cover art</strong>
+            <div class="muted">PNG / JPG / WEBP</div>
+          }
+        </div>
+        <div class="rk-cover-info">
+          <p class="muted">
+            Stores require square artwork of at least 3000×3000 px, with no URLs, social handles or
+            store logos. It's resized and centre-cropped to exactly 3000×3000.
+          </p>
+          @if (coverSize(); as s) {
+            <p>Your image: <strong>{{ s.width }}×{{ s.height }}</strong></p>
+            @if (coverTooSmall()) {
+              <p class="rk-inline-warn">⚠️ Smaller than 3000 px, so it will be enlarged and may look soft.</p>
+            }
+            @if (coverNotSquare()) {
+              <p class="rk-inline-warn">⚠️ Not square, so the edges would be centre-cropped. Choose the square yourself instead:</p>
+            }
+          }
+          @if (coverFile()) {
+            <div class="rk-cover-actions">
+              <button type="button" class="secondary rk-small" (click)="cropCover()">✂ {{ coverNotSquare() ? 'Crop to square' : 'Crop' }}</button>
+              <button type="button" class="secondary rk-small" (click)="clearCover()">Remove cover</button>
+            </div>
+          }
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3 class="rk-step"><span>2</span> Release details</h3>
+
+      <div class="rk-fields">
+        <div class="rk-field rk-span-2">
+          <label for="rk-title">Title *</label>
+          <input id="rk-title" type="text" maxlength="200" [(ngModel)]="form.title" placeholder="Song title, without feat./prod. credits" />
+        </div>
+        <div class="rk-field">
+          <label for="rk-version">Version</label>
+          <input id="rk-version" type="text" maxlength="120" [(ngModel)]="form.versionTitle" placeholder="Acoustic, Remix, Slowed…" />
+        </div>
+        <div class="rk-field">
+          <label for="rk-artist">Primary artist *</label>
+          <input id="rk-artist" type="text" maxlength="120" [(ngModel)]="form.primaryArtist" />
+        </div>
+        <div class="rk-field">
+          <label for="rk-featured">Featured artists</label>
+          <input id="rk-featured" type="text" [(ngModel)]="form.featuredArtists" placeholder="Comma-separated" />
+        </div>
+        <div class="rk-field">
+          <label for="rk-writers">Songwriters (legal names)</label>
+          <input id="rk-writers" type="text" [(ngModel)]="form.songwriters" placeholder="Comma-separated" />
+        </div>
+        <div class="rk-field">
+          <label for="rk-producers">Producers</label>
+          <input id="rk-producers" type="text" [(ngModel)]="form.producers" placeholder="Comma-separated" />
+        </div>
+        <div class="rk-field">
+          <label for="rk-genre">Genre *</label>
+          <input id="rk-genre" type="text" maxlength="60" list="rk-genres" [(ngModel)]="form.genre" />
+        </div>
+        <div class="rk-field">
+          <label for="rk-genre2">Secondary genre</label>
+          <input id="rk-genre2" type="text" maxlength="60" list="rk-genres" [(ngModel)]="form.secondaryGenre" />
+        </div>
+        <datalist id="rk-genres">
+          @for (g of genres; track g) {
+            <option [value]="g"></option>
+          }
+        </datalist>
+        <div class="rk-field">
+          <label for="rk-lang">Lyrics language</label>
+          <select id="rk-lang" [(ngModel)]="form.language" [disabled]="form.instrumental">
+            @for (l of languages; track l.code) {
+              <option [value]="l.code">{{ l.name }}</option>
+            }
+          </select>
+        </div>
+        <div class="rk-field">
+          <label for="rk-date">Release date</label>
+          <input id="rk-date" type="date" [(ngModel)]="form.releaseDate" />
+        </div>
+        <div class="rk-field rk-checks">
+          <label><input type="checkbox" [ngModel]="form.instrumental" (ngModelChange)="onInstrumentalChange($event)" /> Instrumental</label>
+          <label><input type="checkbox" [(ngModel)]="form.explicit" /> Explicit lyrics</label>
+        </div>
+        <div class="rk-field">
+          <label for="rk-label">Record label</label>
+          <input id="rk-label" type="text" maxlength="120" [(ngModel)]="form.recordLabel" placeholder="Your own name works if independent" />
+        </div>
+        <div class="rk-field">
+          <label for="rk-pline">℗ line (recording)</label>
+          <input id="rk-pline" type="text" maxlength="200" [(ngModel)]="form.recordingCopyright" placeholder="2026 Your Name" />
+        </div>
+        <div class="rk-field">
+          <label for="rk-cline">© line (composition)</label>
+          <input id="rk-cline" type="text" maxlength="200" [(ngModel)]="form.compositionCopyright" placeholder="2026 Your Name" />
+        </div>
+        <div class="rk-field">
+          <label for="rk-isrc">ISRC</label>
+          <input id="rk-isrc" type="text" maxlength="20" [(ngModel)]="form.isrc" placeholder="Leave blank to get one from your distributor" />
+        </div>
+        <div class="rk-field">
+          <label for="rk-upc">UPC / EAN</label>
+          <input id="rk-upc" type="text" maxlength="20" inputmode="numeric" [(ngModel)]="form.upc" placeholder="Leave blank to get one from your distributor" />
+        </div>
+        @if (!form.instrumental) {
+          <div class="rk-field rk-span-2">
+            <label for="rk-lyrics">Lyrics</label>
+            <textarea id="rk-lyrics" maxlength="20000" [(ngModel)]="form.lyrics" placeholder="Optional. Saved as lyrics.txt in the kit."></textarea>
+          </div>
+        }
+      </div>
+      <label class="rk-remember">
+        <input type="checkbox" [ngModel]="rememberDetails()" (ngModelChange)="onRememberChange($event)" />
+        Remember the artist, credits, genre and label lines on this browser for my next release
+      </label>
+    </section>
+
+    <section class="card">
+      <h3 class="rk-step"><span>3</span> Master &amp; promo</h3>
+      <div class="rk-fields">
+        <div class="rk-field rk-span-2">
+          <label for="rk-lufs">Loudness target</label>
+          <select id="rk-lufs" [(ngModel)]="options.targetLufs">
+            @for (p of loudnessPresets; track p.lufs) {
+              <option [ngValue]="p.lufs">{{ p.label }}</option>
+            }
+          </select>
+        </div>
+        <div class="rk-field">
+          <label for="rk-rate">Sample rate</label>
+          <select id="rk-rate" [(ngModel)]="options.sampleRate">
+            <option [ngValue]="44100">44.1 kHz (standard)</option>
+            <option [ngValue]="48000">48 kHz</option>
+            <option [ngValue]="96000">96 kHz (hi-res)</option>
+          </select>
+        </div>
+        <div class="rk-field">
+          <label for="rk-depth">Bit depth</label>
+          <select id="rk-depth" [(ngModel)]="options.bitDepth">
+            <option [ngValue]="24">24-bit (recommended)</option>
+            <option [ngValue]="16">16-bit (CD, dithered)</option>
+          </select>
+        </div>
+        <div class="rk-field rk-checks rk-span-2">
+          <label><input type="checkbox" [(ngModel)]="options.makeVisualizer" [disabled]="!coverFile()" /> YouTube visualizer video (16:9, full song)</label>
+          <label><input type="checkbox" [(ngModel)]="options.makePromoLoop" [disabled]="!coverFile()" /> 8-second 9:16 promo loop (Canvas / Reels / Shorts)</label>
+          @if (!coverFile()) {
+            <span class="muted">Add cover art to make the promo videos.</span>
+          }
+        </div>
+      </div>
+      <p class="muted rk-small-print">
+        The master is gain-adjusted to the target with a true-peak ceiling of -1 dBTP, so stores won't turn it down
+        or distort it when they encode. Dynamics are kept; if the target would clip, the gain stops short of it.
+      </p>
+    </section>
+
+    <section class="card rk-confirm">
+      <label class="rk-rights">
+        <input type="checkbox" [(ngModel)]="form.rightsConfirmed" />
+        <span>
+          I own or control all rights to this recording, its composition and its artwork, including any samples,
+          beats or vocals in it. Downloaded or third-party material without a licence can't be released.
+        </span>
+      </label>
+
+      <button type="button" class="rk-build" [disabled]="missing().length > 0 || building()" (click)="build()">
+        @if (building()) {
+          ⏳ Building kit… {{ elapsed() }}s
+        } @else {
+          🎛️ Build release kit
+        }
+      </button>
+      @if (!building() && missing().length > 0) {
+        <p class="muted rk-small-print">Still needed: {{ missing().join(', ') }}.</p>
+      }
+      @if (building()) {
+        <p class="muted rk-small-print">Measuring loudness, mastering, and rendering videos. A full-length visualizer can take a few minutes.</p>
+      }
+    </section>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- RIGHT: result                                                         -->
+  <!-- ===================================================================== -->
+  <div class="rk-col">
+    @if (error(); as e) {
+      <div class="card rk-error" role="alert">
+        <strong>⚠️ {{ e.message }}</strong>
+        @if (e.hint) {
+          <p>{{ e.hint }}</p>
+        }
+      </div>
+    }
+
+    @if (result(); as r) {
+      <section class="card">
+        <div class="rk-result-head">
+          <div>
+            <h3>{{ r.title }}</h3>
+            <div class="muted">{{ r.primaryArtist }} · {{ formatDuration(r.durationSeconds) }}</div>
+          </div>
+          <button type="button" (click)="downloadZip()" [disabled]="loadingFile() !== null">⬇️ Download kit (ZIP)</button>
+        </div>
+
+        <div class="rk-meters">
+          <div class="rk-meter">
+            <span class="muted">Loudness</span>
+            <strong>{{ r.before.integratedLufs | number: '1.1-1' }} → {{ r.after.integratedLufs | number: '1.1-1' }} LUFS</strong>
+          </div>
+          <div class="rk-meter">
+            <span class="muted">True peak</span>
+            <strong>{{ r.before.truePeakDb | number: '1.1-1' }} → {{ r.after.truePeakDb | number: '1.1-1' }} dBTP</strong>
+          </div>
+          <div class="rk-meter">
+            <span class="muted">Source</span>
+            <strong>{{ r.sourceCodec }} · {{ r.sourceSampleRate / 1000 | number: '1.0-1' }} kHz · {{ r.sourceChannels === 1 ? 'mono' : 'stereo' }}</strong>
+          </div>
+        </div>
+
+        @if (r.warnings.length > 0) {
+          <ul class="rk-warnings">
+            @for (w of r.warnings; track w.code) {
+              <li>⚠️ {{ w.message }}</li>
+            }
+          </ul>
+        } @else {
+          <p class="rk-ok">✅ No problems found. This kit meets common distributor specs.</p>
+        }
+      </section>
+
+      <section class="card rk-live">
+        <h3>🔴 Go live with it</h3>
+        <p class="muted">
+          Premiere the song on YouTube Live, or keep it running as a 24/7 stream - straight from this kit, nothing to
+          upload again. You can add more songs to the same stream on the next page.
+        </p>
+        <div class="rk-live-actions">
+          <a routerLink="/live" [queryParams]="{ kitId: r.jobId, title: r.primaryArtist + ' - ' + r.title }">
+            <button type="button">🎵 Cover + song with live waveform</button>
+          </a>
+          @if (hasVisualizer()) {
+            <a routerLink="/live" [queryParams]="{ kitId: r.jobId, visualizer: 1, title: r.primaryArtist + ' - ' + r.title }">
+              <button type="button" class="secondary">📺 Stream the visualizer</button>
+            </a>
+          }
+        </div>
+      </section>
+
+      @if (mediaFiles().length > 0) {
+        <section class="card">
+          <h3>Preview</h3>
+          @for (f of mediaFiles(); track f.name) {
+            <div class="rk-preview">
+              <div class="rk-preview-head">
+                <span>{{ f.label }}</span>
+                @if (!previews()[f.name]) {
+                  <button type="button" class="secondary rk-small" (click)="preview(f)" [disabled]="loadingFile() === f.name">
+                    {{ loadingFile() === f.name ? 'Loading…' : '▶️ Load preview' }}
+                  </button>
+                }
+              </div>
+              @if (previews()[f.name]; as src) {
+                @if (isVideo(f)) {
+                  <video [src]="src" controls [class.rk-vertical]="f.name.includes('1080x1920')"></video>
+                } @else {
+                  <audio [src]="src" controls></audio>
+                }
+              }
+            </div>
+          }
+        </section>
+      }
+
+      <section class="card">
+        <h3>Files</h3>
+        <ul class="rk-files">
+          @for (f of r.files; track f.name) {
+            <li>
+              <div>
+                <strong>{{ f.label }}</strong>
+                <div class="muted">{{ f.name }} · {{ formatSize(f.sizeBytes) }}</div>
+              </div>
+              <button type="button" class="secondary rk-small" (click)="download(f)" [disabled]="loadingFile() === f.name">
+                {{ loadingFile() === f.name ? '…' : '⬇️' }}
+              </button>
+            </li>
+          }
+        </ul>
+        <p class="muted rk-small-print">Kits are kept on the server for 24 hours.</p>
+      </section>
+
+      <section class="card">
+        <h3>Next steps</h3>
+        <ol class="rk-steps">
+          <li>Pick a distributor and compare its fees, royalty split and payout terms. These change often.</li>
+          <li>Upload <code>master.wav</code> and <code>cover_3000x3000.jpg</code>, then copy each field from <code>release_sheet.txt</code>.</li>
+          <li>Set the release date at least 2–3 weeks ahead, so you can pitch the song to playlists before it's out.</li>
+          <li>Once the distributor assigns an ISRC and UPC, save them and reuse them for every future release of this recording.</li>
+          <li>Upload the visualizer to YouTube, and use the promo loop as Spotify Canvas or as a Reels/Shorts background.</li>
+        </ol>
+      </section>
+    } @else if (!error()) {
+      <section class="card rk-empty">
+        <div class="rk-empty-icon">📦</div>
+        <h3>Your kit will appear here</h3>
+        <ul class="rk-checklist">
+          <li>🎚️ WAV master at -14 LUFS / -1 dBTP</li>
+          <li>🖼️ Cover art at exactly 3000×3000</li>
+          <li>📝 Release sheet + metadata.json</li>
+          <li>📺 YouTube visualizer (16:9)</li>
+          <li>📱 Promo loop for Canvas / Reels (9:16)</li>
+        </ul>
+      </section>
+    }
+  </div>
+</div>
+
+@if (cropSource(); as src) {
+  <app-image-crop-dialog [source]="src" [square]="true" title="Crop the cover to a square" fileName="cover-square.png"
+                         (cropped)="onCropped($event)" (cancelled)="cropSource.set(null)" />
+}

@@ -1,5 +1,6 @@
 using AnimStudio.Domain.Ai;
 using AnimStudio.Domain.Jobs;
+using AnimStudio.Domain.Publishing;
 using AnimStudio.Domain.Scenes;
 using AnimStudio.Domain.System;
 using KeshavSingh.Mongo.NoSql;
@@ -66,6 +67,12 @@ public sealed class MongoIndexInitializer(
             await auditEntries.Indexes.CreateOneAsync(
                 new CreateIndexModel<AdminAuditEntry>(Builders<AdminAuditEntry>.IndexKeys
                     .Descending(e => e.AtUtc)), cancellationToken: ct).ConfigureAwait(false);
+
+            // Connected channels are only ever listed for one user.
+            var youTube = mongo.GetCollection<YouTubeChannelConnection>(MongoCollections.YouTubeConnections);
+            await youTube.Indexes.CreateOneAsync(
+                new CreateIndexModel<YouTubeChannelConnection>(Builders<YouTubeChannelConnection>.IndexKeys
+                    .Ascending(c => c.UserId)), cancellationToken: ct).ConfigureAwait(false);
 
                         // Migration / Seeder for Static Hub Data
             var hubConfig = mongo.GetCollection<HubConfig>(MongoCollections.HubConfig);

@@ -10,6 +10,21 @@ public sealed class YtDlpOptions
     public string ExecutablePath { get; set; } = "yt-dlp";
     public int TimeoutSeconds { get; set; } = 120;
     public int MaxOutputBytes { get; set; } = 8 * 1024 * 1024;
+
+    /// <summary>
+    /// Optional browser whose signed-in session yt-dlp reuses for sites that need a login
+    /// (Instagram, private Facebook videos, YouTube bot checks). Off by default. Only the
+    /// names in <see cref="SupportedCookieBrowsers"/> are honoured - anything else is ignored
+    /// rather than passed through to the downloader's argument list.
+    /// </summary>
+    public string? CookiesFromBrowser { get; set; }
+
+    public static readonly string[] SupportedCookieBrowsers =
+        ["brave", "chrome", "chromium", "edge", "firefox", "opera", "safari", "vivaldi", "whale"];
+
+    public string? EffectiveCookiesBrowser =>
+        CookiesFromBrowser?.Trim().ToLowerInvariant() is { Length: > 0 } b
+        && Array.IndexOf(SupportedCookieBrowsers, b) >= 0 ? b : null;
 }
 
 public sealed class IngestOptions

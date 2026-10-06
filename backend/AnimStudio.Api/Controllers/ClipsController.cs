@@ -148,6 +148,7 @@ public sealed class ClipsController(
             Fit = request.Fit,
             OutputWidth = request.OutputWidth,
             OutputHeight = request.OutputHeight,
+            Quality = request.Quality,
             Transition = request.Transition,
             TransitionSeconds = request.TransitionSeconds,
             Junctions = request.Junctions?
@@ -169,6 +170,7 @@ public sealed class ClipsController(
                     c.Volume, c.AudioAssetId, c.AudioVolume, c.KeepOriginalAudio, c.TrimStartSeconds, c.TrimEndSeconds))
                 .ToList(),
             Watermark = request.Watermark.ToSettings(),
+            IncludeOutro = request.IncludeOutro,
             TimelineItems = request.TimelineItems?
                 .Select(t => new TimelineItemSpec
                 {
@@ -191,6 +193,18 @@ public sealed class ClipsController(
                         CropTop = t.Transform.CropTop,
                         CropBottom = t.Transform.CropBottom,
                         Stabilization = t.Transform.Stabilization,
+                        EraseRegions = (t.Transform.EraseRegions ?? [])
+                            .Select(r => new EraseRegionSpec
+                            {
+                                X = r.X, Y = r.Y, Width = r.Width, Height = r.Height,
+                                Style = r.Style, FillColor = r.FillColor,
+                                Strength = r.Strength, Feather = r.Feather,
+                                Opacity = r.Opacity, Source = r.Source,
+                                KeepCornerMark = r.KeepCornerMark
+                            }.Normalized())
+                            .OfType<EraseRegionSpec>()
+                            .Take(EraseRegionSpec.MaxPerClip)
+                            .ToList(),
                         TransitionIn = t.Transform.TransitionIn,
                         TransitionInDuration = t.Transform.TransitionInDuration,
                         TransitionOut = t.Transform.TransitionOut,
@@ -247,6 +261,12 @@ public sealed class ClipsController(
         {
             try
             {
+                // Scoped to the project in the route: a clip id from another project is
+                // treated as already gone rather than deleted from under that project.
+                var asset = await assets.GetAsync(id, ct);
+                if (asset is null || !string.Equals(asset.ProjectId, projectId, StringComparison.Ordinal))
+                    continue;
+
                 await library.DeleteAsync(id, currentUser.UserId, ct);
                 deleted++;
             }

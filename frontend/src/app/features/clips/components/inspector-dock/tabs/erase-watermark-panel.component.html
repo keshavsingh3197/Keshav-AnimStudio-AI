@@ -1,0 +1,196 @@
+@let list = regions();
+
+<div class="inspector-section erase-panel">
+  <button class="section-header" type="button" (click)="toggle()" title="Remove a logo or watermark already in this footage">
+    <span class="section-title">
+      Remove watermark
+      @if (list.length) { <span class="count">{{ list.length }}</span> }
+    </span>
+    <span class="help-btn" role="button" tabindex="0" title="How this works"
+          [class.on]="showHelp()"
+          (click)="$event.stopPropagation(); showHelp.set(!showHelp())"
+          (keydown.enter)="$event.stopPropagation(); showHelp.set(!showHelp())">?</span>
+    @if (list.length) {
+      <span class="reset-btn" role="button" tabindex="0" title="Remove all boxes"
+            (click)="$event.stopPropagation(); state.clearEraseRegions()"
+            (keydown.enter)="$event.stopPropagation(); state.clearEraseRegions()">↺</span>
+    }
+    <span class="chevron" [class.open]="open()">▶</span>
+  </button>
+
+  @if (open()) {
+    <div class="section-body">
+      @if (showHelp()) {
+        <p class="hint">
+          Draw a box over a mark that is already in the footage. It is removed before your own watermark is
+          added, in the preview and in the export. Pause the preview to drag a box or resize it from its corner.
+          Only remove marks from footage you own or are licensed to edit.
+        </p>
+      }
+
+      @if (list.length === 0) {
+        <div class="empty">
+          <div class="empty-title">Where is the mark?</div>
+          <div class="corner-picker" role="group" aria-label="Add a box">
+            @for (c of corners; track c.value) {
+              <button type="button" class="corner" [class]="'corner ' + c.value" [title]="'Add a box ' + c.title.toLowerCase()"
+                      (click)="add(c.value)">{{ c.icon }}</button>
+            }
+          </div>
+          <div class="empty-sub">Click its position. You can fine-tune the box on the preview.</div>
+        </div>
+      }
+
+      @for (r of list; track $index; let i = $index) {
+        @let mode = modeOf(r.style);
+        @let isOpen = expanded() === i;
+        <div class="box-card" [class.open]="isOpen">
+          <div class="box-head" role="button" tabindex="0" (click)="select(i)" (keydown.enter)="select(i)"
+               [title]="isOpen ? 'Collapse' : 'Edit this box'">
+            <span class="box-num">{{ i + 1 }}</span>
+            <span class="box-mode"><span class="box-mode-icon">{{ mode.icon }}</span>{{ mode.label }}</span>
+            <span class="box-meta">{{ r.x | number:'1.0-1' }}, {{ r.y | number:'1.0-1' }} · {{ r.width | number:'1.0-1' }}×{{ r.height | number:'1.0-1' }}%</span>
+            <span class="icon-act" role="button" tabindex="0" title="Duplicate box"
+                  (click)="$event.stopPropagation(); state.duplicateEraseRegion(i)"
+                  (keydown.enter)="$event.stopPropagation(); state.duplicateEraseRegion(i)">⧉</span>
+            <span class="icon-act danger" role="button" tabindex="0" title="Delete box"
+                  (click)="$event.stopPropagation(); state.removeEraseRegion(i)"
+                  (keydown.enter)="$event.stopPropagation(); state.removeEraseRegion(i)">✕</span>
+          </div>
+
+          @if (isOpen) {
+            <div class="box-body">
+              <!-- Mode -->
+              <div class="modes" role="radiogroup" aria-label="How to remove it">
+                @for (m of modes; track m.style) {
+                  <button type="button" class="mode" role="radio"
+                          [class.active]="r.style === m.style" [attr.aria-checked]="r.style === m.style"
+                          [title]="m.hint" (click)="update(i, { style: m.style })">
+                    <span class="mode-icon">{{ m.icon }}</span>
+                    <span class="mode-label">{{ m.label }}</span>
+                  </button>
+                }
+              </div>
+              <p class="mode-hint">{{ mode.hint }}</p>
+
+              @if (r.style === 'Brand') {
+                @if (hasMark()) {
+                  <div class="mark-note ok">
+                    Uses your
+                    {{ state.effectiveWatermark().kind === 'Logo' ? 'logo' : '"' + state.effectiveWatermark().text + '"' }}
+                    watermark, fitted inside the box.
+                  </div>
+                  <label class="toggle-line" title="Off: on clips with this box, your watermark is shown only here">
+                    <input type="checkbox" [checked]="r.keepCornerMark ?? false"
+                           (change)="update(i, { keepCornerMark: $any($event.target).checked })" />
+                    Also show my watermark in its usual corner
+                  </label>
+                } @else {
+                  <div class="mark-note warn">
+                    No watermark is set for this project yet. Set one under Export → Watermark; until then the
+                    mark is just removed.
+                  </div>
+                }
+              }
+
+              <!-- Mode settings -->
+              @if (r.style === 'Patch' || r.style === 'Brand') {
+                <div class="field">
+                  <span class="field-label" title="Which footage covers the mark">Cover with</span>
+                  <div class="seg" role="radiogroup" aria-label="Cover with footage from">
+                    @for (s of sources; track s.value) {
+                      <button type="button" class="seg-btn" role="radio"
+                              [class.active]="(r.source ?? 'Auto') === s.value" [attr.aria-checked]="(r.source ?? 'Auto') === s.value"
+                              [title]="s.title" (click)="update(i, { source: s.value })">{{ s.icon }}</button>
+                    }
+                  </div>
+                </div>
+                <div class="field">
+                  <span class="field-label" title="Softens copied detail so it does not visibly repeat">Smoothing</span>
+                  <input type="range" class="slider" min="0" max="100" step="1" [value]="strength(r)"
+                         (input)="onRange(i, 'strength', $event)" aria-label="Smoothing" />
+                  <span class="val">{{ strength(r) | number:'1.0-0' }}</span>
+                </div>
+              }
+
+              @if (r.style === 'Blur') {
+                <div class="field">
+                  <span class="field-label" title="How strongly the mark is smeared">Amount</span>
+                  <input type="range" class="slider" min="5" max="100" step="1" [value]="strength(r)"
+                         (input)="onRange(i, 'strength', $event)" aria-label="Blur amount" />
+                  <span class="val">{{ strength(r) | number:'1.0-0' }}</span>
+                </div>
+              }
+
+              @if (r.style === 'Fill') {
+                <div class="field">
+                  <span class="field-label">Colour</span>
+                  <div class="swatches">
+                    @for (c of fillSwatches; track c) {
+                      <button type="button" class="swatch" [class.active]="(r.fillColor ?? '#000000').toLowerCase() === c"
+                              [style.background]="c" [title]="c" (click)="update(i, { fillColor: c })"></button>
+                    }
+                    <label class="swatch custom" title="Pick any colour">
+                      <input type="color" [value]="r.fillColor ?? '#000000'"
+                             (input)="update(i, { fillColor: $any($event.target).value })" />
+                    </label>
+                  </div>
+                </div>
+                <div class="field">
+                  <span class="field-label" title="100 is solid; lower lets the footage show through">Density</span>
+                  <input type="range" class="slider" min="0" max="100" step="1" [value]="r.opacity ?? 100"
+                         (input)="onRange(i, 'opacity', $event)" aria-label="Fill density" />
+                  <span class="val">{{ r.opacity ?? 100 | number:'1.0-0' }}%</span>
+                </div>
+              } @else {
+                <div class="field">
+                  <span class="field-label" title="How far the edge fades into the footage around the box">Soft edge</span>
+                  <input type="range" class="slider" min="0" max="100" step="1" [value]="feather(r)"
+                         (input)="onRange(i, 'feather', $event)" aria-label="Soft edge" />
+                  <span class="val">{{ feather(r) | number:'1.0-0' }}</span>
+                </div>
+              }
+
+              <!-- Position & size -->
+              <div class="geo">
+                <div class="geo-head">
+                  <span class="field-label">Position &amp; size</span>
+                  <div class="snap">
+                    @for (c of corners; track c.value) {
+                      <button type="button" class="snap-btn" [title]="'Move to ' + c.title.toLowerCase()"
+                              (click)="snap(i, r, c.value)">{{ c.icon }}</button>
+                    }
+                  </div>
+                </div>
+                <div class="geo-grid">
+                  @for (f of boxFields; track f.key) {
+                    <label class="geo-input" [title]="f.title">
+                      <span>{{ f.label }}</span>
+                      <input type="number" min="0" max="100" step="0.5"
+                             [value]="r[f.key] | number:'1.0-1'"
+                             (change)="onBoxInput(i, f.key, $event)" />
+                      <em>%</em>
+                    </label>
+                  }
+                </div>
+              </div>
+            </div>
+          }
+        </div>
+      }
+
+      @if (list.length > 0 && list.length < maxRegions) {
+        <div class="add-row">
+          <button type="button" class="add-btn" (click)="addNext()" title="Add another box">+ Add box</button>
+          <span class="add-at">or at</span>
+          @for (c of corners; track c.value) {
+            <button type="button" class="snap-btn" [title]="'Add a box ' + c.title.toLowerCase()"
+                    (click)="add(c.value)">{{ c.icon }}</button>
+          }
+        </div>
+      } @else if (list.length >= maxRegions) {
+        <div class="add-at">Up to {{ maxRegions }} boxes per clip.</div>
+      }
+    </div>
+  }
+</div>

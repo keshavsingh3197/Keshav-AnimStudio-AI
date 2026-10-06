@@ -656,3 +656,117 @@
   cursor: pointer;
 }
 
+
+/* Erase existing watermark — sits over the clip layers, under overlays and our own mark */
+.erase-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  overflow: hidden;
+  pointer-events: none;
+  container-type: size;
+  transform-origin: center center;
+}
+
+/* The picture's content rect: object-fit contain (or cover) worked out from its aspect */
+.erase-frame {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  translate: -50% -50%;
+  width: min(100cqw, calc(100cqh * var(--ar, 1.7778)));
+  height: min(100cqh, calc(100cqw / var(--ar, 1.7778)));
+}
+.erase-frame {
+  /* One percent of the picture's on-screen size, for blur radii scaled to a box. */
+  --fw: calc(min(100cqw, 100cqh * var(--ar, 1.7778)) / 100);
+  --fh: calc(min(100cqh, 100cqw / var(--ar, 1.7778)) / 100);
+}
+.erase-frame.cover {
+  width: max(100cqw, calc(100cqh * var(--ar, 1.7778)));
+  height: max(100cqh, calc(100cqw / var(--ar, 1.7778)));
+  --fw: calc(max(100cqw, 100cqh * var(--ar, 1.7778)) / 100);
+  --fh: calc(max(100cqh, 100cqw / var(--ar, 1.7778)) / 100);
+}
+
+.erase-box {
+  position: absolute;
+  mask-size: 100% 100%;
+  mask-repeat: no-repeat;
+  mask-composite: intersect;
+}
+
+.erase-patch {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.erase-brand {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  container-type: size;
+  overflow: hidden;
+}
+.erase-brand img {
+  max-width: 85%;
+  max-height: 85%;
+  object-fit: contain;
+}
+.erase-brand span {
+  white-space: nowrap;
+  font-weight: 700;
+  line-height: 1;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+/* Editing chrome: the box itself, not its feather, so this is what you drag. */
+.erase-chrome {
+  position: absolute;
+}
+.erase-chrome.editing {
+  pointer-events: auto;
+  cursor: move;
+  outline: 1px dashed rgba(255, 255, 255, 0.7);
+  outline-offset: -1px;
+  touch-action: none;
+}
+.erase-chrome.editing:hover,
+.erase-chrome.selected {
+  outline: 2px solid var(--brand, #6c8cff);
+  outline-offset: -1px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+}
+
+.erase-badge {
+  position: absolute;
+  left: -1px;
+  top: 0;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 0 0 4px 0;
+  background: rgba(0, 0, 0, 0.7);
+  color: #fff;
+  font: 600 10px/16px system-ui, sans-serif;
+  text-align: center;
+}
+.erase-chrome.selected .erase-badge {
+  background: var(--brand, #6c8cff);
+}
+
+.erase-handle {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.6);
+  cursor: nwse-resize;
+}

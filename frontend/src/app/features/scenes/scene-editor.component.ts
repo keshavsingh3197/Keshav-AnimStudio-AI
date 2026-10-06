@@ -114,7 +114,10 @@ export class SceneEditorComponent implements OnDestroy {
       const id = this.sceneId();
       this.pause();
       this.currentTime.set(0);
-      this.status.run(this.api.getScene(id), (detail) => this.apply(detail));
+      this.status.run(this.api.getScene(id), (detail) => {
+        // Moving to the next scene before this one answered must not show this one.
+        if (this.sceneId() === id) this.apply(detail);
+      });
     });
   }
 

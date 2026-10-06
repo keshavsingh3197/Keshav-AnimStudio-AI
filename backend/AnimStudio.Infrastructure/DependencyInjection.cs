@@ -27,7 +27,12 @@ using AnimStudio.Infrastructure.Ffmpeg;
 using AnimStudio.Infrastructure.Ffmpeg.Graph;
 using AnimStudio.Infrastructure.Ingest;
 using AnimStudio.Infrastructure.Jobs;
+using AnimStudio.Infrastructure.LiveStreams;
 using AnimStudio.Infrastructure.Persistence;
+using AnimStudio.Infrastructure.Publishing;
+using AnimStudio.Infrastructure.Releases;
+using AnimStudio.Infrastructure.Settings;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using AnimStudio.Infrastructure.Persistence.SqlServer;
 using AnimStudio.Infrastructure.Storage;
 using AnimStudio.Infrastructure.Subtitles;
@@ -57,9 +62,22 @@ public static class DependencyInjection
         services.Configure<FfmpegOptions>(configuration.GetSection(FfmpegOptions.Section));
         services.Configure<RenderOptions>(configuration.GetSection(RenderOptions.Section));
         services.Configure<IngestOptions>(configuration.GetSection(IngestOptions.Section));
+        services.Configure<LiveStreamOptions>(configuration.GetSection(LiveStreamOptions.Section));
         services.Configure<SegmentationOptions>(configuration.GetSection("Segmentation"));
         services.Configure<ParsingOptions>(configuration.GetSection("Parsing"));
         services.Configure<AiOptions>(configuration.GetSection(AiOptions.Section));
+
+        // Settings changed from the admin console (the WebSettings table) reach these options
+        // without a restart: IOptions<T> answers with the monitor's current value. Program.cs
+        // attaches the source to configuration; the fallback here only keeps DI resolvable.
+        services.TryAddSingleton(new WebSettingsConfigurationSource());
+        services.AddSingleton<WebSettingsRuntime>();
+        services.AddScoped<WebSettingsService>();
+        services.AddSingleton<IOptions<FfmpegOptions>, LiveOptions<FfmpegOptions>>();
+        services.AddSingleton<IOptions<RenderOptions>, LiveOptions<RenderOptions>>();
+        services.AddSingleton<IOptions<IngestOptions>, LiveOptions<IngestOptions>>();
+        services.AddSingleton<IOptions<LiveStreamOptions>, LiveOptions<LiveStreamOptions>>();
+        services.AddSingleton<IOptions<SegmentationOptions>, LiveOptions<SegmentationOptions>>();
 
         // The administrator-editable half of the AI configuration, laid over the values
         // bound above. Registered as a post-configure plus a change-token source so that
@@ -76,6 +94,7 @@ public static class DependencyInjection
 
         // Adapts the package's IObjectStore to the Application layer's own port.
         services.AddSingleton<AppObjectStore, KeshavObjectStoreAdapter>();
+        services.AddSingleton<IStorageUsageService, LocalStorageUsageService>();
         // --- persistence: Dual database support (SqlServer on localhost or Mongo)
         var dbProvider = configuration["Database:Provider"] ?? "SqlServer";
         var useSqlServer = string.Equals(dbProvider, "SqlServer", StringComparison.OrdinalIgnoreCase);
@@ -97,11 +116,15 @@ public static class DependencyInjection
             services.AddScoped<ISceneRepository, SqlSceneRepository>();
             services.AddScoped<IAssetRepository, SqlAssetRepository>();
             services.AddScoped<IAssetFolderRepository, SqlAssetFolderRepository>();
+            services.AddScoped<IProjectEditRepository, SqlProjectEditRepository>();
             services.AddScoped<IScriptRepository, SqlScriptRepository>();
             services.AddScoped<IIngestRepository, SqlIngestRepository>();
             services.AddScoped<IRenderJobRepository, SqlRenderJobRepository>();
             services.AddScoped<IAiUsageRepository, SqlAiUsageRepository>();
             services.AddScoped<IAiCredentialRepository, SqlAiCredentialRepository>();
+            services.AddScoped<ILiveStreamKeyRepository, SqlLiveStreamKeyRepository>();
+            services.AddScoped<IYouTubeConnectionRepository, SqlYouTubeConnectionRepository>();
+            services.AddScoped<IWebSettingRepository, SqlWebSettingRepository>();
             services.AddScoped<IPromptTemplateRepository, SqlPromptTemplateRepository>();
             services.AddScoped<IAiSettingsRepository, SqlAiSettingsRepository>();
             services.AddScoped<IAdminAuditRepository, SqlAdminAuditRepository>();
@@ -126,11 +149,15 @@ public static class DependencyInjection
             services.AddScoped<ISceneRepository, MongoSceneRepository>();
             services.AddScoped<IAssetRepository, MongoAssetRepository>();
         services.AddScoped<IAssetFolderRepository, MongoAssetFolderRepository>();
+            services.AddScoped<IProjectEditRepository, MongoProjectEditRepository>();
             services.AddScoped<IScriptRepository, MongoScriptRepository>();
             services.AddScoped<IIngestRepository, MongoIngestRepository>();
             services.AddScoped<IRenderJobRepository, MongoRenderJobRepository>();
             services.AddScoped<IAiUsageRepository, MongoAiUsageRepository>();
             services.AddScoped<IAiCredentialRepository, MongoAiCredentialRepository>();
+            services.AddScoped<ILiveStreamKeyRepository, MongoLiveStreamKeyRepository>();
+            services.AddScoped<IYouTubeConnectionRepository, MongoYouTubeConnectionRepository>();
+            services.AddScoped<IWebSettingRepository, MongoWebSettingRepository>();
             services.AddScoped<IPromptTemplateRepository, MongoPromptTemplateRepository>();
             services.AddScoped<IAiSettingsRepository, MongoAiSettingsRepository>();
             services.AddScoped<IAdminAuditRepository, MongoAdminAuditRepository>();
@@ -218,10 +245,49 @@ public static class DependencyInjection
         services.AddSingleton<IFilterGraphBuilder, FfmpegFilterGraphBuilder>();
         services.AddSingleton<ISubtitleWriter, AssSubtitleWriter>();
         services.AddSingleton<IRenderWorkspaceFactory, RenderWorkspaceFactory>();
+        // Singleton: it owns the trim schedule, and the cache outlives every job.
+        services.AddSingleton<ClipConformCache>();
         services.AddScoped<IVideoRenderingService, FfmpegVideoRenderingService>();
+        services.AddScoped<IOutroPreviewRenderer, OutroPreviewRenderer>();
         services.AddScoped<IMediaProbeService, FfprobeMediaProbeService>();
         services.AddSingleton<YtDlpMediaDownloader>();
         services.AddSingleton<FfmpegVideoChunker>();
+        services.AddSingleton<FfmpegReleaseKitBuilder>();
+        services.AddSingleton<ReleaseKitStore>();
+
+        // One instance is both the stream table the controller reads and the hosted service
+        // that stops every stream on shutdown.
+        services.AddSingleton<LiveStreamManager>();
+        services.AddHostedService(sp => sp.GetRequiredService<LiveStreamManager>());
+
+        // Saved per-channel stream keys, encrypted with the same data protector as provider keys.
+        services.AddScoped<LiveStreamKeyStore>();
+
+        // Camera / screen streams: the browser draws and records, the server encodes as it arrives.
+        services.Configure<YouTubeDataOptions>(configuration.GetSection(YouTubeDataOptions.Section));
+        services.AddSingleton<IFfmpegPipeFactory, FfmpegPipeFactory>();
+        services.AddSingleton<ILiveStreamKeyLookup, ScopedLiveStreamKeyLookup>();
+        services.AddSingleton<CameraStreamManager>();
+        services.AddHostedService(sp => sp.GetRequiredService<CameraStreamManager>());
+        services.AddSingleton(sp => new YouTubeAudienceService(
+            sp.GetRequiredService<IOptionsMonitor<YouTubeDataOptions>>(),
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<ILogger<YouTubeAudienceService>>()));
+
+        // Publish to YouTube: per-user connected channels (encrypted refresh tokens) and
+        // resumable uploads that run in the background.
+        services.Configure<YouTubePublishOptions>(configuration.GetSection(YouTubePublishOptions.Section));
+        services.AddSingleton(sp => new YouTubeOAuthClient(
+            sp.GetRequiredService<IOptionsMonitor<YouTubePublishOptions>>(),
+            sp.GetRequiredService<ILogger<YouTubeOAuthClient>>()));
+        services.AddSingleton(sp => new YouTubeVideoUploader(
+            sp.GetRequiredService<IOptionsMonitor<YouTubePublishOptions>>(),
+            sp.GetRequiredService<ILogger<YouTubeVideoUploader>>()));
+        services.AddSingleton<YouTubeOAuthStateCache>();
+        services.AddScoped<YouTubeConnectionStore>();
+        services.AddSingleton<YouTubeUploadManager>();
+        services.AddHostedService(sp => sp.GetRequiredService<YouTubeUploadManager>());
+
         services.AddScoped<ProjectRenderOrchestrator>();
 
         // The clip stitch. Shares the queue, the workspace and the merge with the project

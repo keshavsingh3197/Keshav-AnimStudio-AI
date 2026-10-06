@@ -135,6 +135,17 @@
             <span>{{ showDetails() ? '▾ Hide Advanced Quality Settings' : '▸ Show Frame Rate & Distribution Settings' }}</span>
           </button>
 
+          @if (channels().length > 1) {
+            <div class="advanced-col" style="margin-bottom: 0.75rem;">
+              <label for="channelSelect" class="drawer-label">📺 YouTube Channel / Brand</label>
+              <select id="channelSelect" class="drawer-select" [(ngModel)]="channelId">
+                @for (c of channels(); track c.id) {
+                  <option [ngValue]="c.id">{{ c.name }}{{ c.isDefault ? ' (default)' : '' }}</option>
+                }
+              </select>
+            </div>
+          }
+
           @if (showDetails()) {
             <div class="advanced-grid">
               <div class="advanced-col">
@@ -209,6 +220,15 @@
         <option value="9:16 Shorts">9:16 Shorts</option>
         <option value="16:9 Video">16:9 Video</option>
       </select>
+
+      @if (channels().length > 1) {
+        <select class="toolbar-select" [(ngModel)]="channelFilter" (change)="currentPage.set(1)" aria-label="Filter by channel">
+          <option value="All">All Channels</option>
+          @for (c of channels(); track c.id) {
+            <option [value]="c.id">{{ c.name }}</option>
+          }
+        </select>
+      }
     </div>
 
     <div class="toolbar-right">
@@ -297,7 +317,7 @@
     @if (viewMode() === 'grid') {
       <div class="projects-grid">
         @for (project of paginatedProjects; track project.id) {
-          <div class="project-card" [class.is-selected]="selectedProjectIds.has(project.id)" (click)="openInClips(project.id)">
+          <div class="project-card" [class.is-selected]="selectedProjectIds.has(project.id)" [class.menu-open]="activeMenuProjectId() === project.id" (click)="openInClips(project.id)">
             <!-- Top Card Overlay Buttons: Checkbox & Pin -->
             <div class="card-overlay-top" (click)="$event.stopPropagation()">
               <input type="checkbox" class="project-checkbox"
@@ -314,7 +334,9 @@
             </div>
 
             <!-- Thumbnail Visual Area -->
-            <div class="project-thumb-container" [style.background]="getProjectGradient(project)">
+            <div class="project-thumb-container" [style.background]="getProjectGradient(project)"
+                 appFileDrop="image/*" (filesDropped)="setThumbnail($event[0], project)"
+                 title="Drop an image or press Ctrl+V to set the thumbnail">
               @if (project.customThumbnail) {
                 <img [src]="project.customThumbnail" class="project-custom-img" alt="" />
               } @else {
@@ -371,7 +393,7 @@
                   </button>
 
                   @if (activeMenuProjectId() === project.id) {
-                    <div class="studio-dropdown-menu">
+                    <div class="studio-dropdown-menu" [style.top.px]="menuPos().top" [style.bottom.px]="menuPos().bottom" [style.right.px]="menuPos().right">
                       <button type="button" class="dropdown-item" (click)="openInClips(project.id, $event)">
                         <span>🎞️</span> Open Video Editor
                       </button>
@@ -409,6 +431,12 @@
                 <span class="meta-time">Edited {{ project.updatedAt | date:'mediumDate' }}</span>
                 <span class="meta-aspect">{{ aspect(project.width, project.height) }}</span>
               </div>
+              @if (channels().length > 1) {
+                <div class="card-channel-row">
+                  <span class="channel-chip" [title]="'Publishes under ' + channelName(project)">📺 {{ channelName(project) }}</span>
+                  @if (project.followChannelWatermark === false) { <span class="channel-own" title="This project uses its own watermark instead of the channel's">custom watermark</span> }
+                </div>
+              }
 
               <!-- Inline Delete Confirmation -->
               @if (confirming() === project.id) {
@@ -456,6 +484,7 @@
                 <td>
                   <div class="table-project-cell">
                     <div class="table-mini-thumb"
+                         appFileDrop="image/*" (filesDropped)="setThumbnail($event[0], project)"
                          [style.background]="getProjectGradient(project)"
                          [class.short]="format(project.width, project.height) === 'Short'">
                       @if (project.customThumbnail) {
@@ -475,6 +504,9 @@
                       </a>
                       @if (project.description) {
                         <span class="table-desc-text" [title]="project.description">{{ project.description }}</span>
+                      }
+                      @if (channels().length > 1) {
+                        <span class="channel-chip small">📺 {{ channelName(project) }}</span>
                       }
                     </div>
                   </div>
@@ -513,7 +545,7 @@
                         </button>
 
                         @if (activeMenuProjectId() === project.id) {
-                          <div class="studio-dropdown-menu">
+                          <div class="studio-dropdown-menu" [style.top.px]="menuPos().top" [style.bottom.px]="menuPos().bottom" [style.right.px]="menuPos().right">
                             <button type="button" class="dropdown-item" (click)="openInClips(project.id, $event)">
                               <span>🎞️</span> Open Video Editor
                             </button>
