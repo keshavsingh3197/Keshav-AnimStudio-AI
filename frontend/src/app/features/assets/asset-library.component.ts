@@ -7,10 +7,11 @@ import { ProjectStore } from '../../core/services/project-store';
 import { StatusService } from '../../core/services/status.service';
 import { FileDropDirective } from '../../shared/file-drop.directive';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 
 @Component({
   selector: 'app-asset-library',
-  imports: [DecimalPipe, FormsModule, FileDropDirective],
+  imports: [DecimalPipe, FormsModule, FileDropDirective, RouterLink],
   templateUrl: './asset-library.component.html',
   styleUrls: ['./asset-library.component.css']
 })

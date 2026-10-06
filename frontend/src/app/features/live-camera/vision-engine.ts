@@ -236,6 +236,20 @@ export class VisionEngine {
     return { faces, mask, motion, inferenceMs: performance.now() - started };
   }
 
+  /** The person mask alone, without face tracking: for cutting someone out (Collab green screen). */
+  segment(video: HTMLVideoElement): PersonMask | null {
+    if (!this.segmenter || video.readyState < 2 || !video.videoWidth) return null;
+    const now = performance.now();
+    const timestamp = now <= this.lastTimestamp ? this.lastTimestamp + 1 : now;
+    this.lastTimestamp = timestamp;
+
+    const segmented = this.segmenter.segmentForVideo(video, timestamp);
+    const confidence = segmented.confidenceMasks?.[0];
+    const mask = confidence ? this.toMask(confidence.getAsFloat32Array(), confidence.width, confidence.height) : null;
+    segmented.close();
+    return mask;
+  }
+
   close(): void {
     this.faceLandmarker?.close();
     this.segmenter?.close();

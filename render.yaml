@@ -1,0 +1,83 @@
+services:
+  - type: web
+    name: animstudio-api
+    branch: master
+    autoDeploy: true
+    # Docker web service with Root Directory = backend; the two paths below are relative to it.
+    # backend/ is self-contained: Dockerfile, .dockerignore, nuget.config and the entrypoint.
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    # Persistent disks need a paid instance. Renders are CPU-bound x264 work, so a bigger plan
+    # is what makes them faster.
+    plan: standard
+    healthCheckPath: /health
+    # Projects, uploads, renders, scratch, clip cache and logs. Without a disk every deploy
+    # wipes them. Render:ScratchRoot and Render:ClipCacheRoot are on the same disk on purpose:
+    # cache entries are hard links, which can't cross filesystems.
+    disk:
+      name: animstudio-data
+      mountPath: /var/data
+      sizeGB: 20
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+
+      # ---- Database: Mongo (the SqlServer default only makes sense on a desktop) ----
+      - key: Database__Provider
+        value: Mongo
+      - key: Mongo__ConnectionString
+        sync: false
+      - key: Mongo__Database
+        value: AnimStudioDb
+
+      # ---- Access: family SSO tokens. LocalOnly is refused in Production by design. ----
+      # Every endpoint then needs a token from the identity provider, and the signing key must
+      # be byte-identical to the one the other family services use (Jwt__SigningKey there).
+      - key: Admin__Mode
+        value: Jwt
+      - key: Admin__Jwt__SigningKey
+        sync: false
+      # base64 of 32 random bytes - encrypts AI provider keys, stream keys and YouTube tokens.
+      - key: Encryption__DataKey
+        sync: false
+
+      # ---- CORS. Setting index 0 REPLACES the appsettings array, dropping localhost. ----
+      - key: AllowedOrigins__0
+        value: https://studio.keshavsingh.in
+
+      # ---- Storage on the persistent disk ----
+      - key: Storage__DataRoot
+        value: /var/data
+      - key: Storage__LocalRoot
+        value: /var/data/objects
+      - key: Render__ScratchRoot
+        value: /var/data/temp
+      - key: Render__ClipCacheRoot
+        value: /var/data/clip-cache
+      - key: Render__ClipCacheMaxGigabytes
+        value: "5"
+
+      # ---- FFmpeg from the image (absolute: a service's PATH is not a shell's) ----
+      - key: Ffmpeg__FfmpegPath
+        value: /usr/bin/ffmpeg
+      - key: Ffmpeg__FfprobePath
+        value: /usr/bin/ffprobe
+
+      # yt-dlp is not installed in the image, so URL media ingest stays off. Paste and file
+      # upload still work.
+      - key: Ingest__YtDlp__Enabled
+        value: "false"
+
+      # ---- Publish to YouTube (optional). The redirect URI must also be listed on the
+      # Google OAuth client. ----
+      - key: YouTube__Publish__RedirectUri
+        value: https://studio.keshavsingh.in/youtube/callback
+      - key: YouTube__Publish__ClientId
+        sync: false
+      - key: YouTube__Publish__ClientSecret
+        sync: false
+    # NOTE: PACKAGES_READ_TOKEN is a *build* secret, not a runtime env var. Docker builds
+    # can't read env vars, so add it in the Render dashboard as a SECRET FILE named
+    # PACKAGES_READ_TOKEN (contents = a read:packages classic PAT). The Dockerfile mounts it.

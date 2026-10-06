@@ -159,3 +159,28 @@ the host is fixed; ids are checked against YouTube's shapes; answers are cached 
 | `POST camera/{id}/chunks` | Raw bytes. `409 restart-recording` / `chunk-out-of-order` / `camera-ended` carry the status. |
 | `POST camera/{id}/stop` | Closes stdin so what was sent goes out, then ends. |
 | `GET audience` | Subscribers (UC… id or @handle) and live viewers (video id). |
+
+### A14.7 — Collab Studio ✅
+Record yourself with an existing video at `/collab`: **Duet** (side by side), **Stacked**, **React** (a draggable
+bubble), **Green screen** (you cut out by the on-device person segmenter, `VisionEngine.segment`, with no face
+tracking) and **Stitch** (a chosen part of the original, then your turn).
+
+**Design: record the mix and the raw take.** As in Camera Studio the browser draws the frame (`collab-layout.ts`)
+and records it, so a take is ready the moment it ends. A second `MediaRecorder` keeps the raw camera and microphone.
+Changing the layout, crop, mirror, volumes or sync afterwards *rebuilds* the take: the original and the raw take
+play together, the frame is drawn again and recorded. That runs in real time, and nothing is filmed again.
+
+**Sync.** The raw take starts first. `lead` is the time from its start to the original starting to play, and
+`latency` is the audio output latency at record time (`baseLatency + outputLatency`): you react to what you hear,
+which is that late. A rebuild plays the raw take from 0 and starts the original when the take reaches
+`lead + latency + syncMs`, where `syncMs` is a hand nudge of ±500 ms. Browser recordings often can't seek, so drift
+is corrected by nudging the take's `playbackRate` (0.9-1.1) instead of seeking it.
+
+**Sound.** `CollabMixer` mixes the original and your voice for the recorder. Only the original reaches the
+speakers, so there is no feedback. The original dips while you speak (an RMS gate with a hold time), and the browser's
+echo cancellation is requested on the microphone. Headphones are still advised.
+
+**Saving.** MP4 is preferred because project uploads accept only MP4 (`UploadValidator`). Takes save through the
+normal asset upload, so they're checked like any upload and show up in the video editor. A browser that can only
+record WebM can still download. Takes stay in memory as object URLs (at most six) and are released when deleted or
+when the page closes.

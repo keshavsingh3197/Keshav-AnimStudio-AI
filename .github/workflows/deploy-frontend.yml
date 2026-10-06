@@ -1,0 +1,80 @@
+name: Deploy Angular to GitHub Pages
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/deploy-frontend.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build Angular App
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The Camera Studio models (~tens of MB) are fetched by the prebuild script and checked
+      # against pinned SHA-256s. Caching them on the script's hash skips the download until a
+      # model URL or hash changes.
+      - name: Cache vision models
+        uses: actions/cache@v4
+        with:
+          path: frontend/vision-models
+          key: vision-models-${{ hashFiles('frontend/scripts/fetch-vision-models.mjs') }}
+
+      # `npm run build` runs the prebuild model fetch; production swaps in environment.prod.ts.
+      - name: Build production bundle
+        run: npm run build -- --configuration production --base-href /
+
+      # SPA fallback: GitHub Pages serves 404.html for unknown paths. Copying index.html there
+      # lets client-side routes (deep links, refreshes) load the app instead of a 404.
+      # CNAME keeps the custom domain attached to the published site.
+      - name: Add SPA 404 fallback and CNAME
+        run: |
+          cp dist/animstudio/browser/index.html dist/animstudio/browser/404.html
+          echo 'studio.keshavsingh.in' > dist/animstudio/browser/CNAME
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/dist/animstudio/browser
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

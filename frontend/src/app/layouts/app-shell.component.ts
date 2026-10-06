@@ -43,6 +43,9 @@ import { StatusService } from '../core/services/status.service';
           <a routerLink="/live/camera" routerLinkActive="active" class="topbar-navlink">
             <span class="topbar-navlink-icon">📷</span> Camera Studio
           </a>
+          <a routerLink="/collab" routerLinkActive="active" class="topbar-navlink">
+            <span class="topbar-navlink-icon">🤝</span> Collab
+          </a>
           <a routerLink="/logs" routerLinkActive="active" class="topbar-navlink">
             <span class="topbar-navlink-icon">📜</span> Logs
             @if (status.logEntries().length > 0) {
@@ -111,6 +114,7 @@ import { StatusService } from '../core/services/status.service';
           <a routerLink="/release">Music Release</a>
           <a routerLink="/live">Go Live</a>
           <a routerLink="/live/camera">Camera Studio</a>
+          <a routerLink="/collab">Collab Studio</a>
           <a routerLink="/logs">Logs</a>
           @if (access()?.canAdminister) {
             <a routerLink="/admin">Settings</a>
