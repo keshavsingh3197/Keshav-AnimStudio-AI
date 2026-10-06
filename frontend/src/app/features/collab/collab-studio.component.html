@@ -1,0 +1,316 @@
+<div class="page-head co-head">
+  <div>
+    <h2>🤝 Collab Studio</h2>
+    <p class="muted co-lede">
+      Record yourself with an existing video: side by side, stacked, reacting in a bubble, cut out in front of it,
+      or answering after a part of it. Change the layout, sync or volume after recording without filming again.
+      Everything stays on this machine until you save it.
+    </p>
+  </div>
+  <a routerLink="/live/camera" class="co-switch">📷 Camera Studio →</a>
+</div>
+
+@if (error(); as message) {
+  <div class="co-banner co-banner-err" role="alert">
+    <span>⚠️ {{ message }}</span>
+    <button type="button" class="co-x" (click)="error.set(null)" aria-label="Dismiss">✕</button>
+  </div>
+}
+@if (notice(); as message) {
+  <div class="co-banner" role="status">
+    <span>ℹ️ {{ message }}</span>
+    <button type="button" class="co-x" (click)="notice.set(null)" aria-label="Dismiss">✕</button>
+  </div>
+}
+
+<div class="co-grid">
+  <!-- ============================================================ preview -->
+  <div class="co-col">
+    <section class="card co-stage-card">
+      <div class="co-stage" [class.portrait]="portrait()" [class.square]="square()">
+        <canvas #program class="co-canvas"
+                [class.draggable]="settings().layout !== 'stitch'"
+                aria-label="Preview: exactly what will be recorded"
+                (pointerdown)="onPointerDown($event)" (pointermove)="onPointerMove($event)"
+                (pointerup)="onPointerUp($event)" (pointercancel)="onPointerUp($event)"
+                (wheel)="onWheel($event)"></canvas>
+
+        @if (state() === 'countdown') {
+          <div class="co-overlay co-countdown" aria-live="assertive">
+            <span>{{ countdownLeft() }}</span>
+            <button type="button" class="secondary co-small" (click)="cancelCountdown()">Cancel <kbd>Esc</kbd></button>
+          </div>
+        }
+        @if (state() === 'recording') {
+          <div class="co-rec" aria-live="polite">⏺ {{ formatClock(recordSeconds()) }}
+            @if (settings().layout === 'stitch' && phase() === 'you') { · your turn }
+          </div>
+        }
+        @if (yourTurnIn(); as n) {
+          <div class="co-overlay co-turn" aria-live="assertive">Your turn in {{ n }}…</div>
+        }
+        @if (state() === 'rendering') {
+          <div class="co-rec co-rendering">⚙️ Rebuilding take… {{ renderProgress() * 100 | number: '1.0-0' }}%</div>
+        }
+      </div>
+
+      <!-- Transport: the original's play head and the part to use -->
+      @if (sourceName()) {
+        <div class="co-transport">
+          <button type="button" class="secondary co-small" (click)="togglePlay()" [disabled]="busy()"
+                  [title]="sourcePlaying() ? 'Pause (K)' : 'Play the chosen part (K)'">
+            {{ sourcePlaying() ? '⏸' : '▶' }}
+          </button>
+          <span class="co-time">{{ formatClock(sourceTime()) }}</span>
+          <input type="range" class="co-scrub" min="0" [max]="sourceDuration() || 0" step="0.05"
+                 [value]="sourceTime()" (input)="seek(+$any($event.target).value)" [disabled]="busy()"
+                 aria-label="Position in the original" />
+          <span class="co-time muted">{{ formatClock(sourceDuration()) }}</span>
+        </div>
+        <div class="co-range">
+          <span class="muted">Use</span>
+          <button type="button" class="secondary co-small" (click)="markIn()" [disabled]="busy()" title="Start the collab here">
+            ⇤ Start {{ formatClock(rangeIn()) }}
+          </button>
+          <span class="muted">to</span>
+          <button type="button" class="secondary co-small" (click)="markOut()" [disabled]="busy()" title="End the collab here">
+            End {{ formatClock(rangeOut()) }} ⇥
+          </button>
+          <span class="muted">· {{ formatClock(rangeSeconds()) }}
+            @if (settings().layout === 'stitch') { of the original, then you }
+          </span>
+          @if (rangeIn() > 0 || rangeOut() < sourceDuration()) {
+            <button type="button" class="co-link" (click)="setIn(0); setOut(sourceDuration())" [disabled]="busy()">Whole video</button>
+          }
+        </div>
+      }
+
+      <!-- The one big button -->
+      <div class="co-record-row">
+        @if (state() === 'recording') {
+          <button type="button" class="co-record stop" (click)="stopRecording()">■ Stop <kbd>Space</kbd></button>
+        } @else {
+          <button type="button" class="co-record" (click)="toggleRecord()" [disabled]="!canRecord() && state() !== 'countdown'">
+            ⏺ {{ takes().length ? 'Record another take' : 'Record' }} <kbd>Space</kbd>
+          </button>
+        }
+        <div class="co-meter" [title]="'Microphone level'" aria-hidden="true"><i [style.width.%]="micLevel() * 100"></i></div>
+      </div>
+      @if (recordBlocker(); as why) {
+        @if (!busy()) { <p class="muted co-center">{{ why }}</p> }
+      } @else if (!busy()) {
+        <p class="muted co-center">
+          🎧 Wear headphones so the original isn't picked up by your mic.
+          @if (settings().layout === 'react' || settings().layout === 'green') { Drag yourself on the preview; scroll to resize. }
+          @if (settings().layout === 'side' || settings().layout === 'stack') { Drag the line on the preview to resize. }
+        </p>
+      }
+    </section>
+
+    <!-- ============================================================ takes -->
+    @if (takes().length) {
+      <section class="card">
+        <h3 class="co-h3">🎬 Takes</h3>
+        <div class="co-takes">
+          @for (t of takes(); track t.id) {
+            <button type="button" class="co-take" [class.active]="t.id === selectedId()" (click)="selectTake(t)" [disabled]="busy()">
+              <strong>Take {{ t.id }}</strong>
+              <span class="muted">{{ formatClock(t.seconds) }} · {{ formatSize(t.mix.size) }}</span>
+              @if (t.savedAs) { <span class="pill ok">Saved</span> }
+            </button>
+          }
+        </div>
+
+        @if (selected(); as t) {
+          <video class="co-playback" [class.portrait]="portrait()" [src]="t.mixUrl" controls playsinline></video>
+
+          @if (t.sourceKey === sourceKeyNow()) {
+            <div class="co-fix">
+              <label for="co-sync">Sync <span class="muted">· {{ syncMs() > 0 ? '+' : '' }}{{ syncMs() }} ms
+                {{ syncMs() > 0 ? '(you earlier)' : syncMs() < 0 ? '(you later)' : '' }}</span></label>
+              <div class="co-inline">
+                <button type="button" class="secondary co-small" (click)="setSync(syncMs() - 40)" [disabled]="busy()" aria-label="Show you later">−</button>
+                <input id="co-sync" type="range" [min]="-syncLimit" [max]="syncLimit" step="10" [value]="syncMs()"
+                       (input)="setSync(+$any($event.target).value)" [disabled]="busy()" />
+                <button type="button" class="secondary co-small" (click)="setSync(syncMs() + 40)" [disabled]="busy()" aria-label="Show you earlier">+</button>
+                @if (syncMs() !== 0) { <button type="button" class="co-link" (click)="setSync(0)" [disabled]="busy()">Reset</button> }
+              </div>
+              <span class="co-note muted">Sync is corrected automatically. If your reaction still looks late, nudge it right.</span>
+            </div>
+
+            @if (takeOutdated()) {
+              <div class="co-banner co-apply">
+                <span>You changed the layout, sound or sync since this take. Rebuild it to apply them (takes {{ formatClock(t.seconds) }}).</span>
+                <button type="button" (click)="applyChanges()" [disabled]="busy()">↻ Apply changes</button>
+              </div>
+            }
+          } @else {
+            <p class="muted co-note">Recorded with a different original, so it can't be rebuilt. It can still be saved.</p>
+          }
+
+          <div class="co-actions">
+            <button type="button" (click)="download(t)" [disabled]="busy()">⬇ Download</button>
+            @if (canSaveToProject) {
+              <select [(ngModel)]="projectId" (ngModelChange)="onProjectChange()" aria-label="Project to save to" class="co-project">
+                @if (!projects().length) { <option value="">No projects yet</option> }
+                @for (p of projects(); track p.id) { <option [value]="p.id">{{ p.name }}</option> }
+              </select>
+              <button type="button" class="secondary" (click)="saveToProject(t)" [disabled]="busy() || !projectId">
+                {{ state() === 'saving' ? 'Saving…' : '💾 Save to project' }}
+              </button>
+            }
+            <button type="button" class="secondary" (click)="useTakeAsSource(t)" [disabled]="busy()"
+                    title="Collab with this take: add another layer, or duet with yourself">🔁 Collab with this take</button>
+            <button type="button" class="secondary co-danger" (click)="deleteTake(t)" [disabled]="busy()">🗑</button>
+          </div>
+          @if (t.savedAs && projectId) {
+            <p class="muted co-note">Saved as <span class="mono">{{ t.savedAs }}</span>.
+              <a [routerLink]="['/projects', projectId, 'clips']">Open the video editor →</a></p>
+          }
+          @if (!canSaveToProject) {
+            <p class="muted co-note">This browser records WebM, which projects don't take yet. Download it, or use Chrome or Edge to save to a project.</p>
+          }
+        }
+      </section>
+    }
+  </div>
+
+  <!-- ============================================================ steps -->
+  <div class="co-col">
+    <section class="card">
+      <h3 class="co-h3"><span class="co-step">1</span> The video</h3>
+      <div class="seg co-tabs" role="tablist">
+        <label [class.selected]="sourceTab() === 'computer'"><input type="radio" name="co-tab" [checked]="sourceTab() === 'computer'" (change)="showTab('computer')" /> This computer</label>
+        <label [class.selected]="sourceTab() === 'project'"><input type="radio" name="co-tab" [checked]="sourceTab() === 'project'" (change)="showTab('project')" /> A project</label>
+      </div>
+
+      @if (sourceTab() === 'computer') {
+        <label class="co-file" [class.disabled]="busy()">
+          <input type="file" accept="video/*" (change)="pickFile($event)" [disabled]="busy()" />
+          📂 {{ sourceName() ? 'Choose another video' : 'Choose a video' }}
+        </label>
+      } @else {
+        <select [(ngModel)]="projectId" (ngModelChange)="onProjectChange()" aria-label="Project" [disabled]="busy()">
+          @if (!projects().length) { <option value="">No projects yet</option> }
+          @for (p of projects(); track p.id) { <option [value]="p.id">{{ p.name }}</option> }
+        </select>
+        @if (loadingVideos()) {
+          <p class="muted">Loading videos…</p>
+        } @else if (!projectVideos().length) {
+          <p class="muted">No videos in this project yet.</p>
+        } @else {
+          <div class="co-assets">
+            @for (a of projectVideos(); track a.id) {
+              <button type="button" class="co-asset" (click)="pickAsset(a)" [disabled]="busy() || loadingSource()" [title]="a.name">
+                <img [src]="thumbnail(a)" alt="" loading="lazy" />
+                <span class="co-ellipsis">{{ a.name }}</span>
+              </button>
+            }
+          </div>
+        }
+      }
+      @if (loadingSource()) { <p class="muted">Loading the video…</p> }
+      @if (sourceName(); as name) { <p class="co-chosen">🎞️ <span class="co-ellipsis">{{ name }}</span></p> }
+      <p class="muted co-note">Video on YouTube or elsewhere? Bring it in with <a routerLink="/tools">Media Studio</a> first; it lands in your project.</p>
+    </section>
+
+    <section class="card">
+      <h3 class="co-h3"><span class="co-step">2</span> Layout</h3>
+      <div class="co-layouts">
+        @for (l of layouts; track l.id) {
+          <button type="button" class="co-layout" [class.active]="settings().layout === l.id"
+                  (click)="patch({ layout: l.id })" [disabled]="state() === 'recording' || state() === 'rendering'"
+                  [attr.aria-pressed]="settings().layout === l.id" [title]="l.hint">
+            <span class="co-layout-icon">{{ l.icon }}</span>{{ l.label }}
+          </button>
+        }
+      </div>
+      <p class="muted co-note">{{ layoutHint() }}</p>
+
+      <div class="seg">
+        @for (a of aspects; track a.id) {
+          <label [class.selected]="settings().aspect === a.id">
+            <input type="radio" name="co-aspect" [checked]="settings().aspect === a.id" (change)="patch({ aspect: a.id })" [disabled]="busy()" /> {{ a.label }}
+          </label>
+        }
+      </div>
+
+      <div class="co-options">
+        @switch (settings().layout) {
+          @case ('side') {
+            <label class="co-check"><input type="checkbox" [checked]="settings().youFirst" (change)="patch({ youFirst: !settings().youFirst })" /> You on the left</label>
+          }
+          @case ('stack') {
+            <label class="co-check"><input type="checkbox" [checked]="settings().youFirst" (change)="patch({ youFirst: !settings().youFirst })" /> You on top</label>
+          }
+          @case ('react') {
+            <label class="co-check"><input type="checkbox" [checked]="settings().react.round" (change)="patchSpot('react', { round: !settings().react.round })" /> Round bubble</label>
+            <label class="co-slider">Bubble size
+              <input type="range" [min]="minSpot" max="0.6" step="0.01" [value]="settings().react.size" (input)="patchSpot('react', { size: +$any($event.target).value })" />
+            </label>
+          }
+          @case ('green') {
+            <label class="co-slider">Your size
+              <input type="range" [min]="minSpot" max="1.2" step="0.01" [value]="settings().green.size" (input)="patchSpot('green', { size: +$any($event.target).value })" />
+            </label>
+            @if (cutoutState() === 'loading') { <p class="muted co-note">Loading the person model…</p> }
+            @if (cutoutState() === 'ready') { <p class="muted co-note">Works best with you clearly in frame and some light on you.</p> }
+          }
+        }
+        @if (settings().layout !== 'stitch' && settings().layout !== 'green') {
+          <label class="co-check"><input type="checkbox" [checked]="settings().sourceFit === 'fit'" (change)="patch({ sourceFit: settings().sourceFit === 'fit' ? 'fill' : 'fit' })" /> Show the whole original (no crop)</label>
+        }
+        <label class="co-check"><input type="checkbox" [checked]="settings().mirror" (change)="patch({ mirror: !settings().mirror })" /> Mirror me</label>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3 class="co-h3"><span class="co-step">3</span> You</h3>
+      @if (!cameraOn()) {
+        <button type="button" class="co-wide" (click)="openCamera()" [disabled]="openingCamera()">
+          {{ openingCamera() ? 'Opening…' : '📷 Turn on camera & mic' }}
+        </button>
+      }
+      <div class="co-devices">
+        <select [(ngModel)]="cameraId" (ngModelChange)="switchDevice()" aria-label="Camera" [disabled]="busy()">
+          <option value="">Default camera</option>
+          @for (d of cameras(); track d.deviceId) { <option [value]="d.deviceId">{{ d.label || 'Camera' }}</option> }
+        </select>
+        <select [(ngModel)]="micId" (ngModelChange)="switchDevice()" aria-label="Microphone" [disabled]="busy()">
+          <option value="">Default microphone</option>
+          @for (d of mics(); track d.deviceId) { <option [value]="d.deviceId">{{ d.label || 'Microphone' }}</option> }
+        </select>
+      </div>
+
+      <label>Countdown</label>
+      <div class="seg">
+        @for (n of [0, 3, 5, 10]; track n) {
+          <label [class.selected]="settings().countdown === n">
+            <input type="radio" name="co-countdown" [checked]="settings().countdown === n" (change)="patch({ countdown: $any(n) })" /> {{ n ? n + ' s' : 'Off' }}
+          </label>
+        }
+      </div>
+
+      <details class="co-more">
+        <summary>🔊 Sound</summary>
+        <label class="co-slider">Original <span class="muted">{{ settings().sourceVolume * 100 | number: '1.0-0' }}%</span>
+          <input type="range" min="0" max="1.5" step="0.05" [value]="settings().sourceVolume" (input)="patch({ sourceVolume: +$any($event.target).value })" />
+        </label>
+        <label class="co-slider">Your voice <span class="muted">{{ settings().voiceVolume * 100 | number: '1.0-0' }}%</span>
+          <input type="range" min="0" max="2" step="0.05" [value]="settings().voiceVolume" (input)="patch({ voiceVolume: +$any($event.target).value })" />
+        </label>
+        <label class="co-check"><input type="checkbox" [checked]="settings().duck" (change)="patch({ duck: !settings().duck })" /> Lower the original while I talk</label>
+        <label>Quality</label>
+        <div class="seg">
+          <label [class.selected]="settings().quality === 720"><input type="radio" name="co-q" [checked]="settings().quality === 720" (change)="patch({ quality: 720 })" [disabled]="busy()" /> 720p · lighter</label>
+          <label [class.selected]="settings().quality === 1080"><input type="radio" name="co-q" [checked]="settings().quality === 1080" (change)="patch({ quality: 1080 })" [disabled]="busy()" /> 1080p</label>
+        </div>
+      </details>
+
+      @if (cameraOn()) {
+        <button type="button" class="secondary co-small co-off" (click)="closeCamera()" [disabled]="busy()">Turn camera off</button>
+      }
+      <p class="muted co-note">Keys: <kbd>Space</kbd> record / stop · <kbd>K</kbd> play the original · <kbd>Esc</kbd> cancel countdown</p>
+    </section>
+  </div>
+</div>

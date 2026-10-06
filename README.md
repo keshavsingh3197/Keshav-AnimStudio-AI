@@ -83,6 +83,14 @@ Craft viral Shorts, Reels, YouTube videos, animated stories, and narrated slides
 - **Show control**: Camera, screen, or screen plus camera in a corner; Starting soon (with countdown), Be right back, Ending and Privacy cards; hotkeys (1-5, P, F, M, G); auto-framing, looks and colour controls; presets with import/export; record to file; snapshot; pre-flight checklist and stream health.
 - Subscriber and viewer counts need a YouTube Data API key on the server: `dotnet user-secrets set "YouTube:ApiKey" "…"` (or the `YouTube__ApiKey` env var / Key Vault). The face, body and hand models are fetched by `npm run vision:models` (runs automatically before `npm start` / `npm run build`).
 
+### 🤝 Collab Studio (record yourself with an existing video)
+- **Five layouts**: Duet (side by side), Stacked (original on top, you below), React (you in a round or rounded bubble), Green screen (you cut out on-device and standing in front of the original, no green screen needed) and Stitch (a part of the original plays, then it's your turn).
+- **Little to set up**: The layout is picked from the original's shape (a wide video is stacked for Shorts, a tall one goes side by side). Pick the part to use with Start/End, press Space, and recording stops by itself at the end. Countdown (off, 3, 5 or 10 s), the original dips while you talk, and settings are remembered.
+- **Fix it after recording**: Each take keeps your raw camera recording, so you can change the layout, bubble position, crop, mirror, volumes or sync and rebuild the take without filming again. Sync is corrected automatically for how late you heard the original; nudge it by hand if needed.
+- **Takes and layers**: Up to six takes to compare. Use a take as the new original to duet with yourself or add another layer.
+- **From anywhere, to anywhere**: Use a video from your computer, any video in a project (or *🤝 Collab with this video* in the asset library), or a link brought in through Media Studio. Download the result, or save it to a project, where it's ready in the video editor. 9:16, 16:9 or 1:1 at 720p or 1080p.
+- Everything is drawn and recorded in the browser; nothing leaves the machine until you save it. Saving to a project needs MP4 recording (Chrome or Edge); other browsers can still download WebM.
+
 ### 🎨 Color Grading & Effects
 - **9 Cinematic LUT Filter Presets**: Natural, Cinematic Warm, Cool Sci-Fi, Vivid Pop, Golden Hour, Teal & Orange, Cyberpunk, Film Noir, and Faded 90s.
 - **Text & Logo Watermarks**: Positionable text or logo watermarks (Top-Left, Top-Right, Bottom-Left, Bottom-Right, Center) with font and opacity controls.

@@ -192,6 +192,7 @@ Order is dependency-driven. `P3` unlocks most of the rest.
 - [ ] **A14.4** Hardware encoding (QSV) for the prepare stage when it benchmarks faster than x264
 - [ ] **A14.5** Scheduled streams and auto-refreshing 24/7 playlists
 - [x] **A14.6** Camera Studio: live camera / screen with on-device identity protection (characters, fail-closed strict mode), voice changer, switchable overlays (people count, YouTube subscribers and viewers), scenes, presets
+- [x] **A14.7** Collab Studio: record with an existing video (duet, stacked, react, green screen, stitch), takes rebuilt after recording from the raw camera take, save to a project
 
 ### P12 — Hardening — [detail](plans/P12-hardening.md)
 - [ ] **A12.1** Rate limiting and request size caps on every ingest/AI endpoint

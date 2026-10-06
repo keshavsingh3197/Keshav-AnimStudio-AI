@@ -1,0 +1,5 @@
+# Build context is backend/ (Render "Root Directory" = backend).
+**/bin/
+**/obj/
+**/*.user
+**/appsettings.Development.json

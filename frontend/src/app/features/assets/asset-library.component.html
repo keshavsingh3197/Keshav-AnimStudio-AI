@@ -409,6 +409,7 @@
             <div class="lightbox-video-wrap">
               <video [src]="assetUrl(pa.id)" controls autoplay playsinline></video>
             </div>
+            <a class="collab-link" routerLink="/collab" [queryParams]="{ project: store.projectId(), asset: pa.id }">🤝 Collab with this video</a>
           } @else if (isAudio(pa)) {
             <div class="lightbox-audio-wrap">
               <div class="audio-avatar">🎵</div>

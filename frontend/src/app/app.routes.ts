@@ -136,6 +136,14 @@ export const routes: Routes = [
   },
 
   {
+    path: 'collab',
+    title: 'Collab Studio - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/collab/collab-studio.component')
+        .then((m) => m.CollabStudioComponent),
+  },
+
+  {
     path: 'logs',
     title: 'Application Logs - AnimStudio AI',
     loadComponent: () =>

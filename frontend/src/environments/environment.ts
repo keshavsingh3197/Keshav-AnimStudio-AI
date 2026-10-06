@@ -1,4 +1,4 @@
 export const environment = {
-  /** Empty in production so the SPA calls its own origin. */
+  /** Local backend. Production builds swap in environment.prod.ts. */
   apiUrl: 'http://localhost:5172',
 };
