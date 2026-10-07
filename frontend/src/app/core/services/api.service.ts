@@ -7,6 +7,7 @@ import { environment } from '../../../environments/environment';
 import {
   AdminAccess, AdminAuditEntry, AdminHealth, AdminJob, AdminProviderBody, AdminProviders,
   AdminProviderTest, AdminUsage, AiCapabilities, ApiResponse, Asset, BundleApplyBody,
+  VoiceoverBody, VoiceoverVoices,
   BundleImportResult, BundlePreview, Character, CharacterBody, ClipMergeBody, ClipOrder,
   ClipStudio, CreateProjectBody,
   CreateSceneBody, DialogueBody, IngestCapabilities, IngestResult, IngestSummary,
@@ -206,6 +207,18 @@ export class ApiService {
     form.append('file', recording, `take.${extension}`);
     form.append('timeline', JSON.stringify(timeline));
     return this.http.post(`${this.base}/api/voices/studio`, form, { responseType: 'blob' });
+  }
+
+  // --- voiceover
+  /** Whether the server's speech engine is on, and the voices it offers. */
+  voiceoverVoices(): Observable<VoiceoverVoices> {
+    return this.unwrap(this.http.get<ApiResponse<VoiceoverVoices>>(`${this.base}/api/voiceover/voices`));
+  }
+
+  /** Speaks one script line and stores it as an audio asset in the project's library. */
+  generateVoiceover(projectId: string, body: VoiceoverBody): Observable<Asset> {
+    return this.unwrap(
+      this.http.post<ApiResponse<Asset>>(`${this.base}/api/projects/${projectId}/voiceover`, body));
   }
 
   // --- characters

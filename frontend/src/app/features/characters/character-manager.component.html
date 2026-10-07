@@ -811,7 +811,7 @@
             @if (testerState() === 'recording') {
               Say a line now; it stops by itself after {{ testLineSeconds }} seconds.
             } @else if (studioBusy() && form.voice?.aiSampleAssetId) {
-              Making the AI voice: on this computer that takes a minute or two (longer the first time, while the AI downloads).
+              Making the AI voice: about a minute to start, then roughly 12 seconds per second of speech on this computer. The very first time also downloads the AI (about 2 GB).
             } @else if (testerState() === 'playing' && hearingStudio()) {
               Playing the studio version on a loop. Move a slider to go back to the live preview.
             } @else if (testerState() === 'playing') {

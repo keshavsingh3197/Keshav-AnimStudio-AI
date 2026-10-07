@@ -272,3 +272,9 @@ public sealed record StorageDetailResponse(
 
 /// <summary>Whether studio voices can be made, and whether AI voices (a person's sample) can too.</summary>
 public sealed record StudioVoiceStatusResponse(bool Available, bool AiAvailable = false);
+
+/// <summary>What GET /api/voiceover/voices reports: whether speech can be made, and in which voices.</summary>
+public sealed record VoiceoverVoicesResponse(
+    bool Available, string? ProviderId, string Reason, IReadOnlyList<VoiceoverVoiceResponse> Voices);
+
+public sealed record VoiceoverVoiceResponse(string Id, string Name, string? LanguageCode, string? Gender);

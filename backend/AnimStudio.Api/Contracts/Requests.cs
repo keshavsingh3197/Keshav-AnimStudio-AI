@@ -641,3 +641,12 @@ public sealed record StudioVoiceSegmentRequest
     public double StartSeconds { get; init; }
     public CharacterVoiceRequest? Voice { get; init; }
 }
+
+/// <summary>One script line to speak. Limits are enforced (and reported per field) by the controller.</summary>
+public sealed record VoiceoverRequest
+{
+    [StringLength(4000)] public string? Text { get; init; }
+    [StringLength(64)] public string? VoiceId { get; init; }
+    public double? Rate { get; init; }
+    [StringLength(120)] public string? Name { get; init; }
+}

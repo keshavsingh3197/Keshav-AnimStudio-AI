@@ -1,0 +1,256 @@
+.vo-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vo-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.vo-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.vo-badge {
+  font-size: 0.65rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-dim);
+}
+
+.vo-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin-bottom: 2px;
+}
+
+.vo-dim {
+  font-weight: 400;
+  color: var(--text-dim);
+  opacity: 0.75;
+}
+
+.vo-script {
+  width: 100%;
+  min-height: 140px;
+  resize: vertical;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid #1e293b;
+  background: #080d1a;
+  color: var(--text);
+}
+
+.vo-script:focus {
+  outline: none;
+  border-color: rgba(139, 92, 246, 0.6);
+}
+
+.vo-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.vo-field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.vo-field-rate {
+  flex: 0 0 38%;
+}
+
+.vo-seg {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 8px;
+  border: 1px solid #1e293b;
+  background: #080d1a;
+}
+
+.vo-seg button {
+  flex: 1;
+  padding: 5px 6px;
+  font-size: 0.7rem;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-dim);
+}
+
+.vo-seg button.active {
+  background: #1e293b;
+  color: #fff;
+  border-color: rgba(139, 92, 246, 0.45);
+}
+
+.vo-go {
+  padding: 8px 10px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  border: none;
+  border-radius: 7px;
+  color: #fff;
+  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+}
+
+.vo-go:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.vo-progress {
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: #1e293b;
+}
+
+.vo-progress-bar {
+  height: 100%;
+  background: #8b5cf6;
+  transition: width 0.3s ease;
+}
+
+.vo-progress-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+}
+
+.vo-link {
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 0.7rem;
+  color: #a78bfa;
+  cursor: pointer;
+}
+
+.vo-link:hover {
+  text-decoration: underline;
+}
+
+.vo-note,
+.vo-done,
+.vo-warn,
+.vo-error {
+  font-size: 0.7rem;
+  line-height: 1.4;
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+
+.vo-note {
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.vo-done {
+  color: #bbf7d0;
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+}
+
+.vo-warn {
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.vo-error {
+  color: #fecaca;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.vo-results {
+  margin: 0;
+  padding-left: 20px;
+  max-height: 260px;
+  overflow-y: auto;
+  font-size: 0.72rem;
+  color: var(--text);
+}
+
+.vo-results li {
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.vo-results li.failed {
+  color: #fca5a5;
+}
+
+.vo-result-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vo-result-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.vo-icon {
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  font-size: 0.65rem;
+  border-radius: 4px;
+  border: 1px solid #334155;
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+.vo-over {
+  font-size: 0.65rem;
+  padding: 0 4px;
+  border-radius: 3px;
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.15);
+}
+
+.vo-error-inline {
+  font-size: 0.68rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vo-tips {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+}
+
+.vo-tips summary {
+  cursor: pointer;
+}
+
+.vo-tips ul {
+  margin: 4px 0 0;
+  padding-left: 16px;
+}
+
+.vo-warn code {
+  color: #fef3c7;
+}

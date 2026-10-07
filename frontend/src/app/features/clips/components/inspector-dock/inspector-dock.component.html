@@ -145,9 +145,17 @@
                 <span class="nav-active-dot" title="Something is selected"></span>
               }
             </button>
+            <button type="button" class="audio-nav-btn"
+                    [class.active]="state.effectiveAudioInspectorView() === 'voiceover'"
+                    (click)="state.setAudioInspectorView('voiceover')"
+                    title="Speak a script onto the A1 track">
+              <span>🎙 Voiceover</span>
+            </button>
           </div>
 
-          @if (state.effectiveAudioInspectorView() === 'clip') {
+          @if (state.effectiveAudioInspectorView() === 'voiceover') {
+            <app-voiceover-panel />
+          } @else if (state.effectiveAudioInspectorView() === 'clip') {
             <app-clip-audio-inspector />
           } @else {
             <app-master-audio-mixer />

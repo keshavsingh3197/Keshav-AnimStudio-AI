@@ -260,7 +260,14 @@ export class ClipStudioComponent implements OnDestroy {
     }
 
     if (event.ctrlKey || event.metaKey) {
-      if (event.key.toLowerCase() === 's') {
+      const key = event.key.toLowerCase();
+      if ((key === 'z' && event.shiftKey) || key === 'y') {
+        event.preventDefault();
+        this.state.redo();
+      } else if (key === 'z') {
+        event.preventDefault();
+        this.state.undo();
+      } else if (event.key.toLowerCase() === 's') {
         event.preventDefault();
         this.state.saveDraft();
       } else if (event.key.toLowerCase() === 'a') {

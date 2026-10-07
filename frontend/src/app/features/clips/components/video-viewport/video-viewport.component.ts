@@ -6,6 +6,7 @@ import { FormsModule } from '@angular/forms';
 import { MonitorEraseRegion, StudioStateService } from '../../services/studio-state.service';
 import { erasePatchOrigin } from '../../services/erase-geometry';
 import { ERASE_DEFAULT_STRENGTH, TimelineItemTransform } from '../../../../core/models/api.models';
+import { MusicTrackRow, isVoiceoverTrack } from '../../models/clip-studio.models';
 
 @Component({
   selector: 'app-video-viewport',
@@ -23,6 +24,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
   @ViewChild('overlayVideoMonitor') overlayVideoRef?: ElementRef<HTMLVideoElement>;
   @ViewChild('bgMusicAudio') bgMusicAudioRef?: ElementRef<HTMLAudioElement>;
   @ViewChild('clipSoundAudio') clipSoundAudioRef?: ElementRef<HTMLAudioElement>;
+  @ViewChild('voiceoverAudio') voiceoverAudioRef?: ElementRef<HTMLAudioElement>;
   @ViewChild('monitorContainer') monitorContainerRef?: ElementRef<HTMLElement>;
 
   // Dual-layer ping-pong state
@@ -35,6 +37,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
   private loadedClipIdA: string | null = null;
   private loadedClipIdB: string | null = null;
   private loadedMusicAssetId: string | null = null;
+  private loadedVoiceoverAssetId: string | null = null;
   private loadedClipSoundAssetId: string | null = null;
   private animFrameId: number | null = null;
   private lastTickMs = 0;
@@ -221,6 +224,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     }
     this.bgMusicAudioRef?.nativeElement.pause();
     this.clipSoundAudioRef?.nativeElement.pause();
+    this.voiceoverAudioRef?.nativeElement.pause();
   }
 
   private syncSeek(time: number): void {
@@ -241,6 +245,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     const bg = this.bgMusicAudioRef?.nativeElement;
     if (bg) {
       const activeMusic = this.state.musicTracks().find((t) => {
+        if (isVoiceoverTrack(t)) return false;
         const d = this.state.musicTrackDurationSeconds(t);
         return time >= t.startSeconds && time < (t.startSeconds + d);
       });
@@ -260,6 +265,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     if (this.overlayVideoRef?.nativeElement) this.overlayVideoRef.nativeElement.playbackRate = speed;
     if (this.bgMusicAudioRef?.nativeElement) this.bgMusicAudioRef.nativeElement.playbackRate = speed;
     if (this.clipSoundAudioRef?.nativeElement) this.clipSoundAudioRef.nativeElement.playbackRate = speed;
+    if (this.voiceoverAudioRef?.nativeElement) this.voiceoverAudioRef.nativeElement.playbackRate = speed;
   }
 
 
@@ -407,14 +413,17 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     const currentTracks = this.state.musicTracks();
 
     const activeA1Item = a1Items.find((i) => time >= i.startTime && time < (i.startTime + i.duration));
-    const activeMusicTrack = currentTracks.find((t) => {
+    const isActiveTrack = (t: MusicTrackRow) => {
       const dur = this.state.musicTrackDurationSeconds(t);
       return time >= t.startSeconds && time < (t.startSeconds + dur);
-    });
+    };
+    // Voiceover lines get their own player so they are heard over music, as in the export.
+    const activeMusicTrack = currentTracks.find((t) => !isVoiceoverTrack(t) && isActiveTrack(t));
+    const activeVoiceoverTrack = currentTracks.find((t) => isVoiceoverTrack(t) && isActiveTrack(t));
     const hasGlobalMusic = this.state.musicAssetId() !== '' && this.state.musicVolume() > 0;
 
     // Is any music or soundtrack cue active at THIS playhead time?
-    const hasActiveMusicAtTime = Boolean(activeMusicTrack) || Boolean(activeA1Item) || hasGlobalMusic;
+    const hasActiveMusicAtTime = Boolean(activeMusicTrack) || Boolean(activeVoiceoverTrack) || Boolean(activeA1Item) || hasGlobalMusic;
 
     // The clip's own level, attenuated only where music actually overlaps it.
     let effectiveClipGain = sound.volume * (hasActiveMusicAtTime ? overlap.videoGain : 1);
@@ -630,6 +639,31 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       }
     } else if (bgAudio && !bgAudio.paused) {
       bgAudio.pause();
+    }
+
+    // 4b. Sync Voiceover lines on A1
+    const voAudio = this.voiceoverAudioRef?.nativeElement;
+    if (voAudio && activeVoiceoverTrack) {
+      const voTime = (time - activeVoiceoverTrack.startSeconds) + (activeVoiceoverTrack.trimStartSeconds ?? 0);
+      const voMuted = this.state.isMonitorMuted() || this.state.isTrackMuted('A1') || Boolean(activeVoiceoverTrack.muted);
+      if (this.loadedVoiceoverAssetId !== activeVoiceoverTrack.assetId) {
+        this.loadedVoiceoverAssetId = activeVoiceoverTrack.assetId;
+        voAudio.src = this.state.assetUrl(activeVoiceoverTrack.assetId);
+        voAudio.currentTime = Math.max(0, voTime);
+      } else if (!playing || Math.abs(voAudio.currentTime - voTime) > 0.35) {
+        voAudio.currentTime = Math.max(0, voTime);
+      }
+      const voGain = (activeVoiceoverTrack.volume ?? 1.0) * this.state.trackA1Volume() * overlap.musicGain;
+      voAudio.volume = voMuted ? 0 : Math.min(1, this.state.monitorVolume() * voGain);
+      voAudio.muted = voMuted;
+      voAudio.playbackRate = speed;
+      if (playing) {
+        if (voAudio.paused) voAudio.play().catch(() => undefined);
+      } else if (!voAudio.paused) {
+        voAudio.pause();
+      }
+    } else if (voAudio && !voAudio.paused) {
+      voAudio.pause();
     }
 
     // 5. Sync Replacement Clip Sound (Voiceover)

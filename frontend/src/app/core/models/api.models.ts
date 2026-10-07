@@ -101,6 +101,30 @@ export interface Asset {
   folderId?: string | null;
 }
 
+/** One voice the server's speech engine can speak a voiceover in. */
+export interface VoiceoverVoice {
+  id: string;
+  name: string;
+  languageCode?: string | null;
+  gender?: string | null;
+}
+
+/** GET /api/voiceover/voices: whether a voiceover can be made right now, and in which voices. */
+export interface VoiceoverVoices {
+  available: boolean;
+  providerId?: string | null;
+  reason: string;
+  voices: VoiceoverVoice[];
+}
+
+/** One script line for POST /api/projects/{id}/voiceover. Rate is 0.5-2.0. */
+export interface VoiceoverBody {
+  text: string;
+  voiceId: string;
+  rate?: number;
+  name?: string;
+}
+
 export interface CharacterAppearance {
   age?: number;
   gender?: string;

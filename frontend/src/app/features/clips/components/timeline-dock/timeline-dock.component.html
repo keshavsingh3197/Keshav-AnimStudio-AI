@@ -7,10 +7,10 @@
     <!-- Timeline Toolbar -->
     <div class="tl-toolbar">
       <div class="tool-group">
-        <button class="tool-btn icon-only" type="button" title="Undo (Ctrl+Z)" disabled>
+        <button class="tool-btn icon-only" type="button" title="Undo (Ctrl+Z)" (click)="state.undo()" [disabled]="!state.canUndo()">
           <span class="tool-btn-icon">↩</span><span class="tool-btn-label">Undo</span>
         </button>
-        <button class="tool-btn icon-only" type="button" title="Redo (Ctrl+Y)" disabled>
+        <button class="tool-btn icon-only" type="button" title="Redo (Ctrl+Y / Ctrl+Shift+Z)" (click)="state.redo()" [disabled]="!state.canRedo()">
           <span class="tool-btn-icon">↪</span><span class="tool-btn-label">Redo</span>
         </button>
         <button class="tool-btn icon-only btn-danger-action" type="button" (click)="state.deleteOrRemoveCurrentSelection()" [disabled]="!state.hasAnySelection()" title="Delete / Remove selected (Del / Backspace)">
@@ -87,6 +87,9 @@
         </button>
         <button class="tool-btn icon-only" type="button" [class.active]="state.activeInspectorTab() === 'audio'" (click)="state.onTimelineAudioClicked()" title="Audio Hub & Sound Effects">
           <span class="tool-btn-icon">🎵</span><span class="tool-btn-label">Audio</span>
+        </button>
+        <button class="tool-btn icon-only" type="button" [class.active]="state.activeInspectorTab() === 'audio' && state.effectiveAudioInspectorView() === 'voiceover'" (click)="state.openVoiceover()" title="Voiceover from script - speak your script onto A1">
+          <span class="tool-btn-icon">🎙</span><span class="tool-btn-label">Voiceover</span>
         </button>
         <button class="tool-btn icon-only" type="button" [class.active]="state.activeInspectorTab() === 'text'" (click)="state.onTextToolbarClicked()" title="Text & Subtitle Overlays">
           <span class="tool-btn-icon">𝐓</span><span class="tool-btn-label">Text</span>

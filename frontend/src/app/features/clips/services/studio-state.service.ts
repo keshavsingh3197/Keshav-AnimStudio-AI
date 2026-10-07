@@ -8,7 +8,7 @@ import {
   TimelineItem, TimelineItemType, TrackControlState, TimelineItemTransform, TimelineItemTextStyle,
   EraseRegion, EraseSource, EraseStyle, MAX_ERASE_REGIONS, MIN_ERASE_SIZE,
   ERASE_DEFAULT_FEATHER, ERASE_DEFAULT_STRENGTH,
-  EDIT_FORMATS, EditFormat, ProjectEdit, SaveEditDraftBody,
+  EDIT_FORMATS, EditFormat, ProjectEdit, SaveEditDraftBody, Asset,
 } from '../../../core/models/api.models';
 import { ApiService } from '../../../core/services/api.service';
 import { ProjectStore } from '../../../core/services/project-store';
@@ -673,15 +673,16 @@ export class StudioStateService implements OnDestroy {
   readonly duckLevel = signal<number>(0.25);
   /** @deprecated Kept as an alias while older call sites are migrated. */
   readonly videoDuckLevel = this.duckLevel;
-  readonly audioInspectorViewMode = signal<'auto' | 'clip' | 'mixer'>('auto');
+  readonly audioInspectorViewMode = signal<'auto' | 'clip' | 'mixer' | 'voiceover'>('auto');
 
   /**
    * Which of the two audio views is showing. Timeline selection is the only thing that
    * decides it automatically - the scope chooser no longer swaps panels behind the user's
    * back, it only widens what an edit applies to.
    */
-  readonly effectiveAudioInspectorView = computed<'clip' | 'mixer'>(() => {
+  readonly effectiveAudioInspectorView = computed<'clip' | 'mixer' | 'voiceover'>(() => {
     const mode = this.audioInspectorViewMode();
+    if (mode === 'voiceover') return 'voiceover';
     if (mode === 'mixer') return 'mixer';
     if (mode === 'clip') return 'clip';
     return this.hasAudioSelection() ? 'clip' : 'mixer';
@@ -3559,8 +3560,13 @@ export class StudioStateService implements OnDestroy {
     this.setBatchVolume(muted ? 0.0 : 1.0);
   }
 
-  setAudioInspectorView(mode: 'auto' | 'clip' | 'mixer'): void {
+  setAudioInspectorView(mode: 'auto' | 'clip' | 'mixer' | 'voiceover'): void {
     this.audioInspectorViewMode.set(mode);
+  }
+
+  openVoiceover(): void {
+    this.setInspectorTab('audio');
+    this.setAudioInspectorView('voiceover');
   }
 
   // Inspector Header Bar Controls
@@ -6295,8 +6301,167 @@ export class StudioStateService implements OnDestroy {
     }
   }
 
+  // Undo / Redo
+  /**
+   * Every timeline edit already ends in markDirty(), and buildDraftData()/applyDraft() are
+   * a complete snapshot/restore of the cut - so history is recorded there instead of in
+   * each of the dozens of edit methods. Changes arriving in quick succession (a drag fires
+   * markDirty on every pointermove) are folded into one step.
+   */
+  private static readonly HISTORY_LIMIT = 80;
+  private static readonly HISTORY_BURST_MS = 450;
+  private undoStack: string[] = [];
+  private redoStack: string[] = [];
+  /** The cut as it stands after the last recorded change; what an undo returns to. */
+  private historyBaseline: string | null = null;
+  private historyBurstTimer: ReturnType<typeof setTimeout> | null = null;
+  private restoringHistory = false;
+  readonly canUndo = signal<boolean>(false);
+  readonly canRedo = signal<boolean>(false);
+
+  private historySnapshot(): string {
+    const { savedAt: _savedAt, ...doc } = this.buildDraftData();
+    return JSON.stringify(doc);
+  }
+
+  private recordHistory(): void {
+    if (this.restoringHistory) return;
+    const snapshot = this.historySnapshot();
+    if (this.historyBaseline === null) {
+      this.historyBaseline = snapshot;
+      return;
+    }
+    if (snapshot === this.historyBaseline) return;
+
+    // Only the first change of a burst opens a step; the rest extend it.
+    if (!this.historyBurstTimer) {
+      this.undoStack.push(this.historyBaseline);
+      if (this.undoStack.length > StudioStateService.HISTORY_LIMIT) this.undoStack.shift();
+      this.redoStack = [];
+    } else {
+      clearTimeout(this.historyBurstTimer);
+    }
+    this.historyBurstTimer = setTimeout(() => (this.historyBurstTimer = null), StudioStateService.HISTORY_BURST_MS);
+    this.historyBaseline = snapshot;
+    this.syncHistoryFlags();
+  }
+
+  /**
+   * Takes the cut as it stands now as the starting point. Loading another cut also forgets
+   * its steps; reloading the same one keeps them, since every step is a whole cut anyway.
+   */
+  resetHistory(keepSteps = false): void {
+    if (!keepSteps) {
+      this.undoStack = [];
+      this.redoStack = [];
+    }
+    this.closeHistoryBurst();
+    this.historyBaseline = this.historySnapshot();
+    this.syncHistoryFlags();
+  }
+
+  undo(): void {
+    if (this.undoStack.length === 0) return;
+    // Anything changed since the last recorded step is part of what is being undone.
+    this.recordHistory();
+    this.closeHistoryBurst();
+    const previous = this.undoStack.pop()!;
+    this.redoStack.push(this.historyBaseline ?? this.historySnapshot());
+    this.restoreHistory(previous);
+    this.status.notify(['Undone.']);
+  }
+
+  redo(): void {
+    if (this.redoStack.length === 0) return;
+    this.closeHistoryBurst();
+    const next = this.redoStack.pop()!;
+    this.undoStack.push(this.historyBaseline ?? this.historySnapshot());
+    this.restoreHistory(next);
+    this.status.notify(['Redone.']);
+  }
+
+  private restoreHistory(snapshot: string): void {
+    this.restoringHistory = true;
+    try {
+      this.applyDraft(JSON.parse(snapshot));
+      this.dropVanishedSelections();
+      this.historyBaseline = this.historySnapshot();
+      this.markDirty();
+    } finally {
+      this.restoringHistory = false;
+    }
+    this.syncHistoryFlags();
+  }
+
+  /** A selection pointing at something the restore removed would leave the inspector editing nothing. */
+  private dropVanishedSelections(): void {
+    const musicKey = this.selectedMusicTrackKey();
+    if (musicKey && !this.musicTracks().some((t) => t.key === musicKey)) this.selectedMusicTrackKey.set(null);
+
+    const itemIds = new Set(this.timelineItems().map((i) => i.id));
+    const itemId = this.selectedTimelineItemId();
+    if (itemId && !itemIds.has(itemId)) this.selectedTimelineItemId.set(null);
+    const selectedItems = this.selectedTimelineItemIds();
+    if ([...selectedItems].some((id) => !itemIds.has(id))) {
+      this.selectedTimelineItemIds.set(new Set([...selectedItems].filter((id) => itemIds.has(id))));
+    }
+
+    const rowCount = this.rows().length;
+    const clipIndex = this.selectedTimelineClipIndex();
+    if (clipIndex !== null && clipIndex >= rowCount) this.selectedTimelineClipIndex.set(null);
+  }
+
+  private closeHistoryBurst(): void {
+    if (this.historyBurstTimer) {
+      clearTimeout(this.historyBurstTimer);
+      this.historyBurstTimer = null;
+    }
+  }
+
+  private syncHistoryFlags(): void {
+    this.canUndo.set(this.undoStack.length > 0);
+    this.canRedo.set(this.redoStack.length > 0);
+  }
+
+  // Voiceover
+  /**
+   * Puts generated voiceover lines on A1 as one edit (so one Undo takes them all back).
+   * The assets are added to the studio's audio list in place rather than by reloading,
+   * which would re-apply the server draft over any edit not yet auto-saved.
+   */
+  addVoiceoverTracks(placements: { asset: Asset; startSeconds: number }[]): void {
+    if (placements.length === 0) return;
+
+    const studio = this.studio();
+    if (studio) {
+      const known = new Set((studio.musicCandidates || []).map((m) => m.id));
+      const fresh = placements.map((p) => p.asset).filter((a) => !known.has(a.id));
+      if (fresh.length > 0) {
+        this.studio.set({ ...studio, musicCandidates: [...(studio.musicCandidates || []), ...fresh] });
+      }
+    }
+
+    const stamp = Date.now().toString(36);
+    const tracks: MusicTrackRow[] = placements.map((p, i) => ({
+      key: `vo_${stamp}_${i}`,
+      assetId: p.asset.id,
+      startSeconds: Number(Math.max(0, p.startSeconds).toFixed(2)),
+      volume: 1.0,
+      trimStartSeconds: 0,
+      trimEndSeconds: p.asset.durationSeconds ?? 10.0,
+      fadeInSeconds: 0.05,
+      fadeOutSeconds: 0.15,
+    }));
+    this.musicTracks.update((t) => [...t, ...tracks]);
+    this.closeHistoryBurst();
+    this.showTrackManually('A1');
+    this.markDirty();
+    this.closeHistoryBurst();
+  }
+
   // Project Operations & Drafts
   markDirty(): void {
+    this.recordHistory();
     this.hasUnsavedChanges.set(true);
     if (this.autoSaveTimer) {
       clearTimeout(this.autoSaveTimer);
@@ -6698,7 +6863,13 @@ export class StudioStateService implements OnDestroy {
       this.hasUnsavedChanges.set(false);
       this.lastSavedTime.set(null);
       this.restoredDraftTime.set(null);
+      // Another cut's steps must never be undone into this one.
+      this.undoStack = [];
+      this.redoStack = [];
+      this.historyBaseline = null;
+      this.syncHistoryFlags();
     }
+    const keepHistory = this.loadedProjectId === projectId && this.loadedEditId === editId;
     this.loadedProjectId = projectId;
     this.loadedEditId = editId;
     const loadingEditId = editId;
@@ -6711,6 +6882,10 @@ export class StudioStateService implements OnDestroy {
         this.studio.set(studio);
         this.currentEdit.set({ ...edit, draftJson: undefined });
         this.refreshProjectEdits();
+        // Runs once everything below has built the timeline, whichever branch returns.
+        queueMicrotask(() => {
+          if (this.loadedEditId === loadingEditId) this.resetHistory(keepHistory);
+        });
 
         // The first cut is the project's original timeline; any other cut created blank
         // starts with nothing in it, so the user picks what goes in.

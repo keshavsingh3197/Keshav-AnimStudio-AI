@@ -86,6 +86,11 @@ export interface MusicTrackRow {
   clipAudioMode?: 'MuteUnderMusic' | 'KeepAudio' | 'Ducked' | 'Default';
 }
 
+/** Lines placed by the Voiceover panel. They share A1 with music but preview on their own player. */
+export function isVoiceoverTrack(track: MusicTrackRow): boolean {
+  return track.key.startsWith('vo_');
+}
+
 export interface ScheduledClip {
   clip: Clip;
   index: number;

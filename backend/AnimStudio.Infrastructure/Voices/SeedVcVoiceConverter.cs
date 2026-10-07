@@ -33,8 +33,11 @@ public sealed class VoiceConversionOptions
             : Path.Combine(ResolvedSeedVcPath, ".venv", "bin", "python")
         : PythonPath;
 
-    /// <summary>Quality against speed: 25 is close to the best on a CPU at about half the time of 50.</summary>
-    public int DiffusionSteps { get; set; } = 25;
+    /// <summary>
+    /// Quality against speed. Measured on a 12-core laptop CPU: 10 steps converts at about 12x
+    /// the length of the speech, 25 at about 33x. Raise it on a machine with a GPU.
+    /// </summary>
+    public int DiffusionSteps { get; set; } = 10;
 
     /// <summary>A long take on a CPU, plus the first run's model download.</summary>
     public int TimeoutMinutes { get; set; } = 90;

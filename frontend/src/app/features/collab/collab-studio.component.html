@@ -54,7 +54,7 @@
           <div class="co-rec co-rendering">⚙️ Rebuilding take… {{ renderProgress() * 100 | number: '1.0-0' }}%</div>
         }
         @if (state() === 'voicing') {
-          <div class="co-rec co-rendering">✨ Making the studio voice… @if (selected(); as t) { @if (usesAiVoice(t)) { (AI voices: a few minutes) } }</div>
+          <div class="co-rec co-rendering">✨ Making the studio voice… @if (selected(); as t) { @if (usesAiVoice(t)) { (AI voices: this takes a while) } }</div>
         }
       </div>
 
@@ -167,7 +167,7 @@
                 } @else {
                   <span>
                     Make the character voices sound like real people, not an effect: the server re-voices this take, then it's rebuilt.
-                    @if (usesAiVoice(t)) { It includes AI voices, which take a few minutes on this computer. } @else { About a minute. }
+                    @if (usesAiVoice(t)) { It includes AI voices: on this computer each second they speak takes about 12 seconds to make, so keep AI lines short. } @else { About a minute. }
                   </span>
                   <button type="button" (click)="makeStudioVoice(t)" [disabled]="busy()">✨ Studio voice</button>
                 }
