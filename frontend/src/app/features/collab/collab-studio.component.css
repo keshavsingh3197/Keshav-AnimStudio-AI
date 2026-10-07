@@ -101,6 +101,7 @@ kbd {
 .co-inline { display: flex; align-items: center; gap: .4rem; }
 .co-inline input[type=range] { flex: 1; min-width: 0; }
 .co-apply { margin: .8rem 0 0; }
+.co-studio { margin: .8rem 0 0; }
 .co-actions { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin-top: .9rem; }
 .co-project { width: auto; max-width: 14rem; }
 

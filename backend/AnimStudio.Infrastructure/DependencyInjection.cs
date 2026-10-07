@@ -1,3 +1,5 @@
+using AnimStudio.Infrastructure.Voices;
+using AnimStudio.Application.Voices;
 using AnimStudio.Application.Abstractions.Ai;
 using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Abstractions.Rendering;
@@ -66,6 +68,7 @@ public static class DependencyInjection
         services.Configure<SegmentationOptions>(configuration.GetSection("Segmentation"));
         services.Configure<ParsingOptions>(configuration.GetSection("Parsing"));
         services.Configure<AiOptions>(configuration.GetSection(AiOptions.Section));
+        services.Configure<VoiceConversionOptions>(configuration.GetSection(VoiceConversionOptions.Section));
 
         // Settings changed from the admin console (the WebSettings table) reach these options
         // without a restart: IOptions<T> answers with the monitor's current value. Program.cs
@@ -252,6 +255,8 @@ public static class DependencyInjection
         services.AddScoped<IMediaProbeService, FfprobeMediaProbeService>();
         services.AddSingleton<YtDlpMediaDownloader>();
         services.AddSingleton<FfmpegVideoChunker>();
+        services.AddSingleton<IStudioVoiceRenderer, FfmpegStudioVoiceRenderer>();
+        services.AddSingleton<IVoiceConverter, SeedVcVoiceConverter>();
         services.AddSingleton<FfmpegReleaseKitBuilder>();
         services.AddSingleton<ReleaseKitStore>();
 

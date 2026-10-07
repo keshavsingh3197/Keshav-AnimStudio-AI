@@ -7,7 +7,7 @@ import { firstValueFrom } from 'rxjs';
 
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
 import { Asset, Project } from '../../core/models/api.models';
-import { ApiService } from '../../core/services/api.service';
+import { ApiService, StudioVoiceSegment } from '../../core/services/api.service';
 import { CharacterVoice, describeVoice, sanitizeVoice } from '../../shared/voice/character-voice';
 import { FrameClock } from '../live-camera/frame-clock';
 import { VisionEngine } from '../live-camera/vision-engine';
@@ -30,7 +30,7 @@ import {
 } from './collab-layout';
 import { CollabMixer, MixLevels } from './collab-mixer';
 
-type RecState = 'idle' | 'countdown' | 'recording' | 'rendering' | 'saving';
+type RecState = 'idle' | 'countdown' | 'recording' | 'rendering' | 'saving' | 'voicing';
 type SourceTab = 'computer' | 'project';
 
 /** Who you were speaking as, from `at` seconds after the original started. */
@@ -74,6 +74,11 @@ interface Take {
   turns: Turn[];
   /** Which voice you spoke in, and when you switched. */
   voices: VoiceCue[];
+  /**
+   * The raw take re-voiced on the server at studio quality (null: the live browser voice).
+   * When set, rebuilds use it as the take and apply no voice effect of their own.
+   */
+  studio: { raw: Blob; url: string } | null;
   savedAs: string | null;
 }
 
@@ -104,6 +109,8 @@ const MAX_TAKES = 6;
 const MAX_RECORD_SECONDS = 10 * 60;
 /** Number keys pick a voice: 0 is your own, 1-9 the project's characters in order. */
 const MAX_VOICE_KEYS = 9;
+/** The server's limit on voice switches in one studio voice. */
+const STUDIO_MAX_SWITCHES = 200;
 /** In a stitch (or after a commentary's last part), your part ends by itself after this long if you don't stop it. */
 const MAX_YOUR_TURN_SECONDS = 3 * 60;
 /** "Your turn" shows this long before the original stops in a stitch. */
@@ -201,6 +208,8 @@ export class CollabStudioComponent {
   readonly speakAsId = signal<string | null>(null);
   readonly hearVoice = signal(false);
   readonly pitchUnavailable = signal(false);
+  /** The server can make studio voices. */
+  readonly studioAvailable = signal(false);
   readonly describeVoice = describeVoice;
   readonly takes = signal<Take[]>([]);
   readonly selectedId = signal<number | null>(null);
@@ -279,6 +288,8 @@ export class CollabStudioComponent {
     phase: StitchPhase;
     turn: Turn;
     cue: VoiceCue;
+    /** Playing a studio-voiced take: the voice is already in it. */
+    studio: boolean;
     tick: () => void;
   } | null = null;
   /** The phase the preview last drew, so the bubble is only dragged when it's on screen. */
@@ -291,6 +302,9 @@ export class CollabStudioComponent {
     this.restore();
     void this.listDevices();
     void this.loadProjects();
+    void firstValueFrom(this.api.studioVoiceAvailable())
+      .then((status) => this.studioAvailable.set(status.available))
+      .catch(() => this.studioAvailable.set(false));
     navigator.mediaDevices?.addEventListener?.('devicechange', this.onDeviceChange);
 
     afterNextRender(() => {
@@ -923,6 +937,7 @@ export class CollabStudioComponent {
       look: lookOf(this.settings()),
       turns: rec.turns,
       voices: rec.voices,
+      studio: null,
       savedAs: null,
     };
 
@@ -964,6 +979,75 @@ export class CollabStudioComponent {
   private releaseTake(take: Take): void {
     URL.revokeObjectURL(take.mixUrl);
     URL.revokeObjectURL(take.rawUrl);
+    if (take.studio) URL.revokeObjectURL(take.studio.url);
+  }
+
+  // ------------------------------------------------------------------ studio voice
+
+  /** Some of the take is spoken as an AI voice (a real person's sample), which takes minutes. */
+  usesAiVoice(take: Take): boolean {
+    return take.voices.some((v) => !!v.voice?.aiSampleAssetId);
+  }
+
+  /** A take spoken (at least partly) as a character, so a studio voice would change it. */
+  hasCharacterVoice(take: Take): boolean {
+    return take.voices.some((v) => v.voice);
+  }
+
+  /**
+   * Sends the raw take to the server to be re-voiced at studio quality - pitch and body moved
+   * separately, so each character sounds like a person rather than an effect - then rebuilds
+   * the mix from it. The picture comes back untouched, so sync and turns are unchanged.
+   */
+  async makeStudioVoice(take: Take): Promise<void> {
+    if (this.busy() || take.sourceKey !== this.sourceKeyNow()) return;
+    const timeline = this.studioTimeline(take);
+    if (!timeline) {
+      this.error.set('This take switches voice too often for a studio voice. Record it in shorter takes.');
+      return;
+    }
+    this.sourceVideo?.pause();
+    this.state.set('voicing');
+    this.error.set(null);
+    let voiced: Take;
+    try {
+      const raw = await firstValueFrom(this.api.studioVoice(take.raw, timeline));
+      if (take.studio) URL.revokeObjectURL(take.studio.url);
+      voiced = { ...take, studio: { raw, url: URL.createObjectURL(raw) } };
+      this.takes.update((list) => list.map((t) => (t.id === take.id ? voiced : t)));
+    } catch (err: unknown) {
+      this.error.set(this.describe(err, 'The studio voice couldn\'t be made.'));
+      return;
+    } finally {
+      this.state.set('idle');
+    }
+    await this.applyChanges(voiced, `Take ${take.id} now speaks with its studio voice.`);
+  }
+
+  /** Back to the voice heard while recording. */
+  async useLiveVoice(take: Take): Promise<void> {
+    if (this.busy() || !take.studio) return;
+    URL.revokeObjectURL(take.studio.url);
+    const live: Take = { ...take, studio: null };
+    this.takes.update((list) => list.map((t) => (t.id === take.id ? live : t)));
+    await this.applyChanges(live, `Take ${take.id} is back to the live voice.`);
+  }
+
+  /**
+   * The take's voice switches in the raw recording's own time: it started `lead` seconds
+   * before the original, and its first voice covers everything up to the first switch.
+   * Switches closer together than a hundredth of a second keep the later one.
+   */
+  private studioTimeline(take: Take): StudioVoiceSegment[] | null {
+    const segments: StudioVoiceSegment[] = [];
+    for (const cue of take.voices) {
+      const start = segments.length ? Math.round(Math.max(0, cue.at + take.lead) * 1000) / 1000 : 0;
+      const voice = cue.voice ? { ...cue.voice, enabled: true as const } : null;
+      const previous = segments[segments.length - 1];
+      if (previous && start <= previous.startSeconds + 0.01) previous.voice = voice;
+      else segments.push({ startSeconds: start, voice });
+    }
+    return segments.length <= STUDIO_MAX_SWITCHES ? segments : null;
   }
 
   /**
@@ -971,8 +1055,8 @@ export class CollabStudioComponent {
    * camera take and the original. Plays both in step and records the result, so it takes as
    * long as the take; nothing has to be filmed again.
    */
-  async applyChanges(): Promise<void> {
-    const take = this.selected();
+  async applyChanges(target?: Take, doneMessage?: string): Promise<void> {
+    const take = target ?? this.selected();
     if (!take || this.busy() || take.sourceKey !== this.sourceKeyNow() || !this.sourceUrl || !this.format) return;
     this.sourceVideo?.pause();
     this.state.set('rendering');
@@ -983,7 +1067,7 @@ export class CollabStudioComponent {
     const syncMs = this.syncMs();
     const mixer = new CollabMixer(false);
     const source = this.makeVideo(this.sourceUrl);
-    const camera = this.makeVideo(take.rawUrl);
+    const camera = this.makeVideo(take.studio?.url ?? take.rawUrl);
     let recorder: MediaRecorder | null = null;
     let canvasTrack: MediaStreamTrack | null = null;
 
@@ -993,7 +1077,8 @@ export class CollabStudioComponent {
       mixer.apply(this.levels());
       mixer.setVoiceOn(voiceHeard(s, 'source'));
       await mixer.init();
-      mixer.setCharacterVoice(take.voices[0]?.voice ?? null);
+      // A studio-voiced take already speaks as its characters.
+      mixer.setCharacterVoice(take.studio ? null : take.voices[0]?.voice ?? null);
       void mixer.resume();
       await Promise.all([once(source, 'loadeddata'), once(camera, 'loadeddata')]);
 
@@ -1017,7 +1102,7 @@ export class CollabStudioComponent {
         let started = false;
         const job = {
           take, source, camera, mixer, startAt, sourceIn, phase: 'source' as StitchPhase,
-          turn: take.turns[0], cue: take.voices[0],
+          turn: take.turns[0], cue: take.voices[0], studio: !!take.studio,
           tick: () => {
             try {
               // Before the original starts the camera runs on its own, unrecorded, to reach its spot.
@@ -1051,7 +1136,7 @@ export class CollabStudioComponent {
       URL.revokeObjectURL(take.mixUrl);
       const rebuilt: Take = { ...take, mix, mixUrl: URL.createObjectURL(mix), look: lookOf(s), syncMs, savedAs: null };
       this.takes.update((list) => list.map((t) => (t.id === take.id ? rebuilt : t)));
-      this.notice.set(`Take ${take.id} rebuilt with your changes.`);
+      this.notice.set(doneMessage ?? `Take ${take.id} rebuilt with your changes.`);
     } catch (err: unknown) {
       if (recorder && recorder.state !== 'inactive') recorder.stop();
       this.error.set(`The take couldn't be rebuilt: ${err instanceof Error ? err.message : 'unknown error'}.`);
@@ -1078,7 +1163,7 @@ export class CollabStudioComponent {
     const elapsed = camera.currentTime - job.startAt;
 
     const cue = cueAt(take.voices, elapsed);
-    if (cue && cue !== job.cue) {
+    if (cue && cue !== job.cue && !job.studio) {
       job.cue = cue;
       job.mixer.setCharacterVoice(cue.voice);
     }

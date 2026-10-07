@@ -1,5 +1,6 @@
 using AnimStudio.Domain.Ai;
 using AnimStudio.Domain.Assets;
+using AnimStudio.Application.Characters;
 using AnimStudio.Application.Clips;
 using AnimStudio.Domain.Characters;
 using AnimStudio.Domain.Jobs;
@@ -70,6 +71,24 @@ public static class Mappings
             o.QrAssetId, o.Headline, o.Subtext, o.BackgroundHex, o.TextHex,
             o.HeadlineSecondary, o.SubtextSecondary);
 
+    public static CharacterVoiceCommand ToCommand(this CharacterVoiceRequest voice) => new()
+    {
+        Enabled = voice.Enabled,
+        Preset = voice.Preset,
+        PitchSemitones = voice.PitchSemitones,
+        SizeSemitones = voice.SizeSemitones,
+        BassDecibels = voice.BassDecibels,
+        TrebleDecibels = voice.TrebleDecibels,
+        Drive = voice.Drive,
+        Robot = voice.Robot,
+        RobotHertz = voice.RobotHertz,
+        Radio = voice.Radio,
+        Echo = voice.Echo,
+        Reverb = voice.Reverb,
+        AiSampleAssetId = voice.AiSampleAssetId,
+        AiSampleConsent = voice.AiSampleConsent
+    };
+
     public static CharacterResponse ToResponse(this Character c) => new(
         c.Id, c.Name, c.Description, c.Aliases,
         c.Sprites.ClosedMouthAssetId, c.Sprites.OpenMouthAssetId, c.IsNarrator, c.SubtitleColorHex,
@@ -79,7 +98,8 @@ public static class Mappings
         c.Voice is { } v
             ? new CharacterVoiceResponse(
                 v.Preset, v.PitchSemitones, v.BassDecibels, v.TrebleDecibels,
-                v.Drive, v.Robot, v.RobotHertz, v.Radio, v.Echo, v.Reverb)
+                v.Drive, v.Robot, v.RobotHertz, v.Radio, v.Echo, v.Reverb, v.SizeSemitones,
+                v.AiSampleAssetId, v.AiSampleConsent)
             : null);
 
     public static AssetResponse ToResponse(this Asset a) => new(

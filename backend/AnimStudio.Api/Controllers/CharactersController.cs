@@ -82,20 +82,7 @@ public sealed class CharactersController(
                 Clothes = request.Appearance.Clothes,
                 AdditionalDetails = request.Appearance.AdditionalDetails
             },
-            Voice = request.Voice is not { } voice ? null : new CharacterVoiceCommand
-            {
-                Enabled = voice.Enabled,
-                Preset = voice.Preset,
-                PitchSemitones = voice.PitchSemitones,
-                BassDecibels = voice.BassDecibels,
-                TrebleDecibels = voice.TrebleDecibels,
-                Drive = voice.Drive,
-                Robot = voice.Robot,
-                RobotHertz = voice.RobotHertz,
-                Radio = voice.Radio,
-                Echo = voice.Echo,
-                Reverb = voice.Reverb
-            }
+            Voice = request.Voice?.ToCommand()
         };
 
     private async Task EnsureOwnedAsync(string projectId, CancellationToken ct)

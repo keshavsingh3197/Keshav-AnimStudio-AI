@@ -54,7 +54,8 @@ public sealed record CharacterAppearanceResponse(
 
 public sealed record CharacterVoiceResponse(
     string? Preset, double PitchSemitones, double BassDecibels, double TrebleDecibels,
-    double Drive, double Robot, double RobotHertz, bool Radio, double Echo, double Reverb);
+    double Drive, double Robot, double RobotHertz, bool Radio, double Echo, double Reverb,
+    double SizeSemitones = 0, string? AiSampleAssetId = null, bool AiSampleConsent = false);
 
 public sealed record AssetResponse(
     string Id, string Name, string Kind, string MimeType, long FileSizeBytes,
@@ -268,3 +269,6 @@ public sealed record StorageDetailResponse(
     long? DiskTotalBytes,
     long? DiskFreeBytes,
     IReadOnlyList<StorageFolderResponse> Folders);
+
+/// <summary>Whether studio voices can be made, and whether AI voices (a person's sample) can too.</summary>
+public sealed record StudioVoiceStatusResponse(bool Available, bool AiAvailable = false);

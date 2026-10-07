@@ -243,6 +243,44 @@ public class CharacterEditingServiceTests
         Assert.Equal("voice-preset-invalid", error.Code);
     }
 
+    [Fact]
+    public async Task A_voice_sample_must_be_a_recording_from_this_project()
+    {
+        var world = new EditingWorld();
+        world.AddAsset("picture", AssetKind.Image);
+        world.AddAsset("elsewhere", AssetKind.Audio, projectId: "another-project");
+        world.AddAsset("voice", AssetKind.Audio);
+
+        var wrongKind = await Assert.ThrowsAsync<EditingException>(() => world.CharacterEditing.UpsertAsync(
+            VoiceCommand(world, new CharacterVoiceCommand { Enabled = true, AiSampleAssetId = "picture", AiSampleConsent = true }),
+            CancellationToken.None));
+        Assert.Equal("asset-wrong-kind", wrongKind.Code);
+
+        var notOurs = await Assert.ThrowsAsync<EditingException>(() => world.CharacterEditing.UpsertAsync(
+            VoiceCommand(world, new CharacterVoiceCommand { Enabled = true, AiSampleAssetId = "elsewhere", AiSampleConsent = true }),
+            CancellationToken.None));
+        Assert.Equal("asset-not-found", notOurs.Code);
+
+        var saved = await world.CharacterEditing.UpsertAsync(
+            VoiceCommand(world, new CharacterVoiceCommand { Enabled = true, AiSampleAssetId = "voice", AiSampleConsent = true }),
+            CancellationToken.None);
+        Assert.Equal("voice", saved.Voice?.AiSampleAssetId);
+    }
+
+    [Fact]
+    public async Task A_voice_sample_without_consent_is_refused()
+    {
+        var world = new EditingWorld();
+        world.AddAsset("voice", AssetKind.Audio);
+
+        var error = await Assert.ThrowsAsync<EditingException>(() => world.CharacterEditing.UpsertAsync(
+            VoiceCommand(world, new CharacterVoiceCommand { Enabled = true, AiSampleAssetId = "voice" }),
+            CancellationToken.None));
+
+        Assert.Equal("voice-consent-required", error.Code);
+        Assert.Empty(world.Characters.Items);
+    }
+
     private static UpsertCharacterCommand VoiceCommand(EditingWorld world, CharacterVoiceCommand? voice) => new()
     {
         ProjectId = world.Project.Id,

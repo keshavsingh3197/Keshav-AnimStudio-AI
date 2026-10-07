@@ -116,7 +116,8 @@ export class VoiceChain {
   /** Null (or a profile that changes nothing) is the performer's own voice. */
   apply(voice: CharacterVoice | null): void {
     this.wanted = voice;
-    const key = isPlainVoice(voice) ? '' : JSON.stringify({ ...voice, preset: null });
+    // Size isn't playable live (see CharacterVoice), so it doesn't trigger a rebuild here.
+    const key = isPlainVoice(voice) ? '' : JSON.stringify({ ...voice, preset: null, sizeSemitones: 0 });
     if (key === this.applied) return;
     this.applied = key;
     this.rebuild(isPlainVoice(voice) ? null : voice);

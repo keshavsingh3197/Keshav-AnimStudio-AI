@@ -150,6 +150,7 @@ public sealed record CharacterVoiceRequest
     public bool Enabled { get; init; }
     [StringLength(40)] public string? Preset { get; init; }
     [Range(-12, 12)] public double PitchSemitones { get; init; }
+    [Range(-6, 6)] public double SizeSemitones { get; init; }
     [Range(-12, 12)] public double BassDecibels { get; init; }
     [Range(-12, 12)] public double TrebleDecibels { get; init; }
     [Range(0, 1)] public double Drive { get; init; }
@@ -158,6 +159,8 @@ public sealed record CharacterVoiceRequest
     public bool Radio { get; init; }
     [Range(0, 1)] public double Echo { get; init; }
     [Range(0, 1)] public double Reverb { get; init; }
+    [StringLength(64)] public string? AiSampleAssetId { get; init; }
+    public bool AiSampleConsent { get; init; }
 }
 
 public sealed record AssignSceneBackgroundRequest
@@ -630,4 +633,11 @@ public sealed record TimelineItemRequest
 public sealed record UpdateStorageQuotaRequest
 {
     [Range(1, 1_000_000)] public double? QuotaGb { get; init; }
+}
+
+/// <summary>One voice switch in a studio-voice timeline; a null voice is the performer's own.</summary>
+public sealed record StudioVoiceSegmentRequest
+{
+    public double StartSeconds { get; init; }
+    public CharacterVoiceRequest? Voice { get; init; }
 }

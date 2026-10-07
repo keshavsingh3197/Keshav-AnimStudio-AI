@@ -21,6 +21,7 @@ public sealed record CharacterVoiceCommand
     public bool Enabled { get; init; }
     public string? Preset { get; init; }
     public double PitchSemitones { get; init; }
+    public double SizeSemitones { get; init; }
     public double BassDecibels { get; init; }
     public double TrebleDecibels { get; init; }
     public double Drive { get; init; }
@@ -29,6 +30,8 @@ public sealed record CharacterVoiceCommand
     public bool Radio { get; init; }
     public double Echo { get; init; }
     public double Reverb { get; init; }
+    public string? AiSampleAssetId { get; init; }
+    public bool AiSampleConsent { get; init; }
 }
 
 public sealed record UpsertCharacterCommand
@@ -81,8 +84,9 @@ public sealed class CharacterEditingService(
                 "A subtitle colour must look like #RRGGBB.");
         }
 
-        var voice = command.Voice is { } voiceCommand ? ToVoice(voiceCommand) : null;
+        var voice = command.Voice is { } voiceCommand ? CharacterVoiceRules.ToVoice(voiceCommand) : null;
 
+        await EnsureVoiceSampleAsync(voice?.AiSampleAssetId, project.Id, ct).ConfigureAwait(false);
         await EnsureSpriteAsync(command.ClosedMouthAssetId, project.Id, ct).ConfigureAwait(false);
         await EnsureSpriteAsync(command.OpenMouthAssetId, project.Id, ct).ConfigureAwait(false);
 
@@ -213,6 +217,20 @@ public sealed class CharacterEditingService(
             throw EditingException.Invalid("asset-wrong-kind", $"'{asset.Name}' is not an image.");
     }
 
+    /// <summary>A voice sample is a recording in this project: audio, or a video whose sound is used.</summary>
+    private async Task EnsureVoiceSampleAsync(string? assetId, string projectId, CancellationToken ct)
+    {
+        if (assetId is null) return;
+
+        var asset = await assets.GetAsync(assetId, ct).ConfigureAwait(false);
+
+        if (asset is null || !string.Equals(asset.ProjectId, projectId, StringComparison.Ordinal))
+            throw EditingException.Invalid("asset-not-found", "That voice sample is not in this project.");
+
+        if (asset.Kind is not (AssetKind.Audio or AssetKind.Video))
+            throw EditingException.Invalid("asset-wrong-kind", $"'{asset.Name}' has no sound to use as a voice sample.");
+    }
+
     private async Task<Project> LoadProjectAsync(string projectId, string userId, CancellationToken ct)
     {
         var project = await projects.GetAsync(projectId, ct).ConfigureAwait(false)
@@ -222,51 +240,6 @@ public sealed class CharacterEditingService(
             throw new UnauthorizedAccessException();
 
         return project;
-    }
-
-    /// <summary>
-    /// Out-of-range amounts are refused rather than clamped: the editor never sends them, so
-    /// one arriving means a broken client, and saving a quietly different voice would hide it.
-    /// </summary>
-    private static CharacterVoice? ToVoice(CharacterVoiceCommand command)
-    {
-        if (!command.Enabled) return null;
-
-        var preset = Blank(command.Preset);
-        if (preset is not null && (preset.Length > 40 || !preset.All(c => c is >= 'a' and <= 'z' or >= '0' and <= '9' or '-')))
-            throw EditingException.Invalid("voice-preset-invalid", "A voice preset is a short lowercase name.");
-
-        Require(command.PitchSemitones, -CharacterVoice.MaxPitchSemitones, CharacterVoice.MaxPitchSemitones, "pitch");
-        Require(command.BassDecibels, -CharacterVoice.MaxToneDecibels, CharacterVoice.MaxToneDecibels, "bass");
-        Require(command.TrebleDecibels, -CharacterVoice.MaxToneDecibels, CharacterVoice.MaxToneDecibels, "treble");
-        Require(command.Drive, 0, 1, "drive");
-        Require(command.Robot, 0, 1, "robot");
-        Require(command.RobotHertz, CharacterVoice.MinRobotHertz, CharacterVoice.MaxRobotHertz, "robot tone");
-        Require(command.Echo, 0, 1, "echo");
-        Require(command.Reverb, 0, 1, "reverb");
-
-        return new CharacterVoice
-        {
-            Preset = preset,
-            PitchSemitones = command.PitchSemitones,
-            BassDecibels = command.BassDecibels,
-            TrebleDecibels = command.TrebleDecibels,
-            Drive = command.Drive,
-            Robot = command.Robot,
-            RobotHertz = command.RobotHertz,
-            Radio = command.Radio,
-            Echo = command.Echo,
-            Reverb = command.Reverb
-        };
-
-        static void Require(double value, double min, double max, string what)
-        {
-            if (!double.IsFinite(value) || value < min || value > max)
-            {
-                throw EditingException.Invalid("voice-out-of-range",
-                    $"The voice's {what} must be between {min} and {max}.");
-            }
-        }
     }
 
     private static string? Blank(string? value) =>

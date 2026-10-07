@@ -2,6 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, map, catchError, of } from 'rxjs';
 
+import { CharacterVoice } from '../../shared/voice/character-voice';
 import { environment } from '../../../environments/environment';
 import {
   AdminAccess, AdminAuditEntry, AdminHealth, AdminJob, AdminProviderBody, AdminProviders,
@@ -186,6 +187,25 @@ export class ApiService {
   /** Direct URL to the fast lightweight thumbnail image (320px JPEG for videos). */
   assetThumbnailUrl(assetId: string, version = 2): string {
     return `${this.base}/api/assets/${encodeURIComponent(assetId)}/thumbnail?v=${version}`;
+  }
+
+  // --- studio voice
+  /** Whether this server can make studio voices (its ffmpeg has rubberband). */
+  studioVoiceAvailable(): Observable<{ available: boolean; aiAvailable?: boolean }> {
+    return this.unwrap(this.http.get<ApiResponse<{ available: boolean; aiAvailable?: boolean }>>(`${this.base}/api/voices/studio`));
+  }
+
+  /**
+   * Re-voices a recording at studio quality: `timeline` says which voice speaks from when
+   * (seconds into the recording, starting at 0; null is your own voice). The answer is the
+   * same recording, picture untouched, with the new voice. Nothing is kept on the server.
+   */
+  studioVoice(recording: Blob, timeline: StudioVoiceSegment[]): Observable<Blob> {
+    const form = new FormData();
+    const extension = recording.type.includes('mp4') ? 'mp4' : 'webm';
+    form.append('file', recording, `take.${extension}`);
+    form.append('timeline', JSON.stringify(timeline));
+    return this.http.post(`${this.base}/api/voices/studio`, form, { responseType: 'blob' });
   }
 
   // --- characters
@@ -669,4 +689,10 @@ export class ApiService {
 function channelQuery(channel?: string | null, alwaysQuery = false): string {
   if (channel && channel !== DEFAULT_BRAND_CHANNEL) return `?channel=${encodeURIComponent(channel)}`;
   return alwaysQuery ? `?channel=${DEFAULT_BRAND_CHANNEL}` : '';
+}
+
+/** One voice switch for a studio voice: from `startSeconds`, speak as `voice` (null: your own). */
+export interface StudioVoiceSegment {
+  startSeconds: number;
+  voice: (CharacterVoice & { enabled: true }) | null;
 }

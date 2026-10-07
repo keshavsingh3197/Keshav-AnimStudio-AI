@@ -15,6 +15,9 @@ export class VoiceTester {
   private chain: VoiceChain | null = null;
   private player: HTMLAudioElement | null = null;
   private lineUrl: string | null = null;
+  private lineBlob: Blob | null = null;
+  /** The line re-voiced by the server, while it's the one playing. */
+  private studioUrl: string | null = null;
   private recorder: MediaRecorder | null = null;
   private mic: MediaStream | null = null;
   private stopTimer: ReturnType<typeof setTimeout> | null = null;
@@ -24,6 +27,16 @@ export class VoiceTester {
 
   get hasLine(): boolean {
     return this.lineUrl !== null;
+  }
+
+  /** The recorded line, to send for a studio voice. */
+  get line(): Blob | null {
+    return this.lineBlob;
+  }
+
+  /** The studio version is what's playing (not the live chain). */
+  get playingStudio(): boolean {
+    return this.studioUrl !== null && this.player !== null;
   }
 
   async record(): Promise<void> {
@@ -37,7 +50,8 @@ export class VoiceTester {
     recorder.onstop = () => {
       this.releaseMic();
       if (this.lineUrl) URL.revokeObjectURL(this.lineUrl);
-      this.lineUrl = chunks.length ? URL.createObjectURL(new Blob(chunks, { type: recorder.mimeType })) : null;
+      this.lineBlob = chunks.length ? new Blob(chunks, { type: recorder.mimeType }) : null;
+      this.lineUrl = this.lineBlob ? URL.createObjectURL(this.lineBlob) : null;
       this.onChange(this.lineUrl ? 'ready' : 'idle');
       if (this.lineUrl) void this.play();
     };
@@ -54,7 +68,11 @@ export class VoiceTester {
     this.recorder = null;
   }
 
-  async play(): Promise<void> {
+  /**
+   * Plays the line on a loop: through the live chain, or - given the studio version - that
+   * file as it is, since the voice is already in it.
+   */
+  async play(studio?: Blob): Promise<void> {
     if (!this.lineUrl) return;
     if (!this.context) {
       this.context = new AudioContext({ latencyHint: 'interactive' });
@@ -64,17 +82,20 @@ export class VoiceTester {
     }
     if (this.context.state !== 'running') await this.context.resume();
     this.stopPlaying();
+    if (studio) this.studioUrl = URL.createObjectURL(studio);
     // A fresh element each time: an element can be wired into an audio graph only once.
-    const player = new Audio(this.lineUrl);
+    const player = new Audio(this.studioUrl ?? this.lineUrl);
     player.loop = true;
     this.context.createMediaElementSource(player).connect(this.chain!.input);
-    this.chain!.apply(this.voice);
+    this.chain!.apply(this.studioUrl ? null : this.voice);
     this.player = player;
     await player.play();
     this.onChange('playing');
   }
 
   stopPlaying(): void {
+    if (this.studioUrl) URL.revokeObjectURL(this.studioUrl);
+    this.studioUrl = null;
     if (!this.player) return;
     this.player.pause();
     this.player.removeAttribute('src');
@@ -86,7 +107,9 @@ export class VoiceTester {
   /** The voice the line plays as; changes are heard on the next audio block. */
   setVoice(voice: CharacterVoice | null): void {
     this.voice = voice;
-    this.chain?.apply(voice);
+    // The studio version was made with the old voice: go back to the live loop with the new one.
+    if (this.playingStudio) void this.play();
+    else this.chain?.apply(voice);
   }
 
   get pitchUnavailable(): boolean {
@@ -99,6 +122,7 @@ export class VoiceTester {
     this.releaseMic();
     if (this.lineUrl) URL.revokeObjectURL(this.lineUrl);
     this.lineUrl = null;
+    this.lineBlob = null;
     this.chain?.close();
     void this.context?.close().catch(() => undefined);
     this.context = null;

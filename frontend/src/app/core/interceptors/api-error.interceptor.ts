@@ -1,5 +1,5 @@
 import { HttpErrorResponse, HttpInterceptorFn } from '@angular/common/http';
-import { catchError, throwError } from 'rxjs';
+import { catchError, from, switchMap, throwError } from 'rxjs';
 
 import { ApiResponse } from '../models/api.models';
 
@@ -27,7 +27,24 @@ export class ApiFailure extends Error {
  * them can accidentally surface a raw status code instead.
  */
 export const apiErrorInterceptor: HttpInterceptorFn = (request, next) =>
-  next(request).pipe(catchError((error: unknown) => throwError(() => describe(error))));
+  next(request).pipe(catchError((error: unknown) =>
+    from(readBlobBody(error)).pipe(switchMap((readable) => throwError(() => describe(readable))))));
+
+/**
+ * A request for a file (responseType 'blob') gets its error envelope as a Blob too, which
+ * would hide the message. Reads it back into JSON; anything unreadable is left as it was.
+ */
+async function readBlobBody(error: unknown): Promise<unknown> {
+  if (!(error instanceof HttpErrorResponse) || !(error.error instanceof Blob)) return error;
+  try {
+    const body: unknown = JSON.parse(await error.error.text());
+    return new HttpErrorResponse({
+      error: body, status: error.status, statusText: error.statusText, headers: error.headers, url: error.url ?? undefined,
+    });
+  } catch {
+    return error;
+  }
+}
 
 function describe(error: unknown): ApiFailure {
   if (!(error instanceof HttpErrorResponse)) {

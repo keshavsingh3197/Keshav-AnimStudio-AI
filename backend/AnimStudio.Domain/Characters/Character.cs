@@ -45,6 +45,7 @@ public sealed class CharacterStaging
 public sealed class CharacterVoice
 {
     public const double MaxPitchSemitones = 12;
+    public const double MaxSizeSemitones = 6;
     public const double MaxToneDecibels = 12;
     public const double MinRobotHertz = 20;
     public const double MaxRobotHertz = 400;
@@ -54,6 +55,14 @@ public sealed class CharacterVoice
 
     /// <summary>-12 (an octave down) to +12 (an octave up).</summary>
     public double PitchSemitones { get; set; }
+
+    /// <summary>
+    /// -6 to +6: the size of the body the voice comes from (its formants), independent of
+    /// pitch. Negative sounds bigger and older, positive smaller and younger. Moving this
+    /// with pitch is what makes a changed voice sound like another person rather than an
+    /// effect; it is applied by the studio render, not the live preview.
+    /// </summary>
+    public double SizeSemitones { get; set; }
 
     /// <summary>Low-shelf boost or cut, dB.</summary>
     public double BassDecibels { get; set; }
@@ -77,6 +86,19 @@ public sealed class CharacterVoice
 
     /// <summary>0-1: a large hall, for divine or distant voices.</summary>
     public double Reverb { get; set; }
+
+    /// <summary>
+    /// A project audio (or video) file with a real person's voice, for AI voice conversion:
+    /// the studio render turns the performance into that person's voice, keeping its timing
+    /// and acting. Pitch and size then come from the sample; the other effects still apply.
+    /// </summary>
+    public string? AiSampleAssetId { get; set; }
+
+    /// <summary>
+    /// The project owner confirmed the person in the sample agreed to their voice being
+    /// used. Required with a sample: a voice is never converted to someone's without it.
+    /// </summary>
+    public bool AiSampleConsent { get; set; }
 }
 
 public sealed class Character

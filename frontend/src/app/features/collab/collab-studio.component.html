@@ -53,6 +53,9 @@
         @if (state() === 'rendering') {
           <div class="co-rec co-rendering">⚙️ Rebuilding take… {{ renderProgress() * 100 | number: '1.0-0' }}%</div>
         }
+        @if (state() === 'voicing') {
+          <div class="co-rec co-rendering">✨ Making the studio voice… @if (selected(); as t) { @if (usesAiVoice(t)) { (AI voices: a few minutes) } }</div>
+        }
       </div>
 
       <!-- Transport: the original's play head and the part to use -->
@@ -155,6 +158,21 @@
               </div>
               <span class="co-note muted">Sync is corrected automatically. If your reaction still looks late, nudge it right.</span>
             </div>
+
+            @if (hasCharacterVoice(t) && studioAvailable()) {
+              <div class="co-banner co-studio">
+                @if (t.studio) {
+                  <span>✨ Studio voice is on: the characters are re-voiced at studio quality.</span>
+                  <button type="button" class="secondary" (click)="useLiveVoice(t)" [disabled]="busy()">Use the live voice</button>
+                } @else {
+                  <span>
+                    Make the character voices sound like real people, not an effect: the server re-voices this take, then it's rebuilt.
+                    @if (usesAiVoice(t)) { It includes AI voices, which take a few minutes on this computer. } @else { About a minute. }
+                  </span>
+                  <button type="button" (click)="makeStudioVoice(t)" [disabled]="busy()">✨ Studio voice</button>
+                }
+              </div>
+            }
 
             @if (takeOutdated()) {
               <div class="co-banner co-apply">
