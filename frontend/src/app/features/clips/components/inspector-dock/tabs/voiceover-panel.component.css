@@ -210,6 +210,33 @@
   border: 1px solid rgba(239, 68, 68, 0.3);
 }
 
+.vo-error-list {
+  margin: 4px 0 0;
+  padding-left: 16px;
+}
+
+.vo-script-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.vo-script-hint {
+  font-size: 0.68rem;
+}
+
+.vo-speaker {
+  display: inline-block;
+  margin-right: 4px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 0.64rem;
+  font-weight: 600;
+  color: #ddd6fe;
+  background: rgba(139, 92, 246, 0.2);
+}
+
 .vo-results {
   margin: 0;
   padding-left: 20px;

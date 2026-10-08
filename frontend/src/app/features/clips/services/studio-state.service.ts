@@ -2560,6 +2560,7 @@ export class StudioStateService implements OnDestroy {
         return;
       }
       this.selectedMusicTrackKey.set(null);
+      this.selectedTimelineClipIndex.set(null);
       this.selectedClipId.set(clipId);
       this.selectedLibraryIds.set(new Set([clipId]));
       this.selectedTimelineItemId.set(null);
@@ -2569,6 +2570,7 @@ export class StudioStateService implements OnDestroy {
   }
 
   toggleLibrarySelection(clipId: string): void {
+    this.selectedTimelineClipIndex.set(null);
     this.selectedLibraryIds.update((set) => {
       const next = new Set(set);
       if (next.has(clipId)) next.delete(clipId);
@@ -3008,16 +3010,23 @@ export class StudioStateService implements OnDestroy {
       return;
     }
 
-    const selClipId = this.selectedClipId();
+    // selectedClipId also follows library picks, so only a clip clicked on the timeline
+    // (which sets the index) counts as a single timeline clip here.
+    const selLibIds = this.selectedLibraryIds();
     const selClipIdx = this.selectedTimelineClipIndex();
-    if (selClipId || selClipIdx !== null) {
-      this.removeTimelineClipAtIndex(selClipId || selClipIdx!, selClipIdx ?? undefined);
+    if (selClipIdx !== null && selLibIds.size <= 1) {
+      this.removeTimelineClipAtIndex(this.selectedClipId() || selClipIdx, selClipIdx);
       return;
     }
 
-    const selLibIds = this.selectedLibraryIds();
     if (selLibIds.size > 0) {
-      this.removeSelectedFromTimeline();
+      if (this.selectedPlacedCount() > 0) {
+        this.removeSelectedFromTimeline();
+      } else {
+        // Nothing selected is in the cut, so "remove" would be a no-op: delete from the library instead.
+        this.confirmingDelete.set(true);
+        this.status.notify(['Confirm with Delete in the media panel to remove the selected media.']);
+      }
       return;
     }
 
@@ -3043,11 +3052,15 @@ export class StudioStateService implements OnDestroy {
       this.status.notify(['Removed timeline item(s).']);
       return;
     }
-    const selClipId = this.selectedClipId();
-    const selClipIdx = this.selectedTimelineClipIndex();
-    if (selClipId || selClipIdx !== null) {
-      this.removeTimelineClipAtIndex(selClipId || selClipIdx!, selClipIdx ?? undefined);
-      return;
+    // The library's trash button deletes what is picked in the library; selectedClipId
+    // mirrors that pick and must not divert it into a timeline removal.
+    if (this.selectedLibraryIds().size === 0) {
+      const selClipId = this.selectedClipId();
+      const selClipIdx = this.selectedTimelineClipIndex();
+      if (selClipId || selClipIdx !== null) {
+        this.removeTimelineClipAtIndex(selClipId || selClipIdx!, selClipIdx ?? undefined);
+        return;
+      }
     }
     if (this.confirmingDelete()) {
       this.removeFromLibrary();
@@ -3064,6 +3077,7 @@ export class StudioStateService implements OnDestroy {
 
     if (!projectId || ids.length === 0) {
       this.confirmingDelete.set(false);
+      this.status.notify(['Nothing to delete - reload the project and try again.']);
       return;
     }
 

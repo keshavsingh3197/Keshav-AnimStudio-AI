@@ -6,9 +6,10 @@ import { Asset, MyVoice, VoiceoverVoice } from '../../../../../core/models/api.m
 import { ApiService } from '../../../../../core/services/api.service';
 import { ProjectStore } from '../../../../../core/services/project-store';
 import { StudioStateService } from '../../../services/studio-state.service';
+import {
+  MAX_LINE_CHARS, MY_VOICE_PREFIX, VoiceScriptLine, findCharacter, parseVoiceScript,
+} from './voice-script';
 
-/** Must match VoiceoverController.MaxTextChars. */
-const MAX_LINE_CHARS = 2000;
 const SCRIPT_KEY_PREFIX = 'animstudio_vo_script_';
 /** Before voices were remembered per language; still read so nobody loses their choice. */
 const LEGACY_VOICE_KEY = 'animstudio_vo_voice';
@@ -49,12 +50,17 @@ const SAMPLE_PROMPTS = {
 };
 
 type Language = 'hindi' | 'other';
-type Placement = 'clips' | 'playhead';
+/** "script" places each line at the time the script gives it. */
+type Placement = 'clips' | 'playhead' | 'script';
 
-interface ScriptLine {
-  index: number;
-  text: string;
-  tooLong: boolean;
+/** A script line with the voice and speed it will actually be spoken in. */
+interface ScriptLine extends VoiceScriptLine {
+  /** The picker value it is spoken in: a built-in voice id, or "my:" and a voice's id. */
+  selection: string;
+  /** The built-in voice that speaks the words ('' when none could be found). */
+  voiceId: string;
+  myVoice: MyVoice | null;
+  rate: number;
 }
 
 type Busy = 'idle' | 'previewing' | 'applying';
@@ -62,6 +68,7 @@ type Busy = 'idle' | 'previewing' | 'applying';
 interface LineResult {
   index: number;
   text: string;
+  character?: string;
   /** Unsaved audio from a preview run, as an object URL; nothing is in the library yet. */
   previewUrl?: string;
   /** Set once the line has been applied and saved to the library. */
@@ -153,6 +160,7 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
   /** How many lines the last apply took off A1. */
   readonly replacedCount = signal(0);
   readonly error = signal('');
+  readonly promptCopied = signal(false);
   private cancelRequested = false;
   private preview: HTMLAudioElement | null = null;
   readonly previewingIndex = signal<number | null>(null);
@@ -183,17 +191,56 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
   private recorder: MediaRecorder | null = null;
   private recordTimer: ReturnType<typeof setInterval> | null = null;
 
-  readonly lines = computed<ScriptLine[]>(() =>
-    this.script()
-      .split(/\r?\n/)
-      // A leading "1." / "1)" / "[3]" numbers the line for the writer, not the listener.
-      .map((raw) => raw.replace(/^\s*(\[\d+\]|\d+[.)])\s*/, '').trim())
-      .filter((text) => text.length > 0)
-      .map((text, index) => ({ index, text, tooLong: text.length > MAX_LINE_CHARS })));
+  /** The script as written: plain lines, lines with cues, or JSON (see voice-script.ts). */
+  readonly parsed = computed(() => parseVoiceScript(this.script()));
+
+  /**
+   * Every line with the voice and speed it is spoken in: its own, else its character's, else
+   * the panel's. A voice the script names that isn't installed is an error, never a fallback.
+   */
+  private readonly resolved = computed(() => {
+    const script = this.parsed();
+    const errors: string[] = [];
+    const lines = script.lines.map((line): ScriptLine => {
+      const character = findCharacter(script, line.character);
+      const named = line.voice ?? character?.voice;
+      let selection = this.selection();
+      if (named) {
+        const found = this.selectionFor(named);
+        if (found) selection = found;
+        else {
+          selection = '';
+          if (errors.length < 10) errors.push(`Line ${line.index + 1}: there is no voice "${named}". ${this.missingVoiceHint(named)}`);
+        }
+      }
+      const myVoice = selection.startsWith(MY_PREFIX)
+        ? this.myVoices().find((v) => v.id === selection.slice(MY_PREFIX.length)) ?? null
+        : null;
+      const voiceId = myVoice ? this.speakerFor(myVoice) : selection.startsWith(MY_PREFIX) ? '' : selection;
+      return { ...line, selection, voiceId, myVoice, rate: line.speed ?? character?.speed ?? this.rate() };
+    });
+    return { lines, errors };
+  });
+
+  readonly lines = computed<ScriptLine[]>(() => this.resolved().lines);
+  /** Mistakes in the script, and voices it names that aren't installed. Any one stops a run. */
+  readonly scriptErrors = computed(() => [...this.parsed().errors, ...this.resolved().errors]);
+  readonly hasTimings = computed(() => this.parsed().hasTimings);
+  /** Lines whose voice or speed the script sets, so the panel's picker and slider don't apply to them. */
+  readonly scriptSetsVoice = computed(() => this.parsed().structured);
+  readonly characterNames = computed(() => {
+    const names = new Set<string>();
+    for (const l of this.lines()) if (l.character) names.add(l.character);
+    return [...names];
+  });
 
   readonly clipCount = computed(() => this.state.clipSchedule().length);
   readonly videoEnd = computed(() => this.state.totalSeconds());
   readonly hasTooLong = computed(() => this.lines().some((l) => l.tooLong));
+  /** Everything a run needs: an engine, lines, a voice for each, and no mistakes in the script. */
+  readonly ready = computed(() =>
+    this.available() && this.lines().length > 0 && !this.hasTooLong()
+    && this.scriptErrors().length === 0 && this.lines().every((l) => !!l.voiceId));
   readonly isHindi = computed(() => /[ऀ-ॿ]/.test(this.script()));
   readonly language = computed<Language>(() => this.isHindi() ? 'hindi' : 'other');
   readonly samplePrompt = computed(() => SAMPLE_PROMPTS[this.language()]);
@@ -254,8 +301,10 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
   readonly plans = computed(() => {
     const schedule = this.state.clipSchedule();
     const byClip = this.placement() === 'clips';
+    const byScript = this.placement() === 'script';
+    const scriptStarts = new Map(this.lines().map((l) => [l.index, l.start]));
     const entries: { index: number; plan: LinePlan; clipStart?: number; clipEnd?: number }[] = [];
-    let cursor = byClip ? 0 : this.anchorSeconds();
+    let cursor = byClip || byScript ? 0 : this.anchorSeconds();
     let previousEnd = -Infinity;
     let first = true;
 
@@ -263,7 +312,12 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
       if (!r.previewUrl && !r.asset) continue;
       const duration = this.durationOf(r);
       const clip = byClip ? schedule[r.index] : undefined;
-      const start = clip
+      // A time the script gives is kept even when it overlaps the line before: two
+      // characters talking over each other can be what the writer meant.
+      const given = byScript ? scriptStarts.get(r.index) : undefined;
+      const start = given !== undefined
+        ? given
+        : clip
         ? Math.max(clip.startSeconds + this.leadInSeconds(), previousEnd + this.gapSeconds())
         : first && !byClip ? cursor : Math.max(cursor, previousEnd + this.gapSeconds());
       const end = start + duration;
@@ -312,6 +366,8 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
   /** The speed at which every line ends inside the video, or null when speed alone can't do it. */
   readonly fitRate = computed<number | null>(() => {
     const plans = [...this.plans().values()];
+    // Lines the script times, or speeds, don't move with the panel's speed slider.
+    if (this.placement() === 'script' || this.lines().some((l) => l.rate !== this.rate())) return null;
     if (plans.length === 0 || this.pastEndSeconds() <= 0.05) return null;
     const speech = plans.reduce((sum, p) => sum + p.endSeconds - p.startSeconds, 0);
     const firstStart = this.placement() === 'clips' ? this.leadInSeconds() : this.anchorSeconds();
@@ -332,6 +388,7 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.script.set(this.readStorage(this.scriptKey()) ?? '');
+    if (this.hasTimings()) this.placement.set('script');
     const savedRate = Number(this.readStorage(RATE_KEY));
     if (savedRate >= 0.5 && savedRate <= 2) this.rate.set(savedRate);
     this.favorites.set(this.readFavorites());
@@ -370,8 +427,12 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
 
   onScriptChange(value: string): void {
     const before = this.language();
+    const hadTimings = this.hasTimings();
     this.script.set(value);
     this.writeStorage(this.scriptKey(), value);
+    // A script that gives times means them; one that stops giving them can't be placed by them.
+    if (this.hasTimings() && !hadTimings) this.setPlacement('script');
+    else if (!this.hasTimings() && this.placement() === 'script') this.setPlacement('clips');
     // A Hindi script in an English voice is read out letter by letter: switch to the voice
     // last used for the script's language (or a natural-sounding one) when the language flips.
     if (this.language() !== before && !this.fitsLanguage(this.selection(), this.language())) {
@@ -423,9 +484,12 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
     for (const line of this.lines()) {
       if (this.cancelRequested) break;
       try {
-        const blob = await firstValueFrom(this.api.previewVoiceover(projectId, this.bodyFor(line.text)));
+        const blob = await firstValueFrom(this.api.previewVoiceover(projectId, this.bodyFor(line)));
         const previewUrl = URL.createObjectURL(blob);
-        results.push({ index: line.index, text: line.text, previewUrl, durationSeconds: await this.readDuration(previewUrl) });
+        results.push({
+          index: line.index, text: line.text, character: line.character, previewUrl,
+          durationSeconds: await this.readDuration(previewUrl),
+        });
       } catch (err: unknown) {
         if (this.recordFailure(results, line, err)) break;
       }
@@ -455,9 +519,9 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
       if (this.cancelRequested) break;
       const previewed = previews.find((r) => r.index === line.index && r.previewUrl);
       try {
-        const asset = await firstValueFrom(this.api.generateVoiceover(projectId, this.bodyFor(line.text)));
+        const asset = await firstValueFrom(this.api.generateVoiceover(projectId, this.bodyFor(line)));
         results.push({
-          index: line.index, text: line.text, asset, previewUrl: previewed?.previewUrl,
+          index: line.index, text: line.text, character: line.character, asset, previewUrl: previewed?.previewUrl,
           durationSeconds: asset.durationSeconds ?? previewed?.durationSeconds,
         });
       } catch (err: unknown) {
@@ -550,6 +614,55 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
     // The lines already on A1 would talk over this take.
     this.state.auditioningVoiceover.set(true);
     this.state.play();
+  }
+
+  /**
+   * Instructions for an AI writing tool, with this studio's real voices and the video's length
+   * filled in, so the script it writes can be pasted straight into the Script box.
+   */
+  async copyAiPrompt(): Promise<void> {
+    const mine = this.myVoices().map((v) => `my:${v.name}`);
+    const builtIn = this.voiceGroups()
+      .filter((g) => g.label !== 'My voices')
+      .map((g) => `  ${g.label}: ${g.voices.map((v) => v.value).join(', ')}`);
+    const clips = this.state.clipSchedule()
+      .map((c, i) => `  clip ${i + 1}: ${c.startSeconds.toFixed(1)}s - ${c.endSeconds.toFixed(1)}s`);
+    const prompt = [
+      'Write the voiceover script for my video as JSON in exactly this format, with nothing else around it:',
+      '',
+      '{',
+      '  "version": 1,',
+      '  "characters": [',
+      '    { "name": "Narrator", "voice": "<voice>", "speed": 0.95 }',
+      '  ],',
+      '  "lines": [',
+      '    { "character": "Narrator", "start": 0.3, "emotion": "calm", "text": "<what is said>" }',
+      '  ]',
+      '}',
+      '',
+      'Rules:',
+      '- "start" is the second in the video the line begins (a number like 10.5, or "0:10.5"). Leave it out to follow straight on after the previous line.',
+      '- "speed" is 0.5 to 2.0; 0.9 - 1.0 sounds like calm narration. A line\'s own "speed" or "voice" overrides its character\'s.',
+      '- "emotion" is one word (calm, excited, sad, angry, whispering, divine, ...).',
+      '- Keep each line to one or two sentences, and make sure it finishes before the next line starts (about 2.5 words per second at speed 1.0).',
+      `- "voice" must be one of these.${mine.length > 0 ? ` My own voices: ${mine.join(', ')}.` : ''} Built-in voices:`,
+      ...builtIn,
+      '  (A Hindi script needs a Hindi voice - ids starting with "h"; my own voices speak any language.)',
+      '',
+      `The video is ${this.videoEnd().toFixed(1)} seconds long.${clips.length > 0 ? ' Its clips:' : ''}`,
+      ...clips,
+      '',
+      'Here is what the voiceover should say:',
+      '',
+    ].join('\n');
+
+    try {
+      await navigator.clipboard.writeText(prompt);
+      this.promptCopied.set(true);
+      setTimeout(() => this.promptCopied.set(false), 2500);
+    } catch {
+      this.error.set('The browser did not allow copying. Allow clipboard access for this site and try again.');
+    }
   }
 
   seekTo(index: number): void {
@@ -723,7 +836,7 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
   // --- internals
 
   private canRun(): boolean {
-    return this.lines().length > 0 && !!this.voiceId() && !this.hasTooLong() && !this.generating();
+    return this.ready() && !this.generating();
   }
 
   private begin(busy: Busy): void {
@@ -754,7 +867,7 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
   /** Records a failed line; true when the engine is down and the rest would fail the same way. */
   private recordFailure(results: LineResult[], line: ScriptLine, err: unknown): boolean {
     const message = err instanceof Error ? err.message : 'Could not speak this line.';
-    results.push({ index: line.index, text: line.text, error: message });
+    results.push({ index: line.index, text: line.text, character: line.character, error: message });
     const status = (err as { status?: number })?.status;
     if (status === 503 || status === 0 || /unavailable|not running|reach the api/i.test(message)) {
       this.error.set(message);
@@ -763,12 +876,33 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
     return false;
   }
 
-  private bodyFor(text: string) {
-    return { text, voiceId: this.voiceId(), rate: this.rate(), myVoiceId: this.myVoice()?.id };
+  private bodyFor(line: ScriptLine) {
+    return { text: line.text, voiceId: line.voiceId, rate: line.rate, myVoiceId: line.myVoice?.id };
   }
 
   private currentKey(): string {
-    return JSON.stringify([this.lines().map((l) => l.text), this.selection(), this.voiceId(), this.rate()]);
+    return JSON.stringify(this.lines().map((l) => [l.text, l.selection, l.voiceId, l.rate]));
+  }
+
+  /**
+   * The picker value for a voice a script names: "my:<name or id>" for one of the user's own
+   * voices, otherwise a built-in voice id. Null when no such voice is installed.
+   */
+  private selectionFor(named: string): string | null {
+    if (named.toLowerCase().startsWith(MY_VOICE_PREFIX)) {
+      const wanted = named.slice(MY_VOICE_PREFIX.length).trim().toLowerCase();
+      const mine = this.myVoices().find((v) => v.name.trim().toLowerCase() === wanted || v.id === wanted);
+      return mine ? MY_PREFIX + mine.id : null;
+    }
+    // A Kokoro blend ("af_bella+af_sky") is spoken as long as each part is installed.
+    const parts = named.split('+');
+    return parts.every((p) => this.voices().some((v) => v.id === p)) ? named : null;
+  }
+
+  private missingVoiceHint(named: string): string {
+    if (!named.toLowerCase().startsWith(MY_VOICE_PREFIX)) return 'Use an id from the Voice list, like hm_omega.';
+    const names = this.myVoices().map((v) => v.name);
+    return names.length > 0 ? `Your voices are: ${names.join(', ')}.` : 'Add your own voice first.';
   }
 
   private durationOf(r: LineResult): number {

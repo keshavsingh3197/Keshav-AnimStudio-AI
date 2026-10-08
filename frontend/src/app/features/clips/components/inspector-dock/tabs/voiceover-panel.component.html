@@ -18,12 +18,35 @@
     </div>
   }
 
-  <label class="vo-label" for="vo-script">Script <span class="vo-dim">one line per clip</span></label>
+  <div class="vo-script-head">
+    <label class="vo-label" for="vo-script">Script
+      <span class="vo-dim">
+        @if (scriptSetsVoice()) {
+          voice script{{ characterNames().length > 0 ? ' · ' + characterNames().join(', ') : '' }}{{ hasTimings() ? ' · timed' : '' }}
+        } @else {
+          one line per clip, or a voice script
+        }
+      </span>
+    </label>
+    <button type="button" class="vo-link" (click)="copyAiPrompt()" [disabled]="loadingVoices()"
+            title="Copies instructions for ChatGPT, Gemini or any AI tool, with your voices and this video's clip times filled in. Paste its answer here.">
+      {{ promptCopied() ? '✓ Copied' : '📋 Copy AI prompt' }}
+    </button>
+  </div>
   <textarea id="vo-script" class="vo-script" rows="8" spellcheck="true"
-            placeholder="1. In the golden peaks of Mount Sumeru, the sages gathered.&#10;2. King Sukant rode through the forest at dawn.&#10;3. ..."
+            placeholder="1. In the golden peaks of Mount Sumeru, the sages gathered.&#10;2. King Sukant rode through the forest at dawn.&#10;&#10;Or with cues:&#10;@Narrator: voice=hm_omega, speed=0.95&#10;[0:00.3] Narrator (calm): In the golden peaks...&#10;[0:10.5] Narrator (excited, 1.05x): King Sukant rode..."
             [ngModel]="script()" (ngModelChange)="onScriptChange($event)"
             [disabled]="generating()"></textarea>
-  @if (hasTooLong()) {
+  @if (scriptErrors().length > 0) {
+    <div class="vo-error">
+      <strong>Fix the script first:</strong>
+      <ul class="vo-error-list">
+        @for (e of scriptErrors(); track $index) {
+          <li>{{ e }}</li>
+        }
+      </ul>
+    </div>
+  } @else if (hasTooLong()) {
     <div class="vo-error">A line is longer than {{ maxLineChars }} characters. Split it into shorter lines.</div>
   } @else if (placement() === 'clips' && lines().length > clipCount() && clipCount() > 0) {
     <div class="vo-note">{{ lines().length - clipCount() }} extra line(s) will follow on after the last clip.</div>
@@ -55,6 +78,10 @@
              [ngModel]="rate()" (ngModelChange)="onRateChange(+$event)" [disabled]="generating()" />
     </div>
   </div>
+
+  @if (scriptSetsVoice()) {
+    <div class="vo-dim vo-script-hint">Lines whose cue or character names a voice or speed use it; the rest use these.</div>
+  }
 
   @if (favoriteOptions().length > 0) {
     <div class="vo-chips" aria-label="Favourite voices">
@@ -158,6 +185,10 @@
             title="Line 1 starts on clip 1, line 2 on clip 2, ...">Line per clip</button>
     <button type="button" [class.active]="placement() === 'playhead'" (click)="setPlacement('playhead')" [disabled]="generating()"
             title="All lines back to back, starting at the playhead">From playhead ({{ state.currentTime() | number: '1.1-1' }}s)</button>
+    @if (hasTimings()) {
+      <button type="button" [class.active]="placement() === 'script'" (click)="setPlacement('script')" [disabled]="generating()"
+              title="Each line starts at the time the script gives it; a line without one follows the line before">Script timings</button>
+    }
   </div>
 
   @if (existingLineCount() > 0 && !generating()) {
@@ -170,7 +201,7 @@
   @if (!generating()) {
     <div class="vo-actions">
       <button type="button" class="vo-step"
-              [disabled]="!available() || !voiceId() || lines().length === 0 || hasTooLong()"
+              [disabled]="!ready()"
               (click)="previewLines()" title="Speak every line without saving anything">
         🎧 {{ audibleCount() > 0 && !stale() ? 'Re-preview' : 'Preview' }} {{ lines().length || '' }} line{{ lines().length === 1 ? '' : 's' }}
       </button>
@@ -181,7 +212,7 @@
       </button>
     </div>
     <button type="button" class="vo-go"
-            [disabled]="!available() || !voiceId() || lines().length === 0 || hasTooLong()"
+            [disabled]="!ready()"
             (click)="apply()">
       ✓ {{ existingLineCount() > 0 && replaceExisting() ? 'Replace with' : 'Apply' }} {{ lines().length || '' }} line{{ lines().length === 1 ? '' : 's' }} on A1
     </button>
@@ -203,7 +234,7 @@
   }
 
   @if (!generating() && stale()) {
-    <div class="vo-note">The script, voice or speed changed since this preview. Preview again to hear the new version.</div>
+    <div class="vo-note">The script, a voice or a speed changed since this preview. Preview again to hear the new version.</div>
   }
 
   @if (!generating() && placedCount() > 0) {
@@ -240,7 +271,12 @@
     <ol class="vo-results" [class.vo-stale]="stale()">
       @for (r of results(); track r.index) {
         <li [class.failed]="r.error">
-          <div class="vo-result-text" [title]="r.text">{{ r.text }}</div>
+          <div class="vo-result-text" [title]="r.text">
+            @if (r.character) {
+              <span class="vo-speaker">{{ r.character }}</span>
+            }
+            {{ r.text }}
+          </div>
           <div class="vo-result-meta">
             @if (r.previewUrl || r.asset) {
               <button type="button" class="vo-icon" (click)="togglePreview(r)"
