@@ -127,6 +127,10 @@ interface PublishPrefs {
                   <label class="inline"><input type="radio" name="kids" [checked]="madeForKids() === true" (change)="madeForKids.set(true)" /> Made for kids</label>
                 </fieldset>
                 <label class="inline"><input type="checkbox" [ngModel]="notify()" (ngModelChange)="notify.set($event)" [disabled]="uploading()" /> Notify subscribers</label>
+                @if (privacy() === 'private') {
+                  <p class="yt-muted">Private works as a draft: only you can see it until you change its visibility in YouTube Studio,
+                    where you can also add a thumbnail, end screen and playlists.</p>
+                }
               </div>
 
               <div class="yt-side">
@@ -157,7 +161,8 @@ interface PublishPrefs {
                     <p class="ok">✓ Published to {{ u.channelTitle }} ({{ u.privacy }}).
                       <a [href]="u.videoUrl" target="_blank" rel="noopener noreferrer">Watch ↗</a> ·
                       <a [href]="u.studioUrl" target="_blank" rel="noopener noreferrer">Open in YouTube Studio ↗</a></p>
-                    <p class="yt-muted">YouTube may still be processing HD versions for a few minutes.</p>
+                    <p class="yt-muted">YouTube may still be processing HD versions for a few minutes.
+                      @if (u.privacy === 'private') { Finish the details and publish it from YouTube Studio. }</p>
                   }
                   @case ('Failed') { <p class="yt-err">{{ u.error }}</p> }
                   @case ('Cancelled') { <p class="yt-muted">{{ u.error || 'Upload cancelled.' }}</p> }
@@ -180,7 +185,7 @@ interface PublishPrefs {
               } @else {
                 <button type="button" class="secondary" (click)="closed.emit()">{{ upload()?.state === 'Completed' ? 'Close' : 'Cancel' }}</button>
                 <button type="button" (click)="publish()" [disabled]="!canPublish()">
-                  {{ upload()?.state === 'Completed' ? 'Publish again' : 'Publish' }}
+                  {{ upload()?.state === 'Completed' ? 'Publish again' : privacy() === 'private' ? 'Upload as draft' : 'Publish' }}
                 </button>
               }
             </div>
@@ -246,6 +251,11 @@ export class YouTubePublishDialogComponent implements OnInit {
   readonly previewSrc = input.required<string>();
   /** The in-app path to come back to after connecting a channel. */
   readonly returnPath = input.required<string>();
+  /**
+   * Upload as a draft: private and silent, to finish (thumbnail, end screens, playlists) in
+   * YouTube Studio. The API has no real draft state, so private is the closest equivalent.
+   */
+  readonly asDraft = input(false);
   readonly closed = output<void>();
 
   readonly loading = signal(true);
@@ -338,6 +348,10 @@ export class YouTubePublishDialogComponent implements OnInit {
           this.madeForKids.set(prefs.madeForKids ?? draft.madeForKids);
           const remembered = status.channels.find((c) => c.channelId === prefs.channelId);
           this.channelId.set(remembered?.channelId ?? status.channels[0]?.channelId ?? '');
+        }
+        if (this.asDraft()) {
+          this.privacy.set('private');
+          this.notify.set(false);
         }
 
         // Reattach to an upload of this render that is still going (or just finished).

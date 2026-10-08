@@ -12,6 +12,7 @@ import { VideoViewportComponent } from './components/video-viewport/video-viewpo
 import { InspectorDockComponent } from './components/inspector-dock/inspector-dock.component';
 import { TimelineDockComponent } from './components/timeline-dock/timeline-dock.component';
 import { clipboardFiles } from '../../shared/file-drop.directive';
+import { YouTubePublishDialogComponent } from '../../shared/youtube-publish-dialog.component';
 
 @Component({
   selector: 'app-clip-studio',
@@ -26,6 +27,7 @@ import { clipboardFiles } from '../../shared/file-drop.directive';
     InspectorDockComponent,
     TimelineDockComponent,
     RouterLink,
+    YouTubePublishDialogComponent,
   ],
   templateUrl: './clip-studio.component.html',
   styleUrls: ['./clip-studio.component.css'],
@@ -101,6 +103,45 @@ export class ClipStudioComponent implements OnDestroy {
         error: () => this.state.globalOutro.set(null),
       }));
     });
+
+    // Back from connecting a channel on Google: reopen the dialog for the same render.
+    const reopen = this.route.snapshot.queryParamMap.get('youtubePublish');
+    if (reopen && /^[A-Za-z0-9_-]{1,64}$/.test(reopen)) {
+      this.publishJobId.set(reopen);
+      void this.router.navigate([], {
+        relativeTo: this.route, queryParams: { youtubePublish: null }, queryParamsHandling: 'merge', replaceUrl: true,
+      });
+    }
+  }
+
+  // --- Finished export: upload it to YouTube as a draft, or copy its description ---
+
+  /** The render whose Publish to YouTube dialog is open. */
+  readonly publishJobId = signal<string | null>(null);
+  readonly descriptionCopy = signal<'idle' | 'busy' | 'copied' | 'failed'>('idle');
+
+  /** Where Google sign-in returns to: this cut, with the dialog reopened for the same render. */
+  publishReturnPath(jobId: string): string {
+    const tree = this.router.createUrlTree([], {
+      relativeTo: this.route, queryParams: { youtubePublish: jobId }, queryParamsHandling: 'merge',
+    });
+    return this.router.serializeUrl(tree);
+  }
+
+  copyYouTubeDescription(jobId: string): void {
+    if (this.descriptionCopy() === 'busy') return;
+    this.descriptionCopy.set('busy');
+    this.state.api.timelineText(jobId, 'youtube').subscribe({
+      next: (text) => navigator.clipboard.writeText(text).then(
+        () => this.flashCopy('copied'),
+        () => this.flashCopy('failed')),
+      error: () => this.flashCopy('failed'),
+    });
+  }
+
+  private flashCopy(result: 'copied' | 'failed'): void {
+    this.descriptionCopy.set(result);
+    setTimeout(() => this.descriptionCopy.set('idle'), 2500);
   }
 
   ngOnDestroy(): void {

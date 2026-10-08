@@ -114,6 +114,36 @@
   cursor: not-allowed;
 }
 
+.vo-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.vo-step {
+  flex: 1;
+  padding: 7px 8px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  border-radius: 7px;
+  border: 1px solid rgba(139, 92, 246, 0.45);
+  background: #0f172a;
+  color: #ddd6fe;
+}
+
+.vo-step.active {
+  background: rgba(139, 92, 246, 0.25);
+  color: #fff;
+}
+
+.vo-step:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.vo-stale {
+  opacity: 0.55;
+}
+
 .vo-progress {
   height: 6px;
   border-radius: 3px;
@@ -253,4 +283,126 @@
 
 .vo-warn code {
   color: #fef3c7;
+}
+
+.vo-voice-row {
+  display: flex;
+  gap: 4px;
+}
+
+.vo-voice-row select {
+  flex: 1;
+  min-width: 0;
+}
+
+.vo-star {
+  flex: 0 0 30px;
+  padding: 0;
+  font-size: 0.95rem;
+  line-height: 1;
+  border-radius: 6px;
+  border: 1px solid #334155;
+  background: #0f172a;
+  color: var(--text-dim);
+}
+
+.vo-star.on {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.5);
+}
+
+.vo-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.vo-chip {
+  padding: 2px 8px;
+  font-size: 0.68rem;
+  border-radius: 999px;
+  border: 1px solid #334155;
+  background: #0f172a;
+  color: var(--text-dim);
+}
+
+.vo-chip.active {
+  color: #fff;
+  border-color: rgba(251, 191, 36, 0.6);
+  background: rgba(251, 191, 36, 0.12);
+}
+
+.vo-add-voice {
+  align-self: flex-start;
+  font-size: 0.72rem;
+}
+
+.vo-link:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
+.vo-myvoice {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  background: rgba(139, 92, 246, 0.06);
+}
+
+.vo-myvoice-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+  color: var(--text);
+}
+
+.vo-prompt {
+  font-size: 0.72rem;
+  line-height: 1.5;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #080d1a;
+  color: var(--text);
+}
+
+.vo-upload {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  cursor: pointer;
+}
+
+.vo-upload.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.vo-sample {
+  width: 100%;
+  height: 32px;
+}
+
+.vo-consent {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  font-size: 0.7rem;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
+.vo-consent input {
+  margin-top: 2px;
+}
+
+.vo-fit {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
 }

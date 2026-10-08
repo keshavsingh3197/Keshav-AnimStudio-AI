@@ -387,7 +387,8 @@ in `appsettings.json` (`Ai:Providers:<id>:Enabled`) and put its key in the admin
 | Local text (GUI) | [LM Studio](https://lmstudio.ai) → start its server | `lmstudio` provider, `http://localhost:1234/v1` |
 | Local image generation | [ComfyUI](https://github.com/comfyanonymous/ComfyUI) (Python 3.10+, GPU strongly recommended) | `comfyui-local`, `http://localhost:8188`, plus a checkpoint file named in `Model` |
 | Local text-to-speech | [Piper](https://github.com/rhasspy/piper) + `.onnx` voices | `piper-local`: `ExecutablePath` and `VoicesPath` |
-| Local TTS (server) | [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI), Docker | `kokoro`, `http://localhost:8880/v1` |
+| Local TTS (server) | [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI), natively via `scripts/setup-voiceover.ps1` (needs `uv` + eSpeak NG, no Docker) | `kokoro`, `http://localhost:8880/v1` |
+| "My voices" in the voiceover panel (your own voice, any language Kokoro speaks) | [Seed-VC](https://github.com/Plachtaa/seed-vc) via `scripts/setup-voice-ai.ps1` — slow on a CPU, each line converts once and is cached | `VoiceConversion:Enabled: true` (on in Development) |
 | Local transcription | [whisper.cpp](https://github.com/ggerganov/whisper.cpp) — build `whisper-cli`, download a `ggml-*.bin` | `whispercpp-local`: `ExecutablePath`, `ModelsPath`, `Model` |
 | Transcription (server) | [faster-whisper-server](https://github.com/fedirz/faster-whisper-server), Docker | `faster-whisper`, `http://localhost:8000/v1` |
 

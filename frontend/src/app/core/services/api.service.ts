@@ -7,7 +7,7 @@ import { environment } from '../../../environments/environment';
 import {
   AdminAccess, AdminAuditEntry, AdminHealth, AdminJob, AdminProviderBody, AdminProviders,
   AdminProviderTest, AdminUsage, AiCapabilities, ApiResponse, Asset, BundleApplyBody,
-  VoiceoverBody, VoiceoverVoices,
+  VoiceoverBody, VoiceoverVoices, MyVoice,
   BundleImportResult, BundlePreview, Character, CharacterBody, ClipMergeBody, ClipOrder,
   ClipStudio, CreateProjectBody,
   CreateSceneBody, DialogueBody, IngestCapabilities, IngestResult, IngestSummary,
@@ -215,10 +215,30 @@ export class ApiService {
     return this.unwrap(this.http.get<ApiResponse<VoiceoverVoices>>(`${this.base}/api/voiceover/voices`));
   }
 
+  /** Speaks one script line and returns the audio without saving it, to hear before applying. */
+  previewVoiceover(projectId: string, body: VoiceoverBody): Observable<Blob> {
+    return this.http.post(`${this.base}/api/projects/${projectId}/voiceover/preview`, body, { responseType: 'blob' });
+  }
+
   /** Speaks one script line and stores it as an audio asset in the project's library. */
   generateVoiceover(projectId: string, body: VoiceoverBody): Observable<Asset> {
     return this.unwrap(
       this.http.post<ApiResponse<Asset>>(`${this.base}/api/projects/${projectId}/voiceover`, body));
+  }
+
+  /** Adds one of the user's own voices from a consented sample (a file or a recording). */
+  addMyVoice(sample: Blob, fileName: string, name: string, baseVoiceId: string): Observable<MyVoice> {
+    const form = new FormData();
+    form.append('file', sample, fileName);
+    form.append('name', name);
+    form.append('baseVoiceId', baseVoiceId);
+    form.append('consent', 'true');
+    return this.unwrap(this.http.post<ApiResponse<MyVoice>>(`${this.base}/api/voiceover/my-voices`, form));
+  }
+
+  /** Deletes the voice, its sample, and every line converted into it. */
+  deleteMyVoice(id: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/api/voiceover/my-voices/${encodeURIComponent(id)}`);
   }
 
   // --- characters
@@ -402,6 +422,11 @@ export class ApiService {
   /** Where each clip, sound and overlay sits in the finished export. */
   timelineUrl(jobId: string, format: ExportTimelineFormat): string {
     return `${this.base}/api/render-jobs/${encodeURIComponent(jobId)}/timeline?format=${format}`;
+  }
+
+  /** The same timeline as text, for copying straight to the clipboard. */
+  timelineText(jobId: string, format: ExportTimelineFormat): Observable<string> {
+    return this.http.get(this.timelineUrl(jobId, format), { responseType: 'text' });
   }
 
   // --- clips: several finished clips joined into one downloadable file

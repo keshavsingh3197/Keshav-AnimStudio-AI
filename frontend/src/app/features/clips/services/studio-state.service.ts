@@ -16,7 +16,7 @@ import { StatusService } from '../../../core/services/status.service';
 import {
   AudioOverlapRule, AudioOverlapRuleOrInherit, AudioOverlapSource,
   ClipAudioSetting, ClipColorSetting, ClipRow, ClipTextSetting, FILTER_PRESETS,
-  FileUploadConflict, FilterPreset, JunctionSetting, JunctionView, MusicTrackRow, ScheduledClip, SideUploadTarget, TRACK_COLORS
+  FileUploadConflict, FilterPreset, JunctionSetting, JunctionView, MusicTrackRow, ScheduledClip, SideUploadTarget, TRACK_COLORS, isVoiceoverTrack
 } from '../models/clip-studio.models';
 import { EraseRect, eraseFeatherMask, eraseOuter } from './erase-geometry';
 
@@ -6429,8 +6429,11 @@ export class StudioStateService implements OnDestroy {
    * The assets are added to the studio's audio list in place rather than by reloading,
    * which would re-apply the server draft over any edit not yet auto-saved.
    */
-  addVoiceoverTracks(placements: { asset: Asset; startSeconds: number }[]): void {
+  addVoiceoverTracks(placements: { asset: Asset; startSeconds: number }[], replaceExisting = false): void {
     if (placements.length === 0) return;
+
+    // Replacing is part of the same edit, so one Undo brings the earlier lines back.
+    if (replaceExisting) this.musicTracks.update((t) => t.filter((track) => !isVoiceoverTrack(track)));
 
     const studio = this.studio();
     if (studio) {
@@ -6457,6 +6460,31 @@ export class StudioStateService implements OnDestroy {
     this.showTrackManually('A1');
     this.markDirty();
     this.closeHistoryBurst();
+  }
+
+  /**
+   * True while the Voiceover panel plays a fresh take over the clips: the lines already on A1
+   * stay silent so the two takes are not heard on top of each other.
+   */
+  readonly auditioningVoiceover = signal(false);
+
+  /** Voiceover lines on A1 right now. */
+  readonly voiceoverTracks = computed(() => this.musicTracks().filter(isVoiceoverTrack));
+
+  /** True when anything on the timeline still plays this audio file. */
+  isAudioAssetInUse(assetId: string): boolean {
+    return this.musicAssetId() === assetId
+      || this.musicTracks().some((t) => t.assetId === assetId)
+      || this.timelineItems().some((i) => i.src === assetId)
+      || Object.values(this.clipSounds()).some((s) => s.audioAssetId === assetId);
+  }
+
+  /** Drops deleted library files from the studio's audio list without reloading the draft. */
+  forgetAudioAssets(assetIds: string[]): void {
+    const studio = this.studio();
+    if (!studio || assetIds.length === 0) return;
+    const gone = new Set(assetIds);
+    this.studio.set({ ...studio, musicCandidates: (studio.musicCandidates || []).filter((m) => !gone.has(m.id)) });
   }
 
   // Project Operations & Drafts

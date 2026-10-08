@@ -9,6 +9,7 @@ using AnimStudio.Domain.Publishing;
 using AnimStudio.Domain.Scenes;
 using AnimStudio.Domain.Scripts;
 using AnimStudio.Domain.System;
+using AnimStudio.Domain.Voices;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
 using MongoDB.Bson.Serialization.Conventions;
@@ -80,6 +81,9 @@ public static class MongoMappingRegistrar
 
             // The configuration path, e.g. "Render:Crf" - one value per key.
             MapWithLiteralId<WebSetting>();
+
+            // "vp_{guid}" - a voice a user added from their own sample.
+            MapWithLiteralId<VoiceProfile>();
         }
     }
 

@@ -58,8 +58,10 @@ public sealed class OpenAiCompatibleTtsProvider(
                 return [.. names.Select(name => new AiVoice(name, name, null, null))];
             }
         }
-        catch (AiProviderException ex)
+        catch (AiProviderException ex) when (ex.Code is not ("transport-failed" or "timeout"))
         {
+            // A server that is not running is not "a server without the route": offering
+            // OpenAI's names for it would make a dead engine look ready.
             // A service without the route is the normal case, not a fault worth surfacing:
             // OpenAI itself has no voice-listing endpoint.
             Logger.LogDebug(

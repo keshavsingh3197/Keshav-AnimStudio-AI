@@ -275,6 +275,11 @@ public sealed record StudioVoiceStatusResponse(bool Available, bool AiAvailable 
 
 /// <summary>What GET /api/voiceover/voices reports: whether speech can be made, and in which voices.</summary>
 public sealed record VoiceoverVoicesResponse(
-    bool Available, string? ProviderId, string Reason, IReadOnlyList<VoiceoverVoiceResponse> Voices);
+    bool Available, string? ProviderId, string Reason, IReadOnlyList<VoiceoverVoiceResponse> Voices,
+    IReadOnlyList<MyVoiceResponse> MyVoices, bool MyVoicesAvailable);
+
+/// <summary>A voice the user added from their own sample. The sample itself is never sent back.</summary>
+public sealed record MyVoiceResponse(
+    string Id, string Name, string BaseVoiceId, double? DurationSeconds, DateTime CreatedAtUtc);
 
 public sealed record VoiceoverVoiceResponse(string Id, string Name, string? LanguageCode, string? Gender);

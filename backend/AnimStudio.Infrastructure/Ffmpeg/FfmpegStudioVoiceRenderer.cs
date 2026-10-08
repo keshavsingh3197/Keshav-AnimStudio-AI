@@ -116,6 +116,36 @@ public sealed class FfmpegStudioVoiceRenderer(
         return new StudioVoiceOutput(stream, webm ? "video/webm" : "video/mp4");
     }
 
+    public bool CanReVoice => _ffmpeg is { IsAvailable: true } && converter.IsAvailable;
+
+    public async Task<byte[]> ReVoiceAsync(byte[] speech, string sampleStorageKey, CancellationToken ct)
+    {
+        if (!CanReVoice)
+            throw new StudioVoiceException("AI voices aren't set up on this server.");
+
+        await using var workspace = await workspaces.CreateAsync($"revoice-{Guid.NewGuid():n}", ct).ConfigureAwait(false);
+
+        await File.WriteAllBytesAsync(workspace.Resolve("line.audio"), speech, ct).ConfigureAwait(false);
+        var stored = await workspace.MaterializeAsync(sampleStorageKey, "in/sample", ct).ConfigureAwait(false);
+
+        // The same preparation a studio take's AI parts get.
+        await FfmpegAsync(workspace, ["-i", stored, "-vn", "-ac", "1", "-ar", $"{ConverterSampleRate}", "-t", $"{SampleSeconds}", "sample.wav"], ct)
+            .ConfigureAwait(false);
+        await FfmpegAsync(workspace, ["-i", "line.audio", "-vn", "-ac", "1", "-ar", $"{ConverterSampleRate}", "line.wav"], ct)
+            .ConfigureAwait(false);
+
+        var voiced = workspace.Resolve("voiced.wav");
+        await converter.ConvertAsync(
+            [new VoiceConversionJob(workspace.Resolve("line.wav"), workspace.Resolve("sample.wav"), voiced)],
+            workspace.RootPath, ct).ConfigureAwait(false);
+
+        // Re-encoded to plain 16-bit PCM so the result is a WAV every player and the export read the same way.
+        await FfmpegAsync(workspace, ["-i", "voiced.wav", "-ac", "1", "-c:a", "pcm_s16le", "out.wav"], ct).ConfigureAwait(false);
+        var bytes = await File.ReadAllBytesAsync(workspace.Resolve("out.wav"), ct).ConfigureAwait(false);
+        logger.LogInformation("Voiceover line re-voiced: {Bytes} bytes.", bytes.Length);
+        return bytes;
+    }
+
     private sealed record Converted(IReadOnlyDictionary<int, int> Inputs, IReadOnlyList<string> Files);
 
     /// <summary>

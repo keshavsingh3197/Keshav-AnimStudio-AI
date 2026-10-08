@@ -2951,6 +2951,12 @@ app-timeline-dock {
   margin-top: 10px;
 }
 
+/* Opens over the export progress modal (.modal-backdrop, z-index 10000). */
+app-youtube-publish-dialog {
+  position: relative;
+  z-index: 10001;
+}
+
 .timeline-downloads-label {
   font-size: 0.8rem;
   opacity: 0.75;

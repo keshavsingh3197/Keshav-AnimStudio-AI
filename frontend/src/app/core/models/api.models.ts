@@ -115,6 +115,20 @@ export interface VoiceoverVoices {
   providerId?: string | null;
   reason: string;
   voices: VoiceoverVoice[];
+  /** Voices the user added from their own samples. */
+  myVoices?: MyVoice[];
+  /** False when the AI voice converter that makes "my voice" lines is not installed. */
+  myVoicesAvailable?: boolean;
+}
+
+/** A voice the user added from their own consented sample. */
+export interface MyVoice {
+  id: string;
+  name: string;
+  /** The built-in voice that speaks the words before they are re-voiced. */
+  baseVoiceId: string;
+  durationSeconds?: number | null;
+  createdAtUtc: string;
 }
 
 /** One script line for POST /api/projects/{id}/voiceover. Rate is 0.5-2.0. */
@@ -123,6 +137,8 @@ export interface VoiceoverBody {
   voiceId: string;
   rate?: number;
   name?: string;
+  /** One of the user's own voices: voiceId speaks the line, then it is re-voiced into this one. */
+  myVoiceId?: string;
 }
 
 export interface CharacterAppearance {

@@ -157,6 +157,16 @@ BEGIN
     CREATE INDEX IX_YouTubeConnections_UserId ON YouTubeConnections (UserId);
 END;
 
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'VoiceProfiles')
+BEGIN
+    CREATE TABLE VoiceProfiles (
+        Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+        UserId NVARCHAR(200) NOT NULL,
+        DataJson NVARCHAR(MAX) NOT NULL
+    );
+    CREATE INDEX IX_VoiceProfiles_UserId ON VoiceProfiles (UserId);
+END;
+
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'WebSettings')
 BEGIN
     CREATE TABLE WebSettings (

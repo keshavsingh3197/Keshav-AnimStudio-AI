@@ -117,6 +117,28 @@ public sealed class StudioVoiceRenderTests : IDisposable
         Assert.InRange(Duration(output), 5.9, 6.1);
     }
 
+    [SeedVcFact]
+    public async Task A_spoken_voiceover_line_comes_back_as_a_wav_in_the_sampled_voice()
+    {
+        var renderer = await RendererAsync(SeedVcFactAttribute.Converter());
+        if (!renderer.CanReVoice) return;
+
+        // What the speech engine hands over: a plain WAV line. The sample is a browser-style WebM.
+        var examples = Path.Combine(SeedVcFactAttribute.SeedVcPath, "examples");
+        var line = Path.Combine(_root, "line.wav");
+        Run($"-y -i \"{Path.Combine(examples, "source", "source_s1.wav")}\" -t 5 -ar 24000 -ac 1 \"{line}\"");
+        var sample = Path.Combine(_root, "sample.webm");
+        Run($"-y -i \"{Path.Combine(examples, "reference", "s1p1.wav")}\" -c:a libopus -f webm \"{sample}\"");
+
+        var bytes = await renderer.ReVoiceAsync(await File.ReadAllBytesAsync(line, Ct), sample,
+            new CancellationTokenSource(TimeSpan.FromMinutes(30)).Token);
+
+        Assert.Equal(AnimStudio.Application.Ai.AiAudioValidator.Wav, AnimStudio.Application.Ai.AiAudioValidator.Sniff(bytes));
+        var output = Path.Combine(_root, "revoiced.wav");
+        await File.WriteAllBytesAsync(output, bytes, Ct);
+        Assert.InRange(Duration(output), 4.8, 5.2);
+    }
+
     [FfmpegFact]
     public async Task A_microphone_only_dub_comes_back_as_audio_only()
     {

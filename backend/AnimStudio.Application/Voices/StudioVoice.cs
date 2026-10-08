@@ -37,6 +37,16 @@ public interface IStudioVoiceRenderer
         Stream recording, StudioVoiceContainer container,
         IReadOnlyList<StudioVoiceSegment> segments,
         IReadOnlyDictionary<string, string> samples, CancellationToken ct);
+
+    /// <summary>False until ffmpeg and the AI voice converter are both ready.</summary>
+    bool CanReVoice { get; }
+
+    /// <summary>
+    /// Speaks <paramref name="speech"/> (a synthesised line, any format ffmpeg reads) again in
+    /// the voice heard in the sample stored at <paramref name="sampleStorageKey"/>; returns a
+    /// WAV. The caller has already checked the sample belongs to the user and has consent.
+    /// </summary>
+    Task<byte[]> ReVoiceAsync(byte[] speech, string sampleStorageKey, CancellationToken ct);
 }
 
 /// <summary>One part to convert: the performance in <see cref="SourcePath"/>, into the voice heard in <see cref="SamplePath"/>.</summary>

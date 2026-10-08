@@ -149,7 +149,11 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
         : this.videoMonitorBRef?.nativeElement;
 
       // Pause tick progression if video is actively seeking/buffering (with max 500ms stall timeout)
-      const isBuffering = Boolean(
+      // Past the last clip the picture is a held frame, so nothing there is worth waiting on.
+      const sched = this.state.clipSchedule();
+      const pastPicture = sched.length > 0
+        && this.state.getCurrentTimeExact() >= sched[sched.length - 1].endSeconds;
+      const isBuffering = !pastPicture && Boolean(
         activeEl &&
         !activeEl.error &&
         (activeEl.seeking || (activeEl.readyState < 2 && !activeEl.paused))
@@ -381,6 +385,11 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
 
     if (!curr) return;
 
+    // Past the last clip only audio is left (a voiceover line that runs on): hold the final
+    // frame. Seeking the video beyond its end kept it "seeking" on every tick, which stalled
+    // the playhead there.
+    const pastPicture = time >= schedule[schedule.length - 1].endSeconds;
+
     // Ping-pong layer switch when transitioning to next clip
     if (this.lastPlayedClipIndex !== null && curr.index !== this.lastPlayedClipIndex) {
       if (this.liveTransitionActive()) {
@@ -477,6 +486,13 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     if (isCurrImage) {
       if (currentActiveVideo && !currentActiveVideo.paused) {
         currentActiveVideo.pause();
+      }
+    } else if (pastPicture && currentActiveVideo) {
+      if (!currentActiveVideo.paused) currentActiveVideo.pause();
+      currentActiveVideo.muted = true;
+      const lastFrame = Math.max(0.05, clipTrimStart + curr.durationSeconds - 0.05);
+      if (!currentActiveVideo.seeking && Math.abs(currentActiveVideo.currentTime - lastFrame) > 0.15) {
+        currentActiveVideo.currentTime = lastFrame;
       }
     } else if (currentActiveVideo) {
       const currAssetId = this.state.resolveAssetId(curr.clip);
@@ -645,7 +661,8 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     const voAudio = this.voiceoverAudioRef?.nativeElement;
     if (voAudio && activeVoiceoverTrack) {
       const voTime = (time - activeVoiceoverTrack.startSeconds) + (activeVoiceoverTrack.trimStartSeconds ?? 0);
-      const voMuted = this.state.isMonitorMuted() || this.state.isTrackMuted('A1') || Boolean(activeVoiceoverTrack.muted);
+      const voMuted = this.state.isMonitorMuted() || this.state.isTrackMuted('A1') || Boolean(activeVoiceoverTrack.muted)
+        || this.state.auditioningVoiceover();
       if (this.loadedVoiceoverAssetId !== activeVoiceoverTrack.assetId) {
         this.loadedVoiceoverAssetId = activeVoiceoverTrack.assetId;
         voAudio.src = this.state.assetUrl(activeVoiceoverTrack.assetId);
@@ -668,7 +685,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
 
     // 5. Sync Replacement Clip Sound (Voiceover)
     const clipSoundAudio = this.clipSoundAudioRef?.nativeElement;
-    if (clipSoundAudio && sound.audioAssetId && sound.audioVolume > 0) {
+    if (clipSoundAudio && sound.audioAssetId && sound.audioVolume > 0 && !pastPicture) {
       const clipSoundUrl = this.state.assetUrl(sound.audioAssetId);
       const clipRun = this.state.clipSoundRunOffset(curr.clip.id);
       const targetClipSoundTime = localTime + clipRun.startOffset;

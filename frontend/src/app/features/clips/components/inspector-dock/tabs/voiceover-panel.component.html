@@ -32,16 +32,22 @@
   <div class="vo-row">
     <div class="vo-field">
       <label class="vo-label" for="vo-voice">Voice</label>
-      <select id="vo-voice" class="form-select form-select-sm" [ngModel]="voiceId()" (ngModelChange)="onVoiceChange($event)"
-              [disabled]="!available() || generating()">
-        @for (group of voiceGroups(); track group.label) {
-          <optgroup [label]="group.label">
-            @for (v of group.voices; track v.id) {
-              <option [value]="v.id">{{ v.label }}</option>
-            }
-          </optgroup>
-        }
-      </select>
+      <div class="vo-voice-row">
+        <select id="vo-voice" class="form-select form-select-sm" [ngModel]="selection()" (ngModelChange)="onVoiceChange($event)"
+                [disabled]="!available() || generating()">
+          @for (group of voiceGroups(); track group.label) {
+            <optgroup [label]="group.label">
+              @for (v of group.voices; track v.value) {
+                <option [value]="v.value">{{ v.label }}</option>
+              }
+            </optgroup>
+          }
+        </select>
+        <button type="button" class="vo-star" [class.on]="isFavorite()" (click)="toggleFavorite()"
+                [disabled]="!selection()" [title]="isFavorite() ? 'Remove from favourites' : 'Add to favourites'">
+          {{ isFavorite() ? '★' : '☆' }}
+        </button>
+      </div>
     </div>
     <div class="vo-field vo-field-rate">
       <label class="vo-label" for="vo-rate">Speed <span class="mono">{{ rate() | number: '1.2-2' }}×</span></label>
@@ -50,26 +56,144 @@
     </div>
   </div>
 
+  @if (favoriteOptions().length > 0) {
+    <div class="vo-chips" aria-label="Favourite voices">
+      @for (f of favoriteOptions(); track f.value) {
+        <button type="button" class="vo-chip" [class.active]="selection() === f.value"
+                (click)="onVoiceChange(f.value)" [disabled]="generating()">★ {{ f.label }}</button>
+      }
+    </div>
+  }
+
+  @if (myVoice(); as mine) {
+    <div class="vo-note">
+      Spoken in <strong>{{ mine.name }}</strong> - the words are read by {{ labelFor(voiceId()) }}, then re-voiced from your sample.
+      This runs on the CPU, so each line takes a while the first time; previewing and then applying converts it only once.
+      <button type="button" class="vo-link" (click)="deleteMyVoice()" [disabled]="generating()">Delete this voice</button>
+    </div>
+    @if (!myVoicesAvailable()) {
+      <div class="vo-warn">The AI voice converter isn't installed. Run <code>scripts\setup-voice-ai.ps1</code> once, then restart the API.</div>
+    }
+  }
+
+  <!-- Add one of your own voices -->
+  @if (!addingVoice()) {
+    <button type="button" class="vo-link vo-add-voice" (click)="openAddVoice()" [disabled]="generating() || !available()">
+      ＋ Add my own voice
+    </button>
+  } @else {
+    <div class="vo-myvoice">
+      <div class="vo-myvoice-head">
+        <strong>Add my own voice</strong>
+        <button type="button" class="vo-link" (click)="closeAddVoice()">Cancel</button>
+      </div>
+      @if (!myVoicesAvailable()) {
+        <div class="vo-warn">
+          The AI voice converter isn't installed yet, so a voice can be saved but not spoken in.
+          Run <code>scripts\setup-voice-ai.ps1</code> once, then restart the API.
+        </div>
+      }
+
+      <label class="vo-label" for="vo-myvoice-name">Name</label>
+      <input id="vo-myvoice-name" class="form-control form-control-sm" maxlength="60"
+             [ngModel]="newVoiceName()" (ngModelChange)="newVoiceName.set($event)" />
+
+      <div class="vo-label">Sample <span class="vo-dim">15–30s of clear speech, quiet room</span></div>
+      <div class="vo-prompt">
+        <span class="vo-dim">Read this aloud, naturally:</span>
+        <div>{{ samplePrompt() }}</div>
+      </div>
+      <div class="vo-actions">
+        @if (!recording()) {
+          <button type="button" class="vo-step" (click)="startRecording()" [disabled]="savingVoice()">● Record</button>
+        } @else {
+          <button type="button" class="vo-step active" (click)="stopRecording()">
+            ■ Stop <span class="mono">{{ recordSeconds() }}s / {{ maxRecordSeconds }}s</span>
+          </button>
+        }
+        <label class="vo-step vo-upload" [class.disabled]="recording() || savingVoice()">
+          ⤒ Upload file
+          <input type="file" accept="audio/*,.wav,.mp3,.m4a,.ogg,.flac,.webm" hidden
+                 [disabled]="recording() || savingVoice()" (change)="onSampleFile($event)" />
+        </label>
+      </div>
+      @if (newSample(); as sample) {
+        <audio class="vo-sample" controls [src]="sample.url"></audio>
+        @if (sample.seconds !== undefined) {
+          <div class="vo-dim mono">{{ sample.seconds | number: '1.1-1' }}s</div>
+        }
+      }
+
+      <label class="vo-label" for="vo-myvoice-base">Reads the words <span class="vo-dim">choose one of the same language and gender as you</span></label>
+      <select id="vo-myvoice-base" class="form-select form-select-sm"
+              [ngModel]="newVoiceBase()" (ngModelChange)="newVoiceBase.set($event)">
+        @for (group of builtInGroups(); track group.label) {
+          <optgroup [label]="group.label">
+            @for (v of group.voices; track v.value) {
+              <option [value]="v.value">{{ v.label }}</option>
+            }
+          </optgroup>
+        }
+      </select>
+
+      <label class="vo-consent">
+        <input type="checkbox" [ngModel]="newVoiceConsent()" (ngModelChange)="newVoiceConsent.set($event)" />
+        This is my own voice, or its owner has agreed to it being used here.
+      </label>
+
+      @if (voiceError()) {
+        <div class="vo-error">{{ voiceError() }}</div>
+      }
+      <button type="button" class="vo-go"
+              [disabled]="!newSample() || !newVoiceName().trim() || !newVoiceConsent() || !newVoiceBase() || savingVoice() || recording()"
+              (click)="saveMyVoice()">
+        {{ savingVoice() ? 'Saving…' : '✓ Save voice' }}
+      </button>
+    </div>
+  }
+
   <div class="vo-label">Place on A1</div>
   <div class="vo-seg">
-    <button type="button" [class.active]="placement() === 'clips'" (click)="placement.set('clips')" [disabled]="generating()"
+    <button type="button" [class.active]="placement() === 'clips'" (click)="setPlacement('clips')" [disabled]="generating()"
             title="Line 1 starts on clip 1, line 2 on clip 2, ...">Line per clip</button>
-    <button type="button" [class.active]="placement() === 'playhead'" (click)="placement.set('playhead')" [disabled]="generating()"
+    <button type="button" [class.active]="placement() === 'playhead'" (click)="setPlacement('playhead')" [disabled]="generating()"
             title="All lines back to back, starting at the playhead">From playhead ({{ state.currentTime() | number: '1.1-1' }}s)</button>
   </div>
 
+  @if (existingLineCount() > 0 && !generating()) {
+    <label class="vo-consent">
+      <input type="checkbox" [ngModel]="replaceExisting()" (ngModelChange)="replaceExisting.set($event)" />
+      Replace the {{ existingLineCount() }} voiceover line(s) already on A1
+    </label>
+  }
+
   @if (!generating()) {
+    <div class="vo-actions">
+      <button type="button" class="vo-step"
+              [disabled]="!available() || !voiceId() || lines().length === 0 || hasTooLong()"
+              (click)="previewLines()" title="Speak every line without saving anything">
+        🎧 {{ audibleCount() > 0 && !stale() ? 'Re-preview' : 'Preview' }} {{ lines().length || '' }} line{{ lines().length === 1 ? '' : 's' }}
+      </button>
+      <button type="button" class="vo-step" [class.active]="withClips()"
+              [disabled]="audibleCount() === 0 || stale()"
+              (click)="toggleWithClips()" title="Play the timeline with the voice over it - nothing is placed">
+        {{ withClips() ? '■ Stop' : '▶ Play with clips' }}
+      </button>
+    </div>
     <button type="button" class="vo-go"
             [disabled]="!available() || !voiceId() || lines().length === 0 || hasTooLong()"
-            (click)="generate()">
-      🎙 Generate {{ lines().length || '' }} voice line{{ lines().length === 1 ? '' : 's' }}
+            (click)="apply()">
+      ✓ {{ existingLineCount() > 0 && replaceExisting() ? 'Replace with' : 'Apply' }} {{ lines().length || '' }} line{{ lines().length === 1 ? '' : 's' }} on A1
     </button>
+    @if (audibleCount() === 0 && available() && lines().length > 0) {
+      <div class="vo-note">Preview first to hear the voice and timing; nothing is saved until you apply.</div>
+    }
   } @else {
     <div class="vo-progress">
       <div class="vo-progress-bar" [style.width.%]="lines().length ? (doneCount() / lines().length) * 100 : 0"></div>
     </div>
     <div class="vo-progress-row">
-      <span>Speaking line {{ doneCount() + 1 }} of {{ lines().length }}…</span>
+      <span>{{ busy() === 'applying' ? 'Saving' : 'Speaking' }} line {{ doneCount() + 1 }} of {{ lines().length }}…</span>
       <button type="button" class="vo-link" (click)="cancel()">Stop</button>
     </div>
   }
@@ -78,37 +202,64 @@
     <div class="vo-error">{{ error() }}</div>
   }
 
+  @if (!generating() && stale()) {
+    <div class="vo-note">The script, voice or speed changed since this preview. Preview again to hear the new version.</div>
+  }
+
   @if (!generating() && placedCount() > 0) {
     <div class="vo-done">
-      ✓ {{ placedCount() }} line(s) placed on A1. Press ▶ to hear them with the picture, or <kbd>Ctrl</kbd>+<kbd>Z</kbd> to take them all back.
+      ✓ {{ placedCount() }} line(s) placed on A1{{ replacedCount() > 0 ? ', replacing ' + replacedCount() + ' earlier line(s)' : '' }}.
+      Press ▶ to hear them with the picture, or <kbd>Ctrl</kbd>+<kbd>Z</kbd> to take them all back.
     </div>
-    @if (overruns().length > 0) {
-      <div class="vo-note">
-        {{ overruns().length }} line(s) run past their clip. Raise the speed a little, shorten the line, or drag it on the timeline.
-      </div>
-    }
+  }
+  @if (!generating() && audibleCount() > 0 && !stale() && pastEndSeconds() > 0.05) {
+    <div class="vo-warn">
+      The last line ends {{ pastEndSeconds() | number: '1.1-1' }}s after the video ({{ videoEnd() | number: '1.1-1' }}s), where there is no picture.
+      @if (fitRate(); as fit) {
+        <button type="button" class="vo-step vo-fit" (click)="speedUpToFit()">⇢ Speed up to {{ fit | number: '1.2-2' }}× and preview again</button>
+      } @else {
+        Shorten a line or two so the script fits.
+      }
+    </div>
+  } @else if (!generating() && audibleCount() > 0 && !stale() && overruns().length > 0) {
+    <div class="vo-note">
+      {{ overruns().length }} line(s) run past their clip. Raise the speed a little, shorten the line, or drag it on the timeline after applying.
+    </div>
+  }
+
+  @if (!generating() && unusedVoiceoverFiles().length > 0) {
+    <div class="vo-note vo-cleanup">
+      {{ unusedVoiceoverFiles().length }} voiceover file(s) in the library aren't on the timeline (earlier takes).
+      <button type="button" class="vo-link" (click)="deleteUnusedFiles()" [disabled]="cleaning()">
+        {{ cleaning() ? 'Deleting…' : 'Delete them' }}
+      </button>
+    </div>
   }
 
   @if (results().length > 0) {
-    <ol class="vo-results">
+    <ol class="vo-results" [class.vo-stale]="stale()">
       @for (r of results(); track r.index) {
         <li [class.failed]="r.error">
           <div class="vo-result-text" [title]="r.text">{{ r.text }}</div>
           <div class="vo-result-meta">
-            @if (r.asset) {
-              <button type="button" class="vo-icon" (click)="togglePreview(r.asset)"
-                      [title]="previewingId() === r.asset.id ? 'Stop' : 'Listen to this line'">
-                {{ previewingId() === r.asset.id ? '■' : '▶' }}
+            @if (r.previewUrl || r.asset) {
+              <button type="button" class="vo-icon" (click)="togglePreview(r)"
+                      [title]="previewingIndex() === r.index ? 'Stop' : 'Listen to this line'">
+                {{ previewingIndex() === r.index ? '■' : '▶' }}
               </button>
-              @if (r.startSeconds !== undefined) {
-                <button type="button" class="vo-link mono" (click)="seekTo(r)" title="Jump the playhead here">
-                  &#64;{{ r.startSeconds | number: '1.1-1' }}s
+              @if (plans().get(r.index); as plan) {
+                <button type="button" class="vo-link mono" (click)="seekTo(r.index)" title="Jump the playhead here">
+                  &#64;{{ plan.startSeconds | number: '1.1-1' }}s
                 </button>
+                @if (plan.pulledEarly) {
+                  <span class="vo-dim" title="Starts a little before its clip so the script ends with the video">early</span>
+                }
+                @if ((plan.overrunSeconds ?? 0) > 0.05) {
+                  <span class="vo-over" title="Runs past the end of its clip">+{{ plan.overrunSeconds | number: '1.1-1' }}s</span>
+                }
               }
-              <span class="mono vo-dim">{{ (r.asset.durationSeconds ?? 0) | number: '1.1-1' }}s</span>
-              @if ((r.overrunSeconds ?? 0) > 0.05) {
-                <span class="vo-over" title="Runs past the end of its clip">+{{ r.overrunSeconds | number: '1.1-1' }}s</span>
-              }
+              <span class="mono vo-dim">{{ (r.durationSeconds ?? r.asset?.durationSeconds ?? 0) | number: '1.1-1' }}s</span>
+              <span class="vo-dim">{{ r.asset && applied() ? 'on A1' : 'preview' }}</span>
             } @else {
               <span class="vo-error-inline" [title]="r.error ?? ''">{{ r.error }}</span>
             }
@@ -123,7 +274,9 @@
     <ul>
       <li>Write the way it should be said: commas and full stops become breaths and pauses.</li>
       <li>Speed 0.9–0.95× reads as calm narration; 1.0× and above starts to sound rushed.</li>
-      <li>Hindi script (देवनागरी) needs a Hindi voice; the panel switches to one automatically.</li>
+      <li>Hindi script (देवनागरी) needs a Hindi voice; the panel switches to the one you last used for Hindi.</li>
+      <li>Star the voices you like: they show as one-click chips and are picked first.</li>
+      <li>For your own voice, record 15–30s in a quiet room, close to the microphone, in the language you'll narrate.</li>
       <li>Keep lines to one or two sentences so each fits its clip, and nudge any line by dragging it on A1.</li>
       <li>If your clips have their own sound, set the Mix overlap rule to <em>Duck video</em> so the voice leads.</li>
     </ul>

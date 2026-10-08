@@ -649,4 +649,7 @@ public sealed record VoiceoverRequest
     [StringLength(64)] public string? VoiceId { get; init; }
     public double? Rate { get; init; }
     [StringLength(120)] public string? Name { get; init; }
+
+    /// <summary>One of the caller's own voices: the line is spoken by <see cref="VoiceId"/>, then re-voiced into it.</summary>
+    [StringLength(64)] public string? MyVoiceId { get; init; }
 }

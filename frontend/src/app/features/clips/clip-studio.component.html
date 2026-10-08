@@ -1354,6 +1354,10 @@
                   <button type="button" class="btn btn-outline-info" (click)="state.openExportPreview()">
                     ▶ Preview Video
                   </button>
+                  <button type="button" class="btn btn-outline-danger" (click)="publishJobId.set(completedJob.jobId)"
+                          title="Upload straight to your YouTube channel as a private draft, then finish it in YouTube Studio">
+                    📤 Upload to YouTube
+                  </button>
                   <a routerLink="/live"
                      [queryParams]="{ renderJobId: completedJob.jobId, title: state.exportName() || null }"
                      class="btn btn-outline-danger" title="Stream this export to YouTube Live">
@@ -1371,6 +1375,15 @@
                        title="Description draft with chapters (0:00 …), music credits and the footage list">
                       📝 YouTube description
                     </a>
+                    <button type="button" class="btn btn-sm btn-outline-light"
+                            (click)="copyYouTubeDescription(completedJob.jobId)" [disabled]="descriptionCopy() === 'busy'"
+                            title="Copy the description draft (chapters, credits, footage list) to the clipboard">
+                      @switch (descriptionCopy()) {
+                        @case ('copied') { ✓ Copied }
+                        @case ('failed') { ✕ Copy failed }
+                        @default { 📋 Copy description }
+                      }
+                    </button>
                     <a [href]="state.timelineUrl(completedJob.jobId, 'csv')" download
                        class="btn btn-sm btn-outline-light"
                        title="One row per item with start/end timecodes, source trims and credits">
@@ -1519,5 +1532,14 @@
         </div>
       </div>
     </div>
+  }
+
+  @if (publishJobId(); as publishId) {
+    <app-youtube-publish-dialog
+      [jobId]="publishId"
+      [previewSrc]="state.api.previewUrl(publishId)"
+      [returnPath]="publishReturnPath(publishId)"
+      [asDraft]="true"
+      (closed)="publishJobId.set(null)" />
   }
 </div>

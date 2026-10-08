@@ -21,4 +21,5 @@ public static class MongoCollections
     public const string WebSettings = "webSettings";
     public const string AdminAudit = "adminAudit";
     public const string HubConfig = "hubConfig";
+    public const string VoiceProfiles = "voiceProfiles";
 }
