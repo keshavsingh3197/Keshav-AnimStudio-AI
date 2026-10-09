@@ -117,7 +117,7 @@ export interface VoiceoverVoices {
   voices: VoiceoverVoice[];
   /** Voices the user added from their own samples. */
   myVoices?: MyVoice[];
-  /** False when the AI voice converter that makes "my voice" lines is not installed. */
+  /** False when neither Kokoro voice tuning nor the AI voice converter can make "my voice" lines. */
   myVoicesAvailable?: boolean;
 }
 
@@ -129,6 +129,8 @@ export interface MyVoice {
   baseVoiceId: string;
   durationSeconds?: number | null;
   createdAtUtc: string;
+  /** Kokoro has a voice tuned from the sample, which speaks English lines directly instead of re-voicing them. */
+  tuned?: boolean;
 }
 
 /** One script line for POST /api/projects/{id}/voiceover. Rate is 0.5-2.0. */

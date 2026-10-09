@@ -94,12 +94,21 @@
 
   @if (myVoice(); as mine) {
     <div class="vo-note">
-      Spoken in <strong>{{ mine.name }}</strong> - the words are read by {{ labelFor(voiceId()) }}, then re-voiced from your sample.
-      This runs on the CPU, so each line takes a while the first time; previewing and then applying converts it only once.
+      @if (mine.tuned) {
+        Spoken in <strong>{{ mine.name }}</strong>: English lines by a Kokoro voice tuned from your sample, which is quick.
+        Lines in other languages are read by {{ labelFor(voiceId()) }}, then re-voiced from your sample, which takes a while on the CPU.
+      } @else {
+        Spoken in <strong>{{ mine.name }}</strong> - the words are read by {{ labelFor(voiceId()) }}, then re-voiced from your sample.
+        This runs on the CPU, so each line takes a while the first time; previewing and then applying converts it only once.
+        English lines switch to a quicker Kokoro voice tuned from your sample once the first one is spoken.
+      }
       <button type="button" class="vo-link" (click)="deleteMyVoice()" [disabled]="generating()">Delete this voice</button>
     </div>
     @if (!myVoicesAvailable()) {
-      <div class="vo-warn">The AI voice converter isn't installed. Run <code>scripts\setup-voice-ai.ps1</code> once, then restart the API.</div>
+      <div class="vo-warn">
+        Nothing can speak in your voice yet. For English lines, run <code>scripts\setup-voiceover.ps1</code> to update Kokoro; for any
+        language, run <code>scripts\setup-voice-ai.ps1</code> once. Then restart the API.
+      </div>
     }
   }
 
@@ -116,8 +125,9 @@
       </div>
       @if (!myVoicesAvailable()) {
         <div class="vo-warn">
-          The AI voice converter isn't installed yet, so a voice can be saved but not spoken in.
-          Run <code>scripts\setup-voice-ai.ps1</code> once, then restart the API.
+          Nothing can speak in your voice yet, so a voice can be saved but not used. For English lines, run
+          <code>scripts\setup-voiceover.ps1</code> to update Kokoro; for any language, run <code>scripts\setup-voice-ai.ps1</code> once.
+          Then restart the API.
         </div>
       }
 
@@ -187,7 +197,7 @@
             title="All lines back to back, starting at the playhead">From playhead ({{ state.currentTime() | number: '1.1-1' }}s)</button>
     @if (hasTimings()) {
       <button type="button" [class.active]="placement() === 'script'" (click)="setPlacement('script')" [disabled]="generating()"
-              title="Each line starts at the time the script gives it; a line without one follows the line before">Script timings</button>
+              title="Each line starts at the time the script gives it, or after the line before has finished; a line without one follows the line before">Script timings</button>
     }
   </div>
 
@@ -224,7 +234,11 @@
       <div class="vo-progress-bar" [style.width.%]="lines().length ? (doneCount() / lines().length) * 100 : 0"></div>
     </div>
     <div class="vo-progress-row">
-      <span>{{ busy() === 'applying' ? 'Saving' : 'Speaking' }} line {{ doneCount() + 1 }} of {{ lines().length }}…</span>
+      @if (fittingIndex() !== null) {
+        <span>Speeding up line {{ fittingIndex()! + 1 }} to fit its time…</span>
+      } @else {
+        <span>{{ busy() === 'applying' ? 'Saving' : 'Speaking' }} line {{ doneCount() + 1 }} of {{ lines().length }}…</span>
+      }
       <button type="button" class="vo-link" (click)="cancel()">Stop</button>
     </div>
   }
@@ -248,6 +262,8 @@
       The last line ends {{ pastEndSeconds() | number: '1.1-1' }}s after the video ({{ videoEnd() | number: '1.1-1' }}s), where there is no picture.
       @if (fitRate(); as fit) {
         <button type="button" class="vo-step vo-fit" (click)="speedUpToFit()">⇢ Speed up to {{ fit | number: '1.2-2' }}× and preview again</button>
+      } @else if (slots().size > 0) {
+        Lines are already spoken as fast as sounds natural (up to {{ maxFitRate }}×). Shorten a line or two so the script fits.
       } @else {
         Shorten a line or two so the script fits.
       }
@@ -287,6 +303,12 @@
                 <button type="button" class="vo-link mono" (click)="seekTo(r.index)" title="Jump the playhead here">
                   &#64;{{ plan.startSeconds | number: '1.1-1' }}s
                 </button>
+                @if (fittedRates().get(r.index); as fit) {
+                  <span class="vo-dim" title="Spoken faster than the script's speed so it finishes inside its time">{{ fit | number: '1.2-2' }}×</span>
+                }
+                @if (plan.movedFromSeconds !== undefined) {
+                  <span class="vo-dim" title="Moved off the script's time so it doesn't talk over the line before, or so the script ends with the video">was &#64;{{ plan.movedFromSeconds | number: '1.1-1' }}s</span>
+                }
                 @if (plan.pulledEarly) {
                   <span class="vo-dim" title="Starts a little before its clip so the script ends with the video">early</span>
                 }

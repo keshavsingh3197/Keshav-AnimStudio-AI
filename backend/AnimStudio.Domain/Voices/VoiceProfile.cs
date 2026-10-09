@@ -38,4 +38,16 @@ public sealed class VoiceProfile
     /// that follows it convert once - and so deleting the voice deletes everything made from it.
     /// </summary>
     public List<string> CachedLineKeys { get; set; } = [];
+
+    /// <summary>
+    /// The speech engine's own voice tuned from the sample (Kokoro's <c>af_vp…_tuned</c>), which
+    /// speaks English lines directly. Null until the first English line asks for it.
+    /// </summary>
+    public string? TunedVoiceId { get; set; }
+
+    /// <summary>The speech provider that keeps <see cref="TunedVoiceId"/>, so deleting the voice deletes it there.</summary>
+    public string? TunedVoiceProviderId { get; set; }
+
+    /// <summary>When the engine refused to tune from the sample, so it is not asked again on every line.</summary>
+    public DateTime? TuneRefusedAtUtc { get; set; }
 }

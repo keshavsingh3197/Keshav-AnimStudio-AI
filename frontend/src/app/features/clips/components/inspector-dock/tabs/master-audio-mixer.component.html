@@ -40,30 +40,32 @@
       </div>
     </div>
 
-    <!-- A1: every music track -->
-    <div class="mixer-bus-row mb-2">
-      <div class="bus-meta-line">
-        <div class="d-flex align-items-center gap-2">
-          <span class="track-badge-pill" style="background: #8b5cf6;">A1</span>
-          <span class="bus-name">Music</span>
+    <!-- A1: voice lines · A2: music bed -->
+    @for (bus of audioBuses; track bus.id) {
+      <div class="mixer-bus-row mb-2">
+        <div class="bus-meta-line">
+          <div class="d-flex align-items-center gap-2">
+            <span class="track-badge-pill" [style.background]="bus.color">{{ bus.id }}</span>
+            <span class="bus-name">{{ bus.name }}</span>
+          </div>
+          <div class="d-flex align-items-center gap-2">
+            <button type="button" class="btn-mute-toggle" [class.muted]="state.isTrackMuted(bus.id)"
+                    (click)="state.toggleTrackMute(bus.id)"
+                    [title]="(state.isTrackMuted(bus.id) ? 'Unmute ' : 'Mute ') + bus.name">
+              {{ state.isTrackMuted(bus.id) ? '🔇' : '🔊' }}
+            </button>
+            <span class="mono fw-bold bus-db" [class.muted-text]="state.isTrackMuted(bus.id)">
+              {{ state.isTrackMuted(bus.id) ? '-∞ dB' : Math.round(busVolume(bus.id) * 100) + '% (' + state.volumeToDb(busVolume(bus.id)) + ')' }}
+            </span>
+          </div>
         </div>
-        <div class="d-flex align-items-center gap-2">
-          <button type="button" class="btn-mute-toggle" [class.muted]="state.isTrackMuted('A1')"
-                  (click)="state.toggleTrackMute('A1')"
-                  [title]="state.isTrackMuted('A1') ? 'Unmute all music' : 'Mute all music'">
-            {{ state.isTrackMuted('A1') ? '🔇' : '🔊' }}
-          </button>
-          <span class="mono fw-bold bus-db" [class.muted-text]="state.isTrackMuted('A1')">
-            {{ state.isTrackMuted('A1') ? '-∞ dB' : Math.round(state.trackA1Volume() * 100) + '% (' + state.volumeToDb(state.trackA1Volume()) + ')' }}
-          </span>
+        <div class="bus-fader-container">
+          <input type="range" class="form-range bus-slider" min="0" max="2.0" step="0.02"
+                 [disabled]="state.isTrackMuted(bus.id)"
+                 [ngModel]="busVolume(bus.id)" (ngModelChange)="state.setTrackVolume(bus.id, $event)" />
         </div>
       </div>
-      <div class="bus-fader-container">
-        <input type="range" class="form-range bus-slider" min="0" max="2.0" step="0.02"
-               [disabled]="state.isTrackMuted('A1')"
-               [ngModel]="state.trackA1Volume()" (ngModelChange)="state.setTrackVolume('A1', $event)" />
-      </div>
-    </div>
+    }
 
     <!-- Master -->
     <div class="mixer-bus-row master-bus-highlight">

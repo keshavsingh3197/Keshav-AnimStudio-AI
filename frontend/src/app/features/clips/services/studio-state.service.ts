@@ -16,7 +16,7 @@ import { StatusService } from '../../../core/services/status.service';
 import {
   AudioOverlapRule, AudioOverlapRuleOrInherit, AudioOverlapSource,
   ClipAudioSetting, ClipColorSetting, ClipRow, ClipTextSetting, FILTER_PRESETS,
-  FileUploadConflict, FilterPreset, JunctionSetting, JunctionView, MusicTrackRow, ScheduledClip, SideUploadTarget, TRACK_COLORS, isVoiceoverTrack
+  FileUploadConflict, FilterPreset, JunctionSetting, JunctionView, MusicTrackRow, ScheduledClip, SideUploadTarget, TRACK_COLORS, audioLaneOf, isVoiceoverTrack
 } from '../models/clip-studio.models';
 import { EraseRect, eraseFeatherMask, eraseOuter } from './erase-geometry';
 
@@ -659,7 +659,7 @@ export class StudioStateService implements OnDestroy {
   readonly trackV1Volume = signal<number>(1.0);
   readonly trackV2Volume = signal<number>(1.0);
   readonly trackA1Volume = signal<number>(1.0);
-  readonly trackA2Volume = signal<number>(0.8);
+  readonly trackA2Volume = signal<number>(1.0);
   readonly trackV1Muted = signal<boolean>(false);
   readonly trackV2Muted = signal<boolean>(false);
   readonly trackA1Muted = signal<boolean>(false);
@@ -2001,16 +2001,24 @@ export class StudioStateService implements OnDestroy {
     return false;
   });
 
-  readonly showA1Track = computed(() => {
-    if (this.musicTracks().length > 0) return true;
-    if (this.itemsForTrack('A1').length > 0) return true;
-    if (this.explicitlyShownTracks().has('A1')) return true;
+  readonly showA1Track = computed(() => this.showAudioLane('A1'));
+  readonly showA2Track = computed(() => this.showAudioLane('A2'));
+
+  /** Rows on one audio lane: A1 holds voice lines, A2 the music bed. */
+  musicTracksForLane(lane: 'A1' | 'A2'): MusicTrackRow[] {
+    return this.musicTracks().filter((t) => audioLaneOf(t) === lane);
+  }
+
+  private showAudioLane(lane: 'A1' | 'A2'): boolean {
+    if (this.musicTracksForLane(lane).length > 0) return true;
+    if (this.itemsForTrack(lane).length > 0) return true;
+    if (this.explicitlyShownTracks().has(lane)) return true;
     if (this.activeInspectorTab() === 'audio') return true;
     if (this.activeCategory() === 'audio') return true;
     const sel = this.selectedClip();
     if (sel && this.getClipType(sel) === 'audio') return true;
     return false;
-  });
+  }
 
   readonly showV2Track = computed(() => {
     if (this.itemsForTrack('V2').length > 0) return true;
@@ -4591,11 +4599,6 @@ export class StudioStateService implements OnDestroy {
         (item) => item.trackId === 'IMG1' || item.trackId === 'IMG'
       );
     }
-    if (trackId === 'A1' || trackId === 'A2') {
-      return this.timelineItems().filter(
-        (item) => item.trackId === 'A1' || item.trackId === 'A2'
-      );
-    }
     return this.timelineItems().filter((item) => item.trackId === trackId);
   }
 
@@ -5187,8 +5190,8 @@ export class StudioStateService implements OnDestroy {
           return;
         }
       } else {
-        this.addMusicTrackFromAsset(row.clip.id, dropTime);
-        this.status.notify([`Added audio "${assetName}" to A1 at ${dropTime.toFixed(1)}s.`]);
+        this.addMusicTrackFromAsset(row.clip.id, dropTime, trackId);
+        this.status.notify([`Added audio "${assetName}" to ${trackId} at ${dropTime.toFixed(1)}s.`]);
         return;
       }
     }
@@ -6206,16 +6209,21 @@ export class StudioStateService implements OnDestroy {
   }
 
   // Music Tracks
-  addMusicTrackFromAsset(assetId: string, customStartSeconds?: number): void {
+  /**
+   * Places an audio file on A1 (voice) or A2 (music). Without an explicit lane, generated
+   * voiceover files ("VO - ...") go to A1 and everything else to A2.
+   */
+  addMusicTrackFromAsset(assetId: string, customStartSeconds?: number, lane?: 'A1' | 'A2'): void {
     const studio = this.studio();
     const candidate = studio?.musicCandidates?.find((m) => m.id === assetId);
     const dur = candidate?.durationSeconds ?? 10.0;
+    const targetLane = lane ?? (candidate?.name.startsWith('VO - ') ? 'A1' : 'A2');
 
     let startSec = 0;
     if (customStartSeconds !== undefined) {
       startSec = Math.max(0, customStartSeconds);
     } else {
-      const tracks = this.musicTracks();
+      const tracks = this.musicTracksForLane(targetLane);
       if (tracks.length > 0) {
         const latestEnd = Math.max(...tracks.map((t) => t.startSeconds + this.musicTrackDurationSeconds(t)));
         const curTime = this.currentTime();
@@ -6230,7 +6238,8 @@ export class StudioStateService implements OnDestroy {
       }
     }
 
-    const newKey = `music_${Date.now()}`;
+    // The key prefix is what puts a row on its lane (see audioLaneOf).
+    const newKey = `${targetLane === 'A1' ? 'vo' : 'music'}_${Date.now()}`;
     const newTrack: MusicTrackRow = {
       key: newKey,
       assetId,
@@ -6242,7 +6251,7 @@ export class StudioStateService implements OnDestroy {
     this.musicTracks.update((t) => [...t, newTrack]);
     this.clearVideoAndItemSelections();
     this.selectedMusicTrackKey.set(newKey);
-    this.showTrackManually('A1');
+    this.showTrackManually(targetLane);
     this.setInspectorTab('audio');
     this.setAudioInspectorView('clip');
     this.markDirty();
@@ -6531,6 +6540,7 @@ export class StudioStateService implements OnDestroy {
       transitionSeconds: this.transitionSeconds(),
       trackV1Volume: this.trackV1Volume(),
       trackA1Volume: this.trackA1Volume(),
+      trackA2Volume: this.trackA2Volume(),
       projectOverlapRule: this.projectOverlapRule(),
       duckLevel: this.duckLevel(),
       fit: this.fit(),
@@ -6644,6 +6654,7 @@ export class StudioStateService implements OnDestroy {
     if (draft.trackV1Volume !== undefined) this.trackV1Volume.set(draft.trackV1Volume);
 
     if (draft.trackA1Volume !== undefined) this.trackA1Volume.set(draft.trackA1Volume);
+    if (draft.trackA2Volume !== undefined) this.trackA2Volume.set(draft.trackA2Volume);
 
     if (draft.projectOverlapRule !== undefined) {
       this.projectOverlapRule.set(draft.projectOverlapRule);
@@ -7063,6 +7074,23 @@ export class StudioStateService implements OnDestroy {
     return s.volume !== 1 || !!s.audioAssetId || s.audioVolume !== 1 || !s.keepOriginalAudio || Boolean(s.overlapRule && s.overlapRule !== 'Inherit') || (s.duckLevelOverride !== null && s.duckLevelOverride !== undefined);
   }
 
+  /** Gain of an audio lane's bus as the mixer sets it: 0 when the lane is muted. */
+  audioBusGain(lane: 'A1' | 'A2'): number {
+    if (this.isTrackMuted(lane)) return 0;
+    return lane === 'A1' ? this.trackA1Volume() : this.trackA2Volume();
+  }
+
+  /** Audio rows for export, with each lane's bus volume folded in so export matches preview. */
+  musicTracksPayload() {
+    return this.musicTracks().map((t) => ({
+      assetId: t.assetId,
+      startSeconds: t.startSeconds,
+      volume: Math.max(0, Math.min(2.0, t.muted ? 0 : (Number(t.volume) || 0) * this.audioBusGain(audioLaneOf(t)))),
+      trimStartSeconds: t.trimStartSeconds,
+      trimEndSeconds: t.trimEndSeconds,
+    }));
+  }
+
   timelineItemsPayload(): TimelineItem[] | null {
     // 1. Separate non-V1 overlay items (IMG1, T1, V2, etc.)
     const overlayItems = this.timelineItems().filter(
@@ -7122,7 +7150,9 @@ export class StudioStateService implements OnDestroy {
       name: item.name,
       transform: item.transform,
       textStyle: item.textStyle,
-      volume: item.volume,
+      volume: item.type === 'audio' && (item.trackId === 'A1' || item.trackId === 'A2')
+        ? (item.volume ?? 1.0) * this.audioBusGain(item.trackId)
+        : item.volume,
       trimStartSeconds: item.trimStartSeconds,
       trimEndSeconds: item.trimEndSeconds,
     }));
@@ -7468,13 +7498,7 @@ export class StudioStateService implements OnDestroy {
         muteClipAudio: this.trackV1Muted(),
         backgroundMusicAssetId: this.musicAssetId() || null,
         backgroundMusicVolume: Math.max(0, Math.min(2.0, Number(this.musicVolume()) || 0)),
-        musicTracks: this.musicTracks().map((t) => ({
-          assetId: t.assetId,
-          startSeconds: t.startSeconds,
-          volume: Math.max(0, Math.min(2.0, t.muted ? 0 : (Number(t.volume) || 0))),
-          trimStartSeconds: t.trimStartSeconds,
-          trimEndSeconds: t.trimEndSeconds,
-        })),
+        musicTracks: this.musicTracksPayload(),
         timelineItems: this.timelineItemsPayload(),
         clipAudio: this.clipAudioPayload(),
         musicDuckWindows: this.musicDuckWindowsPayload(),
@@ -7543,13 +7567,7 @@ export class StudioStateService implements OnDestroy {
         muteClipAudio: this.trackV1Muted(),
         backgroundMusicAssetId: this.musicAssetId() || null,
         backgroundMusicVolume: Math.max(0, Math.min(2.0, Number(this.musicVolume()) || 0)),
-        musicTracks: this.musicTracks().map((t) => ({
-          assetId: t.assetId,
-          startSeconds: t.startSeconds,
-          volume: Math.max(0, Math.min(2.0, t.muted ? 0 : (Number(t.volume) || 0))),
-          trimStartSeconds: t.trimStartSeconds,
-          trimEndSeconds: t.trimEndSeconds,
-        })),
+        musicTracks: this.musicTracksPayload(),
         timelineItems: this.timelineItemsPayload(),
         clipAudio: this.clipAudioPayload(),
         musicDuckWindows: this.musicDuckWindowsPayload(),

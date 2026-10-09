@@ -47,6 +47,16 @@ public interface IStudioVoiceRenderer
     /// WAV. The caller has already checked the sample belongs to the user and has consent.
     /// </summary>
     Task<byte[]> ReVoiceAsync(byte[] speech, string sampleStorageKey, CancellationToken ct);
+
+    /// <summary>False until ffmpeg is ready.</summary>
+    bool CanPrepareReference { get; }
+
+    /// <summary>
+    /// The sample stored at <paramref name="sampleStorageKey"/> as a short mono WAV, the
+    /// reference a speech engine tunes a voice from. Browser recordings arrive as WebM or MP4,
+    /// which engines can't read. The caller has already checked the sample belongs to the user.
+    /// </summary>
+    Task<byte[]> ReferenceClipAsync(string sampleStorageKey, CancellationToken ct);
 }
 
 /// <summary>One part to convert: the performance in <see cref="SourcePath"/>, into the voice heard in <see cref="SamplePath"/>.</summary>

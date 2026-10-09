@@ -21,7 +21,7 @@ public sealed class VoiceConversionOptions
     /// <summary>The Seed-VC checkout (holds inference.py, and caches the model weights). Empty: the setup script's.</summary>
     public string SeedVcPath { get; set; } = string.Empty;
 
-    /// <summary>Where scripts/setup-voice-ai.ps1 installs by default.</summary>
+    /// <summary>Used when SeedVcPath is empty: where scripts/setup-voice-ai.ps1 used to install.</summary>
     public static string DefaultSeedVcPath =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AnimStudio", "seed-vc");
 
@@ -117,6 +117,9 @@ public sealed class SeedVcVoiceConverter(
             start.ArgumentList.Add(argument);
         start.Environment["PYTHONIOENCODING"] = "utf-8";
         start.Environment["HF_HUB_DISABLE_TELEMETRY"] = "1";
+        // Seed-VC fetches its vocoder and Whisper without a cache_dir; keep them with the install
+        // rather than in the user profile on C:.
+        start.Environment["HF_HOME"] = Path.Combine(_options.ResolvedSeedVcPath, "hf-cache");
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(TimeSpan.FromMinutes(Math.Max(1, _options.TimeoutMinutes)));

@@ -86,9 +86,14 @@ export interface MusicTrackRow {
   clipAudioMode?: 'MuteUnderMusic' | 'KeepAudio' | 'Ducked' | 'Default';
 }
 
-/** Lines placed by the Voiceover panel. They share A1 with music but preview on their own player. */
+/** Lines placed by the Voiceover panel (or dropped on A1). They preview on their own player. */
 export function isVoiceoverTrack(track: MusicTrackRow): boolean {
   return track.key.startsWith('vo_');
+}
+
+/** Voice sits on A1 and music on A2, so a music bed never covers the spoken lines. */
+export function audioLaneOf(track: MusicTrackRow): 'A1' | 'A2' {
+  return isVoiceoverTrack(track) ? 'A1' : 'A2';
 }
 
 export interface ScheduledClip {

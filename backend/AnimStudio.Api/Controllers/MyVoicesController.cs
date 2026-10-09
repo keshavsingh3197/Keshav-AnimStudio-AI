@@ -7,6 +7,7 @@ using AnimStudio.Application.Abstractions.Storage;
 using AnimStudio.Application.Ai;
 using AnimStudio.Application.LiveStreams;
 using AnimStudio.Application.Security;
+using AnimStudio.Application.Voices;
 using AnimStudio.Domain.Voices;
 using Microsoft.AspNetCore.Mvc;
 
@@ -23,6 +24,7 @@ public sealed class MyVoicesController(
     IVoiceProfileRepository voices,
     IObjectStore store,
     IMediaProbeService probe,
+    MyVoiceTuning tuning,
     ICurrentUser currentUser,
     TimeProvider clock,
     ILogger<MyVoicesController> logger) : ControllerBase
@@ -146,6 +148,7 @@ public sealed class MyVoicesController(
         }
 
         await voices.DeleteAsync(id, ct);
+        await tuning.ForgetAsync(profile, ct);
         await store.DeleteAsync(profile.StorageKey, ct);
         foreach (var key in profile.CachedLineKeys) await store.DeleteAsync(key, ct);
 
@@ -155,7 +158,7 @@ public sealed class MyVoicesController(
     }
 
     internal static MyVoiceResponse ToResponse(VoiceProfile v) =>
-        new(v.Id, v.Name, v.BaseVoiceId, v.DurationSeconds, v.CreatedAtUtc);
+        new(v.Id, v.Name, v.BaseVoiceId, v.DurationSeconds, v.CreatedAtUtc, v.TunedVoiceId is not null);
 
     private static (string? MimeType, string? Extension) SniffSample(byte[] bytes)
     {

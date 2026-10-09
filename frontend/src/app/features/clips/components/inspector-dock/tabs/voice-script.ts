@@ -14,7 +14,8 @@
  *      Narrator: a line with no time follows on after the one before it.
  *
  * 3. JSON: { "version": 1, "characters": [{ "name", "voice", "speed" }],
- *            "lines": [{ "character", "start", "text", "speed", "voice", "emotion" }] }
+ *            "lines": [{ "character", "start", "end", "text", "speed", "voice", "emotion" }] }
+ *    "end" is optional: the second the line must have finished by (else the next line's start).
  *
  * A voice is a built-in voice id ("hm_omega") or "my:" and the name of one of the user's own
  * voices. The script is untrusted input (it usually comes from an AI tool): every field is
@@ -63,6 +64,8 @@ export interface VoiceScriptLine {
   character?: string;
   /** Seconds from the start of the video. */
   start?: number;
+  /** Seconds from the start of the video by which the line must have finished; the voice speeds up to make it. */
+  end?: number;
   speed?: number;
   voice?: string;
   /** Kept and shown, but not yet spoken differently: no speech engine here takes an emotion. */
@@ -268,6 +271,18 @@ function parseJson(source: string): VoiceScript {
           errors.push(`${where}: "start" must be seconds (10.5) or a time ("0:10.5").`);
         } else {
           line.start = seconds;
+        }
+      }
+
+      const end = l['end'];
+      if (end !== undefined && end !== null) {
+        const seconds = typeof end === 'number' ? end : typeof end === 'string' ? parseTime(end) : null;
+        if (seconds === null || !Number.isFinite(seconds) || seconds <= 0 || seconds > MAX_START_SECONDS) {
+          errors.push(`${where}: "end" must be seconds (16) or a time ("0:16").`);
+        } else if (line.start !== undefined && seconds <= line.start) {
+          errors.push(`${where}: "end" must come after "start".`);
+        } else {
+          line.end = seconds;
         }
       }
 

@@ -27,6 +27,9 @@ public sealed class FfmpegStudioVoiceRenderer(
     private const int ConverterSampleRate = 22050;
     private const int SampleSeconds = 25;
 
+    /// <summary>Kokoro's own rate; its tuner listens to 3-30 s of the reference.</summary>
+    private const int ReferenceSampleRate = 24000;
+
     private readonly FfmpegCapabilities? _ffmpeg = capabilities as FfmpegCapabilities;
 
     public bool IsAvailable =>
@@ -144,6 +147,22 @@ public sealed class FfmpegStudioVoiceRenderer(
         var bytes = await File.ReadAllBytesAsync(workspace.Resolve("out.wav"), ct).ConfigureAwait(false);
         logger.LogInformation("Voiceover line re-voiced: {Bytes} bytes.", bytes.Length);
         return bytes;
+    }
+
+    public bool CanPrepareReference => _ffmpeg is { IsAvailable: true };
+
+    public async Task<byte[]> ReferenceClipAsync(string sampleStorageKey, CancellationToken ct)
+    {
+        if (!CanPrepareReference)
+            throw new StudioVoiceException("ffmpeg isn't available on this server.");
+
+        await using var workspace = await workspaces.CreateAsync($"reference-{Guid.NewGuid():n}", ct).ConfigureAwait(false);
+        var stored = await workspace.MaterializeAsync(sampleStorageKey, "in/sample", ct).ConfigureAwait(false);
+
+        await FfmpegAsync(workspace,
+            ["-i", stored, "-vn", "-ac", "1", "-ar", $"{ReferenceSampleRate}", "-t", $"{SampleSeconds}", "-c:a", "pcm_s16le", "reference.wav"], ct)
+            .ConfigureAwait(false);
+        return await File.ReadAllBytesAsync(workspace.Resolve("reference.wav"), ct).ConfigureAwait(false);
     }
 
     private sealed record Converted(IReadOnlyDictionary<int, int> Inputs, IReadOnlyList<string> Files);

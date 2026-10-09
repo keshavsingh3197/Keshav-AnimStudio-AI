@@ -1,15 +1,17 @@
 # Installs the local AI voice converter (Seed-VC) used by "AI voice" characters.
 #
-# Everything lands outside the repo, under %LOCALAPPDATA%\AnimStudio\seed-vc, and runs on the
-# CPU - no GPU, no cloud. Versions are pinned so a reinstall gives the same converter. Seed-VC
-# is GPL-3.0; AnimStudio only runs it as a separate program and never ships it.
+# Everything lands outside the repo, under D:\AI_STUDIO\tools\seed-vc (VoiceConversion:SeedVcPath
+# in appsettings.json), and runs on the CPU - no GPU, no cloud. Versions are pinned so a
+# reinstall gives the same converter. Seed-VC is GPL-3.0; AnimStudio only runs it as a separate
+# program and never ships it.
 #
-# The model weights (about 2 GB) download from HuggingFace on the first conversion, not here.
+# The model weights (about 2 GB) download from HuggingFace on the first conversion, not here,
+# into the install's checkpoints and hf-cache folders.
 #
 #   powershell -ExecutionPolicy Bypass -File scripts\setup-voice-ai.ps1
 
 param(
-    [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'AnimStudio\seed-vc'),
+    [string]$InstallDir = 'D:\AI_STUDIO\tools\seed-vc',
     [string]$Python = 'python'
 )
 

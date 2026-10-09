@@ -278,8 +278,11 @@ public sealed record VoiceoverVoicesResponse(
     bool Available, string? ProviderId, string Reason, IReadOnlyList<VoiceoverVoiceResponse> Voices,
     IReadOnlyList<MyVoiceResponse> MyVoices, bool MyVoicesAvailable);
 
-/// <summary>A voice the user added from their own sample. The sample itself is never sent back.</summary>
+/// <summary>
+/// A voice the user added from their own sample. The sample itself is never sent back.
+/// <paramref name="Tuned"/>: the speech engine has a voice tuned from it, which speaks English lines directly.
+/// </summary>
 public sealed record MyVoiceResponse(
-    string Id, string Name, string BaseVoiceId, double? DurationSeconds, DateTime CreatedAtUtc);
+    string Id, string Name, string BaseVoiceId, double? DurationSeconds, DateTime CreatedAtUtc, bool Tuned);
 
 public sealed record VoiceoverVoiceResponse(string Id, string Name, string? LanguageCode, string? Gender);

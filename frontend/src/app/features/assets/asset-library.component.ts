@@ -160,6 +160,10 @@ export class AssetLibraryComponent {
   }
 
   constructor() {
+    // The project's asset list is cached from when the project opened; files made since
+    // (voiceover lines, studio uploads) only show once it is fetched again.
+    this.store.refreshAssets();
+
     // Server-wide storage is an admin endpoint. For anyone else it is refused, and the
     // header keeps the sum of this project's assets instead of raising an error banner.
     this.api.adminStorage(false).subscribe({

@@ -28,6 +28,10 @@ const MAX_RECORD_SECONDS = 60;
 /** The least breath between two lines when they are pulled earlier to end inside the video. */
 const MIN_GAP_SECONDS = 0.15;
 const MAX_RATE = 1.3;
+/** The fastest a script-timed line is sped up to finish inside its time; past this it sounds rushed. */
+const MAX_FIT_RATE = 1.6;
+/** Passes that re-speak a line faster; speech doesn't shorten exactly in step with the speed. */
+const FIT_PASSES = 2;
 
 /** Kokoro voice ids start with a language letter and a gender letter: "hf_alpha", "am_michael". */
 const KOKORO_LANGUAGES: Record<string, string> = {
@@ -63,6 +67,11 @@ interface ScriptLine extends VoiceScriptLine {
   rate: number;
 }
 
+/** What a line is spoken with: when any of it changes, earlier takes no longer match. */
+function keyOf(lines: ScriptLine[]): string {
+  return JSON.stringify(lines.map((l) => [l.text, l.selection, l.voiceId, l.rate]));
+}
+
 type Busy = 'idle' | 'previewing' | 'applying';
 
 interface LineResult {
@@ -85,6 +94,8 @@ interface LinePlan {
   overrunSeconds?: number;
   /** Pulled earlier than its clip's start so that it ends inside the video. */
   pulledEarly?: boolean;
+  /** The start the script gave, when the line had to move off it (to not overlap, or to end inside the video). */
+  movedFromSeconds?: number;
 }
 
 /** A line playing under the timeline while "Play with clips" runs. */
@@ -145,6 +156,14 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
   /** The picker's value: a built-in voice id, or "my:" and the id of one of the user's voices. */
   readonly selection = signal('');
   readonly rate = signal(0.95);
+  readonly maxFitRate = MAX_FIT_RATE;
+  /**
+   * Faster speeds that make script-timed lines finish inside their time, by line index. They hold
+   * only for the script, voices and speeds they were worked out for (`key`).
+   */
+  private readonly fitted = signal<{ key: string; rates: Map<number, number> }>({ key: '', rates: new Map() });
+  /** The line being re-spoken faster to fit its time, while a preview runs. */
+  readonly fittingIndex = signal<number | null>(null);
   readonly placement = signal<Placement>('clips');
   /** Breath after a cut before the line starts, and between back-to-back lines. */
   readonly leadInSeconds = signal(0.3);
@@ -222,7 +241,39 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
     return { lines, errors };
   });
 
-  readonly lines = computed<ScriptLine[]>(() => this.resolved().lines);
+  /** Every line as the script asks for it, before any speed-up to fit its time. */
+  private readonly scriptLines = computed<ScriptLine[]>(() => this.resolved().lines);
+
+  /** The speed-ups that still hold for the script as it is now, by line index. */
+  readonly fittedRates = computed(() => {
+    const fit = this.fitted();
+    return fit.key === keyOf(this.scriptLines()) ? fit.rates : new Map<number, number>();
+  });
+
+  readonly lines = computed<ScriptLine[]>(() => {
+    const rates = this.fittedRates();
+    return rates.size === 0
+      ? this.scriptLines()
+      : this.scriptLines().map((l) => rates.has(l.index) ? { ...l, rate: rates.get(l.index)! } : l);
+  });
+
+  /**
+   * The time each script-timed line has to be spoken in: from its start to its "end", else to
+   * just before the next line's start, else (the last line) to the end of the video.
+   */
+  readonly slots = computed(() => {
+    const slots = new Map<number, { start: number; end: number }>();
+    if (this.placement() !== 'script') return slots;
+    const lines = this.scriptLines();
+    lines.forEach((line, i) => {
+      if (line.start === undefined) return;
+      const next = lines[i + 1];
+      const end = line.end
+        ?? (next ? next.start !== undefined ? next.start - MIN_GAP_SECONDS : undefined : this.videoEnd() || undefined);
+      if (end !== undefined && end > line.start + 0.3) slots.set(line.index, { start: line.start, end });
+    });
+    return slots;
+  });
   /** Mistakes in the script, and voices it names that aren't installed. Any one stops a run. */
   readonly scriptErrors = computed(() => [...this.parsed().errors, ...this.resolved().errors]);
   readonly hasTimings = computed(() => this.parsed().hasTimings);
@@ -303,7 +354,7 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
     const byClip = this.placement() === 'clips';
     const byScript = this.placement() === 'script';
     const scriptStarts = new Map(this.lines().map((l) => [l.index, l.start]));
-    const entries: { index: number; plan: LinePlan; clipStart?: number; clipEnd?: number }[] = [];
+    const entries: { index: number; plan: LinePlan; given?: number; clipStart?: number; clipEnd?: number }[] = [];
     let cursor = byClip || byScript ? 0 : this.anchorSeconds();
     let previousEnd = -Infinity;
     let first = true;
@@ -312,16 +363,16 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
       if (!r.previewUrl && !r.asset) continue;
       const duration = this.durationOf(r);
       const clip = byClip ? schedule[r.index] : undefined;
-      // A time the script gives is kept even when it overlaps the line before: two
-      // characters talking over each other can be what the writer meant.
+      // A time the script gives is the earliest the line starts: when the line before is still
+      // speaking, it waits for it, so two voices never talk over each other.
       const given = byScript ? scriptStarts.get(r.index) : undefined;
       const start = given !== undefined
-        ? given
+        ? first ? given : Math.max(given, previousEnd + MIN_GAP_SECONDS)
         : clip
         ? Math.max(clip.startSeconds + this.leadInSeconds(), previousEnd + this.gapSeconds())
         : first && !byClip ? cursor : Math.max(cursor, previousEnd + this.gapSeconds());
       const end = start + duration;
-      entries.push({ index: r.index, plan: { startSeconds: start, endSeconds: end }, clipStart: clip?.startSeconds, clipEnd: clip?.endSeconds });
+      entries.push({ index: r.index, plan: { startSeconds: start, endSeconds: end }, given, clipStart: clip?.startSeconds, clipEnd: clip?.endSeconds });
       previousEnd = end;
       cursor = end;
       first = false;
@@ -333,7 +384,7 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
     const videoEnd = this.videoEnd();
     const speech = entries.reduce((sum, e) => sum + e.plan.endSeconds - e.plan.startSeconds, 0);
     const fits = speech + MIN_GAP_SECONDS * Math.max(0, entries.length - 1) <= videoEnd;
-    if (byClip && fits && videoEnd > 0) {
+    if ((byClip || byScript) && fits && videoEnd > 0) {
       let limit = videoEnd;
       for (let i = entries.length - 1; i >= 0; i--) {
         const plan = entries[i].plan;
@@ -349,6 +400,7 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
     for (const e of entries) {
       if (e.clipEnd !== undefined) e.plan.overrunSeconds = Math.max(0, e.plan.endSeconds - e.clipEnd);
       if (e.clipStart !== undefined && e.plan.startSeconds < e.clipStart - 0.05) e.plan.pulledEarly = true;
+      if (e.given !== undefined && Math.abs(e.plan.startSeconds - e.given) > 0.05) e.plan.movedFromSeconds = e.given;
       plans.set(e.index, e.plan);
     }
     return plans;
@@ -478,25 +530,76 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
     if (!projectId || !this.canRun()) return;
 
     this.begin('previewing');
-    const key = this.currentKey();
+    // Each preview works the speed-ups out afresh from the script's own speeds.
+    this.fitted.set({ key: '', rates: new Map() });
     const results: LineResult[] = [];
 
     for (const line of this.lines()) {
       if (this.cancelRequested) break;
       try {
-        const blob = await firstValueFrom(this.api.previewVoiceover(projectId, this.bodyFor(line)));
-        const previewUrl = URL.createObjectURL(blob);
-        results.push({
-          index: line.index, text: line.text, character: line.character, previewUrl,
-          durationSeconds: await this.readDuration(previewUrl),
-        });
+        results.push(await this.previewOne(projectId, line));
       } catch (err: unknown) {
         if (this.recordFailure(results, line, err)) break;
       }
       this.progress(results);
     }
 
-    this.finish(results, key);
+    await this.fitToSlots(projectId, results);
+    this.fittingIndex.set(null);
+    this.finish(results, this.currentKey());
+  }
+
+  /**
+   * Speeds up each script-timed line that runs past its time and speaks it again, so it ends
+   * before the next line starts (or by its "end") instead of being pushed later. Speeds stop at
+   * MAX_FIT_RATE; a line still too long there is pushed along and shows where it moved from.
+   */
+  private async fitToSlots(projectId: string, results: LineResult[]): Promise<void> {
+    const slots = this.slots();
+    if (slots.size === 0) return;
+    const scriptKey = keyOf(this.scriptLines());
+
+    for (let pass = 0; pass < FIT_PASSES && !this.cancelRequested; pass++) {
+      const rates = new Map(this.fittedRates());
+      const refit: ScriptLine[] = [];
+      for (const line of this.lines()) {
+        const slot = slots.get(line.index);
+        const r = results.find((x) => x.index === line.index && x.previewUrl);
+        if (!slot || !r?.durationSeconds) continue;
+        const room = slot.end - slot.start;
+        if (r.durationSeconds <= room + 0.05) continue;
+        // Speech shortens roughly in step with the speed; a little extra covers the rest.
+        const rate = Math.min(MAX_FIT_RATE, Math.ceil(line.rate * (r.durationSeconds / room) * 1.03 * 100) / 100);
+        if (rate <= line.rate + 0.005) continue;
+        rates.set(line.index, rate);
+        refit.push({ ...line, rate });
+      }
+      if (refit.length === 0) return;
+      this.fitted.set({ key: scriptKey, rates });
+
+      for (const line of refit) {
+        if (this.cancelRequested) return;
+        this.fittingIndex.set(line.index);
+        const at = results.findIndex((x) => x.index === line.index);
+        try {
+          const faster = await this.previewOne(projectId, line);
+          if (results[at].previewUrl) URL.revokeObjectURL(results[at].previewUrl!);
+          results[at] = faster;
+        } catch (err: unknown) {
+          if (this.recordFailure([], line, err)) return;
+        }
+        this.progress(results);
+      }
+    }
+  }
+
+  private async previewOne(projectId: string, line: ScriptLine): Promise<LineResult> {
+    const blob = await firstValueFrom(this.api.previewVoiceover(projectId, this.bodyFor(line)));
+    const previewUrl = URL.createObjectURL(blob);
+    return {
+      index: line.index, text: line.text, character: line.character, previewUrl,
+      durationSeconds: await this.readDuration(previewUrl),
+    };
   }
 
   /**
@@ -507,6 +610,12 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
   async apply(): Promise<void> {
     const projectId = this.store.projectId();
     if (!projectId || !this.canRun()) return;
+    // Script-timed lines get their speeds from a preview: speak them first so the saved
+    // takes are the ones that fit.
+    if (this.slots().size > 0 && (this.results().length === 0 || this.stale())) {
+      await this.previewLines();
+      if (this.cancelRequested || this.store.projectId() !== projectId || !this.canRun()) return;
+    }
 
     this.stopWithClips();
     this.begin('applying');
@@ -542,6 +651,8 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
       this.state.addVoiceoverTracks(placements, replacing > 0);
       this.replacedCount.set(replacing);
       this.applied.set(placements.length > 0);
+      // New files must show on the Assets page too, not only in the studio's media panel.
+      if (placements.length > 0) this.store.refreshAssets();
     }
   }
 
@@ -568,6 +679,7 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
       this.error.set(err instanceof Error ? err.message : 'Some files could not be deleted.');
     } finally {
       this.state.forgetAudioAssets(deleted);
+      if (deleted.length > 0) this.store.refreshAssets();
       this.cleaning.set(false);
     }
   }
@@ -636,15 +748,17 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
       '    { "name": "Narrator", "voice": "<voice>", "speed": 0.95 }',
       '  ],',
       '  "lines": [',
-      '    { "character": "Narrator", "start": 0.3, "emotion": "calm", "text": "<what is said>" }',
+      '    { "character": "Narrator", "start": 0.3, "end": 7.5, "emotion": "calm", "text": "<what is said>" }',
       '  ]',
       '}',
       '',
       'Rules:',
       '- "start" is the second in the video the line begins (a number like 10.5, or "0:10.5"). Leave it out to follow straight on after the previous line.',
+      `- "end" (optional) is the second the line must have finished by. Without it a line must finish before the next line's "start" (the last one, before the video ends). A line too long for its time is spoken faster, up to ${MAX_FIT_RATE}x, so keep the words to what fits.`,
       '- "speed" is 0.5 to 2.0; 0.9 - 1.0 sounds like calm narration. A line\'s own "speed" or "voice" overrides its character\'s.',
       '- "emotion" is one word (calm, excited, sad, angry, whispering, divine, ...).',
-      '- Keep each line to one or two sentences, and make sure it finishes before the next line starts (about 2.5 words per second at speed 1.0).',
+      '- Keep each line to one or two sentences, sized to its time: about 2.5 words per second at speed 1.0 (fewer for Hindi - about 2), so a 7-second line at speed 0.9 has room for about 15 English words.',
+      '- Lines must not overlap, and the last line must end before the video does. Add up the time of every line and check the total fits.',
       `- "voice" must be one of these.${mine.length > 0 ? ` My own voices: ${mine.join(', ')}.` : ''} Built-in voices:`,
       ...builtIn,
       '  (A Hindi script needs a Hindi voice - ids starting with "h"; my own voices speak any language.)',
@@ -881,7 +995,7 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
   }
 
   private currentKey(): string {
-    return JSON.stringify(this.lines().map((l) => [l.text, l.selection, l.voiceId, l.rate]));
+    return keyOf(this.lines());
   }
 
   /**

@@ -21,8 +21,9 @@ namespace AnimStudio.Api.Controllers;
 /// <summary>
 /// Voiceover from a script: one line of text becomes a spoken audio asset in the project's
 /// library, ready to drop on the A1 track. The speech comes from whichever speech provider
-/// the <c>Ai:Chains:Speech</c> chain has enabled (Kokoro, Piper, ...); a line in one of the
-/// user's own voices is then re-voiced from their sample by the AI voice converter.
+/// the <c>Ai:Chains:Speech</c> chain has enabled (Kokoro, Piper, ...). A line in one of the
+/// user's own voices is spoken by the engine's voice tuned from their sample when it is English
+/// and the engine can tune one; otherwise it is re-voiced from the sample by the AI voice converter.
 /// </summary>
 [ApiController]
 public sealed class VoiceoverController(
@@ -32,6 +33,7 @@ public sealed class VoiceoverController(
     IProjectRepository projects,
     IVoiceProfileRepository myVoices,
     IStudioVoiceRenderer voiceRenderer,
+    MyVoiceTuning tuning,
     IObjectStore store,
     IMediaProbeService probe,
     ICurrentUser currentUser,
@@ -76,7 +78,8 @@ public sealed class VoiceoverController(
             {
                 var listed = await provider.ListVoicesAsync(ct);
                 answered = true;
-                voices.AddRange(listed.Select(v =>
+                // Voices tuned from someone's sample are theirs, and reached only through their profile.
+                voices.AddRange(listed.Where(v => !MyVoiceTuning.IsTunedVoice(v.VoiceId)).Select(v =>
                     new VoiceoverVoiceResponse(v.VoiceId, v.DisplayName, v.LanguageCode, v.Gender)));
                 if (voices.Count > 0) break;
             }
@@ -88,15 +91,16 @@ public sealed class VoiceoverController(
         }
 
         var mine = (await myVoices.ListByUserAsync(currentUser.UserId, ct)).Select(MyVoicesController.ToResponse).ToList();
+        var myVoicesAvailable = voiceRenderer.CanReVoice || tuning.CanTune;
 
         // Configured but not one engine answered: say so now, rather than let every line
         // fail later with a generic "no provider could complete the request".
         if (status.Available && chain.Count > 0 && !answered)
             return Ok(ApiResponse<VoiceoverVoicesResponse>.Ok(new VoiceoverVoicesResponse(
-                false, status.ProviderId, "Unreachable", voices, mine, voiceRenderer.CanReVoice)));
+                false, status.ProviderId, "Unreachable", voices, mine, myVoicesAvailable)));
 
         return Ok(ApiResponse<VoiceoverVoicesResponse>.Ok(new VoiceoverVoicesResponse(
-            status.Available, status.ProviderId, status.Reason.ToString(), voices, mine, voiceRenderer.CanReVoice)));
+            status.Available, status.ProviderId, status.Reason.ToString(), voices, mine, myVoicesAvailable)));
     }
 
     /// <summary>
@@ -203,7 +207,7 @@ public sealed class VoiceoverController(
                 $"A line can be at most {MaxTextChars} characters. Split it into shorter lines.", "text"));
 
         var voiceId = body!.VoiceId?.Trim() ?? string.Empty;
-        if (!VoiceIdPattern.IsMatch(voiceId))
+        if (!VoiceIdPattern.IsMatch(voiceId) || MyVoiceTuning.IsTunedVoice(voiceId))
             return new(Fail(StatusCodes.Status400BadRequest, "voice-invalid", "Pick a voice.", "voiceId"));
 
         var rate = body.Rate ?? 1.0;
@@ -222,34 +226,44 @@ public sealed class VoiceoverController(
                 logger.LogWarning("User {UserId} asked for voice {VoiceId}, which is not theirs.", currentUser.UserId, mine.Id);
                 throw new UnauthorizedAccessException();
             }
-            if (!voiceRenderer.CanReVoice)
-                return new(Fail(StatusCodes.Status503ServiceUnavailable, "my-voice-unavailable",
-                    @"Your own voices need the AI voice converter. Install it once with scripts\setup-voice-ai.ps1, then restart the API."));
         }
 
+        // The tuned voice is part of it: a line it spoke is not the line the converter made.
         var fingerprint = Sha256Hex(string.Join('\n',
-            text, voiceId, rate.ToString("R", CultureInfo.InvariantCulture), mine?.Id, mine?.StorageKey));
+            text, voiceId, rate.ToString("R", CultureInfo.InvariantCulture), mine?.Id, mine?.StorageKey, mine?.TunedVoiceId));
         return new(null, text, voiceId, rate, mine, fingerprint);
     }
 
-    /// <summary>Speaks a checked line, re-voices it when asked, and checks what came back is usable audio.</summary>
+    /// <summary>
+    /// Speaks a checked line - in the user's tuned voice when there is one for it, else in the
+    /// stock voice and then re-voiced - and checks what came back is usable audio.
+    /// </summary>
     private async Task<Spoken> SpeakAsync(string projectId, Line line, CancellationToken ct)
     {
-        if (!await Renders.WaitAsync(TimeSpan.FromSeconds(30), ct))
-            return new(Fail(StatusCodes.Status429TooManyRequests, "voiceover-busy",
-                "Other voiceovers are being made right now. Try again in a minute."));
+        var tunedVoice = line.MyVoice is { } mine ? await tuning.VoiceForAsync(mine, line.VoiceId!, ct) : null;
+        if (line.MyVoice is not null && tunedVoice is null && !voiceRenderer.CanReVoice)
+            return new(Fail(StatusCodes.Status503ServiceUnavailable, "my-voice-unavailable",
+                @"Your own voices need Kokoro with voice tuning for English lines (start it with scripts\setup-voiceover.ps1), " +
+                @"or the AI voice converter for any language (install it once with scripts\setup-voice-ai.ps1, then restart the API)."));
 
-        AiOutcome<AiSpeechResult> outcome;
-        try
+        var reVoice = line.MyVoice is not null && tunedVoice is null;
+        AiOutcome<AiSpeechResult>? outcome = null;
+        if (tunedVoice is not null)
         {
-            outcome = await ai.SpeechAsync(
-                new AiSpeechRequest { Text = line.Text!, VoiceId = line.VoiceId!, Rate = line.Rate },
-                new AiCallContext(projectId, currentUser.UserId), ct);
+            outcome = await SynthesizeAsync(projectId, line, tunedVoice, ct);
+            if (outcome is null) return new(Busy());
+            if (!outcome.IsSuccess && voiceRenderer.CanReVoice)
+            {
+                // The engine lost the voice or is down: the converter can still make the line.
+                logger.LogWarning("The tuned voice of {VoiceId} could not speak a line ({Code}); re-voicing instead.",
+                    line.MyVoice!.Id, outcome.ErrorCode);
+                outcome = null;
+                reVoice = true;
+            }
         }
-        finally
-        {
-            Renders.Release();
-        }
+
+        outcome ??= await SynthesizeAsync(projectId, line, line.VoiceId!, ct);
+        if (outcome is null) return new(Busy());
 
         if (outcome.Kind == AiOutcomeKind.Unavailable)
             return new(Fail(StatusCodes.Status503ServiceUnavailable, "voiceover-unavailable",
@@ -264,7 +278,7 @@ public sealed class VoiceoverController(
                 MessageFor(outcome.ErrorCode)));
 
         var content = outcome.Value!.Content;
-        if (line.MyVoice is not null)
+        if (reVoice)
         {
             var revoiced = await ReVoiceAsync(content, line.MyVoice, line.Fingerprint!, ct);
             if (revoiced.Failure is not null) return new(revoiced.Failure);
@@ -289,6 +303,27 @@ public sealed class VoiceoverController(
 
         return new(null, content, sniffed, extension, outcome.Value.Provenance.ProviderId);
     }
+
+    /// <summary>Null when the line waited too long for one of the few speech slots.</summary>
+    private async Task<AiOutcome<AiSpeechResult>?> SynthesizeAsync(
+        string projectId, Line line, string voiceId, CancellationToken ct)
+    {
+        if (!await Renders.WaitAsync(TimeSpan.FromSeconds(30), ct)) return null;
+        try
+        {
+            return await ai.SpeechAsync(
+                new AiSpeechRequest { Text = line.Text!, VoiceId = voiceId, Rate = line.Rate },
+                new AiCallContext(projectId, currentUser.UserId), ct);
+        }
+        finally
+        {
+            Renders.Release();
+        }
+    }
+
+    private ObjectResult Busy() =>
+        Fail(StatusCodes.Status429TooManyRequests, "voiceover-busy",
+            "Other voiceovers are being made right now. Try again in a minute.");
 
     /// <summary>
     /// The line in the user's own voice. Converting is slow on a CPU, so each result is kept

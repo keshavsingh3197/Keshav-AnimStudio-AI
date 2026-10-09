@@ -37,6 +37,20 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
 
   readonly trackHeaderWidth = 104;
 
+  /** Voice and music get their own rows so a music bed never sits on top of the narration. */
+  readonly audioLanes = [
+    {
+      id: 'A1', label: 'Voice', clipColor: 'var(--ok, #10b981)',
+      placeholder: 'Drop voice-over audio here · Voiceover panel lines land here',
+      desc: 'Voiceover narration and dialogue lines',
+    },
+    {
+      id: 'A2', label: 'Music', clipColor: '#0ea5e9',
+      placeholder: 'Drop music or sound effects here · Click to open Audio tab',
+      desc: 'Background score and sound effects, mixed under the voice',
+    },
+  ] as const;
+
   // Custom Horizontal Scrollbar State
   readonly scrollThumbWidth = signal<number>(80);
   readonly scrollThumbLeft = signal<number>(0);
@@ -113,11 +127,12 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
       } else {
         this.state.showTrackManually('V2');
       }
-    } else if (trackId === 'A1') {
-      if (this.state.showA1Track()) {
-        this.state.hideTrack('A1');
+    } else if (trackId === 'A1' || trackId === 'A2') {
+      const shown = trackId === 'A1' ? this.state.showA1Track() : this.state.showA2Track();
+      if (shown) {
+        this.state.hideTrack(trackId);
       } else {
-        this.state.showTrackManually('A1');
+        this.state.showTrackManually(trackId);
       }
     }
   }

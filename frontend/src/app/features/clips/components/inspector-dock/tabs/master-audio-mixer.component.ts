@@ -21,6 +21,14 @@ export class MasterAudioMixerComponent {
 
   readonly overlapChoices = AUDIO_OVERLAP_CHOICES;
   readonly duckPresets = [0.1, 0.2, 0.25, 0.35, 0.5];
+  readonly audioBuses = [
+    { id: 'A1', name: 'Voice', color: '#8b5cf6' },
+    { id: 'A2', name: 'Music', color: '#a855f7' },
+  ] as const;
+
+  busVolume(lane: 'A1' | 'A2'): number {
+    return lane === 'A1' ? this.state.trackA1Volume() : this.state.trackA2Volume();
+  }
 
   setDuckLevel(level: number): void {
     this.state.duckLevel.set(Math.max(0, Math.min(1, level)));

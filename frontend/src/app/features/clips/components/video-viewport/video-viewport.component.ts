@@ -79,8 +79,10 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       this.state.isMonitorMuted();
       this.state.trackV1Volume();
       this.state.trackA1Volume();
+      this.state.trackA2Volume();
       this.state.isTrackMuted('V1');
       this.state.isTrackMuted('A1');
+      this.state.isTrackMuted('A2');
       this.state.clipSounds();
       this.state.musicTracks();
       this.state.projectOverlapRule();
@@ -615,23 +617,26 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     let targetMusicAssetId: string | null = null;
     let targetMusicTime = 0;
     let targetMusicVolume = 1.0;
-    let isMusicTrackMuted = this.state.isMonitorMuted() || this.state.isTrackMuted('A1');
+    // Music rides the A2 bus; a loose audio item follows the lane it sits on.
+    let musicBus: 'A1' | 'A2' = 'A2';
 
     if (activeMusicTrack) {
       targetMusicAssetId = activeMusicTrack.assetId;
       targetMusicTime = (time - activeMusicTrack.startSeconds) + (activeMusicTrack.trimStartSeconds ?? 0);
-      targetMusicVolume = (activeMusicTrack.volume ?? 1.0) * this.state.trackA1Volume();
-      if (activeMusicTrack.muted) isMusicTrackMuted = true;
+      targetMusicVolume = activeMusicTrack.volume ?? 1.0;
     } else if (activeA1Item) {
+      musicBus = activeA1Item.trackId === 'A1' ? 'A1' : 'A2';
       targetMusicAssetId = activeA1Item.src;
       targetMusicTime = (time - activeA1Item.startTime) + (activeA1Item.trimStartSeconds ?? 0);
-      targetMusicVolume = (activeA1Item.volume ?? 1.0) * this.state.trackA1Volume();
-      if (activeA1Item.muted) isMusicTrackMuted = true;
+      targetMusicVolume = activeA1Item.volume ?? 1.0;
     } else if (hasGlobalMusic) {
       targetMusicAssetId = this.state.musicAssetId();
       targetMusicTime = time;
-      targetMusicVolume = this.state.musicVolume() * this.state.trackA1Volume();
+      targetMusicVolume = this.state.musicVolume();
     }
+    targetMusicVolume *= this.state.audioBusGain(musicBus);
+    const isMusicTrackMuted = this.state.isMonitorMuted() || this.state.isTrackMuted(musicBus)
+      || Boolean(activeMusicTrack?.muted) || (!activeMusicTrack && Boolean(activeA1Item?.muted));
 
     // The resolved rule may ask the music to step back under this clip.
     targetMusicVolume *= overlap.musicGain;
