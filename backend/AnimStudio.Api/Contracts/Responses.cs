@@ -276,7 +276,17 @@ public sealed record StudioVoiceStatusResponse(bool Available, bool AiAvailable 
 /// <summary>What GET /api/voiceover/voices reports: whether speech can be made, and in which voices.</summary>
 public sealed record VoiceoverVoicesResponse(
     bool Available, string? ProviderId, string Reason, IReadOnlyList<VoiceoverVoiceResponse> Voices,
-    IReadOnlyList<MyVoiceResponse> MyVoices, bool MyVoicesAvailable);
+    IReadOnlyList<MyVoiceResponse> MyVoices, bool MyVoicesAvailable,
+    IReadOnlyList<VoiceoverEngineResponse>? Engines = null);
+
+/// <summary>
+/// A speech engine that is on and answering, in the configured order. <see cref="Models"/> is
+/// empty for an engine with nothing to choose; <see cref="Model"/> is the one used by default.
+/// </summary>
+public sealed record VoiceoverEngineResponse(
+    string Id, string Name, bool RunsLocally, string? Model, IReadOnlyList<VoiceoverModelResponse> Models);
+
+public sealed record VoiceoverModelResponse(string Id, string Label);
 
 /// <summary>What was heard in a dictated script, one line per spoken phrase.</summary>
 public sealed record VoiceScriptDictationResponse(IReadOnlyList<string> Lines);

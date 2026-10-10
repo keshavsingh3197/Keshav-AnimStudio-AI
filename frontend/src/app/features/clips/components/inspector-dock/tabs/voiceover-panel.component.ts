@@ -2,7 +2,7 @@ import { Component, OnDestroy, OnInit, computed, effect, inject, signal, untrack
 import { FormsModule } from '@angular/forms';
 import { DecimalPipe } from '@angular/common';
 import { firstValueFrom } from 'rxjs';
-import { Asset, MyVoice, VoiceoverVoice } from '../../../../../core/models/api.models';
+import { Asset, MyVoice, VoiceoverEngine, VoiceoverVoice } from '../../../../../core/models/api.models';
 import { ApiService } from '../../../../../core/services/api.service';
 import { ProjectStore } from '../../../../../core/services/project-store';
 import { StudioStateService } from '../../../services/studio-state.service';
@@ -19,6 +19,8 @@ const LEGACY_VOICE_KEY = 'animstudio_vo_voice';
 const VOICE_KEY_PREFIX = 'animstudio_vo_voice_';
 const FAVORITES_KEY = 'animstudio_vo_favorites';
 const RATE_KEY = 'animstudio_vo_rate';
+const ENGINE_KEY = 'animstudio_vo_engine';
+const MODEL_KEY_PREFIX = 'animstudio_vo_model_';
 
 /** A picker value naming one of the user's own voices rather than a built-in one. */
 const MY_PREFIX = 'my:';
@@ -49,6 +51,10 @@ const KOKORO_LANGUAGES: Record<string, string> = {
   i: 'Italian', j: 'Japanese', p: 'Portuguese', z: 'Chinese',
 };
 
+/** ISO 639's "multiple languages": a voice that speaks whatever the script is in (Gemini's). */
+const ANY_LANGUAGE = 'mul';
+const ANY_LANGUAGE_LABEL = 'Any language';
+
 /** The voices that sound most natural in each language, tried in order. */
 const PREFERRED_VOICES = {
   hindi: ['hm_omega', 'hf_alpha', 'hm_psi', 'hf_beta'],
@@ -78,8 +84,8 @@ interface ScriptLine extends VoiceScriptLine {
 }
 
 /** What a line is spoken with: when any of it changes, earlier takes no longer match. */
-function keyOf(lines: ScriptLine[]): string {
-  return JSON.stringify(lines.map((l) => [l.text, l.selection, l.voiceId, l.rate]));
+function keyOf(lines: ScriptLine[], engine: string): string {
+  return JSON.stringify([engine, ...lines.map((l) => [l.text, l.selection, l.voiceId, l.rate])]);
 }
 
 type Busy = 'idle' | 'previewing' | 'applying';
@@ -158,6 +164,15 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
   readonly available = signal(false);
   readonly unavailableReason = signal('');
   readonly voices = signal<VoiceoverVoice[]>([]);
+  /** Speech engines that are on, in the configured order; the first is what a line uses by default. */
+  readonly engines = signal<VoiceoverEngine[]>([]);
+  /** The engine whose voices are listed and which speaks the lines ('' until the server says). */
+  readonly engine = signal('');
+  /** One of the engine's offered models ('' for its configured one). */
+  readonly model = signal('');
+  readonly currentEngine = computed(() => this.engines().find((e) => e.id === this.engine()) ?? null);
+  /** Takes and fitted speeds hold only for the engine and model they were made with. */
+  readonly engineKey = computed(() => `${this.engine()}|${this.model()}`);
   readonly myVoices = signal<MyVoice[]>([]);
   readonly myVoicesAvailable = signal(false);
   readonly favorites = signal<string[]>([]);
@@ -293,7 +308,7 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
   /** The speed-ups that still hold for the script as it is now, by line index. */
   readonly fittedRates = computed(() => {
     const fit = this.fitted();
-    return fit.key === keyOf(this.scriptLines()) ? fit.rates : new Map<number, number>();
+    return fit.key === keyOf(this.scriptLines(), this.engineKey()) ? fit.rates : new Map<number, number>();
   });
 
   readonly lines = computed<ScriptLine[]>(() => {
@@ -508,16 +523,30 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
     const savedRate = Number(this.readStorage(RATE_KEY));
     if (savedRate >= 0.5 && savedRate <= 2) this.rate.set(savedRate);
     this.favorites.set(this.readFavorites());
+    this.loadVoices(this.readStorage(ENGINE_KEY) ?? '');
+  }
 
-    this.api.voiceoverVoices().subscribe({
+  /**
+   * The voices of <paramref name="engine"/> ('' for the default one). An engine that has been
+   * turned off since it was remembered is quietly replaced by the default.
+   */
+  private loadVoices(engine: string): void {
+    this.loadingVoices.set(true);
+    this.api.voiceoverVoices(engine || undefined).subscribe({
       next: (res) => {
         this.loadingVoices.set(false);
         this.available.set(res.available);
         this.unavailableReason.set(res.reason);
         this.voices.set(res.voices ?? []);
+        this.engines.set(res.engines ?? []);
+        this.engine.set(res.providerId ?? '');
+        this.model.set(this.pickModel());
         this.myVoices.set(res.myVoices ?? []);
         this.myVoicesAvailable.set(res.myVoicesAvailable ?? false);
-        this.selection.set(this.pickDefaultSelection());
+        if (!this.isKnown(this.selection())) this.selection.set(this.pickDefaultSelection());
+        if (this.addingVoice() && !this.voices().some((v) => v.id === this.newVoiceBase())) {
+          this.newVoiceBase.set(this.pickFrom(PREFERRED_VOICES[this.language()]) ?? this.voices()[0]?.id ?? '');
+        }
       },
       error: (err: unknown) => {
         this.loadingVoices.set(false);
@@ -525,6 +554,26 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
         this.unavailableReason.set(err instanceof Error ? err.message : 'Could not reach the server.');
       },
     });
+  }
+
+  onEngineChange(engine: string): void {
+    if (engine === this.engine()) return;
+    this.writeStorage(ENGINE_KEY, engine);
+    this.loadVoices(engine);
+  }
+
+  onModelChange(model: string): void {
+    this.model.set(model);
+    this.writeStorage(MODEL_KEY_PREFIX + this.engine(), model);
+  }
+
+  /** The model last used with this engine, if it still offers it; else its configured one. */
+  private pickModel(): string {
+    const engine = this.currentEngine();
+    if (!engine || engine.models.length === 0) return '';
+    const remembered = this.readStorage(MODEL_KEY_PREFIX + engine.id);
+    if (remembered && engine.models.some((m) => m.id === remembered)) return remembered;
+    return engine.models.some((m) => m.id === engine.model) ? engine.model! : engine.models[0].id;
   }
 
   ngOnDestroy(): void {
@@ -894,7 +943,7 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
   private async fitToSlots(projectId: string, results: LineResult[]): Promise<void> {
     const slots = this.slots();
     if (slots.size === 0) return;
-    const scriptKey = keyOf(this.scriptLines());
+    const scriptKey = keyOf(this.scriptLines(), this.engineKey());
 
     for (let pass = 0; pass < FIT_PASSES && !this.cancelRequested; pass++) {
       const rates = new Map(this.fittedRates());
@@ -1075,9 +1124,13 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
    */
   async copyAiPrompt(): Promise<void> {
     const mine = this.myVoices().map((v) => `my:${v.name}`);
-    const builtIn = this.voiceGroups()
-      .filter((g) => g.label !== 'My voices')
-      .map((g) => `  ${g.label}: ${g.voices.map((v) => v.value).join(', ')}`);
+    const groups = this.voiceGroups().filter((g) => g.label !== 'My voices');
+    // Gemini's voices are told apart by their character ("Kore (Firm)"), which helps the AI cast them.
+    const builtIn = groups.map((g) => g.label === ANY_LANGUAGE_LABEL
+      ? `  ${g.label}: ${g.voices.map((v) => `${v.value} - ${v.label.replace(/^\S+\s*\((.+)\)$/, '$1').toLowerCase()}`).join(', ')}`
+      : `  ${g.label}: ${g.voices.map((v) => v.value).join(', ')}`);
+    const anyLanguage = groups.some((g) => g.label === ANY_LANGUAGE_LABEL);
+    const byLanguage = groups.some((g) => g.label !== ANY_LANGUAGE_LABEL);
     const clips = this.voiceClips()
       .map((c, i) => `  clip ${i + 1}: ${c.startSeconds.toFixed(1)}s - ${c.endSeconds.toFixed(1)}s`);
     const prompt = [
@@ -1098,11 +1151,15 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
       `- "end" (optional) is the second the line must have finished by. Without it a line must finish before the next line's "start" (the last one, before the video ends). A line too long for its time is spoken faster, up to ${MAX_FIT_RATE}x, so keep the words to what fits.`,
       '- "speed" is 0.5 to 2.0; 0.9 - 1.0 sounds like calm narration. A line\'s own "speed" or "voice" overrides its character\'s.',
       '- "emotion" is one word (calm, excited, sad, angry, whispering, divine, ...).',
+      ...(anyLanguage ? [
+        `- With an "${ANY_LANGUAGE_LABEL}" voice, a line's "text" may begin with a short acting direction, like "Say excitedly: ..." or "Whisper: ..."; it is performed, not read out. Never do this with any other voice - it would be read aloud.`,
+      ] : []),
       '- Keep each line to one or two sentences, sized to its time: about 2.5 words per second at speed 1.0 (fewer for Hindi - about 2), so a 7-second line at speed 0.9 has room for about 15 English words.',
       '- Lines must not overlap, and the last line must end before the video does. Add up the time of every line and check the total fits.',
       `- "voice" must be one of these.${mine.length > 0 ? ` My own voices: ${mine.join(', ')}.` : ''} Built-in voices:`,
       ...builtIn,
-      '  (A Hindi script needs a Hindi voice - ids starting with "h"; my own voices speak any language.)',
+      ...(byLanguage ? ['  (Those listed by language speak only that language: a Hindi script needs a Hindi voice - ids starting with "h"; my own voices speak any language.)'] : []),
+      ...(anyLanguage ? [`  ("${ANY_LANGUAGE_LABEL}" voices speak Hindi, English and more, read from the text itself. Write only the id, like "Kore", and pick by the character after it.)`] : []),
       '',
       `The video is ${this.videoEnd().toFixed(1)} seconds long.${clips.length > 0 ? ' Its clips:' : ''}`,
       ...clips,
@@ -1142,6 +1199,10 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
   // --- the user's own voices
 
   openAddVoice(): void {
+    // A voice of your own is built on a voice of the default engine (first in the configured
+    // order), which is also what speaks its lines - never a picked hosted one.
+    const fallback = this.engines()[0]?.id;
+    if (fallback && this.engine() !== fallback) this.onEngineChange(fallback);
     this.voiceError.set('');
     this.newVoiceName.set(this.myVoices().length === 0 ? 'My voice' : `My voice ${this.myVoices().length + 1}`);
     this.newVoiceBase.set(this.voiceId() || this.pickFrom(PREFERRED_VOICES[this.language()]) || this.voices()[0]?.id || '');
@@ -1332,11 +1393,16 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
   }
 
   private bodyFor(line: ScriptLine) {
-    return { text: line.text, voiceId: line.voiceId, rate: line.rate, myVoiceId: line.myVoice?.id };
+    // A line in the user's own voice is made on this machine; the server ignores an engine for it.
+    if (line.myVoice) return { text: line.text, voiceId: line.voiceId, rate: line.rate, myVoiceId: line.myVoice.id };
+    return {
+      text: line.text, voiceId: line.voiceId, rate: line.rate,
+      engine: this.engine() || undefined, model: this.model() || undefined,
+    };
   }
 
   private currentKey(): string {
-    return keyOf(this.lines());
+    return keyOf(this.lines(), this.engineKey());
   }
 
   /**
@@ -1427,7 +1493,8 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
       return { language: KOKORO_LANGUAGES[match[1]], label: `${name} (${match[2] === 'f' ? 'female' : 'male'})` };
     }
     const gender = v.gender ? ` (${v.gender.toLowerCase()})` : '';
-    return { language: v.languageCode || 'Voices', label: `${v.name || v.id}${gender}` };
+    const language = v.languageCode === ANY_LANGUAGE ? ANY_LANGUAGE_LABEL : v.languageCode || 'Voices';
+    return { language, label: `${v.name || v.id}${gender}` };
   }
 
   /**
@@ -1449,10 +1516,11 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
       : this.voices().some((v) => v.id === value);
   }
 
-  /** The user's own voices speak any language; a built-in voice speaks its own. */
+  /** The user's own voices and Gemini's speak any language; a Kokoro voice speaks its own. */
   private fitsLanguage(value: string, language: Language): boolean {
     if (!value) return false;
     if (value.startsWith(MY_PREFIX)) return true;
+    if (this.voices().some((v) => v.id === value && v.languageCode === ANY_LANGUAGE)) return true;
     return value.startsWith('h') === (language === 'hindi');
   }
 

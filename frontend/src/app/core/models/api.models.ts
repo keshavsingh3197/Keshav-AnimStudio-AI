@@ -119,6 +119,18 @@ export interface VoiceoverVoices {
   myVoices?: MyVoice[];
   /** False when neither Kokoro voice tuning nor the AI voice converter can make "my voice" lines. */
   myVoicesAvailable?: boolean;
+  /** Speech engines that are on, in the configured order. */
+  engines?: VoiceoverEngine[];
+}
+
+/** A speech engine the voiceover panel can pick; `models` is empty when there is nothing to choose. */
+export interface VoiceoverEngine {
+  id: string;
+  name: string;
+  runsLocally: boolean;
+  /** The model it uses unless another is picked. */
+  model?: string | null;
+  models: { id: string; label: string }[];
 }
 
 /** What was heard in a dictated script, one line per spoken phrase. */
@@ -152,6 +164,10 @@ export interface VoiceoverBody {
   name?: string;
   /** One of the user's own voices: voiceId speaks the line, then it is re-voiced into this one. */
   myVoiceId?: string;
+  /** The speech engine to use instead of the configured order (not with myVoiceId). */
+  engine?: string;
+  /** One of the engine's offered models. */
+  model?: string;
 }
 
 export interface CharacterAppearance {

@@ -430,6 +430,15 @@ public static class DependencyInjection
                         sp.GetRequiredService<ILogger<OpenAiCompatibleTtsProvider>>()));
                     break;
 
+                case AiProviderFamily.GeminiTts:
+                    services.AddSingleton<IAiProvider>(sp => new GeminiTtsProvider(
+                        providerId,
+                        sp.GetRequiredService<IAiHttpClientFactory>(),
+                        sp.GetRequiredService<IAiSecretResolver>(),
+                        sp.GetRequiredService<IOptionsMonitor<AiOptions>>(),
+                        sp.GetRequiredService<ILogger<GeminiTtsProvider>>()));
+                    break;
+
                 case AiProviderFamily.ComfyUiImage:
                     services.AddSingleton<IAiProvider>(sp => new ComfyUiLocalImageProvider(
                         providerId,

@@ -140,32 +140,7 @@ public sealed class GeminiTextProvider(
             completionTokens);
     }
 
-    /// <summary>
-    /// The model goes in the URL path, so it is validated rather than interpolated: an
-    /// operator-supplied string reaching a request path is exactly how a call ends up
-    /// somewhere other than where it was meant to.
-    /// </summary>
-    private string ModelName()
-    {
-        var configured = Model?.Trim();
-
-        if (string.IsNullOrEmpty(configured)) return DefaultModel;
-
-        // Accepts either "gemini-2.5-flash" or the fully qualified "models/gemini-2.5-flash".
-        if (configured.StartsWith("models/", StringComparison.OrdinalIgnoreCase))
-            configured = configured["models/".Length..];
-
-        var valid = configured.Length is > 0 and <= 80 &&
-                    configured.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '.' or '_');
-
-        if (!valid)
-        {
-            throw new AiProviderException("model-invalid",
-                "The configured Gemini model name is not a valid model identifier.");
-        }
-
-        return configured;
-    }
+    private string ModelName() => GeminiModelName.Resolve(Model, DefaultModel);
 
     private static string? BlockReason(JsonElement root) =>
         root.TryGetProperty("promptFeedback", out var feedback) &&

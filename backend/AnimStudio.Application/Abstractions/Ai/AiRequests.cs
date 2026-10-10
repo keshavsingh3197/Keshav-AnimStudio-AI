@@ -64,6 +64,15 @@ public sealed record AiSpeechRequest
     public double Pitch { get; init; }
     public string? LanguageCode { get; init; }
     public bool BypassCache { get; init; }
+
+    /// <summary>
+    /// The one engine to speak with, instead of walking the chain. No fallback: voice ids
+    /// belong to one engine, so another would only fail on the same voice.
+    /// </summary>
+    public string? ProviderId { get; init; }
+
+    /// <summary>A model the caller checked against the engine's offered models; null for the configured one.</summary>
+    public string? Model { get; init; }
 }
 
 public sealed record AiSpeechResult(

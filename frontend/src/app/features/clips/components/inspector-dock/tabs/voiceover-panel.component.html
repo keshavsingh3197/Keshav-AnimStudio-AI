@@ -127,6 +127,38 @@
   }
 
   <div class="vo-step-label"><span class="vo-num">2</span> Voice</div>
+  @if (engines().length > 1 || (currentEngine()?.models?.length ?? 0) > 0) {
+    <div class="vo-row">
+      <div class="vo-field">
+        <label class="vo-label" for="vo-engine">Engine</label>
+        <select id="vo-engine" class="form-select form-select-sm" [ngModel]="engine()" (ngModelChange)="onEngineChange($event)"
+                [disabled]="loadingVoices() || generating()"
+                title="Which speech engine speaks the lines. Your own voices are always made on this machine.">
+          @for (e of engines(); track e.id) {
+            <option [value]="e.id">{{ e.name }}</option>
+          }
+        </select>
+      </div>
+      @if (currentEngine()?.models?.length) {
+        <div class="vo-field">
+          <label class="vo-label" for="vo-model">Model</label>
+          <select id="vo-model" class="form-select form-select-sm" [ngModel]="model()" (ngModelChange)="onModelChange($event)"
+                  [disabled]="loadingVoices() || generating()">
+            @for (m of currentEngine()!.models; track m.id) {
+              <option [value]="m.id">{{ m.label }}</option>
+            }
+          </select>
+        </div>
+      }
+    </div>
+    @if (currentEngine(); as e) {
+      @if (!e.runsLocally) {
+        <div class="vo-dim vo-script-hint">
+          {{ e.name }} is a hosted service, paid per line spoken. Lines in your own voice are still made on this machine.
+        </div>
+      }
+    }
+  }
   <div class="vo-row">
     <div class="vo-field">
       <label class="vo-label" for="vo-voice">Voice</label>

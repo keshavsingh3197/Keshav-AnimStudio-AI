@@ -664,6 +664,12 @@ public sealed record VoiceoverRequest
 
     /// <summary>One of the caller's own voices: the line is spoken by <see cref="VoiceId"/>, then re-voiced into it.</summary>
     [StringLength(64)] public string? MyVoiceId { get; init; }
+
+    /// <summary>The speech engine to use instead of the configured order; ignored for <see cref="MyVoiceId"/>.</summary>
+    [StringLength(64)] public string? Engine { get; init; }
+
+    /// <summary>One of <see cref="Engine"/>'s offered models; null for its configured one.</summary>
+    [StringLength(80)] public string? Model { get; init; }
 }
 
 /// <summary>A voiceover script to rewrite so it reads aloud well. <see cref="Fresh"/> asks for a new take, not the cached one.</summary>

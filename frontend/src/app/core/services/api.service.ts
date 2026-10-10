@@ -211,8 +211,10 @@ export class ApiService {
 
   // --- voiceover
   /** Whether the server's speech engine is on, and the voices it offers. */
-  voiceoverVoices(): Observable<VoiceoverVoices> {
-    return this.unwrap(this.http.get<ApiResponse<VoiceoverVoices>>(`${this.base}/api/voiceover/voices`));
+  /** The voices of `engine`, or of the default engine when none is named. */
+  voiceoverVoices(engine?: string): Observable<VoiceoverVoices> {
+    const params = engine ? { engine } : undefined;
+    return this.unwrap(this.http.get<ApiResponse<VoiceoverVoices>>(`${this.base}/api/voiceover/voices`, { params }));
   }
 
   /** Speaks one script line and returns the audio without saving it, to hear before applying. */

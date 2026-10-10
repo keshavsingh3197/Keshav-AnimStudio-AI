@@ -19,7 +19,7 @@ public static class VoiceScriptPolish
     public const int MaxOutputChars = 16_000;
 
     /// <summary>Bump when the instructions change, so cached answers to the old ones are not reused.</summary>
-    public const int PromptVersion = 1;
+    public const int PromptVersion = 2;
 
     private const string TemplateKey = "voiceover-polish";
 
@@ -38,6 +38,7 @@ public static class VoiceScriptPolish
         - Fix grammar, filler words ("um", "so", "like"), repetitions and false starts from speaking.
         - One or two short sentences per line, one line per thought. Use commas and full stops for natural pauses.
         - Keep every line's structure: a leading time like [0:10.5], a "Name:" or "Name (emotion):" speaker prefix, and "@Name:" voice lines stay exactly as they are; only the spoken words change.
+        - A short acting direction at the start of the spoken words, like "Say excitedly:" or "Whisper:", is for the voice engine, not the listener: keep it exactly as it is, and never add one.
         - If the script is JSON, return the same JSON with only the "text" values rewritten.
         - Keep about the same length, so it still fits the video.
 
