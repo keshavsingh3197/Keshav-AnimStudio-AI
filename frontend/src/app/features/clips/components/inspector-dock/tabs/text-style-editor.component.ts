@@ -45,6 +45,10 @@ export class TextStyleEditorComponent {
     this.set({ position: 'custom', x: this.look().x, y });
   }
 
+  setAcross(x: number): void {
+    this.set({ position: 'custom', x, y: this.look().y });
+  }
+
   /** A small sample of the design, painted the way the monitor paints text. */
   sample(design: TextDesign): Record<string, string> {
     const look = resolveTextLook({ ...(this.textStyle() ?? ({} as TimelineItemTextStyle)), ...design.style });

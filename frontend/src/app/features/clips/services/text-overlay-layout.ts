@@ -178,23 +178,76 @@ export const TEXT_DESIGNS: TextDesign[] = [
 // --- frame layout (Shorts bars) ----------------------------------------------------
 
 /**
- * How the bars around a clip are filled - 'auto' leaves it to Framing & Aspect Fit - and
- * the two lines of text that sit on them for the whole video.
+ * Everything drawn on the frame for the video as a whole, on top of the clips: how the bars
+ * around a clip are filled ('auto' leaves it to Framing & Aspect Fit), any number of text
+ * layers and images placed anywhere on it, and timed subtitles.
  */
 export interface FrameLayout {
   bars: 'auto' | 'blur' | 'color';
   barColor: string;
-  top: FrameText;
-  bottom: FrameText;
+  texts: FrameText[];
+  images: FrameImage[];
+  subtitles: FrameSubtitles;
 }
 
-export interface FrameText {
+/** A time window on the finished video; null on either end runs from the start / to the end. */
+export interface FrameTiming {
+  start?: number | null;
+  end?: number | null;
+}
+
+export interface FrameText extends FrameTiming {
+  id: string;
+  /** What the panel calls it - "Headline", "Caption", "Text 3". */
+  label: string;
   text: string;
   style: TimelineItemTextStyle;
 }
 
+/** A logo, sticker or picture placed on the frame. */
+export interface FrameImage extends FrameTiming {
+  id: string;
+  assetId: string;
+  name: string;
+  /** Centre, in percent of the frame. */
+  x: number;
+  y: number;
+  /** Width in percent of the frame width; the height follows the picture's shape. */
+  width: number;
+  /** 0-1. */
+  opacity: number;
+}
+
+/** One subtitle line and when it is on screen, in seconds on the finished video. */
+export interface SubtitleCue {
+  id: string;
+  start: number;
+  end: number;
+  text: string;
+}
+
+/** Every cue shares one style, so a whole video's captions restyle in one go. */
+export interface FrameSubtitles {
+  style: TimelineItemTextStyle;
+  cues: SubtitleCue[];
+}
+
 export const FRAME_TOP_Y = 15;
 export const FRAME_BOTTOM_Y = 85;
+/** Where subtitles sit by default: above a Short's caption bar and the app's own buttons. */
+export const SUBTITLE_Y = 70;
+
+export const MAX_FRAME_TEXTS = 10;
+export const MAX_FRAME_IMAGES = 8;
+/** Below the server's ceiling on text overlays (TextOverlayLayout.MaxOverlays), leaving room for titles. */
+export const MAX_SUBTITLE_CUES = 380;
+export const MIN_CUE_SECONDS = 0.2;
+export const FRAME_IMAGE_MIN_WIDTH = 3;
+export const FRAME_IMAGE_MAX_WIDTH = 100;
+
+export function newLayerId(prefix: string): string {
+  return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
 
 function frameStyle(y: number, fontSize: number, look: Partial<TimelineItemTextStyle>): TimelineItemTextStyle {
   return {
@@ -210,13 +263,51 @@ function frameStyle(y: number, fontSize: number, look: Partial<TimelineItemTextS
   };
 }
 
+export function defaultSubtitleStyle(): TimelineItemTextStyle {
+  return frameStyle(SUBTITLE_Y, 22, {
+    color: '#ffffff', boxStyle: 'none', outlineColor: '#000000', outlineWidth: 2.5, shadow: true,
+  });
+}
+
+/** A new text layer: the first two are the familiar headline and caption slots. */
+export function newFrameText(existing: FrameText[]): FrameText {
+  const n = existing.length;
+  if (n === 0) {
+    return { id: newLayerId('ft'), label: 'Headline', text: '', style: frameStyle(FRAME_TOP_Y, 26, { color: '#ffffff', uppercase: true }) };
+  }
+  if (n === 1) {
+    return { id: newLayerId('ft'), label: 'Caption', text: '', style: frameStyle(FRAME_BOTTOM_Y, 20, { color: '#ffffff' }) };
+  }
+  return {
+    id: newLayerId('ft'),
+    label: `Text ${n + 1}`,
+    text: '',
+    style: frameStyle(50, 22, { color: '#ffffff', outlineColor: '#000000', outlineWidth: 2, shadow: true }),
+  };
+}
+
 export function defaultFrameLayout(): FrameLayout {
+  const top = newFrameText([]);
   return {
     bars: 'auto',
     barColor: '#111827',
-    top: { text: '', style: frameStyle(FRAME_TOP_Y, 26, { color: '#ffffff', uppercase: true }) },
-    bottom: { text: '', style: frameStyle(FRAME_BOTTOM_Y, 20, { color: '#ffffff' }) },
+    texts: [top, newFrameText([top])],
+    images: [],
+    subtitles: { style: defaultSubtitleStyle(), cues: [] },
   };
+}
+
+/** Whether a layer with this timing is on screen at `t`, on a video `duration` long. */
+export function isLayerActive(timing: FrameTiming, t: number, duration: number): boolean {
+  const [start, end] = layerWindow(timing, duration);
+  return t >= start && t < end;
+}
+
+/** The window a layer occupies, held inside the video. */
+export function layerWindow(timing: FrameTiming, duration: number): [number, number] {
+  const start = Math.max(0, Math.min(duration, timing.start ?? 0));
+  const end = Math.max(start, Math.min(duration, timing.end ?? duration));
+  return [start, end];
 }
 
 /** A whole look for a Short: bar colour plus the headline and caption styles. */
@@ -264,33 +355,196 @@ export const FRAME_DESIGNS: FrameDesign[] = [
   },
 ];
 
-/** Applies a design, keeping the user's words and where they put them. */
+/**
+ * Applies a design, keeping the user's words and where they put them. Text in the top half
+ * takes the design's headline look, the rest its caption look; subtitles keep their own.
+ */
 export function applyFrameDesign(layout: FrameLayout, design: FrameDesign): FrameLayout {
-  const keep = (t: FrameText, look: Partial<TimelineItemTextStyle>, size: number): FrameText => ({
-    text: t.text,
-    style: { ...t.style, ...look, fontSize: size },
-  });
   return {
+    ...layout,
     bars: design.bars,
     barColor: design.barColor,
-    top: keep(layout.top, design.top, design.topSize),
-    bottom: keep(layout.bottom, design.bottom, design.bottomSize),
+    texts: layout.texts.map((t) => {
+      const upper = resolveTextLook(t.style).y < 50;
+      return {
+        ...t,
+        style: { ...t.style, ...(upper ? design.top : design.bottom), fontSize: upper ? design.topSize : design.bottomSize },
+      };
+    }),
   };
 }
 
-/** A saved draft's layout, with anything missing or malformed replaced by the default. */
+// --- reading saved drafts ------------------------------------------------------------
+
+function finiteOrNull(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
+}
+
+function readTiming(raw: Partial<FrameTiming> | undefined): FrameTiming {
+  return { start: finiteOrNull(raw?.start), end: finiteOrNull(raw?.end) };
+}
+
+function readText(raw: unknown, fallback: FrameText): FrameText {
+  const t = (raw && typeof raw === 'object' ? raw : {}) as Partial<FrameText>;
+  return {
+    id: typeof t.id === 'string' && t.id ? t.id.slice(0, 64) : fallback.id,
+    label: typeof t.label === 'string' && t.label ? t.label.slice(0, 40) : fallback.label,
+    text: typeof t.text === 'string' ? t.text.slice(0, TEXT_MAX_CHARS) : fallback.text,
+    style: t.style && typeof t.style === 'object' ? { ...fallback.style, ...t.style } : fallback.style,
+    ...readTiming(t),
+  };
+}
+
+function readImage(raw: unknown): FrameImage | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const i = raw as Partial<FrameImage>;
+  if (typeof i.assetId !== 'string' || !i.assetId) return null;
+  return {
+    id: typeof i.id === 'string' && i.id ? i.id.slice(0, 64) : newLayerId('fi'),
+    assetId: i.assetId.slice(0, 64),
+    name: typeof i.name === 'string' ? i.name.slice(0, 120) : 'Image',
+    x: clamp(i.x, 0, 100, 50),
+    y: clamp(i.y, 0, 100, 50),
+    width: clamp(i.width, FRAME_IMAGE_MIN_WIDTH, FRAME_IMAGE_MAX_WIDTH, 30),
+    opacity: clamp(i.opacity, 0, 1, 1),
+    ...readTiming(i),
+  };
+}
+
+function readCue(raw: unknown): SubtitleCue | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const c = raw as Partial<SubtitleCue>;
+  const start = finiteOrNull(c.start);
+  const end = finiteOrNull(c.end);
+  if (start === null || end === null || end - start < MIN_CUE_SECONDS / 2 || typeof c.text !== 'string') return null;
+  return {
+    id: typeof c.id === 'string' && c.id ? c.id.slice(0, 64) : newLayerId('sc'),
+    start, end, text: c.text.slice(0, TEXT_MAX_CHARS),
+  };
+}
+
+/**
+ * A saved draft's layout, with anything missing or malformed replaced by the default.
+ * Drafts saved before layers existed have a fixed `top` and `bottom`; they become the first
+ * two text layers.
+ */
 export function readFrameLayout(raw: unknown): FrameLayout {
   const base = defaultFrameLayout();
   if (!raw || typeof raw !== 'object') return base;
-  const r = raw as Partial<FrameLayout>;
-  const text = (t: Partial<FrameText> | undefined, fallback: FrameText): FrameText => ({
-    text: typeof t?.text === 'string' ? t.text.slice(0, TEXT_MAX_CHARS) : fallback.text,
-    style: t?.style && typeof t.style === 'object' ? { ...fallback.style, ...t.style } : fallback.style,
-  });
+  const r = raw as Partial<FrameLayout> & { top?: unknown; bottom?: unknown };
+
+  let texts: FrameText[];
+  if (Array.isArray(r.texts)) {
+    texts = [];
+    for (const t of r.texts.slice(0, MAX_FRAME_TEXTS)) texts.push(readText(t, newFrameText(texts)));
+  } else {
+    texts = [readText(r.top, base.texts[0]), readText(r.bottom, base.texts[1])];
+  }
+
+  const subs = (r.subtitles && typeof r.subtitles === 'object' ? r.subtitles : {}) as Partial<FrameSubtitles>;
   return {
     bars: r.bars === 'blur' || r.bars === 'color' ? r.bars : 'auto',
     barColor: isHexColor(r.barColor) ? r.barColor : base.barColor,
-    top: text(r.top, base.top),
-    bottom: text(r.bottom, base.bottom),
+    texts,
+    images: (Array.isArray(r.images) ? r.images : [])
+      .slice(0, MAX_FRAME_IMAGES).map(readImage).filter((i): i is FrameImage => i !== null),
+    subtitles: {
+      style: subs.style && typeof subs.style === 'object' ? { ...base.subtitles.style, ...subs.style } : base.subtitles.style,
+      cues: sortCues((Array.isArray(subs.cues) ? subs.cues : [])
+        .slice(0, MAX_SUBTITLE_CUES).map(readCue).filter((c): c is SubtitleCue => c !== null)),
+    },
   };
+}
+
+// --- subtitles -------------------------------------------------------------------------
+
+export function sortCues(cues: SubtitleCue[]): SubtitleCue[] {
+  return [...cues].sort((a, b) => a.start - b.start || a.end - b.end);
+}
+
+const CUE_TIME = /(?:(\d{1,2}):)?(\d{1,2}):(\d{1,2})(?:[.,](\d{1,3}))?/;
+
+function parseCueTime(value: string): number | null {
+  const m = CUE_TIME.exec(value.trim());
+  if (!m) return null;
+  const [, h, mm, ss, ms] = m;
+  return (Number(h ?? 0) * 3600) + Number(mm) * 60 + Number(ss) + (ms ? Number(ms.padEnd(3, '0')) / 1000 : 0);
+}
+
+/**
+ * Cues from an .srt or .vtt file's text. Styling tags (`<i>`, `{\an8}`) are dropped - the
+ * export draws plain text - and so are cues with no words or no length.
+ */
+export function parseSubtitleFile(content: string): SubtitleCue[] {
+  const cues: SubtitleCue[] = [];
+  const blocks = content.replace(/^﻿/, '').replace(/\r\n?/g, '\n').split(/\n\s*\n/);
+  for (const block of blocks) {
+    const lines = block.split('\n');
+    const timingAt = lines.findIndex((l) => l.includes('-->'));
+    if (timingAt < 0) continue;
+    const [from, to] = lines[timingAt].split('-->');
+    const start = parseCueTime(from);
+    // VTT puts cue settings after the end time ("00:01.000 align:start"); the regex skips them.
+    const end = parseCueTime(to ?? '');
+    const text = lines.slice(timingAt + 1)
+      .map((l) => l.replace(/<[^>]*>/g, '').replace(/\{\\[^}]*\}/g, '').trim())
+      .filter((l) => l.length > 0)
+      .join('\n');
+    if (start === null || end === null || end - start < MIN_CUE_SECONDS / 2 || !text) continue;
+    cues.push({ id: newLayerId('sc'), start, end, text: text.slice(0, TEXT_MAX_CHARS) });
+    if (cues.length >= MAX_SUBTITLE_CUES) break;
+  }
+  return sortCues(cues);
+}
+
+/**
+ * Cues from a typed or pasted script, timed across [from, to]: split into short chunks of
+ * at most `wordsPerCue` words (a sentence end always closes one), each given time in
+ * proportion to its length - roughly how long it takes to say.
+ */
+export function cuesFromScript(script: string, from: number, to: number, wordsPerCue: number): SubtitleCue[] {
+  const span = to - from;
+  if (span <= 0) return [];
+  const perCue = Math.max(1, Math.min(12, Math.round(wordsPerCue)));
+
+  const chunks: string[] = [];
+  for (const paragraph of script.replace(/\r\n?/g, '\n').split('\n')) {
+    let current: string[] = [];
+    for (const word of paragraph.split(/\s+/).filter((w) => w.length > 0)) {
+      current.push(word);
+      if (current.length >= perCue || /[.!?…]$/.test(word)) {
+        chunks.push(current.join(' '));
+        current = [];
+      }
+    }
+    if (current.length > 0) chunks.push(current.join(' '));
+  }
+  const kept = chunks.slice(0, MAX_SUBTITLE_CUES);
+  if (kept.length === 0) return [];
+
+  // A little weight per cue, so one-word cues are not flashed past.
+  const weight = (c: string) => c.length + 6;
+  const total = kept.reduce((sum, c) => sum + weight(c), 0);
+  const cues: SubtitleCue[] = [];
+  let t = from;
+  for (const chunk of kept) {
+    const length = (weight(chunk) / total) * span;
+    cues.push({ id: newLayerId('sc'), start: round2(t), end: round2(t + length), text: chunk });
+    t += length;
+  }
+  return cues;
+}
+
+/** Cues as an .srt file, for a platform that wants captions as a sidecar too. */
+export function cuesToSrt(cues: SubtitleCue[]): string {
+  const stamp = (s: number) => {
+    const ms = Math.round(s * 1000);
+    const pad = (n: number, w = 2) => String(n).padStart(w, '0');
+    return `${pad(Math.floor(ms / 3600000))}:${pad(Math.floor(ms / 60000) % 60)}:${pad(Math.floor(ms / 1000) % 60)},${pad(ms % 1000, 3)}`;
+  };
+  return sortCues(cues).map((c, i) => `${i + 1}\n${stamp(c.start)} --> ${stamp(c.end)}\n${c.text}\n`).join('\n');
+}
+
+function round2(v: number): number {
+  return Math.round(v * 100) / 100;
 }

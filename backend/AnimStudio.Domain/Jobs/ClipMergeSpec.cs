@@ -301,6 +301,13 @@ public sealed class TimelineItemTransformSpec
 {
     public double Scale { get; set; } = 1.0;
 
+    /// <summary>
+    /// Image and video overlays: width in percent of the CANVAS width, replacing
+    /// <see cref="Scale"/> - which multiplies the source's own pixels, so a 4000px logo and a
+    /// 200px one come out wildly different sizes. Null on items written before it existed.
+    /// </summary>
+    public double? WidthPercent { get; set; }
+
     /// <summary>Normalized percentage offset [-50, 50] from canvas centre on X axis.</summary>
     public double X { get; set; }
 

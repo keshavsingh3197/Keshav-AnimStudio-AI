@@ -23,15 +23,18 @@ import { EraseRect, eraseFeatherMask, eraseOuter } from './erase-geometry';
 import { bedPieces, cutEffectStarts, deepestDuck } from './audio-enhance';
 import { TimelineFragment, TransferRange } from './timeline-transfer';
 import {
-  DEFAULT_TEXT_STYLE, FrameDesign, FrameLayout, TextDesign, TextLook,
-  applyFrameDesign, defaultFrameLayout, readFrameLayout, resolveTextLook, wrapText,
+  DEFAULT_TEXT_STYLE, FRAME_IMAGE_MAX_WIDTH, FRAME_IMAGE_MIN_WIDTH, FrameDesign, FrameImage, FrameLayout,
+  FrameText, FrameTiming, MAX_FRAME_IMAGES, MAX_FRAME_TEXTS, MAX_SUBTITLE_CUES, MIN_CUE_SECONDS,
+  SubtitleCue, TEXT_MAX_CHARS, TextDesign, TextLook,
+  applyFrameDesign, cuesFromScript, cuesToSrt, defaultFrameLayout, isLayerActive, layerWindow,
+  newFrameText, newLayerId, parseSubtitleFile, readFrameLayout, resolveTextLook, sortCues, wrapText,
 } from './text-overlay-layout';
 
-/** One block of text as the monitor draws it - a TXT1 overlay or a frame headline/caption. */
+/** One block of text as the monitor draws it - a TXT1 overlay, a frame text layer or a subtitle. */
 export interface MonitorTextBlock {
   key: string;
-  /** What dragging it moves. */
-  target: { kind: 'item'; id: string } | { kind: 'frame'; slot: 'top' | 'bottom' };
+  /** What dragging it moves: a subtitle moves every cue, since they share one style. */
+  target: { kind: 'item'; id: string } | { kind: 'frame'; id: string } | { kind: 'subtitle' };
   lines: string[];
   look: TextLook;
   opacity: number;
@@ -4921,27 +4924,96 @@ export class StudioStateService implements OnDestroy {
       y: Math.round(Math.min(100, Math.max(0, y)) * 10) / 10,
     };
     if (target.kind === 'item') this.updateTextItemStyle(target.id, place);
-    else this.updateFrameTextStyle(target.slot, place);
+    else if (target.kind === 'frame') this.updateFrameTextStyle(target.id, place);
+    else this.updateSubtitleStyle(place);
   }
 
   // --- frame layout ------------------------------------------------------------------
+
+  /** The frame layer the panel has open and the monitor outlines: a text or image id, or 'subtitles'. */
+  readonly selectedFrameLayer = signal<string | null>(null);
+
+  selectFrameLayer(id: string | null): void {
+    this.selectedFrameLayer.set(id);
+    if (id) this.setInspectorTab('layout');
+  }
 
   updateFrameLayout(patch: Partial<Pick<FrameLayout, 'bars' | 'barColor'>>): void {
     this.frameLayout.update((l) => ({ ...l, ...patch }));
     this.markDirty();
   }
 
-  updateFrameText(slot: 'top' | 'bottom', text: string): void {
-    this.frameLayout.update((l) => ({ ...l, [slot]: { ...l[slot], text } }));
+  private updateFrameTextLayer(id: string, change: (t: FrameText) => FrameText): void {
+    this.frameLayout.update((l) => ({ ...l, texts: l.texts.map((t) => (t.id === id ? change(t) : t)) }));
     this.markDirty();
   }
 
-  updateFrameTextStyle(slot: 'top' | 'bottom', updates: Partial<TimelineItemTextStyle>): void {
+  addFrameText(): void {
+    const layout = this.frameLayout();
+    if (layout.texts.length >= MAX_FRAME_TEXTS) {
+      this.status.notify([`Up to ${MAX_FRAME_TEXTS} text layers.`]);
+      return;
+    }
+    const text = newFrameText(layout.texts);
+    this.frameLayout.set({ ...layout, texts: [...layout.texts, text] });
+    this.selectedFrameLayer.set(text.id);
+    this.markDirty();
+  }
+
+  duplicateFrameText(id: string): void {
+    const layout = this.frameLayout();
+    const source = layout.texts.find((t) => t.id === id);
+    if (!source || layout.texts.length >= MAX_FRAME_TEXTS) return;
+    const look = resolveTextLook(source.style);
+    const copy: FrameText = {
+      ...source,
+      id: newLayerId('ft'),
+      label: `${source.label} copy`.slice(0, 40),
+      // Nudged down so the copy is not hidden exactly under the original.
+      style: { ...source.style, position: 'custom', x: look.x, y: Math.min(100, look.y + 6) },
+    };
+    this.frameLayout.set({ ...layout, texts: [...layout.texts, copy] });
+    this.selectedFrameLayer.set(copy.id);
+    this.markDirty();
+  }
+
+  removeFrameText(id: string): void {
+    this.frameLayout.update((l) => ({ ...l, texts: l.texts.filter((t) => t.id !== id) }));
+    if (this.selectedFrameLayer() === id) this.selectedFrameLayer.set(null);
+    this.markDirty();
+  }
+
+  updateFrameText(id: string, text: string): void {
+    this.updateFrameTextLayer(id, (t) => ({ ...t, text }));
+  }
+
+  updateFrameTextLabel(id: string, label: string): void {
+    this.updateFrameTextLayer(id, (t) => ({ ...t, label: label.slice(0, 40) }));
+  }
+
+  updateFrameTextStyle(id: string, updates: Partial<TimelineItemTextStyle>): void {
+    this.updateFrameTextLayer(id, (t) => ({ ...t, style: this.mergeTextStyle(t.style, updates) }));
+  }
+
+  /** When a frame layer is on screen; null on either end means from the start / to the end. */
+  updateFrameLayerTiming(id: string, timing: FrameTiming): void {
+    const clean = (v: number | null | undefined): number | null =>
+      typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.round(v * 100) / 100) : null;
+    const patch: FrameTiming = {};
+    if ('start' in timing) patch.start = clean(timing.start);
+    if ('end' in timing) patch.end = clean(timing.end);
     this.frameLayout.update((l) => ({
       ...l,
-      [slot]: { ...l[slot], style: this.mergeTextStyle(l[slot].style, updates) },
+      texts: l.texts.map((t) => (t.id === id ? { ...t, ...patch } : t)),
+      images: l.images.map((i) => (i.id === id ? { ...i, ...patch } : i)),
     }));
     this.markDirty();
+  }
+
+  /** Shows a frame layer from the playhead for `seconds` - or to the end, for null. */
+  frameLayerFromPlayhead(id: string, seconds: number | null): void {
+    const t = Math.round(this.currentTime() * 100) / 100;
+    this.updateFrameLayerTiming(id, { start: t, end: seconds === null ? null : t + seconds });
   }
 
   applyFrameDesign(design: FrameDesign): void {
@@ -4951,8 +5023,243 @@ export class StudioStateService implements OnDestroy {
 
   resetFrameLayout(): void {
     this.frameLayout.set(defaultFrameLayout());
+    this.selectedFrameLayer.set(null);
     this.markDirty();
   }
+
+  // --- frame images ---
+
+  /** Pictures that can go on the frame: the project's images and logos. */
+  readonly frameImageCandidates = computed<{ id: string; name: string }[]>(() => {
+    const studio = this.studio();
+    if (!studio) return [];
+    const seen = new Set<string>();
+    const out: { id: string; name: string }[] = [];
+    for (const a of studio.logoCandidates ?? []) {
+      if (!seen.has(a.id)) { seen.add(a.id); out.push({ id: a.id, name: a.name }); }
+    }
+    for (const c of studio.clips ?? []) {
+      if (!seen.has(c.id) && this.getClipType(c) === 'image') { seen.add(c.id); out.push({ id: c.id, name: c.name }); }
+    }
+    return out;
+  });
+
+  readonly frameImageUploading = signal(false);
+
+  addFrameImage(assetId: string, name?: string): void {
+    const layout = this.frameLayout();
+    if (layout.images.length >= MAX_FRAME_IMAGES) {
+      this.status.notify([`Up to ${MAX_FRAME_IMAGES} images on the frame.`]);
+      return;
+    }
+    // Each new one a little lower, so several added in a row do not stack exactly.
+    const image: FrameImage = {
+      id: newLayerId('fi'),
+      assetId,
+      name: name ?? this.frameImageCandidates().find((c) => c.id === assetId)?.name ?? 'Image',
+      x: 50,
+      y: Math.min(80, 25 + layout.images.length * 10),
+      width: 30,
+      opacity: 1,
+      start: null,
+      end: null,
+    };
+    this.frameLayout.set({ ...layout, images: [...layout.images, image] });
+    this.selectedFrameLayer.set(image.id);
+    this.markDirty();
+  }
+
+  /** Uploads a picture to the project and puts it straight on the frame. */
+  uploadFrameImage(file: File): void {
+    const projectId = this.store.projectId();
+    if (!projectId) return;
+    if (!/^image\/(png|jpeg|webp|gif)$/.test(file.type)) {
+      this.status.notify(['Choose a PNG, JPEG, WebP or GIF image.']);
+      return;
+    }
+    this.frameImageUploading.set(true);
+    this.api.uploadAsset(projectId, file)
+      .pipe(finalize(() => this.frameImageUploading.set(false)))
+      .subscribe({
+        next: (asset) => {
+          this.addFrameImage(asset.id, asset.name);
+          this.store.refreshAssets();
+          this.loadStudio();
+        },
+        error: () => this.status.error.set(`Failed to upload ${file.name}`),
+      });
+  }
+
+  updateFrameImage(id: string, patch: Partial<Pick<FrameImage, 'x' | 'y' | 'width' | 'opacity'>>): void {
+    const round = (v: number) => Math.round(v * 10) / 10;
+    this.frameLayout.update((l) => ({
+      ...l,
+      images: l.images.map((i) => {
+        if (i.id !== id) return i;
+        const next = { ...i };
+        if (patch.x !== undefined && Number.isFinite(patch.x)) next.x = round(Math.min(100, Math.max(0, patch.x)));
+        if (patch.y !== undefined && Number.isFinite(patch.y)) next.y = round(Math.min(100, Math.max(0, patch.y)));
+        if (patch.width !== undefined && Number.isFinite(patch.width)) {
+          next.width = round(Math.min(FRAME_IMAGE_MAX_WIDTH, Math.max(FRAME_IMAGE_MIN_WIDTH, patch.width)));
+        }
+        if (patch.opacity !== undefined && Number.isFinite(patch.opacity)) next.opacity = Math.min(1, Math.max(0, patch.opacity));
+        return next;
+      }),
+    }));
+    this.markDirty();
+  }
+
+  removeFrameImage(id: string): void {
+    this.frameLayout.update((l) => ({ ...l, images: l.images.filter((i) => i.id !== id) }));
+    if (this.selectedFrameLayer() === id) this.selectedFrameLayer.set(null);
+    this.markDirty();
+  }
+
+  /** Moves a frame layer one step in its list - later ones are drawn on top. */
+  reorderFrameLayer(id: string, direction: -1 | 1): void {
+    const move = <T extends { id: string }>(list: T[]): T[] => {
+      const i = list.findIndex((x) => x.id === id);
+      const j = i + direction;
+      if (i < 0 || j < 0 || j >= list.length) return list;
+      const copy = [...list];
+      [copy[i], copy[j]] = [copy[j], copy[i]];
+      return copy;
+    };
+    this.frameLayout.update((l) => ({ ...l, texts: move(l.texts), images: move(l.images) }));
+    this.markDirty();
+  }
+
+  /** Frame images on the monitor at the playhead, back to front. */
+  readonly monitorFrameImages = computed<(FrameImage & { url: string; selected: boolean })[]>(() => {
+    if (this.included().length === 0) return [];
+    const t = this.currentTime();
+    const duration = this.contentDurationSeconds();
+    const selected = this.selectedFrameLayer();
+    return this.frameLayout().images
+      .filter((i) => isLayerActive(i, t, duration))
+      .map((i) => ({ ...i, url: this.assetUrl(i.assetId), selected: selected === i.id }));
+  });
+
+  // --- subtitles ---
+
+  private setSubtitleCues(change: (cues: SubtitleCue[]) => SubtitleCue[]): void {
+    this.frameLayout.update((l) => ({
+      ...l,
+      subtitles: { ...l.subtitles, cues: sortCues(change(l.subtitles.cues)).slice(0, MAX_SUBTITLE_CUES) },
+    }));
+    this.markDirty();
+  }
+
+  updateSubtitleStyle(updates: Partial<TimelineItemTextStyle>): void {
+    this.frameLayout.update((l) => ({
+      ...l,
+      subtitles: { ...l.subtitles, style: this.mergeTextStyle(l.subtitles.style, updates) },
+    }));
+    this.markDirty();
+  }
+
+  /** A new two-second cue at the playhead, ready to type into. */
+  addSubtitleCue(): string | null {
+    if (this.frameLayout().subtitles.cues.length >= MAX_SUBTITLE_CUES) {
+      this.status.notify([`Up to ${MAX_SUBTITLE_CUES} subtitle lines.`]);
+      return null;
+    }
+    const duration = Math.max(this.contentDurationSeconds(), MIN_CUE_SECONDS);
+    const start = Math.round(Math.min(this.currentTime(), Math.max(0, duration - MIN_CUE_SECONDS)) * 100) / 100;
+    const end = Math.round(Math.min(duration, start + 2) * 100) / 100;
+    const cue: SubtitleCue = { id: newLayerId('sc'), start, end, text: '' };
+    this.setSubtitleCues((cues) => [...cues, cue]);
+    this.selectedFrameLayer.set('subtitles');
+    return cue.id;
+  }
+
+  updateSubtitleCue(id: string, patch: Partial<Pick<SubtitleCue, 'start' | 'end' | 'text'>>): void {
+    const r = (v: number) => Math.max(0, Math.round(v * 100) / 100);
+    this.setSubtitleCues((cues) => cues.map((c) => {
+      if (c.id !== id) return c;
+      const next = { ...c };
+      if (patch.text !== undefined) next.text = patch.text.slice(0, TEXT_MAX_CHARS);
+      if (patch.start !== undefined && Number.isFinite(patch.start)) next.start = r(patch.start);
+      if (patch.end !== undefined && Number.isFinite(patch.end)) next.end = r(patch.end);
+      // A cue may not end before it starts: the edge that was not edited gives way.
+      if (next.end < next.start + MIN_CUE_SECONDS) {
+        if (patch.start !== undefined) next.end = r(next.start + MIN_CUE_SECONDS);
+        else next.start = r(next.end - MIN_CUE_SECONDS);
+      }
+      return next;
+    }));
+  }
+
+  removeSubtitleCue(id: string): void {
+    this.setSubtitleCues((cues) => cues.filter((c) => c.id !== id));
+  }
+
+  clearSubtitles(): void {
+    this.setSubtitleCues(() => []);
+  }
+
+  /** Moves every cue by `seconds` - for a file timed against a different cut. */
+  shiftSubtitles(seconds: number): void {
+    if (!Number.isFinite(seconds) || seconds === 0) return;
+    const r = (v: number) => Math.round(v * 100) / 100;
+    this.setSubtitleCues((cues) => cues
+      .map((c) => ({ ...c, start: r(c.start + seconds), end: r(c.end + seconds) }))
+      .filter((c) => c.end > MIN_CUE_SECONDS)
+      .map((c) => ({ ...c, start: Math.max(0, c.start) })));
+  }
+
+  /** Times a typed or pasted script across the whole video, replacing any cues there were. */
+  subtitlesFromScript(script: string, wordsPerCue: number): number {
+    const duration = this.contentDurationSeconds();
+    if (duration <= 0) {
+      this.status.notify(['Add clips to the timeline first - subtitles are timed across the video.']);
+      return 0;
+    }
+    const cues = cuesFromScript(script, 0, duration, wordsPerCue);
+    this.setSubtitleCues(() => cues);
+    this.selectedFrameLayer.set('subtitles');
+    return cues.length;
+  }
+
+  /** Reads an .srt or .vtt file into cues, replacing or adding to the ones there are. */
+  async importSubtitleFile(file: File, mode: 'replace' | 'append'): Promise<number> {
+    if (file.size > 2 * 1024 * 1024) {
+      this.status.notify(['That subtitle file is too large (2 MB at most).']);
+      return 0;
+    }
+    let cues: SubtitleCue[];
+    try {
+      cues = parseSubtitleFile(await file.text());
+    } catch {
+      this.status.notify(['That file could not be read.']);
+      return 0;
+    }
+    if (cues.length === 0) {
+      this.status.notify(['No timed lines found - use an .srt or .vtt file.']);
+      return 0;
+    }
+    this.setSubtitleCues((existing) => (mode === 'append' ? [...existing, ...cues] : cues));
+    this.selectedFrameLayer.set('subtitles');
+    return cues.length;
+  }
+
+  /** The cues as an .srt download. */
+  downloadSubtitlesSrt(): void {
+    const cues = this.frameLayout().subtitles.cues.filter((c) => c.text.trim());
+    if (cues.length === 0) return;
+    const url = URL.createObjectURL(new Blob([cuesToSrt(cues)], { type: 'application/x-subrip' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'subtitles.srt';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  /** The cue under the playhead, if any - what the panel highlights. */
+  readonly activeSubtitleCueId = computed<string | null>(() => {
+    const t = this.currentTime();
+    return this.frameLayout().subtitles.cues.find((c) => t >= c.start && t < c.end)?.id ?? null;
+  });
 
   /**
    * The fit and bar colour the export should use. A chosen bar colour means bars: it
@@ -4980,7 +5287,7 @@ export class StudioStateService implements OnDestroy {
     return [16, 9];
   });
 
-  /** Every block of text on the monitor right now: the frame's two lines, then TXT1's. */
+  /** Every block of text on the monitor right now: frame text layers, subtitles, then TXT1's. */
   readonly monitorTextBlocks = computed<MonitorTextBlock[]>(() => {
     const [w, h] = this.monitorFrameAspect();
     const blocks: MonitorTextBlock[] = [];
@@ -4989,13 +5296,24 @@ export class StudioStateService implements OnDestroy {
 
     if (this.included().length > 0) {
       const layout = this.frameLayout();
-      for (const slot of ['top', 'bottom'] as const) {
-        const t = layout[slot];
-        if (!t.text.trim()) continue;
-        const look = resolveTextLook(t.style);
+      const t = this.currentTime();
+      const duration = this.contentDurationSeconds();
+      const selected = this.selectedFrameLayer();
+      for (const layer of layout.texts) {
+        if (!layer.text.trim() || !isLayerActive(layer, t, duration)) continue;
+        const look = resolveTextLook(layer.style);
         blocks.push({
-          key: `frame-${slot}`, target: { kind: 'frame', slot }, lines: lines(t.text, look), look,
-          opacity: 1, offsetY: 0, scale: 1, selected: false,
+          key: `frame-${layer.id}`, target: { kind: 'frame', id: layer.id }, lines: lines(layer.text, look), look,
+          opacity: 1, offsetY: 0, scale: 1, selected: selected === layer.id,
+        });
+      }
+
+      const subLook = resolveTextLook(layout.subtitles.style);
+      for (const cue of layout.subtitles.cues) {
+        if (!cue.text.trim() || t < cue.start || t >= cue.end) continue;
+        blocks.push({
+          key: `sub-${cue.id}`, target: { kind: 'subtitle' }, lines: lines(cue.text, subLook), look: subLook,
+          opacity: 1, offsetY: 0, scale: 1, selected: selected === 'subtitles',
         });
       }
     }
@@ -7539,25 +7857,67 @@ export class StudioStateService implements OnDestroy {
   }
 
   /**
-   * The frame's headline and caption as text overlays spanning the whole video - the
-   * export draws them exactly like TXT1 text, they just never come and go.
+   * The frame's layers as overlays: images first so text sits on them, then text layers,
+   * then subtitles on top. The export draws them exactly like IMG1/TXT1 items; they just
+   * cut in and out rather than fading.
    */
-  private frameTextItems(): TimelineItem[] {
+  private frameLayerItems(): TimelineItem[] {
     const layout = this.frameLayout();
     const duration = this.contentDurationSeconds();
     if (duration <= 0) return [];
-    return (['top', 'bottom'] as const)
-      .filter((slot) => layout[slot].text.trim().length > 0)
-      .map((slot) => ({
-        id: `frame_${slot}`,
+    const items: TimelineItem[] = [];
+
+    for (const image of layout.images) {
+      const [start, end] = layerWindow(image, duration);
+      if (end - start < MIN_CUE_SECONDS) continue;
+      items.push({
+        id: `frame_${image.id}`,
+        type: 'image',
+        trackId: 'IMG1',
+        startTime: start,
+        duration: end - start,
+        src: image.assetId,
+        name: image.name,
+        // The overlay is placed by its centre's offset from the frame's centre.
+        transform: {
+          scale: 1, widthPercent: image.width, x: image.x - 50, y: image.y - 50, opacity: image.opacity,
+          transitionIn: 'none', transitionOut: 'none',
+        },
+      });
+    }
+
+    for (const layer of layout.texts) {
+      const [start, end] = layerWindow(layer, duration);
+      if (!layer.text.trim() || end - start < MIN_CUE_SECONDS) continue;
+      items.push({
+        id: `frame_${layer.id}`,
         type: 'text' as TimelineItemType,
         trackId: 'TXT1',
-        startTime: 0,
-        duration,
-        src: layout[slot].text,
-        name: slot === 'top' ? 'Frame headline' : 'Frame caption',
-        textStyle: { ...layout[slot].style, transitionIn: 'none', transitionOut: 'none' },
-      }));
+        startTime: start,
+        duration: end - start,
+        src: layer.text,
+        name: layer.label,
+        textStyle: { ...layer.style, transitionIn: 'none', transitionOut: 'none' },
+      });
+    }
+
+    const subtitleStyle: TimelineItemTextStyle = { ...layout.subtitles.style, transitionIn: 'none', transitionOut: 'none' };
+    for (const cue of layout.subtitles.cues) {
+      const start = Math.min(cue.start, duration);
+      const end = Math.min(cue.end, duration);
+      if (!cue.text.trim() || end - start < MIN_CUE_SECONDS / 2) continue;
+      items.push({
+        id: `sub_${cue.id}`,
+        type: 'text' as TimelineItemType,
+        trackId: 'SUB1',
+        startTime: start,
+        duration: end - start,
+        src: cue.text,
+        name: 'Subtitle',
+        textStyle: subtitleStyle,
+      });
+    }
+    return items;
   }
 
   /** The style as the server reads it: every plate field explicit, colours checked. */
@@ -7626,7 +7986,7 @@ export class StudioStateService implements OnDestroy {
       };
     });
 
-    const allItems = [...v1Items, ...overlayItems, ...this.frameTextItems()];
+    const allItems = [...v1Items, ...overlayItems, ...this.frameLayerItems()];
     if (allItems.length === 0) return null;
 
     return allItems.map((item) => ({

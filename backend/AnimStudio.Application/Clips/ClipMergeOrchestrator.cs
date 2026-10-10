@@ -518,6 +518,7 @@ public sealed class ClipMergeOrchestrator(
                 .ToList();
 
             var overlays = new List<MergeOverlayItem>();
+            var textOverlays = 0;
             for (var itemIndex = 0; itemIndex < spec.TimelineItems.Count; itemIndex++)
             {
                 var item = spec.TimelineItems[itemIndex];
@@ -531,6 +532,14 @@ public sealed class ClipMergeOrchestrator(
                     }
                     else if (item.Type == "text")
                     {
+                        // Subtitles make text overlays by the hundred; each is a few drawtext
+                        // passes over every frame, so past the ceiling the rest are dropped.
+                        if (++textOverlays > TextOverlayLayout.MaxOverlays)
+                        {
+                            warnings.Add("TEXT_OVERLAYS_TRUNCATED");
+                            continue;
+                        }
+
                         text = await BuildTextOverlayAsync(
                             item, itemIndex, canvas, workspace, settings, warnings, token).ConfigureAwait(false);
                         if (text is null) continue;
@@ -551,7 +560,10 @@ public sealed class ClipMergeOrchestrator(
                         tr?.TransitionOut ?? txt?.TransitionOut ?? "fade",
                         tr?.TransitionOutDuration ?? txt?.TransitionOutDuration ?? 0.5)
                     {
-                        Text = text
+                        Text = text,
+                        WidthPercent = tr?.WidthPercent is { } width && double.IsFinite(width)
+                            ? Math.Clamp(width, 1, 100)
+                            : null
                     });
                 }
                 else if (item.TrackId is "A1" or "A2" && item.Type == "audio")
@@ -949,7 +961,7 @@ public sealed class ClipMergeOrchestrator(
     /// to re-encode, so this decides both the overlay list and the stream-copy prediction.
     /// </summary>
     internal static bool IsOverlayTrack(string? trackId) =>
-        trackId is "IMG1" or "IMG" or "IMAGE" or "V2" or "V3" or "TXT1";
+        trackId is "IMG1" or "IMG" or "IMAGE" or "V2" or "V3" or "TXT1" or "SUB1";
 
     /// <summary>Zero transitions, for the pre-flight total used to weight progress.</summary>
     private static IReadOnlyList<FrameCount> ZerosFor(IReadOnlyList<FrameCount> lengths) =>

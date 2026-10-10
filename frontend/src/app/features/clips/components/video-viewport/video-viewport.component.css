@@ -434,6 +434,56 @@
   z-index: 5;
 }
 
+/* Frame images: the layer is the frame; each image is centred on its point. */
+.frame-image-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 8;
+}
+
+.frame-image {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  user-select: none;
+}
+
+.frame-image img {
+  display: block;
+  width: 100%;
+  height: auto;
+  pointer-events: none;
+}
+
+.frame-image.editable {
+  pointer-events: auto;
+  cursor: grab;
+}
+
+.frame-image.editable:active {
+  cursor: grabbing;
+}
+
+.frame-image.editable:hover,
+.frame-image.selected {
+  outline: 1px dashed rgba(56, 189, 248, 0.9);
+  outline-offset: 2px;
+}
+
+.frame-image-handle {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: #38bdf8;
+  border: 1px solid #0f172a;
+  cursor: nwse-resize;
+}
+
 /* Text overlays. The layer is the frame, and a size container, so 100cqmin is the frame's
    short side: every size below is "pixels on a 360px short side", as in the export. */
 .text-layer {

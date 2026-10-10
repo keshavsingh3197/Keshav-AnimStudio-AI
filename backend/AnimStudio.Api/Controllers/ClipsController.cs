@@ -187,6 +187,7 @@ public sealed class ClipsController(
                     Transform = t.Transform is null ? null : new TimelineItemTransformSpec
                     {
                         Scale = t.Transform.Scale,
+                        WidthPercent = t.Transform.WidthPercent,
                         X = t.Transform.X,
                         Y = t.Transform.Y,
                         Opacity = t.Transform.Opacity,

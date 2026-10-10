@@ -34,6 +34,12 @@ public sealed record MergeOverlayItem(
 {
     /// <summary>What to draw for a text overlay; null for image and video overlays.</summary>
     public MergeTextOverlay? Text { get; init; }
+
+    /// <summary>
+    /// Image and video overlays: width in percent of the canvas, already held to 1-100.
+    /// Null falls back to <see cref="Scale"/> on the source's own pixels.
+    /// </summary>
+    public double? WidthPercent { get; init; }
 }
 
 /// <summary>

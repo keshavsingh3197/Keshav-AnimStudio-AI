@@ -192,8 +192,30 @@
                alt="" />
         }
 
-        <!-- Text: the frame's headline and caption, then the TXT1 overlay. Laid out in the
-             same lines, sizes and places the export draws them (text-overlay-layout.ts). -->
+        <!-- Frame images: logos and stickers, placed by their centre and sized by a share of
+             the frame's width - the same numbers the export scales and places them with. -->
+        @if (state.monitorFrameImages().length > 0) {
+          <div class="frame-image-layer">
+            @for (im of state.monitorFrameImages(); track im.id) {
+              <div class="frame-image"
+                   [class.editable]="!state.isPlaying()"
+                   [class.selected]="im.selected"
+                   [style.left.%]="im.x" [style.top.%]="im.y" [style.width.%]="im.width"
+                   [style.opacity]="im.opacity"
+                   [title]="state.isPlaying() ? '' : im.name + ' - drag to move'"
+                   (pointerdown)="startFrameImageDrag($event, im, 'move')">
+                <img [src]="im.url" alt="" draggable="false" />
+                @if (!state.isPlaying()) {
+                  <span class="frame-image-handle" title="Drag to resize"
+                        (pointerdown)="startFrameImageDrag($event, im, 'resize')"></span>
+                }
+              </div>
+            }
+          </div>
+        }
+
+        <!-- Text: the frame's text layers and subtitles, then the TXT1 overlay. Laid out in
+             the same lines, sizes and places the export draws them (text-overlay-layout.ts). -->
         @if (state.monitorTextBlocks().length > 0) {
           <div class="text-layer">
             @for (b of state.monitorTextBlocks(); track b.key) {

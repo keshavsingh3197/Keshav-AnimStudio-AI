@@ -26,6 +26,15 @@
            title="Move up or down - or drag the text on the preview" />
     <span class="tse-v mono">{{ l.y | number:'1.0-0' }}%</span>
   </div>
+  @if (l.box !== 'band') {
+    <div class="tse-row">
+      <span class="tse-k">Across</span>
+      <input type="range" class="form-range" min="0" max="100" step="0.5"
+             [ngModel]="l.x" (ngModelChange)="setAcross(+$event)"
+             title="Move left or right - or drag the text on the preview" />
+      <span class="tse-v mono">{{ l.x | number:'1.0-0' }}%</span>
+    </div>
+  }
 
   <div class="tse-row">
     <span class="tse-k">Size</span>

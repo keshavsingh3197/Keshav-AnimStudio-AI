@@ -69,6 +69,12 @@ public static partial class TextOverlayLayout
     /// <summary>Characters per overlay. A caption, not an article.</summary>
     public const int MaxChars = 500;
 
+    /// <summary>
+    /// Text overlays per export, subtitles included. Enough for a cue every two seconds of a
+    /// ten-minute video; each one is up to <see cref="MaxLines"/> drawtext passes.
+    /// </summary>
+    public const int MaxOverlays = 400;
+
     public const double MinFontSize = 8;
     public const double MaxFontSize = 200;
     public const double MaxOutlineWidth = 10;

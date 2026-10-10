@@ -647,6 +647,8 @@ export type TimelineItemType = 'video' | 'image' | 'audio' | 'text';
 
 export interface TimelineItemTransform {
   scale: number;
+  /** Image/video overlays: width in percent of the canvas width; replaces scale when set. */
+  widthPercent?: number;
   x: number;
   y: number;
   opacity: number;

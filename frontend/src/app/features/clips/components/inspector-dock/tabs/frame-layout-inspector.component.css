@@ -160,3 +160,253 @@
   color: #38bdf8;
   cursor: pointer;
 }
+
+/* --- layers ------------------------------------------------------------------ */
+
+.fl-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fl-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.fl-count {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 7px;
+}
+
+.fl-card.fl-selected {
+  border-color: #38bdf8;
+}
+
+.fl-layer-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.fl-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+.fl-name:hover,
+.fl-name:focus {
+  border-color: var(--border);
+  outline: none;
+}
+
+.fl-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.fl-icon {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  font-size: 0.72rem;
+  line-height: 1;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.fl-icon:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.fl-icon.danger:hover,
+.fl-mini.danger:hover {
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+.fl-mini {
+  font-size: 0.7rem;
+  padding: 2px 7px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  margin: 0;
+}
+
+.fl-mini:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.fl-add {
+  font-size: 0.74rem;
+  padding: 5px;
+  border-radius: 6px;
+  border: 1px dashed #38bdf8;
+  background: transparent;
+  color: #38bdf8;
+  cursor: pointer;
+}
+
+.fl-add:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.fl-timing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.fl-check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin: 0 4px 0 0;
+}
+
+.fl-num {
+  width: 58px;
+  font-size: 0.72rem;
+  padding: 1px 4px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--surface-1, transparent);
+  color: var(--text);
+}
+
+.fl-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.fl-upload {
+  align-self: flex-start;
+  font-size: 0.72rem;
+  color: #38bdf8;
+  cursor: pointer;
+  margin: 0;
+}
+
+.fl-upload.disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.fl-image-thumb {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  border-radius: 4px;
+  background: repeating-conic-gradient(#334155 0% 25%, #1e293b 0% 50%) 50% / 8px 8px;
+  flex-shrink: 0;
+}
+
+.fl-image-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.74rem;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fl-slider {
+  display: grid;
+  grid-template-columns: 48px 1fr 44px;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.fl-slider .mono {
+  text-align: right;
+}
+
+.fl-sub-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.fl-file {
+  display: inline-flex;
+  align-items: center;
+}
+
+.fl-cues {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.fl-cue {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px;
+  border-radius: 5px;
+  border: 1px solid transparent;
+}
+
+.fl-cue.active {
+  border-color: #38bdf8;
+  background: rgba(56, 189, 248, 0.08);
+}
+
+.fl-cue .fl-num {
+  width: 52px;
+  flex-shrink: 0;
+}
+
+.fl-cue-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.74rem;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+}

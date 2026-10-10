@@ -4,7 +4,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MonitorEraseRegion, MonitorTextBlock, StudioStateService } from '../../services/studio-state.service';
-import { TEXT_REFERENCE_SHORT_SIDE, hexToRgba } from '../../services/text-overlay-layout';
+import { FrameImage, TEXT_REFERENCE_SHORT_SIDE, hexToRgba } from '../../services/text-overlay-layout';
 import { erasePatchOrigin } from '../../services/erase-geometry';
 import { ERASE_DEFAULT_STRENGTH, TimelineItemTransform } from '../../../../core/models/api.models';
 import { MusicTrackRow, isCutEffectTrack, isVoiceoverTrack } from '../../models/clip-studio.models';
@@ -990,7 +990,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
   startTextDrag(event: PointerEvent, block: MonitorTextBlock): void {
     if (event.button !== 0) return;
     if (block.target.kind === 'item') this.state.selectTimelineItem(block.target.id);
-    else this.state.setInspectorTab('layout');
+    else this.state.selectFrameLayer(block.target.kind === 'frame' ? block.target.id : 'subtitles');
     if (this.state.isPlaying()) return;
     const frame = this.monitorContainerRef?.nativeElement;
     if (!frame) return;
@@ -1013,6 +1013,50 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       if (Math.abs(x - 50) < 3) x = 50;
       const y = startY + ((e.clientY - y0) / rect.height) * 100;
       this.state.moveTextBlock(block.target, x, y);
+    };
+    const onUp = (e: PointerEvent) => {
+      handle.releasePointerCapture(e.pointerId);
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
+      handle.removeEventListener('pointercancel', onUp);
+    };
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onUp);
+    handle.addEventListener('pointercancel', onUp);
+  }
+
+  /**
+   * Press on a frame image to select it; drag it to move, or drag its corner to resize.
+   * The image is centred on its point, so the corner moving by d widens it by 2d.
+   */
+  startFrameImageDrag(event: PointerEvent, image: FrameImage, mode: 'move' | 'resize'): void {
+    if (event.button !== 0) return;
+    this.state.selectFrameLayer(image.id);
+    if (this.state.isPlaying()) return;
+    const frame = this.monitorContainerRef?.nativeElement;
+    if (!frame) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    const handle = event.currentTarget as HTMLElement;
+    handle.setPointerCapture(event.pointerId);
+
+    const rect = frame.getBoundingClientRect();
+    const x0 = event.clientX, y0 = event.clientY;
+    let moving = false;
+
+    const onMove = (e: PointerEvent) => {
+      if (!moving && Math.hypot(e.clientX - x0, e.clientY - y0) < 3) return;
+      moving = true;
+      const dx = ((e.clientX - x0) / rect.width) * 100;
+      const dy = ((e.clientY - y0) / rect.height) * 100;
+      if (mode === 'resize') {
+        this.state.updateFrameImage(image.id, { width: image.width + dx * 2 });
+        return;
+      }
+      let x = image.x + dx;
+      if (Math.abs(x - 50) < 2) x = 50;
+      this.state.updateFrameImage(image.id, { x, y: image.y + dy });
     };
     const onUp = (e: PointerEvent) => {
       handle.releasePointerCapture(e.pointerId);

@@ -599,6 +599,9 @@ public sealed record TimelineItemTransformRequest
 {
     public double Scale { get; init; } = 1.0;
 
+    /// <summary>Overlay width in percent of the canvas width; replaces Scale when set.</summary>
+    [Range(1, 100)] public double? WidthPercent { get; init; }
+
     /// <summary>Normalized percentage offset [-50, 50] from canvas centre on X axis.</summary>
     public double X { get; init; }
 

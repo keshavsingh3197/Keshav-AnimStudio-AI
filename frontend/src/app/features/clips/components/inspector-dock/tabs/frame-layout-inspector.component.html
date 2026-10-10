@@ -1,14 +1,34 @@
 @let layout = state.frameLayout();
+@let selected = state.selectedFrameLayer();
+
+<ng-template #timing let-layer>
+  <div class="fl-timing">
+    <label class="fl-check">
+      <input type="checkbox" [ngModel]="wholeVideo(layer)" (ngModelChange)="setWhole(layer.id, $event)" />
+      Whole video
+    </label>
+    @if (!wholeVideo(layer)) {
+      <input type="number" class="fl-num" min="0" step="0.1" placeholder="start"
+             [ngModel]="layer.start" (ngModelChange)="setTimingEdge(layer.id, 'start', $event)" title="Shows from (seconds)" />
+      <span class="fl-hint">to</span>
+      <input type="number" class="fl-num" min="0" step="0.1" placeholder="end"
+             [ngModel]="layer.end" (ngModelChange)="setTimingEdge(layer.id, 'end', $event)" title="Shows until (seconds); empty is the end" />
+      <button type="button" class="fl-mini" (click)="state.frameLayerFromPlayhead(layer.id, 3)"
+              title="Start at the playhead, for 3 seconds">⏱ Here</button>
+    }
+  </div>
+</ng-template>
 
 <div class="fl">
   <div class="fl-card">
     <div class="fl-head">
       <div class="fl-title">🖼 Frame &amp; Titles</div>
       <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.7rem;"
-              (click)="state.resetFrameLayout()" title="Clear the headline, caption and bar colour">Reset</button>
+              (click)="state.resetFrameLayout()" title="Clear every text layer, image, subtitle and the bar colour">Reset</button>
     </div>
     <p class="fl-hint">
-      Fill the empty space above and below your clip, and put a headline and caption there for the whole video.
+      Fill the space around your clip, then put text, logos and subtitles anywhere on the frame.
+      Drag anything on the paused preview to move it.
     </p>
 
     <div class="fl-label">Designs</div>
@@ -52,21 +72,182 @@
     <p class="fl-hint mb-0">Bars appear when the clip's shape differs from the video's - a wide clip in a Short. A clip set to Cover fills the frame and has none.</p>
   </div>
 
-  @for (slot of slots; track slot) {
-    @let t = layout[slot];
-    <div class="fl-card">
-      <label class="fl-label" [for]="'frameText-' + slot">{{ slot === 'top' ? '⬆ Headline (top)' : '⬇ Caption (bottom)' }}</label>
-      <textarea [id]="'frameText-' + slot" rows="2"
-                class="form-control form-control-sm bg-dark text-light border-secondary border-opacity-50"
-                [ngModel]="t.text" (ngModelChange)="state.updateFrameText(slot, $event)"
-                [placeholder]="slot === 'top' ? 'e.g. Wait for the ending 😱' : 'e.g. Follow for part 2'"></textarea>
-      <button type="button" class="fl-toggle" (click)="toggleStyle(slot)">
-        {{ openStyle() === slot ? '▾' : '▸' }} Style
-      </button>
-      @if (openStyle() === slot) {
-        <app-text-style-editor [textStyle]="t.style" [showPresets]="false"
-                               (styleChange)="state.updateFrameTextStyle(slot, $event)" />
+  <!-- Text layers -->
+  <div class="fl-section">
+    <button type="button" class="fl-section-head" (click)="toggleSection('texts')">
+      <span>{{ isOpen('texts') ? '▾' : '▸' }} 🔤 Text layers</span>
+      <span class="fl-count">{{ layout.texts.length }}</span>
+    </button>
+    @if (isOpen('texts')) {
+      @for (t of layout.texts; track t.id; let i = $index, last = $last) {
+        <div class="fl-card" [class.fl-selected]="selected === t.id" (click)="state.selectFrameLayer(t.id)">
+          <div class="fl-layer-head">
+            <input class="fl-name" [ngModel]="t.label" (ngModelChange)="state.updateFrameTextLabel(t.id, $event)"
+                   aria-label="Layer name" maxlength="40" />
+            <div class="fl-actions">
+              <button type="button" class="fl-icon" [disabled]="i === 0" (click)="state.reorderFrameLayer(t.id, -1)" title="Draw behind">↑</button>
+              <button type="button" class="fl-icon" [disabled]="last" (click)="state.reorderFrameLayer(t.id, 1)" title="Draw in front">↓</button>
+              <button type="button" class="fl-icon" [disabled]="layout.texts.length >= maxTexts"
+                      (click)="state.duplicateFrameText(t.id)" title="Duplicate">⧉</button>
+              <button type="button" class="fl-icon danger" (click)="state.removeFrameText(t.id)" title="Delete">✕</button>
+            </div>
+          </div>
+          <textarea rows="2" [attr.aria-label]="t.label"
+                    class="form-control form-control-sm bg-dark text-light border-secondary border-opacity-50"
+                    [ngModel]="t.text" (ngModelChange)="state.updateFrameText(t.id, $event)"
+                    [placeholder]="i === 0 ? 'e.g. Wait for the ending 😱' : i === 1 ? 'e.g. Follow for part 2' : 'Your text'"></textarea>
+          <ng-container *ngTemplateOutlet="timing; context: { $implicit: t }" />
+          <button type="button" class="fl-toggle" (click)="toggleStyle(t.id)">
+            {{ openStyle() === t.id ? '▾' : '▸' }} Style &amp; position
+          </button>
+          @if (openStyle() === t.id) {
+            <app-text-style-editor [textStyle]="t.style"
+                                   (styleChange)="state.updateFrameTextStyle(t.id, $event)" />
+          }
+        </div>
       }
-    </div>
-  }
+      <button type="button" class="fl-add" [disabled]="layout.texts.length >= maxTexts" (click)="state.addFrameText()">
+        + Add text
+      </button>
+    }
+  </div>
+
+  <!-- Images -->
+  <div class="fl-section">
+    <button type="button" class="fl-section-head" (click)="toggleSection('images')">
+      <span>{{ isOpen('images') ? '▾' : '▸' }} 🖼 Images &amp; logos</span>
+      <span class="fl-count">{{ layout.images.length }}</span>
+    </button>
+    @if (isOpen('images')) {
+      <div class="fl-card">
+        <div class="fl-row">
+          <select class="form-select form-select-sm bg-dark text-light border-secondary border-opacity-50"
+                  [ngModel]="pickedImage()" (ngModelChange)="pickedImage.set($event)" aria-label="Project image">
+            <option value="">Choose a project image…</option>
+            @for (c of state.frameImageCandidates(); track c.id) {
+              <option [value]="c.id">{{ c.name }}</option>
+            }
+          </select>
+          <button type="button" class="fl-mini" [disabled]="!pickedImage() || layout.images.length >= maxImages"
+                  (click)="addPickedImage()">Add</button>
+        </div>
+        <label class="fl-upload" [class.disabled]="state.frameImageUploading() || layout.images.length >= maxImages">
+          <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" (change)="onImageFile($event)"
+                 [disabled]="state.frameImageUploading() || layout.images.length >= maxImages" hidden />
+          {{ state.frameImageUploading() ? 'Uploading…' : '⬆ Upload an image' }}
+        </label>
+        <p class="fl-hint mb-0">A PNG with a transparent background works best for logos and stickers.</p>
+      </div>
+
+      @for (im of layout.images; track im.id; let i = $index, last = $last) {
+        <div class="fl-card" [class.fl-selected]="selected === im.id" (click)="state.selectFrameLayer(im.id)">
+          <div class="fl-layer-head">
+            <img class="fl-image-thumb" [src]="state.assetUrl(im.assetId)" alt="" />
+            <span class="fl-image-name" [title]="im.name">{{ im.name }}</span>
+            <div class="fl-actions">
+              <button type="button" class="fl-icon" [disabled]="i === 0" (click)="state.reorderFrameLayer(im.id, -1)" title="Draw behind">↑</button>
+              <button type="button" class="fl-icon" [disabled]="last" (click)="state.reorderFrameLayer(im.id, 1)" title="Draw in front">↓</button>
+              <button type="button" class="fl-icon danger" (click)="state.removeFrameImage(im.id)" title="Delete">✕</button>
+            </div>
+          </div>
+          <div class="fl-slider">
+            <span>Size</span>
+            <input type="range" class="form-range" [min]="minImageWidth" [max]="maxImageWidth" step="0.5"
+                   [ngModel]="im.width" (ngModelChange)="state.updateFrameImage(im.id, { width: +$event })" />
+            <span class="mono">{{ im.width | number:'1.0-0' }}%</span>
+          </div>
+          <div class="fl-slider">
+            <span>Across</span>
+            <input type="range" class="form-range" min="0" max="100" step="0.5"
+                   [ngModel]="im.x" (ngModelChange)="state.updateFrameImage(im.id, { x: +$event })" />
+            <span class="mono">{{ im.x | number:'1.0-0' }}%</span>
+          </div>
+          <div class="fl-slider">
+            <span>Height</span>
+            <input type="range" class="form-range" min="0" max="100" step="0.5"
+                   [ngModel]="im.y" (ngModelChange)="state.updateFrameImage(im.id, { y: +$event })" />
+            <span class="mono">{{ im.y | number:'1.0-0' }}%</span>
+          </div>
+          <div class="fl-slider">
+            <span>Opacity</span>
+            <input type="range" class="form-range" min="0" max="1" step="0.05"
+                   [ngModel]="im.opacity" (ngModelChange)="state.updateFrameImage(im.id, { opacity: +$event })" />
+            <span class="mono">{{ im.opacity * 100 | number:'1.0-0' }}%</span>
+          </div>
+          <ng-container *ngTemplateOutlet="timing; context: { $implicit: im }" />
+        </div>
+      }
+    }
+  </div>
+
+  <!-- Subtitles -->
+  <div class="fl-section">
+    <button type="button" class="fl-section-head" (click)="toggleSection('subtitles')">
+      <span>{{ isOpen('subtitles') ? '▾' : '▸' }} 💬 Subtitles</span>
+      <span class="fl-count">{{ cueCount() }}</span>
+    </button>
+    @if (isOpen('subtitles')) {
+      <div class="fl-card" [class.fl-selected]="selected === 'subtitles'">
+        <div class="fl-sub-actions">
+          <button type="button" class="fl-mini" [disabled]="cueCount() >= maxCues" (click)="addCue()"
+                  title="A new 2-second line at the playhead">+ Line here</button>
+          <button type="button" class="fl-mini" (click)="scriptOpen.set(!scriptOpen())"
+                  title="Paste what is said and time it across the video">📝 From script</button>
+          <label class="fl-mini fl-file" title="Import an .srt or .vtt file">
+            <input type="file" accept=".srt,.vtt,text/vtt,application/x-subrip" (change)="onSubtitleFile($event)" hidden />
+            📂 Import .srt/.vtt
+          </label>
+        </div>
+
+        @if (scriptOpen()) {
+          <textarea rows="4" aria-label="Script"
+                    class="form-control form-control-sm bg-dark text-light border-secondary border-opacity-50"
+                    [ngModel]="script()" (ngModelChange)="script.set($event)"
+                    placeholder="Paste the words spoken in the video. Each sentence or every few words becomes one subtitle."></textarea>
+          <div class="fl-slider">
+            <span>Words</span>
+            <input type="range" class="form-range" min="1" max="10" step="1"
+                   [ngModel]="wordsPerCue()" (ngModelChange)="wordsPerCue.set(+$event)" />
+            <span class="mono">{{ wordsPerCue() }}/line</span>
+          </div>
+          <button type="button" class="fl-add" [disabled]="!script().trim()" (click)="generateFromScript()">Make subtitles</button>
+          <p class="fl-hint mb-0">Short lines of 2-4 words are the punchy Shorts style.</p>
+        }
+
+        <button type="button" class="fl-toggle" (click)="toggleStyle('subtitles')">
+          {{ openStyle() === 'subtitles' ? '▾' : '▸' }} Style &amp; position (all lines)
+        </button>
+        @if (openStyle() === 'subtitles') {
+          <app-text-style-editor [textStyle]="layout.subtitles.style"
+                                 (styleChange)="state.updateSubtitleStyle($event)" />
+        }
+
+        @if (cueCount() > 0) {
+          <div class="fl-sub-actions">
+            <button type="button" class="fl-mini" (click)="state.shiftSubtitles(-0.5)" title="Every line 0.5s earlier">⏪ 0.5s</button>
+            <button type="button" class="fl-mini" (click)="state.shiftSubtitles(0.5)" title="Every line 0.5s later">0.5s ⏩</button>
+            <button type="button" class="fl-mini" (click)="state.downloadSubtitlesSrt()" title="Download as .srt">⬇ .srt</button>
+            <button type="button" class="fl-mini danger" (click)="clearCues()">Clear</button>
+          </div>
+
+          <div class="fl-cues">
+            @for (c of layout.subtitles.cues; track c.id) {
+              <div class="fl-cue" [class.active]="state.activeSubtitleCueId() === c.id">
+                <button type="button" class="fl-icon" (click)="state.seekTo(c.start)" title="Go to this line">▶</button>
+                <input type="number" class="fl-num" min="0" step="0.1" [ngModel]="c.start"
+                       (ngModelChange)="state.updateSubtitleCue(c.id, { start: numberOr($event, c.start) })" aria-label="Start (seconds)" />
+                <input type="number" class="fl-num" min="0" step="0.1" [ngModel]="c.end"
+                       (ngModelChange)="state.updateSubtitleCue(c.id, { end: numberOr($event, c.end) })" aria-label="End (seconds)" />
+                <input class="fl-cue-text" [ngModel]="c.text" maxlength="500" placeholder="Type the line…"
+                       (ngModelChange)="state.updateSubtitleCue(c.id, { text: $event })" aria-label="Subtitle text" />
+                <button type="button" class="fl-icon danger" (click)="state.removeSubtitleCue(c.id)" title="Delete line">✕</button>
+              </div>
+            }
+          </div>
+        } @else {
+          <p class="fl-hint mb-0">No subtitles yet. Add a line at the playhead, paste the script, or import a caption file.</p>
+        }
+      </div>
+    }
+  </div>
 </div>

@@ -390,6 +390,46 @@ public sealed class ClipMergeRenderTests : IAsyncLifetime
         Assert.True(strip > 17, $"the strip is solid black - the headline did not draw ({strip:F1}).");
     }
 
+    [FfmpegFact]
+    public async Task A_sticker_is_sized_to_the_canvas_and_shown_only_in_its_window()
+    {
+        // A still with a fade: before the still was looped, its one frame was faded to
+        // alpha 0 and held there, so a sticker with the default fade never appeared at all.
+        Directory.CreateDirectory(Path_("in"));
+        Run($"-y -f lavfi -i color=c=black:size=640x360:rate=30:duration=3 -c:v libx264 -pix_fmt yuv420p -an \"{Path_("in/black.mp4")}\"");
+        Run($"-y -f lavfi -i color=c=white:size=100x50 -frames:v 1 \"{Path_("in/sticker.png")}\"");
+
+        var clip = await _service.RenderClipAsync(Plan(0, "in/black.mp4", hasAudio: false), _workspace, null, Ct);
+
+        var merged = await BuildService().MergeScenesAsync(
+            new MergePlan
+            {
+                Canvas = TestCanvas,
+                Scenes = [new MergeSceneInput(clip.RelativePath, clip.Frames, TransitionSettings.None)],
+                Overlays =
+                [
+                    // A quarter of the width (160x80), centred at 75% across, from 0.5s to 2.5s.
+                    new MergeOverlayItem("image", "in/sticker.png", 0.5, 2, 1, 25, 0, 1, "fade", 0.5, "fade", 0.5)
+                    {
+                        WidthPercent = 25
+                    }
+                ],
+                OutputRelativePath = "out/sticker.mp4"
+            },
+            _workspace, null, Ct);
+
+        var path = _workspace.Resolve(merged.RelativePath);
+        var onSticker = MeanLuma(path, "crop=100:40:430:160", at: 1.5);
+        var besideIt = MeanLuma(path, "crop=20:20:570:170", at: 1.5);
+        var beforeIt = MeanLuma(path, "crop=100:40:430:160", at: 0.2);
+        var afterIt = MeanLuma(path, "crop=100:40:430:160", at: 2.8);
+
+        Assert.True(onSticker > 200, $"the sticker did not draw at 1.5s ({onSticker:F1}).");
+        Assert.True(besideIt < 40, $"the sticker is wider than a quarter of the frame ({besideIt:F1}).");
+        Assert.True(beforeIt < 40, $"the sticker showed before its start ({beforeIt:F1}).");
+        Assert.True(afterIt < 40, $"the sticker stayed after its end ({afterIt:F1}).");
+    }
+
     // --- erasing an existing mark ------------------------------------------
 
     /// <summary>A black clip with a white "foreign logo" in its top-right corner.</summary>
@@ -788,11 +828,12 @@ public sealed class ClipMergeRenderTests : IAsyncLifetime
     /// Average brightness of a region of the first frame. Used to prove a watermark really
     /// drew, since a drawtext that silently did nothing still exits 0.
     /// </summary>
-    private static double MeanLuma(string path, string cropFilter)
+    private static double MeanLuma(string path, string cropFilter, double? at = null)
     {
+        var seek = at is { } seconds ? $"-ss {seconds.ToString(CultureInfo.InvariantCulture)} " : string.Empty;
         using var process = Process.Start(new ProcessStartInfo(FfmpegLocator.FfmpegPath)
         {
-            Arguments = $"-hide_banner -v info -i \"{path}\" -vf {cropFilter},signalstats,"
+            Arguments = $"-hide_banner -v info {seek}-i \"{path}\" -vf {cropFilter},signalstats,"
                       + "metadata=print:key=lavfi.signalstats.YAVG -frames:v 1 -f null -",
             RedirectStandardError = true,
             RedirectStandardOutput = true,

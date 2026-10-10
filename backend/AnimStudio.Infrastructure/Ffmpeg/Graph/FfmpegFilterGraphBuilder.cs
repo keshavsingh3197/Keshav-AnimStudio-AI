@@ -648,6 +648,10 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
     /// <c>black</c> for the default, so every graph built before bar colours existed is the
     /// graph it always was; otherwise the colour as ffmpeg spells it.
     /// </summary>
+    /// <summary>A pixel width yuv420p can carry: rounded to even, never below two.</summary>
+    private static string EvenAtLeastTwo(double pixels) =>
+        Math.Max(2, (int)Math.Round(pixels / 2) * 2).ToString(System.Globalization.CultureInfo.InvariantCulture);
+
     private static string PadColor(string rgb) =>
         rgb is "000000" || rgb.Length != 6 || !rgb.All(char.IsAsciiHexDigit) ? "black" : $"0x{rgb}";
 
@@ -958,20 +962,31 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
             if (overlay.Type is "image" or "video" && overlay.RelativePath is { Length: > 0 })
             {
                 var ovInput = inputs.Count;
-                inputs.Add(new FfmpegInputSpec([], overlay.RelativePath));
+
+                // A still is one frame: looped into a stream the overlay's length, so a fade
+                // has frames to fade across rather than one frame held at alpha 0.
+                inputs.Add(overlay.Type == "image"
+                    ? new FfmpegInputSpec(
+                        ["-loop", "1", "-framerate", rate.ToFfmpegRate(), "-t", FilterExpr.N(overlay.DurationSeconds)],
+                        overlay.RelativePath)
+                    : new FfmpegInputSpec([], overlay.RelativePath));
 
                 var ovScaledLabel = $"ov_s_{idx}";
-                var scaleStr = overlay.Scale != 1.0 ? $",scale=iw*{FilterExpr.N(overlay.Scale)}:-1" : "";
+                var scaleStr = overlay.WidthPercent is { } widthPercent
+                    ? $",scale={EvenAtLeastTwo(plan.Canvas.Width * widthPercent / 100)}:-2"
+                    : overlay.Scale != 1.0 ? $",scale=iw*{FilterExpr.N(overlay.Scale)}:-1" : "";
                 var opacityStr = overlay.Opacity < 1.0 ? $",colorchannelmixer=aa={FilterExpr.N(overlay.Opacity)}" : "";
 
-                var fadeStr = "";
+                // Moved onto the joined video's clock, so it starts at its own start time
+                // instead of playing (unseen) from zero, and the fades land where they belong.
+                var fadeStr = $",setpts=PTS-STARTPTS+{startSec}/TB";
                 if (overlay.TransitionIn == "fade" && overlay.TransitionInDuration > 0)
                 {
-                    fadeStr += $",fade=t=in:st=0:d={FilterExpr.N(overlay.TransitionInDuration)}:alpha=1";
+                    fadeStr += $",fade=t=in:st={startSec}:d={FilterExpr.N(overlay.TransitionInDuration)}:alpha=1";
                 }
                 if (overlay.TransitionOut == "fade" && overlay.TransitionOutDuration > 0)
                 {
-                    var outStart = Math.Max(0, overlay.DurationSeconds - overlay.TransitionOutDuration);
+                    var outStart = overlay.StartSeconds + Math.Max(0, overlay.DurationSeconds - overlay.TransitionOutDuration);
                     fadeStr += $",fade=t=out:st={FilterExpr.N(outStart)}:d={FilterExpr.N(overlay.TransitionOutDuration)}:alpha=1";
                 }
 
