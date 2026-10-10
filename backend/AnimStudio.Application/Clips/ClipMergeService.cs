@@ -47,6 +47,9 @@ public sealed record ClipMergeCommand
 
     public ClipFit Fit { get; init; } = ClipFit.Contain;
 
+    /// <summary><c>#rrggbb</c> for the Contain bars; null is black.</summary>
+    public string? BackgroundColor { get; init; }
+
     public int? OutputWidth { get; init; }
     public int? OutputHeight { get; init; }
 
@@ -557,6 +560,8 @@ public sealed class ClipMergeService(
                 ExportName = command.ExportName,
                 AssetIds = [.. clipIds],
                 Fit = command.Fit,
+                // Checked here as well as at the API: it ends up inside the pad filter.
+                BackgroundColor = EraseRegionSpec.IsHexColor(command.BackgroundColor) ? command.BackgroundColor : null,
                 OutputWidth = command.OutputWidth,
                 OutputHeight = command.OutputHeight,
                 Quality = command.Quality,

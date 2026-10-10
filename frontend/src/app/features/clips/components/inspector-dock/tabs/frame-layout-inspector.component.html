@@ -1,0 +1,72 @@
+@let layout = state.frameLayout();
+
+<div class="fl">
+  <div class="fl-card">
+    <div class="fl-head">
+      <div class="fl-title">🖼 Frame &amp; Titles</div>
+      <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.7rem;"
+              (click)="state.resetFrameLayout()" title="Clear the headline, caption and bar colour">Reset</button>
+    </div>
+    <p class="fl-hint">
+      Fill the empty space above and below your clip, and put a headline and caption there for the whole video.
+    </p>
+
+    <div class="fl-label">Designs</div>
+    <div class="fl-designs">
+      @for (d of designs; track d.id) {
+        <button type="button" class="fl-design" (click)="state.applyFrameDesign(d)" [title]="d.label">
+          <span class="fl-thumb" [style.background]="barsOf(d)">
+            <span class="fl-thumb-text" [style]="sampleText(d.top)">TITLE</span>
+            <span class="fl-thumb-video"></span>
+            <span class="fl-thumb-text small" [style]="sampleText(d.bottom)">caption</span>
+          </span>
+          <span class="fl-design-name">{{ d.label }}</span>
+        </button>
+      }
+    </div>
+  </div>
+
+  <div class="fl-card">
+    <div class="fl-label">Space around the clip</div>
+    <div class="fl-seg">
+      <button type="button" [class.on]="layout.bars === 'auto'" (click)="state.updateFrameLayout({ bars: 'auto' })"
+              title="Whatever Framing & Aspect Fit is set to">Default</button>
+      <button type="button" [class.on]="layout.bars === 'blur'" (click)="state.updateFrameLayout({ bars: 'blur' })"
+              title="A blurred, zoomed copy of the clip">Blur</button>
+      <button type="button" [class.on]="layout.bars === 'color'" (click)="state.updateFrameLayout({ bars: 'color' })"
+              title="A solid colour">Colour</button>
+    </div>
+    @if (layout.bars === 'color') {
+      <div class="fl-colors">
+        @for (c of barSwatches; track c) {
+          <button type="button" class="fl-swatch" [class.on]="layout.barColor === c" [style.background]="c"
+                  [title]="c" (click)="state.updateFrameLayout({ barColor: c })"></button>
+        }
+        <input type="color" class="fl-picker" [ngModel]="layout.barColor"
+               (ngModelChange)="state.updateFrameLayout({ barColor: $event })" title="Any colour" />
+      </div>
+    }
+    @if (layout.bars === 'blur') {
+      <p class="fl-hint mb-0">The preview shows the bars dark; the export fills them with a blur of the clip.</p>
+    }
+    <p class="fl-hint mb-0">Bars appear when the clip's shape differs from the video's - a wide clip in a Short. A clip set to Cover fills the frame and has none.</p>
+  </div>
+
+  @for (slot of slots; track slot) {
+    @let t = layout[slot];
+    <div class="fl-card">
+      <label class="fl-label" [for]="'frameText-' + slot">{{ slot === 'top' ? '⬆ Headline (top)' : '⬇ Caption (bottom)' }}</label>
+      <textarea [id]="'frameText-' + slot" rows="2"
+                class="form-control form-control-sm bg-dark text-light border-secondary border-opacity-50"
+                [ngModel]="t.text" (ngModelChange)="state.updateFrameText(slot, $event)"
+                [placeholder]="slot === 'top' ? 'e.g. Wait for the ending 😱' : 'e.g. Follow for part 2'"></textarea>
+      <button type="button" class="fl-toggle" (click)="toggleStyle(slot)">
+        {{ openStyle() === slot ? '▾' : '▸' }} Style
+      </button>
+      @if (openStyle() === slot) {
+        <app-text-style-editor [textStyle]="t.style" [showPresets]="false"
+                               (styleChange)="state.updateFrameTextStyle(slot, $event)" />
+      }
+    </div>
+  }
+</div>

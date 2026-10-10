@@ -712,11 +712,32 @@ export const ERASE_DEFAULT_FEATHER = 30;
 export const MAX_ERASE_REGIONS = 8;
 export const MIN_ERASE_SIZE = 1;
 
+export type TextBoxStyle = 'none' | 'box' | 'band';
+
 export interface TimelineItemTextStyle {
+  /** Pixels on a frame whose short side is 360 (the monitor); the export scales it to the canvas. */
   fontSize: number;
+  /** #rrggbb */
   color: string;
+  /** Legacy CSS plate colour; superseded by boxStyle/boxColor/boxOpacity when those are set. */
   backgroundColor: string;
-  position: 'top' | 'center' | 'bottom';
+  /** 'custom' places the centre of the text at x/y. */
+  position: 'top' | 'center' | 'bottom' | 'custom';
+  /** Centre of the text block, percent of the frame (custom position only). */
+  x?: number;
+  y?: number;
+  /** none, a plate behind each line, or a full-width strip. */
+  boxStyle?: TextBoxStyle;
+  /** #rrggbb */
+  boxColor?: string;
+  /** 0-1 */
+  boxOpacity?: number;
+  /** #rrggbb; drawn only while outlineWidth > 0 */
+  outlineColor?: string;
+  /** Same units as fontSize */
+  outlineWidth?: number;
+  shadow?: boolean;
+  uppercase?: boolean;
   /** Transition In animation for text overlay */
   transitionIn?: 'none' | 'fade' | 'slide-up' | 'slide-down' | 'zoom' | 'zoom-in' | 'zoom-out';
   transitionInDuration?: number;
@@ -758,6 +779,8 @@ export interface ClipMergeBody {
   exportName?: string;
   assetIds: string[];
   fit: ClipFit;
+  /** #rrggbb fill for the Contain bars; omitted is black. */
+  backgroundColor?: string | null;
   outputWidth?: number;
   outputHeight?: number;
   quality?: ExportQuality;

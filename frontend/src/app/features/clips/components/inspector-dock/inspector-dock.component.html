@@ -42,6 +42,13 @@
                 <svg class="check-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
               }
             </button>
+            <button type="button" class="modern-tool-item" [class.active]="state.activeInspectorTab() === 'layout'" (click)="state.setInspectorTab('layout')">
+              <span class="tool-item-icon">🖼</span>
+              <span class="tool-item-label">Frame &amp; Titles</span>
+              @if (state.activeInspectorTab() === 'layout') {
+                <svg class="check-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              }
+            </button>
             <button type="button" class="modern-tool-item" [class.active]="state.activeInspectorTab() === 'effects'" (click)="state.setInspectorTab('effects')">
               <span class="tool-item-icon">✨</span>
               <span class="tool-item-label">Visual Effects</span>
@@ -66,7 +73,7 @@
         that unmounts on selection change made it reachable exactly once.
         Transitions is excluded: it edits cut seams, not clips.
       -->
-      @if (state.activeInspectorTab() !== 'transitions') {
+      @if (state.activeInspectorTab() !== 'transitions' && state.activeInspectorTab() !== 'layout') {
         <div class="scope-dropdown-wrap">
           <button type="button" class="modern-scope-btn" (click)="state.toggleScopeDropdown($event)"
                   title="Choose which clips this panel changes">
@@ -120,6 +127,10 @@
 
       @if (state.activeInspectorTab() === 'text') {
         <app-text-inspector />
+      }
+
+      @if (state.activeInspectorTab() === 'layout') {
+        <app-frame-layout-inspector />
       }
 
       @if (state.activeInspectorTab() === 'transitions') {

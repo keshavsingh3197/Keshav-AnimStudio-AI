@@ -1,3 +1,4 @@
+using AnimStudio.Application.Rendering;
 using AnimStudio.Domain.Rendering;
 
 namespace AnimStudio.Application.Rendering.Models;
@@ -26,15 +27,29 @@ public sealed record MergeOverlayItem(
     double X,
     double Y,
     double Opacity,
-    string? Text,
-    double FontSize,
-    string Color,
-    string BackgroundColor,
-    string Position,
     string? TransitionIn = "fade",
     double TransitionInDuration = 0.5,
     string? TransitionOut = "fade",
-    double TransitionOutDuration = 0.5);
+    double TransitionOutDuration = 0.5)
+{
+    /// <summary>What to draw for a text overlay; null for image and video overlays.</summary>
+    public MergeTextOverlay? Text { get; init; }
+}
+
+/// <summary>
+/// A text overlay ready to draw: already wrapped into lines, each line already in a file.
+/// <para>
+/// Files for the same reason as <see cref="WatermarkPlan"/>: a caption is free text, and
+/// <c>:</c> <c>,</c> <c>'</c> <c>%</c> and <c>\</c> are all syntax to drawtext's option
+/// parser. One file per line because drawtext cannot centre the lines of a block, only the
+/// block - each line is its own drawtext, centred on its own.
+/// </para>
+/// </summary>
+/// <param name="LineRelativePaths">One per line, top to bottom; null for a blank line, which keeps its slot.</param>
+public sealed record MergeTextOverlay(
+    IReadOnlyList<string?> LineRelativePaths,
+    string FontFilePath,
+    TextOverlayLook Look);
 
 public sealed record MergePlan
 {

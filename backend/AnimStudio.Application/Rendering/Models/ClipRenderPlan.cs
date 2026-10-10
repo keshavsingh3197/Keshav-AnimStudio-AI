@@ -92,6 +92,12 @@ public sealed record ClipRenderPlan
     /// <summary>How a clip shaped differently from the canvas is fitted to it.</summary>
     public ClipFit Fit { get; init; } = ClipFit.Contain;
 
+    /// <summary>
+    /// Six hex digits the <see cref="ClipFit.Contain"/> bars are filled with. Validated
+    /// before it gets here: it is written straight into the pad filter.
+    /// </summary>
+    public string PadColorRgb { get; init; } = "000000";
+
     /// <summary>True when the source is an image asset requiring looped frame generation.</summary>
     public bool SourceIsImage { get; init; }
 

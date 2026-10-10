@@ -3,7 +3,8 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { MonitorEraseRegion, StudioStateService } from '../../services/studio-state.service';
+import { MonitorEraseRegion, MonitorTextBlock, StudioStateService } from '../../services/studio-state.service';
+import { TEXT_REFERENCE_SHORT_SIDE, hexToRgba } from '../../services/text-overlay-layout';
 import { erasePatchOrigin } from '../../services/erase-geometry';
 import { ERASE_DEFAULT_STRENGTH, TimelineItemTransform } from '../../../../core/models/api.models';
 import { MusicTrackRow, isCutEffectTrack, isVoiceoverTrack } from '../../models/clip-studio.models';
@@ -979,6 +980,76 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     target.addEventListener('pointermove', onMove);
     target.addEventListener('pointerup', onUp);
     target.addEventListener('pointercancel', onUp);
+  }
+
+  /**
+   * Press on a block of text to select it, drag to place it. Moving only starts past a few
+   * pixels, so a plain click selects without turning a named position into a custom one.
+   * Near the middle it snaps to centre, the place a caption almost always belongs.
+   */
+  startTextDrag(event: PointerEvent, block: MonitorTextBlock): void {
+    if (event.button !== 0) return;
+    if (block.target.kind === 'item') this.state.selectTimelineItem(block.target.id);
+    else this.state.setInspectorTab('layout');
+    if (this.state.isPlaying()) return;
+    const frame = this.monitorContainerRef?.nativeElement;
+    if (!frame) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    const handle = event.currentTarget as HTMLElement;
+    handle.setPointerCapture(event.pointerId);
+
+    const rect = frame.getBoundingClientRect();
+    const x0 = event.clientX, y0 = event.clientY;
+    const startX = block.look.x, startY = block.look.y;
+    let moving = false;
+
+    const onMove = (e: PointerEvent) => {
+      if (!moving && Math.hypot(e.clientX - x0, e.clientY - y0) < 4) return;
+      moving = true;
+      // A band is always full width; only its height means anything.
+      let x = block.look.box === 'band' ? 50 : startX + ((e.clientX - x0) / rect.width) * 100;
+      if (Math.abs(x - 50) < 3) x = 50;
+      const y = startY + ((e.clientY - y0) / rect.height) * 100;
+      this.state.moveTextBlock(block.target, x, y);
+    };
+    const onUp = (e: PointerEvent) => {
+      handle.releasePointerCapture(e.pointerId);
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
+      handle.removeEventListener('pointercancel', onUp);
+    };
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onUp);
+    handle.addEventListener('pointercancel', onUp);
+  }
+
+  /** Centred on its point; the entrance/exit offset is in 360-reference pixels like the export's. */
+  textBlockTransform(b: MonitorTextBlock): string {
+    const dy = b.offsetY !== 0 ? ` + ${b.offsetY} * 100cqmin / ${TEXT_REFERENCE_SHORT_SIDE}` : '';
+    const scale = b.scale !== 1 ? ` scale(${b.scale})` : '';
+    return b.look.box === 'band'
+      ? `translateY(calc(-50%${dy}))${scale}`
+      : `translate(-50%, calc(-50%${dy}))${scale}`;
+  }
+
+  textBandBackground(b: MonitorTextBlock): string | null {
+    return b.look.box === 'band' && b.look.boxOpacity > 0 ? hexToRgba(b.look.boxColor, b.look.boxOpacity) : null;
+  }
+
+  /** One line's plate, stroke and shadow - drawtext's box, borderw and shadow. */
+  textLineStyle(b: MonitorTextBlock): Record<string, string> {
+    const l = b.look;
+    return {
+      background: l.box === 'box' && l.boxOpacity > 0 ? hexToRgba(l.boxColor, l.boxOpacity) : 'transparent',
+      // The stroke is centred on the outline and painted under the fill, so twice the
+      // width shows exactly drawtext's outward border.
+      '-webkit-text-stroke': l.outlineWidth > 0
+        ? `calc(${l.outlineWidth * 2} * 100cqmin / ${TEXT_REFERENCE_SHORT_SIDE}) ${l.outlineColor}`
+        : '0',
+      'text-shadow': l.shadow ? '0.0625em 0.0625em 0 rgba(0,0,0,0.7)' : 'none',
+    };
   }
 
   toggleFullscreen(): void {

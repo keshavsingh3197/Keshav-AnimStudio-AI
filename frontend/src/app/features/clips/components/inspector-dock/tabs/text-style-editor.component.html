@@ -1,0 +1,80 @@
+@let l = look();
+
+<div class="tse">
+  <div class="tse-label">Design</div>
+  <div class="tse-designs">
+    @for (d of designs; track d.id) {
+      <button type="button" class="tse-design" (click)="set(d.style)" [title]="d.label">
+        <span class="tse-design-sample" [style]="sample(d)">Aa</span>
+        <span class="tse-design-name">{{ d.label }}</span>
+      </button>
+    }
+  </div>
+
+  @if (showPresets()) {
+    <div class="tse-label">Position</div>
+    <div class="tse-seg">
+      <button type="button" [class.on]="textStyle()?.position === 'top'" (click)="set({ position: 'top' })">⬆ Top</button>
+      <button type="button" [class.on]="textStyle()?.position === 'center'" (click)="set({ position: 'center' })">⏺ Center</button>
+      <button type="button" [class.on]="!textStyle()?.position || textStyle()?.position === 'bottom'" (click)="set({ position: 'bottom' })">⬇ Bottom</button>
+    </div>
+  }
+  <div class="tse-row">
+    <span class="tse-k">Height</span>
+    <input type="range" class="form-range" min="0" max="100" step="0.5"
+           [ngModel]="l.y" (ngModelChange)="setHeight(+$event)"
+           title="Move up or down - or drag the text on the preview" />
+    <span class="tse-v mono">{{ l.y | number:'1.0-0' }}%</span>
+  </div>
+
+  <div class="tse-row">
+    <span class="tse-k">Size</span>
+    <input type="range" class="form-range" min="10" max="72" step="1"
+           [ngModel]="l.fontSize" (ngModelChange)="set({ fontSize: +$event })" />
+    <span class="tse-v mono">{{ l.fontSize }}</span>
+  </div>
+
+  <div class="tse-label">Text colour</div>
+  <div class="tse-colors">
+    @for (c of textSwatches; track c) {
+      <button type="button" class="tse-swatch" [class.on]="l.color === c" [style.background]="c"
+              [title]="c" (click)="set({ color: c })"></button>
+    }
+    <input type="color" class="tse-picker" [ngModel]="l.color" (ngModelChange)="set({ color: $event })" title="Any colour" />
+  </div>
+
+  <div class="tse-label">Background</div>
+  <div class="tse-seg">
+    <button type="button" [class.on]="l.box === 'none'" (click)="setBox('none')">None</button>
+    <button type="button" [class.on]="l.box === 'box'" (click)="setBox('box')" title="A plate behind each line">Box</button>
+    <button type="button" [class.on]="l.box === 'band'" (click)="setBox('band')" title="A strip the full width of the frame">Full-width band</button>
+  </div>
+  @if (l.box !== 'none') {
+    <div class="tse-colors">
+      @for (c of plateSwatches; track c) {
+        <button type="button" class="tse-swatch" [class.on]="l.boxColor === c" [style.background]="c"
+                [title]="c" (click)="set({ boxColor: c })"></button>
+      }
+      <input type="color" class="tse-picker" [ngModel]="l.boxColor" (ngModelChange)="set({ boxColor: $event })" title="Any colour" />
+    </div>
+    <div class="tse-row">
+      <span class="tse-k">Opacity</span>
+      <input type="range" class="form-range" min="0" max="1" step="0.05"
+             [ngModel]="l.boxOpacity" (ngModelChange)="set({ boxOpacity: +$event })" />
+      <span class="tse-v mono">{{ l.boxOpacity * 100 | number:'1.0-0' }}%</span>
+    </div>
+  }
+
+  <div class="tse-row">
+    <span class="tse-k">Outline</span>
+    <input type="range" class="form-range" min="0" [max]="maxOutline" step="0.5"
+           [ngModel]="l.outlineWidth" (ngModelChange)="set({ outlineWidth: +$event })" />
+    <input type="color" class="tse-picker" [ngModel]="l.outlineColor" (ngModelChange)="set({ outlineColor: $event })"
+           [disabled]="l.outlineWidth === 0" title="Outline colour" />
+  </div>
+
+  <div class="tse-toggles">
+    <label><input type="checkbox" [ngModel]="l.shadow" (ngModelChange)="set({ shadow: $event })" /> Shadow</label>
+    <label><input type="checkbox" [ngModel]="l.uppercase" (ngModelChange)="set({ uppercase: $event })" /> UPPERCASE</label>
+  </div>
+</div>

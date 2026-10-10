@@ -2,6 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using AnimStudio.Application.Clips;
+using AnimStudio.Application.Rendering;
 using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Projects;
 using AnimStudio.Domain.Rendering;
@@ -502,6 +503,9 @@ public sealed record ClipMergeRequest
 
     public ClipFit Fit { get; init; } = ClipFit.Contain;
 
+    /// <summary>Colour of the Contain bars, <c>#rrggbb</c>. Null is black.</summary>
+    [RegularExpression("^#[0-9a-fA-F]{6}$")] public string? BackgroundColor { get; init; }
+
     [Range(360, 3840)] public int? OutputWidth { get; init; }
     [Range(360, 3840)] public int? OutputHeight { get; init; }
 
@@ -565,10 +569,26 @@ public sealed record ClipMergeRequest
 
 public sealed record TimelineItemTextStyleRequest
 {
+    /// <summary>Pixels on a frame whose short side is 360; scaled to the real canvas.</summary>
+    [Range(TextOverlayLayout.MinFontSize, TextOverlayLayout.MaxFontSize)]
     public double FontSize { get; init; } = 36;
     [StringLength(32)] public string Color { get; init; } = "#ffffff";
     [StringLength(32)] public string BackgroundColor { get; init; } = "rgba(0,0,0,0.6)";
+    [RegularExpression("^(top|center|bottom|custom)$")]
     [StringLength(16)] public string Position { get; init; } = "bottom";
+
+    /// <summary>Centre of the text, in percent of the frame. Used with Position custom.</summary>
+    [Range(0, 100)] public double? X { get; init; }
+    [Range(0, 100)] public double? Y { get; init; }
+
+    [RegularExpression("^(none|box|band)$")] public string? BoxStyle { get; init; }
+    [RegularExpression("^#[0-9a-fA-F]{6}$")] public string? BoxColor { get; init; }
+    [Range(0, 1)] public double? BoxOpacity { get; init; }
+    [RegularExpression("^#[0-9a-fA-F]{6}$")] public string? OutlineColor { get; init; }
+    [Range(0, TextOverlayLayout.MaxOutlineWidth)] public double OutlineWidth { get; init; }
+    public bool Shadow { get; init; }
+    public bool Uppercase { get; init; }
+
     [StringLength(32)] public string? TransitionIn { get; init; } = "fade";
     public double TransitionInDuration { get; init; } = 0.5;
     [StringLength(32)] public string? TransitionOut { get; init; } = "fade";

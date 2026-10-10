@@ -434,27 +434,61 @@
   z-index: 5;
 }
 
-.txt-overlay {
+/* Text overlays. The layer is the frame, and a size container, so 100cqmin is the frame's
+   short side: every size below is "pixels on a 360px short side", as in the export. */
+.text-layer {
   position: absolute;
-  left: 5%;
-  right: 5%;
-  text-align: center;
-  padding: 6px 12px;
-  border-radius: 4px;
-  z-index: 10;
-  font-weight: 700;
+  inset: 0;
+  container-type: size;
+  overflow: hidden;
   pointer-events: none;
+  z-index: 10;
 }
 
-.txt-overlay.pos-top {
-  top: 10%;
+.text-block {
+  position: absolute;
+  font-size: calc(var(--fs) * 100cqmin / 360);
+  line-height: 1.25;
+  font-weight: 700;
+  /* The bold faces the server's font lookup prefers (WatermarkFontResolver). */
+  font-family: 'Segoe UI', 'DejaVu Sans', Arial, sans-serif;
+  text-align: center;
+  white-space: pre;
+  pointer-events: none;
+  user-select: none;
 }
-.txt-overlay.pos-center {
-  top: 50%;
-  transform: translateY(-50%);
+
+.text-block.editable {
+  pointer-events: auto;
+  cursor: grab;
 }
-.txt-overlay.pos-bottom {
-  bottom: 12%;
+
+.text-block.editable:active {
+  cursor: grabbing;
+}
+
+.text-block.editable:hover,
+.text-block.selected {
+  outline: 1px dashed rgba(56, 189, 248, 0.9);
+  outline-offset: 0.15em;
+}
+
+.text-block.band {
+  left: 0;
+  right: 0;
+  padding: 0.35em 0;
+}
+
+.text-line {
+  height: 1.25em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.text-line span {
+  padding: 0 0.2em;
+  paint-order: stroke fill;
 }
 
 .monitor-watermark-overlay {

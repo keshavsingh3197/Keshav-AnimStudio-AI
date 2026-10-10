@@ -98,6 +98,16 @@ public class ClipGraphBuilderTests
     }
 
     [Fact]
+    public void Fills_the_letterbox_bars_with_the_chosen_colour()
+    {
+        // The bars of a wide clip in a Short are where its headline goes; a brand colour
+        // there is the whole reason the setting exists.
+        var graph = NewBuilder().BuildClip(Plan() with { PadColorRgb = "ff0055" }).FilterComplex;
+
+        Assert.Contains("pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=0xff0055", graph);
+    }
+
+    [Fact]
     public void Cover_fills_the_canvas_and_crops_the_overflow()
     {
         var graph = NewBuilder().BuildClip(Plan(ClipFit.Cover)).FilterComplex;

@@ -24,7 +24,8 @@
 
     <!-- Centering Stage for letterbox & pillarbox canvas -->
     <div class="monitor-stage">
-      <div #monitorContainer [class]="'monitor-screen-container ' + state.monitorScreenAspectClass()">
+      <div #monitorContainer [class]="'monitor-screen-container ' + state.monitorScreenAspectClass()"
+           [style.background]="state.monitorBarColor()">
       @if (state.included().length === 0) {
         <div class="monitor-empty-state">
           <span style="font-size: 2.2rem">🎬</span>
@@ -191,18 +192,29 @@
                alt="" />
         }
 
-        <!-- TXT1 Text Overlay Layer -->
-        @if (state.activeTxtItem(); as txt) {
-          <div class="txt-overlay monitor-overlay-txt"
-               [class.pos-top]="txt.textStyle?.position === 'top'"
-               [class.pos-center]="txt.textStyle?.position === 'center'"
-               [class.pos-bottom]="!txt.textStyle || !txt.textStyle.position || txt.textStyle.position === 'bottom'"
-               [style.fontSize.px]="txt.textStyle?.fontSize ?? 28"
-               [style.color]="txt.textStyle?.color ?? '#ffffff'"
-               [style.backgroundColor]="txt.textStyle?.backgroundColor ?? 'rgba(0,0,0,0.6)'"
-               [style.opacity]="state.getTextOverlayEffectiveOpacity(txt)"
-               [style.transform]="state.getTextOverlayTransform(txt)">
-            {{ txt.src }}
+        <!-- Text: the frame's headline and caption, then the TXT1 overlay. Laid out in the
+             same lines, sizes and places the export draws them (text-overlay-layout.ts). -->
+        @if (state.monitorTextBlocks().length > 0) {
+          <div class="text-layer">
+            @for (b of state.monitorTextBlocks(); track b.key) {
+              <div class="text-block"
+                   [class.editable]="!state.isPlaying()"
+                   [class.selected]="b.selected"
+                   [class.band]="b.look.box === 'band'"
+                   [style.left.%]="b.look.box === 'band' ? null : b.look.x"
+                   [style.top.%]="b.look.y"
+                   [style.--fs]="b.look.fontSize"
+                   [style.color]="b.look.color"
+                   [style.opacity]="b.opacity"
+                   [style.transform]="textBlockTransform(b)"
+                   [style.background]="textBandBackground(b)"
+                   [title]="state.isPlaying() ? '' : 'Drag to move'"
+                   (pointerdown)="startTextDrag($event, b)">
+                @for (line of b.lines; track $index) {
+                  <div class="text-line"><span [style]="textLineStyle(b)">{{ line }}</span></div>
+                }
+              </div>
+            }
           </div>
         }
 

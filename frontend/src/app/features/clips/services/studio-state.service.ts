@@ -22,6 +22,24 @@ import {
 import { EraseRect, eraseFeatherMask, eraseOuter } from './erase-geometry';
 import { bedPieces, cutEffectStarts, deepestDuck } from './audio-enhance';
 import { TimelineFragment, TransferRange } from './timeline-transfer';
+import {
+  DEFAULT_TEXT_STYLE, FrameDesign, FrameLayout, TextDesign, TextLook,
+  applyFrameDesign, defaultFrameLayout, readFrameLayout, resolveTextLook, wrapText,
+} from './text-overlay-layout';
+
+/** One block of text as the monitor draws it - a TXT1 overlay or a frame headline/caption. */
+export interface MonitorTextBlock {
+  key: string;
+  /** What dragging it moves. */
+  target: { kind: 'item'; id: string } | { kind: 'frame'; slot: 'top' | 'bottom' };
+  lines: string[];
+  look: TextLook;
+  opacity: number;
+  /** Entrance/exit offset and scale, in 360-reference pixels. */
+  offsetY: number;
+  scale: number;
+  selected: boolean;
+}
 
 /** One erase box as the monitor draws it: grown by its feather, cut to the clip's crop. */
 export interface MonitorEraseRegion {
@@ -697,6 +715,8 @@ export class StudioStateService implements OnDestroy {
   readonly orderText = signal<string>('');
   readonly orderResult = signal<ClipOrder | null>(null);
   readonly fit = signal<ClipFit>('Contain');
+  /** Bar fill plus the headline and caption that sit on the bars for the whole video. */
+  readonly frameLayout = signal<FrameLayout>(defaultFrameLayout());
   readonly transition = signal<string>('None');
   readonly transitionSeconds = signal<number>(0);
   readonly exportOverrideTransitions = signal<boolean>(false);
@@ -766,7 +786,7 @@ export class StudioStateService implements OnDestroy {
   readonly selectedTimelineClipIndex = signal<number | null>(null);
   readonly selectedTimelineItemId = signal<string | null>(null);
   readonly selectedTimelineItemIds = signal<Set<string>>(new Set<string>());
-  readonly activeInspectorTab = signal<'clip' | 'color' | 'audio' | 'text' | 'effects' | 'transitions'>('clip');
+  readonly activeInspectorTab = signal<'clip' | 'color' | 'audio' | 'text' | 'layout' | 'effects' | 'transitions'>('clip');
   readonly targetScope = signal<'auto' | 'selected' | 'all' | 'current' | 'under_music' | 'under_selected_music'>('selected');
   readonly scopeDropdownOpen = signal<boolean>(false);
   readonly toolDropdownOpen = signal<boolean>(false);
@@ -1926,75 +1946,6 @@ export class StudioStateService implements OnDestroy {
     return `translate(${baseX + extraX}px, ${baseY + extraY}px) scale(${baseScale * extraScale}) rotate(${rot}deg)`;
   }
 
-  getTextOverlayEffectiveOpacity(txt: TimelineItem): number {
-    const st = txt.textStyle;
-    const inType = st?.transitionIn ?? 'fade';
-    const inDur = st?.transitionInDuration ?? 0.5;
-    const outType = st?.transitionOut ?? 'fade';
-    const outDur = st?.transitionOutDuration ?? 0.5;
-
-    const ct = this.currentTime();
-    const elapsed = ct - txt.startTime;
-    const remaining = (txt.startTime + txt.duration) - ct;
-
-    if (inType !== 'none' && elapsed >= 0 && elapsed < inDur && inDur > 0) {
-      const p = Math.min(1, Math.max(0, elapsed / inDur));
-      return 1 - Math.pow(1 - p, 3);
-    }
-    if (outType !== 'none' && remaining >= 0 && remaining < outDur && outDur > 0) {
-      const p = Math.min(1, Math.max(0, remaining / outDur));
-      return Math.pow(p, 2);
-    }
-    return 1.0;
-  }
-
-  getTextOverlayTransform(txt: TimelineItem): string {
-    const st = txt.textStyle;
-    const isCenter = st?.position === 'center';
-    const inType = st?.transitionIn ?? 'fade';
-    const inDur = st?.transitionInDuration ?? 0.5;
-    const outType = st?.transitionOut ?? 'fade';
-    const outDur = st?.transitionOutDuration ?? 0.5;
-
-    let extraY = 0;
-    let extraScale = 1.0;
-
-    const ct = this.currentTime();
-    const elapsed = ct - txt.startTime;
-    const remaining = (txt.startTime + txt.duration) - ct;
-
-    if (inType !== 'none' && elapsed >= 0 && elapsed < inDur && inDur > 0) {
-      const p = Math.min(1, Math.max(0, elapsed / inDur));
-      const ease = 1 - Math.pow(1 - p, 3);
-      if (inType === 'slide-up') {
-        extraY = 40 * (1 - ease);
-      } else if (inType === 'slide-down') {
-        extraY = -40 * (1 - ease);
-      } else if (inType === 'zoom-in') {
-        extraScale = 0.5 + 0.5 * ease;
-      }
-    } else if (outType !== 'none' && remaining >= 0 && remaining < outDur && outDur > 0) {
-      const p = Math.min(1, Math.max(0, remaining / outDur));
-      const ease = Math.pow(p, 2);
-      if (outType === 'slide-up') {
-        extraY = -40 * (1 - ease);
-      } else if (outType === 'slide-down') {
-        extraY = 40 * (1 - ease);
-      } else if (outType === 'zoom-out') {
-        extraScale = 0.5 + 0.5 * ease;
-      } else if (outType === 'zoom-in') {
-        extraScale = 1.0 + 0.4 * (1 - ease);
-      }
-    }
-
-    const baseCenterTranslate = isCenter ? 'translateY(-50%) ' : '';
-    const animTranslate = extraY !== 0 ? `translateY(${extraY}px) ` : '';
-    const animScale = extraScale !== 1 ? `scale(${extraScale})` : '';
-
-    const combined = `${baseCenterTranslate}${animTranslate}${animScale}`.trim();
-    return combined || 'none';
-  }
-
   readonly activeTargetClip = computed<Clip | null>(() => {
     const direct = this.selectedClip();
     const scope = this.targetScope();
@@ -2443,6 +2394,7 @@ export class StudioStateService implements OnDestroy {
       case 'color': return '🎨 Color';
       case 'audio': return '🎵 Audio';
       case 'text': return 'T Text';
+      case 'layout': return '🖼 Frame & Titles';
       case 'effects': return '✨ Effects';
       case 'transitions': return '⚡ Transitions';
       default: return '📐 Framing';
@@ -3854,7 +3806,7 @@ export class StudioStateService implements OnDestroy {
     this.scopeDropdownOpen.set(false);
   }
 
-  setInspectorTab(tab: 'clip' | 'effects' | 'audio' | 'export' | 'color' | 'text' | 'transitions'): void {
+  setInspectorTab(tab: 'clip' | 'effects' | 'audio' | 'export' | 'color' | 'text' | 'layout' | 'transitions'): void {
     this.activeInspectorTab.set(tab as any);
     this.toolDropdownOpen.set(false);
   }
@@ -4869,16 +4821,7 @@ export class StudioStateService implements OnDestroy {
       duration: dur,
       src: content,
       name: 'Text Overlay',
-      textStyle: {
-        fontSize: 28,
-        color: '#ffffff',
-        backgroundColor: 'rgba(0,0,0,0.6)',
-        position: 'bottom',
-        transitionIn: 'fade',
-        transitionInDuration: 0.5,
-        transitionOut: 'fade',
-        transitionOutDuration: 0.5,
-      },
+      textStyle: { ...DEFAULT_TEXT_STYLE },
     };
     this.timelineItems.update((items) => [...items, newItem]);
     this.selectedTimelineItemId.set(newItem.id);
@@ -4933,26 +4876,170 @@ export class StudioStateService implements OnDestroy {
     this.timelineItems.update((items) =>
       items.map((it) => {
         if (it.id !== itemId) return it;
-        const currentStyle = it.textStyle ?? {
-          fontSize: 28,
-          color: '#ffffff',
-          backgroundColor: 'rgba(0,0,0,0.6)',
-          position: 'bottom',
-          transitionIn: 'fade',
-          transitionInDuration: 0.5,
-          transitionOut: 'fade',
-          transitionOutDuration: 0.5,
-        };
-        return {
-          ...it,
-          textStyle: {
-            ...currentStyle,
-            ...styleUpdates,
-          },
-        };
+        return { ...it, textStyle: this.mergeTextStyle(it.textStyle, styleUpdates) };
       })
     );
     this.markDirty();
+  }
+
+  /**
+   * A style change on top of an existing style. An item saved before plates had their own
+   * fields is first read the way the export reads it, so changing its size does not also
+   * quietly change its plate.
+   */
+  private mergeTextStyle(
+    current: TimelineItemTextStyle | undefined, updates: Partial<TimelineItemTextStyle>,
+  ): TimelineItemTextStyle {
+    const base = current ?? DEFAULT_TEXT_STYLE;
+    const look = resolveTextLook(base);
+    const merged: TimelineItemTextStyle = {
+      ...DEFAULT_TEXT_STYLE,
+      ...base,
+      boxStyle: look.box,
+      boxColor: look.boxColor,
+      boxOpacity: look.boxOpacity,
+      ...updates,
+    };
+    // A named position wins over a dragged one; dropping x/y keeps the saved draft honest.
+    if (updates.position && updates.position !== 'custom') {
+      delete merged.x;
+      delete merged.y;
+    }
+    return merged;
+  }
+
+  /** Applies a ready-made look to a TXT1 overlay. Its words, timing and place are kept. */
+  applyTextDesign(itemId: string, design: TextDesign): void {
+    this.updateTextItemStyle(itemId, design.style);
+  }
+
+  /** Moves a block of text to a point on the frame, in percent - what dragging it does. */
+  moveTextBlock(target: MonitorTextBlock['target'], x: number, y: number): void {
+    const place: Partial<TimelineItemTextStyle> = {
+      position: 'custom',
+      x: Math.round(Math.min(100, Math.max(0, x)) * 10) / 10,
+      y: Math.round(Math.min(100, Math.max(0, y)) * 10) / 10,
+    };
+    if (target.kind === 'item') this.updateTextItemStyle(target.id, place);
+    else this.updateFrameTextStyle(target.slot, place);
+  }
+
+  // --- frame layout ------------------------------------------------------------------
+
+  updateFrameLayout(patch: Partial<Pick<FrameLayout, 'bars' | 'barColor'>>): void {
+    this.frameLayout.update((l) => ({ ...l, ...patch }));
+    this.markDirty();
+  }
+
+  updateFrameText(slot: 'top' | 'bottom', text: string): void {
+    this.frameLayout.update((l) => ({ ...l, [slot]: { ...l[slot], text } }));
+    this.markDirty();
+  }
+
+  updateFrameTextStyle(slot: 'top' | 'bottom', updates: Partial<TimelineItemTextStyle>): void {
+    this.frameLayout.update((l) => ({
+      ...l,
+      [slot]: { ...l[slot], style: this.mergeTextStyle(l[slot].style, updates) },
+    }));
+    this.markDirty();
+  }
+
+  applyFrameDesign(design: FrameDesign): void {
+    this.frameLayout.update((l) => applyFrameDesign(l, design));
+    this.markDirty();
+  }
+
+  resetFrameLayout(): void {
+    this.frameLayout.set(defaultFrameLayout());
+    this.markDirty();
+  }
+
+  /**
+   * The fit and bar colour the export should use. A chosen bar colour means bars: it
+   * forces Contain, because Cover has none to colour and the blurred backdrop covers them.
+   */
+  exportFraming(defaultFit: ClipFit): { fit: ClipFit; backgroundColor: string | null } {
+    const layout = this.frameLayout();
+    if (layout.bars === 'color') return { fit: 'Contain', backgroundColor: layout.barColor };
+    if (layout.bars === 'blur') return { fit: 'BlurredBackdrop', backgroundColor: null };
+    return { fit: defaultFit, backgroundColor: null };
+  }
+
+  /** The bars' colour on the monitor - null leaves the stage black. */
+  readonly monitorBarColor = computed<string | null>(() => {
+    const layout = this.frameLayout();
+    return layout.bars === 'color' ? layout.barColor : null;
+  });
+
+  /** Width:height of the frame the monitor shows, which is what preview text wraps to. */
+  readonly monitorFrameAspect = computed<[number, number]>(() => {
+    const cls = this.monitorScreenAspectClass();
+    if (cls.includes('aspect-9-16')) return [9, 16];
+    if (cls.includes('aspect-1-1')) return [1, 1];
+    if (cls.includes('aspect-4-5')) return [4, 5];
+    return [16, 9];
+  });
+
+  /** Every block of text on the monitor right now: the frame's two lines, then TXT1's. */
+  readonly monitorTextBlocks = computed<MonitorTextBlock[]>(() => {
+    const [w, h] = this.monitorFrameAspect();
+    const blocks: MonitorTextBlock[] = [];
+    const lines = (text: string, look: TextLook) =>
+      wrapText(look.uppercase ? text.toUpperCase() : text, look.fontSize, w, h);
+
+    if (this.included().length > 0) {
+      const layout = this.frameLayout();
+      for (const slot of ['top', 'bottom'] as const) {
+        const t = layout[slot];
+        if (!t.text.trim()) continue;
+        const look = resolveTextLook(t.style);
+        blocks.push({
+          key: `frame-${slot}`, target: { kind: 'frame', slot }, lines: lines(t.text, look), look,
+          opacity: 1, offsetY: 0, scale: 1, selected: false,
+        });
+      }
+    }
+
+    const txt = this.activeTxtItem();
+    if (txt && txt.src.trim()) {
+      const look = resolveTextLook(txt.textStyle);
+      const motion = this.textOverlayMotion(txt);
+      blocks.push({
+        key: txt.id, target: { kind: 'item', id: txt.id }, lines: lines(txt.src, look), look,
+        opacity: motion.opacity, offsetY: motion.offsetY, scale: motion.scale,
+        selected: this.selectedTimelineItemId() === txt.id,
+      });
+    }
+    return blocks;
+  });
+
+  /**
+   * Opacity, slide and zoom of a TXT1 overlay at the playhead. The export eases the same
+   * way (TextOverlayFilters.cs); zoom it cannot draw, and renders as the fade alone.
+   */
+  private textOverlayMotion(txt: TimelineItem): { opacity: number; offsetY: number; scale: number } {
+    const st = txt.textStyle;
+    const inType = st?.transitionIn ?? 'fade';
+    const inDur = st?.transitionInDuration ?? 0.5;
+    const outType = st?.transitionOut ?? 'fade';
+    const outDur = st?.transitionOutDuration ?? 0.5;
+
+    const ct = this.currentTime();
+    const end = txt.startTime + txt.duration;
+    const easeIn = inType === 'none' || inDur <= 0 ? 1 : 1 - Math.pow(1 - Math.min(1, Math.max(0, (ct - txt.startTime) / inDur)), 3);
+    const easeOut = outType === 'none' || outDur <= 0 ? 1 : Math.pow(Math.min(1, Math.max(0, (end - ct) / outDur)), 2);
+
+    let offsetY = 0;
+    if (inType === 'slide-up') offsetY += 40 * (1 - easeIn);
+    else if (inType === 'slide-down') offsetY -= 40 * (1 - easeIn);
+    if (outType === 'slide-up') offsetY -= 40 * (1 - easeOut);
+    else if (outType === 'slide-down') offsetY += 40 * (1 - easeOut);
+
+    let scale = 1;
+    if (inType === 'zoom-in' && easeIn < 1) scale = 0.5 + 0.5 * easeIn;
+    else if (outType === 'zoom-out' && easeOut < 1) scale = 0.5 + 0.5 * easeOut;
+
+    return { opacity: Math.min(easeIn, easeOut), offsetY, scale };
   }
 
   updateImageItemTransform(itemId: string, updates: Partial<TimelineItemTransform>): void {
@@ -6761,6 +6848,7 @@ export class StudioStateService implements OnDestroy {
       endCardInPreview: this.endCardInPreview(),
       endCardAfter: this.endCardAfter(),
       fit: this.fit(),
+      frameLayout: this.frameLayout(),
       clipFraming: Array.from(this.clipFraming().entries()),
       clipAudioFade: Array.from(this.clipAudioFade().entries()),
       savedAt: new Date().toLocaleTimeString(),
@@ -6899,6 +6987,7 @@ export class StudioStateService implements OnDestroy {
     if (draft.endCardAfter === 'clips' || draft.endCardAfter === 'everything') this.endCardAfter.set(draft.endCardAfter);
     this.migrateLegacyOverlapSettings();
     if (draft.fit !== undefined) this.fit.set(draft.fit);
+    this.frameLayout.set(readFrameLayout(draft.frameLayout));
     if (Array.isArray(draft.clipFraming)) this.clipFraming.set(new Map(draft.clipFraming));
     if (Array.isArray(draft.clipAudioFade)) this.clipAudioFade.set(new Map(draft.clipAudioFade));
   }
@@ -7243,6 +7332,7 @@ export class StudioStateService implements OnDestroy {
       this.junctionOverrides.set(new Map());
       this.clipTrims.set(new Map());
       this.clipFraming.set(new Map());
+      this.frameLayout.set(defaultFrameLayout());
       this.clipAudioFade.set(new Map());
       this.clipColor.set(new Map());
       this.clipText.set(new Map());
@@ -7448,6 +7538,47 @@ export class StudioStateService implements OnDestroy {
     }));
   }
 
+  /**
+   * The frame's headline and caption as text overlays spanning the whole video - the
+   * export draws them exactly like TXT1 text, they just never come and go.
+   */
+  private frameTextItems(): TimelineItem[] {
+    const layout = this.frameLayout();
+    const duration = this.contentDurationSeconds();
+    if (duration <= 0) return [];
+    return (['top', 'bottom'] as const)
+      .filter((slot) => layout[slot].text.trim().length > 0)
+      .map((slot) => ({
+        id: `frame_${slot}`,
+        type: 'text' as TimelineItemType,
+        trackId: 'TXT1',
+        startTime: 0,
+        duration,
+        src: layout[slot].text,
+        name: slot === 'top' ? 'Frame headline' : 'Frame caption',
+        textStyle: { ...layout[slot].style, transitionIn: 'none', transitionOut: 'none' },
+      }));
+  }
+
+  /** The style as the server reads it: every plate field explicit, colours checked. */
+  private exportTextStyle(style: TimelineItemTextStyle | undefined): TimelineItemTextStyle {
+    const look = resolveTextLook(style);
+    const base = style ?? DEFAULT_TEXT_STYLE;
+    return {
+      ...base,
+      fontSize: look.fontSize,
+      color: look.color,
+      boxStyle: look.box,
+      boxColor: look.boxColor,
+      boxOpacity: look.boxOpacity,
+      outlineColor: look.outlineColor,
+      outlineWidth: look.outlineWidth,
+      shadow: look.shadow,
+      uppercase: look.uppercase,
+      ...(base.position === 'custom' ? { x: look.x, y: look.y } : { x: undefined, y: undefined }),
+    };
+  }
+
   timelineItemsPayload(): TimelineItem[] | null {
     // 1. Separate non-V1 overlay items (IMG1, T1, V2, etc.)
     // A hidden lane is left out of the file too, so the export is what the monitor shows.
@@ -7495,7 +7626,7 @@ export class StudioStateService implements OnDestroy {
       };
     });
 
-    const allItems = [...v1Items, ...overlayItems];
+    const allItems = [...v1Items, ...overlayItems, ...this.frameTextItems()];
     if (allItems.length === 0) return null;
 
     return allItems.map((item) => ({
@@ -7507,7 +7638,7 @@ export class StudioStateService implements OnDestroy {
       src: this.resolveAssetId(item.src) || item.src,
       name: item.name,
       transform: item.transform,
-      textStyle: item.textStyle,
+      textStyle: item.type === 'text' ? this.exportTextStyle(item.textStyle) : item.textStyle,
       volume: item.type === 'audio' && (item.trackId === 'A1' || item.trackId === 'A2')
         ? (item.volume ?? 1.0) * this.audioBusGain(item.trackId)
         : item.volume,
@@ -7775,6 +7906,8 @@ export class StudioStateService implements OnDestroy {
         return 'This server\'s renderer cannot blur, so letterboxed clips got black bars.';
       case 'WATERMARK_UNAVAILABLE':
         return 'This server has no font available, so the text watermark was left off. A logo image would work.';
+      case 'TEXT_OVERLAY_UNAVAILABLE':
+        return 'This server has no font that can draw some of your text, so those titles or captions were left off.';
       default:
         return code;
     }
@@ -7856,7 +7989,9 @@ export class StudioStateService implements OnDestroy {
     else if (res === 'square_1_1') { outW = 1080; outH = 1080; }
     else if (res === '1080p') { outW = 1920; outH = 1080; }
 
-    const fitMode = res === 'short_9_16' && this.fit() === 'Contain' ? 'BlurredBackdrop' : this.fit();
+    const framing = this.exportFraming(
+      res === 'short_9_16' && this.fit() === 'Contain' ? 'BlurredBackdrop' : this.fit());
+    const fitMode = framing.fit;
 
     const override = this.exportOverrideTransitions();
     const globalTrans = override ? this.transition() : 'None';
@@ -7867,6 +8002,7 @@ export class StudioStateService implements OnDestroy {
         exportName: this.exportName() || this.defaultExportName(),
         assetIds: includedClips,
         fit: fitMode,
+        backgroundColor: framing.backgroundColor,
         outputWidth: outW,
         outputHeight: outH,
         quality: this.exportQuality(),
@@ -7923,9 +8059,10 @@ export class StudioStateService implements OnDestroy {
     this.saveDraft();
     this.running.set(true);
 
-    const fitMode: ClipFit = this.fit() === 'BlurredBackdrop'
+    const framing = this.exportFraming(this.fit() === 'BlurredBackdrop'
       ? 'BlurredBackdrop'
-      : (this.fit() === 'Contain' ? 'Contain' : 'Cover');
+      : (this.fit() === 'Contain' ? 'Contain' : 'Cover'));
+    const fitMode: ClipFit = framing.fit;
 
     const wm: WatermarkBody = this.effectiveWatermark();
 
@@ -7938,6 +8075,7 @@ export class StudioStateService implements OnDestroy {
         exportName: this.exportName() || this.defaultExportName(),
         assetIds: ids,
         fit: fitMode,
+        backgroundColor: framing.backgroundColor,
         outputWidth: 1080,
         outputHeight: 1920,
         quality: this.exportQuality(),

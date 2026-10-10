@@ -3,6 +3,7 @@ using System.Globalization;
 using AnimStudio.Application.Abstractions.Rendering;
 using AnimStudio.Application.Abstractions.Storage;
 using AnimStudio.Application.Clips;
+using AnimStudio.Application.Rendering;
 using AnimStudio.Application.Rendering.Models;
 using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Rendering;
@@ -324,6 +325,69 @@ public sealed class ClipMergeRenderTests : IAsyncLifetime
 
         Assert.True(Math.Abs(top - bottom) > 1.0,
             $"expected the mark to change the top band (top {top:F2} vs bottom {bottom:F2}).");
+    }
+
+    // --- frame layout: bar colour and text overlays --------------------------
+
+    [FfmpegFontFact]
+    public async Task A_short_gets_coloured_bars_and_a_headline_drawn_on_them()
+    {
+        // A wide clip in a 9:16 Short leaves a bar above and below it. The layout this
+        // feature exists for: fill the bars with a colour, put a headline strip on the top
+        // one, a caption on the bottom one. Every check is on pixels, because a drawtext or
+        // pad that silently did nothing still exits 0.
+        var shortCanvas = new Canvas(360, 640, FrameRate.Fps30);
+        MakeClip("in/wide.mp4", 1.5, 640, 360, 30, withAudio: true);
+
+        var clip = await _service.RenderClipAsync(
+            Plan(0, "in/wide.mp4") with { Canvas = shortCanvas, PadColorRgb = "ffffff" },
+            _workspace, null, Ct);
+
+        // The clip is 202px tall in the middle of 640, so the top 200px are bar.
+        var bar = MeanLuma(_workspace.Resolve(clip.RelativePath), "crop=360:60:0:0");
+        Assert.True(bar > 200, $"expected white bars, top band luma was {bar:F1}.");
+
+        // Every character drawtext's parser would choke on, inline: colon, quote, comma,
+        // percent with an expansion, backslash.
+        const string headline = "Don't miss: 100% %{pts}, C:\\clips";
+        var fontFile = WatermarkFontResolver.FindSystemFont()!;
+        var look = TextOverlayLayout.Resolve(new TimelineItemTextStyleSpec
+        {
+            Position = "custom", Y = 8, FontSize = 18,
+            BoxStyle = "band", BoxColor = "#000000", BoxOpacity = 1
+        });
+        var lines = TextOverlayLayout.Wrap(headline, look.FontSize, shortCanvas.Width, shortCanvas.Height);
+        var paths = new List<string?>();
+        for (var i = 0; i < lines.Count; i++)
+            paths.Add(await _workspace.WriteTextAsync($"txt/overlay_000_{i}.txt", lines[i], Ct));
+
+        var merged = await BuildService().MergeScenesAsync(
+            new MergePlan
+            {
+                Canvas = shortCanvas,
+                Scenes = [new MergeSceneInput(clip.RelativePath, clip.Frames, TransitionSettings.None)],
+                Overlays =
+                [
+                    new MergeOverlayItem("text", null, 0, 10, 1, 0, 0, 1, "none", 0.5, "none", 0.5)
+                    {
+                        Text = new MergeTextOverlay(paths, fontFile, look)
+                    }
+                ],
+                OutputRelativePath = "out/short.mp4"
+            },
+            _workspace, null, Ct);
+
+        var path = _workspace.Resolve(merged.RelativePath);
+        Assert.Equal("360", ProbeStream(path, "v:0", "width"));
+        Assert.Equal("640", ProbeStream(path, "v:0", "height"));
+
+        // The strip is black over the white bar, with white text on it: far darker than
+        // the bar around it, but not empty - the text drew.
+        var strip = MeanLuma(path, "crop=360:20:0:" + (int)(640 * 0.08 - 10));
+        var below = MeanLuma(path, "crop=360:40:0:140");
+        Assert.True(below > 200, $"the strip spilled over the rest of the bar ({below:F1}).");
+        Assert.True(strip < 120, $"expected a dark strip, luma was {strip:F1}.");
+        Assert.True(strip > 17, $"the strip is solid black - the headline did not draw ({strip:F1}).");
     }
 
     // --- erasing an existing mark ------------------------------------------

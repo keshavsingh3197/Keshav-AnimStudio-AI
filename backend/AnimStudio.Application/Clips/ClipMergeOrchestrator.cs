@@ -355,6 +355,9 @@ public sealed class ClipMergeOrchestrator(
                         OutputRelativePath = $"clips/clip_{index + 1:D3}.mp4",
                         ExpectedFrames = expectedFrames,
                         Fit = spec.Fit,
+                        PadColorRgb = EraseRegionSpec.IsHexColor(spec.BackgroundColor)
+                            ? spec.BackgroundColor![1..].ToLowerInvariant()
+                            : "000000",
                         SourceIsImage = isImage,
                         ImageDurationSeconds = imageDur,
                         TrimStartSeconds = finalTrimStart,
@@ -515,14 +518,22 @@ public sealed class ClipMergeOrchestrator(
                 .ToList();
 
             var overlays = new List<MergeOverlayItem>();
-            foreach (var item in spec.TimelineItems)
+            for (var itemIndex = 0; itemIndex < spec.TimelineItems.Count; itemIndex++)
             {
+                var item = spec.TimelineItems[itemIndex];
                 if (IsOverlayTrack(item.TrackId))
                 {
                     string? relPath = null;
+                    MergeTextOverlay? text = null;
                     if (item.Type is "image" or "video")
                     {
                         materialized.TryGetValue(item.Src, out relPath);
+                    }
+                    else if (item.Type == "text")
+                    {
+                        text = await BuildTextOverlayAsync(
+                            item, itemIndex, canvas, workspace, settings, warnings, token).ConfigureAwait(false);
+                        if (text is null) continue;
                     }
                     var tr = item.Transform;
                     var txt = item.TextStyle;
@@ -535,15 +546,13 @@ public sealed class ClipMergeOrchestrator(
                         tr?.X ?? 0.0,
                         tr?.Y ?? 0.0,
                         tr?.Opacity ?? 1.0,
-                        item.Src,
-                        txt?.FontSize ?? 36.0,
-                        txt?.Color ?? "#ffffff",
-                        txt?.BackgroundColor ?? "rgba(0,0,0,0.6)",
-                        txt?.Position ?? "bottom",
                         tr?.TransitionIn ?? txt?.TransitionIn ?? "fade",
                         tr?.TransitionInDuration ?? txt?.TransitionInDuration ?? 0.5,
                         tr?.TransitionOut ?? txt?.TransitionOut ?? "fade",
-                        tr?.TransitionOutDuration ?? txt?.TransitionOutDuration ?? 0.5));
+                        tr?.TransitionOutDuration ?? txt?.TransitionOutDuration ?? 0.5)
+                    {
+                        Text = text
+                    });
                 }
                 else if (item.TrackId is "A1" or "A2" && item.Type == "audio")
                 {
@@ -862,6 +871,49 @@ public sealed class ClipMergeOrchestrator(
 
         return ClipPlanFactory.CreateWatermark(
             spec.Watermark, canvas, logoPath, textPath, fontFile);
+    }
+
+    /// <summary>
+    /// Wraps a text overlay into the lines the preview showed and writes each to its own
+    /// file. Null - with a warning - when there is nothing to draw it with: no drawtext, or
+    /// no font file that can draw this script. A caption is not worth the render, and a
+    /// drawtext without a font file is the one input that crashes ffmpeg rather than
+    /// failing it (see <see cref="BuildWatermarkAsync"/>).
+    /// </summary>
+    private async Task<MergeTextOverlay?> BuildTextOverlayAsync(
+        TimelineItemSpec item, int itemIndex, Canvas canvas, IRenderWorkspace workspace,
+        ClipRenderSettings settings, ISet<string> warnings, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(item.Src) || item.Duration <= 0) return null;
+
+        var look = TextOverlayLayout.Resolve(item.TextStyle);
+        var source = look.Uppercase ? item.Src.ToUpperInvariant() : item.Src;
+        var lines = TextOverlayLayout.Wrap(source, look.FontSize, canvas.Width, canvas.Height);
+        if (lines.All(l => l.Length == 0)) return null;
+
+        var fontFile = capabilities.Supports(RenderFeature.DrawText)
+                       && settings.FontFor(source) is { Length: > 0 } candidate
+                       && File.Exists(candidate)
+            ? candidate
+            : null;
+        if (fontFile is null)
+        {
+            warnings.Add("TEXT_OVERLAY_UNAVAILABLE");
+            return null;
+        }
+
+        var paths = new List<string?>(lines.Count);
+        for (var i = 0; i < lines.Count; i++)
+        {
+            // Generated names only: the item id is client-supplied and never reaches the disk.
+            paths.Add(lines[i].Length == 0
+                ? null
+                : await workspace
+                    .WriteTextAsync($"txt/overlay_{itemIndex:D3}_{i}.txt", lines[i], ct)
+                    .ConfigureAwait(false));
+        }
+
+        return new MergeTextOverlay(paths, fontFile, look);
     }
 
     /// <summary>

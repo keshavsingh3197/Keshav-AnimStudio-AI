@@ -53,6 +53,13 @@ public sealed class ClipMergeSpec
     /// <summary>How clips shaped differently from the canvas are fitted to it.</summary>
     public ClipFit Fit { get; set; } = ClipFit.Contain;
 
+    /// <summary>
+    /// <c>#rrggbb</c> the <see cref="ClipFit.Contain"/> bars are filled with - the space
+    /// above and below a wide clip in a Short, where a headline or caption usually goes.
+    /// Null is black, which is what every job written before this existed says.
+    /// </summary>
+    public string? BackgroundColor { get; set; }
+
     /// <summary>Custom output resolution override (e.g. 1080x1920 for Shorts conversion).</summary>
     public int? OutputWidth { get; set; }
     public int? OutputHeight { get; set; }
@@ -244,10 +251,46 @@ public sealed class MusicDuckWindowSpec
 
 public sealed class TimelineItemTextStyleSpec
 {
+    /// <summary>
+    /// Size in pixels on a frame whose SHORT side is 360 - the size the studio monitor
+    /// shows it at. The render scales it to the real canvas, so a caption is the same
+    /// share of the picture in the preview and in the 1080x1920 export.
+    /// </summary>
     public double FontSize { get; set; } = 36;
     public string Color { get; set; } = "#ffffff";
+
+    /// <summary>
+    /// The CSS colour older clients sent for the plate. Read only when
+    /// <see cref="BoxStyle"/> is absent; <see cref="BoxColor"/>/<see cref="BoxOpacity"/>
+    /// replace it.
+    /// </summary>
     public string BackgroundColor { get; set; } = "rgba(0,0,0,0.6)";
+
+    /// <summary>top, center, bottom - or custom, which places it at <see cref="X"/>/<see cref="Y"/>.</summary>
     public string Position { get; set; } = "bottom";
+
+    /// <summary>Centre of the text block, in percent of the frame. Used when Position is custom.</summary>
+    public double? X { get; set; }
+    public double? Y { get; set; }
+
+    /// <summary>none, box (a plate behind each line) or band (a full-width strip). Null on older jobs.</summary>
+    public string? BoxStyle { get; set; }
+
+    /// <summary><c>#rrggbb</c>.</summary>
+    public string? BoxColor { get; set; }
+
+    /// <summary>0-1.</summary>
+    public double? BoxOpacity { get; set; }
+
+    /// <summary><c>#rrggbb</c>; ignored while <see cref="OutlineWidth"/> is zero.</summary>
+    public string? OutlineColor { get; set; }
+
+    /// <summary>Stroke width, in the same 360-reference pixels as <see cref="FontSize"/>.</summary>
+    public double OutlineWidth { get; set; }
+
+    public bool Shadow { get; set; }
+    public bool Uppercase { get; set; }
+
     public string? TransitionIn { get; set; } = "fade";
     public double TransitionInDuration { get; set; } = 0.5;
     public string? TransitionOut { get; set; } = "fade";

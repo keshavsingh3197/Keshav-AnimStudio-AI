@@ -636,13 +636,20 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
                 + "[bgblur][fgfit]overlay=format=auto:x=(main_w-overlay_w)/2"
                 + $":y=(main_h-overlay_h)/2,fps={rate.ToFfmpegRate()}[base];\n",
 
-            // Letterbox on black. Loses nothing.
+            // Letterbox on the chosen colour, black unless told otherwise. Loses nothing.
             _ => matchesExactCanvas
                 ? $"[{source}]{conform}[base];\n"
                 : $"[{source}]{cropPrefix}scale={size}:force_original_aspect_ratio=decrease:flags=bicubic,"
-                  + $"pad={size}:(ow-iw)/2:(oh-ih)/2:color=black,{conform}[base];\n"
+                  + $"pad={size}:(ow-iw)/2:(oh-ih)/2:color={PadColor(plan.PadColorRgb)},{conform}[base];\n"
         };
     }
+
+    /// <summary>
+    /// <c>black</c> for the default, so every graph built before bar colours existed is the
+    /// graph it always was; otherwise the colour as ffmpeg spells it.
+    /// </summary>
+    private static string PadColor(string rgb) =>
+        rgb is "000000" || rgb.Length != 6 || !rgb.All(char.IsAsciiHexDigit) ? "black" : $"0x{rgb}";
 
     /// <summary>
     /// Builds an inline crop= filter fragment (no leading '[0:v]', no trailing '[out]').
@@ -957,7 +964,6 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
                 var scaleStr = overlay.Scale != 1.0 ? $",scale=iw*{FilterExpr.N(overlay.Scale)}:-1" : "";
                 var opacityStr = overlay.Opacity < 1.0 ? $",colorchannelmixer=aa={FilterExpr.N(overlay.Opacity)}" : "";
 
-                graph.Append($"[{ovInput}:v]format=rgba{scaleStr}{opacityStr}[{ovScaledLabel}];\n");
                 var fadeStr = "";
                 if (overlay.TransitionIn == "fade" && overlay.TransitionInDuration > 0)
                 {
@@ -977,43 +983,10 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
                 graph.Append($"[{currentVideoLabel}][{ovScaledLabel}]overlay=x={xPos}:y={yPos}:enable='between(t,{startSec},{endSec})'[{nextVideoLabel}];\n");
                 currentVideoLabel = nextVideoLabel;
             }
-            else if (overlay.Type == "text" && !string.IsNullOrWhiteSpace(overlay.Text))
+            else if (overlay is { Type: "text", Text: { } text })
             {
-                var fontSize = FilterExpr.N(overlay.FontSize > 0 ? overlay.FontSize : 36);
-                var fontColor = !string.IsNullOrEmpty(overlay.Color) ? overlay.Color : "#ffffff";
-                var bgColor = !string.IsNullOrEmpty(overlay.BackgroundColor) ? overlay.BackgroundColor : "black@0.6";
-
-                string yPos = overlay.Position?.ToLowerInvariant() switch
-                {
-                    "top" => "h*0.1",
-                    "center" => "(h-text_h)/2",
-                    _ => "h*0.85-text_h"
-                };
-
-                var safeText = overlay.Text
-                    .Replace(@"\", @"\\")
-                    .Replace("'", @"\'")
-                    .Replace(":", @"\:");
-
-                graph.Append($"[{currentVideoLabel}]drawtext=text='{safeText}':fontsize={fontSize}:fontcolor={fontColor}:box=1:boxcolor={bgColor}:boxborderw=10:x=(w-text_w)/2:y={yPos}:enable='between(t,{startSec},{endSec})'[{nextVideoLabel}];\n");
-                var alphaExpr = "";
-                var inDur = FilterExpr.N(overlay.TransitionInDuration > 0 ? overlay.TransitionInDuration : 0.5);
-                var outDur = FilterExpr.N(overlay.TransitionOutDuration > 0 ? overlay.TransitionOutDuration : 0.5);
-                if (overlay.TransitionIn == "fade" && overlay.TransitionOut == "fade")
-                {
-                    alphaExpr = $":alpha='if(lt(t,{startSec}+{inDur}),(t-{startSec})/{inDur},if(gt(t,{endSec}-{outDur}),({endSec}-t)/{outDur},1))'";
-                }
-                else if (overlay.TransitionIn == "fade")
-                {
-                    alphaExpr = $":alpha='if(lt(t,{startSec}+{inDur}),(t-{startSec})/{inDur},1)'";
-                }
-                else if (overlay.TransitionOut == "fade")
-                {
-                    alphaExpr = $":alpha='if(gt(t,{endSec}-{outDur}),({endSec}-t)/{outDur},1)'";
-                }
-
-                graph.Append($"[{currentVideoLabel}]drawtext=text='{safeText}':fontsize={fontSize}:fontcolor={fontColor}:box=1:boxcolor={bgColor}:boxborderw=10:x=(w-text_w)/2:y={yPos}{alphaExpr}:enable='between(t,{startSec},{endSec})'[{nextVideoLabel}];\n");
-                currentVideoLabel = nextVideoLabel;
+                currentVideoLabel = TextOverlayFilters.Append(
+                    graph, currentVideoLabel, $"v_ov_{idx}", overlay, text, plan.Canvas);
             }
         }
 
