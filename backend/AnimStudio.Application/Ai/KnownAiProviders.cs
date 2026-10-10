@@ -109,7 +109,7 @@ public static class KnownAiProviders
         new(Gemini, AiCapability.Text, AiProviderFamily.GeminiText,
             "Google Gemini",
             "https://generativelanguage.googleapis.com",
-            "gemini-2.5-flash",
+            "gemini-3.8-flash",
             RunsLocally: false,
             "Free tier on the Flash models. Handles long transcripts in one call, so it is " +
             "the better fallback when a whole video's captions go in at once.",

@@ -33,7 +33,7 @@ public sealed class GeminiTextProvider(
     ILogger<GeminiTextProvider> logger)
     : HttpAiProviderBase(id, AiCapability.Text, clients, secrets, options, logger), ITextAiProvider
 {
-    private const string DefaultModel = "gemini-2.5-flash";
+    private const string DefaultModel = "gemini-3.8-flash";
 
     /// <summary>Gemini is a hosted service; there is no local variant to fall back to.</summary>
     public override bool IsConfigured => base.IsConfigured && ProviderOptions?.IsLocal != true;

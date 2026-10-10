@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using AnimStudio.Api.Common;
+using AnimStudio.Application.Abstractions.Ai;
 using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Admin;
 using AnimStudio.Application.Clips;
@@ -31,10 +32,16 @@ public sealed partial class YouTubePublishController(
     IRenderJobRepository jobs,
     IProjectRepository projects,
     IAiSettingsRepository settingsRepo,
+    ISceneRepository scenes,
+    IAiExecutor ai,
+    IPromptLibrary prompts,
     ICurrentUser currentUser,
     AdminAuditService audit,
     ILogger<YouTubePublishController> logger) : ControllerBase
 {
+    /// <summary>Writing suggestions keeps a model (or a metered quota) busy, so only a couple run at once.</summary>
+    private static readonly SemaphoreSlim SuggestSlots = new(2, 2);
+
     [HttpGet("status")]
     public async Task<ActionResult<ApiResponse<YouTubePublishStatusResponse>>> Status(CancellationToken ct)
     {
@@ -120,6 +127,8 @@ public sealed partial class YouTubePublishController(
         return Ok(ApiResponse<YouTubeDraftResponse>.Ok(new YouTubeDraftResponse(
             title,
             YouTubePublishValidator.WithFooter(description.Trim(), defaults?.DescriptionFooter),
+            // The video's own tags start empty; the channel's defaults are added on top of them.
+            [],
             defaults?.Tags ?? [],
             defaults?.CategoryId ?? "1",
             defaults?.Privacy ?? "public",
@@ -130,6 +139,93 @@ public sealed partial class YouTubePublishController(
             new YouTubeVideoFactsResponse(facts.DurationSeconds, facts.SizeBytes, facts.Width, facts.Height, facts.IsVertical),
             errors,
             warnings)));
+    }
+
+    /// <summary>
+    /// Suggests a title, description and tags from the project's name, description and
+    /// script, with the render's chapters/credits and the brand channel's footer kept below.
+    /// Saves nothing: the dialog fills its fields, and the user reviews them before publishing.
+    /// </summary>
+    [HttpPost("render-jobs/{jobId}/suggest")]
+    public async Task<ActionResult<ApiResponse<YouTubeSuggestResponse>>> Suggest(
+        string jobId, [FromBody] YouTubeSuggestRequest? request, CancellationToken ct)
+    {
+        var job = await LoadOwnedJobAsync(jobId, ct);
+        var project = await projects.GetAsync(job.ProjectId, ct);
+        var projectScenes = project is null ? [] : await scenes.ListByProjectAsync(project.Id, ct);
+
+        var chapters = job.Timeline is { } timeline ? ExportTimelineFormatter.Chapters(timeline).Select(c => c.Label) : null;
+        var summary = YouTubeMetadataSuggester.BuildSummary(project?.Name, project?.Description, projectScenes, chapters);
+        if (summary.Length == 0)
+            return SuggestFailure(StatusCodes.Status400BadRequest, "suggest-nothing-to-go-on",
+                "This render has no project name, description or script to write from. Fill in the details by hand.");
+
+        var language = request?.Language is { } lang && YouTubeMetadataSuggester.Languages.Contains(lang) ? lang : "en";
+
+        RenderedPrompt rendered;
+        try
+        {
+            rendered = await prompts.RenderAsync(YouTubeMetadataSuggester.TemplateKey, new Dictionary<string, string?>
+            {
+                ["summary"] = summary,
+                ["style"] = "animated",
+                ["language"] = language
+            }, ct);
+        }
+        catch (PromptTemplateException ex)
+        {
+            logger.LogWarning("YouTube metadata prompt could not be rendered: {Code}", ex.Code);
+            return SuggestFailure(StatusCodes.Status503ServiceUnavailable, "suggest-unavailable",
+                "The video-metadata prompt is turned off or broken. Check it under Admin > AI prompts.");
+        }
+
+        if (!await SuggestSlots.WaitAsync(TimeSpan.FromSeconds(30), ct))
+            return SuggestFailure(StatusCodes.Status429TooManyRequests, "youtube-busy",
+                "Other suggestions are being written right now. Try again in a minute.");
+        AiOutcome<AiTextResult> outcome;
+        try
+        {
+            outcome = await ai.TextAsync(new AiTextRequest
+            {
+                SystemPrompt = rendered.SystemPrompt,
+                Prompt = rendered.Body,
+                JsonSchema = rendered.OutputJsonSchema,
+                PromptTemplateKey = rendered.TemplateKey,
+                PromptTemplateVersion = rendered.Version,
+                MaxOutputTokens = 1500,
+                Temperature = 0.6,
+                BypassCache = request?.Fresh == true
+            }, new AiCallContext(job.ProjectId, currentUser.UserId), ct);
+        }
+        finally
+        {
+            SuggestSlots.Release();
+        }
+
+        if (outcome.Kind == AiOutcomeKind.Unavailable)
+            return SuggestFailure(StatusCodes.Status503ServiceUnavailable, "suggest-unavailable",
+                "No AI text model is turned on. Enable one under Admin > AI providers, or fill in the details by hand.");
+        if (!outcome.IsSuccess)
+            return SuggestFailure(StatusCodes.Status502BadGateway, outcome.ErrorCode ?? "suggest-failed",
+                "The AI model couldn't write suggestions just now. Try again in a minute.");
+
+        // The model's answer is untrusted: it only fills dialog fields, which publish validates again.
+        var suggestion = YouTubeMetadataSuggester.Parse(outcome.Value!.Text);
+        if (suggestion is null)
+            return SuggestFailure(StatusCodes.Status502BadGateway, "suggest-empty",
+                "The AI model's answer wasn't usable. Try again.");
+
+        var brandSettings = await settingsRepo.GetAsync(ct);
+        var footer = brandSettings?.PublishingFor(project?.Settings.BrandChannelId)?.DescriptionFooter;
+        var renderDetails = job.Timeline is { } t ? ExportTimelineFormatter.ToYouTubeDescription(t, null) : null;
+
+        logger.LogInformation("Suggested YouTube details for render {JobId} with {Provider}.",
+            job.Id, outcome.Value.Provenance.ProviderId);
+        return Ok(ApiResponse<YouTubeSuggestResponse>.Ok(new YouTubeSuggestResponse(
+            suggestion.Title,
+            YouTubeMetadataSuggester.ComposeDescription(suggestion.Description, renderDetails, footer),
+            suggestion.Tags,
+            outcome.Value.Provenance.ProviderId)));
     }
 
     /// <summary>Checks everything, then queues the upload. Returns at once with an upload to poll.</summary>
@@ -228,6 +324,9 @@ public sealed partial class YouTubePublishController(
         };
     }
 
+    private ObjectResult SuggestFailure(int status, string code, string message) =>
+        StatusCode(status, ApiResponse<YouTubeSuggestResponse>.Fail(message, new ApiError(code, message)));
+
     private string? RemoteAddress() => HttpContext.Connection.RemoteIpAddress?.ToString();
 
     private static bool IsChannelId(string? value) => value is not null && ChannelIdPattern().IsMatch(value);
@@ -247,6 +346,9 @@ public sealed record YouTubeConnectCompleteResponse(YouTubeConnectionStatus Conn
 
 public sealed record YouTubePublishRequest(string? ChannelId, YouTubeVideoMetadata? Metadata);
 
+public sealed record YouTubeSuggestRequest(string? Language, bool Fresh);
+public sealed record YouTubeSuggestResponse(string Title, string Description, IReadOnlyList<string> Tags, string ProviderId);
+
 public sealed record YouTubeCategoryResponse(string Id, string Name);
 public sealed record YouTubeLimitsResponse(int MaxTitleLength, int MaxDescriptionBytes, int MaxTagsLength);
 
@@ -262,6 +364,8 @@ public sealed record YouTubeDraftResponse(
     string Title,
     string Description,
     IReadOnlyList<string> Tags,
+    /// <summary>The brand channel's default tags (Admin > Publishing), added to every upload's own.</summary>
+    IReadOnlyList<string> ChannelTags,
     string CategoryId,
     string Privacy,
     bool MadeForKids,

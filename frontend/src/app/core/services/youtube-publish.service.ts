@@ -5,7 +5,7 @@ import { Observable, map } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../models/api.models';
 import {
-  YouTubeChannel, YouTubeDraft, YouTubePublishStatus, YouTubeUpload, YouTubeVideoMetadata,
+  YouTubeChannel, YouTubeDraft, YouTubePublishStatus, YouTubeSuggestion, YouTubeUpload, YouTubeVideoMetadata,
 } from '../models/youtube.models';
 
 @Injectable({ providedIn: 'root' })
@@ -40,6 +40,13 @@ export class YouTubePublishService {
     return this.http
       .get<ApiResponse<YouTubeDraft>>(`${this.base}/render-jobs/${encodeURIComponent(jobId)}/draft`)
       .pipe(map((r) => r.data as YouTubeDraft));
+  }
+
+  /** AI-written details from the project's name, description and script. Saves nothing. */
+  suggest(jobId: string, language: string, fresh: boolean): Observable<YouTubeSuggestion> {
+    return this.http
+      .post<ApiResponse<YouTubeSuggestion>>(`${this.base}/render-jobs/${encodeURIComponent(jobId)}/suggest`, { language, fresh })
+      .pipe(map((r) => r.data as YouTubeSuggestion));
   }
 
   publish(jobId: string, channelId: string, metadata: YouTubeVideoMetadata): Observable<YouTubeUpload> {

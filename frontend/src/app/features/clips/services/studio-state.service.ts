@@ -1991,6 +1991,18 @@ export class StudioStateService implements OnDestroy {
   }
 
   readonly activeTargetClip = computed<Clip | null>(() => {
+    // A selected image overlay wins over every scope: selecting one clears selectedClipId and
+    // forces scope 'selected', so checking it after the scope branches left the inspector empty.
+    const selItem = this.selectedTimelineItem();
+    if (selItem && (selItem.type === 'image' || selItem.trackId === 'IMG1' || selItem.trackId === 'IMG')) {
+      return {
+        id: selItem.src || selItem.id,
+        name: selItem.name || 'Image Overlay',
+        durationSeconds: selItem.duration,
+        fileSizeBytes: 0,
+        hasAudio: false,
+      };
+    }
     const direct = this.selectedClip();
     const scope = this.targetScope();
     if (scope === 'selected') {
@@ -2014,17 +2026,6 @@ export class StudioStateService implements OnDestroy {
       const clips = scope === 'under_selected_music' ? this.clipsUnderSelectedMusic() : this.clipsUnderMusic();
       if (direct && clips.some((c) => c.id === direct.id)) return direct;
       return clips[0] ?? null;
-    }
-    // 0. Selected image overlay timeline item
-    const selItem = this.selectedTimelineItem();
-    if (selItem && (selItem.type === 'image' || selItem.trackId === 'IMG1' || selItem.trackId === 'IMG')) {
-      return {
-        id: selItem.src || selItem.id,
-        name: selItem.name || 'Image Overlay',
-        durationSeconds: selItem.duration,
-        fileSizeBytes: 0,
-        hasAudio: false,
-      };
     }
     // Fallbacks
     if (direct) return direct;
@@ -3816,6 +3817,11 @@ export class StudioStateService implements OnDestroy {
 
     // Each scope makes its own clips the selection, so the timeline highlight and the
     // panel agree about what is being edited.
+    if (scope !== 'selected') {
+      // A selected image overlay takes priority in activeTargetClip and transform writes.
+      this.selectedTimelineItemId.set(null);
+      this.selectedTimelineItemIds.set(new Set());
+    }
     if (scope === 'current') {
       const curr = this.currentScheduledClip();
       if (curr) {
