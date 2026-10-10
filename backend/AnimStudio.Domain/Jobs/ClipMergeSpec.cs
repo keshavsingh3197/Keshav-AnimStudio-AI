@@ -123,6 +123,12 @@ public sealed class ClipMergeSpec
 
     /// <summary>Level the finished mix to YouTube's loudness target (-14 LUFS). False on every job written before it existed.</summary>
     public bool YouTubeLoudness { get; set; }
+
+    /// <summary>
+    /// Seconds the last clip's final frame is held before the outro, so the outro starts
+    /// once the music or text running past the clips has finished. Zero on older jobs.
+    /// </summary>
+    public double OutroHoldSeconds { get; set; }
 }
 
 /// <summary>

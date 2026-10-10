@@ -758,6 +758,8 @@ export interface ClipMergeBody {
   watermark: WatermarkBody;
   /** End with the saved outro or QR end card (Admin &gt; Branding, or the project's own). */
   includeOutro?: boolean;
+  /** Seconds to hold the last frame before the end card, so it starts after music/text that runs on. */
+  outroHoldSeconds?: number;
   /** Level the finished mix to YouTube's -14 LUFS. */
   youTubeLoudness?: boolean;
   timelineItems?: TimelineItem[] | null;

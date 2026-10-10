@@ -1,0 +1,157 @@
+<div class="modal-backdrop" (click)="close()">
+  <div class="xfer-dialog" role="dialog" aria-modal="true"
+       [attr.aria-label]="mode() === 'import' ? 'Bring in from another video' : 'New video from this one'"
+       (click)="$event.stopPropagation()">
+    <div class="xfer-header">
+      <h3>
+        @if (mode() === 'import') { ⇣ Bring in from another video } @else { ✂ New video from this one }
+      </h3>
+      <button class="xfer-close" type="button" (click)="close()" aria-label="Close">&times;</button>
+    </div>
+
+    <div class="xfer-body">
+      @if (mode() === 'import') {
+        <section class="xfer-section">
+          <div class="xfer-section-title">1 · Take from</div>
+          <div class="xfer-grid">
+            <label class="xfer-field">
+              <span>Project</span>
+              <select [ngModel]="sourceProjectId()" (ngModelChange)="pickProject($event)">
+                @for (p of projects(); track p.id) {
+                  <option [value]="p.id">{{ p.name }}{{ p.id === state.openProjectId ? ' (this project)' : '' }}</option>
+                }
+              </select>
+            </label>
+            <label class="xfer-field">
+              <span>Video or Short</span>
+              <select [ngModel]="sourceEditId()" (ngModelChange)="pickEdit($event)" [disabled]="sourceEdits().length === 0">
+                @for (e of sourceEdits(); track e.id) {
+                  <option [value]="e.id">{{ editLabel(e) }}</option>
+                }
+              </select>
+            </label>
+          </div>
+          @if (loadingSource()) {
+            <p class="xfer-note">Opening that video…</p>
+          } @else if (isCrossProject()) {
+            <p class="xfer-note">The files it uses are copied into this project, so they can be previewed and exported here.</p>
+          }
+        </section>
+      } @else {
+        <section class="xfer-section">
+          <div class="xfer-section-title">1 · The new video</div>
+          <div class="xfer-grid">
+            <label class="xfer-field">
+              <span>Name</span>
+              <input type="text" maxlength="120" [ngModel]="newName()" (ngModelChange)="newName.set($event)" />
+            </label>
+            <label class="xfer-field">
+              <span>Format</span>
+              <select [ngModel]="newFormat()" (ngModelChange)="newFormat.set($event)">
+                @for (f of formats; track f.value) {
+                  <option [value]="f.value">{{ f.label }} ({{ f.ratio }})</option>
+                }
+              </select>
+            </label>
+          </div>
+        </section>
+      }
+
+      <section class="xfer-section">
+        <div class="xfer-section-title">2 · Which part
+          <span class="xfer-dim">of {{ state.formatTimecode(sourceSeconds()) }}</span>
+        </div>
+        <div class="xfer-seg">
+          <button type="button" [class.active]="rangeChoice() === 'all'" (click)="setRangeChoice('all')">Whole video</button>
+          @if (mode() === 'create') {
+            <button type="button" [class.active]="rangeChoice() === 'selection'" [disabled]="!hasSelection()"
+                    (click)="setRangeChoice('selection')"
+                    [title]="hasSelection() ? 'From the first selected clip to the last' : 'Select clips on the timeline first'">
+              Selected clips
+            </button>
+          }
+          <button type="button" [class.active]="rangeChoice() === 'custom'" (click)="setRangeChoice('custom')">Custom range</button>
+        </div>
+        @if (rangeChoice() === 'custom') {
+          <div class="xfer-range">
+            <label class="xfer-field">
+              <span>From (seconds)</span>
+              <input type="number" min="0" step="0.1" [ngModel]="rangeStart()" (ngModelChange)="setRangeStart($event)" />
+            </label>
+            <label class="xfer-field">
+              <span>To (seconds)</span>
+              <input type="number" min="0" step="0.1" [ngModel]="rangeEnd()" (ngModelChange)="setRangeEnd($event)" />
+            </label>
+            <span class="xfer-range-label">{{ state.formatTimecode(rangeStart()) }} → {{ state.formatTimecode(rangeEnd()) }}</span>
+          </div>
+          @if (mode() === 'create' && state.selectedClipsRange()) {
+            <button type="button" class="xfer-link" (click)="useSelectionAsCustom()">Start from the selected clips</button>
+          }
+        }
+        @if (rangeInvalid(); as why) {
+          <p class="xfer-error">{{ why }}</p>
+        }
+      </section>
+
+      <section class="xfer-section">
+        <div class="xfer-section-title">3 · What to include
+          <span class="xfer-quick">
+            <button type="button" (click)="setAllLayers(true)">All</button>
+            <button type="button" (click)="onlyLayers(['video', 'effects'])">Clips only</button>
+            <button type="button" (click)="onlyLayers(['voice', 'music'])">Audio only</button>
+            <button type="button" (click)="setAllLayers(false)">None</button>
+          </span>
+        </div>
+        <div class="xfer-layers">
+          @for (l of layers; track l.id) {
+            <label class="xfer-layer" [class.off]="!selectedLayers().has(l.id)" [class.empty]="layerCounts()[l.id] === 0">
+              <input type="checkbox" [checked]="selectedLayers().has(l.id)" (change)="toggleLayer(l.id)" />
+              <span class="xfer-layer-text">
+                <span class="xfer-layer-name">{{ l.label }}
+                  <span class="xfer-count">{{ layerCounts()[l.id] }}</span>
+                </span>
+                <span class="xfer-layer-hint">{{ l.hint }}</span>
+              </span>
+            </label>
+          }
+        </div>
+        @if (!selectedLayers().has('effects') && selectedLayers().has('video')) {
+          <p class="xfer-note">Clips come in plain - no colour grade, transform, clip-audio settings or custom transitions.</p>
+        }
+      </section>
+
+      @if (mode() === 'import') {
+        <section class="xfer-section">
+          <div class="xfer-section-title">4 · Put it</div>
+          <div class="xfer-seg">
+            <button type="button" [class.active]="placement() === 'start'" (click)="placement.set('start')">At the start</button>
+            <button type="button" [class.active]="placement() === 'playhead'" (click)="placement.set('playhead')">At the playhead</button>
+            <button type="button" [class.active]="placement() === 'end'" (click)="placement.set('end')">At the end</button>
+          </div>
+          @if (placement() !== 'end') {
+            <p class="xfer-note">Clips go in between clips; everything after that point moves along to make room.</p>
+          }
+        </section>
+      } @else {
+        <label class="xfer-check">
+          <input type="checkbox" [checked]="openAfterCreate()" (change)="openAfterCreate.set(!openAfterCreate())" />
+          Open the new video when it is made
+        </label>
+      }
+
+      <div class="xfer-summary" [class.empty]="!canConfirm() && !working()">{{ previewSummary() }}</div>
+      @if (error(); as e) {
+        <p class="xfer-error">{{ e }}</p>
+      }
+    </div>
+
+    <div class="xfer-footer">
+      <button type="button" class="xfer-btn" (click)="close()" [disabled]="working()">Cancel</button>
+      <button type="button" class="xfer-btn primary" (click)="confirm()" [disabled]="!canConfirm()">
+        @if (working()) { Working… }
+        @else if (mode() === 'import') { Bring it in }
+        @else { Create video }
+      </button>
+    </div>
+  </div>
+</div>

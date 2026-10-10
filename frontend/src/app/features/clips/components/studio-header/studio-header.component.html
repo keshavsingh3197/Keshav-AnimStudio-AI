@@ -31,6 +31,14 @@
               </a>
             }
             <div class="cut-menu-sep"></div>
+            <button type="button" class="cut-item cut-action"
+                    (click)="cutMenuOpen.set(false); state.transferDialogMode.set('import')">
+              ⇣ Bring in clips, audio or text from another video…
+            </button>
+            <button type="button" class="cut-item cut-action"
+                    (click)="cutMenuOpen.set(false); state.transferDialogMode.set('create')">
+              ✂ New video from part of this one (choose what to include)…
+            </button>
             <a class="cut-item cut-action" [routerLink]="['/projects', state.store.projectId(), 'videos']"
                [queryParams]="{ create: 1, from: state.currentEdit()?.id }" (click)="cutMenuOpen.set(false)">
               + New video or Short from this one…
@@ -102,6 +110,10 @@
 
     <button class="hdr-btn" type="button" [disabled]="!state.hasUnsavedChanges()" (click)="state.saveDraft()" title="Save draft (Ctrl+S)">
       <span class="hdr-icon">💾</span> Save
+    </button>
+    <button class="hdr-btn" type="button" (click)="state.transferDialogMode.set('import')"
+            title="Bring clips, music, voice, images or text in from another video - of this project or another">
+      ⇣ Import
     </button>
     <a [routerLink]="['/projects', state.store.projectId(), 'media-tools']" [queryParams]="{ tab: 'chunker' }" style="text-decoration:none">
       <button class="hdr-btn" type="button">Chunk Video</button>

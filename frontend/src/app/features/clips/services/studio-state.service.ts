@@ -1,4 +1,4 @@
-import { Injectable, computed, inject, signal, OnDestroy } from '@angular/core';
+import { Injectable, computed, effect, inject, signal, untracked, OnDestroy } from '@angular/core';
 import { catchError, concatMap, finalize, forkJoin, from, map, of } from 'rxjs';
 
 import {
@@ -21,6 +21,7 @@ import {
 } from '../models/clip-studio.models';
 import { EraseRect, eraseFeatherMask, eraseOuter } from './erase-geometry';
 import { bedPieces, cutEffectStarts, deepestDuck } from './audio-enhance';
+import { TimelineFragment, TransferRange } from './timeline-transfer';
 
 /** One erase box as the monitor draws it: grown by its feather, cut to the clip's crop. */
 export interface MonitorEraseRegion {
@@ -51,6 +52,18 @@ export interface ResolvedOverlap {
 }
 
 const DRAFT_KEY_PREFIX = 'animstudio_studio_draft_';
+
+/** The lanes every cut opens with; a new copy each time so no cut shares another's mute/lock state. */
+function defaultTimelineTracks(): TrackControlState[] {
+  return [
+    { id: 'TXT1', name: 'Text', label: 'TXT1', kind: 'text', muted: false, locked: false, visible: true, color: '#10b981' },
+    { id: 'IMG1', name: 'Image', label: 'IMG1', kind: 'image', muted: false, locked: false, visible: true, color: '#10b981' },
+    { id: 'V2', name: 'Video Overlay', label: 'V2', kind: 'video', muted: false, locked: false, visible: true, color: '#06b6d4' },
+    { id: 'V1', name: 'Primary Video', label: 'V1', kind: 'video', muted: false, locked: false, visible: true, color: '#3b82f6' },
+    { id: 'A1', name: 'Voiceover', label: 'A1', kind: 'audio', muted: false, locked: false, visible: true, color: '#8b5cf6' },
+    { id: 'A2', name: 'Music Bed', label: 'A2', kind: 'audio', muted: false, locked: false, visible: true, color: '#a855f7' },
+  ];
+}
 
 @Injectable()
 export class StudioStateService implements OnDestroy {
@@ -104,14 +117,7 @@ export class StudioStateService implements OnDestroy {
   readonly studio = signal<ClipStudio | null>(null);
   readonly rows = signal<ClipRow[]>([]);
   readonly timelineItems = signal<TimelineItem[]>([]);
-  readonly timelineTracks = signal<TrackControlState[]>([
-    { id: 'TXT1', name: 'Text', label: 'TXT1', kind: 'text', muted: false, locked: false, visible: true, color: '#10b981' },
-    { id: 'IMG1', name: 'Image', label: 'IMG1', kind: 'image', muted: false, locked: false, visible: true, color: '#10b981' },
-    { id: 'V2', name: 'Video Overlay', label: 'V2', kind: 'video', muted: false, locked: false, visible: true, color: '#06b6d4' },
-    { id: 'V1', name: 'Primary Video', label: 'V1', kind: 'video', muted: false, locked: false, visible: true, color: '#3b82f6' },
-    { id: 'A1', name: 'Voiceover', label: 'A1', kind: 'audio', muted: false, locked: false, visible: true, color: '#8b5cf6' },
-    { id: 'A2', name: 'Music Bed', label: 'A2', kind: 'audio', muted: false, locked: false, visible: true, color: '#a855f7' },
-  ]);
+  readonly timelineTracks = signal<TrackControlState[]>(defaultTimelineTracks());
   readonly musicTracks = signal<MusicTrackRow[]>([]);
   readonly selectedMusicTrackKey = signal<string | null>(null);
 
@@ -376,6 +382,114 @@ export class StudioStateService implements OnDestroy {
 
   /** Seconds the end card adds after the cut, when this export will include it. */
   readonly endCardTailSeconds = computed(() => (this.exportIncludeOutro() ? this.endCard()?.seconds ?? 0 : 0));
+
+  /** Play the end card after the last clip in the preview too, as the export will. */
+  readonly endCardInPreview = signal<boolean>(true);
+
+  /**
+   * Where the end card starts: right after the last video clip, or once everything -
+   * music, voice, text - has finished (the last frame is held until then).
+   */
+  readonly endCardAfter = signal<'clips' | 'everything'>('clips');
+  readonly endCardDialogOpen = signal<boolean>(false);
+
+  /** Whether preview playback runs on into the end card. */
+  readonly endCardPlaysInPreview = computed(() => this.endCardInPreview() && this.endCardTailSeconds() > 0);
+
+  /**
+   * Where the end card starts: straight after the last video clip, like the next clip in
+   * the cut - that is where the export joins it, whatever music or text runs on past it.
+   */
+  readonly endCardStartSeconds = computed(() =>
+    this.clipSchedule().length > 0 && this.endCardAfter() === 'clips' ? this.totalSeconds() : this.contentDurationSeconds());
+
+  /** Seconds past the last clip that music, voice or text run on. */
+  readonly contentOverhangSeconds = computed(() =>
+    this.clipSchedule().length > 0 ? Math.max(0, this.contentDurationSeconds() - this.totalSeconds()) : 0);
+
+  /** What the export holds on the last frame before the end card. */
+  readonly outroHoldSeconds = computed(() =>
+    this.endCardAfter() === 'everything' && this.endCardTailSeconds() > 0
+      ? Math.round(this.contentOverhangSeconds() * 1000) / 1000 : 0);
+
+  /** Where preview playback stops. */
+  readonly previewEndSeconds = computed(() => this.endCardPlaysInPreview()
+    ? Math.max(this.contentDurationSeconds(), this.endCardStartSeconds() + this.endCardTailSeconds())
+    : this.contentDurationSeconds());
+
+  /**
+   * Room the timeline keeps after the content for the end-card slot - also while it is
+   * switched off or not set up yet, so it can always be clicked to change that.
+   */
+  readonly endCardSlotSeconds = computed(() => this.endCard()?.seconds ?? 3);
+
+  /** The end card as the server renders it, at this cut's shape, for the preview player. */
+  readonly endCardMedia = signal<{ key: string; url: string } | null>(null);
+  readonly endCardRendering = signal<boolean>(false);
+  readonly endCardRenderError = signal<string | null>(null);
+
+  private readonly endCardRenderShape = computed<'landscape' | 'vertical' | 'square'>(() => {
+    const f = this.format();
+    return f === 'Short' ? 'vertical' : f === 'Square' ? 'square' : 'landscape';
+  });
+
+  /** Renders the end card once per project and shape; `force` renders it again (after a settings change). */
+  renderEndCardPreview(force = false): void {
+    const projectId = this.store.projectId();
+    const card = this.endCard();
+    if (!projectId || !card || this.endCardRendering()) return;
+    const shape = this.endCardRenderShape();
+    const key = `${projectId}:${shape}:${card.source}:${card.seconds}`;
+    if (!force && this.endCardMedia()?.key === key) return;
+
+    this.endCardRendering.set(true);
+    this.endCardRenderError.set(null);
+    this.api.previewProjectOutro(projectId, null, shape).subscribe({
+      next: (blob) => {
+        this.endCardRendering.set(false);
+        if (this.destroyed || this.store.projectId() !== projectId) return;
+        this.setEndCardMedia({ key, url: URL.createObjectURL(blob) });
+      },
+      error: () => {
+        this.endCardRendering.set(false);
+        this.endCardRenderError.set('Could not render the end card. Check Settings › End card.');
+      },
+    });
+  }
+
+  private setEndCardMedia(media: { key: string; url: string } | null): void {
+    const previous = this.endCardMedia();
+    if (previous) URL.revokeObjectURL(previous.url);
+    this.endCardMedia.set(media);
+  }
+
+  openEndCardDialog(): void {
+    this.endCardDialogOpen.set(true);
+    this.renderEndCardPreview();
+  }
+
+  setExportIncludeOutro(on: boolean): void {
+    this.exportIncludeOutro.set(on);
+    this.markDirty();
+  }
+
+  setEndCardAfter(after: 'clips' | 'everything'): void {
+    this.endCardAfter.set(after);
+    this.markDirty();
+  }
+
+  setEndCardInPreview(on: boolean): void {
+    this.endCardInPreview.set(on);
+    this.markDirty();
+  }
+
+  /** Jumps to where the end card starts and plays from there. */
+  playEndCard(): void {
+    this.endCardDialogOpen.set(false);
+    this.renderEndCardPreview();
+    this.seekTo(Math.max(0, this.endCardStartSeconds() - 1));
+    this.isPlaying.set(true);
+  }
 
   // Live Export Progress Monitor Signals
   readonly exportProgressOpen = signal<boolean>(false);
@@ -1174,6 +1288,28 @@ export class StudioStateService implements OnDestroy {
   /** Consumed by the timeline dock to bring a time into view. */
   readonly timelineScrollRequest = signal<{ seconds: number; nonce: number } | null>(null);
 
+  /**
+   * Bumped once a cut has finished loading. The timeline dock then scrolls back to the start
+   * and refits its zoom, so the view never keeps the length or position of the cut before.
+   */
+  readonly timelineViewReset = signal<number>(0);
+
+  /**
+   * The playhead never sits past the end of the timeline. Deleting clips, or another cut
+   * loading, shortens it under the playhead - and a needle left minutes beyond the end also
+   * stretches the scroll area to reach it.
+   */
+  private readonly clampPlayheadToTimeline = effect(() => {
+    const limit = this.timelineSeconds();
+    if (!this.studio()) return;
+    if (untracked(() => this.getCurrentTimeExact()) > limit) {
+      untracked(() => {
+        this.pause();
+        this.seekTo(limit);
+      });
+    }
+  });
+
   // ────────────────────────────────────────────────────────────────
   // COPY / CUT / PASTE AND REORDERING
   // ────────────────────────────────────────────────────────────────
@@ -1510,7 +1646,7 @@ export class StudioStateService implements OnDestroy {
 
   readonly timelineSeconds = computed(() => {
     // Room for the end-card marker drawn after the cut, so the end of the video is visible.
-    return Math.max(this.contentDurationSeconds() + this.endCardTailSeconds(), 10);
+    return Math.max(this.contentDurationSeconds(), this.endCardStartSeconds() + this.endCardSlotSeconds(), 10);
   });
 
   readonly rulerTicks = computed<number[]>(() => {
@@ -2410,6 +2546,7 @@ export class StudioStateService implements OnDestroy {
     this.stopPolling();
     this.stopExportTimer();
     this.closePreview();
+    this.setEndCardMedia(null);
   }
 
   /** True only while the store still shows the project this studio state belongs to. */
@@ -3111,7 +3248,7 @@ export class StudioStateService implements OnDestroy {
 
   // Playback Methods
   play(): void {
-    if (this.currentTime() >= this.contentDurationSeconds() && this.contentDurationSeconds() > 0) {
+    if (this.currentTime() >= this.previewEndSeconds() && this.previewEndSeconds() > 0) {
       this.seekTo(0);
     }
     this.isPlaying.set(true);
@@ -6620,6 +6757,9 @@ export class StudioStateService implements OnDestroy {
       duckMusicUnderVoice: this.duckMusicUnderVoice(),
       voiceDuckLevel: this.voiceDuckLevel(),
       exportYouTubeLoudness: this.exportYouTubeLoudness(),
+      exportIncludeOutro: this.exportIncludeOutro(),
+      endCardInPreview: this.endCardInPreview(),
+      endCardAfter: this.endCardAfter(),
       fit: this.fit(),
       clipFraming: Array.from(this.clipFraming().entries()),
       clipAudioFade: Array.from(this.clipAudioFade().entries()),
@@ -6754,6 +6894,9 @@ export class StudioStateService implements OnDestroy {
       this.voiceDuckLevel.set(draft.voiceDuckLevel);
     }
     if (typeof draft.exportYouTubeLoudness === 'boolean') this.exportYouTubeLoudness.set(draft.exportYouTubeLoudness);
+    if (typeof draft.exportIncludeOutro === 'boolean') this.exportIncludeOutro.set(draft.exportIncludeOutro);
+    if (typeof draft.endCardInPreview === 'boolean') this.endCardInPreview.set(draft.endCardInPreview);
+    if (draft.endCardAfter === 'clips' || draft.endCardAfter === 'everything') this.endCardAfter.set(draft.endCardAfter);
     this.migrateLegacyOverlapSettings();
     if (draft.fit !== undefined) this.fit.set(draft.fit);
     if (Array.isArray(draft.clipFraming)) this.clipFraming.set(new Map(draft.clipFraming));
@@ -6896,6 +7039,121 @@ export class StudioStateService implements OnDestroy {
     }));
   }
 
+  // --- bringing in part of another timeline, and handing part of this one to a new cut ---
+
+  /** Whether an overlay item sits on a lane the eye toggle has hidden. */
+  private isOverlayLaneHidden(item: TimelineItem): boolean {
+    const lane = item.type === 'text' ? 'TXT1'
+      : item.trackId === 'V3' ? 'V2'
+      : item.trackId === 'IMG' ? 'IMG1'
+      : item.trackId;
+    const track = this.timelineTracks().find((t) => t.id === lane);
+    return !!track && track.kind !== 'audio' && !track.visible;
+  }
+
+  /** Which transfer dialog is open: bring in from another video, or start a new one from this. */
+  readonly transferDialogMode = signal<'import' | 'create' | null>(null);
+
+  /** Lanes currently hidden in the monitor, so the export dialog can say they stay out. */
+  readonly hiddenLaneLabels = computed<string[]>(() =>
+    this.timelineTracks().filter((t) => t.kind !== 'audio' && t.id !== 'V1' && !t.visible).map((t) => t.name));
+
+  /** The open cut's project, for the transfer dialog. */
+  get openProjectId(): string | null {
+    return this.loadedProjectId;
+  }
+
+  get openEditId(): string | null {
+    return this.loadedEditId;
+  }
+
+  /** Seconds from the first selected clip's start to the last one's end, or null. */
+  readonly selectedClipsRange = computed<TransferRange | null>(() => {
+    const indices = this.selectedCutIndices();
+    if (indices.length === 0) return null;
+    const schedule = this.clipSchedule();
+    const first = schedule[Math.min(...indices)];
+    const last = schedule[Math.max(...indices)];
+    return first && last ? { start: first.startSeconds, end: last.endSeconds } : null;
+  });
+
+  /** Audio file lengths, for music rows that play to the end of their file. */
+  audioFileLength(assetId: string): number | undefined {
+    return this.studio()?.musicCandidates?.find((m) => m.id === assetId)?.durationSeconds ?? undefined;
+  }
+
+  /**
+   * Puts a piece of another timeline into this one. Its clips go into the cut at `at`; its
+   * overlays, text and audio keep their timing relative to those clips. When the clips go
+   * in before the end, everything after that point moves along to make room (ripple), so
+   * existing titles and music stay over the footage they were placed on.
+   */
+  importFragment(fragment: TimelineFragment, at: 'start' | 'playhead' | 'end'): void {
+    const schedule = this.clipSchedule();
+    const cutIndex = at === 'start' ? 0 : at === 'end' ? schedule.length : this.playheadCutIndex();
+    const hasClips = fragment.rows.length > 0;
+
+    // Clips can only go in between clips; with none, the rest lands right at the playhead.
+    const offset = !hasClips && at === 'playhead'
+      ? this.getCurrentTimeExact()
+      : cutIndex >= schedule.length ? this.totalSeconds() : schedule[cutIndex].startSeconds;
+
+    const ripple = hasClips && cutIndex < schedule.length ? fragment.videoSeconds : 0;
+
+    if (hasClips) {
+      const rows = [...this.rows()];
+      rows.splice(this.rowsIndexForCutIndex(cutIndex), 0, ...fragment.rows);
+      this.rows.set(rows);
+      this.insertIndex.set(cutIndex + fragment.rows.length);
+    }
+
+    const shifted = <T>(list: T[], startOf: (x: T) => number, move: (x: T, by: number) => T): T[] =>
+      ripple > 0 ? list.map((x) => (startOf(x) >= offset - 1e-6 ? move(x, ripple) : x)) : list;
+
+    this.timelineItems.update((items) => [
+      ...shifted(items, (it) => it.startTime, (it, by) => ({ ...it, startTime: it.startTime + by })),
+      ...fragment.items.map((it) => ({ ...it, startTime: it.startTime + offset })),
+    ]);
+    this.musicTracks.update((tracks) => [
+      ...shifted(tracks, (t) => t.startSeconds, (t, by) => ({ ...t, startSeconds: t.startSeconds + by })),
+      ...fragment.musicTracks.map((t) => ({ ...t, startSeconds: Number((t.startSeconds + offset).toFixed(3)) })),
+    ]);
+
+    if (Object.keys(fragment.clipSounds).length) this.clipSounds.update((m) => ({ ...m, ...fragment.clipSounds }));
+    if (Object.keys(fragment.clipTransforms).length) this.clipTransforms.update((m) => ({ ...m, ...fragment.clipTransforms }));
+    if (Object.keys(fragment.clipColors).length) this.clipColors.update((m) => ({ ...m, ...fragment.clipColors }));
+    if (Object.keys(fragment.clipTexts).length) this.clipTexts.update((m) => ({ ...m, ...fragment.clipTexts }));
+    if (fragment.clipFraming.length) this.clipFraming.update((m) => new Map([...m, ...fragment.clipFraming]));
+    if (fragment.clipAudioFade.length) this.clipAudioFade.update((m) => new Map([...m, ...fragment.clipAudioFade]));
+    if (fragment.junctionOverrides.length) {
+      this.junctionOverrides.update((m) => new Map([...m, ...fragment.junctionOverrides]));
+      this.junctions.update((m) => ({ ...m, ...Object.fromEntries(fragment.junctionOverrides) }));
+    }
+
+    // Lanes the fragment uses are shown even when this cut had nothing on them yet.
+    const lanes = new Set<string>();
+    for (const it of fragment.items) lanes.add(it.type === 'text' ? 'TXT1' : it.trackId === 'IMG' ? 'IMG1' : it.trackId);
+    if (lanes.size) this.explicitlyShownTracks.update((set) => new Set([...set, ...lanes]));
+
+    this.markDirty();
+    this.seekTo(offset);
+    this.timelineScrollRequest.set({ seconds: offset, nonce: Date.now() });
+  }
+
+  /** Brings newly copied library files into the open studio without reloading the timeline. */
+  refreshStudioLibrary(then?: () => void): void {
+    const projectId = this.loadedProjectId;
+    if (!this.ownsCurrentProject(projectId)) return;
+    this.api.clipStudio(projectId).subscribe({
+      next: (studio) => {
+        if (this.loadedProjectId !== projectId) return;
+        this.studio.set(studio);
+        then?.();
+      },
+      error: () => this.status.error.set('Could not refresh the media library.'),
+    });
+  }
+
   // --- the other cuts of this project, for the header's switcher ---
 
   readonly projectEdits = signal<ProjectEdit[]>([]);
@@ -6995,6 +7253,19 @@ export class StudioStateService implements OnDestroy {
       this.selectedTimelineItemIds.set(new Set<string>());
       this.clipboard.set(null);
       this.orderResult.set(null);
+      // Playback, the playhead and the lanes' hide/mute/lock state belong to the cut that
+      // was open, not to this one.
+      this.isPlaying.set(false);
+      this.seekTo(0);
+      this.timelineTracks.set(defaultTimelineTracks());
+      this.explicitlyShownTracks.set(new Set<string>());
+      this.selectedMusicTrackKey.set(null);
+      this.insertIndex.set(null);
+      this.selectionAnchorIndex.set(null);
+      this.exportIncludeOutro.set(true);
+      this.endCardInPreview.set(true);
+      this.endCardAfter.set('clips');
+      this.endCardDialogOpen.set(false);
       this.hasUnsavedChanges.set(false);
       this.lastSavedTime.set(null);
       this.restoredDraftTime.set(null);
@@ -7019,7 +7290,9 @@ export class StudioStateService implements OnDestroy {
         this.refreshProjectEdits();
         // Runs once everything below has built the timeline, whichever branch returns.
         queueMicrotask(() => {
-          if (this.loadedEditId === loadingEditId) this.resetHistory(keepHistory);
+          if (this.loadedEditId !== loadingEditId) return;
+          this.resetHistory(keepHistory);
+          if (!keepHistory) this.timelineViewReset.update((n) => n + 1);
         });
 
         // The first cut is the project's original timeline; any other cut created blank
@@ -7177,8 +7450,9 @@ export class StudioStateService implements OnDestroy {
 
   timelineItemsPayload(): TimelineItem[] | null {
     // 1. Separate non-V1 overlay items (IMG1, T1, V2, etc.)
+    // A hidden lane is left out of the file too, so the export is what the monitor shows.
     const overlayItems = this.timelineItems().filter(
-      (it) => it.trackId !== 'V1' && it.trackId !== 'video'
+      (it) => it.trackId !== 'V1' && it.trackId !== 'video' && !this.isOverlayLaneHidden(it)
     );
 
     // 2. Exact 1-to-1 V1 timeline items directly from clipSchedule
@@ -7622,6 +7896,7 @@ export class StudioStateService implements OnDestroy {
         musicDuckWindows: this.musicDuckWindowsPayload(),
         watermark: this.exportIncludeWatermark() ? wm : { ...wm, kind: "None" as any },
         includeOutro: this.exportIncludeOutro(),
+        outroHoldSeconds: this.outroHoldSeconds(),
         youTubeLoudness: this.exportYouTubeLoudness(),
       }),
       (job: RenderJob) => {
@@ -7692,6 +7967,7 @@ export class StudioStateService implements OnDestroy {
         musicDuckWindows: this.musicDuckWindowsPayload(),
         watermark: this.exportIncludeWatermark() ? wm : { ...wm, kind: "None" as any },
         includeOutro: this.exportIncludeOutro(),
+        outroHoldSeconds: this.outroHoldSeconds(),
         youTubeLoudness: this.exportYouTubeLoudness(),
       }),
       (job: RenderJob) => {

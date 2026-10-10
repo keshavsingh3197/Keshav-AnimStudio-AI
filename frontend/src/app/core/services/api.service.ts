@@ -512,6 +512,17 @@ export class ApiService {
       `${this.base}/api/projects/${projectId}/edits/${encodeURIComponent(editId)}/draft`, body));
   }
 
+  /**
+   * Copies files of another of the user's projects into this one, so a timeline brought
+   * over from there can be previewed and rendered here. Answers source id -> id here; ids
+   * that could not be copied are missing from it.
+   */
+  copyAssetsFromProject(projectId: string, sourceProjectId: string, assetIds: string[]): Observable<Record<string, string>> {
+    return this.unwrap(this.http.post<ApiResponse<{ mapping: Record<string, string> }>>(
+      `${this.base}/api/projects/${projectId}/assets/copy`, { sourceProjectId, assetIds }))
+      .pipe(map((r) => r.mapping ?? {}));
+  }
+
   duplicateEdit(projectId: string, editId: string): Observable<ProjectEdit> {
     return this.unwrap(this.http.post<ApiResponse<ProjectEdit>>(
       `${this.base}/api/projects/${projectId}/edits/${encodeURIComponent(editId)}/duplicate`, {}));

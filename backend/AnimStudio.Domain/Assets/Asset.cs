@@ -101,6 +101,12 @@ public sealed class Asset
     public DateTime CreatedAt { get; set; }
 
     /// <summary>
+    /// The asset in another project this one was copied from, so copying the same file into
+    /// the same project twice reuses the first copy instead of storing the bytes again.
+    /// </summary>
+    public string? CopiedFromAssetId { get; set; }
+
+    /// <summary>
     /// An uploaded asset needs no review; anything fetched from an online search must be
     /// approved before a render may reference it.
     /// </summary>

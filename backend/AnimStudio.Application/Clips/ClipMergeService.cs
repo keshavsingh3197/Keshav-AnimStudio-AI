@@ -93,6 +93,9 @@ public sealed record ClipMergeCommand
     /// </summary>
     public bool IncludeOutro { get; init; }
 
+    /// <summary>Seconds the last clip's final frame is held before the outro. Only with an outro.</summary>
+    public double OutroHoldSeconds { get; init; }
+
     /// <summary>Level the finished mix to YouTube's loudness target (-14 LUFS).</summary>
     public bool YouTubeLoudness { get; init; }
 
@@ -568,6 +571,8 @@ public sealed class ClipMergeService(
                 ClipAudio = clipAudioSpecs,
                 Watermark = watermark,
                 Outro = outro ?? new OutroSettings(),
+                // A hold only ever leads into an end card; without one the video ends on the clip.
+                OutroHoldSeconds = outro is { IsEnabled: true } ? Math.Clamp(command.OutroHoldSeconds, 0, 600) : 0,
                 TimelineItems = command.TimelineItems?.ToList() ?? [],
                 YouTubeLoudness = command.YouTubeLoudness
             }

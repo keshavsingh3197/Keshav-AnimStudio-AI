@@ -171,6 +171,7 @@ public sealed class ClipsController(
                 .ToList(),
             Watermark = request.Watermark.ToSettings(),
             IncludeOutro = request.IncludeOutro,
+            OutroHoldSeconds = request.OutroHoldSeconds,
             YouTubeLoudness = request.YouTubeLoudness,
             TimelineItems = request.TimelineItems?
                 .Select(t => new TimelineItemSpec

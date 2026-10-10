@@ -302,6 +302,11 @@ public sealed class ClipMergeOrchestrator(
                         ? nextJunction.TailOutSeconds
                         : (index < spec.AssetIds.Count - 1 ? uniformJunctionSecs / 2.0 : 0.0);
 
+                    // The hold before the end card: the last clip's final frame, frozen.
+                    var holdBeforeOutro = index == spec.AssetIds.Count - 1 && spec.Outro is { IsEnabled: true }
+                        ? Math.Max(0, spec.OutroHoldSeconds) : 0.0;
+                    requestedTailOut += holdBeforeOutro;
+
                     var origTrimStart = v1Item?.TrimStartSeconds;
                     var origTrimEnd = v1Item?.TrimEndSeconds;
                     var origDuration = v1Item?.Duration;
@@ -321,7 +326,8 @@ public sealed class ClipMergeOrchestrator(
                         }
                     }
 
-                    if (!isImage && requestedTailOut > 0)
+                    // A hold is a still frame by request, never more footage from the file.
+                    if (!isImage && requestedTailOut > 0 && holdBeforeOutro == 0)
                     {
                         // Preferred: borrow from spare media after trimEnd if available.
                         var fileDuration = asset.Probe.DurationSeconds;

@@ -551,6 +551,12 @@ public sealed record ClipMergeRequest
     /// </summary>
     public bool IncludeOutro { get; init; }
 
+    /// <summary>
+    /// Seconds to hold the last clip's final frame before the end card, so the card starts
+    /// after music or text that runs on past the clips instead of over it.
+    /// </summary>
+    [Range(0, 600)] public double OutroHoldSeconds { get; init; }
+
     /// <summary>Level the finished mix to YouTube's loudness target (-14 LUFS), so it plays as loud as other videos.</summary>
     public bool YouTubeLoudness { get; init; }
 

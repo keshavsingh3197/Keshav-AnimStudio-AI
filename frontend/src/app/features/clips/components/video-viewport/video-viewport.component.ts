@@ -27,6 +27,11 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
   @ViewChild('voiceoverAudio') voiceoverAudioRef?: ElementRef<HTMLAudioElement>;
   @ViewChild('effectAudio') effectAudioRef?: ElementRef<HTMLAudioElement>;
   @ViewChild('monitorContainer') monitorContainerRef?: ElementRef<HTMLElement>;
+  @ViewChild('endCardVideo') endCardVideoRef?: ElementRef<HTMLVideoElement>;
+
+  /** Playback has run past the last thing on the timeline into the end card. */
+  readonly endCardActive = computed(() =>
+    this.state.endCardPlaysInPreview() && this.state.currentTime() >= this.state.endCardStartSeconds() - 1e-3);
 
   // Dual-layer ping-pong state
   readonly activeLayer = signal<'A' | 'B'>('A');
@@ -67,6 +72,14 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
           this.pausePlayback();
         }
       });
+    });
+
+    // The end card's own player follows play/pause, seeks and its arrival on screen.
+    effect(() => {
+      this.endCardActive();
+      this.state.isPlaying();
+      this.state.endCardMedia();
+      untracked(() => setTimeout(() => this.syncEndCard(this.state.getCurrentTimeExact(), true)));
     });
 
     // React to Playback Speed
@@ -193,7 +206,12 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
         }
       }
 
-      const total = Math.max(this.state.totalSeconds(), this.state.contentDurationSeconds());
+      // The end card is rendered on the server; ask for it a little before it is needed.
+      if (this.state.endCardPlaysInPreview() && nextTime > this.state.endCardStartSeconds() - 5) {
+        this.state.renderEndCardPreview();
+      }
+
+      const total = Math.max(this.state.totalSeconds(), this.state.previewEndSeconds());
       if (nextTime >= total && total > 0) {
         if (this.state.isLooping()) {
           this.state.seekTo(0);
@@ -208,12 +226,29 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       // Guardrail 2: Report exact continuous time, throttles reactive signal to 10fps
       this.state.reportPlaybackTime(nextTime);
       this.syncMediaElements(true);
+      this.syncEndCard(nextTime, false);
       if (Math.abs(nextTime - this.lastPrefetchSec) > 1.5) {
         this.lastPrefetchSec = nextTime;
         this.prefetchUpcomingMedia();
       }
       this.scheduleNextTick();
     });
+  }
+
+  /** Keeps the end-card player on the timeline's clock; `hard` also re-seeks it. */
+  private syncEndCard(time: number, hard: boolean): void {
+    const el = this.endCardVideoRef?.nativeElement;
+    if (!el) return;
+    const local = Math.max(0, time - this.state.endCardStartSeconds());
+    el.playbackRate = this.state.playbackSpeed();
+    if (hard || Math.abs(el.currentTime - local) > 0.3) {
+      if (el.readyState >= 1) el.currentTime = Math.min(local, Math.max(0, (el.duration || local) - 0.05));
+    }
+    if (this.state.isPlaying() && this.endCardActive()) {
+      if (el.paused) el.play().catch(() => {});
+    } else if (!el.paused) {
+      el.pause();
+    }
   }
 
   private pausePlayback(): void {
@@ -230,6 +265,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     if (this.overlayVideoRef?.nativeElement && !this.overlayVideoRef.nativeElement.paused) {
       this.overlayVideoRef.nativeElement.pause();
     }
+    this.endCardVideoRef?.nativeElement.pause();
     this.bgMusicAudioRef?.nativeElement.pause();
     this.clipSoundAudioRef?.nativeElement.pause();
     this.voiceoverAudioRef?.nativeElement.pause();
@@ -237,6 +273,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
   }
 
   private syncSeek(time: number): void {
+    this.syncEndCard(time, true);
     const activeEl = this.activeLayer() === 'A'
       ? this.videoMonitorARef?.nativeElement
       : this.videoMonitorBRef?.nativeElement;

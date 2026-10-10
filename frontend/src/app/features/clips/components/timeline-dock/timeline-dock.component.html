@@ -68,6 +68,16 @@
             <span class="tool-badge-count">{{ state.clipboardCount() }}</span>
           }
         </button>
+        <button class="tool-btn icon-only" type="button"
+                (click)="state.transferDialogMode.set('import')"
+                title="Bring in clips, music, voice, images or text from another video - this project or another">
+          <span class="tool-btn-icon">⇣</span><span class="tool-btn-label">From video</span>
+        </button>
+        <button class="tool-btn icon-only" type="button"
+                (click)="state.transferDialogMode.set('create')"
+                [title]="state.selectedCutIndices().length > 0 ? 'Make a new video or Short from the selected clips - choose what comes along' : 'Make a new video or Short from part of this one - choose what comes along'">
+          <span class="tool-btn-icon">✂</span><span class="tool-btn-label">New video</span>
+        </button>
         <button class="tool-btn icon-only tool-btn-subtle" type="button"
                 (click)="state.moveInsertCaretToPlayhead()"
                 [title]="'Insert caret is ' + state.insertPointLabel() + ' — click to move it to the playhead'">
@@ -151,7 +161,7 @@
           <!-- Playhead Needle (Declarative binding + 60fps RAF translation loop) -->
           <div #playheadNeedle class="tl-playhead-needle"
                [class.is-scrubbing]="isScrubbing()"
-               [style.left.px]="trackHeaderWidth + state.secondsToPx(state.currentTime())"
+               [style.left.px]="trackHeaderWidth + state.secondsToPx(state.Math.min(state.currentTime(), state.timelineSeconds()))"
                style="will-change: left;">
             <div class="tl-playhead-head"
                  (pointerdown)="onPlayheadPointerDown($event)"
@@ -402,15 +412,24 @@
                 <span class="tl-insert-caret-flag">{{ state.effectiveInsertIndex() + 1 }}</span>
               </div>
 
-              <!-- What the export appends after the cut: not editable here, but visible. -->
-              @if (state.endCardTailSeconds() > 0 && state.endCard(); as card) {
-                <div class="tl-end-card-marker"
-                     [style.left.px]="state.secondsToPx(state.contentDurationSeconds())"
-                     [style.width.px]="state.secondsToPx(card.seconds)"
-                     [title]="card.label + ' - appended by the export (' + card.seconds + 's). Change it in Settings or Admin → Branding; untick it in the Export dialog.'">
-                  <span class="tl-end-card-marker-text">🏁 End card</span>
-                </div>
-              }
+              <!-- What the export appends after the cut. Always there, so it can be switched on or set up. -->
+              <button type="button" class="tl-end-card-marker"
+                      [class.is-off]="state.endCard() && state.endCardTailSeconds() === 0"
+                      [class.is-missing]="!state.endCard()"
+                      [style.left.px]="state.secondsToPx(state.endCardStartSeconds())"
+                      [style.width.px]="state.secondsToPx(state.endCardSlotSeconds())"
+                      (pointerdown)="$event.stopPropagation()"
+                      (mousedown)="$event.stopPropagation()"
+                      (click)="$event.stopPropagation(); state.openEndCardDialog()"
+                      [title]="!state.endCard() ? 'No end card yet - click to set one up'
+                        : state.endCardTailSeconds() === 0 ? state.endCard()!.label + ' - left out of the export. Click to change.'
+                        : state.endCard()!.label + ' (' + state.endCard()!.seconds + 's) - added by the export' + (state.endCardInPreview() ? ' and played in the preview' : '') + '. Click for options.'">
+                <span class="tl-end-card-marker-text">
+                  @if (!state.endCard()) { ＋ End card }
+                  @else if (state.endCardTailSeconds() === 0) { 🏁 End card · off }
+                  @else { 🏁 End card{{ state.endCardInPreview() ? '' : ' · export only' }}{{ state.outroHoldSeconds() > 0 ? ' · after audio' : '' }} }
+                </span>
+              </button>
 
               @for (sched of state.clipSchedule(); track sched.clip.id; let i = $index) {
                 <div class="tl-clip"

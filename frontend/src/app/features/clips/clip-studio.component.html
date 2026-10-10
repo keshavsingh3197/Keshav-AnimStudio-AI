@@ -41,6 +41,96 @@
     adding and pasting both confirm here, with a preview of the resulting order so the
     answer is checkable before it is committed.
   -->
+  @if (state.transferDialogMode(); as transferMode) {
+    <app-transfer-dialog [mode]="transferMode" (closed)="state.transferDialogMode.set(null)"></app-transfer-dialog>
+  }
+
+  @if (state.endCardDialogOpen()) {
+    <div class="modal-backdrop" (click)="state.endCardDialogOpen.set(false)">
+      <div class="insert-dialog end-card-dialog" role="dialog" aria-modal="true" aria-label="End card"
+           (click)="$event.stopPropagation()">
+        <div class="insert-dialog-header">
+          <h3>🏁 End card</h3>
+          <button class="close-btn" type="button" (click)="state.endCardDialogOpen.set(false)">&times;</button>
+        </div>
+
+        @if (state.endCard(); as card) {
+          <p class="insert-dialog-sub">
+            {{ card.label }} &middot; {{ card.seconds | number:'1.0-1' }}s, after the last thing on the timeline.
+          </p>
+
+          <label class="end-card-toggle">
+            <input type="checkbox" [checked]="state.exportIncludeOutro()"
+                   (change)="state.setExportIncludeOutro($any($event.target).checked)" />
+            <span>
+              <strong>Add it to the export</strong>
+              <small>The exported video ends with this card.</small>
+            </span>
+          </label>
+          <label class="end-card-toggle" [class.disabled]="!state.exportIncludeOutro()">
+            <input type="checkbox" [checked]="state.endCardInPreview()" [disabled]="!state.exportIncludeOutro()"
+                   (change)="state.setEndCardInPreview($any($event.target).checked)" />
+            <span>
+              <strong>Play it in the preview</strong>
+              <small>Playback runs on into the end card instead of stopping at the last clip.</small>
+            </span>
+          </label>
+
+          <div class="end-card-start" [class.disabled]="!state.exportIncludeOutro()">
+            <span class="end-card-start-label">Starts</span>
+            <div class="insert-quick-row">
+              <button type="button" class="insert-quick-btn" [class.active]="state.endCardAfter() === 'clips'"
+                      [disabled]="!state.exportIncludeOutro()" (click)="state.setEndCardAfter('clips')"
+                      title="Joined straight after the last video clip; music or text running on plays under the card">
+                Right after the last clip
+              </button>
+              <button type="button" class="insert-quick-btn" [class.active]="state.endCardAfter() === 'everything'"
+                      [disabled]="!state.exportIncludeOutro()" (click)="state.setEndCardAfter('everything')"
+                      title="Holds the last frame until music, voice and text have finished, then the card">
+                After everything ends
+              </button>
+            </div>
+            <small>
+              @if (state.contentOverhangSeconds() <= 0.05) {
+                Nothing runs on past the last clip, so both start at the same point.
+              } @else if (state.endCardAfter() === 'everything') {
+                The last frame is held {{ state.contentOverhangSeconds() | number:'1.0-1' }}s until the music/text ends, then the card plays.
+              } @else {
+                Music/text running {{ state.contentOverhangSeconds() | number:'1.0-1' }}s past the last clip plays under the card.
+              }
+            </small>
+          </div>
+
+          @if (state.endCardMedia(); as media) {
+            <video class="end-card-dialog-video" [src]="media.url" controls playsinline></video>
+          } @else if (state.endCardRendering()) {
+            <p class="insert-dialog-sub">Rendering a preview of the end card…</p>
+          } @else if (state.endCardRenderError(); as err) {
+            <p class="end-card-dialog-error">{{ err }}</p>
+          }
+
+          <div class="end-card-dialog-actions">
+            <a class="end-card-dialog-link" routerLink="/admin/branding/end-card">Change the end card in Settings &rarr;</a>
+            <button type="button" class="insert-quick-btn" [disabled]="state.endCardRendering()"
+                    (click)="state.renderEndCardPreview(true)">↻ Re-render</button>
+            <button type="button" class="insert-quick-btn active"
+                    [disabled]="!state.endCardPlaysInPreview()"
+                    [title]="state.endCardPlaysInPreview() ? 'Play the last second of the cut and the end card' : 'Turn on both options above first'"
+                    (click)="state.playEndCard()">▶ Play it on the timeline</button>
+          </div>
+        } @else {
+          <p class="insert-dialog-sub">
+            No end card is set up for this project or its channel yet, so the export finishes on the last clip.
+            Set one up - an outro video, a graphic or a "support us" QR card - and it appears here.
+          </p>
+          <div class="end-card-dialog-actions">
+            <a class="end-card-dialog-link" routerLink="/admin/branding/end-card">Set up an end card in Settings &rarr;</a>
+          </div>
+        }
+      </div>
+    </div>
+  }
+
   @if (state.insertPrompt(); as prompt) {
     <div class="modal-backdrop" (click)="state.cancelInsertPrompt()">
       <div class="insert-dialog" (click)="$event.stopPropagation()">
@@ -837,6 +927,11 @@
 
         <!-- Body -->
         <div class="export-dialog-body">
+          @if (state.hiddenLaneLabels().length > 0) {
+            <p class="export-hidden-lanes">
+              👁 Hidden on the timeline, so left out of this export: {{ state.hiddenLaneLabels().join(', ') }}.
+            </p>
+          }
           <!-- Timeline Summary Card -->
           <div class="export-summary-card">
             <div class="export-stat">
@@ -1059,7 +1154,7 @@
                   <span>Include Watermark / Logo</span>
                 </label>
                 <label class="export-check-item" title="Set up in Admin → Branding → Global Channel Outro">
-                  <input type="checkbox" [ngModel]="state.exportIncludeOutro()" (ngModelChange)="state.exportIncludeOutro.set($event)" />
+                  <input type="checkbox" [ngModel]="state.exportIncludeOutro()" (ngModelChange)="state.setExportIncludeOutro($event)" />
                   <span>Include End Card / Outro (support QR)</span>
                 </label>
               </div>

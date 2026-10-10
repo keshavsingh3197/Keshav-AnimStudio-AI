@@ -281,7 +281,7 @@ public sealed class VoiceoverController(
         var content = outcome.Value!.Content;
         if (reVoice)
         {
-            var revoiced = await ReVoiceAsync(content, line.MyVoice, line.Fingerprint!, ct);
+            var revoiced = await ReVoiceAsync(content, line.MyVoice!, line.Fingerprint!, ct);
             if (revoiced.Failure is not null) return new(revoiced.Failure);
             content = revoiced.Content!;
         }

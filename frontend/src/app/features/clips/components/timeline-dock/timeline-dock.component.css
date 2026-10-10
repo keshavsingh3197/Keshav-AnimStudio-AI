@@ -2328,6 +2328,12 @@
   font-size: 0.68rem;
   font-weight: 600;
   pointer-events: auto;
-  cursor: help;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+  z-index: 3;
 }
+.tl-end-card-marker:hover { border-style: solid; background: rgba(108, 140, 255, 0.22); }
+.tl-end-card-marker.is-off { opacity: 0.5; border-color: rgba(148, 163, 184, 0.6); color: #94a3b8; background: rgba(148, 163, 184, 0.06); }
+.tl-end-card-marker.is-missing { opacity: 0.7; border-color: rgba(148, 163, 184, 0.5); color: #94a3b8; background: transparent; }
 .tl-end-card-marker-text { white-space: nowrap; padding: 0 4px; }

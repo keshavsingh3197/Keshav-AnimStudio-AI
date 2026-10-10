@@ -11,6 +11,7 @@ import { MediaDockComponent } from './components/media-dock/media-dock.component
 import { VideoViewportComponent } from './components/video-viewport/video-viewport.component';
 import { InspectorDockComponent } from './components/inspector-dock/inspector-dock.component';
 import { TimelineDockComponent } from './components/timeline-dock/timeline-dock.component';
+import { TransferDialogComponent } from './components/transfer-dialog/transfer-dialog.component';
 import { clipboardFiles } from '../../shared/file-drop.directive';
 import { YouTubePublishDialogComponent } from '../../shared/youtube-publish-dialog.component';
 import { lastApplied, loadStoredLibrary, spokenText } from './components/inspector-dock/tabs/voice-script-library';
@@ -27,6 +28,7 @@ import { lastApplied, loadStoredLibrary, spokenText } from './components/inspect
     VideoViewportComponent,
     InspectorDockComponent,
     TimelineDockComponent,
+    TransferDialogComponent,
     RouterLink,
     YouTubePublishDialogComponent,
   ],

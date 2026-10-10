@@ -75,6 +75,16 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
     setTimeout(() => this.updateScrollbarMetrics(), 40);
   });
 
+  /** Another cut opened: start its view at 0:00 and fit its own length, not the last one's. */
+  private readonly resetViewOnCutLoad = effect(() => {
+    if (this.state.timelineViewReset() === 0) return;
+    setTimeout(() => {
+      const area = this.timelineAreaRef?.nativeElement;
+      if (area) area.scrollLeft = 0;
+      this.fitTimeline();
+    }, 40);
+  });
+
   ngOnInit(): void {
     this.startPlayheadRaf();
   }
@@ -218,7 +228,8 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
     const loop = () => {
       const el = this.playheadNeedleRef?.nativeElement;
       if (el && !this.isScrubbing()) {
-        const time = this.state.getCurrentTimeExact();
+        // Kept on the timeline: a needle past the end would widen the scroll area to reach it.
+        const time = Math.min(this.state.getCurrentTimeExact(), this.state.timelineSeconds());
         const px = this.trackHeaderWidth + this.state.secondsToPx(time);
         el.style.left = `${px}px`;
 

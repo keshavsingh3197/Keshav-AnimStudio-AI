@@ -87,6 +87,27 @@
                  playsinline preload="auto"></video>
         }
 
+        <!-- End card: after the last clip, as the export appends it -->
+        @if (endCardActive()) {
+          @if (state.endCardMedia(); as media) {
+            <video #endCardVideo class="pv-monitor-layer layer-front end-card-layer"
+                   [src]="media.url"
+                   [muted]="state.isMonitorMuted()"
+                   (loadedmetadata)="state.isPlaying() && $any($event.target).play()"
+                   playsinline preload="auto"></video>
+          } @else {
+            <div class="pv-monitor-layer layer-front end-card-placeholder">
+              <span class="end-card-placeholder-icon">🏁</span>
+              <strong>{{ state.endCard()?.label ?? 'End card' }}</strong>
+              <span>
+                @if (state.endCardRendering()) { Rendering the end card… }
+                @else if (state.endCardRenderError(); as err) { {{ err }} }
+                @else { End card plays here in the export }
+              </span>
+            </div>
+          }
+        }
+
         <!-- Static Image Clip Monitor Layer -->
         @if (state.activeClipIsImage()) {
           <img #imageMonitor crossorigin="anonymous"
