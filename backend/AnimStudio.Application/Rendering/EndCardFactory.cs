@@ -80,7 +80,11 @@ public static class EndCardFactory
             ImageDurationSeconds = card.DurationSeconds,
             SourceHasAudio = false,
             Encoder = encoder,
-            EndCard = Layout(card, canvas, qrRelativePath, lines) with { FadeInSeconds = fade }
+            EndCard = Layout(card, canvas, qrRelativePath, lines) with
+            {
+                FadeInSeconds = fade,
+                Animate = card.Animation == EndCardAnimation.Rise
+            }
         };
     }
 

@@ -7,7 +7,8 @@ import {
   FRAME_DESIGNS, FRAME_IMAGE_MAX_WIDTH, FRAME_IMAGE_MIN_WIDTH, FrameDesign, FrameTiming,
   MAX_FRAME_IMAGES, MAX_FRAME_TEXTS, MAX_SUBTITLE_CUES, hexToRgba, resolveTextLook,
 } from '../../../services/text-overlay-layout';
-import { TimelineItemTextStyle } from '../../../../../core/models/api.models';
+import { OverlayMotion, TimelineItemTextStyle } from '../../../../../core/models/api.models';
+import { MAX_MOTION_SECONDS, MEDIA_IN, MEDIA_OUT, SHAPES, TEXT_IN, TEXT_OUT } from '../../../services/frame-media';
 
 type Section = 'texts' | 'images' | 'subtitles';
 
@@ -32,7 +33,13 @@ export class FrameLayoutInspectorComponent {
   readonly maxCues = MAX_SUBTITLE_CUES;
   readonly minImageWidth = FRAME_IMAGE_MIN_WIDTH;
   readonly maxImageWidth = FRAME_IMAGE_MAX_WIDTH;
-  readonly barSwatches = ['#000000', '#ffffff', '#0f172a', '#1e1b4b', '#b91c1c', '#ea580c', '#facc15', '#16a34a', '#0ea5e9', '#db2777'];
+  readonly mediaIn = MEDIA_IN;
+  readonly mediaOut = MEDIA_OUT;
+  readonly textIn = TEXT_IN;
+  readonly textOut = TEXT_OUT;
+  readonly shapes = SHAPES;
+  readonly maxMotion = MAX_MOTION_SECONDS;
+  readonly barSwatches = ['#000000','#ffffff', '#0f172a', '#1e1b4b', '#b91c1c', '#ea580c', '#facc15', '#16a34a', '#0ea5e9', '#db2777'];
 
   readonly openSections = signal<Set<Section>>(new Set(['texts']));
   /** Which layer's style editor is open; one at a time keeps the panel short. */
@@ -100,9 +107,51 @@ export class FrameLayoutInspectorComponent {
   addPickedImage(): void {
     const id = this.pickedImage();
     if (!id) return;
-    this.state.addFrameImage(id);
+    const kind = this.state.frameMediaCandidates().find((c) => c.id === id)?.kind;
+    if (kind === 'video') this.state.addFrameVideo(id);
+    else this.state.addFrameImage(id);
     this.pickedImage.set('');
     this.openSections.update((s) => new Set(s).add('images'));
+  }
+
+  // --- animation ---
+
+  /** A text layer's entrance or exit; a cut needs no duration, anything else keeps one. */
+  setTextMotion(id: string, edge: 'in' | 'out', kind: OverlayMotion): void {
+    const patch: Partial<TimelineItemTextStyle> = edge === 'in'
+      ? { transitionIn: kind as TimelineItemTextStyle['transitionIn'] }
+      : { transitionOut: kind as TimelineItemTextStyle['transitionOut'] };
+    if (id === 'subtitles') this.state.updateSubtitleStyle(patch);
+    else this.state.updateFrameTextStyle(id, patch);
+  }
+
+  setTextMotionSeconds(id: string, edge: 'in' | 'out', value: unknown): void {
+    const seconds = Math.min(this.maxMotion, Math.max(0.1, this.numberOr(value, 0.5)));
+    const patch: Partial<TimelineItemTextStyle> = edge === 'in' ? { transitionInDuration: seconds } : { transitionOutDuration: seconds };
+    if (id === 'subtitles') this.state.updateSubtitleStyle(patch);
+    else this.state.updateFrameTextStyle(id, patch);
+  }
+
+  /** The "animate every layer" picker: applies, then goes back to its prompt. */
+  animateEverythingFrom(event: Event): void {
+    const select = event.target as HTMLSelectElement;
+    const kind = select.value as OverlayMotion | '';
+    select.value = '';
+    if (kind) this.animateEverything(kind);
+  }
+
+  /** The same entrance and exit on every text layer and picture at once. */
+  animateEverything(kind: OverlayMotion): void {
+    const layout = this.state.frameLayout();
+    for (const t of layout.texts) {
+      this.state.updateFrameTextStyle(t.id, {
+        transitionIn: (kind === 'pop' || kind === 'zoom' ? 'fade' : kind) as TimelineItemTextStyle['transitionIn'],
+        transitionOut: (kind === 'none' ? 'none' : 'fade') as TimelineItemTextStyle['transitionOut'],
+      });
+    }
+    for (const im of layout.images) {
+      this.state.updateFrameImage(im.id, { animIn: kind, animOut: kind === 'none' ? 'none' : 'fade' });
+    }
   }
 
   onImageFile(event: Event): void {

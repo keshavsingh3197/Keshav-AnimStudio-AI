@@ -242,7 +242,14 @@ public sealed record EndCardPlan(
     string? QrRelativePath,
     int BoxX, int BoxY, int BoxSize, int QrSize,
     IReadOnlyList<EndCardLine> Lines,
-    double FadeInSeconds = 0);
+    double FadeInSeconds = 0)
+{
+    /// <summary>
+    /// Bring the pieces in one after another - headline down from above, code and small
+    /// text up from below - rather than all at once. False on plans built before it existed.
+    /// </summary>
+    public bool Animate { get; init; }
+}
 
 /// <summary>
 /// One line of an end card. The font is per line because it is per SCRIPT: a Latin face

@@ -563,7 +563,8 @@ public sealed class ClipMergeOrchestrator(
                         Text = text,
                         WidthPercent = tr?.WidthPercent is { } width && double.IsFinite(width)
                             ? Math.Clamp(width, 1, 100)
-                            : null
+                            : null,
+                        Media = item.Type is "image" or "video" ? MediaOverlayOf(item) : null
                     });
                 }
                 else if (item.TrackId is "A1" or "A2" && item.Type == "audio")
@@ -962,6 +963,29 @@ public sealed class ClipMergeOrchestrator(
     /// </summary>
     internal static bool IsOverlayTrack(string? trackId) =>
         trackId is "IMG1" or "IMG" or "IMAGE" or "V2" or "V3" or "TXT1" or "SUB1";
+
+    /// <summary>
+    /// An image or video overlay's crop, shape, ring and trim, checked here because every
+    /// value ends up inside an ffmpeg expression. Null when there is nothing to do but draw
+    /// the whole source as a rectangle - which keeps older jobs on exactly the graph they had.
+    /// </summary>
+    internal static MergeMediaOverlay? MediaOverlayOf(TimelineItemSpec item)
+    {
+        var tr = item.Transform;
+        var trim = item.Type == "video" && item.TrimStartSeconds is { } ts && double.IsFinite(ts) ? Math.Max(0, ts) : 0;
+        if (tr is null) return trim > 0 ? new MergeMediaOverlay(0, 0, 0, 0, OverlayShape.Rect, 0, "FFFFFF", null, trim) : null;
+
+        var media = new MergeMediaOverlay(
+            MediaOverlayShape.ClampCrop(tr.CropLeft), MediaOverlayShape.ClampCrop(tr.CropTop),
+            MediaOverlayShape.ClampCrop(tr.CropRight), MediaOverlayShape.ClampCrop(tr.CropBottom),
+            MediaOverlayShape.Parse(tr.Shape),
+            MediaOverlayShape.ClampBorder(tr.BorderWidth),
+            EraseRegionSpec.IsHexColor(tr.BorderColor) ? tr.BorderColor![1..].ToUpperInvariant() : "FFFFFF",
+            MediaOverlayShape.ClampAspect(tr.AspectRatio),
+            trim);
+
+        return media is { HasCrop: false, Shape: OverlayShape.Rect, BorderWidth: 0, TrimStartSeconds: 0 } ? null : media;
+    }
 
     /// <summary>Zero transitions, for the pre-flight total used to weight progress.</summary>
     private static IReadOnlyList<FrameCount> ZerosFor(IReadOnlyList<FrameCount> lengths) =>

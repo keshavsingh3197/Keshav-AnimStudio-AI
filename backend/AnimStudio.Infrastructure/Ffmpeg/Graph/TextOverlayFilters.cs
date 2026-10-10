@@ -18,7 +18,8 @@ namespace AnimStudio.Infrastructure.Ffmpeg.Graph;
 /// <para>
 /// Fades and slides use the preview's easing - a cubic ease-out in, a quadratic ease out -
 /// so an overlay arrives and leaves on the same frames in both. Zoom has no drawtext
-/// equivalent and renders as the fade it is paired with.
+/// equivalent and renders as the fade it is paired with. A full-width strip that moves or
+/// fades is drawn as an overlaid colour source, since drawbox can do neither.
 /// </para>
 /// </summary>
 internal static class TextOverlayFilters
@@ -56,12 +57,42 @@ internal static class TextOverlayFilters
         var start = overlay.StartSeconds;
         var end = overlay.StartSeconds + overlay.DurationSeconds;
         var enable = FilterExpr.Quote($"between(t,{FilterExpr.N(start)},{FilterExpr.N(end)})");
-        var (alpha, slide) = Motion(overlay, start, end, SlideDistance * scale);
+        var (alpha, slide, slideX) = Motion(overlay, start, end, SlideDistance * scale);
 
         var current = input;
         var step = 0;
 
-        if (look.Box == TextBoxStyle.Band && look.BoxOpacity > 0)
+        if (look.Box == TextBoxStyle.Band && look.BoxOpacity > 0 && (alpha is not null || slide.Length > 0 || slideX.Length > 0))
+        {
+            // drawbox cannot move or fade, so a moving strip is a colour source laid over
+            // the frame, travelling with its text. Its fade is ffmpeg's linear one - close
+            // enough to the text's ease that the two read as one block.
+            var bandLabel = $"{labelPrefix}_band";
+            var bandHeight = blockHeight + 2 * bandPad;
+            var fades = new StringBuilder();
+            var inKind = Normalize(overlay.TransitionIn);
+            var outKind = Normalize(overlay.TransitionOut);
+            if (inKind != "none" && overlay.TransitionInDuration > 0)
+            {
+                fades.Append($",fade=t=in:st={FilterExpr.N(start)}:d={FilterExpr.N(overlay.TransitionInDuration)}:alpha=1");
+            }
+            if (outKind != "none" && overlay.TransitionOutDuration > 0)
+            {
+                var outStart = start + Math.Max(0, overlay.DurationSeconds - overlay.TransitionOutDuration);
+                fades.Append($",fade=t=out:st={FilterExpr.N(outStart)}:d={FilterExpr.N(overlay.TransitionOutDuration)}:alpha=1");
+            }
+
+            graph.Append($"color=c=0x{look.BoxRgb}@{FilterExpr.N(look.BoxOpacity)}")
+                 .Append($":s={canvas.Width}x{Math.Max(2, bandHeight)}:r={canvas.FrameRate.ToFfmpegRate()}:d={FilterExpr.N(end)}")
+                 .Append($",format=rgba{fades}[{bandLabel}];\n");
+
+            var bx = slideX.Length > 0 ? FilterExpr.Quote("0" + slideX.Replace("{W}", "W")) : "0";
+            var by = slide.Length > 0 ? FilterExpr.Quote(FilterExpr.N(top - bandPad) + slide) : FilterExpr.N(top - bandPad);
+            var next = $"{labelPrefix}_{step++}";
+            graph.Append($"[{current}][{bandLabel}]overlay=x={bx}:y={by}:enable={enable}[{next}];\n");
+            current = next;
+        }
+        else if (look.Box == TextBoxStyle.Band && look.BoxOpacity > 0)
         {
             var next = $"{labelPrefix}_{step++}";
             graph.Append($"[{current}]drawbox=x=0:y={FilterExpr.N(top - bandPad)}")
@@ -73,7 +104,8 @@ internal static class TextOverlayFilters
 
         var edge = Math.Max(boxPad, border) + 2;
         var centreX = FilterExpr.N(look.CenterX / 100 * canvas.Width);
-        var x = FilterExpr.Quote($"max({edge},min(w-text_w-{edge},{centreX}-text_w/2))");
+        // A sideways slide is added OUTSIDE the clamp, or the clamp would hold the text still.
+        var x = FilterExpr.Quote($"max({edge},min(w-text_w-{edge},{centreX}-text_w/2)){slideX.Replace("{W}", "w")}");
 
         for (var i = 0; i < lines; i++)
         {
@@ -131,9 +163,11 @@ internal static class TextOverlayFilters
 
     /// <summary>
     /// The opacity expression (null when the overlay simply cuts in and out) and the
-    /// vertical offset to append to each line's y (empty when nothing slides).
+    /// vertical offset to append to each line's y (empty when nothing slides), and the
+    /// sideways offset for x, written against <c>{W}</c> - the frame width, which drawtext
+    /// calls <c>w</c> and overlay <c>W</c>.
     /// </summary>
-    private static (string? Alpha, string Slide) Motion(
+    private static (string? Alpha, string Slide, string SlideX) Motion(
         MergeOverlayItem overlay, double start, double end, double distance)
     {
         var inKind = Normalize(overlay.TransitionIn);
@@ -160,7 +194,15 @@ internal static class TextOverlayFilters
         if (outKind == "slide-up") slide.Append($"-{d}*(1-{easeOut})");
         else if (outKind == "slide-down") slide.Append($"+{d}*(1-{easeOut})");
 
-        return (alpha, slide.ToString());
+        // Sideways: a quarter of the frame, the same travel an image's slide has.
+        var s = FilterExpr.N(MediaOverlayShape.SlideShare);
+        var slideX = new StringBuilder();
+        if (inKind == "slide-left") slideX.Append($"+{{W}}*{s}*(1-{easeIn})");
+        else if (inKind == "slide-right") slideX.Append($"-{{W}}*{s}*(1-{easeIn})");
+        if (outKind == "slide-left") slideX.Append($"-{{W}}*{s}*(1-{easeOut})");
+        else if (outKind == "slide-right") slideX.Append($"+{{W}}*{s}*(1-{easeOut})");
+
+        return (alpha, slide.ToString(), slideX.ToString());
     }
 
     private static string Normalize(string? kind) =>

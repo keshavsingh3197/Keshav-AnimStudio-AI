@@ -1,4 +1,4 @@
-import { TextBoxStyle, TimelineItemTextStyle } from '../../../core/models/api.models';
+import { OverlayMotion, OverlayShape, TextBoxStyle, TimelineItemTextStyle } from '../../../core/models/api.models';
 
 /*
  * Text overlay layout - the SAME rules as TextOverlayLayout.cs on the server. drawtext
@@ -204,18 +204,53 @@ export interface FrameText extends FrameTiming {
   style: TimelineItemTextStyle;
 }
 
-/** A logo, sticker or picture placed on the frame. */
-export interface FrameImage extends FrameTiming {
+/** A crop on the source, in percent cut from each edge. */
+export interface FrameCrop {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+export const NO_CROP: FrameCrop = { left: 0, top: 0, right: 0, bottom: 0 };
+
+/** How a layer arrives and leaves. */
+export interface FrameMotion {
+  animIn: OverlayMotion;
+  animInDuration: number;
+  animOut: OverlayMotion;
+  animOutDuration: number;
+}
+
+/**
+ * A logo, sticker, picture or video placed on the frame - cut to a crop and a shape, with
+ * an optional ring, brought in and out with its own animation.
+ */
+export interface FrameImage extends FrameTiming, FrameMotion {
   id: string;
+  /** 'video' plays a clip picture-in-picture; older drafts have no kind and are images. */
+  kind: 'image' | 'video';
   assetId: string;
   name: string;
   /** Centre, in percent of the frame. */
   x: number;
   y: number;
-  /** Width in percent of the frame width; the height follows the picture's shape. */
+  /** Width in percent of the frame width; the height follows the (cropped) picture's shape. */
   width: number;
   /** 0-1. */
   opacity: number;
+  crop: FrameCrop;
+  shape: OverlayShape;
+  /** Ring width in 360-reference pixels; 0 for none. */
+  borderWidth: number;
+  borderColor: string;
+  /**
+   * Width / height of the SOURCE in pixels, measured when it was added or cropped; with the
+   * crop it gives the layer's shape. Null until measured.
+   */
+  sourceAspect: number | null;
+  /** Video only: where in the clip to start playing, in seconds. */
+  trimStart: number;
 }
 
 /** One subtitle line and when it is on screen, in seconds on the finished video. */
@@ -238,18 +273,27 @@ export const FRAME_BOTTOM_Y = 85;
 export const SUBTITLE_Y = 70;
 
 export const MAX_FRAME_TEXTS = 10;
-export const MAX_FRAME_IMAGES = 8;
+/** Pictures and videos together. Each video is one more decoder in the export. */
+export const MAX_FRAME_IMAGES = 12;
 /** Below the server's ceiling on text overlays (TextOverlayLayout.MaxOverlays), leaving room for titles. */
 export const MAX_SUBTITLE_CUES = 380;
 export const MIN_CUE_SECONDS = 0.2;
 export const FRAME_IMAGE_MIN_WIDTH = 3;
 export const FRAME_IMAGE_MAX_WIDTH = 100;
+/** Most a crop may take off one edge, in percent; leaves at least 1% of the source. */
+export const MAX_CROP_EDGE = 49.5;
 
 export function newLayerId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function frameStyle(y: number, fontSize: number, look: Partial<TimelineItemTextStyle>): TimelineItemTextStyle {
+/** New layers arrive with a little life; subtitles cut, since they change every second. */
+export const DEFAULT_LAYER_MOTION: FrameMotion = { animIn: 'fade', animInDuration: 0.5, animOut: 'fade', animOutDuration: 0.4 };
+
+function frameStyle(
+  y: number, fontSize: number, look: Partial<TimelineItemTextStyle>,
+  motion: [OverlayMotion, OverlayMotion] = ['none', 'none'],
+): TimelineItemTextStyle {
   return {
     ...DEFAULT_TEXT_STYLE,
     boxStyle: 'none',
@@ -258,8 +302,10 @@ function frameStyle(y: number, fontSize: number, look: Partial<TimelineItemTextS
     position: 'custom',
     x: 50,
     y,
-    transitionIn: 'none',
-    transitionOut: 'none',
+    transitionIn: motion[0] as TimelineItemTextStyle['transitionIn'],
+    transitionInDuration: 0.5,
+    transitionOut: motion[1] as TimelineItemTextStyle['transitionOut'],
+    transitionOutDuration: 0.4,
   };
 }
 
@@ -273,16 +319,16 @@ export function defaultSubtitleStyle(): TimelineItemTextStyle {
 export function newFrameText(existing: FrameText[]): FrameText {
   const n = existing.length;
   if (n === 0) {
-    return { id: newLayerId('ft'), label: 'Headline', text: '', style: frameStyle(FRAME_TOP_Y, 26, { color: '#ffffff', uppercase: true }) };
+    return { id: newLayerId('ft'), label: 'Headline', text: '', style: frameStyle(FRAME_TOP_Y, 26, { color: '#ffffff', uppercase: true }, ['slide-down', 'fade']) };
   }
   if (n === 1) {
-    return { id: newLayerId('ft'), label: 'Caption', text: '', style: frameStyle(FRAME_BOTTOM_Y, 20, { color: '#ffffff' }) };
+    return { id: newLayerId('ft'), label: 'Caption', text: '', style: frameStyle(FRAME_BOTTOM_Y, 20, { color: '#ffffff' }, ['slide-up', 'fade']) };
   }
   return {
     id: newLayerId('ft'),
     label: `Text ${n + 1}`,
     text: '',
-    style: frameStyle(50, 22, { color: '#ffffff', outlineColor: '#000000', outlineWidth: 2, shadow: true }),
+    style: frameStyle(50, 22, { color: '#ffffff', outlineColor: '#000000', outlineWidth: 2, shadow: true }, ['fade', 'fade']),
   };
 }
 
@@ -395,18 +441,58 @@ function readText(raw: unknown, fallback: FrameText): FrameText {
   };
 }
 
+const MOTIONS: readonly OverlayMotion[] = [
+  'none', 'fade', 'slide-left', 'slide-right', 'slide-up', 'slide-down', 'zoom', 'zoom-in', 'zoom-out', 'pop',
+];
+
+export function readMotion(value: unknown, fallback: OverlayMotion): OverlayMotion {
+  return typeof value === 'string' && (MOTIONS as readonly string[]).includes(value) ? (value as OverlayMotion) : fallback;
+}
+
+export function readCrop(raw: unknown): FrameCrop {
+  const c = (raw && typeof raw === 'object' ? raw : {}) as Partial<FrameCrop>;
+  return {
+    left: clamp(c.left, 0, MAX_CROP_EDGE, 0),
+    top: clamp(c.top, 0, MAX_CROP_EDGE, 0),
+    right: clamp(c.right, 0, MAX_CROP_EDGE, 0),
+    bottom: clamp(c.bottom, 0, MAX_CROP_EDGE, 0),
+  };
+}
+
+/** Width / height of a layer as drawn: the source's shape, less its crop. */
+export function layerAspect(layer: Pick<FrameImage, 'crop' | 'sourceAspect'>): number | null {
+  if (!layer.sourceAspect) return null;
+  const w = 100 - layer.crop.left - layer.crop.right;
+  const h = 100 - layer.crop.top - layer.crop.bottom;
+  return h > 0 ? (layer.sourceAspect * w) / h : null;
+}
+
 function readImage(raw: unknown): FrameImage | null {
   if (!raw || typeof raw !== 'object') return null;
   const i = raw as Partial<FrameImage>;
   if (typeof i.assetId !== 'string' || !i.assetId) return null;
+  // Drafts saved before animations had none: they keep cutting in and out.
+  const saved = i.animIn !== undefined;
   return {
     id: typeof i.id === 'string' && i.id ? i.id.slice(0, 64) : newLayerId('fi'),
+    kind: i.kind === 'video' ? 'video' : 'image',
     assetId: i.assetId.slice(0, 64),
     name: typeof i.name === 'string' ? i.name.slice(0, 120) : 'Image',
     x: clamp(i.x, 0, 100, 50),
     y: clamp(i.y, 0, 100, 50),
     width: clamp(i.width, FRAME_IMAGE_MIN_WIDTH, FRAME_IMAGE_MAX_WIDTH, 30),
     opacity: clamp(i.opacity, 0, 1, 1),
+    crop: readCrop(i.crop),
+    shape: i.shape === 'rounded' || i.shape === 'circle' ? i.shape : 'rect',
+    borderWidth: clamp(i.borderWidth, 0, 24, 0),
+    borderColor: isHexColor(i.borderColor) ? i.borderColor : '#ffffff',
+    sourceAspect: typeof i.sourceAspect === 'number' && Number.isFinite(i.sourceAspect) && i.sourceAspect > 0
+      ? Math.min(20, Math.max(0.05, i.sourceAspect)) : null,
+    trimStart: clamp(i.trimStart, 0, 86400, 0),
+    animIn: saved ? readMotion(i.animIn, 'none') : 'none',
+    animInDuration: clamp(i.animInDuration, 0.1, 3, 0.5),
+    animOut: saved ? readMotion(i.animOut, 'none') : 'none',
+    animOutDuration: clamp(i.animOutDuration, 0.1, 3, 0.4),
     ...readTiming(i),
   };
 }

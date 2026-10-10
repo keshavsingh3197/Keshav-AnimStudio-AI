@@ -582,7 +582,12 @@ export interface OutroBody {
   subtextSecondary?: string | null;
   backgroundHex?: string | null;
   textHex?: string | null;
+  /** Card only: 'Rise' brings the headline, code and small text in one after another. */
+  animation?: EndCardAnimation | null;
 }
+
+export const END_CARD_ANIMATIONS = ['Rise', 'None'] as const;
+export type EndCardAnimation = (typeof END_CARD_ANIMATIONS)[number];
 
 export const CLIP_FITS = ['Contain', 'Cover', 'BlurredBackdrop'] as const;
 
@@ -666,12 +671,27 @@ export interface TimelineItemTransform {
   /** Existing marks in the source footage to wipe before our own watermark is drawn */
   eraseRegions?: EraseRegion[];
   /** Transition In style for image overlay */
-  transitionIn?: 'none' | 'fade' | 'slide-left' | 'slide-right' | 'slide-up' | 'slide-down' | 'zoom' | 'zoom-in' | 'zoom-out';
+  transitionIn?: OverlayMotion;
   transitionInDuration?: number;
   /** Transition Out style for image overlay */
-  transitionOut?: 'none' | 'fade' | 'slide-left' | 'slide-right' | 'slide-up' | 'slide-down' | 'zoom' | 'zoom-in' | 'zoom-out';
+  transitionOut?: OverlayMotion;
   transitionOutDuration?: number;
+  /** Image/video overlays: the outline it is cut to. */
+  shape?: OverlayShape;
+  /** Ring inside the overlay's edge, in 360-reference pixels like text sizes. */
+  borderWidth?: number;
+  /** #rrggbb */
+  borderColor?: string;
+  /** Width / height after the crop, so the export sizes a shaped overlay exactly. */
+  aspectRatio?: number;
 }
+
+/** How an overlay arrives or leaves. 'pop' is an entrance only; as an exit it shrinks like 'zoom'. */
+export type OverlayMotion =
+  | 'none' | 'fade' | 'slide-left' | 'slide-right' | 'slide-up' | 'slide-down'
+  | 'zoom' | 'zoom-in' | 'zoom-out' | 'pop';
+
+export type OverlayShape = 'rect' | 'rounded' | 'circle';
 
 /**
  * Blur smears the mark; Patch covers it with the footage beside it; Fill paints a box;
@@ -741,10 +761,10 @@ export interface TimelineItemTextStyle {
   shadow?: boolean;
   uppercase?: boolean;
   /** Transition In animation for text overlay */
-  transitionIn?: 'none' | 'fade' | 'slide-up' | 'slide-down' | 'zoom' | 'zoom-in' | 'zoom-out';
+  transitionIn?: 'none' | 'fade' | 'slide-up' | 'slide-down' | 'slide-left' | 'slide-right' | 'zoom' | 'zoom-in' | 'zoom-out';
   transitionInDuration?: number;
   /** Transition Out animation for text overlay */
-  transitionOut?: 'none' | 'fade' | 'slide-down' | 'slide-up' | 'zoom' | 'zoom-in' | 'zoom-out';
+  transitionOut?: 'none' | 'fade' | 'slide-down' | 'slide-up' | 'slide-left' | 'slide-right' | 'zoom' | 'zoom-in' | 'zoom-out';
   transitionOutDuration?: number;
 }
 

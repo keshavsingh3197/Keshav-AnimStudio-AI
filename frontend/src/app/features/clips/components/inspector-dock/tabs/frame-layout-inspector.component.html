@@ -16,6 +16,34 @@
       <button type="button" class="fl-mini" (click)="state.frameLayerFromPlayhead(layer.id, 3)"
               title="Start at the playhead, for 3 seconds">⏱ Here</button>
     }
+    <button type="button" class="fl-mini" (click)="state.frameLayerToClip(layer.id)"
+            title="Show it for exactly the clip under the playhead">🎬 This clip</button>
+  </div>
+</ng-template>
+
+<!-- Entrance and exit for a text layer (or every subtitle line), drawn by the export too. -->
+<ng-template #textMotion let-id="id" let-style="style">
+  <div class="fl-motion">
+    <span class="fl-motion-label">In</span>
+    <select class="fl-select" [ngModel]="style.transitionIn ?? 'none'" (ngModelChange)="setTextMotion(id, 'in', $event)"
+            aria-label="Entrance">
+      @for (m of textIn; track m.id) { <option [value]="m.id">{{ m.label }}</option> }
+    </select>
+    <input type="number" class="fl-num fl-secs" min="0.1" [max]="maxMotion" step="0.1"
+           [disabled]="(style.transitionIn ?? 'none') === 'none'"
+           [ngModel]="style.transitionInDuration ?? 0.5" (ngModelChange)="setTextMotionSeconds(id, 'in', $event)"
+           title="Entrance length (seconds)" />
+  </div>
+  <div class="fl-motion">
+    <span class="fl-motion-label">Out</span>
+    <select class="fl-select" [ngModel]="style.transitionOut ?? 'none'" (ngModelChange)="setTextMotion(id, 'out', $event)"
+            aria-label="Exit">
+      @for (m of textOut; track m.id) { <option [value]="m.id">{{ m.label }}</option> }
+    </select>
+    <input type="number" class="fl-num fl-secs" min="0.1" [max]="maxMotion" step="0.1"
+           [disabled]="(style.transitionOut ?? 'none') === 'none'"
+           [ngModel]="style.transitionOutDuration ?? 0.5" (ngModelChange)="setTextMotionSeconds(id, 'out', $event)"
+           title="Exit length (seconds)" />
   </div>
 </ng-template>
 
@@ -97,6 +125,7 @@
                     [ngModel]="t.text" (ngModelChange)="state.updateFrameText(t.id, $event)"
                     [placeholder]="i === 0 ? 'e.g. Wait for the ending 😱' : i === 1 ? 'e.g. Follow for part 2' : 'Your text'"></textarea>
           <ng-container *ngTemplateOutlet="timing; context: { $implicit: t }" />
+          <ng-container *ngTemplateOutlet="textMotion; context: { id: t.id, style: t.style }" />
           <button type="button" class="fl-toggle" (click)="toggleStyle(t.id)">
             {{ openStyle() === t.id ? '▾' : '▸' }} Style &amp; position
           </button>
@@ -112,20 +141,31 @@
     }
   </div>
 
-  <!-- Images -->
+  <!-- Pictures, logos and videos -->
   <div class="fl-section">
     <button type="button" class="fl-section-head" (click)="toggleSection('images')">
-      <span>{{ isOpen('images') ? '▾' : '▸' }} 🖼 Images &amp; logos</span>
+      <span>{{ isOpen('images') ? '▾' : '▸' }} 🖼 Pictures, logos &amp; videos</span>
       <span class="fl-count">{{ layout.images.length }}</span>
     </button>
     @if (isOpen('images')) {
       <div class="fl-card">
         <div class="fl-row">
           <select class="form-select form-select-sm bg-dark text-light border-secondary border-opacity-50"
-                  [ngModel]="pickedImage()" (ngModelChange)="pickedImage.set($event)" aria-label="Project image">
-            <option value="">Choose a project image…</option>
-            @for (c of state.frameImageCandidates(); track c.id) {
-              <option [value]="c.id">{{ c.name }}</option>
+                  [ngModel]="pickedImage()" (ngModelChange)="pickedImage.set($event)" aria-label="Project picture or video">
+            <option value="">Choose a picture or video…</option>
+            @if (state.frameImageCandidates().length > 0) {
+              <optgroup label="Pictures &amp; logos">
+                @for (c of state.frameImageCandidates(); track c.id) {
+                  <option [value]="c.id">{{ c.name }}</option>
+                }
+              </optgroup>
+            }
+            @if (state.frameVideoCandidates().length > 0) {
+              <optgroup label="Videos (picture-in-picture)">
+                @for (c of state.frameVideoCandidates(); track c.id) {
+                  <option [value]="c.id">{{ c.name }}</option>
+                }
+              </optgroup>
             }
           </select>
           <button type="button" class="fl-mini" [disabled]="!pickedImage() || layout.images.length >= maxImages"
@@ -136,20 +176,53 @@
                  [disabled]="state.frameImageUploading() || layout.images.length >= maxImages" hidden />
           {{ state.frameImageUploading() ? 'Uploading…' : '⬆ Upload an image' }}
         </label>
-        <p class="fl-hint mb-0">A PNG with a transparent background works best for logos and stickers.</p>
+        <p class="fl-hint mb-0">
+          Or drag a picture or video from the media library straight onto the preview - it lands where you drop it,
+          on the clip under the playhead. A new picture opens in the crop editor; double-click one on the preview to crop it again.
+        </p>
+        @if (layout.images.length + layout.texts.length > 0) {
+          <div class="fl-motion">
+            <span class="fl-motion-label">All</span>
+            <select class="fl-select" aria-label="Animate everything" (change)="animateEverythingFrom($event)">
+              <option value="">Animate every layer…</option>
+              @for (m of mediaIn; track m.id) { <option [value]="m.id">{{ m.label }}</option> }
+            </select>
+          </div>
+        }
       </div>
 
       @for (im of layout.images; track im.id; let i = $index, last = $last) {
         <div class="fl-card" [class.fl-selected]="selected === im.id" (click)="state.selectFrameLayer(im.id)">
           <div class="fl-layer-head">
-            <img class="fl-image-thumb" [src]="state.assetUrl(im.assetId)" alt="" />
+            @if (im.kind === 'video') {
+              <span class="fl-image-thumb fl-video-thumb" title="Video">🎬</span>
+            } @else {
+              <img class="fl-image-thumb" [class.round]="im.shape === 'circle'" [src]="state.assetUrl(im.assetId)" alt="" />
+            }
             <span class="fl-image-name" [title]="im.name">{{ im.name }}</span>
             <div class="fl-actions">
               <button type="button" class="fl-icon" [disabled]="i === 0" (click)="state.reorderFrameLayer(im.id, -1)" title="Draw behind">↑</button>
               <button type="button" class="fl-icon" [disabled]="last" (click)="state.reorderFrameLayer(im.id, 1)" title="Draw in front">↓</button>
+              <button type="button" class="fl-icon" [disabled]="layout.images.length >= maxImages"
+                      (click)="state.duplicateFrameImage(im.id)" title="Duplicate">⧉</button>
               <button type="button" class="fl-icon danger" (click)="state.removeFrameImage(im.id)" title="Delete">✕</button>
             </div>
           </div>
+
+          <div class="fl-row">
+            <button type="button" class="fl-mini" (click)="state.openFrameCrop(im.id)"
+                    title="Crop, shape and ring">✂ Crop &amp; shape</button>
+            <div class="fl-seg fl-grow">
+              @for (s of shapes; track s.id) {
+                <button type="button" [class.on]="im.shape === s.id" [title]="s.label"
+                        (click)="state.updateFrameImage(im.id, { shape: s.id })">{{ s.label.split(' ')[0] }}</button>
+              }
+            </div>
+          </div>
+          @if (im.shape === 'circle' && im.sourceAspect && (im.crop.left + im.crop.right + im.crop.top + im.crop.bottom) === 0 && im.sourceAspect !== 1) {
+            <p class="fl-hint mb-0">Not square yet, so it shows as an oval - crop it to 1:1 for a true circle.</p>
+          }
+
           <div class="fl-slider">
             <span>Size</span>
             <input type="range" class="form-range" [min]="minImageWidth" [max]="maxImageWidth" step="0.5"
@@ -173,6 +246,43 @@
             <input type="range" class="form-range" min="0" max="1" step="0.05"
                    [ngModel]="im.opacity" (ngModelChange)="state.updateFrameImage(im.id, { opacity: +$event })" />
             <span class="mono">{{ im.opacity * 100 | number:'1.0-0' }}%</span>
+          </div>
+          <div class="fl-slider">
+            <span>Ring</span>
+            <input type="range" class="form-range" min="0" max="24" step="0.5"
+                   [ngModel]="im.borderWidth" (ngModelChange)="state.updateFrameImage(im.id, { borderWidth: +$event })" />
+            <input type="color" class="fl-picker" [ngModel]="im.borderColor"
+                   (ngModelChange)="state.updateFrameImage(im.id, { borderColor: $event })" title="Ring colour" />
+          </div>
+          @if (im.kind === 'video') {
+            <div class="fl-timing">
+              <span class="fl-hint">Play from</span>
+              <input type="number" class="fl-num" min="0" step="0.1" [ngModel]="im.trimStart"
+                     (ngModelChange)="state.updateFrameImage(im.id, { trimStart: numberOr($event, 0) })"
+                     title="Where in the video to start (seconds)" />
+              <span class="fl-hint">s · plays muted over the clip</span>
+            </div>
+          }
+
+          <div class="fl-motion">
+            <span class="fl-motion-label">In</span>
+            <select class="fl-select" [ngModel]="im.animIn" (ngModelChange)="state.updateFrameImage(im.id, { animIn: $event })"
+                    aria-label="Entrance">
+              @for (m of mediaIn; track m.id) { <option [value]="m.id">{{ m.label }}</option> }
+            </select>
+            <input type="number" class="fl-num fl-secs" min="0.1" [max]="maxMotion" step="0.1" [disabled]="im.animIn === 'none'"
+                   [ngModel]="im.animInDuration" (ngModelChange)="state.updateFrameImage(im.id, { animInDuration: numberOr($event, 0.5) })"
+                   title="Entrance length (seconds)" />
+          </div>
+          <div class="fl-motion">
+            <span class="fl-motion-label">Out</span>
+            <select class="fl-select" [ngModel]="im.animOut" (ngModelChange)="state.updateFrameImage(im.id, { animOut: $event })"
+                    aria-label="Exit">
+              @for (m of mediaOut; track m.id) { <option [value]="m.id">{{ m.label }}</option> }
+            </select>
+            <input type="number" class="fl-num fl-secs" min="0.1" [max]="maxMotion" step="0.1" [disabled]="im.animOut === 'none'"
+                   [ngModel]="im.animOutDuration" (ngModelChange)="state.updateFrameImage(im.id, { animOutDuration: numberOr($event, 0.4) })"
+                   title="Exit length (seconds)" />
           </div>
           <ng-container *ngTemplateOutlet="timing; context: { $implicit: im }" />
         </div>
@@ -214,6 +324,7 @@
           <p class="fl-hint mb-0">Short lines of 2-4 words are the punchy Shorts style.</p>
         }
 
+        <ng-container *ngTemplateOutlet="textMotion; context: { id: 'subtitles', style: layout.subtitles.style }" />
         <button type="button" class="fl-toggle" (click)="toggleStyle('subtitles')">
           {{ openStyle() === 'subtitles' ? '▾' : '▸' }} Style &amp; position (all lines)
         </button>

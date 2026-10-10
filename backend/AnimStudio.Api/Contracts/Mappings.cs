@@ -69,7 +69,7 @@ public static class Mappings
             o.Transition.ToString(),
             o.TransitionDurationFrames,
             o.QrAssetId, o.Headline, o.Subtext, o.BackgroundHex, o.TextHex,
-            o.HeadlineSecondary, o.SubtextSecondary);
+            o.HeadlineSecondary, o.SubtextSecondary, o.Animation.ToString());
 
     public static CharacterVoiceCommand ToCommand(this CharacterVoiceRequest voice) => new()
     {

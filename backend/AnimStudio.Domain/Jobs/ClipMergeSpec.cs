@@ -334,6 +334,24 @@ public sealed class TimelineItemTransformSpec
     /// <summary>Whether video stabilization post-process is requested for this clip.</summary>
     public bool Stabilization { get; set; }
 
+    /// <summary>
+    /// Image and video overlays: <c>rect</c>, <c>rounded</c> or <c>circle</c>. Null on items
+    /// written before shapes existed, which draw as the plain rectangle they always were.
+    /// </summary>
+    public string? Shape { get; set; }
+
+    /// <summary>Ring inside the overlay's edge, in 360-reference pixels. Zero is none.</summary>
+    public double BorderWidth { get; set; }
+
+    /// <summary><c>#rrggbb</c>; ignored while <see cref="BorderWidth"/> is zero.</summary>
+    public string? BorderColor { get; set; }
+
+    /// <summary>
+    /// Width / height of the overlay once cropped, as the studio measured it. Lets the render
+    /// scale a shaped overlay to an exact size without probing it. Null scales by width alone.
+    /// </summary>
+    public double? AspectRatio { get; set; }
+
     public string? TransitionIn { get; set; } = "fade";
     public double TransitionInDuration { get; set; } = 0.5;
     public string? TransitionOut { get; set; } = "fade";

@@ -202,7 +202,7 @@ public class TextOverlayTests
         var graph = NewBuilder().BuildMerge(Plan(Text(new TimelineItemTextStyleSpec
         {
             BoxStyle = "band", BoxColor = "#ff0055", BoxOpacity = 1
-        }))).FilterComplex;
+        }, "none", "none"))).FilterComplex;
 
         var band = graph.IndexOf("drawbox=x=0:", StringComparison.Ordinal);
         Assert.True(band >= 0, "no strip drawn");
@@ -210,6 +210,26 @@ public class TextOverlayTests
         Assert.Contains(":w=iw:", graph);
         Assert.Contains("color=0xff0055@1:t=fill", graph);
         Assert.DoesNotContain("box=1", graph);
+    }
+
+    [Fact]
+    public void A_band_that_fades_or_slides_is_a_moving_colour_source_under_its_text()
+    {
+        var graph = NewBuilder().BuildMerge(Plan(Text(new TimelineItemTextStyleSpec
+        {
+            BoxStyle = "band", BoxColor = "#ff0055", BoxOpacity = 1
+        }, "slide-right", "fade"))).FilterComplex;
+
+        // drawbox can neither move nor fade, so it is not used at all.
+        Assert.DoesNotContain("drawbox", graph);
+        var band = graph.IndexOf("color=c=0xff0055@1:s=1080x", StringComparison.Ordinal);
+        Assert.True(band >= 0, "no strip drawn");
+        Assert.True(band < graph.IndexOf("drawtext=", StringComparison.Ordinal));
+        Assert.Contains("fade=t=in:st=1:d=0.5:alpha=1", graph);
+        Assert.Contains("fade=t=out:st=4.5:d=0.5:alpha=1", graph);
+        // Comes in from the left, by the quarter-frame the text travels too.
+        Assert.Contains("overlay=x='0-W*0.25*(1-(1-pow(1-clip((t-1)/0.5\\,0\\,1)\\,3)))'", graph);
+        Assert.Contains("-w*0.25*(1-(1-pow(", graph);
     }
 
     [Fact]

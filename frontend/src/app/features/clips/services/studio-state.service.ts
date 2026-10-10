@@ -23,12 +23,16 @@ import { EraseRect, eraseFeatherMask, eraseOuter } from './erase-geometry';
 import { bedPieces, cutEffectStarts, deepestDuck } from './audio-enhance';
 import { TimelineFragment, TransferRange } from './timeline-transfer';
 import {
-  DEFAULT_TEXT_STYLE, FRAME_IMAGE_MAX_WIDTH, FRAME_IMAGE_MIN_WIDTH, FrameDesign, FrameImage, FrameLayout,
+  DEFAULT_LAYER_MOTION, DEFAULT_TEXT_STYLE, FRAME_IMAGE_MAX_WIDTH, FRAME_IMAGE_MIN_WIDTH, FrameDesign, FrameImage, FrameLayout, NO_CROP,
   FrameText, FrameTiming, MAX_FRAME_IMAGES, MAX_FRAME_TEXTS, MAX_SUBTITLE_CUES, MIN_CUE_SECONDS,
   SubtitleCue, TEXT_MAX_CHARS, TextDesign, TextLook,
   applyFrameDesign, cuesFromScript, cuesToSrt, defaultFrameLayout, isLayerActive, layerWindow,
-  newFrameText, newLayerId, parseSubtitleFile, readFrameLayout, resolveTextLook, sortCues, wrapText,
+  isHexColor, layerAspect, newFrameText, newLayerId, parseSubtitleFile, readCrop, readFrameLayout, readMotion,
+  resolveTextLook, sortCues, wrapText,
 } from './text-overlay-layout';
+import {
+  LayerMotion, MAX_BORDER_WIDTH, MAX_MOTION_SECONDS, measureMediaAspect, mediaMotion, shapeRadius, textMotion,
+} from './frame-media';
 
 /** One block of text as the monitor draws it - a TXT1 overlay, a frame text layer or a subtitle. */
 export interface MonitorTextBlock {
@@ -40,8 +44,32 @@ export interface MonitorTextBlock {
   opacity: number;
   /** Entrance/exit offset and scale, in 360-reference pixels. */
   offsetY: number;
+  /** Sideways entrance/exit offset, as a share of the frame width. */
+  offsetX: number;
   scale: number;
   selected: boolean;
+}
+
+/** A picture or video that can go on the frame. */
+export interface FrameMediaCandidate {
+  id: string;
+  name: string;
+  kind: 'image' | 'video';
+  /** A video's length, when known. */
+  seconds: number | null;
+}
+
+/** A frame picture or video as the monitor draws it right now. */
+export interface MonitorFrameMedia extends FrameImage {
+  url: string;
+  selected: boolean;
+  motion: LayerMotion;
+  /** Width / height as drawn, or null until the source has been measured. */
+  aspect: number | null;
+  /** CSS border-radius for its shape, or null for a plain rectangle. */
+  radius: string | null;
+  /** Video only: the point in the source that should be on screen now. */
+  sourceTime: number;
 }
 
 /** One erase box as the monitor draws it: grown by its feather, cut to the clip's crop. */
@@ -5027,50 +5055,113 @@ export class StudioStateService implements OnDestroy {
     this.markDirty();
   }
 
-  // --- frame images ---
+  // --- frame images & videos ---
 
-  /** Pictures that can go on the frame: the project's images and logos. */
-  readonly frameImageCandidates = computed<{ id: string; name: string }[]>(() => {
+  /** Pictures and videos that can go on the frame: the project's images, logos and clips. */
+  readonly frameMediaCandidates = computed<FrameMediaCandidate[]>(() => {
     const studio = this.studio();
     if (!studio) return [];
     const seen = new Set<string>();
-    const out: { id: string; name: string }[] = [];
+    const out: FrameMediaCandidate[] = [];
     for (const a of studio.logoCandidates ?? []) {
-      if (!seen.has(a.id)) { seen.add(a.id); out.push({ id: a.id, name: a.name }); }
+      if (!seen.has(a.id)) { seen.add(a.id); out.push({ id: a.id, name: a.name, kind: 'image', seconds: null }); }
     }
     for (const c of studio.clips ?? []) {
-      if (!seen.has(c.id) && this.getClipType(c) === 'image') { seen.add(c.id); out.push({ id: c.id, name: c.name }); }
+      const type = this.getClipType(c);
+      if (seen.has(c.id) || c.isExport || (type !== 'image' && type !== 'video')) continue;
+      seen.add(c.id);
+      out.push({ id: c.id, name: c.name, kind: type, seconds: c.durationSeconds ?? null });
     }
     return out;
   });
 
+  readonly frameImageCandidates = computed(() => this.frameMediaCandidates().filter((c) => c.kind === 'image'));
+  readonly frameVideoCandidates = computed(() => this.frameMediaCandidates().filter((c) => c.kind === 'video'));
+
   readonly frameImageUploading = signal(false);
 
-  addFrameImage(assetId: string, name?: string): void {
-    const layout = this.frameLayout();
-    if (layout.images.length >= MAX_FRAME_IMAGES) {
-      this.status.notify([`Up to ${MAX_FRAME_IMAGES} images on the frame.`]);
-      return;
-    }
-    // Each new one a little lower, so several added in a row do not stack exactly.
-    const image: FrameImage = {
-      id: newLayerId('fi'),
-      assetId,
-      name: name ?? this.frameImageCandidates().find((c) => c.id === assetId)?.name ?? 'Image',
-      x: 50,
-      y: Math.min(80, 25 + layout.images.length * 10),
-      width: 30,
-      opacity: 1,
-      start: null,
-      end: null,
-    };
-    this.frameLayout.set({ ...layout, images: [...layout.images, image] });
-    this.selectedFrameLayer.set(image.id);
-    this.markDirty();
+  /** The layer the crop & shape editor is open on. */
+  readonly cropLayerId = signal<string | null>(null);
+  readonly cropLayer = computed(() => {
+    const id = this.cropLayerId();
+    return id ? this.frameLayout().images.find((i) => i.id === id) ?? null : null;
+  });
+
+  openFrameCrop(id: string): void {
+    this.selectFrameLayer(id);
+    this.cropLayerId.set(id);
   }
 
-  /** Uploads a picture to the project and puts it straight on the frame. */
-  uploadFrameImage(file: File): void {
+  closeFrameCrop(): void {
+    this.cropLayerId.set(null);
+  }
+
+  /**
+   * Puts a picture or video on the frame. Without a timing a picture stays for the whole
+   * video and a video plays from the playhead for its own length. `crop` opens the crop &
+   * shape editor on it straight away - the moment a new picture usually needs it.
+   */
+  addFrameMedia(
+    assetId: string, kind: 'image' | 'video',
+    options: { name?: string; x?: number; y?: number; start?: number | null; end?: number | null; crop?: boolean } = {},
+  ): FrameImage | null {
+    const layout = this.frameLayout();
+    if (layout.images.length >= MAX_FRAME_IMAGES) {
+      this.status.notify([`Up to ${MAX_FRAME_IMAGES} pictures and videos on the frame.`]);
+      return null;
+    }
+    const candidate = this.frameMediaCandidates().find((c) => c.id === assetId);
+    const round = (v: number) => Math.round(v * 100) / 100;
+
+    let start = options.start;
+    let end = options.end;
+    if (start === undefined && kind === 'video') {
+      start = round(this.currentTime());
+      end = round(start + (candidate?.seconds ?? 5));
+    }
+
+    // Each new one a little lower, so several added in a row do not stack exactly.
+    const layer: FrameImage = {
+      id: newLayerId('fi'),
+      kind,
+      assetId,
+      name: options.name ?? candidate?.name ?? (kind === 'video' ? 'Video' : 'Image'),
+      x: Math.min(100, Math.max(0, options.x ?? 50)),
+      y: Math.min(100, Math.max(0, options.y ?? Math.min(80, 25 + layout.images.length * 10))),
+      width: kind === 'video' ? 40 : 30,
+      opacity: 1,
+      crop: { ...NO_CROP },
+      shape: 'rect',
+      borderWidth: 0,
+      borderColor: '#ffffff',
+      sourceAspect: null,
+      trimStart: 0,
+      ...DEFAULT_LAYER_MOTION,
+      start: start ?? null,
+      end: end ?? null,
+    };
+    this.frameLayout.set({ ...layout, images: [...layout.images, layer] });
+    this.selectFrameLayer(layer.id);
+    this.markDirty();
+
+    // The picture's shape is needed to crop it and to tell the export its exact size.
+    void measureMediaAspect(this.assetUrl(assetId), kind).then((aspect) => {
+      if (aspect) this.updateFrameImage(layer.id, { sourceAspect: aspect });
+    });
+    if (options.crop) this.openFrameCrop(layer.id);
+    return layer;
+  }
+
+  addFrameImage(assetId: string, name?: string): void {
+    this.addFrameMedia(assetId, 'image', { name, crop: true });
+  }
+
+  addFrameVideo(assetId: string): void {
+    this.addFrameMedia(assetId, 'video');
+  }
+
+  /** Uploads a picture to the project and puts it straight on the frame, opening the crop editor. */
+  uploadFrameImage(file: File, at?: { x: number; y: number; start?: number | null; end?: number | null }): void {
     const projectId = this.store.projectId();
     if (!projectId) return;
     if (!/^image\/(png|jpeg|webp|gif)$/.test(file.type)) {
@@ -5082,7 +5173,7 @@ export class StudioStateService implements OnDestroy {
       .pipe(finalize(() => this.frameImageUploading.set(false)))
       .subscribe({
         next: (asset) => {
-          this.addFrameImage(asset.id, asset.name);
+          this.addFrameMedia(asset.id, 'image', { name: asset.name, crop: true, ...at });
           this.store.refreshAssets();
           this.loadStudio();
         },
@@ -5090,19 +5181,30 @@ export class StudioStateService implements OnDestroy {
       });
   }
 
-  updateFrameImage(id: string, patch: Partial<Pick<FrameImage, 'x' | 'y' | 'width' | 'opacity'>>): void {
+  updateFrameImage(id: string, patch: Partial<Omit<FrameImage, 'id' | 'assetId' | 'kind'>>): void {
     const round = (v: number) => Math.round(v * 10) / 10;
+    const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+    const seconds = (v: number) => Math.round(Math.min(MAX_MOTION_SECONDS, Math.max(0.1, v)) * 100) / 100;
     this.frameLayout.update((l) => ({
       ...l,
       images: l.images.map((i) => {
         if (i.id !== id) return i;
         const next = { ...i };
-        if (patch.x !== undefined && Number.isFinite(patch.x)) next.x = round(Math.min(100, Math.max(0, patch.x)));
-        if (patch.y !== undefined && Number.isFinite(patch.y)) next.y = round(Math.min(100, Math.max(0, patch.y)));
-        if (patch.width !== undefined && Number.isFinite(patch.width)) {
-          next.width = round(Math.min(FRAME_IMAGE_MAX_WIDTH, Math.max(FRAME_IMAGE_MIN_WIDTH, patch.width)));
-        }
-        if (patch.opacity !== undefined && Number.isFinite(patch.opacity)) next.opacity = Math.min(1, Math.max(0, patch.opacity));
+        if (finite(patch.x)) next.x = round(Math.min(100, Math.max(0, patch.x)));
+        if (finite(patch.y)) next.y = round(Math.min(100, Math.max(0, patch.y)));
+        if (finite(patch.width)) next.width = round(Math.min(FRAME_IMAGE_MAX_WIDTH, Math.max(FRAME_IMAGE_MIN_WIDTH, patch.width)));
+        if (finite(patch.opacity)) next.opacity = Math.min(1, Math.max(0, patch.opacity));
+        if (patch.crop) next.crop = readCrop(patch.crop);
+        if (patch.shape) next.shape = patch.shape === 'rounded' || patch.shape === 'circle' ? patch.shape : 'rect';
+        if (finite(patch.borderWidth)) next.borderWidth = round(Math.min(MAX_BORDER_WIDTH, Math.max(0, patch.borderWidth)));
+        if (patch.borderColor && isHexColor(patch.borderColor)) next.borderColor = patch.borderColor.toLowerCase();
+        if (finite(patch.sourceAspect) && patch.sourceAspect > 0) next.sourceAspect = Math.min(20, Math.max(0.05, patch.sourceAspect));
+        if (finite(patch.trimStart)) next.trimStart = Math.max(0, Math.round(patch.trimStart * 100) / 100);
+        if (patch.animIn) next.animIn = readMotion(patch.animIn, next.animIn);
+        if (patch.animOut) next.animOut = readMotion(patch.animOut, next.animOut);
+        if (finite(patch.animInDuration)) next.animInDuration = seconds(patch.animInDuration);
+        if (finite(patch.animOutDuration)) next.animOutDuration = seconds(patch.animOutDuration);
+        if (typeof patch.name === 'string') next.name = patch.name.slice(0, 120);
         return next;
       }),
     }));
@@ -5112,7 +5214,60 @@ export class StudioStateService implements OnDestroy {
   removeFrameImage(id: string): void {
     this.frameLayout.update((l) => ({ ...l, images: l.images.filter((i) => i.id !== id) }));
     if (this.selectedFrameLayer() === id) this.selectedFrameLayer.set(null);
+    if (this.cropLayerId() === id) this.cropLayerId.set(null);
     this.markDirty();
+  }
+
+  duplicateFrameImage(id: string): void {
+    const layout = this.frameLayout();
+    const source = layout.images.find((i) => i.id === id);
+    if (!source || layout.images.length >= MAX_FRAME_IMAGES) return;
+    const copy: FrameImage = {
+      ...source, id: newLayerId('fi'), crop: { ...source.crop },
+      x: Math.min(100, source.x + 5), y: Math.min(100, source.y + 5),
+    };
+    this.frameLayout.set({ ...layout, images: [...layout.images, copy] });
+    this.selectedFrameLayer.set(copy.id);
+    this.markDirty();
+  }
+
+  /** Shows a frame layer for exactly the clip under the playhead. */
+  frameLayerToClip(id: string): void {
+    const clip = this.currentScheduledClip();
+    if (!clip) return;
+    this.updateFrameLayerTiming(id, { start: clip.startSeconds, end: clip.endSeconds });
+  }
+
+  /**
+   * A picture or video dragged from the media library - or an image file from the desktop -
+   * dropped on the monitor at (x, y) percent of the frame. It goes exactly there, from the
+   * playhead to the end of the clip under it: "this picture, on this clip". A video plays
+   * for its own length instead.
+   */
+  dropOnMonitor(x: number, y: number, files: FileList | null): boolean {
+    const t = Math.round(this.currentTime() * 100) / 100;
+    const clip = this.currentScheduledClip();
+    const clipEnd = clip && t < clip.endSeconds ? Math.round(clip.endSeconds * 100) / 100 : null;
+    const row = this.draggingAsset();
+    this.draggingAsset.set(null);
+
+    if (row) {
+      const kind = this.getClipType(row.clip);
+      if (kind !== 'image' && kind !== 'video') {
+        this.status.notify(['Drop a picture or a video on the preview. Audio goes on the timeline.']);
+        return false;
+      }
+      const end = kind === 'video' ? Math.round((t + (row.clip.durationSeconds ?? 5)) * 100) / 100 : clipEnd;
+      this.addFrameMedia(row.clip.id, kind, { name: row.clip.name, x, y, start: t, end, crop: kind === 'image' });
+      return true;
+    }
+
+    const file = files ? Array.from(files).find((f) => f.type.startsWith('image/')) : undefined;
+    if (file) {
+      this.uploadFrameImage(file, { x, y, start: t, end: clipEnd });
+      return true;
+    }
+    return false;
   }
 
   /** Moves a frame layer one step in its list - later ones are drawn on top. */
@@ -5129,15 +5284,27 @@ export class StudioStateService implements OnDestroy {
     this.markDirty();
   }
 
-  /** Frame images on the monitor at the playhead, back to front. */
-  readonly monitorFrameImages = computed<(FrameImage & { url: string; selected: boolean })[]>(() => {
+  /** Frame pictures and videos on the monitor at the playhead, back to front, mid-animation. */
+  readonly monitorFrameImages = computed<MonitorFrameMedia[]>(() => {
     if (this.included().length === 0) return [];
     const t = this.currentTime();
     const duration = this.contentDurationSeconds();
     const selected = this.selectedFrameLayer();
     return this.frameLayout().images
       .filter((i) => isLayerActive(i, t, duration))
-      .map((i) => ({ ...i, url: this.assetUrl(i.assetId), selected: selected === i.id }));
+      .map((i) => {
+        const [start, end] = layerWindow(i, duration);
+        const aspect = layerAspect(i);
+        return {
+          ...i,
+          url: this.assetUrl(i.assetId),
+          selected: selected === i.id,
+          motion: mediaMotion(t, start, end, i.animIn, i.animInDuration, i.animOut, i.animOutDuration),
+          aspect,
+          radius: shapeRadius(i.shape, aspect ?? 1),
+          sourceTime: i.trimStart + (t - start),
+        };
+      });
   });
 
   // --- subtitles ---
@@ -5302,18 +5469,24 @@ export class StudioStateService implements OnDestroy {
       for (const layer of layout.texts) {
         if (!layer.text.trim() || !isLayerActive(layer, t, duration)) continue;
         const look = resolveTextLook(layer.style);
+        const [start, end] = layerWindow(layer, duration);
+        const m = textMotion(t, start, end, layer.style.transitionIn, layer.style.transitionInDuration,
+          layer.style.transitionOut, layer.style.transitionOutDuration);
         blocks.push({
           key: `frame-${layer.id}`, target: { kind: 'frame', id: layer.id }, lines: lines(layer.text, look), look,
-          opacity: 1, offsetY: 0, scale: 1, selected: selected === layer.id,
+          opacity: m.opacity, offsetY: m.dyPx, offsetX: m.dx, scale: 1, selected: selected === layer.id,
         });
       }
 
-      const subLook = resolveTextLook(layout.subtitles.style);
+      const subStyle = layout.subtitles.style;
+      const subLook = resolveTextLook(subStyle);
       for (const cue of layout.subtitles.cues) {
         if (!cue.text.trim() || t < cue.start || t >= cue.end) continue;
+        const m = textMotion(t, cue.start, cue.end, subStyle.transitionIn, subStyle.transitionInDuration,
+          subStyle.transitionOut, subStyle.transitionOutDuration);
         blocks.push({
           key: `sub-${cue.id}`, target: { kind: 'subtitle' }, lines: lines(cue.text, subLook), look: subLook,
-          opacity: 1, offsetY: 0, scale: 1, selected: selected === 'subtitles',
+          opacity: m.opacity, offsetY: m.dyPx, offsetX: m.dx, scale: 1, selected: selected === 'subtitles',
         });
       }
     }
@@ -5324,7 +5497,7 @@ export class StudioStateService implements OnDestroy {
       const motion = this.textOverlayMotion(txt);
       blocks.push({
         key: txt.id, target: { kind: 'item', id: txt.id }, lines: lines(txt.src, look), look,
-        opacity: motion.opacity, offsetY: motion.offsetY, scale: motion.scale,
+        opacity: motion.opacity, offsetY: motion.offsetY, offsetX: motion.offsetX, scale: motion.scale,
         selected: this.selectedTimelineItemId() === txt.id,
       });
     }
@@ -5335,29 +5508,25 @@ export class StudioStateService implements OnDestroy {
    * Opacity, slide and zoom of a TXT1 overlay at the playhead. The export eases the same
    * way (TextOverlayFilters.cs); zoom it cannot draw, and renders as the fade alone.
    */
-  private textOverlayMotion(txt: TimelineItem): { opacity: number; offsetY: number; scale: number } {
+  private textOverlayMotion(txt: TimelineItem): { opacity: number; offsetY: number; offsetX: number; scale: number } {
     const st = txt.textStyle;
     const inType = st?.transitionIn ?? 'fade';
-    const inDur = st?.transitionInDuration ?? 0.5;
     const outType = st?.transitionOut ?? 'fade';
-    const outDur = st?.transitionOutDuration ?? 0.5;
-
-    const ct = this.currentTime();
-    const end = txt.startTime + txt.duration;
-    const easeIn = inType === 'none' || inDur <= 0 ? 1 : 1 - Math.pow(1 - Math.min(1, Math.max(0, (ct - txt.startTime) / inDur)), 3);
-    const easeOut = outType === 'none' || outDur <= 0 ? 1 : Math.pow(Math.min(1, Math.max(0, (end - ct) / outDur)), 2);
-
-    let offsetY = 0;
-    if (inType === 'slide-up') offsetY += 40 * (1 - easeIn);
-    else if (inType === 'slide-down') offsetY -= 40 * (1 - easeIn);
-    if (outType === 'slide-up') offsetY -= 40 * (1 - easeOut);
-    else if (outType === 'slide-down') offsetY += 40 * (1 - easeOut);
+    const m = textMotion(this.currentTime(), txt.startTime, txt.startTime + txt.duration,
+      inType, st?.transitionInDuration ?? 0.5, outType, st?.transitionOutDuration ?? 0.5);
 
     let scale = 1;
-    if (inType === 'zoom-in' && easeIn < 1) scale = 0.5 + 0.5 * easeIn;
-    else if (outType === 'zoom-out' && easeOut < 1) scale = 0.5 + 0.5 * easeOut;
+    const ct = this.currentTime();
+    const end = txt.startTime + txt.duration;
+    const inDur = st?.transitionInDuration || 0.5;
+    const outDur = st?.transitionOutDuration || 0.5;
+    if (inType === 'zoom-in' && ct - txt.startTime < inDur) {
+      scale = 0.5 + 0.5 * (1 - Math.pow(1 - Math.max(0, (ct - txt.startTime) / inDur), 3));
+    } else if (outType === 'zoom-out' && end - ct < outDur) {
+      scale = 0.5 + 0.5 * Math.pow(Math.max(0, (end - ct) / outDur), 2);
+    }
 
-    return { opacity: Math.min(easeIn, easeOut), offsetY, scale };
+    return { opacity: m.opacity, offsetY: m.dyPx, offsetX: m.dx, scale };
   }
 
   updateImageItemTransform(itemId: string, updates: Partial<TimelineItemTransform>): void {
@@ -7858,8 +8027,8 @@ export class StudioStateService implements OnDestroy {
 
   /**
    * The frame's layers as overlays: images first so text sits on them, then text layers,
-   * then subtitles on top. The export draws them exactly like IMG1/TXT1 items; they just
-   * cut in and out rather than fading.
+   * then subtitles on top. The export draws them exactly like IMG1/TXT1 items, with the
+   * entrances, exits, crops and shapes each layer was given.
    */
   private frameLayerItems(): TimelineItem[] {
     const layout = this.frameLayout();
@@ -7870,18 +8039,28 @@ export class StudioStateService implements OnDestroy {
     for (const image of layout.images) {
       const [start, end] = layerWindow(image, duration);
       if (end - start < MIN_CUE_SECONDS) continue;
+      const aspect = layerAspect(image);
+      const video = image.kind === 'video';
       items.push({
         id: `frame_${image.id}`,
-        type: 'image',
-        trackId: 'IMG1',
+        type: video ? 'video' : 'image',
+        // V3: picture-in-picture, kept off V2 so it never meets the timeline's own overlay video.
+        trackId: video ? 'V3' : 'IMG1',
         startTime: start,
         duration: end - start,
         src: image.assetId,
         name: image.name,
+        trimStartSeconds: video && image.trimStart > 0 ? image.trimStart : undefined,
         // The overlay is placed by its centre's offset from the frame's centre.
         transform: {
           scale: 1, widthPercent: image.width, x: image.x - 50, y: image.y - 50, opacity: image.opacity,
-          transitionIn: 'none', transitionOut: 'none',
+          transitionIn: image.animIn, transitionInDuration: image.animInDuration,
+          transitionOut: image.animOut, transitionOutDuration: image.animOutDuration,
+          cropLeft: image.crop.left, cropTop: image.crop.top, cropRight: image.crop.right, cropBottom: image.crop.bottom,
+          shape: image.shape,
+          borderWidth: image.borderWidth,
+          borderColor: image.borderColor,
+          aspectRatio: aspect ? Math.min(20, Math.max(0.05, Math.round(aspect * 10000) / 10000)) : undefined,
         },
       });
     }
@@ -7897,11 +8076,11 @@ export class StudioStateService implements OnDestroy {
         duration: end - start,
         src: layer.text,
         name: layer.label,
-        textStyle: { ...layer.style, transitionIn: 'none', transitionOut: 'none' },
+        textStyle: layer.style,
       });
     }
 
-    const subtitleStyle: TimelineItemTextStyle = { ...layout.subtitles.style, transitionIn: 'none', transitionOut: 'none' };
+    const subtitleStyle: TimelineItemTextStyle = layout.subtitles.style;
     for (const cue of layout.subtitles.cues) {
       const start = Math.min(cue.start, duration);
       const end = Math.min(cue.end, duration);

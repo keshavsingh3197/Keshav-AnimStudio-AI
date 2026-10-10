@@ -435,6 +435,8 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
             { IsLavfi = true }
         };
 
+        if (card.Animate) return BuildAnimatedEndCard(plan, card, inputs, warnings);
+
         var graph = new StringBuilder();
         graph.Append("[0:v]setsar=1");
         if (card.BoxSize > 0)
@@ -478,6 +480,114 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
                      .Append($":x=(w-text_w)/2:y={line.Y}[{label}];\n");
                 current = label;
             }
+        }
+
+        var fadeIn = card.FadeInSeconds > 0
+            ? $"fade=t=in:st=0:d={FilterExpr.N(card.FadeInSeconds)},"
+            : string.Empty;
+        graph.Append($"[{current}]{fadeIn}format={plan.Encoder.PixelFormat}[vout];\n");
+        graph.Append(ClipAudio(plan, inputs));
+
+        return new FilterGraphPlan
+        {
+            Inputs = inputs,
+            FilterComplex = graph.ToString(),
+            OutputArguments = ClipOutputArguments(plan),
+            OutputRelativePath = plan.OutputRelativePath,
+            ExpectedFrames = plan.ExpectedFrames,
+            Warnings = warnings
+        };
+    }
+
+    /// <summary>
+    /// The same card with its pieces arriving one after another: the lines above the code
+    /// drop in from above, the code and the lines below it rise into place, each easing in
+    /// and fading up. drawbox cannot move, so the white square is a colour source carrying
+    /// the code, laid over the background like any other moving overlay.
+    /// <para>
+    /// The cascade is squeezed into the first 60% of a short card, so every piece has
+    /// settled well before the card ends however brief it is.
+    /// </para>
+    /// </summary>
+    private FilterGraphPlan BuildAnimatedEndCard(
+        ClipRenderPlan plan, EndCardPlan card, List<FfmpegInputSpec> inputs, List<string> warnings)
+    {
+        var canvas = plan.Canvas;
+        var rate = canvas.FrameRate;
+        var seconds = plan.ImageDurationSeconds;
+        var duration = FilterExpr.N(seconds);
+
+        // Pieces in reading order: lines above the code, the code, lines below it.
+        var aboveCount = card.BoxSize > 0 ? card.Lines.Count(l => l.Y < card.BoxY) : card.Lines.Count;
+        var pieces = card.Lines.Count + (card.BoxSize > 0 ? 1 : 0);
+        const double lead = 0.15, step = 0.18, ease = 0.6;
+        var squeeze = Math.Min(1, seconds * 0.6 / (lead + step * Math.Max(0, pieces - 1) + ease));
+        var travel = (int)Math.Round(canvas.Height * 0.06);
+
+        string Delay(int order) => FilterExpr.N(Math.Round((lead + step * order) * squeeze, 3));
+        string Ease(int order) =>
+            $"(1-pow(1-clip((t-{Delay(order)})/{FilterExpr.N(Math.Round(ease * squeeze, 3))},0,1),3))";
+
+        var graph = new StringBuilder();
+        graph.Append("[0:v]setsar=1[bg];\n");
+        var current = "bg";
+
+        var canDrawText = capabilities.Supports(RenderFeature.DrawText);
+        if (card.Lines.Count > 0 && !canDrawText) warnings.Add("ENDCARD_TEXT_UNAVAILABLE");
+
+        void DrawLine(int index, int order, bool fromAbove)
+        {
+            var line = card.Lines[index];
+            var label = $"ct{index}";
+            var e = Ease(order);
+            var y = fromAbove ? $"{line.Y}-{travel}*(1-{e})" : $"{line.Y}+{travel}*(1-{e})";
+
+            graph.Append($"[{current}]drawtext=")
+                 .Append($"textfile={FilterExpr.Quote(FilterExpr.Path(line.TextRelativePath))}")
+                 .Append($":fontfile={FilterExpr.Quote(FilterExpr.Path(line.FontFilePath))}")
+                 .Append($":reload=0:fontsize={line.FontPixels}")
+                 .Append($":fontcolor=0x{card.TextRgb}@{FilterExpr.N(line.Opacity)}")
+                 .Append($":alpha={FilterExpr.Quote(e)}")
+                 .Append($":x=(w-text_w)/2:y={FilterExpr.Quote(y)}[{label}];\n");
+            current = label;
+        }
+
+        var order = 0;
+        if (canDrawText)
+        {
+            for (var i = 0; i < aboveCount; i++) DrawLine(i, order++, fromAbove: true);
+        }
+        else
+        {
+            order += aboveCount;
+        }
+
+        if (card.BoxSize > 0)
+        {
+            graph.Append($"color=c=white:s={card.BoxSize}x{card.BoxSize}:r={rate.ToFfmpegRate()}:d={duration},format=rgba[box];\n");
+            var box = "box";
+
+            if (card.QrRelativePath is { Length: > 0 } qr)
+            {
+                var qrInput = inputs.Count;
+                inputs.Add(new FfmpegInputSpec([], qr));
+                graph.Append($"[{qrInput}:v]scale={card.QrSize}:{card.QrSize}")
+                     .Append(":force_original_aspect_ratio=decrease:flags=neighbor,format=rgba[qr];\n")
+                     .Append("[box][qr]overlay=x=(W-w)/2:y=(H-h)/2:eof_action=repeat:format=auto[boxq];\n");
+                box = "boxq";
+            }
+
+            var e = Ease(order);
+            graph.Append($"[{box}]fade=t=in:st={Delay(order)}:d={FilterExpr.N(Math.Round(ease * squeeze, 3))}:alpha=1[boxf];\n")
+                 .Append($"[{current}][boxf]overlay=x={card.BoxX}")
+                 .Append($":y={FilterExpr.Quote($"{card.BoxY}+{travel}*(1-{e})")}:format=auto[cq];\n");
+            current = "cq";
+            order++;
+        }
+
+        if (canDrawText)
+        {
+            for (var i = aboveCount; i < card.Lines.Count; i++) DrawLine(i, order++, fromAbove: false);
         }
 
         var fadeIn = card.FadeInSeconds > 0
@@ -955,48 +1065,11 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         for (var idx = 0; idx < plan.Overlays.Count; idx++)
         {
             var overlay = plan.Overlays[idx];
-            var nextVideoLabel = $"v_ov_{idx}";
-            var startSec = FilterExpr.N(overlay.StartSeconds);
-            var endSec = FilterExpr.N(overlay.StartSeconds + overlay.DurationSeconds);
 
             if (overlay.Type is "image" or "video" && overlay.RelativePath is { Length: > 0 })
             {
-                var ovInput = inputs.Count;
-
-                // A still is one frame: looped into a stream the overlay's length, so a fade
-                // has frames to fade across rather than one frame held at alpha 0.
-                inputs.Add(overlay.Type == "image"
-                    ? new FfmpegInputSpec(
-                        ["-loop", "1", "-framerate", rate.ToFfmpegRate(), "-t", FilterExpr.N(overlay.DurationSeconds)],
-                        overlay.RelativePath)
-                    : new FfmpegInputSpec([], overlay.RelativePath));
-
-                var ovScaledLabel = $"ov_s_{idx}";
-                var scaleStr = overlay.WidthPercent is { } widthPercent
-                    ? $",scale={EvenAtLeastTwo(plan.Canvas.Width * widthPercent / 100)}:-2"
-                    : overlay.Scale != 1.0 ? $",scale=iw*{FilterExpr.N(overlay.Scale)}:-1" : "";
-                var opacityStr = overlay.Opacity < 1.0 ? $",colorchannelmixer=aa={FilterExpr.N(overlay.Opacity)}" : "";
-
-                // Moved onto the joined video's clock, so it starts at its own start time
-                // instead of playing (unseen) from zero, and the fades land where they belong.
-                var fadeStr = $",setpts=PTS-STARTPTS+{startSec}/TB";
-                if (overlay.TransitionIn == "fade" && overlay.TransitionInDuration > 0)
-                {
-                    fadeStr += $",fade=t=in:st={startSec}:d={FilterExpr.N(overlay.TransitionInDuration)}:alpha=1";
-                }
-                if (overlay.TransitionOut == "fade" && overlay.TransitionOutDuration > 0)
-                {
-                    var outStart = overlay.StartSeconds + Math.Max(0, overlay.DurationSeconds - overlay.TransitionOutDuration);
-                    fadeStr += $",fade=t=out:st={FilterExpr.N(outStart)}:d={FilterExpr.N(overlay.TransitionOutDuration)}:alpha=1";
-                }
-
-                graph.Append($"[{ovInput}:v]format=rgba{scaleStr}{opacityStr}{fadeStr}[{ovScaledLabel}];\n");
-
-                var xPos = overlay.X != 0 ? $"(W-w)/2+W*{FilterExpr.N(overlay.X / 100.0)}" : "(W-w)/2";
-                var yPos = overlay.Y != 0 ? $"(H-h)/2+H*{FilterExpr.N(overlay.Y / 100.0)}" : "(H-h)/2";
-
-                graph.Append($"[{currentVideoLabel}][{ovScaledLabel}]overlay=x={xPos}:y={yPos}:enable='between(t,{startSec},{endSec})'[{nextVideoLabel}];\n");
-                currentVideoLabel = nextVideoLabel;
+                currentVideoLabel = MediaOverlayFilters.Append(
+                    graph, inputs, currentVideoLabel, idx, overlay, plan.Canvas);
             }
             else if (overlay is { Type: "text", Text: { } text })
             {

@@ -197,6 +197,10 @@ public sealed class ClipsController(
                         CropTop = t.Transform.CropTop,
                         CropBottom = t.Transform.CropBottom,
                         Stabilization = t.Transform.Stabilization,
+                        Shape = t.Transform.Shape,
+                        BorderWidth = t.Transform.BorderWidth,
+                        BorderColor = t.Transform.BorderColor,
+                        AspectRatio = t.Transform.AspectRatio,
                         EraseRegions = (t.Transform.EraseRegions ?? [])
                             .Select(r => new EraseRegionSpec
                             {

@@ -208,7 +208,7 @@
              [attr.data-type]="state.getClipType(row.clip)"
              draggable="true"
              (click)="state.selectClip(row.clip.id, $event)"
-             (dragstart)="onDragStart(i, row)"
+             (dragstart)="onDragStart(i, row, $event)"
              (dragover)="state.onRowDragOver(i, $event)"
              (drop)="state.onRowDrop(i, $event)"
              (dragend)="state.onRowDragEnd()">

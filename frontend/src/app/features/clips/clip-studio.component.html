@@ -45,6 +45,11 @@
     <app-transfer-dialog [mode]="transferMode" (closed)="state.transferDialogMode.set(null)"></app-transfer-dialog>
   }
 
+  <!-- Crop & shape editor for a frame picture or video; renders nothing while closed. -->
+  @if (state.cropLayerId()) {
+    <app-frame-crop-dialog></app-frame-crop-dialog>
+  }
+
   @if (state.endCardDialogOpen()) {
     <div class="modal-backdrop" (click)="state.endCardDialogOpen.set(false)">
       <div class="insert-dialog end-card-dialog" role="dialog" aria-modal="true" aria-label="End card"

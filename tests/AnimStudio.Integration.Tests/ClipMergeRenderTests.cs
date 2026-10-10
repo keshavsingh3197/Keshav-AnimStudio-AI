@@ -390,6 +390,49 @@ public sealed class ClipMergeRenderTests : IAsyncLifetime
         Assert.True(strip > 17, $"the strip is solid black - the headline did not draw ({strip:F1}).");
     }
 
+    [FfmpegFontFact]
+    public async Task A_headline_strip_slides_and_fades_in_with_its_text()
+    {
+        Directory.CreateDirectory(Path_("in"));
+        Run($"-y -f lavfi -i color=c=white:size=640x360:rate=30:duration=2 -c:v libx264 -pix_fmt yuv420p -an \"{Path_("in/white.mp4")}\"");
+        var clip = await _service.RenderClipAsync(Plan(0, "in/white.mp4", hasAudio: false), _workspace, null, Ct);
+
+        var fontFile = WatermarkFontResolver.FindSystemFont()!;
+        var look = TextOverlayLayout.Resolve(new TimelineItemTextStyleSpec
+        {
+            Position = "custom", Y = 50, FontSize = 24,
+            BoxStyle = "band", BoxColor = "#000000", BoxOpacity = 1
+        });
+        var line = await _workspace.WriteTextAsync("txt/overlay_000_0.txt", "BREAKING", Ct);
+
+        var merged = await BuildService().MergeScenesAsync(
+            new MergePlan
+            {
+                Canvas = TestCanvas,
+                Scenes = [new MergeSceneInput(clip.RelativePath, clip.Frames, TransitionSettings.None)],
+                Overlays =
+                [
+                    new MergeOverlayItem("text", null, 0.5, 1.5, 1, 0, 0, 1, "slide-right", 0.5, "fade", 0.3)
+                    {
+                        Text = new MergeTextOverlay([line], fontFile, look)
+                    }
+                ],
+                OutputRelativePath = "out/band.mp4"
+            },
+            _workspace, null, Ct);
+
+        var path = _workspace.Resolve(merged.RelativePath);
+        // The strip is centred: about y 160-200. Settled it is dark; half-way in it is a
+        // faded strip still short of the right edge; before its start it is not there.
+        var before = MeanLuma(path, "crop=640:10:0:175", at: 0.3);
+        var settled = MeanLuma(path, "crop=40:10:20:175", at: 1.4);
+        var arriving = MeanLuma(path, "crop=40:10:590:175", at: 0.6);
+
+        Assert.True(before > 200, $"the strip showed before its start ({before:F1}).");
+        Assert.True(settled < 60, $"the strip did not settle in place ({settled:F1}).");
+        Assert.True(arriving > settled + 40, $"the strip did not move or fade in ({arriving:F1} vs {settled:F1}).");
+    }
+
     [FfmpegFact]
     public async Task A_sticker_is_sized_to_the_canvas_and_shown_only_in_its_window()
     {
@@ -428,6 +471,84 @@ public sealed class ClipMergeRenderTests : IAsyncLifetime
         Assert.True(besideIt < 40, $"the sticker is wider than a quarter of the frame ({besideIt:F1}).");
         Assert.True(beforeIt < 40, $"the sticker showed before its start ({beforeIt:F1}).");
         Assert.True(afterIt < 40, $"the sticker stayed after its end ({afterIt:F1}).");
+    }
+
+    [FfmpegFact]
+    public async Task A_circle_sticker_is_cut_round_with_a_coloured_ring()
+    {
+        Directory.CreateDirectory(Path_("in"));
+        Run($"-y -f lavfi -i color=c=black:size=640x360:rate=30:duration=2 -c:v libx264 -pix_fmt yuv420p -an \"{Path_("in/black.mp4")}\"");
+        Run($"-y -f lavfi -i color=c=white:size=300x200 -frames:v 1 \"{Path_("in/photo.png")}\"");
+
+        var clip = await _service.RenderClipAsync(Plan(0, "in/black.mp4", hasAudio: false), _workspace, null, Ct);
+
+        // Cropped square (a sixth off each side of 300x200), 160px wide, centred, from 0.2s
+        // to 1.8s, with a 6px red ring (6 reference px on a 360-high canvas).
+        var merged = await BuildService().MergeScenesAsync(
+            new MergePlan
+            {
+                Canvas = TestCanvas,
+                Scenes = [new MergeSceneInput(clip.RelativePath, clip.Frames, TransitionSettings.None)],
+                Overlays =
+                [
+                    new MergeOverlayItem("image", "in/photo.png", 0.2, 1.6, 1, 0, 0, 1, "pop", 0.4, "fade", 0.3)
+                    {
+                        WidthPercent = 25,
+                        Media = new MergeMediaOverlay(16.6667, 0, 16.6667, 0, OverlayShape.Circle, 6, "FF0000", 1)
+                    }
+                ],
+                OutputRelativePath = "out/circle.mp4"
+            },
+            _workspace, null, Ct);
+
+        var path = _workspace.Resolve(merged.RelativePath);
+        // Square: x 240-400, y 100-260.
+        var centre = MeanLuma(path, "crop=40:40:300:160", at: 1.0);
+        var corner = MeanLuma(path, "crop=12:12:242:102", at: 1.0);
+        var ring = MeanLuma(path, "crop=8:2:316:103", at: 1.0);
+
+        Assert.True(centre > 200, $"the picture did not draw inside the circle ({centre:F1}).");
+        Assert.True(corner < 30, $"the square's corner was not cut away ({corner:F1}).");
+        Assert.True(ring is > 45 and < 120, $"expected a red ring at the top edge, luma {ring:F1}.");
+    }
+
+    [FfmpegFact]
+    public async Task A_circle_video_plays_inside_its_stencil_from_its_trim_point()
+    {
+        Directory.CreateDirectory(Path_("in"));
+        Run($"-y -f lavfi -i color=c=black:size=640x360:rate=30:duration=2 -c:v libx264 -pix_fmt yuv420p -an \"{Path_("in/black.mp4")}\"");
+        Run($"-y -f lavfi -i color=c=white:size=320x320:rate=30:duration=4 -c:v libx264 -pix_fmt yuv420p -an \"{Path_("in/pip.mp4")}\"");
+
+        var clip = await _service.RenderClipAsync(Plan(0, "in/black.mp4", hasAudio: false), _workspace, null, Ct);
+
+        var merged = await BuildService().MergeScenesAsync(
+            new MergePlan
+            {
+                Canvas = TestCanvas,
+                Scenes = [new MergeSceneInput(clip.RelativePath, clip.Frames, TransitionSettings.None)],
+                Overlays =
+                [
+                    new MergeOverlayItem("video", "in/pip.mp4", 0.5, 1.2, 1, 0, 0, 1, "slide-up", 0.3, "none", 0.3)
+                    {
+                        WidthPercent = 25,
+                        Media = new MergeMediaOverlay(0, 0, 0, 0, OverlayShape.Circle, 0, "FFFFFF", 1, 1.5)
+                    }
+                ],
+                OutputRelativePath = "out/pip.mp4"
+            },
+            _workspace, null, Ct);
+
+        var path = _workspace.Resolve(merged.RelativePath);
+        var duration = ProbeDuration(path, "v:0");
+        Assert.True(Math.Abs(duration - 2.0) < 0.1, $"the picture-in-picture changed the length ({duration:F3}s).");
+
+        var centre = MeanLuma(path, "crop=40:40:300:160", at: 1.2);
+        var corner = MeanLuma(path, "crop=12:12:242:102", at: 1.2);
+        var before = MeanLuma(path, "crop=40:40:300:160", at: 0.2);
+
+        Assert.True(centre > 200, $"the video did not play inside the circle ({centre:F1}).");
+        Assert.True(corner < 30, $"the square's corner was not masked away ({corner:F1}).");
+        Assert.True(before < 30, $"the video showed before its start ({before:F1}).");
     }
 
     // --- erasing an existing mark ------------------------------------------
@@ -538,8 +659,34 @@ public sealed class ClipMergeRenderTests : IAsyncLifetime
         Headline = "Support us",
         Subtext = "Scan the code",
         DurationSeconds = seconds,
-        Transition = SceneTransition.None
+        Transition = SceneTransition.None,
+        // The layout tests read the first frame, before an animated card has arrived.
+        Animation = EndCardAnimation.None
     };
+
+    [FfmpegFontFact]
+    public async Task An_animated_end_card_arrives_piece_by_piece_and_then_holds()
+    {
+        RenderFixtures.MakeSprite(Path_("in/qr.png"), "black", 64);
+        var card = SupportCard();
+        card.Animation = EndCardAnimation.Rise;
+
+        var plan = await AnimStudio.Application.Rendering.EndCardFactory.PrepareAsync(
+            _workspace, card, TestCanvas, "in/qr.png", _ => WatermarkFontResolver.FindSystemFont(),
+            EncoderProfile.Default, 0, "clips/clip_outro.mp4", new List<string>(), Ct);
+        Assert.True(plan.EndCard!.Animate);
+
+        var result = await _service.RenderClipAsync(plan, _workspace, null, Ct);
+        var path = _workspace.Resolve(result.RelativePath);
+        Assert.Equal(60, result.Frames.Value);
+
+        // Same layout as the static card: the white square at x=237, y=101, 166px wide.
+        var early = MeanLuma(path, "crop=166:8:237:103");
+        var settled = MeanLuma(path, "crop=166:8:237:103", at: 1.5);
+
+        Assert.True(early < 60, $"the code was already there on the first frame ({early:F1}).");
+        Assert.True(settled > 200, $"the code never settled into place ({settled:F1}).");
+    }
 
     [FfmpegFontFact]
     public async Task Draws_an_end_card_with_its_qr_quiet_zone_and_headline_for_the_whole_duration()

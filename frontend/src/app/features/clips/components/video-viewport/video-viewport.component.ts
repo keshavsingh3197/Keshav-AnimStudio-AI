@@ -3,7 +3,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { MonitorEraseRegion, MonitorTextBlock, StudioStateService } from '../../services/studio-state.service';
+import { MonitorEraseRegion, MonitorFrameMedia, MonitorTextBlock, StudioStateService } from '../../services/studio-state.service';
 import { FrameImage, TEXT_REFERENCE_SHORT_SIDE, hexToRgba } from '../../services/text-overlay-layout';
 import { erasePatchOrigin } from '../../services/erase-geometry';
 import { ERASE_DEFAULT_STRENGTH, TimelineItemTransform } from '../../../../core/models/api.models';
@@ -115,6 +115,14 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       const patched = this.state.monitorEraseRegions()
         .some((m) => m.region.style === 'Patch' || m.region.style === 'Brand');
       if (patched) untracked(() => setTimeout(() => this.schedulePatchPaint()));
+    });
+
+    // Frame video layers follow the playhead: played along while playing, parked on the
+    // exact frame while paused. Checked after the DOM has the new data-at values.
+    effect(() => {
+      const hasVideo = this.state.monitorFrameImages().some((l) => l.kind === 'video');
+      const playing = this.state.isPlaying();
+      if (hasVideo) untracked(() => requestAnimationFrame(() => this.syncFrameVideos(playing)));
     });
 
     // React to Schedule or Clip Layout changes while paused to render current frame
@@ -1067,6 +1075,83 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     handle.addEventListener('pointermove', onMove);
     handle.addEventListener('pointerup', onUp);
     handle.addEventListener('pointercancel', onUp);
+  }
+
+  // --- frame pictures & videos -------------------------------------------------------
+
+  /** A picture or video from the media library (or an image file) is being dragged over the frame. */
+  readonly dropHover = signal(false);
+
+  onMonitorDragOver(event: DragEvent): void {
+    const fromLibrary = this.state.draggingAsset() !== null;
+    const fromDesktop = Array.from(event.dataTransfer?.items ?? []).some((i) => i.kind === 'file' && i.type.startsWith('image/'));
+    if (!fromLibrary && !fromDesktop) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+    this.dropHover.set(true);
+  }
+
+  onMonitorDragLeave(event: DragEvent): void {
+    const into = event.relatedTarget as Node | null;
+    if (into && (event.currentTarget as HTMLElement).contains(into)) return;
+    this.dropHover.set(false);
+  }
+
+  onMonitorDrop(event: DragEvent): void {
+    this.dropHover.set(false);
+    const frame = this.monitorContainerRef?.nativeElement;
+    if (!frame) return;
+    const rect = frame.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / rect.width) * 100;
+    const y = ((event.clientY - rect.top) / rect.height) * 100;
+    if (this.state.dropOnMonitor(x, y, event.dataTransfer?.files ?? null)) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  }
+
+  /** Centred on its point, then moved and scaled by its entrance or exit. */
+  frameMediaTransform(im: MonitorFrameMedia): string {
+    const m = im.motion;
+    const x = m.dx !== 0 ? `calc(-50% + ${m.dx * 100}cqw)` : '-50%';
+    const y = m.dy !== 0 ? `calc(-50% + ${m.dy * 100}cqh)` : '-50%';
+    return `translate(${x}, ${y})${m.scale !== 1 ? ` scale(${m.scale})` : ''}`;
+  }
+
+  /**
+   * The source sized and shifted inside its box so only the cropped part shows. Until the
+   * source has been measured the box has no shape of its own, and the picture shows whole.
+   */
+  cropStyle(im: MonitorFrameMedia): Record<string, string> {
+    if (im.aspect === null) return {};
+    const keepW = 100 - im.crop.left - im.crop.right;
+    const keepH = 100 - im.crop.top - im.crop.bottom;
+    return {
+      width: `${(100 * 100) / keepW}%`,
+      height: `${(100 * 100) / keepH}%`,
+      left: `${(-im.crop.left * 100) / keepW}%`,
+      top: `${(-im.crop.top * 100) / keepH}%`,
+    };
+  }
+
+  private syncFrameVideos(playing: boolean): void {
+    const root = this.monitorContainerRef?.nativeElement;
+    if (!root) return;
+    const speed = this.state.playbackSpeed();
+    root.querySelectorAll<HTMLVideoElement>('video.frame-video').forEach((v) => {
+      const at = Number(v.dataset['at']);
+      if (!Number.isFinite(at)) return;
+      const drift = Math.abs(v.currentTime - at);
+      if (!playing) {
+        if (!v.paused) v.pause();
+        if (drift > 0.04 && !v.seeking) v.currentTime = at;
+        return;
+      }
+      v.playbackRate = speed;
+      if (drift > 0.3 && !v.seeking) v.currentTime = at;
+      if (v.paused) v.play().catch(() => undefined);
+    });
   }
 
   /** Centred on its point; the entrance/exit offset is in 360-reference pixels like the export's. */

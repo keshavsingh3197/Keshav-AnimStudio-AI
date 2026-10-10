@@ -129,8 +129,14 @@ export class MediaDockComponent implements OnDestroy {
     }
   }
 
-  onDragStart(index: number, row: ClipRow): void {
+  onDragStart(index: number, row: ClipRow, event?: DragEvent): void {
     this.state.onRowDragStart(index, row);
+    // Firefox starts no drag at all without data, and the preview and timeline both read
+    // the dragged clip from state - so the payload is only an id, under our own type.
+    if (event?.dataTransfer) {
+      event.dataTransfer.setData('application/x-animstudio-clip', row.clip.id);
+      event.dataTransfer.effectAllowed = 'copyMove';
+    }
   }
 
   selectAll(): void {

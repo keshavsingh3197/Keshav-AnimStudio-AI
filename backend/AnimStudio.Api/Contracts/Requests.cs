@@ -371,6 +371,8 @@ public sealed record OutroRequest
     [RegularExpression("^#[0-9A-Fa-f]{6}$")]
     public string? TextHex { get; init; }
 
+    public EndCardAnimation Animation { get; init; } = EndCardAnimation.Rise;
+
     public OutroSettings ToSettings() => new()
     {
         Kind = Kind,
@@ -384,7 +386,8 @@ public sealed record OutroRequest
         HeadlineSecondary = HeadlineSecondary,
         SubtextSecondary = SubtextSecondary,
         BackgroundHex = BackgroundHex ?? "#101828",
-        TextHex = TextHex ?? "#FFFFFF"
+        TextHex = TextHex ?? "#FFFFFF",
+        Animation = Animation
     };
 }
 
@@ -621,6 +624,17 @@ public sealed record TimelineItemTransformRequest
 
     /// <summary>Request video stabilization for this clip.</summary>
     public bool Stabilization { get; init; }
+
+    /// <summary>Image and video overlays: rect, rounded or circle.</summary>
+    [RegularExpression("^(rect|rounded|circle)$")] public string? Shape { get; init; }
+
+    /// <summary>Ring drawn inside the overlay's edge, in 360-reference pixels like text sizes.</summary>
+    [Range(0, MediaOverlayShape.MaxBorderWidth)] public double BorderWidth { get; init; }
+
+    [RegularExpression("^#[0-9a-fA-F]{6}$")] public string? BorderColor { get; init; }
+
+    /// <summary>Width / height of the overlay after its crop, so a shaped overlay is scaled to a known size.</summary>
+    [Range(MediaOverlayShape.MinAspectRatio, MediaOverlayShape.MaxAspectRatio)] public double? AspectRatio { get; init; }
 
     /// <summary>Existing marks to wipe from the source frame before our own is drawn.</summary>
     [MaxLength(EraseRegionSpec.MaxPerClip)]

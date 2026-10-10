@@ -40,6 +40,24 @@ public sealed record MergeOverlayItem(
     /// Null falls back to <see cref="Scale"/> on the source's own pixels.
     /// </summary>
     public double? WidthPercent { get; init; }
+
+    /// <summary>Image and video overlays: crop, shape, ring and source trim. Null draws the whole source as a rectangle.</summary>
+    public MergeMediaOverlay? Media { get; init; }
+}
+
+/// <summary>
+/// How an image or video overlay is cut and framed, already validated: crops are percent of
+/// the source held so something always shows, the ring colour is a checked <c>rrggbb</c>.
+/// </summary>
+/// <param name="BorderWidth">Ring width in 360-reference pixels; zero for none.</param>
+/// <param name="AspectRatio">Width / height after the crop, or null when the studio did not send one.</param>
+/// <param name="TrimStartSeconds">Video overlays: where in the source to start playing.</param>
+public sealed record MergeMediaOverlay(
+    double CropLeft, double CropTop, double CropRight, double CropBottom,
+    OverlayShape Shape, double BorderWidth, string BorderRgb, double? AspectRatio,
+    double TrimStartSeconds = 0)
+{
+    public bool HasCrop => CropLeft > 0 || CropTop > 0 || CropRight > 0 || CropBottom > 0;
 }
 
 /// <summary>

@@ -23,7 +23,8 @@ public sealed record OutroResponse(
     string BackgroundHex = "#101828",
     string TextHex = "#FFFFFF",
     string? HeadlineSecondary = null,
-    string? SubtextSecondary = null);
+    string? SubtextSecondary = null,
+    string Animation = "Rise");
 
 public sealed record ProjectResponse(
     string Id, string Name, string? Description, string Status,

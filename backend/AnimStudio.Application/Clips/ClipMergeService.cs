@@ -673,7 +673,8 @@ public sealed class ClipMergeService(
             HeadlineSecondary = chosen.HeadlineSecondary,
             SubtextSecondary = chosen.SubtextSecondary,
             BackgroundHex = chosen.BackgroundHex,
-            TextHex = chosen.TextHex
+            TextHex = chosen.TextHex,
+            Animation = chosen.Animation
         };
         copy.Clamp();
         return copy.IsEnabled ? copy : null;
