@@ -63,48 +63,17 @@ internal static class TextOverlayFilters
         var current = input;
         var step = 0;
 
-        if (look.Box == TextBoxStyle.Band && look.BoxOpacity > 0 && (alpha is not null || slide.Length > 0 || slideX.Length > 0))
-        {
-            // drawbox cannot move or fade, so a moving strip is a colour source laid over
-            // the frame, travelling with its text. Its fade is ffmpeg's linear one - close
-            // enough to the text's ease that the two read as one block.
-            var bandLabel = $"{labelPrefix}_band";
-            var bandHeight = blockHeight + 2 * bandPad;
-            var fades = new StringBuilder();
-            var inKind = Normalize(overlay.TransitionIn);
-            var outKind = Normalize(overlay.TransitionOut);
-            if (inKind != "none" && !IsReveal(inKind) && overlay.TransitionInDuration > 0)
-            {
-                fades.Append($",fade=t=in:st={FilterExpr.N(start)}:d={FilterExpr.N(overlay.TransitionInDuration)}:alpha=1");
-            }
-            if (outKind != "none" && overlay.TransitionOutDuration > 0)
-            {
-                var outStart = start + Math.Max(0, overlay.DurationSeconds - overlay.TransitionOutDuration);
-                fades.Append($",fade=t=out:st={FilterExpr.N(outStart)}:d={FilterExpr.N(overlay.TransitionOutDuration)}:alpha=1");
-            }
+        var moving = alpha is not null || slide.Length > 0 || slideX.Length > 0;
 
-            graph.Append($"color=c=0x{look.BoxRgb}@{FilterExpr.N(look.BoxOpacity)}")
-                 .Append($":s={canvas.Width}x{Math.Max(2, bandHeight)}:r={canvas.FrameRate.ToFfmpegRate()}:d={FilterExpr.N(end)}")
-                 .Append($",format=rgba{fades}[{bandLabel}];\n");
-
-            var bx = slideX.Length > 0 ? FilterExpr.Quote("0" + slideX.Replace("{W}", "W")) : "0";
-            var by = slide.Length > 0 ? FilterExpr.Quote(FilterExpr.N(top - bandPad) + slide) : FilterExpr.N(top - bandPad);
-            var next = $"{labelPrefix}_{step++}";
-            graph.Append($"[{current}][{bandLabel}]overlay=x={bx}:y={by}:enable={enable}[{next}];\n");
-            current = next;
-        }
-        else if (look.Box == TextBoxStyle.Band && look.BoxOpacity > 0)
+        if (look.Box == TextBoxStyle.Band && look.BoxOpacity > 0)
         {
-            var next = $"{labelPrefix}_{step++}";
-            graph.Append($"[{current}]drawbox=x=0:y={FilterExpr.N(top - bandPad)}")
-                 .Append($":w=iw:h={FilterExpr.N(blockHeight + 2 * bandPad)}")
-                 .Append($":color=0x{look.BoxRgb}@{FilterExpr.N(look.BoxOpacity)}:t=fill")
-                 .Append($":enable={enable}[{next}];\n");
-            current = next;
+            current = AppendRect(graph, current, $"{labelPrefix}_{step++}", look, overlay, start, end, enable,
+                0, top - bandPad, canvas.Width, blockHeight + 2 * bandPad, moving, slide, slideX, canvas);
         }
 
         var edge = Math.Max(boxPad, border) + 2;
-        var centreX = FilterExpr.N(look.CenterX / 100 * canvas.Width);
+        var centreXPx = look.CenterX / 100 * canvas.Width;
+        var centreX = FilterExpr.N(centreXPx);
         // A sideways slide is added OUTSIDE the clamp, or the clamp would hold the text still.
         var x = FilterExpr.Quote($"max({edge},min(w-text_w-{edge},{centreX}-text_w/2)){slideX.Replace("{W}", "w")}");
 
@@ -113,46 +82,9 @@ internal static class TextOverlayFilters
             // A blank line is spacing; it holds its slot but draws nothing - an empty
             // drawtext with a plate would leave a sliver of box behind.
             if (text.LineRelativePaths[i] is not { } path) continue;
+            var runs = text.LineRuns is { } allRuns && i < allRuns.Count ? allRuns[i] : null;
 
             var lineTop = top + i * pitch;
-            var y = FilterExpr.Quote($"{FilterExpr.N(lineTop)}+({FilterExpr.N(pitch)}-text_h)/2{slide}");
-
-            var parts = new List<string>
-            {
-                $"textfile={FilterExpr.Quote(FilterExpr.Path(path))}",
-                $"fontfile={FilterExpr.Quote(FilterExpr.Path(text.FontFilePath))}",
-                "reload=0",
-                // A caption is shown, not interpreted: %{pts} in it is text, not a timestamp.
-                "expansion=none",
-                $"fontsize={FilterExpr.N(size)}",
-                $"fontcolor=0x{look.ColorRgb}",
-                $"x={x}",
-                $"y={y}"
-            };
-
-            if (look.Box == TextBoxStyle.Box && look.BoxOpacity > 0)
-            {
-                parts.Add("box=1");
-                parts.Add($"boxcolor=0x{look.BoxRgb}@{FilterExpr.N(look.BoxOpacity)}");
-                parts.Add($"boxborderw={FilterExpr.N(boxPad)}");
-            }
-
-            if (border > 0)
-            {
-                parts.Add($"borderw={FilterExpr.N(border)}");
-                parts.Add($"bordercolor=0x{look.OutlineRgb}");
-            }
-
-            if (look.Shadow)
-            {
-                var offset = Math.Max(1, (int)Math.Round(size / 16.0));
-                parts.Add("shadowcolor=0x000000@0.7");
-                parts.Add($"shadowx={FilterExpr.N(offset)}");
-                parts.Add($"shadowy={FilterExpr.N(offset)}");
-            }
-
-            if (alpha is not null) parts.Add($"alpha={FilterExpr.Quote(alpha)}");
-            parts.Add($"enable={enable}");
 
             // A typed entrance keeps the frame as it was before this line, to cover the
             // part of the line not typed yet.
@@ -165,10 +97,48 @@ internal static class TextOverlayFilters
                 drawInput = $"{labelPrefix}_in{i}";
                 graph.Append($"[{current}]split=2[{drawInput}][{before}];\n");
             }
+            current = drawInput;
 
-            var next = $"{labelPrefix}_{step++}";
-            graph.Append($"[{drawInput}]drawtext={string.Join(':', parts)}[{next}];\n");
-            current = next;
+            if (runs is null)
+            {
+                var y = FilterExpr.Quote($"{FilterExpr.N(lineTop)}+({FilterExpr.N(pitch)}-text_h)/2{slide}");
+                var parts = DrawParts(path, text.FontFilePath, size, look, x, y, alpha, enable, border,
+                    look.Box == TextBoxStyle.Box && look.BoxOpacity > 0 ? boxPad : null);
+
+                var next = $"{labelPrefix}_{step++}";
+                graph.Append($"[{current}]drawtext={string.Join(':', parts)}[{next}];\n");
+                current = next;
+            }
+            else
+            {
+                // Each run is measured only by drawtext itself, so the line is laid out here
+                // from the measured widths: centred and held inside the frame as a whole, every
+                // run's baseline on one line - y minus max_glyph_a is where drawtext puts it.
+                var width = runs.WidthEm * size;
+                var left = Math.Clamp(centreXPx - width / 2, edge, Math.Max(edge, canvas.Width - width - edge));
+                var ascent = runs.AscentEm * size;
+                var descent = runs.DescentEm * size;
+                var baseline = lineTop + pitch / 2.0 + (ascent - descent) / 2;
+
+                if (look.Box == TextBoxStyle.Box && look.BoxOpacity > 0)
+                {
+                    // One plate for the whole line: per-run plates would differ in height by face.
+                    current = AppendRect(graph, current, $"{labelPrefix}_{step++}", look, overlay, start, end, enable,
+                        left - boxPad, baseline - ascent - boxPad, width + 2 * boxPad, ascent + descent + 2 * boxPad,
+                        moving, slide, slideX, canvas);
+                }
+
+                var y = FilterExpr.Quote($"{FilterExpr.N(Math.Round(baseline, 1))}-max_glyph_a{slide}");
+                foreach (var run in runs.Runs)
+                {
+                    var rx = FilterExpr.Quote($"{FilterExpr.N(Math.Round(left + run.OffsetEm * size, 1))}{slideX.Replace("{W}", "w")}");
+                    var parts = DrawParts(run.RelativePath, run.FontFilePath, size, look, rx, y, alpha, enable, border, null);
+
+                    var next = $"{labelPrefix}_{step++}";
+                    graph.Append($"[{current}]drawtext={string.Join(':', parts)}[{next}];\n");
+                    current = next;
+                }
+            }
 
             if (window is { } wd)
             {
@@ -181,6 +151,99 @@ internal static class TextOverlayFilters
         }
 
         return current;
+    }
+
+    /// <summary>One drawtext's options; <paramref name="boxPad"/> non-null puts a plate behind the text.</summary>
+    private static List<string> DrawParts(
+        string textPath, string fontPath, int size, TextOverlayLook look, string x, string y,
+        string? alpha, string enable, int border, int? boxPad)
+    {
+        var parts = new List<string>
+        {
+            $"textfile={FilterExpr.Quote(FilterExpr.Path(textPath))}",
+            $"fontfile={FilterExpr.Quote(FilterExpr.Path(fontPath))}",
+            "reload=0",
+            // A caption is shown, not interpreted: %{pts} in it is text, not a timestamp.
+            "expansion=none",
+            $"fontsize={FilterExpr.N(size)}",
+            $"fontcolor=0x{look.ColorRgb}",
+            $"x={x}",
+            $"y={y}"
+        };
+
+        if (boxPad is { } pad)
+        {
+            parts.Add("box=1");
+            parts.Add($"boxcolor=0x{look.BoxRgb}@{FilterExpr.N(look.BoxOpacity)}");
+            parts.Add($"boxborderw={FilterExpr.N(pad)}");
+        }
+
+        if (border > 0)
+        {
+            parts.Add($"borderw={FilterExpr.N(border)}");
+            parts.Add($"bordercolor=0x{look.OutlineRgb}");
+        }
+
+        if (look.Shadow)
+        {
+            var offset = Math.Max(1, (int)Math.Round(size / 16.0));
+            parts.Add("shadowcolor=0x000000@0.7");
+            parts.Add($"shadowx={FilterExpr.N(offset)}");
+            parts.Add($"shadowy={FilterExpr.N(offset)}");
+        }
+
+        if (alpha is not null) parts.Add($"alpha={FilterExpr.Quote(alpha)}");
+        parts.Add($"enable={enable}");
+        return parts;
+    }
+
+    /// <summary>
+    /// A filled rectangle in the box colour - the band's strip, or a run-drawn line's plate.
+    /// Still, it is a drawbox. drawbox cannot move or fade, so a moving one is a colour
+    /// source laid over the frame, travelling with its text; its fade is ffmpeg's linear
+    /// one - close enough to the text's ease that the two read as one block.
+    /// </summary>
+    private static string AppendRect(
+        StringBuilder graph, string current, string next, TextOverlayLook look, MergeOverlayItem overlay,
+        double start, double end, string enable, double x, double y, double w, double h,
+        bool moving, string slide, string slideX, Canvas canvas)
+    {
+        var rx = (int)Math.Round(x);
+        var ry = (int)Math.Round(y);
+        var rw = Math.Max(2, (int)Math.Round(w));
+        var rh = Math.Max(2, (int)Math.Round(h));
+
+        if (!moving)
+        {
+            graph.Append($"[{current}]drawbox=x={FilterExpr.N(rx)}:y={FilterExpr.N(ry)}")
+                 .Append($":w={(rx == 0 && rw == canvas.Width ? "iw" : FilterExpr.N(rw))}:h={FilterExpr.N(rh)}")
+                 .Append($":color=0x{look.BoxRgb}@{FilterExpr.N(look.BoxOpacity)}:t=fill")
+                 .Append($":enable={enable}[{next}];\n");
+            return next;
+        }
+
+        var fades = new StringBuilder();
+        var inKind = Normalize(overlay.TransitionIn);
+        var outKind = Normalize(overlay.TransitionOut);
+        if (inKind != "none" && !IsReveal(inKind) && overlay.TransitionInDuration > 0)
+        {
+            fades.Append($",fade=t=in:st={FilterExpr.N(start)}:d={FilterExpr.N(overlay.TransitionInDuration)}:alpha=1");
+        }
+        if (outKind != "none" && overlay.TransitionOutDuration > 0)
+        {
+            var outStart = start + Math.Max(0, overlay.DurationSeconds - overlay.TransitionOutDuration);
+            fades.Append($",fade=t=out:st={FilterExpr.N(outStart)}:d={FilterExpr.N(overlay.TransitionOutDuration)}:alpha=1");
+        }
+
+        var source = $"{next}_rect";
+        graph.Append($"color=c=0x{look.BoxRgb}@{FilterExpr.N(look.BoxOpacity)}")
+             .Append($":s={rw}x{rh}:r={canvas.FrameRate.ToFfmpegRate()}:d={FilterExpr.N(end)}")
+             .Append($",format=rgba{fades}[{source}];\n");
+
+        var ox = slideX.Length > 0 ? FilterExpr.Quote(FilterExpr.N(rx) + slideX.Replace("{W}", "W")) : FilterExpr.N(rx);
+        var oy = slide.Length > 0 ? FilterExpr.Quote(FilterExpr.N(ry) + slide) : FilterExpr.N(ry);
+        graph.Append($"[{current}][{source}]overlay=x={ox}:y={oy}:enable={enable}[{next}];\n");
+        return next;
     }
 
     /// <summary>Entrances that type a line out rather than move or fade it.</summary>

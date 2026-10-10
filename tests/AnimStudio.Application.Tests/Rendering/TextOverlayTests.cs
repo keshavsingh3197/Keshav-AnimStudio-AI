@@ -233,6 +233,46 @@ public class TextOverlayTests
     }
 
     [Fact]
+    public void A_line_with_runs_draws_each_run_in_its_own_face_on_one_baseline_under_one_plate()
+    {
+        var item = Text(new TimelineItemTextStyleSpec { BoxStyle = "box", BoxColor = "#112233", BoxOpacity = 0.5 },
+            "none", "none");
+        item = item with
+        {
+            Text = item.Text! with
+            {
+                LineRuns =
+                [
+                    new MergeTextLineRuns(
+                    [
+                        new MergeTextRun("txt/overlay_000_0_r0.txt", "C:/Windows/Fonts/Nirmala.ttc", 0),
+                        new MergeTextRun("txt/overlay_000_0_r1.txt", "C:/Windows/Fonts/seguiemj.ttf", 4.5)
+                    ], 5.75, 1.0, 0.3)
+                ]
+            }
+        };
+
+        var graph = NewBuilder().BuildMerge(Plan(item)).FilterComplex;
+
+        Assert.Equal(2, Regex.Matches(graph, "drawtext=").Count);
+        Assert.Contains(@"textfile='txt/overlay_000_0_r0.txt':fontfile='C\:/Windows/Fonts/Nirmala.ttc'", graph);
+        Assert.Contains(@"textfile='txt/overlay_000_0_r1.txt':fontfile='C\:/Windows/Fonts/seguiemj.ttf'", graph);
+        Assert.DoesNotContain("overlay_000_0.txt", graph);
+
+        // Both runs share one baseline expression; neither draws a plate of its own.
+        var ys = Regex.Matches(graph, @"y='([0-9.]+)-max_glyph_a'").Select(m => m.Groups[1].Value).ToList();
+        Assert.Equal(2, ys.Count);
+        Assert.Single(ys.Distinct());
+        Assert.DoesNotContain("box=1", graph);
+        Assert.Single(Regex.Matches(graph, "drawbox=").Cast<Match>());
+
+        // The emoji starts 4.5em to the right of the text run.
+        var xs = Regex.Matches(graph, @"drawtext=[^\[]*?:x='([0-9.]+)'").Select(m => double.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture)).ToList();
+        var size = int.Parse(Regex.Match(graph, "fontsize=([0-9]+)").Groups[1].Value);
+        Assert.Equal(4.5 * size, xs[1] - xs[0], 0.2);
+    }
+
+    [Fact]
     public void A_box_plate_outline_and_shadow_are_drawtext_options()
     {
         var graph = NewBuilder().BuildMerge(Plan(Text(new TimelineItemTextStyleSpec

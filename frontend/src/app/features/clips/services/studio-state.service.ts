@@ -1,5 +1,5 @@
 import { Injectable, computed, effect, inject, signal, untracked, OnDestroy } from '@angular/core';
-import { catchError, concatMap, finalize, forkJoin, from, map, of } from 'rxjs';
+import { catchError, concatMap, finalize, forkJoin, from, map, mergeMap, of, toArray } from 'rxjs';
 
 import {
   Clip, ClipAudioBody, ClipFit, ClipOrder, ClipStudio, ExportQuality, MAX_CLIP_GAIN, RenderJob, ExportTimelineFormat,
@@ -22,6 +22,7 @@ import {
 import { EraseRect, eraseFeatherMask, eraseOuter } from './erase-geometry';
 import { bedPieces, cutEffectStarts, deepestDuck } from './audio-enhance';
 import { TimelineFragment, TransferRange } from './timeline-transfer';
+import { DraftUsage, USAGE_ROLE_LABELS, UsageRole, draftAssetUsage, usageTotal } from './media-usage';
 import {
   DEFAULT_LAYER_MOTION, DEFAULT_TEXT_STYLE, FRAME_IMAGE_MAX_WIDTH, FRAME_IMAGE_MIN_WIDTH, FrameDesign, FrameImage, FrameLayout, NO_CROP,
   FrameText, FrameTiming, MAX_FRAME_IMAGES, MAX_FRAME_TEXTS, MAX_SUBTITLE_CUES, MIN_CUE_SECONDS,
@@ -33,6 +34,16 @@ import {
 import {
   LayerMotion, MAX_BORDER_WIDTH, MAX_MOTION_SECONDS, measureMediaAspect, mediaMotion, shapeRadius, textMotion, textReveal,
 } from './frame-media';
+
+/** One video of the project that places a library file, and where it does. */
+export interface MediaUsagePlace {
+  editId: string;
+  name: string;
+  format: EditFormat | null;
+  isCurrent: boolean;
+  roles: { role: UsageRole; label: string; count: number }[];
+  total: number;
+}
 
 /** One block of text as the monitor draws it - a TXT1 overlay, a frame text layer or a subtitle. */
 export interface MonitorTextBlock {
@@ -2585,6 +2596,14 @@ export class StudioStateService implements OnDestroy {
     if (isAudio) return true;
     if (this.timelineItems().some((it) => it.id === clipId || it.src === clipId || it.src === assetId)) return true;
     return this.rows().some((r) => (r.clip.id === clipId || this.resolveAssetId(r.clip) === assetId) && r.included);
+  }
+
+  /** True when the file was added on the viewer's local calendar day. */
+  isClipAddedToday(clip: Clip): boolean {
+    if (!clip.createdAt) return false;
+    const added = new Date(clip.createdAt);
+    if (isNaN(added.getTime())) return false;
+    return added.toDateString() === new Date().toDateString();
   }
 
   getClipTimelineCount(clipId: string): number {
@@ -7740,9 +7759,125 @@ export class StudioStateService implements OnDestroy {
     const projectId = this.loadedProjectId;
     if (!this.ownsCurrentProject(projectId)) return;
     this.api.listEdits(projectId).subscribe({
-      next: (list) => { if (this.loadedProjectId === projectId) this.projectEdits.set(list); },
+      next: (list) => {
+        if (this.loadedProjectId !== projectId) return;
+        this.projectEdits.set(list);
+        this.refreshOtherEditUsage();
+      },
       error: () => {},
     });
+  }
+
+  // --- where each library file is used, across every video of the project ---
+
+  /** The other cuts' saved timelines, read down to the files they use. Keyed by edit id. */
+  private readonly otherEditUsage = signal<Map<string, { updatedAt: string; usage: DraftUsage }>>(new Map());
+  readonly mediaUsageLoading = signal(false);
+  /** Names of cuts whose timeline could not be read, so "unused" is never claimed for them. */
+  readonly mediaUsageFailed = signal<string[]>([]);
+
+  /** The open cut, live - unsaved changes count straight away. */
+  private readonly currentDraftUsage = computed<DraftUsage>(() => draftAssetUsage({
+    rows: this.rows(),
+    timelineItems: this.timelineItems(),
+    musicTracks: this.musicTracks(),
+    musicAssetId: this.musicAssetId(),
+    clipSounds: this.clipSounds(),
+  }));
+
+  /** Per file, how many of the OTHER videos place it. */
+  private readonly otherEditCounts = computed<Map<string, number>>(() => {
+    const current = this.currentEdit()?.id;
+    const counts = new Map<string, number>();
+    for (const [editId, entry] of this.otherEditUsage()) {
+      if (editId === current) continue;
+      for (const assetId of entry.usage.keys()) counts.set(assetId, (counts.get(assetId) ?? 0) + 1);
+    }
+    return counts;
+  });
+
+  /**
+   * Reads the saved timeline of every other cut whose save time changed since it was last
+   * read. The open cut is never fetched: its live state is newer than anything saved.
+   */
+  refreshOtherEditUsage(): void {
+    const projectId = this.loadedProjectId;
+    if (!this.ownsCurrentProject(projectId)) return;
+    const current = this.loadedEditId;
+    const edits = this.projectEdits();
+    const cache = this.otherEditUsage();
+    const stale = edits.filter((e) => e.id !== current && cache.get(e.id)?.updatedAt !== e.updatedAt);
+
+    const keep = new Set(edits.map((e) => e.id));
+    if ([...cache.keys()].some((id) => !keep.has(id))) {
+      this.otherEditUsage.set(new Map([...cache].filter(([id]) => keep.has(id))));
+    }
+    if (stale.length === 0) {
+      this.mediaUsageFailed.set([]);
+      return;
+    }
+
+    this.mediaUsageLoading.set(true);
+    from(stale).pipe(
+      mergeMap((e) => this.api.getEdit(projectId, e.id).pipe(
+        map((full) => ({ edit: e, usage: this.readDraftUsage(full.draftJson) })),
+        catchError(() => of({ edit: e, usage: null as DraftUsage | null })),
+      ), 4),
+      toArray(),
+      finalize(() => this.mediaUsageLoading.set(false)),
+    ).subscribe((results) => {
+      if (this.loadedProjectId !== projectId) return;
+      const next = new Map(this.otherEditUsage());
+      const failed: string[] = [];
+      for (const { edit, usage } of results) {
+        if (usage) next.set(edit.id, { updatedAt: edit.updatedAt, usage });
+        else failed.push(edit.name);
+      }
+      this.otherEditUsage.set(next);
+      this.mediaUsageFailed.set(failed);
+    });
+  }
+
+  /** A cut never opened has no draft and uses nothing; a draft that will not parse is a failure. */
+  private readDraftUsage(draftJson: string | null | undefined): DraftUsage | null {
+    if (!draftJson) return new Map();
+    try {
+      return draftAssetUsage(JSON.parse(draftJson));
+    } catch {
+      return null;
+    }
+  }
+
+  /** How many videos of the project other than the open one place this file. */
+  usedInOtherVideosCount(clip: Clip): number {
+    return this.otherEditCounts().get(this.resolveAssetId(clip)) ?? 0;
+  }
+
+  /** Every video of the project that places this file - the open one first - and where. */
+  mediaUsagePlaces(clip: Clip): MediaUsagePlace[] {
+    const assetId = this.resolveAssetId(clip);
+    const current = this.currentEdit();
+    const places: MediaUsagePlace[] = [];
+    const place = (editId: string, name: string, format: EditFormat | null, isCurrent: boolean, usage: DraftUsage) => {
+      const roles = usage.get(assetId);
+      const total = usageTotal(roles);
+      if (!roles || total === 0) return;
+      places.push({
+        editId, name, format, isCurrent, total,
+        roles: (Object.keys(roles) as UsageRole[])
+          .map((role) => ({ role, label: USAGE_ROLE_LABELS[role], count: roles[role] ?? 0 }))
+          .filter((r) => r.count > 0),
+      });
+    };
+
+    place(current?.id ?? '', current?.name ?? 'This video', current?.format ?? null, true, this.currentDraftUsage());
+    const cache = this.otherEditUsage();
+    for (const e of this.projectEdits()) {
+      if (e.id === current?.id) continue;
+      const entry = cache.get(e.id);
+      if (entry) place(e.id, e.name, e.format, false, entry.usage);
+    }
+    return places;
   }
 
   /** Renames the open cut or changes its format, from inside the editor. */

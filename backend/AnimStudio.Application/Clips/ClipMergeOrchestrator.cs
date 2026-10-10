@@ -44,7 +44,13 @@ public sealed record ClipRenderSettings(
     /// A font that can draw the given text - per script, so Hindi gets a Devanagari face -
     /// or null when the host has none. Absent, <c>WatermarkFontFile</c> is used for all text.
     /// </summary>
-    Func<string, string?>? FontForText = null)
+    Func<string, string?>? FontForText = null,
+    /// <summary>
+    /// A line cut into runs per face (line, the line's own font), so emoji and symbols that
+    /// font lacks still draw; returns null when the line draws whole. Absent, every line
+    /// draws whole in its one font.
+    /// </summary>
+    Func<string, string, FontRunLine?>? FontRunsForText = null)
 {
     /// <summary>The font for <paramref name="text"/>, honouring the fallback.</summary>
     public string? FontFor(string text) => FontForText is not null ? FontForText(text) : WatermarkFontFile;
@@ -916,6 +922,7 @@ public sealed class ClipMergeOrchestrator(
         }
 
         var paths = new List<string?>(lines.Count);
+        var runs = new List<MergeTextLineRuns?>(lines.Count);
         for (var i = 0; i < lines.Count; i++)
         {
             // Generated names only: the item id is client-supplied and never reaches the disk.
@@ -924,10 +931,30 @@ public sealed class ClipMergeOrchestrator(
                 : await workspace
                     .WriteTextAsync($"txt/overlay_{itemIndex:D3}_{i}.txt", lines[i], ct)
                     .ConfigureAwait(false));
+
+            runs.Add(lines[i].Length > 0 && settings.FontRunsForText?.Invoke(lines[i], fontFile) is { } split
+                ? await WriteRunsAsync(split, $"txt/overlay_{itemIndex:D3}_{i}", workspace, ct).ConfigureAwait(false)
+                : null);
         }
 
         return new MergeTextOverlay(paths, fontFile, look,
-            [.. lines.Select(l => new System.Globalization.StringInfo(l).LengthInTextElements)]);
+            [.. lines.Select(l => new System.Globalization.StringInfo(l).LengthInTextElements)],
+            runs.Any(r => r is not null) ? runs : null);
+    }
+
+    private static async Task<MergeTextLineRuns> WriteRunsAsync(
+        FontRunLine line, string stem, IRenderWorkspace workspace, CancellationToken ct)
+    {
+        var runs = new List<MergeTextRun>(line.Runs.Count);
+        var offset = 0.0;
+        for (var k = 0; k < line.Runs.Count; k++)
+        {
+            var run = line.Runs[k];
+            var path = await workspace.WriteTextAsync($"{stem}_r{k}.txt", run.Text, ct).ConfigureAwait(false);
+            runs.Add(new MergeTextRun(path, run.FontFilePath, offset));
+            offset += run.AdvanceEm;
+        }
+        return new MergeTextLineRuns(runs, offset, line.AscentEm, line.DescentEm);
     }
 
     /// <summary>

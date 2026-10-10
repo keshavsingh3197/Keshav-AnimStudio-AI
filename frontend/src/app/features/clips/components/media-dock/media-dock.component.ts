@@ -5,11 +5,12 @@ import { StudioStateService } from '../../services/studio-state.service';
 import { Clip } from '../../../../core/models/api.models';
 import { ClipRow } from '../../models/clip-studio.models';
 import { UrlImportDialogComponent } from '../../../../shared/url-import-dialog.component';
+import { MediaUsageDialogComponent } from '../media-usage-dialog/media-usage-dialog.component';
 
 @Component({
   selector: 'app-media-dock',
   standalone: true,
-  imports: [CommonModule, FormsModule, UrlImportDialogComponent],
+  imports: [CommonModule, FormsModule, UrlImportDialogComponent, MediaUsageDialogComponent],
   templateUrl: './media-dock.component.html',
   styleUrls: ['./media-dock.component.css'],
 })
@@ -19,6 +20,9 @@ export class MediaDockComponent implements OnDestroy {
   /** The paste-many-links import; the clip list reloads once when it closes, if anything arrived. */
   readonly urlImportOpen = signal(false);
   private urlImported = false;
+
+  /** The file whose details-and-usage dialog is open. */
+  readonly usageClip = signal<Clip | null>(null);
 
   onUrlImported(): void {
     this.urlImported = true;

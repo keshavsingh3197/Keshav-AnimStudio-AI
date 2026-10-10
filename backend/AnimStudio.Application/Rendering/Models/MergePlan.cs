@@ -74,11 +74,37 @@ public sealed record MergeMediaOverlay(
 /// Characters (text elements) on each line, for a typed entrance that reveals a line one
 /// character's width at a time. Null when unknown - the reveal then sweeps evenly.
 /// </param>
+/// <param name="LineRuns">
+/// Per line, the runs it is drawn in when it needs more than <paramref name="FontFilePath"/>
+/// - an emoji or symbol that face lacks. Null (or a null entry) draws the line whole from
+/// its file, as one drawtext.
+/// </param>
 public sealed record MergeTextOverlay(
     IReadOnlyList<string?> LineRelativePaths,
     string FontFilePath,
     TextOverlayLook Look,
-    IReadOnlyList<int>? LineLengths = null);
+    IReadOnlyList<int>? LineLengths = null,
+    IReadOnlyList<MergeTextLineRuns?>? LineRuns = null);
+
+/// <summary>One stretch of a line drawn in one face, with its measured advance in ems.</summary>
+public sealed record FontRun(string Text, string FontFilePath, double AdvanceEm);
+
+/// <summary>A line cut into runs, with the ascent and descent of the line's own face in ems.</summary>
+public sealed record FontRunLine(IReadOnlyList<FontRun> Runs, double AscentEm, double DescentEm)
+{
+    public double WidthEm => Runs.Sum(r => r.AdvanceEm);
+}
+
+/// <summary>A run ready to draw: its text in a file, and where it starts along the line in ems.</summary>
+public sealed record MergeTextRun(string RelativePath, string FontFilePath, double OffsetEm);
+
+/// <summary>
+/// A line drawn as several runs. drawtext measures each run only by itself, so the line is
+/// laid out from these measured widths: centred on <see cref="WidthEm"/>, every run on one
+/// baseline placed from the line face's <see cref="AscentEm"/> and <see cref="DescentEm"/>.
+/// </summary>
+public sealed record MergeTextLineRuns(
+    IReadOnlyList<MergeTextRun> Runs, double WidthEm, double AscentEm, double DescentEm);
 
 public sealed record MergePlan
 {

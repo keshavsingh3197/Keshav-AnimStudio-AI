@@ -222,7 +222,10 @@ public static class Mappings
         a.Probe.Width, a.Probe.Height,
         !string.IsNullOrEmpty(a.Probe.AudioCodec),
         // Renders publish under renders/ and are saved back as assets in the Exports folder.
-        a.StorageKey.StartsWith("renders/", StringComparison.Ordinal));
+        a.StorageKey.StartsWith("renders/", StringComparison.Ordinal),
+        // Always written as UTC; the SQL store reads it back unspecified, which would
+        // serialize without a 'Z' and make the browser's "added today" check drift.
+        DateTime.SpecifyKind(a.CreatedAt, DateTimeKind.Utc));
 
     public static ClipOrderResponse ToResponse(this ClipOrderResult result) => new(
         result.AssetIds,

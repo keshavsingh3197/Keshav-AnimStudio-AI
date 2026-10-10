@@ -206,7 +206,8 @@ public sealed record AiCapabilitiesResponse(IReadOnlyList<AiCapabilityResponse> 
 /// </summary>
 public sealed record ClipResponse(
     string Id, string Name, long FileSizeBytes,
-    double? DurationSeconds, int? Width, int? Height, bool HasAudio, bool IsExport);
+    double? DurationSeconds, int? Width, int? Height, bool HasAudio, bool IsExport,
+    DateTime CreatedAt);
 
 public sealed record ClipOrderLineResponse(int Number, string Text, string? AssetId, string Match);
 

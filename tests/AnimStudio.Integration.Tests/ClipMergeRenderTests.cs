@@ -835,6 +835,67 @@ public sealed class ClipMergeRenderTests : IAsyncLifetime
         Assert.True(band - background > 1.0, $"expected the Hindi line to draw (band {band:F2} vs background {background:F2}).");
     }
 
+    [FfmpegFontFact]
+    public async Task Draws_emoji_in_a_hindi_overlay_from_an_emoji_face_instead_of_boxes()
+    {
+        // The bug this guards: "निवेदन🙏" drew the hands as an empty box, because drawtext
+        // has one face per draw and the Devanagari face has no emoji. The line is cut into
+        // runs, and the emoji run must draw from a face that has it.
+        var fonts = new WatermarkFontResolver(Options.Create(new RenderOptions()), NullLogger<WatermarkFontResolver>.Instance);
+        const string text = "सरकार से निवेदन🙏 🙏सब";
+        var hindiFont = fonts.FontFor(text);
+        if (hindiFont is null || !ScriptFontsHaveEmoji()) return; // nothing on this host to test against
+
+        var split = fonts.RunsFor(text, hindiFont);
+        Assert.NotNull(split);
+        Assert.Contains(split!.Runs, r => r.FontFilePath != hindiFont && r.Text.Contains("🙏"));
+        Assert.Equal(text, string.Concat(split.Runs.Select(r => r.Text)));
+
+        Directory.CreateDirectory(Path_("in"));
+        Run($"-y -f lavfi -i color=c=0x7c3aed:size=640x360:rate=30:duration=1 -c:v libx264 -pix_fmt yuv420p -an \"{Path_("in/purple.mp4")}\"");
+        var clip = await _service.RenderClipAsync(Plan(0, "in/purple.mp4", hasAudio: false), _workspace, null, Ct);
+
+        var look = TextOverlayLayout.Resolve(new TimelineItemTextStyleSpec
+        {
+            Position = "custom", Y = 50, FontSize = 24, Color = "#ffffff", BoxStyle = "none"
+        });
+        var line = await _workspace.WriteTextAsync("txt/overlay_000_0.txt", text, Ct);
+        var runs = new List<MergeTextRun>();
+        var offset = 0.0;
+        for (var k = 0; k < split.Runs.Count; k++)
+        {
+            runs.Add(new MergeTextRun(
+                await _workspace.WriteTextAsync($"txt/overlay_000_0_r{k}.txt", split.Runs[k].Text, Ct),
+                split.Runs[k].FontFilePath, offset));
+            offset += split.Runs[k].AdvanceEm;
+        }
+
+        var merged = await BuildService().MergeScenesAsync(
+            new MergePlan
+            {
+                Canvas = TestCanvas,
+                Scenes = [new MergeSceneInput(clip.RelativePath, clip.Frames, TransitionSettings.None)],
+                Overlays =
+                [
+                    new MergeOverlayItem("text", null, 0, 1, 1, 0, 0, 1, "none", 0.5, "none", 0.5)
+                    {
+                        Text = new MergeTextOverlay([line], hindiFont, look, null,
+                            [new MergeTextLineRuns(runs, offset, split.AscentEm, split.DescentEm)])
+                    }
+                ],
+                OutputRelativePath = "out/emoji.mp4"
+            },
+            _workspace, null, Ct);
+
+        var path = _workspace.Resolve(merged.RelativePath);
+        var band = MeanLuma(path, "crop=640:60:0:150", at: 0.5);
+        var background = MeanLuma(path, "crop=640:40:0:10", at: 0.5);
+        Assert.True(band - background > 5, $"expected the line to draw (band {band:F1} vs background {background:F1}).");
+
+        static bool ScriptFontsHaveEmoji() =>
+            File.Exists(@"C:\Windows\Fonts\seguiemj.ttf") || File.Exists("/usr/share/fonts/truetype/noto/NotoEmoji-Regular.ttf");
+    }
+
     [FfmpegFact]
     public async Task An_end_card_joins_a_clip_by_stream_copy_with_its_fade_inside_it()
     {

@@ -267,6 +267,22 @@
             @if (state.isClipOnTimeline(row.clip.id)) {
               <span class="clip-in-cut-tag" title="In timeline cut">
                 <span class="cut-dot"></span> In Cut
+                @if (state.usedInOtherVideosCount(row.clip) > 0) {
+                  <span class="cut-other-cnt" title="Also in {{ state.usedInOtherVideosCount(row.clip) }} other video(s)">+{{ state.usedInOtherVideosCount(row.clip) }}</span>
+                }
+              </span>
+            } @else if (state.usedInOtherVideosCount(row.clip) > 0) {
+              <span class="clip-in-cut-tag clip-other-tag" title="Not in this cut, but used in other videos of this project">
+                <span class="cut-dot"></span>
+                In {{ state.usedInOtherVideosCount(row.clip) }} other{{ state.usedInOtherVideosCount(row.clip) === 1 ? '' : 's' }}
+              </span>
+            } @else if (state.isClipAddedToday(row.clip)) {
+              <span class="clip-in-cut-tag clip-new-tag" title="Added today, not used in any video yet">
+                <span class="cut-dot"></span> New
+              </span>
+            } @else {
+              <span class="clip-in-cut-tag clip-unused-tag" title="Not used in any video of this project">
+                <span class="cut-dot"></span> Unused
               </span>
             }
 
@@ -318,6 +334,7 @@
           <div class="clip-card-footer">
             <span class="clip-title-text" [title]="row.clip.name">{{ row.clip.name }}</span>
             <div class="clip-footer-actions">
+              <button class="clip-action-icon-btn info" type="button" (click)="$event.stopPropagation(); usageClip.set(row.clip)" title="Details and where it is used">ⓘ</button>
               <button class="clip-action-icon-btn dup" type="button" (click)="$event.stopPropagation(); state.duplicateClip(row.clip.id)" title="Duplicate clip">⧉</button>
             </div>
           </div>
@@ -365,6 +382,10 @@
     </div>
   </div>
 </div>
+
+@if (usageClip(); as clip) {
+  <app-media-usage-dialog [clip]="clip" (closed)="usageClip.set(null)" />
+}
 
 @if (urlImportOpen() && state.store.project(); as project) {
   <app-url-import-dialog [projectId]="project.id" [folders]="state.store.folders()"

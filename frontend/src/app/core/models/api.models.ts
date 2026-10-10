@@ -497,6 +497,8 @@ export interface Clip {
   hasAudio: boolean;
   /** A finished render saved back to the project; the media panel hides these. */
   isExport?: boolean;
+  /** When the file was added to the library (UTC ISO string); absent on client-made splits. */
+  createdAt?: string;
 }
 
 /**
