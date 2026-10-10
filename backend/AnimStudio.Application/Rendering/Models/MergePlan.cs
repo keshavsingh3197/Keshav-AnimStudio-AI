@@ -70,10 +70,15 @@ public sealed record MergeMediaOverlay(
 /// </para>
 /// </summary>
 /// <param name="LineRelativePaths">One per line, top to bottom; null for a blank line, which keeps its slot.</param>
+/// <param name="LineLengths">
+/// Characters (text elements) on each line, for a typed entrance that reveals a line one
+/// character's width at a time. Null when unknown - the reveal then sweeps evenly.
+/// </param>
 public sealed record MergeTextOverlay(
     IReadOnlyList<string?> LineRelativePaths,
     string FontFilePath,
-    TextOverlayLook Look);
+    TextOverlayLook Look,
+    IReadOnlyList<int>? LineLengths = null);
 
 public sealed record MergePlan
 {

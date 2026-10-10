@@ -6,6 +6,7 @@ import { FormsModule } from '@angular/forms';
 import { MonitorEraseRegion, MonitorFrameMedia, MonitorTextBlock, StudioStateService } from '../../services/studio-state.service';
 import { FrameImage, TEXT_REFERENCE_SHORT_SIDE, hexToRgba } from '../../services/text-overlay-layout';
 import { erasePatchOrigin } from '../../services/erase-geometry';
+import { watermarkMarkStyle } from '../../../../shared/watermark-preview.component';
 import { ERASE_DEFAULT_STRENGTH, TimelineItemTransform } from '../../../../core/models/api.models';
 import { MusicTrackRow, isCutEffectTrack, isVoiceoverTrack } from '../../models/clip-studio.models';
 
@@ -109,11 +110,11 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       });
     });
 
-    // Patch / Brand erase boxes are painted from the footage; start painting once their
+    // Patch / Brand / Clean erase boxes are painted from the footage; start painting once their
     // canvases are in the DOM. The loop stops by itself when the last one goes.
     effect(() => {
       const patched = this.state.monitorEraseRegions()
-        .some((m) => m.region.style === 'Patch' || m.region.style === 'Brand');
+        .some((m) => m.region.style === 'Patch' || m.region.style === 'Brand' || m.region.style === 'Clean');
       if (patched) untracked(() => setTimeout(() => this.schedulePatchPaint()));
     });
 
@@ -896,6 +897,12 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     return `color-mix(in srgb, ${m.region.fillColor ?? '#000000'} ${m.region.opacity ?? 100}%, transparent)`;
   }
 
+  /** The corner watermark, placed and sized exactly as ClipPlanFactory.CreateWatermark does. */
+  readonly monitorWatermarkStyle = computed(() => {
+    const c = this.state.monitorCanvasPixels();
+    return watermarkMarkStyle(this.state.effectiveWatermark(), c.width, c.height);
+  });
+
   /** Text mark size: fills the box's height, unless the line would overflow its width. */
   brandFontSize(): string {
     const len = Math.max(1, (this.state.effectiveWatermark().text || 'yoursite.example').length);
@@ -930,6 +937,10 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     for (const canvas of canvases) {
       const m = regions.find((x) => x.index === Number(canvas.dataset['erase']));
       if (!m) continue;
+      if (m.region.style === 'Clean') {
+        this.paintClean(canvas, source, sw, sh, m);
+        continue;
+      }
       const origin = erasePatchOrigin(m.region);
       const w = (m.outer.width / 100) * sw;
       const h = (m.outer.height / 100) * sh;
@@ -949,6 +960,68 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
         // A frame that is not decodable yet; the next tick paints it.
       }
     }
+  }
+
+  private cleanScratch?: HTMLCanvasElement;
+
+  /**
+   * A Clean box, rebuilt as EraseFilters.AppendClean does: the edge rows above and below
+   * blended by height, the edge columns either side blended by width, mixed by which edge
+   * is nearer. A side against the frame edge has nothing to read and is left out.
+   */
+  private paintClean(canvas: HTMLCanvasElement, source: CanvasImageSource, sw: number, sh: number, m: MonitorEraseRegion): void {
+    const r = m.region;
+    const top = r.y > 0.5, bottom = r.y + r.height < 99.5, left = r.x > 0.5, right = r.x + r.width < 99.5;
+    const w = (r.width / 100) * sw, h = (r.height / 100) * sh;
+    const scale = Math.min(1, 480 / Math.max(w, h));
+    const cw = Math.max(2, Math.round(w * scale)), ch = Math.max(2, Math.round(h * scale));
+    if (canvas.width !== cw) canvas.width = cw;
+    if (canvas.height !== ch) canvas.height = ch;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // The box plus one ring of footage around it, two source pixels out like the export.
+    const scratch = this.cleanScratch ??= document.createElement('canvas');
+    const W = cw + 2, H = ch + 2;
+    scratch.width = W;
+    scratch.height = H;
+    const sctx = scratch.getContext('2d', { willReadFrequently: true });
+    if (!sctx) return;
+    const px = 2 / scale;
+    try {
+      sctx.drawImage(source, (r.x / 100) * sw - px, (r.y / 100) * sh - px, w + 2 * px, h + 2 * px, 0, 0, W, H);
+    } catch {
+      return; // Not decodable yet; the next tick paints it.
+    }
+
+    let data: ImageData;
+    try {
+      data = sctx.getImageData(0, 0, W, H);
+    } catch {
+      return; // Footage from another origin cannot be read back; the box stays as it is.
+    }
+    const src = data.data;
+    const out = ctx.createImageData(cw, ch);
+    const o = out.data;
+    const at = (x: number, y: number) => (y * W + x) * 4;
+    for (let y = 1; y <= ch; y++) {
+      const ty = y / (H - 1);
+      for (let x = 1; x <= cw; x++) {
+        const tx = x / (W - 1);
+        const dy = top && bottom ? Math.min(y, H - 1 - y) : top ? y : H - 1 - y;
+        const dx = left && right ? Math.min(x, W - 1 - x) : left ? x : W - 1 - x;
+        const d = ((y - 1) * cw + (x - 1)) * 4;
+        for (let c = 0; c < 3; c++) {
+          const v = top && bottom ? src[at(x, 0) + c] * (1 - ty) + src[at(x, H - 1) + c] * ty
+            : top ? src[at(x, 0) + c] : bottom ? src[at(x, H - 1) + c] : NaN;
+          const hz = left && right ? src[at(0, y) + c] * (1 - tx) + src[at(W - 1, y) + c] * tx
+            : left ? src[at(0, y) + c] : right ? src[at(W - 1, y) + c] : NaN;
+          o[d + c] = isNaN(v) ? (isNaN(hz) ? 0 : hz) : isNaN(hz) ? v : (v * dx + hz * dy) / Math.max(0.001, dx + dy);
+        }
+        o[d + 3] = 255;
+      }
+    }
+    ctx.putImageData(out, 0, 0);
   }
 
   /** Moves or resizes one erase box by dragging it on the paused monitor. */
@@ -1179,6 +1252,12 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
         : '0',
       'text-shadow': l.shadow ? '0.0625em 0.0625em 0 rgba(0,0,0,0.7)' : 'none',
     };
+  }
+
+  /** Hides the part of a line not typed yet; generous top and bottom so shadows survive. */
+  revealClip(shown: number | undefined): string | null {
+    if (shown === undefined || shown >= 1) return null;
+    return `inset(-50% ${((1 - shown) * 100).toFixed(2)}% -50% -10%)`;
   }
 
   toggleFullscreen(): void {

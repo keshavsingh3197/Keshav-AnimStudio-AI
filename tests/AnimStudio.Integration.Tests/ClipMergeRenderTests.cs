@@ -433,6 +433,52 @@ public sealed class ClipMergeRenderTests : IAsyncLifetime
         Assert.True(arriving > settled + 40, $"the strip did not move or fade in ({arriving:F1} vs {settled:F1}).");
     }
 
+    [FfmpegFontFact]
+    public async Task A_typed_line_appears_left_to_right_and_then_stays_whole()
+    {
+        // Black text typed onto white over one second: none of it before the start, part of
+        // it half-way, all of it afterwards - measured as ink across the whole line, since
+        // where each glyph lands depends on the host's font.
+        Directory.CreateDirectory(Path_("in"));
+        Run($"-y -f lavfi -i color=c=white:size=640x360:rate=30:duration=2 -c:v libx264 -pix_fmt yuv420p -an \"{Path_("in/white-typed.mp4")}\"");
+        var clip = await _service.RenderClipAsync(Plan(0, "in/white-typed.mp4", hasAudio: false), _workspace, null, Ct);
+
+        var fontFile = WatermarkFontResolver.FindSystemFont()!;
+        var look = TextOverlayLayout.Resolve(new TimelineItemTextStyleSpec
+        {
+            Position = "custom", Y = 50, FontSize = 40, Color = "#000000", BoxStyle = "none"
+        });
+        const string text = "HELLO THERE";
+        var line = await _workspace.WriteTextAsync("txt/overlay_000_0.txt", text, Ct);
+
+        var merged = await BuildService().MergeScenesAsync(
+            new MergePlan
+            {
+                Canvas = TestCanvas,
+                Scenes = [new MergeSceneInput(clip.RelativePath, clip.Frames, TransitionSettings.None)],
+                Overlays =
+                [
+                    new MergeOverlayItem("text", null, 0.2, 1.7, 1, 0, 0, 1, "typewriter", 1.0, "none", 0.3)
+                    {
+                        Text = new MergeTextOverlay([line], fontFile, look, [text.Length])
+                    }
+                ],
+                OutputRelativePath = "out/typed.mp4"
+            },
+            _workspace, null, Ct);
+
+        var path = _workspace.Resolve(merged.RelativePath);
+        const string strip = "crop=600:50:20:155";
+        // Ink against the frame before the text starts, which is the untouched picture.
+        var blank = MeanLuma(path, strip, at: 0.1);
+        double Ink(double at) => blank - MeanLuma(path, strip, at: at);
+        var mid = Ink(0.7);
+        var end = Ink(1.5);
+
+        Assert.True(end > 8, $"once typed the whole line should show ({end:F2}).");
+        Assert.InRange(mid / end, 0.2, 0.8);
+    }
+
     [FfmpegFact]
     public async Task A_sticker_is_sized_to_the_canvas_and_shown_only_in_its_window()
     {
@@ -625,6 +671,44 @@ public sealed class ClipMergeRenderTests : IAsyncLifetime
     }
 
     [FfmpegFact]
+    public async Task Cleans_a_corner_mark_from_the_edges_that_are_left()
+    {
+        // Against the top and right edges there is nothing to read there, so the box is
+        // rebuilt from the black below and left of it - clean black, not a grey smear.
+        MakeMarkedClip("in/marked-clean.mp4", 640, 360);
+
+        var plan = Plan(0, "in/marked-clean.mp4", hasAudio: false) with
+        {
+            EraseRegions = [new EraseRegionSpec { X = 85, Y = 0, Width = 15, Height = 15, Style = EraseStyle.Clean }]
+        };
+
+        var result = await _service.RenderClipAsync(plan, _workspace, null, Ct);
+        var after = MeanLuma(_workspace.Resolve(result.RelativePath), "crop=60:30:575:5");
+
+        Assert.True(after < 30, $"expected the mark cleaned away, read {after:F1}");
+    }
+
+    [FfmpegFact]
+    public async Task Cleans_text_off_a_plain_band_to_the_bands_own_colour()
+    {
+        // A white title in the middle of a mid-grey picture: rebuilt from all four sides it
+        // must come out the grey around it. Odd-sized 4:4:4, to keep the even-start rounding honest.
+        Run("-y -f lavfi -i color=c=0x808080:size=481x271:rate=30:duration=1 "
+          + "-vf drawbox=x=iw*0.4:y=ih*0.4:w=iw*0.2:h=ih*0.2:color=white:t=fill "
+          + $"-c:v libx264 -pix_fmt yuv444p -an \"{Path_("in/band.mp4")}\"");
+
+        var plan = Plan(0, "in/band.mp4", hasAudio: false) with
+        {
+            EraseRegions = [new EraseRegionSpec { X = 37, Y = 37, Width = 26, Height = 26, Style = EraseStyle.Clean }]
+        };
+
+        var result = await _service.RenderClipAsync(plan, _workspace, null, Ct);
+        var after = MeanLuma(_workspace.Resolve(result.RelativePath), "crop=100:60:270:150");
+
+        Assert.InRange(after, 110, 140);
+    }
+
+    [FfmpegFact]
     public async Task Replaces_a_mark_with_our_logo_for_the_whole_clip()
     {
         // The logo is a single frame scaled against a crop of the clip; the clip must
@@ -781,6 +865,36 @@ public sealed class ClipMergeRenderTests : IAsyncLifetime
     }
 
     [FfmpegFact]
+    public async Task An_end_card_survives_a_re_encoded_join_with_a_hard_cut_into_it()
+    {
+        // An overlay forces the join to re-encode. A hard cut there must not be a
+        // zero-length xfade: that drops the second input whole, so the export ended
+        // without its card - and a zero-length acrossfade loses audio at the join.
+        MakeClip("in/a.mp4", 1.0, 640, 360, 30, withAudio: true);
+        RenderFixtures.MakeSprite(Path_("in/qr.png"), "black", 64);
+        RenderFixtures.MakeSprite(Path_("in/sticker.png"), "red", 64);
+
+        var plan = await AnimStudio.Application.Rendering.EndCardFactory.PrepareAsync(
+            _workspace, SupportCard(), TestCanvas, "in/qr.png", null,
+            EncoderProfile.Default, 1, "clips/clip_outro.mp4", new List<string>(), Ct);
+
+        var prepared = new List<SceneRenderResult>
+        {
+            await _service.RenderClipAsync(Plan(0, "in/a.mp4"), _workspace, null, Ct),
+            await _service.RenderClipAsync(plan, _workspace, null, Ct)
+        };
+
+        var merged = await Merge(prepared, FrameCount.Zero,
+            overlays: [new MergeOverlayItem("image", "in/sticker.png", 0, 0.5, 1, 0, 0, 1)]);
+
+        var path = _workspace.Resolve(merged.RelativePath);
+        var video = ProbeDuration(path, "v:0");
+        Assert.True(Math.Abs(video - 3.0) < 0.1, $"expected 3.0s with the card, got {video:F3}s");
+        var audio = ProbeDuration(path, "a:0");
+        Assert.True(Math.Abs(video - audio) < 0.15, $"audio {audio:F3}s drifted from video {video:F3}s");
+    }
+
+    [FfmpegFact]
     public async Task Keeps_a_logo_watermark_on_screen_for_the_whole_clip()
     {
         // Without eof_action=repeat on the overlay, the single-frame logo ends the output
@@ -925,7 +1039,8 @@ public sealed class ClipMergeRenderTests : IAsyncLifetime
     /// </summary>
     private Task<MergeRenderResult> Merge(
         List<SceneRenderResult> prepared, FrameCount requestedTransition,
-        int maxMergeInputs = 64, string output = "out/final.mp4")
+        int maxMergeInputs = 64, string output = "out/final.mp4",
+        IReadOnlyList<MergeOverlayItem>? overlays = null)
     {
         var lengths = prepared.Select(p => p.Frames).ToList();
         var transitions = ClipPlanFactory.ClampTransitions(lengths, requestedTransition);
@@ -942,6 +1057,7 @@ public sealed class ClipMergeRenderTests : IAsyncLifetime
             {
                 Canvas = TestCanvas,
                 Scenes = joined,
+                Overlays = overlays ?? [],
                 OutputRelativePath = output
             },
             _workspace, null, Ct);

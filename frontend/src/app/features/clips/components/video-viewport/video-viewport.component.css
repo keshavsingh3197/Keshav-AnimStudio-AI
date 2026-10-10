@@ -588,15 +588,28 @@
 .monitor-watermark-overlay {
   position: absolute;
   inset: 0;
-  display: flex;
   z-index: 15;
   pointer-events: none;
+  container-type: size;
+}
+
+.monitor-watermark-mark {
+  position: absolute;
+  display: flex;
+}
+.monitor-watermark-mark img {
+  height: 100%;
+  max-width: 35cqw;
+  object-fit: contain;
+  display: block;
 }
 
 .wm-text {
-  font-weight: 600;
-  padding: 2px 6px;
-  border-radius: 3px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0 0.25em;
+  white-space: nowrap;
+  font-family: 'Segoe UI', system-ui, sans-serif;
 }
 
 .lower-third-overlay {

@@ -8,6 +8,8 @@
       <input type="file" multiple accept="video/*,audio/*,image/*,.mp4,.webm,.mov,.png,.jpg,.jpeg,.webp,.gif,.mp3,.wav,.ogg,.m4a,.aac,.flac" (change)="state.onPick($event)" style="display:none" />
       <span class="import-plus">+</span>
     </label>
+    <button type="button" class="media-import-btn" (click)="urlImportOpen.set(true)" [disabled]="!state.store.project()"
+            title="Import from links - paste many URLs and download them all into this project">🔗</button>
 
     <div class="media-search-box">
       <svg class="search-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -363,3 +365,8 @@
     </div>
   </div>
 </div>
+
+@if (urlImportOpen() && state.store.project(); as project) {
+  <app-url-import-dialog [projectId]="project.id" [folders]="state.store.folders()"
+                         (imported)="onUrlImported()" (closed)="onUrlImportClosed()" />
+}

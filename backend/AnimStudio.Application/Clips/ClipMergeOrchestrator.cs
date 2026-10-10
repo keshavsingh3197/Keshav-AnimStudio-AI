@@ -556,9 +556,9 @@ public sealed class ClipMergeOrchestrator(
                         tr?.Y ?? 0.0,
                         tr?.Opacity ?? 1.0,
                         tr?.TransitionIn ?? txt?.TransitionIn ?? "fade",
-                        tr?.TransitionInDuration ?? txt?.TransitionInDuration ?? 0.5,
+                        MotionSeconds(tr?.TransitionInDuration ?? txt?.TransitionInDuration),
                         tr?.TransitionOut ?? txt?.TransitionOut ?? "fade",
-                        tr?.TransitionOutDuration ?? txt?.TransitionOutDuration ?? 0.5)
+                        MotionSeconds(tr?.TransitionOutDuration ?? txt?.TransitionOutDuration))
                     {
                         Text = text,
                         WidthPercent = tr?.WidthPercent is { } width && double.IsFinite(width)
@@ -926,7 +926,8 @@ public sealed class ClipMergeOrchestrator(
                     .ConfigureAwait(false));
         }
 
-        return new MergeTextOverlay(paths, fontFile, look);
+        return new MergeTextOverlay(paths, fontFile, look,
+            [.. lines.Select(l => new System.Globalization.StringInfo(l).LengthInTextElements)]);
     }
 
     /// <summary>
@@ -956,6 +957,16 @@ public sealed class ClipMergeOrchestrator(
             ? null
             : await renderer.RenderClipAsync(plan, workspace, null, ct).ConfigureAwait(false);
     }
+
+    /// <summary>Longest entrance or exit, in seconds - long enough to type out a title.</summary>
+    internal const double MaxMotionSeconds = 8;
+
+    /// <summary>
+    /// An overlay's entrance or exit length, held to a sane range: it ends up inside ffmpeg
+    /// expressions, and the request is the only thing that set it.
+    /// </summary>
+    internal static double MotionSeconds(double? seconds) =>
+        seconds is { } s && double.IsFinite(s) ? Math.Clamp(s, 0, MaxMotionSeconds) : 0.5;
 
     /// <summary>
     /// Tracks composited over the main video in the join. Any item on one forces the join

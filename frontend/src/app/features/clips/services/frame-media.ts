@@ -16,7 +16,8 @@ export const SLIDE_SHARE = 0.25;
 export const TEXT_SLIDE_PX = 40;
 /** The size a zoom starts from, as a share of full size. */
 export const ZOOM_FROM = 0.5;
-export const MAX_MOTION_SECONDS = 3;
+/** Longest entrance or exit - long enough to type out a title. ClipMergeOrchestrator.MaxMotionSeconds. */
+export const MAX_MOTION_SECONDS = 8;
 
 export interface MotionOption {
   id: OverlayMotion;
@@ -45,8 +46,44 @@ export const MEDIA_OUT: MotionOption[] = [
   { id: 'slide-right', label: 'Exit right →' },
 ];
 
-/** Text has no zoom: drawtext cannot scale smoothly, and the preview must not promise it. */
-export const TEXT_IN: MotionOption[] = MEDIA_IN.filter((m) => m.id !== 'pop' && m.id !== 'zoom');
+/**
+ * Text has no zoom: drawtext cannot scale smoothly, and the preview must not promise it.
+ * It can be typed out instead.
+ */
+export const TEXT_IN: MotionOption[] = [
+  ...MEDIA_IN.filter((m) => m.id !== 'pop' && m.id !== 'zoom'),
+  { id: 'typewriter', label: '⌨ Typewriter' },
+  { id: 'wipe', label: 'Write on →' },
+];
+
+/** Entrances that reveal a line from the left rather than move or fade it. */
+export function isTextReveal(kind: OverlayMotion | undefined): boolean {
+  return kind === 'typewriter' || kind === 'wipe';
+}
+
+/**
+ * How much of each line a typed / written-on entrance shows at time t, 0-1, or null when
+ * the entrance is not one. TextOverlayFilters.Reveal's numbers: the whole block takes the
+ * entrance's length (at most 90% of the time on screen), shared out by each line's
+ * characters so it types at one even speed; a typewriter steps a character at a time.
+ */
+export function textReveal(
+  t: number, start: number, end: number, kind: OverlayMotion | undefined, duration: number | undefined, lines: string[],
+): number[] | null {
+  if (!isTextReveal(kind)) return null;
+  const total = Math.min(Math.max(0.1, (end - start) * 0.9), Math.max(0.1, duration && duration > 0 ? duration : 1));
+  const counts = lines.map((l) => (l.length === 0 ? 0 : Math.max(1, Array.from(l).length)));
+  const sum = Math.max(1, counts.reduce((a, b) => a + b, 0));
+  let done = 0;
+  return counts.map((c) => {
+    if (c === 0) return 1;
+    const from = start + (total * done) / sum;
+    const seconds = Math.max(0.01, (total * c) / sum);
+    done += c;
+    const p = clip01((t - from) / seconds);
+    return kind === 'typewriter' ? Math.floor(p * c) / c : p;
+  });
+}
 export const TEXT_OUT: MotionOption[] = MEDIA_OUT.filter((m) => m.id !== 'zoom');
 
 export const SHAPES: { id: OverlayShape; label: string }[] = [
@@ -133,7 +170,8 @@ export function textMotion(
   const inDur = seconds(inDuration);
   const outDur = seconds(outDuration);
   const [, easeIn, easeOut] = ease(t, start, end, inDur, outDur);
-  const a = !inKind || inKind === 'none' ? 1 : easeIn;
+  // A typed entrance arrives at full strength; textReveal draws it.
+  const a = !inKind || inKind === 'none' || isTextReveal(inKind) ? 1 : easeIn;
   const b = !outKind || outKind === 'none' ? 1 : easeOut;
 
   const [ix, iy] = slide(inKind, true, easeIn);

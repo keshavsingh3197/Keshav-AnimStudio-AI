@@ -388,7 +388,14 @@ public enum EraseStyle
     /// <see cref="Patch"/>, then the project's own watermark drawn inside the box - the old
     /// mark is replaced by ours in the very same spot.
     /// </summary>
-    Brand = 3
+    Brand = 3,
+
+    /// <summary>
+    /// Rebuilds the box from the pixels around its edges, blended smoothly across it - no
+    /// blur, no copied texture. On a plain band, a gradient or a title strip the text is
+    /// simply gone, leaving an empty area to put your own titles on.
+    /// </summary>
+    Clean = 4
 }
 
 /// <summary>Which neighbouring footage a <see cref="EraseStyle.Patch"/> is copied from.</summary>

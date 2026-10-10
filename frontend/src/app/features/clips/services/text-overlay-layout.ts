@@ -1,4 +1,5 @@
 import { OverlayMotion, OverlayShape, TextBoxStyle, TimelineItemTextStyle } from '../../../core/models/api.models';
+import { MAX_MOTION_SECONDS } from './frame-media';
 
 /*
  * Text overlay layout - the SAME rules as TextOverlayLayout.cs on the server. drawtext
@@ -490,9 +491,9 @@ function readImage(raw: unknown): FrameImage | null {
       ? Math.min(20, Math.max(0.05, i.sourceAspect)) : null,
     trimStart: clamp(i.trimStart, 0, 86400, 0),
     animIn: saved ? readMotion(i.animIn, 'none') : 'none',
-    animInDuration: clamp(i.animInDuration, 0.1, 3, 0.5),
+    animInDuration: clamp(i.animInDuration, 0.1, MAX_MOTION_SECONDS, 0.5),
     animOut: saved ? readMotion(i.animOut, 'none') : 'none',
-    animOutDuration: clamp(i.animOutDuration, 0.1, 3, 0.4),
+    animOutDuration: clamp(i.animOutDuration, 0.1, MAX_MOTION_SECONDS, 0.4),
     ...readTiming(i),
   };
 }

@@ -58,6 +58,7 @@ internal static class TextOverlayFilters
         var end = overlay.StartSeconds + overlay.DurationSeconds;
         var enable = FilterExpr.Quote($"between(t,{FilterExpr.N(start)},{FilterExpr.N(end)})");
         var (alpha, slide, slideX) = Motion(overlay, start, end, SlideDistance * scale);
+        var reveal = Reveal(overlay, text, start);
 
         var current = input;
         var step = 0;
@@ -72,7 +73,7 @@ internal static class TextOverlayFilters
             var fades = new StringBuilder();
             var inKind = Normalize(overlay.TransitionIn);
             var outKind = Normalize(overlay.TransitionOut);
-            if (inKind != "none" && overlay.TransitionInDuration > 0)
+            if (inKind != "none" && !IsReveal(inKind) && overlay.TransitionInDuration > 0)
             {
                 fades.Append($",fade=t=in:st={FilterExpr.N(start)}:d={FilterExpr.N(overlay.TransitionInDuration)}:alpha=1");
             }
@@ -153,13 +154,121 @@ internal static class TextOverlayFilters
             if (alpha is not null) parts.Add($"alpha={FilterExpr.Quote(alpha)}");
             parts.Add($"enable={enable}");
 
+            // A typed entrance keeps the frame as it was before this line, to cover the
+            // part of the line not typed yet.
+            var window = reveal?.Line(i);
+            var drawInput = current;
+            string? before = null;
+            if (window is not null)
+            {
+                before = $"{labelPrefix}_pre{i}";
+                drawInput = $"{labelPrefix}_in{i}";
+                graph.Append($"[{current}]split=2[{drawInput}][{before}];\n");
+            }
+
             var next = $"{labelPrefix}_{step++}";
-            graph.Append($"[{current}]drawtext={string.Join(':', parts)}[{next}];\n");
+            graph.Append($"[{drawInput}]drawtext={string.Join(':', parts)}[{next}];\n");
             current = next;
+
+            if (window is { } wd)
+            {
+                var shadowPx = look.Shadow ? Math.Max(1, (int)Math.Round(size / 16.0)) : 0;
+                var margin = Math.Max(boxPad, border) + shadowPx + 4;
+                current = AppendRevealCover(
+                    graph, current, before!, $"{labelPrefix}_{step++}", wd, reveal!,
+                    lineTop, pitch, margin, size, edge, look.CenterX / 100 * canvas.Width, canvas);
+            }
         }
 
         return current;
     }
+
+    /// <summary>Entrances that type a line out rather than move or fade it.</summary>
+    private static bool IsReveal(string kind) => kind is "typewriter" or "wipe";
+
+    /// <summary>
+    /// A typed (or wiped) entrance: when each line starts and how long it takes, shared out
+    /// by each line's length so the whole block types at one even speed.
+    /// </summary>
+    private sealed record RevealPlan(double Start, double End, bool Stepped, IReadOnlyList<(double Start, double Seconds, int Chars)?> Lines)
+    {
+        public (double Start, double Seconds, int Chars)? Line(int i) => i < Lines.Count ? Lines[i] : null;
+    }
+
+    private static RevealPlan? Reveal(MergeOverlayItem overlay, MergeTextOverlay text, double start)
+    {
+        var kind = Normalize(overlay.TransitionIn);
+        if (!IsReveal(kind)) return null;
+
+        // Never longer than most of the time the text is on screen, so it is read whole.
+        var total = Math.Clamp(overlay.TransitionInDuration > 0 ? overlay.TransitionInDuration : 1,
+            0.1, Math.Max(0.1, overlay.DurationSeconds * 0.9));
+
+        var count = text.LineRelativePaths.Count;
+        var chars = Enumerable.Range(0, count)
+            .Select(i => text.LineRelativePaths[i] is null ? 0
+                : Math.Max(1, text.LineLengths is { } l && i < l.Count ? l[i] : 1))
+            .ToList();
+        var sum = Math.Max(1, chars.Sum());
+
+        var lines = new List<(double, double, int)?>(count);
+        var done = 0;
+        foreach (var c in chars)
+        {
+            lines.Add(c == 0 ? null : (start + total * done / sum, total * c / sum, c));
+            done += c;
+        }
+
+        return new RevealPlan(start, start + total, kind == "typewriter" && text.LineLengths is not null, lines);
+    }
+
+    /// <summary>
+    /// Lays the frame from before the line over the part of the line not typed yet: a strip
+    /// of it, padded to twice the width with clear pixels, cut at the reveal point and
+    /// overlaid there - so what is to the right of the point is the untouched picture, and
+    /// the drawn line shows only to its left. The point moves a character's width at a time
+    /// for a typewriter, smoothly for a wipe. drawtext cannot draw part of a line, and
+    /// drawing a growing prefix would shift a centred line on every keystroke.
+    /// <para>
+    /// The line's width is estimated - nothing is measured before drawing - so the sweep
+    /// runs a little past both ends of it; the frames before and after are untouched.
+    /// </para>
+    /// </summary>
+    private static string AppendRevealCover(
+        StringBuilder graph, string drawn, string before, string next,
+        (double Start, double Seconds, int Chars) line, RevealPlan plan,
+        int lineTop, int pitch, int margin, int size, int edge, double centreX, Canvas canvas)
+    {
+        var estimate = Math.Min(canvas.Width - 2.0 * edge, line.Chars * RevealCharWidth * size);
+        var left = Math.Clamp(centreX - estimate / 2, edge, Math.Max(edge, canvas.Width - estimate - edge)) - margin;
+        var right = left + estimate + 2 * margin;
+        left = Math.Max(0, left);
+        right = Math.Min(canvas.Width, right);
+
+        // Even, so a 4:2:0 frame's crop and overlay round to the same row.
+        var y0 = Math.Max(0, (lineTop - margin) & ~1);
+        var h = Math.Min(canvas.Height - y0, (pitch + 2 * margin + 1) & ~1);
+        if (h < 2 || right - left < 2) return drawn;
+
+        var p = $"clip((t-{FilterExpr.N(line.Start)})/{FilterExpr.N(Math.Max(0.01, line.Seconds))},0,1)";
+        var progress = plan.Stepped ? $"floor({p}*{line.Chars})/{line.Chars}" : p;
+        var at = FilterExpr.Quote($"{FilterExpr.N(Math.Round(left, 1))}+{FilterExpr.N(Math.Round(right - left, 1))}*{progress}");
+        var window = FilterExpr.Quote($"between(t,{FilterExpr.N(plan.Start)},{FilterExpr.N(plan.End)})");
+
+        var cover = $"{next}c";
+        graph.Append($"[{before}]trim=start={FilterExpr.N(plan.Start)}:end={FilterExpr.N(plan.End + 0.05)},")
+             .Append($"crop=w=iw:h={h}:x=0:y={y0},format=yuva444p,")
+             .Append("pad=w=iw*2:h=ih:x=0:y=0:color=black@0,")
+             .Append($"crop=w=iw/2:h=ih:x={at}:y=0[{cover}];\n")
+             .Append($"[{drawn}][{cover}]overlay=x={at}:y={y0}:eof_action=pass:enable={window}[{next}];\n");
+        return next;
+    }
+
+    /// <summary>
+    /// Average advance of a glyph for the reveal's sweep, a share of the font size - a little
+    /// narrower than wrapping's deliberately wide estimate, so typing keeps pace with the text.
+    /// </summary>
+    private const double RevealCharWidth = 0.56;
 
     /// <summary>
     /// The opacity expression (null when the overlay simply cuts in and out) and the
@@ -170,7 +279,8 @@ internal static class TextOverlayFilters
     private static (string? Alpha, string Slide, string SlideX) Motion(
         MergeOverlayItem overlay, double start, double end, double distance)
     {
-        var inKind = Normalize(overlay.TransitionIn);
+        // A typed entrance is not a fade or a move: the text itself arrives at full strength.
+        var inKind = IsReveal(Normalize(overlay.TransitionIn)) ? "none" : Normalize(overlay.TransitionIn);
         var outKind = Normalize(overlay.TransitionOut);
         var inSeconds = overlay.TransitionInDuration > 0 ? overlay.TransitionInDuration : 0.5;
         var outSeconds = overlay.TransitionOutDuration > 0 ? overlay.TransitionOutDuration : 0.5;

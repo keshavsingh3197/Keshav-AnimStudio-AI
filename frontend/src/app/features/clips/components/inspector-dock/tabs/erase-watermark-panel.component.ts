@@ -42,7 +42,8 @@ export class EraseWatermarkPanelComponent {
   });
 
   readonly modes: { style: EraseStyle; icon: string; label: string; hint: string }[] = [
-    { style: 'Patch', icon: '✦', label: 'Remove', hint: 'Covers the mark with the footage right beside it - looks like it was never there' },
+    { style: 'Clean', icon: '✧', label: 'Clean', hint: 'Rebuilds the box from the colours around its edges - text on a plain band or gradient disappears completely, leaving room for your own titles' },
+    { style: 'Patch', icon: '✦', label: 'Patch', hint: 'Covers the mark with the footage right beside it - best on sky, water, grass or other texture' },
     { style: 'Blur', icon: '◌', label: 'Blur', hint: 'Smears the mark into its surroundings' },
     { style: 'Brand', icon: '★', label: 'My mark', hint: 'Removes the mark and puts your own watermark in the same spot' },
     { style: 'Fill', icon: '■', label: 'Fill', hint: 'Paints a box over the mark in one colour' },

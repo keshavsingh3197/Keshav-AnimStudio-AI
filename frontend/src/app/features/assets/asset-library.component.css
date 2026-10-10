@@ -1088,3 +1088,11 @@
 
 
 .collab-link { display: inline-block; margin-top: .6rem; font-weight: 600; }
+
+button.upload-btn {
+  border: none;
+}
+button.upload-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

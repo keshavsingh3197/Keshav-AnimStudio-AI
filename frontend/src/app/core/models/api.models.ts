@@ -689,7 +689,9 @@ export interface TimelineItemTransform {
 /** How an overlay arrives or leaves. 'pop' is an entrance only; as an exit it shrinks like 'zoom'. */
 export type OverlayMotion =
   | 'none' | 'fade' | 'slide-left' | 'slide-right' | 'slide-up' | 'slide-down'
-  | 'zoom' | 'zoom-in' | 'zoom-out' | 'pop';
+  | 'zoom' | 'zoom-in' | 'zoom-out' | 'pop'
+  /** Text only: typed out a character at a time, or wiped on left to right. */
+  | 'typewriter' | 'wipe';
 
 export type OverlayShape = 'rect' | 'rounded' | 'circle';
 
@@ -697,7 +699,7 @@ export type OverlayShape = 'rect' | 'rounded' | 'circle';
  * Blur smears the mark; Patch covers it with the footage beside it; Fill paints a box;
  * Brand patches it and draws the project's own watermark in its place.
  */
-export type EraseStyle = 'Blur' | 'Fill' | 'Patch' | 'Brand';
+export type EraseStyle = 'Blur' | 'Fill' | 'Patch' | 'Brand' | 'Clean';
 
 /** Which neighbouring footage a Patch / Brand box copies from. */
 export type EraseSource = 'Auto' | 'Above' | 'Below' | 'Left' | 'Right';
@@ -761,7 +763,7 @@ export interface TimelineItemTextStyle {
   shadow?: boolean;
   uppercase?: boolean;
   /** Transition In animation for text overlay */
-  transitionIn?: 'none' | 'fade' | 'slide-up' | 'slide-down' | 'slide-left' | 'slide-right' | 'zoom' | 'zoom-in' | 'zoom-out';
+  transitionIn?: 'none' | 'fade' | 'slide-up' | 'slide-down' | 'slide-left' | 'slide-right' | 'zoom' | 'zoom-in' | 'zoom-out' | 'typewriter' | 'wipe';
   transitionInDuration?: number;
   /** Transition Out animation for text overlay */
   transitionOut?: 'none' | 'fade' | 'slide-down' | 'slide-up' | 'slide-left' | 'slide-right' | 'zoom' | 'zoom-in' | 'zoom-out';

@@ -456,3 +456,90 @@
   justify-content: center;
   font-size: 0.9rem;
 }
+
+/* Collapsed layers: one compact row you can scan; the selected one expands. */
+.fl-layer {
+  padding: 6px 10px;
+}
+.fl-layer.expanded {
+  padding: 10px 12px;
+}
+.fl-layer-head {
+  cursor: pointer;
+}
+.fl-caret {
+  width: 10px;
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+.fl-layer-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+.fl-layer-title,
+.fl-layer-sub,
+.fl-layer-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fl-layer-title {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.fl-layer-sub {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+.fl-layer-meta {
+  font-size: 0.64rem;
+  color: #64748b;
+}
+
+/* The heading over each group of a layer's controls. */
+.fl-sub-label {
+  margin-top: 4px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+
+/* Animations list: a layer's name, then its In and Out on one line. */
+.fl-anim-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+.fl-anim-row.fl-selected {
+  border-color: #38bdf8;
+}
+.fl-anim-name {
+  align-self: flex-start;
+  max-width: 100%;
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fl-anim-name:hover {
+  color: #38bdf8;
+}

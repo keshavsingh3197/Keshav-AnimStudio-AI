@@ -31,7 +31,7 @@ import {
   resolveTextLook, sortCues, wrapText,
 } from './text-overlay-layout';
 import {
-  LayerMotion, MAX_BORDER_WIDTH, MAX_MOTION_SECONDS, measureMediaAspect, mediaMotion, shapeRadius, textMotion,
+  LayerMotion, MAX_BORDER_WIDTH, MAX_MOTION_SECONDS, measureMediaAspect, mediaMotion, shapeRadius, textMotion, textReveal,
 } from './frame-media';
 
 /** One block of text as the monitor draws it - a TXT1 overlay, a frame text layer or a subtitle. */
@@ -47,6 +47,8 @@ export interface MonitorTextBlock {
   /** Sideways entrance/exit offset, as a share of the frame width. */
   offsetX: number;
   scale: number;
+  /** Typed / written-on entrance: the share of each line shown, 0-1. Null shows every line whole. */
+  reveal: number[] | null;
   selected: boolean;
 }
 
@@ -2243,27 +2245,6 @@ export class StudioStateService implements OnDestroy {
     };
   });
 
-  readonly preview = computed(() => {
-    const height = 190;
-    const project = this.store.project();
-    const aspect = project ? project.width / project.height : 16 / 9;
-    const wm = this.effectiveWatermark();
-
-    const position = wm.position;
-    const inset = wm.marginFraction * height;
-
-    return {
-      width: Math.round(height * aspect),
-      height,
-      fontSize: wm.heightFraction * height,
-      inset,
-      top: position.startsWith('Top'),
-      align: position.endsWith('Left') ? 'flex-start'
-        : position.endsWith('Right') ? 'flex-end'
-          : 'center',
-    };
-  });
-
   readonly logoUrl = computed(() => {
     const wm = this.effectiveWatermark();
     if (!wm.logoAssetId) return null;
@@ -2377,6 +2358,20 @@ export class StudioStateService implements OnDestroy {
     if (fmt === 'Square' || asp === '1:1') return 'aspect-1-1 aspect-square';
     if (asp === '4:5') return 'aspect-4-5 aspect-portrait';
     return 'aspect-16-9 aspect-wide';
+  });
+
+  /**
+   * The export canvas in pixels for the frame the monitor shows - only its shape and
+   * width matter, for the watermark's vertical safe margin.
+   */
+  readonly monitorCanvasPixels = computed<{ width: number; height: number }>(() => {
+    const cls = this.monitorScreenAspectClass();
+    if (cls.startsWith('aspect-9-16')) return { width: 1080, height: 1920 };
+    if (cls.startsWith('aspect-1-1')) return { width: 1080, height: 1080 };
+    if (cls.startsWith('aspect-4-5')) return { width: 1080, height: 1350 };
+    return this.exportResolution() === '4k' ? { width: 3840, height: 2160 }
+      : this.exportResolution() === '720p' ? { width: 1280, height: 720 }
+        : { width: 1920, height: 1080 };
   });
 
   readonly monitorFitClass = computed(() => {
@@ -4177,7 +4172,7 @@ export class StudioStateService implements OnDestroy {
       Math.round((Number.isFinite(v) ? Math.max(lo, Math.min(hi, v as number)) : fallback) * 100) / 100;
     const x = num(r.x, 0, 100 - MIN_ERASE_SIZE);
     const y = num(r.y, 0, 100 - MIN_ERASE_SIZE);
-    const styles: EraseStyle[] = ['Blur', 'Fill', 'Patch', 'Brand'];
+    const styles: EraseStyle[] = ['Blur', 'Fill', 'Patch', 'Brand', 'Clean'];
     const sources: EraseSource[] = ['Auto', 'Above', 'Below', 'Left', 'Right'];
     return {
       x, y,
@@ -4234,7 +4229,7 @@ export class StudioStateService implements OnDestroy {
   /** Adds a box where marks usually sit; the user then nudges it onto the real one. */
   addEraseRegion(
     corner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center' = 'top-right',
-    style: EraseStyle = 'Patch',
+    style: EraseStyle = 'Clean',
   ): void {
     const w = 14, h = 10, edge = 2;
     const x = corner.endsWith('left') ? edge : corner.endsWith('right') ? 100 - w - edge : (100 - w) / 2;
@@ -5472,9 +5467,11 @@ export class StudioStateService implements OnDestroy {
         const [start, end] = layerWindow(layer, duration);
         const m = textMotion(t, start, end, layer.style.transitionIn, layer.style.transitionInDuration,
           layer.style.transitionOut, layer.style.transitionOutDuration);
+        const shown = lines(layer.text, look);
         blocks.push({
-          key: `frame-${layer.id}`, target: { kind: 'frame', id: layer.id }, lines: lines(layer.text, look), look,
+          key: `frame-${layer.id}`, target: { kind: 'frame', id: layer.id }, lines: shown, look,
           opacity: m.opacity, offsetY: m.dyPx, offsetX: m.dx, scale: 1, selected: selected === layer.id,
+          reveal: textReveal(t, start, end, layer.style.transitionIn, layer.style.transitionInDuration, shown),
         });
       }
 
@@ -5484,9 +5481,11 @@ export class StudioStateService implements OnDestroy {
         if (!cue.text.trim() || t < cue.start || t >= cue.end) continue;
         const m = textMotion(t, cue.start, cue.end, subStyle.transitionIn, subStyle.transitionInDuration,
           subStyle.transitionOut, subStyle.transitionOutDuration);
+        const shown = lines(cue.text, subLook);
         blocks.push({
-          key: `sub-${cue.id}`, target: { kind: 'subtitle' }, lines: lines(cue.text, subLook), look: subLook,
+          key: `sub-${cue.id}`, target: { kind: 'subtitle' }, lines: shown, look: subLook,
           opacity: m.opacity, offsetY: m.dyPx, offsetX: m.dx, scale: 1, selected: selected === 'subtitles',
+          reveal: textReveal(t, cue.start, cue.end, subStyle.transitionIn, subStyle.transitionInDuration, shown),
         });
       }
     }
@@ -5495,9 +5494,12 @@ export class StudioStateService implements OnDestroy {
     if (txt && txt.src.trim()) {
       const look = resolveTextLook(txt.textStyle);
       const motion = this.textOverlayMotion(txt);
+      const shown = lines(txt.src, look);
       blocks.push({
-        key: txt.id, target: { kind: 'item', id: txt.id }, lines: lines(txt.src, look), look,
+        key: txt.id, target: { kind: 'item', id: txt.id }, lines: shown, look,
         opacity: motion.opacity, offsetY: motion.offsetY, offsetX: motion.offsetX, scale: motion.scale,
+        reveal: textReveal(this.currentTime(), txt.startTime, txt.startTime + txt.duration,
+          txt.textStyle?.transitionIn, txt.textStyle?.transitionInDuration, shown),
         selected: this.selectedTimelineItemId() === txt.id,
       });
     }

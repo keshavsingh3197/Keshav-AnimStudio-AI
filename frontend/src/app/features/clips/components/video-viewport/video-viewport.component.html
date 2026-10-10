@@ -145,7 +145,7 @@
                      [style.mask-image]="m.mask"
                      [style.backdrop-filter]="m.region.style === 'Blur' ? eraseBlur(m) : null"
                      [style.background-color]="m.region.style === 'Fill' ? eraseFill(m) : null">
-                  @if (m.region.style === 'Patch' || m.region.style === 'Brand') {
+                  @if (m.region.style === 'Patch' || m.region.style === 'Brand' || m.region.style === 'Clean') {
                     <canvas #patchCanvas class="erase-patch" [attr.data-erase]="m.index"
                             [style.filter]="state.computedMonitorFilter()"></canvas>
                   }
@@ -261,7 +261,9 @@
                    [title]="state.isPlaying() ? '' : 'Drag to move'"
                    (pointerdown)="startTextDrag($event, b)">
                 @for (line of b.lines; track $index) {
-                  <div class="text-line"><span [style]="textLineStyle(b)">{{ line }}</span></div>
+                  <!-- A typed entrance shows the share of the line typed so far, as the export does. -->
+                  <div class="text-line"><span [style]="textLineStyle(b)"
+                        [style.clip-path]="b.reveal ? revealClip(b.reveal[$index]) : null">{{ line }}</span></div>
                 }
               </div>
             }
@@ -270,24 +272,22 @@
 
         <!-- Live Watermark Overlay -->
         @if (state.effectiveWatermark().kind !== 'None' && state.monitorShowsCornerWatermark()) {
-          <div class="monitor-watermark-overlay"
-               [style.padding.px]="state.preview().inset"
-               [style.align-items]="state.preview().top ? 'flex-start' : 'flex-end'"
-               [style.justify-content]="state.preview().align">
-            @if (state.effectiveWatermark().kind === 'Logo') {
-              @if (state.logoUrl(); as url) {
-                <img [src]="url" alt="" [style.height.px]="state.preview().fontSize"
-                     [style.opacity]="state.effectiveWatermark().opacity" />
+          <!-- Sized and placed in units of the frame, as the export does - not in pixels. -->
+          <div class="monitor-watermark-overlay">
+            <div class="monitor-watermark-mark" [style]="monitorWatermarkStyle()">
+              @if (state.effectiveWatermark().kind === 'Logo') {
+                @if (state.logoUrl(); as url) {
+                  <img [src]="url" alt="" [style.opacity]="state.effectiveWatermark().opacity" />
+                }
+              } @else {
+                <span class="wm-text"
+                      [style.color]="state.effectiveWatermark().colorHex"
+                      [style.opacity]="state.effectiveWatermark().opacity"
+                      [style.background]="'rgba(0,0,0,' + state.effectiveWatermark().backplateOpacity + ')'">
+                  {{ state.effectiveWatermark().text || 'yoursite.example' }}
+                </span>
               }
-            } @else {
-              <span class="wm-text"
-                    [style.font-size.px]="state.preview().fontSize"
-                    [style.color]="state.effectiveWatermark().colorHex"
-                    [style.opacity]="state.effectiveWatermark().opacity"
-                    [style.background]="'rgba(0,0,0,' + state.effectiveWatermark().backplateOpacity + ')'">
-                {{ state.effectiveWatermark().text || 'yoursite.example' }}
-              </span>
-            }
+            </div>
           </div>
         }
 

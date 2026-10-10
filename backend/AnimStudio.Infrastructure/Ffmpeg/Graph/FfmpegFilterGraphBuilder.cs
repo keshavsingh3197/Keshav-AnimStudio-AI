@@ -1055,9 +1055,19 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
             var name = transition.ToXfadeName() ?? "fade";
             var next = $"vx{k}";
 
-            graph.Append($"[{videoLabel}][v{k + 1}]xfade=transition={name}")
-                 .Append($":duration={FilterExpr.Sec(durations[k], rate)}")
-                 .Append($":offset={FilterExpr.Sec(offsets[k], rate)}[{next}];\n");
+            if (durations[k].Value == 0)
+            {
+                // A hard cut is a concat, never a zero-length xfade: xfade with duration=0
+                // ends at its offset and silently drops the whole second input - which is
+                // how an export with any overlay lost its end card.
+                graph.Append($"[{videoLabel}][v{k + 1}]concat=n=2:v=1:a=0[{next}];\n");
+            }
+            else
+            {
+                graph.Append($"[{videoLabel}][v{k + 1}]xfade=transition={name}")
+                     .Append($":duration={FilterExpr.Sec(durations[k], rate)}")
+                     .Append($":offset={FilterExpr.Sec(offsets[k], rate)}[{next}];\n");
+            }
             videoLabel = next;
         }
 
@@ -1096,12 +1106,14 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
 
         var audioLabel = "a0";
         var useAudioCrossfade = capabilities.Supports(RenderFeature.AudioCrossFade);
-        if (!useAudioCrossfade && durations.Count > 0) warnings.Add("AUDIO_CROSSFADE_UNAVAILABLE");
+        if (!useAudioCrossfade && durations.Any(d => d.Value > 0)) warnings.Add("AUDIO_CROSSFADE_UNAVAILABLE");
 
         for (var k = 0; k < durations.Count; k++)
         {
             var next = $"ax{k}";
-            if (useAudioCrossfade)
+            // A hard cut concatenates: acrossfade with d=0 is not a no-op - it loses audio
+            // at the join, which would drift everything after it out of sync.
+            if (useAudioCrossfade && durations[k].Value > 0)
             {
                 // Filter options attach with '=', not ':': "acrossfade:d=0.5" is a parse error.
                 graph.Append($"[{audioLabel}][a{k + 1}]acrossfade")

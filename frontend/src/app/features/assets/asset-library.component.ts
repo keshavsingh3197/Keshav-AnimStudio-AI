@@ -6,12 +6,13 @@ import { ApiService } from '../../core/services/api.service';
 import { ProjectStore } from '../../core/services/project-store';
 import { StatusService } from '../../core/services/status.service';
 import { FileDropDirective } from '../../shared/file-drop.directive';
+import { UrlImportDialogComponent } from '../../shared/url-import-dialog.component';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
 @Component({
   selector: 'app-asset-library',
-  imports: [DecimalPipe, FormsModule, FileDropDirective, RouterLink],
+  imports: [DecimalPipe, FormsModule, FileDropDirective, RouterLink, UrlImportDialogComponent],
   templateUrl: './asset-library.component.html',
   styleUrls: ['./asset-library.component.css']
 })
@@ -26,6 +27,8 @@ export class AssetLibraryComponent {
   readonly previewAsset = signal<Asset | null>(null);
   readonly copiedAssetId = signal<string | null>(null);
   readonly isDraggingFiles = signal<boolean>(false);
+  /** The paste-many-links import, open over the library. */
+  readonly urlImportOpen = signal(false);
   
   // View mode & sorting
   readonly viewMode = signal<'grid' | 'table'>('grid');
