@@ -24,7 +24,7 @@ public sealed record ClipJunctionOverride(
 /// <summary>One music (or other audio) clip placed at its own point on the timeline.</summary>
 public sealed record TimedMusicClip(
     string AssetId, double StartSeconds, double Volume,
-    double? TrimStartSeconds, double? TrimEndSeconds);
+    double? TrimStartSeconds, double? TrimEndSeconds, bool IsVoiceover = false);
 
 /// <summary>
 /// One stretch of the finished timeline over which the music plays at a reduced level,
@@ -92,6 +92,9 @@ public sealed record ClipMergeCommand
     /// one from Admin &gt; Branding. The settings are resolved server-side, never sent.
     /// </summary>
     public bool IncludeOutro { get; init; }
+
+    /// <summary>Level the finished mix to YouTube's loudness target (-14 LUFS).</summary>
+    public bool YouTubeLoudness { get; init; }
 
     public IReadOnlyList<TimelineItemSpec>? TimelineItems { get; init; }
 }
@@ -507,7 +510,8 @@ public sealed class ClipMergeService(
                 StartSeconds = t.StartSeconds,
                 Volume = t.Volume,
                 TrimStartSeconds = t.TrimStartSeconds,
-                TrimEndSeconds = t.TrimEndSeconds
+                TrimEndSeconds = t.TrimEndSeconds,
+                IsVoiceover = t.IsVoiceover
             })
             .ToList();
 
@@ -564,7 +568,8 @@ public sealed class ClipMergeService(
                 ClipAudio = clipAudioSpecs,
                 Watermark = watermark,
                 Outro = outro ?? new OutroSettings(),
-                TimelineItems = command.TimelineItems?.ToList() ?? []
+                TimelineItems = command.TimelineItems?.ToList() ?? [],
+                YouTubeLoudness = command.YouTubeLoudness
             }
         };
 

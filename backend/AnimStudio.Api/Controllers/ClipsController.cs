@@ -160,7 +160,7 @@ public sealed class ClipsController(
             BackgroundMusicVolume = request.BackgroundMusicVolume,
             MusicTracks = request.MusicTracks
                 .Select(t => new TimedMusicClip(
-                    t.AssetId, t.StartSeconds, t.Volume, t.TrimStartSeconds, t.TrimEndSeconds))
+                    t.AssetId, t.StartSeconds, t.Volume, t.TrimStartSeconds, t.TrimEndSeconds, t.IsVoiceover))
                 .ToList(),
             MusicDuckWindows = request.MusicDuckWindows
                 .Select(w => new MusicDuckWindow(w.StartSeconds, w.EndSeconds, w.Level))
@@ -171,6 +171,7 @@ public sealed class ClipsController(
                 .ToList(),
             Watermark = request.Watermark.ToSettings(),
             IncludeOutro = request.IncludeOutro,
+            YouTubeLoudness = request.YouTubeLoudness,
             TimelineItems = request.TimelineItems?
                 .Select(t => new TimelineItemSpec
                 {

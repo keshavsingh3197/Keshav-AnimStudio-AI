@@ -856,13 +856,14 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
                  .Append(AudioFilters.TimedTrack(
                      track.Volume, track.StartSeconds, track.TrimStartSeconds,
                      track.TrimEndSeconds, plan.Encoder))
-                 .Append(duckSuffix)
+                 .Append(track.IsVoiceover ? string.Empty : duckSuffix)
                  .Append($"[{label}];\n");
             mixLabels.Add(label);
         }
 
         graph.Append('[').Append(string.Join("][", mixLabels)).Append(']')
              .Append(AudioFilters.Mix(mixLabels.Count, capabilities.Supports(RenderFeature.AudioLimiter)))
+             .Append(plan.YouTubeLoudness ? "," + AudioFilters.YouTubeLoudness(plan.Encoder) : string.Empty)
              .Append("[afinal]");
 
         var outputArguments = new List<string>
@@ -1086,18 +1087,21 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
                      .Append(AudioFilters.TimedTrack(
                          track.Volume, track.StartSeconds, track.TrimStartSeconds,
                          track.TrimEndSeconds, plan.Encoder))
-                     .Append(duckSuffix)
+                     .Append(track.IsVoiceover ? string.Empty : duckSuffix)
                      .Append($"[{label}];\n");
                 mixLabels.Add(label);
             }
 
             graph.Append('[').Append(string.Join("][", mixLabels)).Append(']')
                  .Append(AudioFilters.Mix(mixLabels.Count, capabilities.Supports(RenderFeature.AudioLimiter)))
+                 .Append(plan.YouTubeLoudness ? "," + AudioFilters.YouTubeLoudness(plan.Encoder) : string.Empty)
                  .Append("[afinal]");
         }
         else
         {
-            graph.Append($"[{audioLabel}]anull[afinal]");
+            graph.Append($"[{audioLabel}]")
+                 .Append(plan.YouTubeLoudness ? AudioFilters.YouTubeLoudness(plan.Encoder) : "anull")
+                 .Append("[afinal]");
         }
 
         var rateArguments = new List<string>

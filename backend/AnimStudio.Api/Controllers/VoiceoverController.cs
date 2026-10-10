@@ -230,7 +230,8 @@ public sealed class VoiceoverController(
 
         // The tuned voice is part of it: a line it spoke is not the line the converter made.
         var fingerprint = Sha256Hex(string.Join('\n',
-            text, voiceId, rate.ToString("R", CultureInfo.InvariantCulture), mine?.Id, mine?.StorageKey, mine?.TunedVoiceId));
+            text, voiceId, rate.ToString("R", CultureInfo.InvariantCulture), mine?.Id, mine?.StorageKey, mine?.TunedVoiceId,
+            mine is null ? null : MyVoiceTuning.Revision));
         return new(null, text, voiceId, rate, mine, fingerprint);
     }
 
@@ -243,14 +244,14 @@ public sealed class VoiceoverController(
         var tunedVoice = line.MyVoice is { } mine ? await tuning.VoiceForAsync(mine, line.VoiceId!, ct) : null;
         if (line.MyVoice is not null && tunedVoice is null && !voiceRenderer.CanReVoice)
             return new(Fail(StatusCodes.Status503ServiceUnavailable, "my-voice-unavailable",
-                @"Your own voices need Kokoro with voice tuning for English lines (start it with scripts\setup-voiceover.ps1), " +
+                @"Your own voices need Kokoro with voice tuning (start it with scripts\setup-voiceover.ps1), " +
                 @"or the AI voice converter for any language (install it once with scripts\setup-voice-ai.ps1, then restart the API)."));
 
         var reVoice = line.MyVoice is not null && tunedVoice is null;
         AiOutcome<AiSpeechResult>? outcome = null;
         if (tunedVoice is not null)
         {
-            outcome = await SynthesizeAsync(projectId, line, tunedVoice, ct);
+            outcome = await SynthesizeAsync(projectId, line, tunedVoice, ct, MyVoiceTuning.LanguageOf(line.VoiceId!));
             if (outcome is null) return new(Busy());
             if (!outcome.IsSuccess && voiceRenderer.CanReVoice)
             {
@@ -306,13 +307,13 @@ public sealed class VoiceoverController(
 
     /// <summary>Null when the line waited too long for one of the few speech slots.</summary>
     private async Task<AiOutcome<AiSpeechResult>?> SynthesizeAsync(
-        string projectId, Line line, string voiceId, CancellationToken ct)
+        string projectId, Line line, string voiceId, CancellationToken ct, string? languageCode = null)
     {
         if (!await Renders.WaitAsync(TimeSpan.FromSeconds(30), ct)) return null;
         try
         {
             return await ai.SpeechAsync(
-                new AiSpeechRequest { Text = line.Text!, VoiceId = voiceId, Rate = line.Rate },
+                new AiSpeechRequest { Text = line.Text!, VoiceId = voiceId, Rate = line.Rate, LanguageCode = languageCode },
                 new AiCallContext(projectId, currentUser.UserId), ct);
         }
         finally

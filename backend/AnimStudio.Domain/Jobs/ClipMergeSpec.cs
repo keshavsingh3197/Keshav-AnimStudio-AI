@@ -120,6 +120,9 @@ public sealed class ClipMergeSpec
     public List<ClipAudioSpec> ClipAudio { get; set; } = [];
 
     public List<TimelineItemSpec> TimelineItems { get; set; } = [];
+
+    /// <summary>Level the finished mix to YouTube's loudness target (-14 LUFS). False on every job written before it existed.</summary>
+    public bool YouTubeLoudness { get; set; }
 }
 
 /// <summary>
@@ -215,6 +218,9 @@ public sealed class TimedMusicClipSpec
     /// <summary>Optional window on the SOURCE file. Null on either end plays from/to the end.</summary>
     public double? TrimStartSeconds { get; set; }
     public double? TrimEndSeconds { get; set; }
+
+    /// <summary>A voiceover line: music ducks under it, and it never ducks itself.</summary>
+    public bool IsVoiceover { get; set; }
 }
 
 /// <summary>One stretch of the finished timeline over which the music plays quieter.</summary>

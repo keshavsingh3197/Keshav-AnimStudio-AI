@@ -48,6 +48,9 @@ public sealed class OpenAiCompatibleTtsProvider(
 
     private const string TunedSuffix = "_tuned";
 
+    /// <summary>Kokoro's one-letter language codes; anything else is not sent, so a hosted service never sees the field.</summary>
+    private static readonly Regex KokoroLanguage = new(@"^[abefhijpz]$", RegexOptions.CultureInvariant);
+
     /// <summary>
     /// What OpenAI's own service offers. Used only when an endpoint has no voice-listing
     /// route, so that a voice picker is never empty on a service that does have voices.
@@ -111,6 +114,10 @@ public sealed class OpenAiCompatibleTtsProvider(
         // Kokoro serves whatever it has loaded and treats the field as advisory, so an
         // unset model is legitimate rather than a misconfiguration.
         if (!string.IsNullOrWhiteSpace(Model)) body["model"] = Model;
+
+        // Kokoro reads a line in the language its voice's first letter names; a tuned voice
+        // is named as English whatever it speaks, so its line's language is given instead.
+        if (request.LanguageCode is { } language && KokoroLanguage.IsMatch(language)) body["lang_code"] = language;
 
         using var httpRequest = JsonRequest(HttpMethod.Post, "audio/speech", body);
 

@@ -91,6 +91,15 @@ export function isVoiceoverTrack(track: MusicTrackRow): boolean {
   return track.key.startsWith('vo_');
 }
 
+/** Key prefixes of the A2 rows auto-enhance lays ("music_" keeps them on A2), so a re-run replaces them. */
+export const AUTO_BED_PREFIX = 'music_bed_';
+export const AUTO_CUT_PREFIX = 'music_cut_';
+
+/** A sound effect auto-enhance placed on a cut. It plays over the music bed rather than instead of it. */
+export function isCutEffectTrack(track: MusicTrackRow): boolean {
+  return track.key.startsWith(AUTO_CUT_PREFIX);
+}
+
 /** Voice sits on A1 and music on A2, so a music bed never covers the spoken lines. */
 export function audioLaneOf(track: MusicTrackRow): 'A1' | 'A2' {
   return isVoiceoverTrack(track) ? 'A1' : 'A2';

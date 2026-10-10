@@ -258,6 +258,7 @@ public static class DependencyInjection
         services.AddSingleton<YtDlpMediaDownloader>();
         services.AddSingleton<FfmpegVideoChunker>();
         services.AddSingleton<IStudioVoiceRenderer, FfmpegStudioVoiceRenderer>();
+        services.AddSingleton<INarrationCleaner, FfmpegNarrationCleaner>();
         services.AddSingleton<IVoiceConverter, SeedVcVoiceConverter>();
         services.AddScoped<MyVoiceTuning>();
         services.AddSingleton<FfmpegReleaseKitBuilder>();

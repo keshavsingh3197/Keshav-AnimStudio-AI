@@ -445,6 +445,9 @@ public sealed record TimedMusicClipRequest
     [Range(0, ClipAudioSpec.MaxGain)] public double Volume { get; init; } = 0.5;
     [Range(0, 86400)] public double? TrimStartSeconds { get; init; }
     [Range(0, 86400)] public double? TrimEndSeconds { get; init; }
+
+    /// <summary>A voiceover line (A1): it leads the mix, so music ducks under it and it never ducks itself.</summary>
+    public bool IsVoiceover { get; init; }
 }
 
 /// <summary>
@@ -547,6 +550,9 @@ public sealed record ClipMergeRequest
     /// card itself always comes from the project or studio settings.
     /// </summary>
     public bool IncludeOutro { get; init; }
+
+    /// <summary>Level the finished mix to YouTube's loudness target (-14 LUFS), so it plays as loud as other videos.</summary>
+    public bool YouTubeLoudness { get; init; }
 
     public List<TimelineItemRequest>? TimelineItems { get; init; }
 }
@@ -652,4 +658,11 @@ public sealed record VoiceoverRequest
 
     /// <summary>One of the caller's own voices: the line is spoken by <see cref="VoiceId"/>, then re-voiced into it.</summary>
     [StringLength(64)] public string? MyVoiceId { get; init; }
+}
+
+/// <summary>A voiceover script to rewrite so it reads aloud well. <see cref="Fresh"/> asks for a new take, not the cached one.</summary>
+public sealed record VoiceScriptPolishRequest
+{
+    [StringLength(12_000)] public string? Script { get; init; }
+    public bool Fresh { get; init; }
 }

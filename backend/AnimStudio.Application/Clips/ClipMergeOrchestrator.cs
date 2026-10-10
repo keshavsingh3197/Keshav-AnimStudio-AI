@@ -505,7 +505,7 @@ public sealed class ClipMergeOrchestrator(
                 .Where(t => materialized.ContainsKey(t.AssetId))
                 .Select(t => new MergeMusicTrack(
                     materialized[t.AssetId], t.StartSeconds, t.Volume,
-                    t.TrimStartSeconds, t.TrimEndSeconds))
+                    t.TrimStartSeconds, t.TrimEndSeconds, t.IsVoiceover))
                 .ToList();
 
             var overlays = new List<MergeOverlayItem>();
@@ -545,7 +545,7 @@ public sealed class ClipMergeOrchestrator(
                     {
                         timedTracks.Add(new MergeMusicTrack(
                             audioPath, item.StartTime, item.Volume ?? 1.0,
-                            item.TrimStartSeconds, item.TrimEndSeconds));
+                            item.TrimStartSeconds, item.TrimEndSeconds, item.TrackId == "A1"));
                     }
                 }
             }
@@ -557,6 +557,7 @@ public sealed class ClipMergeOrchestrator(
                 BackgroundMusicRelativePath = musicPath,
                 BackgroundMusicVolume = spec.BackgroundMusicVolume,
                 MusicTracks = timedTracks,
+                YouTubeLoudness = spec.YouTubeLoudness,
                 MusicDuckWindows = spec.MusicDuckWindows
                     .Select(w => new MergeDuckWindow(w.StartSeconds, w.EndSeconds, w.Level))
                     .ToList(),

@@ -13,6 +13,7 @@ import { InspectorDockComponent } from './components/inspector-dock/inspector-do
 import { TimelineDockComponent } from './components/timeline-dock/timeline-dock.component';
 import { clipboardFiles } from '../../shared/file-drop.directive';
 import { YouTubePublishDialogComponent } from '../../shared/youtube-publish-dialog.component';
+import { lastApplied, loadStoredLibrary, spokenText } from './components/inspector-dock/tabs/voice-script-library';
 
 @Component({
   selector: 'app-clip-studio',
@@ -137,6 +138,25 @@ export class ClipStudioComponent implements OnDestroy {
         () => this.flashCopy('failed')),
       error: () => this.flashCopy('failed'),
     });
+  }
+
+  readonly scriptCopy = signal<'idle' | 'copied' | 'failed' | 'none'>('idle');
+
+  /** Copies the words of the voiceover script on A1 (the one applied last), for the description or captions. */
+  copyVoiceScript(): void {
+    const projectId = this.state.store.projectId();
+    const library = projectId ? loadStoredLibrary(projectId) : null;
+    const script = library ? lastApplied(library) : null;
+    const text = script ? spokenText(script.text) : '';
+    const flash = (result: 'copied' | 'failed' | 'none') => {
+      this.scriptCopy.set(result);
+      setTimeout(() => this.scriptCopy.set('idle'), 2500);
+    };
+    if (!text) {
+      flash('none');
+      return;
+    }
+    navigator.clipboard.writeText(text).then(() => flash('copied'), () => flash('failed'));
   }
 
   private flashCopy(result: 'copied' | 'failed'): void {

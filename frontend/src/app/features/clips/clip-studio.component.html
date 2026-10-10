@@ -1356,12 +1356,12 @@
                   </button>
                   <button type="button" class="btn btn-outline-danger" (click)="publishJobId.set(completedJob.jobId)"
                           title="Upload straight to your YouTube channel as a private draft, then finish it in YouTube Studio">
-                    📤 Upload to YouTube
+                    <svg class="ex-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4M7 9l5-5 5 5M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3" /></svg> Upload to YouTube
                   </button>
                   <a routerLink="/live"
                      [queryParams]="{ renderJobId: completedJob.jobId, title: state.exportName() || null }"
                      class="btn btn-outline-danger" title="Stream this export to YouTube Live">
-                    🔴 Go live
+                    <span class="ex-live-dot" aria-hidden="true"></span> Go live
                   </a>
                 </div>
                 @if (completedJob.hasTimeline) {
@@ -1373,7 +1373,7 @@
                     <a [href]="state.timelineUrl(completedJob.jobId, 'youtube')" download
                        class="btn btn-sm btn-outline-light"
                        title="Description draft with chapters (0:00 …), music credits and the footage list">
-                      📝 YouTube description
+                      <svg class="ex-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5ZM14 3v5h5M9 13h6M9 17h4" /></svg> YouTube description
                     </a>
                     <button type="button" class="btn btn-sm btn-outline-light"
                             (click)="copyYouTubeDescription(completedJob.jobId)" [disabled]="descriptionCopy() === 'busy'"
@@ -1381,18 +1381,27 @@
                       @switch (descriptionCopy()) {
                         @case ('copied') { ✓ Copied }
                         @case ('failed') { ✕ Copy failed }
-                        @default { 📋 Copy description }
+                        @default { <svg class="ex-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></svg> Copy description }
+                      }
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-light" (click)="copyVoiceScript()"
+                            title="Copy the words of the voiceover on A1 (the script applied last), one line each - for the description, a pinned comment or captions">
+                      @switch (scriptCopy()) {
+                        @case ('copied') { ✓ Copied }
+                        @case ('failed') { ✕ Copy failed }
+                        @case ('none') { No voiceover script applied }
+                        @default { <svg class="ex-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></svg> Copy voiceover script }
                       }
                     </button>
                     <a [href]="state.timelineUrl(completedJob.jobId, 'csv')" download
                        class="btn btn-sm btn-outline-light"
                        title="One row per item with start/end timecodes, source trims and credits">
-                      📊 CSV
+                      <svg class="ex-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2" /><path d="M4 10h16M4 15h16M10 4v16" /></svg> CSV
                     </a>
                     <a [href]="state.timelineUrl(completedJob.jobId, 'json')" download
                        class="btn btn-sm btn-outline-light"
                        title="Full timeline for scripts and other tools">
-                      &#123; &#125; JSON
+                      <svg class="ex-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4H7a2 2 0 0 0-2 2v4l-2 2 2 2v4a2 2 0 0 0 2 2h1M16 4h1a2 2 0 0 1 2 2v4l2 2-2 2v4a2 2 0 0 1-2 2h-1" /></svg> JSON
                     </a>
                   </div>
                 }

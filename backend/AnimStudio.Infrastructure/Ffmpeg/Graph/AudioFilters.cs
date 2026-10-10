@@ -9,6 +9,16 @@ namespace AnimStudio.Infrastructure.Ffmpeg.Graph;
 /// </summary>
 internal static class AudioFilters
 {
+    /// <summary>
+    /// Levels the finished mix to YouTube's playback target, -14 LUFS integrated with peaks
+    /// held under -1.5 dBTP, so a video is neither turned down by YouTube nor quieter than the
+    /// one before it. Single-pass: a second measuring pass would double the audio work of
+    /// every export for a fraction of a dB. loudnorm works at 192 kHz internally, so the
+    /// output is put back to the encoder's rate.
+    /// </summary>
+    public static string YouTubeLoudness(EncoderProfile encoder) =>
+        $"loudnorm=I=-14:TP=-1.5:LRA=11,aresample={encoder.AudioSampleRate}";
+
     /// <summary>Canonical sample format, so every scene's audio is concat-compatible.</summary>
     public static string Format(EncoderProfile encoder) =>
         $"aformat=sample_fmts=fltp:sample_rates={encoder.AudioSampleRate}:channel_layouts=stereo";

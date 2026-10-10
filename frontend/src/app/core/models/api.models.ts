@@ -121,6 +121,17 @@ export interface VoiceoverVoices {
   myVoicesAvailable?: boolean;
 }
 
+/** What was heard in a dictated script, one line per spoken phrase. */
+export interface VoiceScriptDictation {
+  lines: string[];
+}
+
+/** A script rewritten by the AI text model so it reads aloud well. */
+export interface VoiceScriptPolish {
+  script: string;
+  providerId?: string | null;
+}
+
 /** A voice the user added from their own consented sample. */
 export interface MyVoice {
   id: string;
@@ -129,7 +140,7 @@ export interface MyVoice {
   baseVoiceId: string;
   durationSeconds?: number | null;
   createdAtUtc: string;
-  /** Kokoro has a voice tuned from the sample, which speaks English lines directly instead of re-voicing them. */
+  /** Kokoro has a voice tuned from the sample, which speaks lines in any of its languages directly instead of re-voicing them. */
   tuned?: boolean;
 }
 
@@ -593,6 +604,8 @@ export interface TimedMusicClipBody {
   volume: number;
   trimStartSeconds?: number | null;
   trimEndSeconds?: number | null;
+  /** A voiceover line on A1: music ducks under it, and it never ducks itself. */
+  isVoiceover?: boolean;
 }
 
 /**
@@ -745,6 +758,8 @@ export interface ClipMergeBody {
   watermark: WatermarkBody;
   /** End with the saved outro or QR end card (Admin &gt; Branding, or the project's own). */
   includeOutro?: boolean;
+  /** Level the finished mix to YouTube's -14 LUFS. */
+  youTubeLoudness?: boolean;
   timelineItems?: TimelineItem[] | null;
   /**
    * Stretches where the music must drop under the clips above it. Ducking the music cannot be

@@ -16,9 +16,11 @@ import { StatusService } from '../../../core/services/status.service';
 import {
   AudioOverlapRule, AudioOverlapRuleOrInherit, AudioOverlapSource,
   ClipAudioSetting, ClipColorSetting, ClipRow, ClipTextSetting, FILTER_PRESETS,
-  FileUploadConflict, FilterPreset, JunctionSetting, JunctionView, MusicTrackRow, ScheduledClip, SideUploadTarget, TRACK_COLORS, audioLaneOf, isVoiceoverTrack
+  FileUploadConflict, FilterPreset, JunctionSetting, JunctionView, MusicTrackRow, ScheduledClip, SideUploadTarget, TRACK_COLORS, audioLaneOf, isVoiceoverTrack,
+  AUTO_BED_PREFIX, AUTO_CUT_PREFIX
 } from '../models/clip-studio.models';
 import { EraseRect, eraseFeatherMask, eraseOuter } from './erase-geometry';
+import { bedPieces, cutEffectStarts, deepestDuck } from './audio-enhance';
 
 /** One erase box as the monitor draws it: grown by its feather, cut to the clip's crop. */
 export interface MonitorEraseRegion {
@@ -673,6 +675,12 @@ export class StudioStateService implements OnDestroy {
   readonly duckLevel = signal<number>(0.25);
   /** @deprecated Kept as an alias while older call sites are migrated. */
   readonly videoDuckLevel = this.duckLevel;
+  /** Music (A2 and the bed) steps back while a voiceover line on A1 speaks. */
+  readonly duckMusicUnderVoice = signal<boolean>(true);
+  /** How far the music drops under a voiceover line, 0-1. */
+  readonly voiceDuckLevel = signal<number>(0.3);
+  /** Level the exported mix to YouTube's -14 LUFS, so the video plays as loud as the ones around it. */
+  readonly exportYouTubeLoudness = signal<boolean>(true);
   readonly audioInspectorViewMode = signal<'auto' | 'clip' | 'mixer' | 'voiceover'>('auto');
 
   /**
@@ -6485,6 +6493,72 @@ export class StudioStateService implements OnDestroy {
     this.closeHistoryBurst();
   }
 
+  /** Music laid by "Background music" and effects laid by "Sound on every cut", so a re-run replaces them. */
+  readonly autoBedTracks = computed(() => this.musicTracks().filter((t) => t.key.startsWith(AUTO_BED_PREFIX)));
+  readonly autoCutTracks = computed(() => this.musicTracks().filter((t) => t.key.startsWith(AUTO_CUT_PREFIX)));
+
+  /**
+   * Lays a music file on A2 under the whole video - repeated until it covers it, faded in and
+   * out - replacing a bed laid this way before. One Undo takes it back.
+   */
+  layMusicBed(assetId: string, volume: number): number {
+    const asset = this.studio()?.musicCandidates?.find((m) => m.id === assetId);
+    const pieces = bedPieces(asset?.durationSeconds ?? 0, this.totalSeconds());
+    if (!asset || pieces.length === 0) return 0;
+
+    const stamp = Date.now().toString(36);
+    const level = Math.max(0, Math.min(2, volume));
+    const rows: MusicTrackRow[] = pieces.map((p, i) => ({
+      key: `${AUTO_BED_PREFIX}${stamp}_${i}`,
+      assetId,
+      startSeconds: p.startSeconds,
+      volume: level,
+      trimStartSeconds: 0,
+      trimEndSeconds: p.lengthSeconds,
+      fadeInSeconds: p.fadeInSeconds,
+      fadeOutSeconds: p.fadeOutSeconds,
+    }));
+    this.replaceAutoTracks(AUTO_BED_PREFIX, rows);
+    return rows.length;
+  }
+
+  /** Places a short sound (a whoosh, a hit) on A2 at every cut, replacing ones placed this way before. */
+  addCutEffects(assetId: string, volume: number): number {
+    const asset = this.studio()?.musicCandidates?.find((m) => m.id === assetId);
+    const seconds = asset?.durationSeconds ?? 0;
+    if (!asset || seconds <= 0) return 0;
+
+    const stamp = Date.now().toString(36);
+    const level = Math.max(0, Math.min(2, volume));
+    const rows: MusicTrackRow[] = cutEffectStarts(this.clipSchedule().map((c) => c.startSeconds), seconds)
+      .map((start, i) => ({
+        key: `${AUTO_CUT_PREFIX}${stamp}_${i}`,
+        assetId,
+        startSeconds: start,
+        volume: level,
+        trimStartSeconds: 0,
+        trimEndSeconds: seconds,
+        fadeInSeconds: 0.02,
+        fadeOutSeconds: Math.min(0.2, seconds / 3),
+      }));
+    if (rows.length === 0) return 0;
+    this.replaceAutoTracks(AUTO_CUT_PREFIX, rows);
+    return rows.length;
+  }
+
+  /** Takes off the music bed or the cut effects auto-enhance laid. */
+  removeAutoTracks(kind: 'bed' | 'cuts'): void {
+    this.replaceAutoTracks(kind === 'bed' ? AUTO_BED_PREFIX : AUTO_CUT_PREFIX, []);
+  }
+
+  private replaceAutoTracks(prefix: string, rows: MusicTrackRow[]): void {
+    this.closeHistoryBurst();
+    this.musicTracks.update((t) => [...t.filter((track) => !track.key.startsWith(prefix)), ...rows]);
+    if (rows.length > 0) this.showTrackManually('A2');
+    this.markDirty();
+    this.closeHistoryBurst();
+  }
+
   /**
    * True while the Voiceover panel plays a fresh take over the clips: the lines already on A1
    * stay silent so the two takes are not heard on top of each other.
@@ -6543,6 +6617,9 @@ export class StudioStateService implements OnDestroy {
       trackA2Volume: this.trackA2Volume(),
       projectOverlapRule: this.projectOverlapRule(),
       duckLevel: this.duckLevel(),
+      duckMusicUnderVoice: this.duckMusicUnderVoice(),
+      voiceDuckLevel: this.voiceDuckLevel(),
+      exportYouTubeLoudness: this.exportYouTubeLoudness(),
       fit: this.fit(),
       clipFraming: Array.from(this.clipFraming().entries()),
       clipAudioFade: Array.from(this.clipAudioFade().entries()),
@@ -6672,6 +6749,11 @@ export class StudioStateService implements OnDestroy {
     }
     if (draft.duckLevel !== undefined) this.duckLevel.set(draft.duckLevel);
     else if (draft.videoDuckLevel !== undefined) this.duckLevel.set(draft.videoDuckLevel);
+    if (typeof draft.duckMusicUnderVoice === 'boolean') this.duckMusicUnderVoice.set(draft.duckMusicUnderVoice);
+    if (typeof draft.voiceDuckLevel === 'number' && draft.voiceDuckLevel >= 0 && draft.voiceDuckLevel <= 1) {
+      this.voiceDuckLevel.set(draft.voiceDuckLevel);
+    }
+    if (typeof draft.exportYouTubeLoudness === 'boolean') this.exportYouTubeLoudness.set(draft.exportYouTubeLoudness);
     this.migrateLegacyOverlapSettings();
     if (draft.fit !== undefined) this.fit.set(draft.fit);
     if (Array.isArray(draft.clipFraming)) this.clipFraming.set(new Map(draft.clipFraming));
@@ -7088,6 +7170,8 @@ export class StudioStateService implements OnDestroy {
       volume: Math.max(0, Math.min(2.0, t.muted ? 0 : (Number(t.volume) || 0) * this.audioBusGain(audioLaneOf(t)))),
       trimStartSeconds: t.trimStartSeconds,
       trimEndSeconds: t.trimEndSeconds,
+      // Voice leads the mix: the server never ducks it, only the music around it.
+      isVoiceover: isVoiceoverTrack(t),
     }));
   }
 
@@ -7236,7 +7320,41 @@ export class StudioStateService implements OnDestroy {
         windows.push({ startSeconds: entry.startSeconds, endSeconds: entry.endSeconds, level });
       }
     }
-    return windows;
+
+    const voice = this.voiceDuckWindows();
+    return voice.length === 0 ? windows : deepestDuck([...windows, ...voice]);
+  }
+
+  /**
+   * Where the music steps back for a voiceover line on A1: from just before it starts to a
+   * breath after it ends. Lines less than a short pause apart share one window, so the music
+   * doesn't swell up and down between every sentence.
+   */
+  /** The music's level under the voice at <paramref name="time"/>, for the preview: 1 where no line speaks. */
+  voiceDuckGainAt(time: number): number {
+    const inside = this.voiceDuckWindows().find((w) => time >= w.startSeconds && time < w.endSeconds);
+    return inside ? inside.level : 1;
+  }
+
+  private voiceDuckWindows(): { startSeconds: number; endSeconds: number; level: number }[] {
+    const level = Math.max(0, Math.min(1, this.voiceDuckLevel()));
+    if (!this.duckMusicUnderVoice() || level >= 1) return [];
+    const spans = this.voiceoverTracks()
+      .filter((t) => !t.muted && (Number(t.volume) || 0) > 0)
+      .map((t) => ({
+        startSeconds: Math.max(0, t.startSeconds - 0.1),
+        endSeconds: t.startSeconds + this.musicTrackDurationSeconds(t) + 0.3,
+        level,
+      }))
+      .sort((a, b) => a.startSeconds - b.startSeconds);
+
+    const merged: typeof spans = [];
+    for (const span of spans) {
+      const last = merged[merged.length - 1];
+      if (last && span.startSeconds - last.endSeconds < 0.8) last.endSeconds = Math.max(last.endSeconds, span.endSeconds);
+      else merged.push({ ...span });
+    }
+    return merged;
   }
 
   private pollHandle: any = null;
@@ -7504,6 +7622,7 @@ export class StudioStateService implements OnDestroy {
         musicDuckWindows: this.musicDuckWindowsPayload(),
         watermark: this.exportIncludeWatermark() ? wm : { ...wm, kind: "None" as any },
         includeOutro: this.exportIncludeOutro(),
+        youTubeLoudness: this.exportYouTubeLoudness(),
       }),
       (job: RenderJob) => {
         this.job.set(job);
@@ -7573,6 +7692,7 @@ export class StudioStateService implements OnDestroy {
         musicDuckWindows: this.musicDuckWindowsPayload(),
         watermark: this.exportIncludeWatermark() ? wm : { ...wm, kind: "None" as any },
         includeOutro: this.exportIncludeOutro(),
+        youTubeLoudness: this.exportYouTubeLoudness(),
       }),
       (job: RenderJob) => {
         this.job.set(job);

@@ -7,7 +7,7 @@ import { environment } from '../../../environments/environment';
 import {
   AdminAccess, AdminAuditEntry, AdminHealth, AdminJob, AdminProviderBody, AdminProviders,
   AdminProviderTest, AdminUsage, AiCapabilities, ApiResponse, Asset, BundleApplyBody,
-  VoiceoverBody, VoiceoverVoices, MyVoice,
+  VoiceoverBody, VoiceoverVoices, MyVoice, VoiceScriptDictation, VoiceScriptPolish,
   BundleImportResult, BundlePreview, Character, CharacterBody, ClipMergeBody, ClipOrder,
   ClipStudio, CreateProjectBody,
   CreateSceneBody, DialogueBody, IngestCapabilities, IngestResult, IngestSummary,
@@ -239,6 +239,30 @@ export class ApiService {
   /** Deletes the voice, its sample, and every line converted into it. */
   deleteMyVoice(id: string): Observable<void> {
     return this.http.delete<void>(`${this.base}/api/voiceover/my-voices/${encodeURIComponent(id)}`);
+  }
+
+  /** What was said in a dictated script (16 kHz mono WAV), one line per spoken phrase. */
+  dictateVoiceScript(projectId: string, wav: Blob, language: 'en' | 'hi' | null): Observable<VoiceScriptDictation> {
+    const form = new FormData();
+    form.append('file', wav, 'dictation.wav');
+    if (language) form.append('language', language);
+    return this.unwrap(this.http.post<ApiResponse<VoiceScriptDictation>>(
+      `${this.base}/api/projects/${projectId}/voiceover/dictate`, form));
+  }
+
+  /** Cleans a narration take the user recorded (WAV) and saves it to the library as a voiceover line. */
+  recordNarration(projectId: string, wav: Blob, name: string): Observable<Asset> {
+    const form = new FormData();
+    form.append('file', wav, 'narration.wav');
+    if (name.trim()) form.append('name', name.trim());
+    return this.unwrap(this.http.post<ApiResponse<Asset>>(
+      `${this.base}/api/projects/${projectId}/voiceover/narration`, form));
+  }
+
+  /** The script rewritten by the AI text model so it reads aloud well; nothing is saved. */
+  polishVoiceScript(projectId: string, script: string, fresh: boolean): Observable<VoiceScriptPolish> {
+    return this.unwrap(this.http.post<ApiResponse<VoiceScriptPolish>>(
+      `${this.base}/api/projects/${projectId}/voiceover/polish`, { script, fresh }));
   }
 
   // --- characters

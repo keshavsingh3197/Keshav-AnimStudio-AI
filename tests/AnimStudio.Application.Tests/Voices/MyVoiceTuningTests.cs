@@ -69,13 +69,46 @@ public class MyVoiceTuningTests
     }
 
     [Fact]
-    public async Task A_line_in_another_language_is_left_to_the_converter()
+    public async Task A_hindi_line_is_spoken_in_the_same_tuned_voice()
     {
         var world = Build();
 
-        Assert.Null(await world.Tuning.VoiceForAsync(world.Voices.Items[ProfileId], "hf_alpha", CancellationToken.None));
+        var english = await world.Tuning.VoiceForAsync(world.Voices.Items[ProfileId], "af_bella", CancellationToken.None);
+        var hindi = await world.Tuning.VoiceForAsync(world.Voices.Items[ProfileId], "hf_alpha", CancellationToken.None);
+
+        Assert.Equal(TunedName + "_tuned", hindi);
+        Assert.Equal(english, hindi);
+        Assert.Equal([TunedName], world.Tuner.Tuned);
+    }
+
+    [Fact]
+    public async Task A_hindi_base_voice_is_tuned_under_an_english_name_of_its_gender()
+    {
+        var world = Build();
+        world.Voices.Items[ProfileId].BaseVoiceId = "hm_omega";
+
+        var voice = await world.Tuning.VoiceForAsync(world.Voices.Items[ProfileId], "hm_omega", CancellationToken.None);
+
+        Assert.Equal("am_vp0123456789abcdef0123456789abcdef_tuned", voice);
+    }
+
+    [Fact]
+    public async Task A_line_in_a_voice_that_is_not_kokoros_is_left_to_the_converter()
+    {
+        var world = Build();
+
+        Assert.Null(await world.Tuning.VoiceForAsync(world.Voices.Items[ProfileId], "alloy", CancellationToken.None));
         Assert.Empty(world.Tuner.Tuned);
     }
+
+    [Theory]
+    [InlineData("hm_omega", "h")]
+    [InlineData("bf_emma", "b")]
+    [InlineData("af_bella+af_sky", "a")]
+    [InlineData("alloy", null)]
+    [InlineData("xm_me", null)]
+    public void The_language_is_the_line_voices_first_letter(string voiceId, string? language) =>
+        Assert.Equal(language, MyVoiceTuning.LanguageOf(voiceId));
 
     [Fact]
     public async Task A_refused_sample_is_not_offered_again()
@@ -281,6 +314,22 @@ public class OpenAiCompatibleTtsProviderTuningTests
 
         Assert.Equal(HttpMethod.Delete, handler.Requests[0].Method);
         Assert.Equal("http://localhost:8880/dev/tune/af_vpabc_tuned", handler.Requests[0].RequestUri!.ToString());
+    }
+
+    [Theory]
+    [InlineData("h", "h")]
+    [InlineData(null, null)]
+    [InlineData("hi", null)]
+    public async Task Only_a_kokoro_language_code_is_sent(string? languageCode, string? sent)
+    {
+        var (provider, handler) = Build();
+        handler.RespondBytes(AudioBytes.Wav(1), "audio/wav");
+
+        await provider.SynthesizeAsync(
+            new AiSpeechRequest { Text = "नमस्ते", VoiceId = "am_vpabc_tuned", LanguageCode = languageCode }, CancellationToken.None);
+
+        var body = handler.Sent();
+        Assert.Equal(sent, body.TryGetProperty("lang_code", out var value) ? value.GetString() : null);
     }
 
     [Theory]

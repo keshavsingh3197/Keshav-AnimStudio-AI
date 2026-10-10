@@ -278,6 +278,12 @@ public sealed record VoiceoverVoicesResponse(
     bool Available, string? ProviderId, string Reason, IReadOnlyList<VoiceoverVoiceResponse> Voices,
     IReadOnlyList<MyVoiceResponse> MyVoices, bool MyVoicesAvailable);
 
+/// <summary>What was heard in a dictated script, one line per spoken phrase.</summary>
+public sealed record VoiceScriptDictationResponse(IReadOnlyList<string> Lines);
+
+/// <summary>The script, rewritten to read aloud well. Shown to the user to keep or discard; never spoken unseen.</summary>
+public sealed record VoiceScriptPolishResponse(string Script, string? ProviderId);
+
 /// <summary>
 /// A voice the user added from their own sample. The sample itself is never sent back.
 /// <paramref name="Tuned"/>: the speech engine has a voice tuned from it, which speaks English lines directly.

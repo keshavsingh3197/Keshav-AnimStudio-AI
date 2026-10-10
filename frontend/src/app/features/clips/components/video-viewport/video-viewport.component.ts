@@ -6,7 +6,7 @@ import { FormsModule } from '@angular/forms';
 import { MonitorEraseRegion, StudioStateService } from '../../services/studio-state.service';
 import { erasePatchOrigin } from '../../services/erase-geometry';
 import { ERASE_DEFAULT_STRENGTH, TimelineItemTransform } from '../../../../core/models/api.models';
-import { MusicTrackRow, isVoiceoverTrack } from '../../models/clip-studio.models';
+import { MusicTrackRow, isCutEffectTrack, isVoiceoverTrack } from '../../models/clip-studio.models';
 
 @Component({
   selector: 'app-video-viewport',
@@ -25,6 +25,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
   @ViewChild('bgMusicAudio') bgMusicAudioRef?: ElementRef<HTMLAudioElement>;
   @ViewChild('clipSoundAudio') clipSoundAudioRef?: ElementRef<HTMLAudioElement>;
   @ViewChild('voiceoverAudio') voiceoverAudioRef?: ElementRef<HTMLAudioElement>;
+  @ViewChild('effectAudio') effectAudioRef?: ElementRef<HTMLAudioElement>;
   @ViewChild('monitorContainer') monitorContainerRef?: ElementRef<HTMLElement>;
 
   // Dual-layer ping-pong state
@@ -38,6 +39,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
   private loadedClipIdB: string | null = null;
   private loadedMusicAssetId: string | null = null;
   private loadedVoiceoverAssetId: string | null = null;
+  private loadedEffectAssetId: string | null = null;
   private loadedClipSoundAssetId: string | null = null;
   private animFrameId: number | null = null;
   private lastTickMs = 0;
@@ -231,6 +233,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     this.bgMusicAudioRef?.nativeElement.pause();
     this.clipSoundAudioRef?.nativeElement.pause();
     this.voiceoverAudioRef?.nativeElement.pause();
+    this.effectAudioRef?.nativeElement.pause();
   }
 
   private syncSeek(time: number): void {
@@ -251,7 +254,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     const bg = this.bgMusicAudioRef?.nativeElement;
     if (bg) {
       const activeMusic = this.state.musicTracks().find((t) => {
-        if (isVoiceoverTrack(t)) return false;
+        if (isVoiceoverTrack(t) || isCutEffectTrack(t)) return false;
         const d = this.state.musicTrackDurationSeconds(t);
         return time >= t.startSeconds && time < (t.startSeconds + d);
       });
@@ -272,6 +275,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     if (this.bgMusicAudioRef?.nativeElement) this.bgMusicAudioRef.nativeElement.playbackRate = speed;
     if (this.clipSoundAudioRef?.nativeElement) this.clipSoundAudioRef.nativeElement.playbackRate = speed;
     if (this.voiceoverAudioRef?.nativeElement) this.voiceoverAudioRef.nativeElement.playbackRate = speed;
+    if (this.effectAudioRef?.nativeElement) this.effectAudioRef.nativeElement.playbackRate = speed;
   }
 
 
@@ -429,7 +433,9 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       return time >= t.startSeconds && time < (t.startSeconds + dur);
     };
     // Voiceover lines get their own player so they are heard over music, as in the export.
-    const activeMusicTrack = currentTracks.find((t) => !isVoiceoverTrack(t) && isActiveTrack(t));
+    // Cut effects play over the music on a player of their own, not instead of it.
+    const activeMusicTrack = currentTracks.find((t) => !isVoiceoverTrack(t) && !isCutEffectTrack(t) && isActiveTrack(t));
+    const activeEffectTrack = currentTracks.find((t) => isCutEffectTrack(t) && isActiveTrack(t));
     const activeVoiceoverTrack = currentTracks.find((t) => isVoiceoverTrack(t) && isActiveTrack(t));
     const hasGlobalMusic = this.state.musicAssetId() !== '' && this.state.musicVolume() > 0;
 
@@ -639,7 +645,8 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       || Boolean(activeMusicTrack?.muted) || (!activeMusicTrack && Boolean(activeA1Item?.muted));
 
     // The resolved rule may ask the music to step back under this clip.
-    targetMusicVolume *= overlap.musicGain;
+    // Under a voiceover line too; where both apply, the deeper duck wins, as in the export.
+    targetMusicVolume *= Math.min(overlap.musicGain, this.state.voiceDuckGainAt(time));
 
     if (bgAudio && targetMusicAssetId) {
       const musicUrl = this.state.assetUrl(targetMusicAssetId);
@@ -675,7 +682,8 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       } else if (!playing || Math.abs(voAudio.currentTime - voTime) > 0.35) {
         voAudio.currentTime = Math.max(0, voTime);
       }
-      const voGain = (activeVoiceoverTrack.volume ?? 1.0) * this.state.trackA1Volume() * overlap.musicGain;
+      // The voice leads: a Duck music rule lowers the music around it, never the voice itself.
+      const voGain = (activeVoiceoverTrack.volume ?? 1.0) * this.state.trackA1Volume();
       voAudio.volume = voMuted ? 0 : Math.min(1, this.state.monitorVolume() * voGain);
       voAudio.muted = voMuted;
       voAudio.playbackRate = speed;
@@ -686,6 +694,31 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       }
     } else if (voAudio && !voAudio.paused) {
       voAudio.pause();
+    }
+
+    // 4c. Sound effects on cuts, heard over the music bed rather than swapping it out
+    const fxAudio = this.effectAudioRef?.nativeElement;
+    if (fxAudio && activeEffectTrack) {
+      const fxTime = (time - activeEffectTrack.startSeconds) + (activeEffectTrack.trimStartSeconds ?? 0);
+      const fxMuted = this.state.isMonitorMuted() || this.state.isTrackMuted('A2') || Boolean(activeEffectTrack.muted);
+      if (this.loadedEffectAssetId !== activeEffectTrack.assetId) {
+        this.loadedEffectAssetId = activeEffectTrack.assetId;
+        fxAudio.src = this.state.assetUrl(activeEffectTrack.assetId);
+        fxAudio.currentTime = Math.max(0, fxTime);
+      } else if (!playing || Math.abs(fxAudio.currentTime - fxTime) > 0.35) {
+        fxAudio.currentTime = Math.max(0, fxTime);
+      }
+      const fxGain = (activeEffectTrack.volume ?? 1.0) * this.state.audioBusGain('A2');
+      fxAudio.volume = fxMuted ? 0 : Math.min(1, this.state.monitorVolume() * fxGain);
+      fxAudio.muted = fxMuted;
+      fxAudio.playbackRate = speed;
+      if (playing) {
+        if (fxAudio.paused) fxAudio.play().catch(() => undefined);
+      } else if (!fxAudio.paused) {
+        fxAudio.pause();
+      }
+    } else if (fxAudio && !fxAudio.paused) {
+      fxAudio.pause();
     }
 
     // 5. Sync Replacement Clip Sound (Voiceover)

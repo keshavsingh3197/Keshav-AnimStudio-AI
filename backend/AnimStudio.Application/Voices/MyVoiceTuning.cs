@@ -9,8 +9,9 @@ namespace AnimStudio.Application.Voices;
 
 /// <summary>
 /// Gives each of the user's own voices a voice of the speech engine's own, tuned from their
-/// sample, so English lines are spoken in it directly: seconds instead of the minutes a
-/// re-voice takes on a CPU. Tuned the first time an English line asks for it, once.
+/// sample, so lines are spoken in it directly: seconds instead of the minutes a re-voice takes
+/// on a CPU. Tuned the first time a line asks for it, once, and then used for every language
+/// the engine speaks: the pack is only a timbre, and each line says which language reads it.
 /// </summary>
 /// <remarks>
 /// The engine keeps tuned voices in one folder it lists to every caller. Each is named after
@@ -25,8 +26,17 @@ public sealed class MyVoiceTuning(
     TimeProvider clock,
     ILogger<MyVoiceTuning> logger)
 {
-    /// <summary>A stock English voice: <c>a</c> American or <c>b</c> British, then gender.</summary>
-    private static readonly Regex EnglishVoice = new(@"^([ab][fm])_", RegexOptions.CultureInvariant);
+    /// <summary>
+    /// A stock Kokoro voice: its language letter (<c>a</c> US, <c>b</c> UK English, <c>h</c> Hindi,
+    /// ...) then gender. The letter is the engine's language code for reading the line.
+    /// </summary>
+    private static readonly Regex StockVoice = new(@"^([abefhijpz])([fm])_", RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// Part of a line's fingerprint when it is in one of the user's voices, so lines saved
+    /// before tuned voices spoke every language are spoken again rather than reused.
+    /// </summary>
+    public const string Revision = "tuned-any-language";
 
     /// <summary>Anywhere in a voice id, so a blend such as <c>af_bella+af_vp…_tuned</c> is caught too.</summary>
     private static readonly Regex TunedVoice = new(@"_vp[0-9a-f]{32}_tuned", RegexOptions.CultureInvariant);
@@ -41,13 +51,21 @@ public sealed class MyVoiceTuning(
     public bool CanTune => renderer.CanPrepareReference && Tuner() is not null;
 
     /// <summary>
+    /// The engine's language code for a line the stock voice <paramref name="lineVoiceId"/> would
+    /// read, which a tuned voice must be given since its own name always says English.
+    /// </summary>
+    public static string? LanguageOf(string lineVoiceId) =>
+        StockVoice.Match(lineVoiceId) is { Success: true } m ? m.Groups[1].Value : null;
+
+    /// <summary>
     /// The voice to speak a line in, for a line the stock voice <paramref name="lineVoiceId"/>
-    /// would read: the profile's tuned voice, tuning it first when it never has been. Null when
-    /// the line is not English or no voice can be tuned; the caller then re-voices instead.
+    /// would read: the profile's tuned voice, tuning it first when it never has been. Speak it
+    /// with <see cref="LanguageOf"/> the line's voice. Null when the line's voice is not a stock
+    /// Kokoro one or no voice can be tuned; the caller then re-voices instead.
     /// </summary>
     public async Task<string?> VoiceForAsync(VoiceProfile profile, string lineVoiceId, CancellationToken ct)
     {
-        if (!EnglishVoice.IsMatch(lineVoiceId)) return null;
+        if (!StockVoice.IsMatch(lineVoiceId)) return null;
         if (profile.TunedVoiceId is { } tuned) return tuned;
         if (profile.TuneRefusedAtUtc is not null || !renderer.CanPrepareReference) return null;
         if (Tuner() is not { } tuner) return null;
@@ -60,11 +78,12 @@ public sealed class MyVoiceTuning(
             if (fresh is null) return null;
             if (fresh.TunedVoiceId is not null || fresh.TuneRefusedAtUtc is not null) return fresh.TunedVoiceId;
 
-            // The base voice's accent and gender when it has them, else the line's.
-            var prefix = EnglishVoice.Match(fresh.BaseVoiceId) is { Success: true } own
-                ? own.Groups[1].Value
-                : EnglishVoice.Match(lineVoiceId).Groups[1].Value;
-            var name = $"{prefix}_vp{fresh.Id["vp_".Length..]}";
+            // Named as US English whatever it will read, so any engine that tunes accepts the
+            // name and one voice serves every language; only the gender is the base voice's.
+            var gender = StockVoice.Match(fresh.BaseVoiceId) is { Success: true } own
+                ? own.Groups[2].Value
+                : StockVoice.Match(lineVoiceId).Groups[2].Value;
+            var name = $"a{gender}_vp{fresh.Id["vp_".Length..]}";
 
             string voiceId;
             try

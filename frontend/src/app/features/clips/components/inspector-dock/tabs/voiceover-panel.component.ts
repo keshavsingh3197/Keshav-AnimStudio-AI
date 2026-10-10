@@ -9,8 +9,11 @@ import { StudioStateService } from '../../../services/studio-state.service';
 import {
   MAX_LINE_CHARS, MY_VOICE_PREFIX, VoiceScriptLine, findCharacter, parseVoiceScript,
 } from './voice-script';
-
-const SCRIPT_KEY_PREFIX = 'animstudio_vo_script_';
+import {
+  LEGACY_SCRIPT_KEY_PREFIX, LIBRARY_KEY_PREFIX, MAX_SCRIPTS, MAX_SCRIPT_NAME, SavedScript, ScriptLibrary,
+  activeScript, addScript, deleteScript, lastApplied, markApplied, readLibrary, renameScript, setActive,
+  updateActiveText,
+} from './voice-script-library';
 /** Before voices were remembered per language; still read so nobody loses their choice. */
 const LEGACY_VOICE_KEY = 'animstudio_vo_voice';
 const VOICE_KEY_PREFIX = 'animstudio_vo_voice_';
@@ -24,6 +27,13 @@ const MY_PREFIX = 'my:';
 const MAX_SAMPLE_BYTES = 25 * 1024 * 1024;
 const MIN_SAMPLE_SECONDS = 4;
 const MAX_RECORD_SECONDS = 60;
+/** Must stay under VoiceScriptController's upload cap: 16 kHz mono 16-bit WAV is ~1.9MB a minute. */
+const MAX_DICTATE_SECONDS = 180;
+/** What whisper.cpp reads; hosted recognizers take it too. */
+const DICTATE_SAMPLE_RATE = 16000;
+/** Must stay under NarrationController's cap: 48 kHz mono 16-bit WAV is ~5.8MB a minute. */
+const MAX_NARRATE_SECONDS = 300;
+const NARRATION_SAMPLE_RATE = 48000;
 
 /** The least breath between two lines when they are pulled earlier to end inside the video. */
 const MIN_GAP_SECONDS = 0.15;
@@ -153,6 +163,42 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
   readonly favorites = signal<string[]>([]);
 
   readonly script = signal('');
+  /** Every script kept for this project; the Script box edits the active one. */
+  readonly library = signal<ScriptLibrary>({ activeId: '', scripts: [] });
+  readonly activeSaved = computed<SavedScript | null>(() =>
+    this.library().scripts.length > 0 ? activeScript(this.library()) : null);
+  /** The script applied most recently: its lines are the ones on A1 (unless replaced by hand). */
+  readonly lastAppliedId = computed(() => lastApplied(this.library())?.id ?? null);
+  readonly maxScripts = MAX_SCRIPTS;
+  readonly maxScriptName = MAX_SCRIPT_NAME;
+  /** The name being typed while the active script is renamed; null when not renaming. */
+  readonly renameDraft = signal<string | null>(null);
+  /** Read when the panel opens, so a project switch mid-edit can't write one project's scripts to another. */
+  private libraryKey = '';
+
+  // --- speaking the script, and polishing it
+  readonly dictating = signal(false);
+  readonly dictateSeconds = signal(0);
+  readonly maxDictateSeconds = MAX_DICTATE_SECONDS;
+  readonly assist = signal<'idle' | 'transcribing' | 'polishing'>('idle');
+  /** What the last dictation or polish did, shown under the Script box. */
+  readonly assistNote = signal('');
+  private dictateRecorder: MediaRecorder | null = null;
+  private dictateTimer: ReturnType<typeof setInterval> | null = null;
+  /** Scripts already polished while the panel is open. */
+  private readonly polishedTexts = new Set<string>();
+
+  // --- recording the narration in the user's own voice
+  readonly narrating = signal(false);
+  readonly narrateSeconds = signal(0);
+  readonly maxNarrateSeconds = MAX_NARRATE_SECONDS;
+  readonly narrationTake = signal<PendingSample | null>(null);
+  readonly narrationName = signal('');
+  readonly narrationBusy = signal(false);
+  readonly narrationNote = signal('');
+  private narrateRecorder: MediaRecorder | null = null;
+  private narrateTimer: ReturnType<typeof setInterval> | null = null;
+
   /** The picker's value: a built-in voice id, or "my:" and the id of one of the user's voices. */
   readonly selection = signal('');
   readonly rate = signal(0.95);
@@ -285,7 +331,19 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
     return [...names];
   });
 
-  readonly clipCount = computed(() => this.state.clipSchedule().length);
+  /** "Line per clip" over only the clips picked on the timeline or in the library, not all of them. */
+  readonly onlySelectedClips = signal(false);
+  /** The clips picked on the timeline or in the media library, in timeline order. */
+  readonly selectedClips = computed(() => {
+    const ids = new Set(this.state.selectedLibraryIds());
+    const one = this.state.selectedClipId();
+    if (ids.size === 0 && one) ids.add(one);
+    return this.state.clipSchedule().filter((c) => ids.has(c.clip.id));
+  });
+  /** The clips the lines go on, one each, under "Line per clip". */
+  readonly voiceClips = computed(() =>
+    this.onlySelectedClips() && this.selectedClips().length > 0 ? this.selectedClips() : this.state.clipSchedule());
+  readonly clipCount = computed(() => this.voiceClips().length);
   readonly videoEnd = computed(() => this.state.totalSeconds());
   readonly hasTooLong = computed(() => this.lines().some((l) => l.tooLong));
   /** Everything a run needs: an engine, lines, a voice for each, and no mistakes in the script. */
@@ -350,7 +408,7 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
 
   /** Start, end and overrun for every line that has audio, under the current placement. */
   readonly plans = computed(() => {
-    const schedule = this.state.clipSchedule();
+    const schedule = this.voiceClips();
     const byClip = this.placement() === 'clips';
     const byScript = this.placement() === 'script';
     const scriptStarts = new Map(this.lines().map((l) => [l.index, l.start]));
@@ -422,7 +480,9 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
     if (this.placement() === 'script' || this.lines().some((l) => l.rate !== this.rate())) return null;
     if (plans.length === 0 || this.pastEndSeconds() <= 0.05) return null;
     const speech = plans.reduce((sum, p) => sum + p.endSeconds - p.startSeconds, 0);
-    const firstStart = this.placement() === 'clips' ? this.leadInSeconds() : this.anchorSeconds();
+    const firstStart = this.placement() === 'clips'
+      ? (this.voiceClips()[0]?.startSeconds ?? 0) + this.leadInSeconds()
+      : this.anchorSeconds();
     const room = this.videoEnd() - firstStart - MIN_GAP_SECONDS * (plans.length - 1);
     if (room <= 0) return null;
     // Speech gets shorter roughly in proportion to the speed; a little extra covers the rest.
@@ -439,7 +499,11 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
   });
 
   ngOnInit(): void {
-    this.script.set(this.readStorage(this.scriptKey()) ?? '');
+    const projectId = this.store.projectId() ?? 'none';
+    this.libraryKey = LIBRARY_KEY_PREFIX + projectId;
+    this.library.set(readLibrary(
+      this.readStorage(this.libraryKey), this.readStorage(LEGACY_SCRIPT_KEY_PREFIX + projectId), Date.now()));
+    this.script.set(activeScript(this.library()).text);
     if (this.hasTimings()) this.placement.set('script');
     const savedRate = Number(this.readStorage(RATE_KEY));
     if (savedRate >= 0.5 && savedRate <= 2) this.rate.set(savedRate);
@@ -468,6 +532,9 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
     this.stopPreview();
     this.stopWithClips();
     this.stopRecording(true);
+    this.stopDictation(true);
+    this.stopNarration(true);
+    this.discardNarration();
     this.discardSample();
     this.releasePreviews(this.results());
   }
@@ -478,10 +545,280 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
   }
 
   onScriptChange(value: string): void {
+    this.showScript(value);
+    this.saveLibrary(updateActiveText(this.library(), value, Date.now()));
+  }
+
+  // --- the project's scripts
+
+  switchScript(id: string): void {
+    if (this.generating() || id === this.library().activeId) return;
+    this.renameDraft.set(null);
+    this.assistNote.set('');
+    this.saveLibrary(setActive(this.library(), id));
+    this.showScript(activeScript(this.library()).text);
+  }
+
+  /** Starts an empty script; the one in the box stays in the list. */
+  newScript(): void {
+    this.addAndShow('', null);
+  }
+
+  duplicateScript(): void {
+    const current = this.activeSaved();
+    if (current) this.addAndShow(current.text, `${current.name} copy`);
+  }
+
+  startRename(): void {
+    this.renameDraft.set(this.activeSaved()?.name ?? '');
+  }
+
+  commitRename(): void {
+    const name = this.renameDraft();
+    this.renameDraft.set(null);
+    if (name !== null) this.saveLibrary(renameScript(this.library(), this.library().activeId, name));
+  }
+
+  cancelRename(): void {
+    this.renameDraft.set(null);
+  }
+
+  /** Not undoable, so it asks first; the lines it placed on A1 stay. */
+  deleteCurrentScript(): void {
+    const current = this.activeSaved();
+    if (!current || this.generating()) return;
+    if (current.text.trim() && !confirm(`Delete the script "${current.name}"? Lines already on A1 stay.`)) return;
+    this.saveLibrary(deleteScript(this.library(), current.id, Date.now()));
+    this.showScript(activeScript(this.library()).text);
+  }
+
+  /** "Today 7:57 pm" or "9 Oct, 7:57 pm", for when a script was last applied. */
+  whenLabel(epochMs: number): string {
+    const date = new Date(epochMs);
+    const time = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    return date.toDateString() === new Date().toDateString()
+      ? `today ${time}`
+      : `${date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}, ${time}`;
+  }
+
+  private addAndShow(text: string, name: string | null): void {
+    if (this.generating()) return;
+    const next = addScript(this.library(), text, name, Date.now());
+    if (!next) {
+      this.error.set(`You can keep up to ${MAX_SCRIPTS} scripts per project. Delete one you no longer need first.`);
+      return;
+    }
+    this.renameDraft.set(null);
+    this.saveLibrary(next);
+    this.showScript(text);
+  }
+
+  private saveLibrary(library: ScriptLibrary): void {
+    this.library.set(library);
+    if (this.libraryKey) this.writeStorage(this.libraryKey, JSON.stringify(library));
+  }
+
+  // --- speaking the script instead of typing it
+
+  /** Records the script spoken aloud; stopping sends it to the server's speech-to-text engine. */
+  async startDictation(): Promise<void> {
+    if (this.dictating() || this.assist() !== 'idle') return;
+    this.assistNote.set('');
+    this.error.set('');
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+    } catch {
+      this.error.set('The microphone could not be opened. Allow microphone access for this site and try again.');
+      return;
+    }
+
+    const chunks: Blob[] = [];
+    const recorder = new MediaRecorder(stream);
+    recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+    recorder.onstop = () => {
+      stream.getTracks().forEach((t) => t.stop());
+      if (this.dictateRecorder !== recorder) return;
+      this.dictateRecorder = null;
+      void this.transcribe(new Blob(chunks, { type: recorder.mimeType }));
+    };
+    this.dictateRecorder = recorder;
+    this.dictateSeconds.set(0);
+    this.dictating.set(true);
+    recorder.start();
+    this.dictateTimer = setInterval(() => {
+      this.dictateSeconds.update((s) => s + 1);
+      if (this.dictateSeconds() >= MAX_DICTATE_SECONDS) this.stopDictation();
+    }, 1000);
+  }
+
+  /** Stops the microphone; <paramref name="discard"/> throws the recording away. */
+  stopDictation(discard = false): void {
+    if (this.dictateTimer) {
+      clearInterval(this.dictateTimer);
+      this.dictateTimer = null;
+    }
+    this.dictating.set(false);
+    const recorder = this.dictateRecorder;
+    if (!recorder) return;
+    if (discard) this.dictateRecorder = null;
+    if (recorder.state !== 'inactive') recorder.stop();
+    else if (discard) recorder.stream.getTracks().forEach((t) => t.stop());
+  }
+
+  /** Adds what was said to the end of the script, one line per spoken phrase. */
+  private async transcribe(recording: Blob): Promise<void> {
+    const projectId = this.store.projectId();
+    if (!projectId) return;
+    const scriptId = this.library().activeId;
+    this.assist.set('transcribing');
+    try {
+      const wav = await toWav(recording, DICTATE_SAMPLE_RATE);
+      const language = this.language() === 'hindi' ? 'hi' : null;
+      const heard = await firstValueFrom(this.api.dictateVoiceScript(projectId, wav, language));
+      // Switching scripts while it was heard: the words belong to the one it was spoken into.
+      if (this.library().activeId !== scriptId || this.store.projectId() !== projectId) return;
+      const current = this.script().trimEnd();
+      this.onScriptChange((current ? `${current}\n` : '') + heard.lines.join('\n'));
+      this.assistNote.set(`Added ${heard.lines.length} line(s) from your recording. Read them over, or ✨ Polish them.`);
+    } catch (err: unknown) {
+      this.error.set(err instanceof Error ? err.message : 'The recording could not be turned into text.');
+    } finally {
+      this.assist.set('idle');
+    }
+  }
+
+  /**
+   * Has the AI text model rewrite the script so it reads aloud well, and keeps the result as a
+   * new script next to the original, so nothing written by hand is ever overwritten.
+   */
+  async polishScript(): Promise<void> {
+    const projectId = this.store.projectId();
+    const source = this.activeSaved();
+    if (!projectId || !source || !this.script().trim() || this.assist() !== 'idle' || this.generating()) return;
+    this.assistNote.set('');
+    this.error.set('');
+    this.assist.set('polishing');
+    try {
+      // A second polish of the same words asks for a new take, not the cached first one.
+      const text = this.script();
+      const fresh = this.polishedTexts.has(text);
+      const result = await firstValueFrom(this.api.polishVoiceScript(projectId, text, fresh));
+      if (this.store.projectId() !== projectId) return;
+      this.polishedTexts.add(text);
+      const base = source.name.replace(/ · polished( \(\d+\))?$/, '');
+      this.addAndShow(result.script, `${base} · polished`);
+      this.assistNote.set(`Polished version saved as a new script. "${source.name}" is still in the list.`);
+    } catch (err: unknown) {
+      this.error.set(err instanceof Error ? err.message : 'The script could not be polished.');
+    } finally {
+      this.assist.set('idle');
+    }
+  }
+
+  // --- narrating in the user's own voice, cleaned on the server
+
+  /** Records a narration take; stopping keeps it to listen to before it is cleaned and placed. */
+  async startNarration(): Promise<void> {
+    if (this.narrating() || this.narrationBusy()) return;
+    this.narrationNote.set('');
+    this.error.set('');
+    this.discardNarration();
+    let stream: MediaStream;
+    try {
+      // The browser's own processing is off: the server cleans the take, and two noise
+      // reducers in a row make a voice sound underwater.
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      });
+    } catch {
+      this.error.set('The microphone could not be opened. Allow microphone access for this site and try again.');
+      return;
+    }
+
+    const chunks: Blob[] = [];
+    const recorder = new MediaRecorder(stream);
+    recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+    recorder.onstop = () => {
+      stream.getTracks().forEach((t) => t.stop());
+      if (this.narrateRecorder !== recorder) return;
+      this.narrateRecorder = null;
+      void this.keepNarration(new Blob(chunks, { type: recorder.mimeType }));
+    };
+    this.narrateRecorder = recorder;
+    this.narrateSeconds.set(0);
+    this.narrating.set(true);
+    recorder.start();
+    this.narrateTimer = setInterval(() => {
+      this.narrateSeconds.update((s) => s + 1);
+      if (this.narrateSeconds() >= MAX_NARRATE_SECONDS) this.stopNarration();
+    }, 1000);
+  }
+
+  /** Stops the microphone; <paramref name="discard"/> throws the take away. */
+  stopNarration(discard = false): void {
+    if (this.narrateTimer) {
+      clearInterval(this.narrateTimer);
+      this.narrateTimer = null;
+    }
+    this.narrating.set(false);
+    const recorder = this.narrateRecorder;
+    if (!recorder) return;
+    if (discard) this.narrateRecorder = null;
+    if (recorder.state !== 'inactive') recorder.stop();
+    else if (discard) recorder.stream.getTracks().forEach((t) => t.stop());
+  }
+
+  discardNarration(): void {
+    const take = this.narrationTake();
+    if (take) URL.revokeObjectURL(take.url);
+    this.narrationTake.set(null);
+  }
+
+  /**
+   * Sends the take to be cleaned (rumble, room noise, silence at the ends, uneven level) and
+   * puts the cleaned line on A1 at the playhead, as one Undo step.
+   */
+  async placeNarration(): Promise<void> {
+    const projectId = this.store.projectId();
+    const take = this.narrationTake();
+    if (!projectId || !take || this.narrationBusy()) return;
+    const start = this.state.currentTime();
+    this.narrationBusy.set(true);
+    this.error.set('');
+    try {
+      const asset = await firstValueFrom(this.api.recordNarration(projectId, take.blob, this.narrationName()));
+      if (this.store.projectId() !== projectId) return;
+      this.state.addVoiceoverTracks([{ asset, startSeconds: start }]);
+      this.store.refreshAssets();
+      this.discardNarration();
+      this.narrationName.set('');
+      this.narrationNote.set(
+        `Cleaned and placed on A1 at ${start.toFixed(1)}s (${(asset.durationSeconds ?? 0).toFixed(1)}s). Ctrl+Z takes it back.`);
+    } catch (err: unknown) {
+      this.error.set(err instanceof Error ? err.message : 'The take could not be cleaned.');
+    } finally {
+      this.narrationBusy.set(false);
+    }
+  }
+
+  private async keepNarration(recording: Blob): Promise<void> {
+    try {
+      const wav = await toWav(recording, NARRATION_SAMPLE_RATE);
+      const url = URL.createObjectURL(wav);
+      this.narrationTake.set({ blob: wav, fileName: 'narration.wav', url, seconds: await this.readDuration(url) });
+    } catch {
+      this.error.set('That recording could not be read. Try again.');
+    }
+  }
+
+  /** Shows a script's text in the box, keeping the placement and voice in step with it. Saves nothing. */
+  private showScript(value: string): void {
     const before = this.language();
     const hadTimings = this.hasTimings();
     this.script.set(value);
-    this.writeStorage(this.scriptKey(), value);
     // A script that gives times means them; one that stops giving them can't be placed by them.
     if (this.hasTimings() && !hadTimings) this.setPlacement('script');
     else if (!this.hasTimings() && this.placement() === 'script') this.setPlacement('clips');
@@ -651,8 +988,12 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
       this.state.addVoiceoverTracks(placements, replacing > 0);
       this.replacedCount.set(replacing);
       this.applied.set(placements.length > 0);
-      // New files must show on the Assets page too, not only in the studio's media panel.
-      if (placements.length > 0) this.store.refreshAssets();
+      if (placements.length > 0) {
+        // So the script list says which take is on the timeline.
+        this.saveLibrary(markApplied(this.library(), Date.now()));
+        // New files must show on the Assets page too, not only in the studio's media panel.
+        this.store.refreshAssets();
+      }
     }
   }
 
@@ -737,7 +1078,7 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
     const builtIn = this.voiceGroups()
       .filter((g) => g.label !== 'My voices')
       .map((g) => `  ${g.label}: ${g.voices.map((v) => v.value).join(', ')}`);
-    const clips = this.state.clipSchedule()
+    const clips = this.voiceClips()
       .map((c, i) => `  clip ${i + 1}: ${c.startSeconds.toFixed(1)}s - ${c.endSeconds.toFixed(1)}s`);
     const prompt = [
       'Write the voiceover script for my video as JSON in exactly this format, with nothing else around it:',
@@ -1074,6 +1415,12 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
   }
 
   private describeVoice(v: VoiceoverVoice): { language: string; label: string } {
+    // Saved from Kokoro's Tune tab: "hx_keshav_tuned" is a Hindi voice tuned from a recording.
+    const tuned = /^([a-z])[a-z]?_(.+)_tuned$/.exec(v.id);
+    if (tuned && KOKORO_LANGUAGES[tuned[1]]) {
+      const name = tuned[2].replace(/_/g, ' ');
+      return { language: KOKORO_LANGUAGES[tuned[1]], label: `${name.charAt(0).toUpperCase()}${name.slice(1)} (tuned)` };
+    }
     const match = /^([a-z])([fm])_(.+)$/.exec(v.id);
     if (match && KOKORO_LANGUAGES[match[1]]) {
       const name = match[3].charAt(0).toUpperCase() + match[3].slice(1);
@@ -1134,10 +1481,6 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
     this.previewingIndex.set(null);
   }
 
-  private scriptKey(): string {
-    return `${SCRIPT_KEY_PREFIX}${this.store.projectId() ?? 'none'}`;
-  }
-
   private readFavorites(): string[] {
     try {
       const parsed: unknown = JSON.parse(this.readStorage(FAVORITES_KEY) ?? '[]');
@@ -1165,11 +1508,22 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
   }
 }
 
-/** Decodes any recording the browser can play and writes it as 16-bit mono PCM WAV. */
-async function toWav(blob: Blob): Promise<Blob> {
+/**
+ * Decodes any recording the browser can play and writes it as 16-bit mono PCM WAV, resampled
+ * to <paramref name="sampleRate"/> when one is given.
+ */
+async function toWav(blob: Blob, sampleRate?: number): Promise<Blob> {
   const context = new AudioContext();
   try {
-    const audio = await context.decodeAudioData(await blob.arrayBuffer());
+    let audio = await context.decodeAudioData(await blob.arrayBuffer());
+    if (sampleRate && audio.sampleRate !== sampleRate) {
+      const offline = new OfflineAudioContext(audio.numberOfChannels, Math.ceil(audio.duration * sampleRate), sampleRate);
+      const source = offline.createBufferSource();
+      source.buffer = audio;
+      source.connect(offline.destination);
+      source.start();
+      audio = await offline.startRendering();
+    }
     const mono = new Float32Array(audio.length);
     for (let c = 0; c < audio.numberOfChannels; c++) {
       const channel = audio.getChannelData(c);

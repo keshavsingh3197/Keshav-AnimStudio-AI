@@ -10,7 +10,7 @@ public sealed record MergeSceneInput(string RelativePath, FrameCount Length, Tra
 /// </summary>
 public sealed record MergeMusicTrack(
     string RelativePath, double StartSeconds, double Volume,
-    double? TrimStartSeconds, double? TrimEndSeconds);
+    double? TrimStartSeconds, double? TrimEndSeconds, bool IsVoiceover = false);
 
 /// <summary>
 /// One stretch of the finished timeline over which the music plays at a reduced level.
@@ -56,6 +56,9 @@ public sealed record MergePlan
     /// the music holding one level throughout, exactly as it always did.
     /// </summary>
     public IReadOnlyList<MergeDuckWindow> MusicDuckWindows { get; init; } = [];
+
+    /// <summary>Level the finished mix to YouTube's loudness target (-14 LUFS) before it is encoded.</summary>
+    public bool YouTubeLoudness { get; init; }
 
     public IReadOnlyList<MergeOverlayItem> Overlays { get; init; } = [];
 

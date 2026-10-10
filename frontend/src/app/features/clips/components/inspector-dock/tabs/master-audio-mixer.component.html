@@ -11,6 +11,92 @@
     </span>
   </div>
 
+  <!-- ── AUTO-ENHANCE: one-click polish for a YouTube upload ───── -->
+  <div class="inner-audio-card mb-2" style="border-left: 3px solid #22c55e;">
+    <div class="mb-1" style="font-size: 0.74rem; color: var(--text); font-weight: 700;">✨ Auto-enhance for YouTube</div>
+    <div class="mb-2" style="font-size: 0.66rem; color: var(--text-dim);">
+      Uses audio files in your library. Use only music and effects you're allowed to monetise
+      (YouTube Audio Library, or tracks you've licensed), or the video can get a Content ID claim.
+    </div>
+
+    <!-- Music bed -->
+    <div style="font-size: 0.7rem; color: var(--text-dim); font-weight: 600;">Background music</div>
+    @if (soundFiles().length === 0) {
+      <div class="mb-2" style="font-size: 0.66rem; color: var(--text-dim);">Upload a music file to the media library first.</div>
+    } @else {
+      <div class="d-flex gap-1 mb-1">
+        <select class="form-select form-select-sm" aria-label="Music to lay under the video"
+                [ngModel]="bedAssetId() || soundFiles()[0].id" (ngModelChange)="bedAssetId.set($event)">
+          @for (a of soundFiles(); track a.id) {
+            <option [value]="a.id">{{ a.name }} · {{ a.durationSeconds | number: '1.0-0' }}s</option>
+          }
+        </select>
+        <button type="button" class="audio-action-btn" style="white-space: nowrap;" (click)="layBed()"
+                title="Lay it on A2 under the whole video, repeated to fill it, faded in and out. Replaces music laid this way before.">
+          {{ state.autoBedTracks().length > 0 ? 'Replace' : 'Lay under video' }}
+        </button>
+        @if (state.autoBedTracks().length > 0) {
+          <button type="button" class="audio-action-btn" (click)="state.removeAutoTracks('bed')" title="Take the music bed off">✕</button>
+        }
+      </div>
+      <div class="d-flex align-items-center gap-2 mb-2" style="font-size: 0.66rem; color: var(--text-dim);">
+        <span style="white-space: nowrap;">Level {{ Math.round(bedVolume() * 100) }}%</span>
+        <input type="range" class="form-range" min="0.05" max="0.6" step="0.05" aria-label="Music level"
+               [ngModel]="bedVolume()" (ngModelChange)="bedVolume.set(+$event)" />
+      </div>
+    }
+
+    <!-- Sound on every cut -->
+    <div style="font-size: 0.7rem; color: var(--text-dim); font-weight: 600;">Sound on every cut <span style="font-weight: 400;">(whoosh, swoosh, hit)</span></div>
+    @if (effectFiles().length === 0) {
+      <div class="mb-2" style="font-size: 0.66rem; color: var(--text-dim);">Upload a short sound effect (under 6s) to the media library first.</div>
+    } @else {
+      <div class="d-flex gap-1 mb-1">
+        <select class="form-select form-select-sm" aria-label="Sound to place on each cut"
+                [ngModel]="cutAssetId() || effectFiles()[0].id" (ngModelChange)="cutAssetId.set($event)">
+          @for (a of effectFiles(); track a.id) {
+            <option [value]="a.id">{{ a.name }} · {{ a.durationSeconds | number: '1.1-1' }}s</option>
+          }
+        </select>
+        <button type="button" class="audio-action-btn" style="white-space: nowrap;" (click)="addCutSounds()"
+                [disabled]="state.clipSchedule().length < 2"
+                title="Place it just before every cut, so it peaks as the picture changes. Replaces ones placed this way before.">
+          {{ state.autoCutTracks().length > 0 ? 'Replace' : 'Add to ' + Math.max(0, state.clipSchedule().length - 1) + ' cuts' }}
+        </button>
+        @if (state.autoCutTracks().length > 0) {
+          <button type="button" class="audio-action-btn" (click)="state.removeAutoTracks('cuts')" title="Take the cut sounds off">✕</button>
+        }
+      </div>
+      <div class="d-flex align-items-center gap-2 mb-2" style="font-size: 0.66rem; color: var(--text-dim);">
+        <span style="white-space: nowrap;">Level {{ Math.round(cutVolume() * 100) }}%</span>
+        <input type="range" class="form-range" min="0.1" max="1.0" step="0.05" aria-label="Cut sound level"
+               [ngModel]="cutVolume()" (ngModelChange)="cutVolume.set(+$event)" />
+      </div>
+    }
+
+    <!-- Voice over music, and loudness -->
+    <label class="d-flex align-items-center gap-2 mb-1" style="font-size: 0.7rem; color: var(--text);">
+      <input type="checkbox" [ngModel]="state.duckMusicUnderVoice()" (ngModelChange)="setVoiceDuck($event)" />
+      Lower the music while the voiceover speaks
+    </label>
+    @if (state.duckMusicUnderVoice()) {
+      <div class="d-flex align-items-center gap-2 mb-1 ps-4" style="font-size: 0.66rem; color: var(--text-dim);">
+        <span style="white-space: nowrap;">Music drops to {{ Math.round(state.voiceDuckLevel() * 100) }}%</span>
+        <input type="range" class="form-range" min="0.05" max="0.8" step="0.05" aria-label="Music level under the voice"
+               [ngModel]="state.voiceDuckLevel()" (ngModelChange)="setVoiceDuckLevel(+$event)" />
+      </div>
+    }
+    <label class="d-flex align-items-center gap-2" style="font-size: 0.7rem; color: var(--text);"
+           title="Levels the exported mix to -14 LUFS, YouTube's playback loudness, so your video is as loud as the ones around it and isn't turned down">
+      <input type="checkbox" [ngModel]="state.exportYouTubeLoudness()" (ngModelChange)="setLoudness($event)" />
+      YouTube loudness on export (-14 LUFS)
+    </label>
+
+    @if (enhanceNote()) {
+      <div class="mt-2" style="font-size: 0.66rem; color: #bbf7d0;">{{ enhanceNote() }}</div>
+    }
+  </div>
+
   <!-- ── LEVELS ──────────────────────────────────────────────── -->
   <div class="inner-audio-card mb-2">
     <div class="mb-2" style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">Levels</div>
