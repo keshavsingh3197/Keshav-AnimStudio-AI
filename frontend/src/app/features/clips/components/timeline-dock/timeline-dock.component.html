@@ -7,10 +7,10 @@
     <!-- Timeline Toolbar -->
     <div class="tl-toolbar">
       <div class="tool-group">
-        <button class="tool-btn icon-only" type="button" title="Undo (Ctrl+Z)" disabled>
+        <button class="tool-btn icon-only" type="button" title="Undo (Ctrl+Z)" (click)="state.undo()" [disabled]="!state.canUndo()">
           <span class="tool-btn-icon">↩</span><span class="tool-btn-label">Undo</span>
         </button>
-        <button class="tool-btn icon-only" type="button" title="Redo (Ctrl+Y)" disabled>
+        <button class="tool-btn icon-only" type="button" title="Redo (Ctrl+Y / Ctrl+Shift+Z)" (click)="state.redo()" [disabled]="!state.canRedo()">
           <span class="tool-btn-icon">↪</span><span class="tool-btn-label">Redo</span>
         </button>
         <button class="tool-btn icon-only btn-danger-action" type="button" (click)="state.deleteOrRemoveCurrentSelection()" [disabled]="!state.hasAnySelection()" title="Delete / Remove selected (Del / Backspace)">
@@ -68,6 +68,16 @@
             <span class="tool-badge-count">{{ state.clipboardCount() }}</span>
           }
         </button>
+        <button class="tool-btn icon-only" type="button"
+                (click)="state.transferDialogMode.set('import')"
+                title="Bring in clips, music, voice, images or text from another video - this project or another">
+          <span class="tool-btn-icon">⇣</span><span class="tool-btn-label">From video</span>
+        </button>
+        <button class="tool-btn icon-only" type="button"
+                (click)="state.transferDialogMode.set('create')"
+                [title]="state.selectedCutIndices().length > 0 ? 'Make a new video or Short from the selected clips - choose what comes along' : 'Make a new video or Short from part of this one - choose what comes along'">
+          <span class="tool-btn-icon">✂</span><span class="tool-btn-label">New video</span>
+        </button>
         <button class="tool-btn icon-only tool-btn-subtle" type="button"
                 (click)="state.moveInsertCaretToPlayhead()"
                 [title]="'Insert caret is ' + state.insertPointLabel() + ' — click to move it to the playhead'">
@@ -87,6 +97,9 @@
         </button>
         <button class="tool-btn icon-only" type="button" [class.active]="state.activeInspectorTab() === 'audio'" (click)="state.onTimelineAudioClicked()" title="Audio Hub & Sound Effects">
           <span class="tool-btn-icon">🎵</span><span class="tool-btn-label">Audio</span>
+        </button>
+        <button class="tool-btn icon-only" type="button" [class.active]="state.activeInspectorTab() === 'audio' && state.effectiveAudioInspectorView() === 'voiceover'" (click)="state.openVoiceover()" title="Voiceover from script - speak your script onto A1">
+          <span class="tool-btn-icon">🎙</span><span class="tool-btn-label">Voiceover</span>
         </button>
         <button class="tool-btn icon-only" type="button" [class.active]="state.activeInspectorTab() === 'text'" (click)="state.onTextToolbarClicked()" title="Text & Subtitle Overlays">
           <span class="tool-btn-icon">𝐓</span><span class="tool-btn-label">Text</span>
@@ -148,7 +161,7 @@
           <!-- Playhead Needle (Declarative binding + 60fps RAF translation loop) -->
           <div #playheadNeedle class="tl-playhead-needle"
                [class.is-scrubbing]="isScrubbing()"
-               [style.left.px]="trackHeaderWidth + state.secondsToPx(state.currentTime())"
+               [style.left.px]="trackHeaderWidth + state.secondsToPx(state.Math.min(state.currentTime(), state.timelineSeconds()))"
                style="will-change: left;">
             <div class="tl-playhead-head"
                  (pointerdown)="onPlayheadPointerDown($event)"
@@ -399,15 +412,24 @@
                 <span class="tl-insert-caret-flag">{{ state.effectiveInsertIndex() + 1 }}</span>
               </div>
 
-              <!-- What the export appends after the cut: not editable here, but visible. -->
-              @if (state.endCardTailSeconds() > 0 && state.endCard(); as card) {
-                <div class="tl-end-card-marker"
-                     [style.left.px]="state.secondsToPx(state.contentDurationSeconds())"
-                     [style.width.px]="state.secondsToPx(card.seconds)"
-                     [title]="card.label + ' - appended by the export (' + card.seconds + 's). Change it in Settings or Admin → Branding; untick it in the Export dialog.'">
-                  <span class="tl-end-card-marker-text">🏁 End card</span>
-                </div>
-              }
+              <!-- What the export appends after the cut. Always there, so it can be switched on or set up. -->
+              <button type="button" class="tl-end-card-marker"
+                      [class.is-off]="state.endCard() && state.endCardTailSeconds() === 0"
+                      [class.is-missing]="!state.endCard()"
+                      [style.left.px]="state.secondsToPx(state.endCardStartSeconds())"
+                      [style.width.px]="state.secondsToPx(state.endCardSlotSeconds())"
+                      (pointerdown)="$event.stopPropagation()"
+                      (mousedown)="$event.stopPropagation()"
+                      (click)="$event.stopPropagation(); state.openEndCardDialog()"
+                      [title]="!state.endCard() ? 'No end card yet - click to set one up'
+                        : state.endCardTailSeconds() === 0 ? state.endCard()!.label + ' - left out of the export. Click to change.'
+                        : state.endCard()!.label + ' (' + state.endCard()!.seconds + 's) - added by the export' + (state.endCardInPreview() ? ' and played in the preview' : '') + '. Click for options.'">
+                <span class="tl-end-card-marker-text">
+                  @if (!state.endCard()) { ＋ End card }
+                  @else if (state.endCardTailSeconds() === 0) { 🏁 End card · off }
+                  @else { 🏁 End card{{ state.endCardInPreview() ? '' : ' · export only' }}{{ state.outroHoldSeconds() > 0 ? ' · after audio' : '' }} }
+                </span>
+              </button>
 
               @for (sched of state.clipSchedule(); track sched.clip.id; let i = $index) {
                 <div class="tl-clip"
@@ -639,40 +661,43 @@
             </div>
           </div>
 
-          <!-- Single Consolidated Audio Track Row (A1) -->
-          @if (state.showA1Track()) {
+          <!-- Audio rows: A1 voice lines, A2 music bed (separate lanes so music never covers the voice) -->
+          @for (lane of audioLanes; track lane.id) {
+          @if (lane.id === 'A1' ? state.showA1Track() : state.showA2Track()) {
             <div class="tl-row tl-track-row tl-row-a1" [class.has-thumbnails]="state.timelineThumbnailMode() === 'filmstrip'">
               <div class="tl-header-col tl-header-a1"
                    [class.has-thumbnails]="state.timelineThumbnailMode() === 'filmstrip'"
                    (click)="state.onTimelineAudioClicked()"
                    title="Click to open Audio Inspector">
                 <div class="tl-h-top">
-                  <span class="tl-badge tl-badge-a1 track-badge-a1">A1</span>
-                  <span class="tl-h-label">Audio</span>
-                  @if (state.itemsForTrack('A1').length === 0 && state.musicTracks().length === 0) {
-                    <button class="tl-h-close-btn" type="button" (click)="$event.stopPropagation(); state.hideTrack('A1')" title="Hide empty Audio track">×</button>
+                  <span class="tl-badge tl-badge-a1 track-badge-a1">{{ lane.id }}</span>
+                  <span class="tl-h-label">{{ lane.label }}</span>
+                  @if (state.itemsForTrack(lane.id).length === 0 && state.musicTracksForLane(lane.id).length === 0) {
+                    <button class="tl-h-close-btn" type="button" (click)="$event.stopPropagation(); state.hideTrack(lane.id)" [title]="'Hide empty ' + lane.label + ' track'">×</button>
                   }
                 </div>
                 <div class="tl-h-actions">
-                  <button class="tl-h-btn" type="button" (click)="$event.stopPropagation(); state.toggleTrackLock('A1')" [title]="state.isTrackLocked('A1') ? 'Unlock A1' : 'Lock A1'">
-                    {{ state.isTrackLocked('A1') ? '🔒' : '🔓' }}
+                  <button class="tl-h-btn" type="button" (click)="$event.stopPropagation(); state.toggleTrackLock(lane.id)" [title]="state.isTrackLocked(lane.id) ? 'Unlock ' + lane.id : 'Lock ' + lane.id">
+                    {{ state.isTrackLocked(lane.id) ? '🔒' : '🔓' }}
                   </button>
-                  <button class="tl-h-btn" type="button" (click)="$event.stopPropagation(); state.toggleTrackVisibility('A1')" [title]="state.isTrackVisible('A1') ? 'Mute A1' : 'Unmute A1'">
-                    {{ state.isTrackVisible('A1') ? '🔊' : '🔇' }}
+                  <button class="tl-h-btn" type="button" (click)="$event.stopPropagation(); state.toggleTrackMute(lane.id)" [title]="state.isTrackMuted(lane.id) ? 'Unmute ' + lane.id : 'Mute ' + lane.id">
+                    {{ state.isTrackMuted(lane.id) ? '🔇' : '🔊' }}
                   </button>
-                  <button class="tl-h-btn" type="button" (click)="$event.stopPropagation(); state.cycleProjectOverlapRule()"
-                          [title]="'Project default when video sound and music overlap: ' + state.overlapRuleLabel(state.projectOverlapRule()) + ' — click to cycle'">
-                    {{ state.projectOverlapRule() === 'MusicOnly' ? '🎵' : state.projectOverlapRule() === 'DuckVideo' ? '🔉' : state.projectOverlapRule() === 'DuckMusic' ? '🗣' : '🔊' }}
-                  </button>
+                  @if (lane.id === 'A2') {
+                    <button class="tl-h-btn" type="button" (click)="$event.stopPropagation(); state.cycleProjectOverlapRule()"
+                            [title]="'Project default when video sound and music overlap: ' + state.overlapRuleLabel(state.projectOverlapRule()) + ' — click to cycle'">
+                      {{ state.projectOverlapRule() === 'MusicOnly' ? '🎵' : state.projectOverlapRule() === 'DuckVideo' ? '🔉' : state.projectOverlapRule() === 'DuckMusic' ? '🗣' : '🔊' }}
+                    </button>
+                  }
                 </div>
               </div>
               <div class="tl-lane tl-lane-a1 tl-music"
                    [class.has-thumbnails]="state.timelineThumbnailMode() === 'filmstrip'"
                    [style.width.px]="state.secondsToPx(state.timelineSeconds())"
                    (dragover)="$event.preventDefault()"
-                   (drop)="onTrackDrop('A1', $event)"
+                   (drop)="onTrackDrop(lane.id, $event)"
                    (click)="state.onTimelineAudioClicked()">
-                @for (item of state.itemsForTrack('A1'); track item.id) {
+                @for (item of state.itemsForTrack(lane.id); track item.id) {
                   <div class="tl-clip tl-item-a1"
                        [class.selected]="state.selectedTimelineItemId() === item.id"
                        [style.left.px]="state.secondsToPx(item.startTime)"
@@ -681,7 +706,7 @@
                        (click)="$event.stopPropagation(); state.selectTimelineItem(item.id, $event); state.onTimelineAudioClicked()"
                        title="Click to open Audio Inspector · Use ← / → arrow keys to move">
                     <span class="tl-trim-handle left" (pointerdown)="onItemTrimPointerDown(item, 'left', $event)"></span>
-                    <span class="tl-item-badge">A1</span>
+                    <span class="tl-item-badge">{{ lane.id }}</span>
                     <span class="tl-item-name">{{ item.name || item.src }}</span>
                     <span class="tl-item-dur mono">{{ item.duration | number:'1.1-1' }}s</span>
                     <button class="tl-item-remove" type="button"
@@ -691,12 +716,12 @@
                     <span class="tl-trim-handle right" (pointerdown)="onItemTrimPointerDown(item, 'right', $event)"></span>
                   </div>
                 }
-                @for (track of state.musicTracks(); track track.key) {
+                @for (track of state.musicTracksForLane(lane.id); track track.key) {
                   <div class="tl-music-clip"
                        [class.selected]="state.selectedMusicTrackKey() === track.key"
                        [class.muted]="track.muted"
                        [class.has-thumbnails]="state.timelineThumbnailMode() === 'filmstrip'"
-                       style="background: var(--ok, #10b981) repeating-linear-gradient(90deg, rgba(255,255,255,0.2) 0px, rgba(255,255,255,0.2) 2px, transparent 2px, transparent 4px) center/100% 60% no-repeat;"
+                       [style.background]="lane.clipColor + ' repeating-linear-gradient(90deg, rgba(255,255,255,0.2) 0px, rgba(255,255,255,0.2) 2px, transparent 2px, transparent 4px) center/100% 60% no-repeat'"
                        [style.left.px]="state.secondsToPx(track.startSeconds)"
                        [style.width.px]="state.secondsToPx(state.musicTrackDurationSeconds(track))"
                        (pointerdown)="onMusicBlockPointerDown(track, $event)"
@@ -705,7 +730,7 @@
                     <span class="tl-trim-handle left" (pointerdown)="onMusicTrimPointerDown(track, 'start', $event)"></span>
                     @if (state.timelineThumbnailMode() === 'filmstrip') {
                       <div class="tl-music-inner">
-                        <span class="tl-music-badge">🎵</span>
+                        <span class="tl-music-badge">{{ lane.id === 'A1' ? '🎙' : '🎵' }}</span>
                         <div class="tl-music-waveform">
                           <svg viewBox="0 0 100 24" preserveAspectRatio="none" class="tl-waveform-svg">
                             <path d="M0,12 Q5,3 10,12 T20,12 T30,1 T40,12 T50,21 T60,12 T70,4 T80,12 T90,20 T100,12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
@@ -730,15 +755,16 @@
                     <button class="tl-music-remove" type="button"
                             (pointerdown)="$event.stopPropagation()"
                             (click)="onRemoveMusicClick($event, track.key)"
-                            title="Remove music track" aria-label="Remove">×</button>
+                            [title]="'Remove ' + lane.label.toLowerCase() + ' clip'" aria-label="Remove">×</button>
                     <span class="tl-trim-handle right" (pointerdown)="onMusicTrimPointerDown(track, 'end', $event)"></span>
                   </div>
                 }
-                @if (state.musicTracks().length === 0 && state.itemsForTrack('A1').length === 0) {
-                  <div class="tl-lane-placeholder">Drop Music or Voice-Over audio here · Click to open Audio tab</div>
+                @if (state.musicTracksForLane(lane.id).length === 0 && state.itemsForTrack(lane.id).length === 0) {
+                  <div class="tl-lane-placeholder">{{ lane.placeholder }}</div>
                 }
               </div>
             </div>
+          }
           }
 
         </div>
@@ -909,32 +935,34 @@
             </div>
           </div>
 
-          <!-- Audio Track (A1) -->
-          <div class="tl-track-card" [class.active-card]="state.showA1Track()">
-            <div class="tl-card-icon aud">🎵</div>
-            <div class="tl-card-info">
-              <div class="tl-card-title-row">
-                <span class="tl-card-title">Audio Track (A1)</span>
-                @if (state.showA1Track()) {
-                  <span class="tl-status-pill active">Active</span>
+          <!-- Audio Tracks (A1 voice, A2 music) -->
+          @for (lane of audioLanes; track lane.id) {
+            <div class="tl-track-card" [class.active-card]="lane.id === 'A1' ? state.showA1Track() : state.showA2Track()">
+              <div class="tl-card-icon aud">{{ lane.id === 'A1' ? '🎙' : '🎵' }}</div>
+              <div class="tl-card-info">
+                <div class="tl-card-title-row">
+                  <span class="tl-card-title">{{ lane.label }} Track ({{ lane.id }})</span>
+                  @if (lane.id === 'A1' ? state.showA1Track() : state.showA2Track()) {
+                    <span class="tl-status-pill active">Active</span>
+                  } @else {
+                    <span class="tl-status-pill hidden">Hidden</span>
+                  }
+                </div>
+                <div class="tl-card-desc">{{ lane.desc }}</div>
+              </div>
+              <div class="tl-card-action">
+                @if (lane.id === 'A1' ? state.showA1Track() : state.showA2Track()) {
+                  <button type="button" class="tl-card-btn btn-hide" (click)="toggleTrack(lane.id)">
+                    Hide
+                  </button>
                 } @else {
-                  <span class="tl-status-pill hidden">Hidden</span>
+                  <button type="button" class="tl-card-btn btn-add" (click)="addTrack(lane.id)">
+                    + Add Track
+                  </button>
                 }
               </div>
-              <div class="tl-card-desc">Multi-track background score, sound effects &amp; voiceover narration</div>
             </div>
-            <div class="tl-card-action">
-              @if (state.showA1Track()) {
-                <button type="button" class="tl-card-btn btn-hide" (click)="toggleTrack('A1')">
-                  Hide
-                </button>
-              } @else {
-                <button type="button" class="tl-card-btn btn-add" (click)="addTrack('A1')">
-                  + Add Track
-                </button>
-              }
-            </div>
-          </div>
+          }
         </div>
       </div>
 

@@ -1,3 +1,5 @@
+import { CharacterVoice } from '../../shared/voice/character-voice';
+
 /** Mirrors the backend's single response envelope. */
 export interface ApiResponse<T> {
   success: boolean;
@@ -99,6 +101,75 @@ export interface Asset {
   folderId?: string | null;
 }
 
+/** One voice the server's speech engine can speak a voiceover in. */
+export interface VoiceoverVoice {
+  id: string;
+  name: string;
+  languageCode?: string | null;
+  gender?: string | null;
+}
+
+/** GET /api/voiceover/voices: whether a voiceover can be made right now, and in which voices. */
+export interface VoiceoverVoices {
+  available: boolean;
+  providerId?: string | null;
+  reason: string;
+  voices: VoiceoverVoice[];
+  /** Voices the user added from their own samples. */
+  myVoices?: MyVoice[];
+  /** False when neither Kokoro voice tuning nor the AI voice converter can make "my voice" lines. */
+  myVoicesAvailable?: boolean;
+  /** Speech engines that are on, in the configured order. */
+  engines?: VoiceoverEngine[];
+}
+
+/** A speech engine the voiceover panel can pick; `models` is empty when there is nothing to choose. */
+export interface VoiceoverEngine {
+  id: string;
+  name: string;
+  runsLocally: boolean;
+  /** The model it uses unless another is picked. */
+  model?: string | null;
+  models: { id: string; label: string }[];
+}
+
+/** What was heard in a dictated script, one line per spoken phrase. */
+export interface VoiceScriptDictation {
+  lines: string[];
+}
+
+/** A script rewritten by the AI text model so it reads aloud well. */
+export interface VoiceScriptPolish {
+  script: string;
+  providerId?: string | null;
+}
+
+/** A voice the user added from their own consented sample. */
+export interface MyVoice {
+  id: string;
+  name: string;
+  /** The built-in voice that speaks the words before they are re-voiced. */
+  baseVoiceId: string;
+  durationSeconds?: number | null;
+  createdAtUtc: string;
+  /** Kokoro has a voice tuned from the sample, which speaks lines in any of its languages directly instead of re-voicing them. */
+  tuned?: boolean;
+}
+
+/** One script line for POST /api/projects/{id}/voiceover. Rate is 0.5-2.0. */
+export interface VoiceoverBody {
+  text: string;
+  voiceId: string;
+  rate?: number;
+  name?: string;
+  /** One of the user's own voices: voiceId speaks the line, then it is re-voiced into this one. */
+  myVoiceId?: string;
+  /** The speech engine to use instead of the configured order (not with myVoiceId). */
+  engine?: string;
+  /** One of the engine's offered models. */
+  model?: string;
+}
+
 export interface CharacterAppearance {
   age?: number;
   gender?: string;
@@ -117,6 +188,8 @@ export interface Character {
   isNarrator: boolean;
   subtitleColorHex?: string;
   appearance: CharacterAppearance;
+  /** Absent: the performer's own voice. */
+  voice?: CharacterVoice | null;
 }
 
 export interface CharacterBody {
@@ -128,6 +201,8 @@ export interface CharacterBody {
   openMouthAssetId?: string | null;
   subtitleColorHex?: string | null;
   appearance?: CharacterAppearance;
+  /** Omitted leaves the voice as it is; `enabled: false` clears it. */
+  voice?: (CharacterVoice & { enabled: true }) | { enabled: false };
 }
 
 export interface IngestResult {
@@ -422,6 +497,8 @@ export interface Clip {
   hasAudio: boolean;
   /** A finished render saved back to the project; the media panel hides these. */
   isExport?: boolean;
+  /** When the file was added to the library (UTC ISO string); absent on client-made splits. */
+  createdAt?: string;
 }
 
 /**
@@ -507,7 +584,12 @@ export interface OutroBody {
   subtextSecondary?: string | null;
   backgroundHex?: string | null;
   textHex?: string | null;
+  /** Card only: 'Rise' brings the headline, code and small text in one after another. */
+  animation?: EndCardAnimation | null;
 }
+
+export const END_CARD_ANIMATIONS = ['Rise', 'None'] as const;
+export type EndCardAnimation = (typeof END_CARD_ANIMATIONS)[number];
 
 export const CLIP_FITS = ['Contain', 'Cover', 'BlurredBackdrop'] as const;
 
@@ -545,6 +627,8 @@ export interface TimedMusicClipBody {
   volume: number;
   trimStartSeconds?: number | null;
   trimEndSeconds?: number | null;
+  /** A voiceover line on A1: music ducks under it, and it never ducks itself. */
+  isVoiceover?: boolean;
 }
 
 /**
@@ -570,6 +654,8 @@ export type TimelineItemType = 'video' | 'image' | 'audio' | 'text';
 
 export interface TimelineItemTransform {
   scale: number;
+  /** Image/video overlays: width in percent of the canvas width; replaces scale when set. */
+  widthPercent?: number;
   x: number;
   y: number;
   opacity: number;
@@ -587,18 +673,35 @@ export interface TimelineItemTransform {
   /** Existing marks in the source footage to wipe before our own watermark is drawn */
   eraseRegions?: EraseRegion[];
   /** Transition In style for image overlay */
-  transitionIn?: 'none' | 'fade' | 'slide-left' | 'slide-right' | 'slide-up' | 'slide-down' | 'zoom' | 'zoom-in' | 'zoom-out';
+  transitionIn?: OverlayMotion;
   transitionInDuration?: number;
   /** Transition Out style for image overlay */
-  transitionOut?: 'none' | 'fade' | 'slide-left' | 'slide-right' | 'slide-up' | 'slide-down' | 'zoom' | 'zoom-in' | 'zoom-out';
+  transitionOut?: OverlayMotion;
   transitionOutDuration?: number;
+  /** Image/video overlays: the outline it is cut to. */
+  shape?: OverlayShape;
+  /** Ring inside the overlay's edge, in 360-reference pixels like text sizes. */
+  borderWidth?: number;
+  /** #rrggbb */
+  borderColor?: string;
+  /** Width / height after the crop, so the export sizes a shaped overlay exactly. */
+  aspectRatio?: number;
 }
+
+/** How an overlay arrives or leaves. 'pop' is an entrance only; as an exit it shrinks like 'zoom'. */
+export type OverlayMotion =
+  | 'none' | 'fade' | 'slide-left' | 'slide-right' | 'slide-up' | 'slide-down'
+  | 'zoom' | 'zoom-in' | 'zoom-out' | 'pop'
+  /** Text only: typed out a character at a time, or wiped on left to right. */
+  | 'typewriter' | 'wipe';
+
+export type OverlayShape = 'rect' | 'rounded' | 'circle';
 
 /**
  * Blur smears the mark; Patch covers it with the footage beside it; Fill paints a box;
  * Brand patches it and draws the project's own watermark in its place.
  */
-export type EraseStyle = 'Blur' | 'Fill' | 'Patch' | 'Brand';
+export type EraseStyle = 'Blur' | 'Fill' | 'Patch' | 'Brand' | 'Clean';
 
 /** Which neighbouring footage a Patch / Brand box copies from. */
 export type EraseSource = 'Auto' | 'Above' | 'Below' | 'Left' | 'Right';
@@ -635,16 +738,37 @@ export const ERASE_DEFAULT_FEATHER = 30;
 export const MAX_ERASE_REGIONS = 8;
 export const MIN_ERASE_SIZE = 1;
 
+export type TextBoxStyle = 'none' | 'box' | 'band';
+
 export interface TimelineItemTextStyle {
+  /** Pixels on a frame whose short side is 360 (the monitor); the export scales it to the canvas. */
   fontSize: number;
+  /** #rrggbb */
   color: string;
+  /** Legacy CSS plate colour; superseded by boxStyle/boxColor/boxOpacity when those are set. */
   backgroundColor: string;
-  position: 'top' | 'center' | 'bottom';
+  /** 'custom' places the centre of the text at x/y. */
+  position: 'top' | 'center' | 'bottom' | 'custom';
+  /** Centre of the text block, percent of the frame (custom position only). */
+  x?: number;
+  y?: number;
+  /** none, a plate behind each line, or a full-width strip. */
+  boxStyle?: TextBoxStyle;
+  /** #rrggbb */
+  boxColor?: string;
+  /** 0-1 */
+  boxOpacity?: number;
+  /** #rrggbb; drawn only while outlineWidth > 0 */
+  outlineColor?: string;
+  /** Same units as fontSize */
+  outlineWidth?: number;
+  shadow?: boolean;
+  uppercase?: boolean;
   /** Transition In animation for text overlay */
-  transitionIn?: 'none' | 'fade' | 'slide-up' | 'slide-down' | 'zoom' | 'zoom-in' | 'zoom-out';
+  transitionIn?: 'none' | 'fade' | 'slide-up' | 'slide-down' | 'slide-left' | 'slide-right' | 'zoom' | 'zoom-in' | 'zoom-out' | 'typewriter' | 'wipe';
   transitionInDuration?: number;
   /** Transition Out animation for text overlay */
-  transitionOut?: 'none' | 'fade' | 'slide-down' | 'slide-up' | 'zoom' | 'zoom-in' | 'zoom-out';
+  transitionOut?: 'none' | 'fade' | 'slide-down' | 'slide-up' | 'slide-left' | 'slide-right' | 'zoom' | 'zoom-in' | 'zoom-out';
   transitionOutDuration?: number;
 }
 
@@ -681,6 +805,8 @@ export interface ClipMergeBody {
   exportName?: string;
   assetIds: string[];
   fit: ClipFit;
+  /** #rrggbb fill for the Contain bars; omitted is black. */
+  backgroundColor?: string | null;
   outputWidth?: number;
   outputHeight?: number;
   quality?: ExportQuality;
@@ -697,6 +823,10 @@ export interface ClipMergeBody {
   watermark: WatermarkBody;
   /** End with the saved outro or QR end card (Admin &gt; Branding, or the project's own). */
   includeOutro?: boolean;
+  /** Seconds to hold the last frame before the end card, so it starts after music/text that runs on. */
+  outroHoldSeconds?: number;
+  /** Level the finished mix to YouTube's -14 LUFS. */
+  youTubeLoudness?: boolean;
   timelineItems?: TimelineItem[] | null;
   /**
    * Stretches where the music must drop under the clips above it. Ducking the music cannot be

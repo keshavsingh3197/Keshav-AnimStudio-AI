@@ -23,7 +23,8 @@ public sealed record OutroResponse(
     string BackgroundHex = "#101828",
     string TextHex = "#FFFFFF",
     string? HeadlineSecondary = null,
-    string? SubtextSecondary = null);
+    string? SubtextSecondary = null,
+    string Animation = "Rise");
 
 public sealed record ProjectResponse(
     string Id, string Name, string? Description, string Status,
@@ -47,10 +48,15 @@ public sealed record BrandChannelResponse(
 public sealed record CharacterResponse(
     string Id, string Name, string? Description, IReadOnlyList<string> Aliases,
     string? ClosedMouthAssetId, string? OpenMouthAssetId, bool IsNarrator, string? SubtitleColorHex,
-    CharacterAppearanceResponse Appearance);
+    CharacterAppearanceResponse Appearance, CharacterVoiceResponse? Voice = null);
 
 public sealed record CharacterAppearanceResponse(
     int? Age, string? Gender, string? Hair, string? Clothes, string? AdditionalDetails);
+
+public sealed record CharacterVoiceResponse(
+    string? Preset, double PitchSemitones, double BassDecibels, double TrebleDecibels,
+    double Drive, double Robot, double RobotHertz, bool Radio, double Echo, double Reverb,
+    double SizeSemitones = 0, string? AiSampleAssetId = null, bool AiSampleConsent = false);
 
 public sealed record AssetResponse(
     string Id, string Name, string Kind, string MimeType, long FileSizeBytes,
@@ -200,7 +206,8 @@ public sealed record AiCapabilitiesResponse(IReadOnlyList<AiCapabilityResponse> 
 /// </summary>
 public sealed record ClipResponse(
     string Id, string Name, long FileSizeBytes,
-    double? DurationSeconds, int? Width, int? Height, bool HasAudio, bool IsExport);
+    double? DurationSeconds, int? Width, int? Height, bool HasAudio, bool IsExport,
+    DateTime CreatedAt);
 
 public sealed record ClipOrderLineResponse(int Number, string Text, string? AssetId, string Match);
 
@@ -264,3 +271,36 @@ public sealed record StorageDetailResponse(
     long? DiskTotalBytes,
     long? DiskFreeBytes,
     IReadOnlyList<StorageFolderResponse> Folders);
+
+/// <summary>Whether studio voices can be made, and whether AI voices (a person's sample) can too.</summary>
+public sealed record StudioVoiceStatusResponse(bool Available, bool AiAvailable = false);
+
+/// <summary>What GET /api/voiceover/voices reports: whether speech can be made, and in which voices.</summary>
+public sealed record VoiceoverVoicesResponse(
+    bool Available, string? ProviderId, string Reason, IReadOnlyList<VoiceoverVoiceResponse> Voices,
+    IReadOnlyList<MyVoiceResponse> MyVoices, bool MyVoicesAvailable,
+    IReadOnlyList<VoiceoverEngineResponse>? Engines = null);
+
+/// <summary>
+/// A speech engine that is on and answering, in the configured order. <see cref="Models"/> is
+/// empty for an engine with nothing to choose; <see cref="Model"/> is the one used by default.
+/// </summary>
+public sealed record VoiceoverEngineResponse(
+    string Id, string Name, bool RunsLocally, string? Model, IReadOnlyList<VoiceoverModelResponse> Models);
+
+public sealed record VoiceoverModelResponse(string Id, string Label);
+
+/// <summary>What was heard in a dictated script, one line per spoken phrase.</summary>
+public sealed record VoiceScriptDictationResponse(IReadOnlyList<string> Lines);
+
+/// <summary>The script, rewritten to read aloud well. Shown to the user to keep or discard; never spoken unseen.</summary>
+public sealed record VoiceScriptPolishResponse(string Script, string? ProviderId);
+
+/// <summary>
+/// A voice the user added from their own sample. The sample itself is never sent back.
+/// <paramref name="Tuned"/>: the speech engine has a voice tuned from it, which speaks English lines directly.
+/// </summary>
+public sealed record MyVoiceResponse(
+    string Id, string Name, string BaseVoiceId, double? DurationSeconds, DateTime CreatedAtUtc, bool Tuned);
+
+public sealed record VoiceoverVoiceResponse(string Id, string Name, string? LanguageCode, string? Gender);

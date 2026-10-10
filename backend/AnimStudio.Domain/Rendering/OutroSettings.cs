@@ -17,6 +17,19 @@ public enum OutroKind
     Card = 3
 }
 
+/// <summary>How the pieces of a <see cref="OutroKind.Card"/> arrive.</summary>
+public enum EndCardAnimation
+{
+    /// <summary>Everything is there from the first frame (behind the card's own fade).</summary>
+    None = 0,
+
+    /// <summary>
+    /// One after another: the headline drops in from above, the code rises into place, the
+    /// small text rises from below - each easing in and fading up.
+    /// </summary>
+    Rise = 1
+}
+
 /// <summary>
 /// Channel bumper or outro end-card attached to the end of rendered videos.
 /// </summary>
@@ -62,6 +75,9 @@ public sealed class OutroSettings
     /// <summary>#RRGGBB.</summary>
     public string TextHex { get; set; } = "#FFFFFF";
 
+    /// <summary>Card only. Cards saved before this existed read as <see cref="EndCardAnimation.Rise"/>.</summary>
+    public EndCardAnimation Animation { get; set; } = EndCardAnimation.Rise;
+
     public bool IsEnabled => Kind switch
     {
         OutroKind.Video or OutroKind.Image => !string.IsNullOrWhiteSpace(AssetId),
@@ -82,6 +98,7 @@ public sealed class OutroSettings
         SubtextSecondary = OneLine(SubtextSecondary, MaxSubtextLength);
         BackgroundHex = IsHexColor(BackgroundHex) ? BackgroundHex.ToUpperInvariant() : "#101828";
         TextHex = IsHexColor(TextHex) ? TextHex.ToUpperInvariant() : "#FFFFFF";
+        if (!Enum.IsDefined(Animation)) Animation = EndCardAnimation.Rise;
     }
 
     /// <summary>

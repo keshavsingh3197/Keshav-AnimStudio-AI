@@ -18,7 +18,8 @@ public enum AiProviderFamily
     PiperSpeech = 7,
     OpenAiCompatibleTts = 8,
     WhisperCppTranscription = 9,
-    OpenAiCompatibleAsr = 10
+    OpenAiCompatibleAsr = 10,
+    GeminiTts = 11
 }
 
 /// <summary>
@@ -41,8 +42,17 @@ public sealed record AiProviderDescriptor(
     string FreeTierNote,
     string? KeyUrl,
     string LicenseClass = "Unknown",
-    int? DefaultDailyRequestLimit = null)
+    int? DefaultDailyRequestLimit = null,
+    IReadOnlyList<AiModelChoice>? Models = null)
 {
+    /// <summary>
+    /// Whether a model may be asked for per request: one this catalogue offers, or the one the
+    /// operator configured. Anything else is refused - a model name reaches a request path.
+    /// </summary>
+    public bool Allows(string model, string? configuredModel) =>
+        (Models ?? []).Any(m => string.Equals(m.Id, model, StringComparison.Ordinal))
+        || string.Equals(model, configuredModel, StringComparison.Ordinal);
+
     /// <summary>
     /// A provider on this machine needs no key; a hosted one does. Derived rather than
     /// declared, so a local endpoint can never be configured to send a key over the wire.
@@ -51,6 +61,9 @@ public sealed record AiProviderDescriptor(
 
     public AiProviderId ProviderId => AiProviderId.Parse(Id);
 }
+
+/// <summary>A model a user may pick per request, with a label that says what it trades.</summary>
+public sealed record AiModelChoice(string Id, string Label);
 
 /// <summary>
 /// The catalogue of providers this build can actually construct.
@@ -75,6 +88,7 @@ public static class KnownAiProviders
     public const string PiperLocal = "piper-local";
     public const string Kokoro = "kokoro";
     public const string OpenAiTts = "openai-tts";
+    public const string GeminiTts = "gemini-tts";
     public const string WhisperCppLocal = "whispercpp-local";
     public const string FasterWhisper = "faster-whisper";
     public const string GroqWhisper = "groq-whisper";
@@ -95,7 +109,7 @@ public static class KnownAiProviders
         new(Gemini, AiCapability.Text, AiProviderFamily.GeminiText,
             "Google Gemini",
             "https://generativelanguage.googleapis.com",
-            "gemini-2.5-flash",
+            "gemini-3.8-flash",
             RunsLocally: false,
             "Free tier on the Flash models. Handles long transcripts in one call, so it is " +
             "the better fallback when a whole video's captions go in at once.",
@@ -202,6 +216,23 @@ public static class KnownAiProviders
             KeyUrl: null,
             LicenseClass: "PublicDomain"),
 
+        new(GeminiTts, AiCapability.Speech, AiProviderFamily.GeminiTts,
+            "Google Gemini speech",
+            "https://generativelanguage.googleapis.com",
+            "gemini-2.5-flash-preview-tts",
+            RunsLocally: false,
+            "Thirty natural stock voices that speak Hindi and English alike, steered by " +
+            "asking (\"Say cheerfully: ...\"). Billed per use on a paid Gemini key, so Google " +
+            "Cloud credits cover it. It needs its own copy of the Gemini key, and is never " +
+            "sent a recording of anyone's voice.",
+            "https://aistudio.google.com/apikey",
+            DefaultDailyRequestLimit: 500,
+            Models:
+            [
+                new("gemini-2.5-flash-preview-tts", "Flash - fast, cheaper"),
+                new("gemini-2.5-pro-preview-tts", "Pro - most expressive, costs more")
+            ]),
+
         new(OpenAiTts, AiCapability.Speech, AiProviderFamily.OpenAiCompatibleTts,
             "OpenAI-compatible speech",
             null,
@@ -270,7 +301,9 @@ public static class KnownAiProviders
             or AiProviderFamily.HuggingFaceImage
             or AiProviderFamily.ComfyUiImage => AiCapability.Image,
 
-        AiProviderFamily.PiperSpeech or AiProviderFamily.OpenAiCompatibleTts => AiCapability.Speech,
+        AiProviderFamily.PiperSpeech
+            or AiProviderFamily.OpenAiCompatibleTts
+            or AiProviderFamily.GeminiTts => AiCapability.Speech,
 
         AiProviderFamily.WhisperCppTranscription
             or AiProviderFamily.OpenAiCompatibleAsr => AiCapability.Transcription,

@@ -19,6 +19,15 @@ public sealed class LocalRenderWorkspace : IRenderWorkspace
     private readonly ConcurrentDictionary<string, Lazy<Task<string>>> _materialized =
         new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// Workspaces still in use in this process. Not every workspace belongs to a render job
+    /// (a voice conversion or a studio take has none), so the janitor asks this rather than
+    /// the job list before deleting a folder: a CPU conversion can outlast its sweep interval.
+    /// </summary>
+    private static readonly ConcurrentDictionary<string, byte> Open = new(StringComparer.OrdinalIgnoreCase);
+
+    internal static bool IsOpen(string rootPath) => Open.ContainsKey(Path.GetFullPath(rootPath));
+
     private bool _failed;
     private string? _failureReason;
 
@@ -31,6 +40,7 @@ public sealed class LocalRenderWorkspace : IRenderWorkspace
         _logger = logger;
         _keepOnFailure = keepOnFailure;
 
+        Open[Path.GetFullPath(RootPath)] = 0;
         Directory.CreateDirectory(RootPath);
         // "merge" holds the intermediates of a batched join. Created up front like the rest
         // because ffmpeg writes its output itself and will not create a missing parent - it
@@ -130,6 +140,8 @@ public sealed class LocalRenderWorkspace : IRenderWorkspace
     /// </summary>
     public ValueTask DisposeAsync()
     {
+        Open.TryRemove(Path.GetFullPath(RootPath), out _);
+
         if (_failed && _keepOnFailure)
         {
             _logger.LogInformation(

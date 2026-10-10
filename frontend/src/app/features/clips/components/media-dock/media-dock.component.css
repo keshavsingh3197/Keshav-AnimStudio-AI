@@ -702,6 +702,49 @@
   transition: opacity 0.15s ease, left 0.15s ease;
 }
 
+/* Same slot as "In Cut", recoloured: sky like the "Not in Cut" filter, amber when added today. */
+.clip-unused-tag {
+  background: rgba(56, 189, 248, 0.18);
+  border-color: rgba(56, 189, 248, 0.4);
+  color: #7dd3fc;
+}
+
+.clip-unused-tag .cut-dot {
+  background: #38bdf8;
+  box-shadow: 0 0 4px #38bdf8;
+}
+
+.clip-other-tag {
+  background: rgba(167, 139, 250, 0.2);
+  border-color: rgba(167, 139, 250, 0.45);
+  color: #c4b5fd;
+}
+
+.clip-other-tag .cut-dot {
+  background: #a78bfa;
+  box-shadow: 0 0 4px #a78bfa;
+}
+
+.cut-other-cnt {
+  font-size: 8px;
+  background: rgba(167, 139, 250, 0.35);
+  color: #ede9fe;
+  padding: 0 3px;
+  border-radius: 6px;
+  line-height: 1.2;
+}
+
+.clip-new-tag {
+  background: rgba(245, 158, 11, 0.22);
+  border-color: rgba(245, 158, 11, 0.5);
+  color: #fbbf24;
+}
+
+.clip-new-tag .cut-dot {
+  background: #f59e0b;
+  box-shadow: 0 0 4px #f59e0b;
+}
+
 .clip-card:hover .clip-in-cut-tag,
 .clip-card.selected .clip-in-cut-tag,
 .clip-card.library-selected .clip-in-cut-tag {

@@ -4,16 +4,36 @@ import { FormsModule } from '@angular/forms';
 import { StudioStateService } from '../../services/studio-state.service';
 import { Clip } from '../../../../core/models/api.models';
 import { ClipRow } from '../../models/clip-studio.models';
+import { UrlImportDialogComponent } from '../../../../shared/url-import-dialog.component';
+import { MediaUsageDialogComponent } from '../media-usage-dialog/media-usage-dialog.component';
 
 @Component({
   selector: 'app-media-dock',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, UrlImportDialogComponent, MediaUsageDialogComponent],
   templateUrl: './media-dock.component.html',
   styleUrls: ['./media-dock.component.css'],
 })
 export class MediaDockComponent implements OnDestroy {
   readonly state = inject(StudioStateService);
+
+  /** The paste-many-links import; the clip list reloads once when it closes, if anything arrived. */
+  readonly urlImportOpen = signal(false);
+  private urlImported = false;
+
+  /** The file whose details-and-usage dialog is open. */
+  readonly usageClip = signal<Clip | null>(null);
+
+  onUrlImported(): void {
+    this.urlImported = true;
+    this.state.store.refreshAssets();
+  }
+
+  onUrlImportClosed(): void {
+    this.urlImportOpen.set(false);
+    if (this.urlImported) this.state.reload(false);
+    this.urlImported = false;
+  }
 
   // Local audio preview element - Guardrail 1: DOM Reference Isolation
   private previewAudioEl: HTMLAudioElement | null = null;
@@ -129,8 +149,14 @@ export class MediaDockComponent implements OnDestroy {
     }
   }
 
-  onDragStart(index: number, row: ClipRow): void {
+  onDragStart(index: number, row: ClipRow, event?: DragEvent): void {
     this.state.onRowDragStart(index, row);
+    // Firefox starts no drag at all without data, and the preview and timeline both read
+    // the dragged clip from state - so the payload is only an id, under our own type.
+    if (event?.dataTransfer) {
+      event.dataTransfer.setData('application/x-animstudio-clip', row.clip.id);
+      event.dataTransfer.effectAllowed = 'copyMove';
+    }
   }
 
   selectAll(): void {

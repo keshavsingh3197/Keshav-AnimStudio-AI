@@ -104,4 +104,38 @@ public class MusicDuckGraphTests
         // at best and silently drops the duck at worst.
         Assert.Contains("\\,", built.FilterComplex);
     }
+
+    [Fact]
+    public void A_voiceover_line_is_never_ducked_but_music_beside_it_is()
+    {
+        var built = NewBuilder().BuildMerge(Plan(new MergeDuckWindow(2.0, 6.0, 0.25)) with
+        {
+            MusicTracks =
+            [
+                new MergeMusicTrack("audio/song.mp3", 0, 0.6, null, null),
+                new MergeMusicTrack("audio/vo_line.wav", 2.0, 1.0, null, null, IsVoiceover: true)
+            ]
+        });
+
+        var song = Chain(built.FilterComplex, "[mtrack0]");
+        var voice = Chain(built.FilterComplex, "[mtrack1]");
+        Assert.Contains("eval=frame", song);
+        Assert.DoesNotContain("eval=frame", voice);
+    }
+
+    [Fact]
+    public void YouTube_loudness_levels_the_finished_mix_only_when_asked()
+    {
+        var plain = NewBuilder().BuildMerge(Plan());
+        var levelled = NewBuilder().BuildMerge(Plan() with { YouTubeLoudness = true });
+
+        Assert.DoesNotContain("loudnorm", plain.FilterComplex);
+        // On the mix, right before its output pad - not on each source.
+        Assert.Contains("loudnorm=I=-14:TP=-1.5:LRA=11,aresample=", Chain(levelled.FilterComplex, "[afinal]"));
+        Assert.Single(levelled.FilterComplex.Split("loudnorm").Skip(1));
+    }
+
+    /// <summary>The filter chain (one ';'-separated statement) that ends in <paramref name="pad"/>.</summary>
+    private static string Chain(string graph, string pad) =>
+        graph.Split(';').Single(s => s.TrimEnd().EndsWith(pad, StringComparison.Ordinal));
 }

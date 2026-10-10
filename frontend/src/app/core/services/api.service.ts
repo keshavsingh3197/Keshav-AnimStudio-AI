@@ -2,10 +2,12 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, map, catchError, of } from 'rxjs';
 
+import { CharacterVoice } from '../../shared/voice/character-voice';
 import { environment } from '../../../environments/environment';
 import {
   AdminAccess, AdminAuditEntry, AdminHealth, AdminJob, AdminProviderBody, AdminProviders,
   AdminProviderTest, AdminUsage, AiCapabilities, ApiResponse, Asset, BundleApplyBody,
+  VoiceoverBody, VoiceoverVoices, MyVoice, VoiceScriptDictation, VoiceScriptPolish,
   BundleImportResult, BundlePreview, Character, CharacterBody, ClipMergeBody, ClipOrder,
   ClipStudio, CreateProjectBody,
   CreateSceneBody, DialogueBody, IngestCapabilities, IngestResult, IngestSummary,
@@ -186,6 +188,83 @@ export class ApiService {
   /** Direct URL to the fast lightweight thumbnail image (320px JPEG for videos). */
   assetThumbnailUrl(assetId: string, version = 2): string {
     return `${this.base}/api/assets/${encodeURIComponent(assetId)}/thumbnail?v=${version}`;
+  }
+
+  // --- studio voice
+  /** Whether this server can make studio voices (its ffmpeg has rubberband). */
+  studioVoiceAvailable(): Observable<{ available: boolean; aiAvailable?: boolean }> {
+    return this.unwrap(this.http.get<ApiResponse<{ available: boolean; aiAvailable?: boolean }>>(`${this.base}/api/voices/studio`));
+  }
+
+  /**
+   * Re-voices a recording at studio quality: `timeline` says which voice speaks from when
+   * (seconds into the recording, starting at 0; null is your own voice). The answer is the
+   * same recording, picture untouched, with the new voice. Nothing is kept on the server.
+   */
+  studioVoice(recording: Blob, timeline: StudioVoiceSegment[]): Observable<Blob> {
+    const form = new FormData();
+    const extension = recording.type.includes('mp4') ? 'mp4' : 'webm';
+    form.append('file', recording, `take.${extension}`);
+    form.append('timeline', JSON.stringify(timeline));
+    return this.http.post(`${this.base}/api/voices/studio`, form, { responseType: 'blob' });
+  }
+
+  // --- voiceover
+  /** Whether the server's speech engine is on, and the voices it offers. */
+  /** The voices of `engine`, or of the default engine when none is named. */
+  voiceoverVoices(engine?: string): Observable<VoiceoverVoices> {
+    const params = engine ? { engine } : undefined;
+    return this.unwrap(this.http.get<ApiResponse<VoiceoverVoices>>(`${this.base}/api/voiceover/voices`, { params }));
+  }
+
+  /** Speaks one script line and returns the audio without saving it, to hear before applying. */
+  previewVoiceover(projectId: string, body: VoiceoverBody): Observable<Blob> {
+    return this.http.post(`${this.base}/api/projects/${projectId}/voiceover/preview`, body, { responseType: 'blob' });
+  }
+
+  /** Speaks one script line and stores it as an audio asset in the project's library. */
+  generateVoiceover(projectId: string, body: VoiceoverBody): Observable<Asset> {
+    return this.unwrap(
+      this.http.post<ApiResponse<Asset>>(`${this.base}/api/projects/${projectId}/voiceover`, body));
+  }
+
+  /** Adds one of the user's own voices from a consented sample (a file or a recording). */
+  addMyVoice(sample: Blob, fileName: string, name: string, baseVoiceId: string): Observable<MyVoice> {
+    const form = new FormData();
+    form.append('file', sample, fileName);
+    form.append('name', name);
+    form.append('baseVoiceId', baseVoiceId);
+    form.append('consent', 'true');
+    return this.unwrap(this.http.post<ApiResponse<MyVoice>>(`${this.base}/api/voiceover/my-voices`, form));
+  }
+
+  /** Deletes the voice, its sample, and every line converted into it. */
+  deleteMyVoice(id: string): Observable<void> {
+    return this.http.delete<void>(`${this.base}/api/voiceover/my-voices/${encodeURIComponent(id)}`);
+  }
+
+  /** What was said in a dictated script (16 kHz mono WAV), one line per spoken phrase. */
+  dictateVoiceScript(projectId: string, wav: Blob, language: 'en' | 'hi' | null): Observable<VoiceScriptDictation> {
+    const form = new FormData();
+    form.append('file', wav, 'dictation.wav');
+    if (language) form.append('language', language);
+    return this.unwrap(this.http.post<ApiResponse<VoiceScriptDictation>>(
+      `${this.base}/api/projects/${projectId}/voiceover/dictate`, form));
+  }
+
+  /** Cleans a narration take the user recorded (WAV) and saves it to the library as a voiceover line. */
+  recordNarration(projectId: string, wav: Blob, name: string): Observable<Asset> {
+    const form = new FormData();
+    form.append('file', wav, 'narration.wav');
+    if (name.trim()) form.append('name', name.trim());
+    return this.unwrap(this.http.post<ApiResponse<Asset>>(
+      `${this.base}/api/projects/${projectId}/voiceover/narration`, form));
+  }
+
+  /** The script rewritten by the AI text model so it reads aloud well; nothing is saved. */
+  polishVoiceScript(projectId: string, script: string, fresh: boolean): Observable<VoiceScriptPolish> {
+    return this.unwrap(this.http.post<ApiResponse<VoiceScriptPolish>>(
+      `${this.base}/api/projects/${projectId}/voiceover/polish`, { script, fresh }));
   }
 
   // --- characters
@@ -371,6 +450,11 @@ export class ApiService {
     return `${this.base}/api/render-jobs/${encodeURIComponent(jobId)}/timeline?format=${format}`;
   }
 
+  /** The same timeline as text, for copying straight to the clipboard. */
+  timelineText(jobId: string, format: ExportTimelineFormat): Observable<string> {
+    return this.http.get(this.timelineUrl(jobId, format), { responseType: 'text' });
+  }
+
   // --- clips: several finished clips joined into one downloadable file
 
   /** The clips, what can mark or score them, and what this server's renderer can do. */
@@ -428,6 +512,17 @@ export class ApiService {
   saveEditDraft(projectId: string, editId: string, body: SaveEditDraftBody): Observable<ProjectEdit> {
     return this.unwrap(this.http.put<ApiResponse<ProjectEdit>>(
       `${this.base}/api/projects/${projectId}/edits/${encodeURIComponent(editId)}/draft`, body));
+  }
+
+  /**
+   * Copies files of another of the user's projects into this one, so a timeline brought
+   * over from there can be previewed and rendered here. Answers source id -> id here; ids
+   * that could not be copied are missing from it.
+   */
+  copyAssetsFromProject(projectId: string, sourceProjectId: string, assetIds: string[]): Observable<Record<string, string>> {
+    return this.unwrap(this.http.post<ApiResponse<{ mapping: Record<string, string> }>>(
+      `${this.base}/api/projects/${projectId}/assets/copy`, { sourceProjectId, assetIds }))
+      .pipe(map((r) => r.mapping ?? {}));
   }
 
   duplicateEdit(projectId: string, editId: string): Observable<ProjectEdit> {
@@ -669,4 +764,10 @@ export class ApiService {
 function channelQuery(channel?: string | null, alwaysQuery = false): string {
   if (channel && channel !== DEFAULT_BRAND_CHANNEL) return `?channel=${encodeURIComponent(channel)}`;
   return alwaysQuery ? `?channel=${DEFAULT_BRAND_CHANNEL}` : '';
+}
+
+/** One voice switch for a studio voice: from `startSeconds`, speak as `voice` (null: your own). */
+export interface StudioVoiceSegment {
+  startSeconds: number;
+  voice: (CharacterVoice & { enabled: true }) | null;
 }

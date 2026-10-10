@@ -299,6 +299,13 @@
               <label class="form-label" for="outro-fg">Text colour</label>
               <input id="outro-fg" type="color" [(ngModel)]="outroForm.textHex" />
             </div>
+            <div class="form-group">
+              <label class="form-label" for="outro-anim">Animation</label>
+              <select id="outro-anim" class="form-select form-select-sm" [(ngModel)]="outroForm.animation">
+                <option value="Rise">Pieces rise in, one by one</option>
+                <option value="None">None - all at once</option>
+              </select>
+            </div>
           </div>
 
           <div class="slider-container" style="margin-bottom: 1.25rem;">

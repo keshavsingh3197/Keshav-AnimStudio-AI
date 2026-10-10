@@ -1,5 +1,5 @@
-import { Injectable, computed, inject, signal, OnDestroy } from '@angular/core';
-import { catchError, concatMap, finalize, forkJoin, from, map, of } from 'rxjs';
+import { Injectable, computed, effect, inject, signal, untracked, OnDestroy } from '@angular/core';
+import { catchError, concatMap, finalize, forkJoin, from, map, mergeMap, of, toArray } from 'rxjs';
 
 import {
   Clip, ClipAudioBody, ClipFit, ClipOrder, ClipStudio, ExportQuality, MAX_CLIP_GAIN, RenderJob, ExportTimelineFormat,
@@ -8,7 +8,7 @@ import {
   TimelineItem, TimelineItemType, TrackControlState, TimelineItemTransform, TimelineItemTextStyle,
   EraseRegion, EraseSource, EraseStyle, MAX_ERASE_REGIONS, MIN_ERASE_SIZE,
   ERASE_DEFAULT_FEATHER, ERASE_DEFAULT_STRENGTH,
-  EDIT_FORMATS, EditFormat, ProjectEdit, SaveEditDraftBody,
+  EDIT_FORMATS, EditFormat, ProjectEdit, SaveEditDraftBody, Asset,
 } from '../../../core/models/api.models';
 import { ApiService } from '../../../core/services/api.service';
 import { ProjectStore } from '../../../core/services/project-store';
@@ -16,9 +16,74 @@ import { StatusService } from '../../../core/services/status.service';
 import {
   AudioOverlapRule, AudioOverlapRuleOrInherit, AudioOverlapSource,
   ClipAudioSetting, ClipColorSetting, ClipRow, ClipTextSetting, FILTER_PRESETS,
-  FileUploadConflict, FilterPreset, JunctionSetting, JunctionView, MusicTrackRow, ScheduledClip, SideUploadTarget, TRACK_COLORS
+  FileUploadConflict, FilterPreset, JunctionSetting, JunctionView, MusicTrackRow, ScheduledClip, SideUploadTarget, TRACK_COLORS, audioLaneOf, isVoiceoverTrack,
+  AUTO_BED_PREFIX, AUTO_CUT_PREFIX
 } from '../models/clip-studio.models';
 import { EraseRect, eraseFeatherMask, eraseOuter } from './erase-geometry';
+import { bedPieces, cutEffectStarts, deepestDuck } from './audio-enhance';
+import { TimelineFragment, TransferRange } from './timeline-transfer';
+import { DraftUsage, USAGE_ROLE_LABELS, UsageRole, draftAssetUsage, usageTotal } from './media-usage';
+import {
+  DEFAULT_LAYER_MOTION, DEFAULT_TEXT_STYLE, FRAME_IMAGE_MAX_WIDTH, FRAME_IMAGE_MIN_WIDTH, FrameDesign, FrameImage, FrameLayout, NO_CROP,
+  FrameText, FrameTiming, MAX_FRAME_IMAGES, MAX_FRAME_TEXTS, MAX_SUBTITLE_CUES, MIN_CUE_SECONDS,
+  SubtitleCue, TEXT_MAX_CHARS, TextDesign, TextLook,
+  applyFrameDesign, cuesFromScript, cuesToSrt, defaultFrameLayout, isLayerActive, layerWindow,
+  isHexColor, layerAspect, newFrameText, newLayerId, parseSubtitleFile, readCrop, readFrameLayout, readMotion,
+  resolveTextLook, sortCues, wrapText,
+} from './text-overlay-layout';
+import {
+  LayerMotion, MAX_BORDER_WIDTH, MAX_MOTION_SECONDS, measureMediaAspect, mediaMotion, shapeRadius, textMotion, textReveal,
+} from './frame-media';
+
+/** One video of the project that places a library file, and where it does. */
+export interface MediaUsagePlace {
+  editId: string;
+  name: string;
+  format: EditFormat | null;
+  isCurrent: boolean;
+  roles: { role: UsageRole; label: string; count: number }[];
+  total: number;
+}
+
+/** One block of text as the monitor draws it - a TXT1 overlay, a frame text layer or a subtitle. */
+export interface MonitorTextBlock {
+  key: string;
+  /** What dragging it moves: a subtitle moves every cue, since they share one style. */
+  target: { kind: 'item'; id: string } | { kind: 'frame'; id: string } | { kind: 'subtitle' };
+  lines: string[];
+  look: TextLook;
+  opacity: number;
+  /** Entrance/exit offset and scale, in 360-reference pixels. */
+  offsetY: number;
+  /** Sideways entrance/exit offset, as a share of the frame width. */
+  offsetX: number;
+  scale: number;
+  /** Typed / written-on entrance: the share of each line shown, 0-1. Null shows every line whole. */
+  reveal: number[] | null;
+  selected: boolean;
+}
+
+/** A picture or video that can go on the frame. */
+export interface FrameMediaCandidate {
+  id: string;
+  name: string;
+  kind: 'image' | 'video';
+  /** A video's length, when known. */
+  seconds: number | null;
+}
+
+/** A frame picture or video as the monitor draws it right now. */
+export interface MonitorFrameMedia extends FrameImage {
+  url: string;
+  selected: boolean;
+  motion: LayerMotion;
+  /** Width / height as drawn, or null until the source has been measured. */
+  aspect: number | null;
+  /** CSS border-radius for its shape, or null for a plain rectangle. */
+  radius: string | null;
+  /** Video only: the point in the source that should be on screen now. */
+  sourceTime: number;
+}
 
 /** One erase box as the monitor draws it: grown by its feather, cut to the clip's crop. */
 export interface MonitorEraseRegion {
@@ -49,6 +114,18 @@ export interface ResolvedOverlap {
 }
 
 const DRAFT_KEY_PREFIX = 'animstudio_studio_draft_';
+
+/** The lanes every cut opens with; a new copy each time so no cut shares another's mute/lock state. */
+function defaultTimelineTracks(): TrackControlState[] {
+  return [
+    { id: 'TXT1', name: 'Text', label: 'TXT1', kind: 'text', muted: false, locked: false, visible: true, color: '#10b981' },
+    { id: 'IMG1', name: 'Image', label: 'IMG1', kind: 'image', muted: false, locked: false, visible: true, color: '#10b981' },
+    { id: 'V2', name: 'Video Overlay', label: 'V2', kind: 'video', muted: false, locked: false, visible: true, color: '#06b6d4' },
+    { id: 'V1', name: 'Primary Video', label: 'V1', kind: 'video', muted: false, locked: false, visible: true, color: '#3b82f6' },
+    { id: 'A1', name: 'Voiceover', label: 'A1', kind: 'audio', muted: false, locked: false, visible: true, color: '#8b5cf6' },
+    { id: 'A2', name: 'Music Bed', label: 'A2', kind: 'audio', muted: false, locked: false, visible: true, color: '#a855f7' },
+  ];
+}
 
 @Injectable()
 export class StudioStateService implements OnDestroy {
@@ -102,14 +179,7 @@ export class StudioStateService implements OnDestroy {
   readonly studio = signal<ClipStudio | null>(null);
   readonly rows = signal<ClipRow[]>([]);
   readonly timelineItems = signal<TimelineItem[]>([]);
-  readonly timelineTracks = signal<TrackControlState[]>([
-    { id: 'TXT1', name: 'Text', label: 'TXT1', kind: 'text', muted: false, locked: false, visible: true, color: '#10b981' },
-    { id: 'IMG1', name: 'Image', label: 'IMG1', kind: 'image', muted: false, locked: false, visible: true, color: '#10b981' },
-    { id: 'V2', name: 'Video Overlay', label: 'V2', kind: 'video', muted: false, locked: false, visible: true, color: '#06b6d4' },
-    { id: 'V1', name: 'Primary Video', label: 'V1', kind: 'video', muted: false, locked: false, visible: true, color: '#3b82f6' },
-    { id: 'A1', name: 'Voiceover', label: 'A1', kind: 'audio', muted: false, locked: false, visible: true, color: '#8b5cf6' },
-    { id: 'A2', name: 'Music Bed', label: 'A2', kind: 'audio', muted: false, locked: false, visible: true, color: '#a855f7' },
-  ]);
+  readonly timelineTracks = signal<TrackControlState[]>(defaultTimelineTracks());
   readonly musicTracks = signal<MusicTrackRow[]>([]);
   readonly selectedMusicTrackKey = signal<string | null>(null);
 
@@ -375,6 +445,114 @@ export class StudioStateService implements OnDestroy {
   /** Seconds the end card adds after the cut, when this export will include it. */
   readonly endCardTailSeconds = computed(() => (this.exportIncludeOutro() ? this.endCard()?.seconds ?? 0 : 0));
 
+  /** Play the end card after the last clip in the preview too, as the export will. */
+  readonly endCardInPreview = signal<boolean>(true);
+
+  /**
+   * Where the end card starts: right after the last video clip, or once everything -
+   * music, voice, text - has finished (the last frame is held until then).
+   */
+  readonly endCardAfter = signal<'clips' | 'everything'>('clips');
+  readonly endCardDialogOpen = signal<boolean>(false);
+
+  /** Whether preview playback runs on into the end card. */
+  readonly endCardPlaysInPreview = computed(() => this.endCardInPreview() && this.endCardTailSeconds() > 0);
+
+  /**
+   * Where the end card starts: straight after the last video clip, like the next clip in
+   * the cut - that is where the export joins it, whatever music or text runs on past it.
+   */
+  readonly endCardStartSeconds = computed(() =>
+    this.clipSchedule().length > 0 && this.endCardAfter() === 'clips' ? this.totalSeconds() : this.contentDurationSeconds());
+
+  /** Seconds past the last clip that music, voice or text run on. */
+  readonly contentOverhangSeconds = computed(() =>
+    this.clipSchedule().length > 0 ? Math.max(0, this.contentDurationSeconds() - this.totalSeconds()) : 0);
+
+  /** What the export holds on the last frame before the end card. */
+  readonly outroHoldSeconds = computed(() =>
+    this.endCardAfter() === 'everything' && this.endCardTailSeconds() > 0
+      ? Math.round(this.contentOverhangSeconds() * 1000) / 1000 : 0);
+
+  /** Where preview playback stops. */
+  readonly previewEndSeconds = computed(() => this.endCardPlaysInPreview()
+    ? Math.max(this.contentDurationSeconds(), this.endCardStartSeconds() + this.endCardTailSeconds())
+    : this.contentDurationSeconds());
+
+  /**
+   * Room the timeline keeps after the content for the end-card slot - also while it is
+   * switched off or not set up yet, so it can always be clicked to change that.
+   */
+  readonly endCardSlotSeconds = computed(() => this.endCard()?.seconds ?? 3);
+
+  /** The end card as the server renders it, at this cut's shape, for the preview player. */
+  readonly endCardMedia = signal<{ key: string; url: string } | null>(null);
+  readonly endCardRendering = signal<boolean>(false);
+  readonly endCardRenderError = signal<string | null>(null);
+
+  private readonly endCardRenderShape = computed<'landscape' | 'vertical' | 'square'>(() => {
+    const f = this.format();
+    return f === 'Short' ? 'vertical' : f === 'Square' ? 'square' : 'landscape';
+  });
+
+  /** Renders the end card once per project and shape; `force` renders it again (after a settings change). */
+  renderEndCardPreview(force = false): void {
+    const projectId = this.store.projectId();
+    const card = this.endCard();
+    if (!projectId || !card || this.endCardRendering()) return;
+    const shape = this.endCardRenderShape();
+    const key = `${projectId}:${shape}:${card.source}:${card.seconds}`;
+    if (!force && this.endCardMedia()?.key === key) return;
+
+    this.endCardRendering.set(true);
+    this.endCardRenderError.set(null);
+    this.api.previewProjectOutro(projectId, null, shape).subscribe({
+      next: (blob) => {
+        this.endCardRendering.set(false);
+        if (this.destroyed || this.store.projectId() !== projectId) return;
+        this.setEndCardMedia({ key, url: URL.createObjectURL(blob) });
+      },
+      error: () => {
+        this.endCardRendering.set(false);
+        this.endCardRenderError.set('Could not render the end card. Check Settings › End card.');
+      },
+    });
+  }
+
+  private setEndCardMedia(media: { key: string; url: string } | null): void {
+    const previous = this.endCardMedia();
+    if (previous) URL.revokeObjectURL(previous.url);
+    this.endCardMedia.set(media);
+  }
+
+  openEndCardDialog(): void {
+    this.endCardDialogOpen.set(true);
+    this.renderEndCardPreview();
+  }
+
+  setExportIncludeOutro(on: boolean): void {
+    this.exportIncludeOutro.set(on);
+    this.markDirty();
+  }
+
+  setEndCardAfter(after: 'clips' | 'everything'): void {
+    this.endCardAfter.set(after);
+    this.markDirty();
+  }
+
+  setEndCardInPreview(on: boolean): void {
+    this.endCardInPreview.set(on);
+    this.markDirty();
+  }
+
+  /** Jumps to where the end card starts and plays from there. */
+  playEndCard(): void {
+    this.endCardDialogOpen.set(false);
+    this.renderEndCardPreview();
+    this.seekTo(Math.max(0, this.endCardStartSeconds() - 1));
+    this.isPlaying.set(true);
+  }
+
   // Live Export Progress Monitor Signals
   readonly exportProgressOpen = signal<boolean>(false);
   readonly exportProgressMinimized = signal<boolean>(false);
@@ -581,6 +759,8 @@ export class StudioStateService implements OnDestroy {
   readonly orderText = signal<string>('');
   readonly orderResult = signal<ClipOrder | null>(null);
   readonly fit = signal<ClipFit>('Contain');
+  /** Bar fill plus the headline and caption that sit on the bars for the whole video. */
+  readonly frameLayout = signal<FrameLayout>(defaultFrameLayout());
   readonly transition = signal<string>('None');
   readonly transitionSeconds = signal<number>(0);
   readonly exportOverrideTransitions = signal<boolean>(false);
@@ -650,7 +830,7 @@ export class StudioStateService implements OnDestroy {
   readonly selectedTimelineClipIndex = signal<number | null>(null);
   readonly selectedTimelineItemId = signal<string | null>(null);
   readonly selectedTimelineItemIds = signal<Set<string>>(new Set<string>());
-  readonly activeInspectorTab = signal<'clip' | 'color' | 'audio' | 'text' | 'effects' | 'transitions'>('clip');
+  readonly activeInspectorTab = signal<'clip' | 'color' | 'audio' | 'text' | 'layout' | 'effects' | 'transitions'>('clip');
   readonly targetScope = signal<'auto' | 'selected' | 'all' | 'current' | 'under_music' | 'under_selected_music'>('selected');
   readonly scopeDropdownOpen = signal<boolean>(false);
   readonly toolDropdownOpen = signal<boolean>(false);
@@ -659,7 +839,7 @@ export class StudioStateService implements OnDestroy {
   readonly trackV1Volume = signal<number>(1.0);
   readonly trackV2Volume = signal<number>(1.0);
   readonly trackA1Volume = signal<number>(1.0);
-  readonly trackA2Volume = signal<number>(0.8);
+  readonly trackA2Volume = signal<number>(1.0);
   readonly trackV1Muted = signal<boolean>(false);
   readonly trackV2Muted = signal<boolean>(false);
   readonly trackA1Muted = signal<boolean>(false);
@@ -673,15 +853,22 @@ export class StudioStateService implements OnDestroy {
   readonly duckLevel = signal<number>(0.25);
   /** @deprecated Kept as an alias while older call sites are migrated. */
   readonly videoDuckLevel = this.duckLevel;
-  readonly audioInspectorViewMode = signal<'auto' | 'clip' | 'mixer'>('auto');
+  /** Music (A2 and the bed) steps back while a voiceover line on A1 speaks. */
+  readonly duckMusicUnderVoice = signal<boolean>(true);
+  /** How far the music drops under a voiceover line, 0-1. */
+  readonly voiceDuckLevel = signal<number>(0.3);
+  /** Level the exported mix to YouTube's -14 LUFS, so the video plays as loud as the ones around it. */
+  readonly exportYouTubeLoudness = signal<boolean>(true);
+  readonly audioInspectorViewMode = signal<'auto' | 'clip' | 'mixer' | 'voiceover'>('auto');
 
   /**
    * Which of the two audio views is showing. Timeline selection is the only thing that
    * decides it automatically - the scope chooser no longer swaps panels behind the user's
    * back, it only widens what an edit applies to.
    */
-  readonly effectiveAudioInspectorView = computed<'clip' | 'mixer'>(() => {
+  readonly effectiveAudioInspectorView = computed<'clip' | 'mixer' | 'voiceover'>(() => {
     const mode = this.audioInspectorViewMode();
+    if (mode === 'voiceover') return 'voiceover';
     if (mode === 'mixer') return 'mixer';
     if (mode === 'clip') return 'clip';
     return this.hasAudioSelection() ? 'clip' : 'mixer';
@@ -1165,6 +1352,28 @@ export class StudioStateService implements OnDestroy {
   /** Consumed by the timeline dock to bring a time into view. */
   readonly timelineScrollRequest = signal<{ seconds: number; nonce: number } | null>(null);
 
+  /**
+   * Bumped once a cut has finished loading. The timeline dock then scrolls back to the start
+   * and refits its zoom, so the view never keeps the length or position of the cut before.
+   */
+  readonly timelineViewReset = signal<number>(0);
+
+  /**
+   * The playhead never sits past the end of the timeline. Deleting clips, or another cut
+   * loading, shortens it under the playhead - and a needle left minutes beyond the end also
+   * stretches the scroll area to reach it.
+   */
+  private readonly clampPlayheadToTimeline = effect(() => {
+    const limit = this.timelineSeconds();
+    if (!this.studio()) return;
+    if (untracked(() => this.getCurrentTimeExact()) > limit) {
+      untracked(() => {
+        this.pause();
+        this.seekTo(limit);
+      });
+    }
+  });
+
   // ────────────────────────────────────────────────────────────────
   // COPY / CUT / PASTE AND REORDERING
   // ────────────────────────────────────────────────────────────────
@@ -1501,7 +1710,7 @@ export class StudioStateService implements OnDestroy {
 
   readonly timelineSeconds = computed(() => {
     // Room for the end-card marker drawn after the cut, so the end of the video is visible.
-    return Math.max(this.contentDurationSeconds() + this.endCardTailSeconds(), 10);
+    return Math.max(this.contentDurationSeconds(), this.endCardStartSeconds() + this.endCardSlotSeconds(), 10);
   });
 
   readonly rulerTicks = computed<number[]>(() => {
@@ -1781,76 +1990,19 @@ export class StudioStateService implements OnDestroy {
     return `translate(${baseX + extraX}px, ${baseY + extraY}px) scale(${baseScale * extraScale}) rotate(${rot}deg)`;
   }
 
-  getTextOverlayEffectiveOpacity(txt: TimelineItem): number {
-    const st = txt.textStyle;
-    const inType = st?.transitionIn ?? 'fade';
-    const inDur = st?.transitionInDuration ?? 0.5;
-    const outType = st?.transitionOut ?? 'fade';
-    const outDur = st?.transitionOutDuration ?? 0.5;
-
-    const ct = this.currentTime();
-    const elapsed = ct - txt.startTime;
-    const remaining = (txt.startTime + txt.duration) - ct;
-
-    if (inType !== 'none' && elapsed >= 0 && elapsed < inDur && inDur > 0) {
-      const p = Math.min(1, Math.max(0, elapsed / inDur));
-      return 1 - Math.pow(1 - p, 3);
-    }
-    if (outType !== 'none' && remaining >= 0 && remaining < outDur && outDur > 0) {
-      const p = Math.min(1, Math.max(0, remaining / outDur));
-      return Math.pow(p, 2);
-    }
-    return 1.0;
-  }
-
-  getTextOverlayTransform(txt: TimelineItem): string {
-    const st = txt.textStyle;
-    const isCenter = st?.position === 'center';
-    const inType = st?.transitionIn ?? 'fade';
-    const inDur = st?.transitionInDuration ?? 0.5;
-    const outType = st?.transitionOut ?? 'fade';
-    const outDur = st?.transitionOutDuration ?? 0.5;
-
-    let extraY = 0;
-    let extraScale = 1.0;
-
-    const ct = this.currentTime();
-    const elapsed = ct - txt.startTime;
-    const remaining = (txt.startTime + txt.duration) - ct;
-
-    if (inType !== 'none' && elapsed >= 0 && elapsed < inDur && inDur > 0) {
-      const p = Math.min(1, Math.max(0, elapsed / inDur));
-      const ease = 1 - Math.pow(1 - p, 3);
-      if (inType === 'slide-up') {
-        extraY = 40 * (1 - ease);
-      } else if (inType === 'slide-down') {
-        extraY = -40 * (1 - ease);
-      } else if (inType === 'zoom-in') {
-        extraScale = 0.5 + 0.5 * ease;
-      }
-    } else if (outType !== 'none' && remaining >= 0 && remaining < outDur && outDur > 0) {
-      const p = Math.min(1, Math.max(0, remaining / outDur));
-      const ease = Math.pow(p, 2);
-      if (outType === 'slide-up') {
-        extraY = -40 * (1 - ease);
-      } else if (outType === 'slide-down') {
-        extraY = 40 * (1 - ease);
-      } else if (outType === 'zoom-out') {
-        extraScale = 0.5 + 0.5 * ease;
-      } else if (outType === 'zoom-in') {
-        extraScale = 1.0 + 0.4 * (1 - ease);
-      }
-    }
-
-    const baseCenterTranslate = isCenter ? 'translateY(-50%) ' : '';
-    const animTranslate = extraY !== 0 ? `translateY(${extraY}px) ` : '';
-    const animScale = extraScale !== 1 ? `scale(${extraScale})` : '';
-
-    const combined = `${baseCenterTranslate}${animTranslate}${animScale}`.trim();
-    return combined || 'none';
-  }
-
   readonly activeTargetClip = computed<Clip | null>(() => {
+    // A selected image overlay wins over every scope: selecting one clears selectedClipId and
+    // forces scope 'selected', so checking it after the scope branches left the inspector empty.
+    const selItem = this.selectedTimelineItem();
+    if (selItem && (selItem.type === 'image' || selItem.trackId === 'IMG1' || selItem.trackId === 'IMG')) {
+      return {
+        id: selItem.src || selItem.id,
+        name: selItem.name || 'Image Overlay',
+        durationSeconds: selItem.duration,
+        fileSizeBytes: 0,
+        hasAudio: false,
+      };
+    }
     const direct = this.selectedClip();
     const scope = this.targetScope();
     if (scope === 'selected') {
@@ -1874,17 +2026,6 @@ export class StudioStateService implements OnDestroy {
       const clips = scope === 'under_selected_music' ? this.clipsUnderSelectedMusic() : this.clipsUnderMusic();
       if (direct && clips.some((c) => c.id === direct.id)) return direct;
       return clips[0] ?? null;
-    }
-    // 0. Selected image overlay timeline item
-    const selItem = this.selectedTimelineItem();
-    if (selItem && (selItem.type === 'image' || selItem.trackId === 'IMG1' || selItem.trackId === 'IMG')) {
-      return {
-        id: selItem.src || selItem.id,
-        name: selItem.name || 'Image Overlay',
-        durationSeconds: selItem.duration,
-        fileSizeBytes: 0,
-        hasAudio: false,
-      };
     }
     // Fallbacks
     if (direct) return direct;
@@ -2000,16 +2141,24 @@ export class StudioStateService implements OnDestroy {
     return false;
   });
 
-  readonly showA1Track = computed(() => {
-    if (this.musicTracks().length > 0) return true;
-    if (this.itemsForTrack('A1').length > 0) return true;
-    if (this.explicitlyShownTracks().has('A1')) return true;
+  readonly showA1Track = computed(() => this.showAudioLane('A1'));
+  readonly showA2Track = computed(() => this.showAudioLane('A2'));
+
+  /** Rows on one audio lane: A1 holds voice lines, A2 the music bed. */
+  musicTracksForLane(lane: 'A1' | 'A2'): MusicTrackRow[] {
+    return this.musicTracks().filter((t) => audioLaneOf(t) === lane);
+  }
+
+  private showAudioLane(lane: 'A1' | 'A2'): boolean {
+    if (this.musicTracksForLane(lane).length > 0) return true;
+    if (this.itemsForTrack(lane).length > 0) return true;
+    if (this.explicitlyShownTracks().has(lane)) return true;
     if (this.activeInspectorTab() === 'audio') return true;
     if (this.activeCategory() === 'audio') return true;
     const sel = this.selectedClip();
     if (sel && this.getClipType(sel) === 'audio') return true;
     return false;
-  });
+  }
 
   readonly showV2Track = computed(() => {
     if (this.itemsForTrack('V2').length > 0) return true;
@@ -2105,27 +2254,6 @@ export class StudioStateService implements OnDestroy {
       marginFraction: this.watermarkMargin() / 100,
       colorHex: this.watermarkColor(),
       backplateOpacity: this.watermarkBackplate(),
-    };
-  });
-
-  readonly preview = computed(() => {
-    const height = 190;
-    const project = this.store.project();
-    const aspect = project ? project.width / project.height : 16 / 9;
-    const wm = this.effectiveWatermark();
-
-    const position = wm.position;
-    const inset = wm.marginFraction * height;
-
-    return {
-      width: Math.round(height * aspect),
-      height,
-      fontSize: wm.heightFraction * height,
-      inset,
-      top: position.startsWith('Top'),
-      align: position.endsWith('Left') ? 'flex-start'
-        : position.endsWith('Right') ? 'flex-end'
-          : 'center',
     };
   });
 
@@ -2244,6 +2372,20 @@ export class StudioStateService implements OnDestroy {
     return 'aspect-16-9 aspect-wide';
   });
 
+  /**
+   * The export canvas in pixels for the frame the monitor shows - only its shape and
+   * width matter, for the watermark's vertical safe margin.
+   */
+  readonly monitorCanvasPixels = computed<{ width: number; height: number }>(() => {
+    const cls = this.monitorScreenAspectClass();
+    if (cls.startsWith('aspect-9-16')) return { width: 1080, height: 1920 };
+    if (cls.startsWith('aspect-1-1')) return { width: 1080, height: 1080 };
+    if (cls.startsWith('aspect-4-5')) return { width: 1080, height: 1350 };
+    return this.exportResolution() === '4k' ? { width: 3840, height: 2160 }
+      : this.exportResolution() === '720p' ? { width: 1280, height: 720 }
+        : { width: 1920, height: 1080 };
+  });
+
   readonly monitorFitClass = computed(() => {
     const activeId = this.selectedClipId();
     if (activeId) {
@@ -2290,6 +2432,7 @@ export class StudioStateService implements OnDestroy {
       case 'color': return '🎨 Color';
       case 'audio': return '🎵 Audio';
       case 'text': return 'T Text';
+      case 'layout': return '🖼 Frame & Titles';
       case 'effects': return '✨ Effects';
       case 'transitions': return '⚡ Transitions';
       default: return '📐 Framing';
@@ -2393,6 +2536,7 @@ export class StudioStateService implements OnDestroy {
     this.stopPolling();
     this.stopExportTimer();
     this.closePreview();
+    this.setEndCardMedia(null);
   }
 
   /** True only while the store still shows the project this studio state belongs to. */
@@ -2453,6 +2597,14 @@ export class StudioStateService implements OnDestroy {
     if (isAudio) return true;
     if (this.timelineItems().some((it) => it.id === clipId || it.src === clipId || it.src === assetId)) return true;
     return this.rows().some((r) => (r.clip.id === clipId || this.resolveAssetId(r.clip) === assetId) && r.included);
+  }
+
+  /** True when the file was added on the viewer's local calendar day. */
+  isClipAddedToday(clip: Clip): boolean {
+    if (!clip.createdAt) return false;
+    const added = new Date(clip.createdAt);
+    if (isNaN(added.getTime())) return false;
+    return added.toDateString() === new Date().toDateString();
   }
 
   getClipTimelineCount(clipId: string): number {
@@ -2559,6 +2711,7 @@ export class StudioStateService implements OnDestroy {
         return;
       }
       this.selectedMusicTrackKey.set(null);
+      this.selectedTimelineClipIndex.set(null);
       this.selectedClipId.set(clipId);
       this.selectedLibraryIds.set(new Set([clipId]));
       this.selectedTimelineItemId.set(null);
@@ -2568,6 +2721,7 @@ export class StudioStateService implements OnDestroy {
   }
 
   toggleLibrarySelection(clipId: string): void {
+    this.selectedTimelineClipIndex.set(null);
     this.selectedLibraryIds.update((set) => {
       const next = new Set(set);
       if (next.has(clipId)) next.delete(clipId);
@@ -3007,16 +3161,23 @@ export class StudioStateService implements OnDestroy {
       return;
     }
 
-    const selClipId = this.selectedClipId();
+    // selectedClipId also follows library picks, so only a clip clicked on the timeline
+    // (which sets the index) counts as a single timeline clip here.
+    const selLibIds = this.selectedLibraryIds();
     const selClipIdx = this.selectedTimelineClipIndex();
-    if (selClipId || selClipIdx !== null) {
-      this.removeTimelineClipAtIndex(selClipId || selClipIdx!, selClipIdx ?? undefined);
+    if (selClipIdx !== null && selLibIds.size <= 1) {
+      this.removeTimelineClipAtIndex(this.selectedClipId() || selClipIdx, selClipIdx);
       return;
     }
 
-    const selLibIds = this.selectedLibraryIds();
     if (selLibIds.size > 0) {
-      this.removeSelectedFromTimeline();
+      if (this.selectedPlacedCount() > 0) {
+        this.removeSelectedFromTimeline();
+      } else {
+        // Nothing selected is in the cut, so "remove" would be a no-op: delete from the library instead.
+        this.confirmingDelete.set(true);
+        this.status.notify(['Confirm with Delete in the media panel to remove the selected media.']);
+      }
       return;
     }
 
@@ -3042,11 +3203,15 @@ export class StudioStateService implements OnDestroy {
       this.status.notify(['Removed timeline item(s).']);
       return;
     }
-    const selClipId = this.selectedClipId();
-    const selClipIdx = this.selectedTimelineClipIndex();
-    if (selClipId || selClipIdx !== null) {
-      this.removeTimelineClipAtIndex(selClipId || selClipIdx!, selClipIdx ?? undefined);
-      return;
+    // The library's trash button deletes what is picked in the library; selectedClipId
+    // mirrors that pick and must not divert it into a timeline removal.
+    if (this.selectedLibraryIds().size === 0) {
+      const selClipId = this.selectedClipId();
+      const selClipIdx = this.selectedTimelineClipIndex();
+      if (selClipId || selClipIdx !== null) {
+        this.removeTimelineClipAtIndex(selClipId || selClipIdx!, selClipIdx ?? undefined);
+        return;
+      }
     }
     if (this.confirmingDelete()) {
       this.removeFromLibrary();
@@ -3063,6 +3228,7 @@ export class StudioStateService implements OnDestroy {
 
     if (!projectId || ids.length === 0) {
       this.confirmingDelete.set(false);
+      this.status.notify(['Nothing to delete - reload the project and try again.']);
       return;
     }
 
@@ -3080,7 +3246,7 @@ export class StudioStateService implements OnDestroy {
 
   // Playback Methods
   play(): void {
-    if (this.currentTime() >= this.contentDurationSeconds() && this.contentDurationSeconds() > 0) {
+    if (this.currentTime() >= this.previewEndSeconds() && this.previewEndSeconds() > 0) {
       this.seekTo(0);
     }
     this.isPlaying.set(true);
@@ -3559,8 +3725,13 @@ export class StudioStateService implements OnDestroy {
     this.setBatchVolume(muted ? 0.0 : 1.0);
   }
 
-  setAudioInspectorView(mode: 'auto' | 'clip' | 'mixer'): void {
+  setAudioInspectorView(mode: 'auto' | 'clip' | 'mixer' | 'voiceover'): void {
     this.audioInspectorViewMode.set(mode);
+  }
+
+  openVoiceover(): void {
+    this.setInspectorTab('audio');
+    this.setAudioInspectorView('voiceover');
   }
 
   // Inspector Header Bar Controls
@@ -3646,6 +3817,11 @@ export class StudioStateService implements OnDestroy {
 
     // Each scope makes its own clips the selection, so the timeline highlight and the
     // panel agree about what is being edited.
+    if (scope !== 'selected') {
+      // A selected image overlay takes priority in activeTargetClip and transform writes.
+      this.selectedTimelineItemId.set(null);
+      this.selectedTimelineItemIds.set(new Set());
+    }
     if (scope === 'current') {
       const curr = this.currentScheduledClip();
       if (curr) {
@@ -3681,7 +3857,7 @@ export class StudioStateService implements OnDestroy {
     this.scopeDropdownOpen.set(false);
   }
 
-  setInspectorTab(tab: 'clip' | 'effects' | 'audio' | 'export' | 'color' | 'text' | 'transitions'): void {
+  setInspectorTab(tab: 'clip' | 'effects' | 'audio' | 'export' | 'color' | 'text' | 'layout' | 'transitions'): void {
     this.activeInspectorTab.set(tab as any);
     this.toolDropdownOpen.set(false);
   }
@@ -4021,7 +4197,7 @@ export class StudioStateService implements OnDestroy {
       Math.round((Number.isFinite(v) ? Math.max(lo, Math.min(hi, v as number)) : fallback) * 100) / 100;
     const x = num(r.x, 0, 100 - MIN_ERASE_SIZE);
     const y = num(r.y, 0, 100 - MIN_ERASE_SIZE);
-    const styles: EraseStyle[] = ['Blur', 'Fill', 'Patch', 'Brand'];
+    const styles: EraseStyle[] = ['Blur', 'Fill', 'Patch', 'Brand', 'Clean'];
     const sources: EraseSource[] = ['Auto', 'Above', 'Below', 'Left', 'Right'];
     return {
       x, y,
@@ -4078,7 +4254,7 @@ export class StudioStateService implements OnDestroy {
   /** Adds a box where marks usually sit; the user then nudges it onto the real one. */
   addEraseRegion(
     corner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center' = 'top-right',
-    style: EraseStyle = 'Patch',
+    style: EraseStyle = 'Clean',
   ): void {
     const w = 14, h = 10, edge = 2;
     const x = corner.endsWith('left') ? edge : corner.endsWith('right') ? 100 - w - edge : (100 - w) / 2;
@@ -4571,11 +4747,6 @@ export class StudioStateService implements OnDestroy {
         (item) => item.trackId === 'IMG1' || item.trackId === 'IMG'
       );
     }
-    if (trackId === 'A1' || trackId === 'A2') {
-      return this.timelineItems().filter(
-        (item) => item.trackId === 'A1' || item.trackId === 'A2'
-      );
-    }
     return this.timelineItems().filter((item) => item.trackId === trackId);
   }
 
@@ -4701,16 +4872,7 @@ export class StudioStateService implements OnDestroy {
       duration: dur,
       src: content,
       name: 'Text Overlay',
-      textStyle: {
-        fontSize: 28,
-        color: '#ffffff',
-        backgroundColor: 'rgba(0,0,0,0.6)',
-        position: 'bottom',
-        transitionIn: 'fade',
-        transitionInDuration: 0.5,
-        transitionOut: 'fade',
-        transitionOutDuration: 0.5,
-      },
+      textStyle: { ...DEFAULT_TEXT_STYLE },
     };
     this.timelineItems.update((items) => [...items, newItem]);
     this.selectedTimelineItemId.set(newItem.id);
@@ -4765,26 +4927,633 @@ export class StudioStateService implements OnDestroy {
     this.timelineItems.update((items) =>
       items.map((it) => {
         if (it.id !== itemId) return it;
-        const currentStyle = it.textStyle ?? {
-          fontSize: 28,
-          color: '#ffffff',
-          backgroundColor: 'rgba(0,0,0,0.6)',
-          position: 'bottom',
-          transitionIn: 'fade',
-          transitionInDuration: 0.5,
-          transitionOut: 'fade',
-          transitionOutDuration: 0.5,
-        };
-        return {
-          ...it,
-          textStyle: {
-            ...currentStyle,
-            ...styleUpdates,
-          },
-        };
+        return { ...it, textStyle: this.mergeTextStyle(it.textStyle, styleUpdates) };
       })
     );
     this.markDirty();
+  }
+
+  /**
+   * A style change on top of an existing style. An item saved before plates had their own
+   * fields is first read the way the export reads it, so changing its size does not also
+   * quietly change its plate.
+   */
+  private mergeTextStyle(
+    current: TimelineItemTextStyle | undefined, updates: Partial<TimelineItemTextStyle>,
+  ): TimelineItemTextStyle {
+    const base = current ?? DEFAULT_TEXT_STYLE;
+    const look = resolveTextLook(base);
+    const merged: TimelineItemTextStyle = {
+      ...DEFAULT_TEXT_STYLE,
+      ...base,
+      boxStyle: look.box,
+      boxColor: look.boxColor,
+      boxOpacity: look.boxOpacity,
+      ...updates,
+    };
+    // A named position wins over a dragged one; dropping x/y keeps the saved draft honest.
+    if (updates.position && updates.position !== 'custom') {
+      delete merged.x;
+      delete merged.y;
+    }
+    return merged;
+  }
+
+  /** Applies a ready-made look to a TXT1 overlay. Its words, timing and place are kept. */
+  applyTextDesign(itemId: string, design: TextDesign): void {
+    this.updateTextItemStyle(itemId, design.style);
+  }
+
+  /** Moves a block of text to a point on the frame, in percent - what dragging it does. */
+  moveTextBlock(target: MonitorTextBlock['target'], x: number, y: number): void {
+    const place: Partial<TimelineItemTextStyle> = {
+      position: 'custom',
+      x: Math.round(Math.min(100, Math.max(0, x)) * 10) / 10,
+      y: Math.round(Math.min(100, Math.max(0, y)) * 10) / 10,
+    };
+    if (target.kind === 'item') this.updateTextItemStyle(target.id, place);
+    else if (target.kind === 'frame') this.updateFrameTextStyle(target.id, place);
+    else this.updateSubtitleStyle(place);
+  }
+
+  // --- frame layout ------------------------------------------------------------------
+
+  /** The frame layer the panel has open and the monitor outlines: a text or image id, or 'subtitles'. */
+  readonly selectedFrameLayer = signal<string | null>(null);
+
+  selectFrameLayer(id: string | null): void {
+    this.selectedFrameLayer.set(id);
+    if (id) this.setInspectorTab('layout');
+  }
+
+  updateFrameLayout(patch: Partial<Pick<FrameLayout, 'bars' | 'barColor'>>): void {
+    this.frameLayout.update((l) => ({ ...l, ...patch }));
+    this.markDirty();
+  }
+
+  private updateFrameTextLayer(id: string, change: (t: FrameText) => FrameText): void {
+    this.frameLayout.update((l) => ({ ...l, texts: l.texts.map((t) => (t.id === id ? change(t) : t)) }));
+    this.markDirty();
+  }
+
+  addFrameText(): void {
+    const layout = this.frameLayout();
+    if (layout.texts.length >= MAX_FRAME_TEXTS) {
+      this.status.notify([`Up to ${MAX_FRAME_TEXTS} text layers.`]);
+      return;
+    }
+    const text = newFrameText(layout.texts);
+    this.frameLayout.set({ ...layout, texts: [...layout.texts, text] });
+    this.selectedFrameLayer.set(text.id);
+    this.markDirty();
+  }
+
+  duplicateFrameText(id: string): void {
+    const layout = this.frameLayout();
+    const source = layout.texts.find((t) => t.id === id);
+    if (!source || layout.texts.length >= MAX_FRAME_TEXTS) return;
+    const look = resolveTextLook(source.style);
+    const copy: FrameText = {
+      ...source,
+      id: newLayerId('ft'),
+      label: `${source.label} copy`.slice(0, 40),
+      // Nudged down so the copy is not hidden exactly under the original.
+      style: { ...source.style, position: 'custom', x: look.x, y: Math.min(100, look.y + 6) },
+    };
+    this.frameLayout.set({ ...layout, texts: [...layout.texts, copy] });
+    this.selectedFrameLayer.set(copy.id);
+    this.markDirty();
+  }
+
+  removeFrameText(id: string): void {
+    this.frameLayout.update((l) => ({ ...l, texts: l.texts.filter((t) => t.id !== id) }));
+    if (this.selectedFrameLayer() === id) this.selectedFrameLayer.set(null);
+    this.markDirty();
+  }
+
+  updateFrameText(id: string, text: string): void {
+    this.updateFrameTextLayer(id, (t) => ({ ...t, text }));
+  }
+
+  updateFrameTextLabel(id: string, label: string): void {
+    this.updateFrameTextLayer(id, (t) => ({ ...t, label: label.slice(0, 40) }));
+  }
+
+  updateFrameTextStyle(id: string, updates: Partial<TimelineItemTextStyle>): void {
+    this.updateFrameTextLayer(id, (t) => ({ ...t, style: this.mergeTextStyle(t.style, updates) }));
+  }
+
+  /** When a frame layer is on screen; null on either end means from the start / to the end. */
+  updateFrameLayerTiming(id: string, timing: FrameTiming): void {
+    const clean = (v: number | null | undefined): number | null =>
+      typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.round(v * 100) / 100) : null;
+    const patch: FrameTiming = {};
+    if ('start' in timing) patch.start = clean(timing.start);
+    if ('end' in timing) patch.end = clean(timing.end);
+    this.frameLayout.update((l) => ({
+      ...l,
+      texts: l.texts.map((t) => (t.id === id ? { ...t, ...patch } : t)),
+      images: l.images.map((i) => (i.id === id ? { ...i, ...patch } : i)),
+    }));
+    this.markDirty();
+  }
+
+  /** Shows a frame layer from the playhead for `seconds` - or to the end, for null. */
+  frameLayerFromPlayhead(id: string, seconds: number | null): void {
+    const t = Math.round(this.currentTime() * 100) / 100;
+    this.updateFrameLayerTiming(id, { start: t, end: seconds === null ? null : t + seconds });
+  }
+
+  applyFrameDesign(design: FrameDesign): void {
+    this.frameLayout.update((l) => applyFrameDesign(l, design));
+    this.markDirty();
+  }
+
+  resetFrameLayout(): void {
+    this.frameLayout.set(defaultFrameLayout());
+    this.selectedFrameLayer.set(null);
+    this.markDirty();
+  }
+
+  // --- frame images & videos ---
+
+  /** Pictures and videos that can go on the frame: the project's images, logos and clips. */
+  readonly frameMediaCandidates = computed<FrameMediaCandidate[]>(() => {
+    const studio = this.studio();
+    if (!studio) return [];
+    const seen = new Set<string>();
+    const out: FrameMediaCandidate[] = [];
+    for (const a of studio.logoCandidates ?? []) {
+      if (!seen.has(a.id)) { seen.add(a.id); out.push({ id: a.id, name: a.name, kind: 'image', seconds: null }); }
+    }
+    for (const c of studio.clips ?? []) {
+      const type = this.getClipType(c);
+      if (seen.has(c.id) || c.isExport || (type !== 'image' && type !== 'video')) continue;
+      seen.add(c.id);
+      out.push({ id: c.id, name: c.name, kind: type, seconds: c.durationSeconds ?? null });
+    }
+    return out;
+  });
+
+  readonly frameImageCandidates = computed(() => this.frameMediaCandidates().filter((c) => c.kind === 'image'));
+  readonly frameVideoCandidates = computed(() => this.frameMediaCandidates().filter((c) => c.kind === 'video'));
+
+  readonly frameImageUploading = signal(false);
+
+  /** The layer the crop & shape editor is open on. */
+  readonly cropLayerId = signal<string | null>(null);
+  readonly cropLayer = computed(() => {
+    const id = this.cropLayerId();
+    return id ? this.frameLayout().images.find((i) => i.id === id) ?? null : null;
+  });
+
+  openFrameCrop(id: string): void {
+    this.selectFrameLayer(id);
+    this.cropLayerId.set(id);
+  }
+
+  closeFrameCrop(): void {
+    this.cropLayerId.set(null);
+  }
+
+  /**
+   * Puts a picture or video on the frame. Without a timing a picture stays for the whole
+   * video and a video plays from the playhead for its own length. `crop` opens the crop &
+   * shape editor on it straight away - the moment a new picture usually needs it.
+   */
+  addFrameMedia(
+    assetId: string, kind: 'image' | 'video',
+    options: { name?: string; x?: number; y?: number; start?: number | null; end?: number | null; crop?: boolean } = {},
+  ): FrameImage | null {
+    const layout = this.frameLayout();
+    if (layout.images.length >= MAX_FRAME_IMAGES) {
+      this.status.notify([`Up to ${MAX_FRAME_IMAGES} pictures and videos on the frame.`]);
+      return null;
+    }
+    const candidate = this.frameMediaCandidates().find((c) => c.id === assetId);
+    const round = (v: number) => Math.round(v * 100) / 100;
+
+    let start = options.start;
+    let end = options.end;
+    if (start === undefined && kind === 'video') {
+      start = round(this.currentTime());
+      end = round(start + (candidate?.seconds ?? 5));
+    }
+
+    // Each new one a little lower, so several added in a row do not stack exactly.
+    const layer: FrameImage = {
+      id: newLayerId('fi'),
+      kind,
+      assetId,
+      name: options.name ?? candidate?.name ?? (kind === 'video' ? 'Video' : 'Image'),
+      x: Math.min(100, Math.max(0, options.x ?? 50)),
+      y: Math.min(100, Math.max(0, options.y ?? Math.min(80, 25 + layout.images.length * 10))),
+      width: kind === 'video' ? 40 : 30,
+      opacity: 1,
+      crop: { ...NO_CROP },
+      shape: 'rect',
+      borderWidth: 0,
+      borderColor: '#ffffff',
+      sourceAspect: null,
+      trimStart: 0,
+      ...DEFAULT_LAYER_MOTION,
+      start: start ?? null,
+      end: end ?? null,
+    };
+    this.frameLayout.set({ ...layout, images: [...layout.images, layer] });
+    this.selectFrameLayer(layer.id);
+    this.markDirty();
+
+    // The picture's shape is needed to crop it and to tell the export its exact size.
+    void measureMediaAspect(this.assetUrl(assetId), kind).then((aspect) => {
+      if (aspect) this.updateFrameImage(layer.id, { sourceAspect: aspect });
+    });
+    if (options.crop) this.openFrameCrop(layer.id);
+    return layer;
+  }
+
+  addFrameImage(assetId: string, name?: string): void {
+    this.addFrameMedia(assetId, 'image', { name, crop: true });
+  }
+
+  addFrameVideo(assetId: string): void {
+    this.addFrameMedia(assetId, 'video');
+  }
+
+  /** Uploads a picture to the project and puts it straight on the frame, opening the crop editor. */
+  uploadFrameImage(file: File, at?: { x: number; y: number; start?: number | null; end?: number | null }): void {
+    const projectId = this.store.projectId();
+    if (!projectId) return;
+    if (!/^image\/(png|jpeg|webp|gif)$/.test(file.type)) {
+      this.status.notify(['Choose a PNG, JPEG, WebP or GIF image.']);
+      return;
+    }
+    this.frameImageUploading.set(true);
+    this.api.uploadAsset(projectId, file)
+      .pipe(finalize(() => this.frameImageUploading.set(false)))
+      .subscribe({
+        next: (asset) => {
+          this.addFrameMedia(asset.id, 'image', { name: asset.name, crop: true, ...at });
+          this.store.refreshAssets();
+          this.loadStudio();
+        },
+        error: () => this.status.error.set(`Failed to upload ${file.name}`),
+      });
+  }
+
+  updateFrameImage(id: string, patch: Partial<Omit<FrameImage, 'id' | 'assetId' | 'kind'>>): void {
+    const round = (v: number) => Math.round(v * 10) / 10;
+    const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+    const seconds = (v: number) => Math.round(Math.min(MAX_MOTION_SECONDS, Math.max(0.1, v)) * 100) / 100;
+    this.frameLayout.update((l) => ({
+      ...l,
+      images: l.images.map((i) => {
+        if (i.id !== id) return i;
+        const next = { ...i };
+        if (finite(patch.x)) next.x = round(Math.min(100, Math.max(0, patch.x)));
+        if (finite(patch.y)) next.y = round(Math.min(100, Math.max(0, patch.y)));
+        if (finite(patch.width)) next.width = round(Math.min(FRAME_IMAGE_MAX_WIDTH, Math.max(FRAME_IMAGE_MIN_WIDTH, patch.width)));
+        if (finite(patch.opacity)) next.opacity = Math.min(1, Math.max(0, patch.opacity));
+        if (patch.crop) next.crop = readCrop(patch.crop);
+        if (patch.shape) next.shape = patch.shape === 'rounded' || patch.shape === 'circle' ? patch.shape : 'rect';
+        if (finite(patch.borderWidth)) next.borderWidth = round(Math.min(MAX_BORDER_WIDTH, Math.max(0, patch.borderWidth)));
+        if (patch.borderColor && isHexColor(patch.borderColor)) next.borderColor = patch.borderColor.toLowerCase();
+        if (finite(patch.sourceAspect) && patch.sourceAspect > 0) next.sourceAspect = Math.min(20, Math.max(0.05, patch.sourceAspect));
+        if (finite(patch.trimStart)) next.trimStart = Math.max(0, Math.round(patch.trimStart * 100) / 100);
+        if (patch.animIn) next.animIn = readMotion(patch.animIn, next.animIn);
+        if (patch.animOut) next.animOut = readMotion(patch.animOut, next.animOut);
+        if (finite(patch.animInDuration)) next.animInDuration = seconds(patch.animInDuration);
+        if (finite(patch.animOutDuration)) next.animOutDuration = seconds(patch.animOutDuration);
+        if (typeof patch.name === 'string') next.name = patch.name.slice(0, 120);
+        return next;
+      }),
+    }));
+    this.markDirty();
+  }
+
+  removeFrameImage(id: string): void {
+    this.frameLayout.update((l) => ({ ...l, images: l.images.filter((i) => i.id !== id) }));
+    if (this.selectedFrameLayer() === id) this.selectedFrameLayer.set(null);
+    if (this.cropLayerId() === id) this.cropLayerId.set(null);
+    this.markDirty();
+  }
+
+  duplicateFrameImage(id: string): void {
+    const layout = this.frameLayout();
+    const source = layout.images.find((i) => i.id === id);
+    if (!source || layout.images.length >= MAX_FRAME_IMAGES) return;
+    const copy: FrameImage = {
+      ...source, id: newLayerId('fi'), crop: { ...source.crop },
+      x: Math.min(100, source.x + 5), y: Math.min(100, source.y + 5),
+    };
+    this.frameLayout.set({ ...layout, images: [...layout.images, copy] });
+    this.selectedFrameLayer.set(copy.id);
+    this.markDirty();
+  }
+
+  /** Shows a frame layer for exactly the clip under the playhead. */
+  frameLayerToClip(id: string): void {
+    const clip = this.currentScheduledClip();
+    if (!clip) return;
+    this.updateFrameLayerTiming(id, { start: clip.startSeconds, end: clip.endSeconds });
+  }
+
+  /**
+   * A picture or video dragged from the media library - or an image file from the desktop -
+   * dropped on the monitor at (x, y) percent of the frame. It goes exactly there, from the
+   * playhead to the end of the clip under it: "this picture, on this clip". A video plays
+   * for its own length instead.
+   */
+  dropOnMonitor(x: number, y: number, files: FileList | null): boolean {
+    const t = Math.round(this.currentTime() * 100) / 100;
+    const clip = this.currentScheduledClip();
+    const clipEnd = clip && t < clip.endSeconds ? Math.round(clip.endSeconds * 100) / 100 : null;
+    const row = this.draggingAsset();
+    this.draggingAsset.set(null);
+
+    if (row) {
+      const kind = this.getClipType(row.clip);
+      if (kind !== 'image' && kind !== 'video') {
+        this.status.notify(['Drop a picture or a video on the preview. Audio goes on the timeline.']);
+        return false;
+      }
+      const end = kind === 'video' ? Math.round((t + (row.clip.durationSeconds ?? 5)) * 100) / 100 : clipEnd;
+      this.addFrameMedia(row.clip.id, kind, { name: row.clip.name, x, y, start: t, end, crop: kind === 'image' });
+      return true;
+    }
+
+    const file = files ? Array.from(files).find((f) => f.type.startsWith('image/')) : undefined;
+    if (file) {
+      this.uploadFrameImage(file, { x, y, start: t, end: clipEnd });
+      return true;
+    }
+    return false;
+  }
+
+  /** Moves a frame layer one step in its list - later ones are drawn on top. */
+  reorderFrameLayer(id: string, direction: -1 | 1): void {
+    const move = <T extends { id: string }>(list: T[]): T[] => {
+      const i = list.findIndex((x) => x.id === id);
+      const j = i + direction;
+      if (i < 0 || j < 0 || j >= list.length) return list;
+      const copy = [...list];
+      [copy[i], copy[j]] = [copy[j], copy[i]];
+      return copy;
+    };
+    this.frameLayout.update((l) => ({ ...l, texts: move(l.texts), images: move(l.images) }));
+    this.markDirty();
+  }
+
+  /** Frame pictures and videos on the monitor at the playhead, back to front, mid-animation. */
+  readonly monitorFrameImages = computed<MonitorFrameMedia[]>(() => {
+    if (this.included().length === 0) return [];
+    const t = this.currentTime();
+    const duration = this.contentDurationSeconds();
+    const selected = this.selectedFrameLayer();
+    return this.frameLayout().images
+      .filter((i) => isLayerActive(i, t, duration))
+      .map((i) => {
+        const [start, end] = layerWindow(i, duration);
+        const aspect = layerAspect(i);
+        return {
+          ...i,
+          url: this.assetUrl(i.assetId),
+          selected: selected === i.id,
+          motion: mediaMotion(t, start, end, i.animIn, i.animInDuration, i.animOut, i.animOutDuration),
+          aspect,
+          radius: shapeRadius(i.shape, aspect ?? 1),
+          sourceTime: i.trimStart + (t - start),
+        };
+      });
+  });
+
+  // --- subtitles ---
+
+  private setSubtitleCues(change: (cues: SubtitleCue[]) => SubtitleCue[]): void {
+    this.frameLayout.update((l) => ({
+      ...l,
+      subtitles: { ...l.subtitles, cues: sortCues(change(l.subtitles.cues)).slice(0, MAX_SUBTITLE_CUES) },
+    }));
+    this.markDirty();
+  }
+
+  updateSubtitleStyle(updates: Partial<TimelineItemTextStyle>): void {
+    this.frameLayout.update((l) => ({
+      ...l,
+      subtitles: { ...l.subtitles, style: this.mergeTextStyle(l.subtitles.style, updates) },
+    }));
+    this.markDirty();
+  }
+
+  /** A new two-second cue at the playhead, ready to type into. */
+  addSubtitleCue(): string | null {
+    if (this.frameLayout().subtitles.cues.length >= MAX_SUBTITLE_CUES) {
+      this.status.notify([`Up to ${MAX_SUBTITLE_CUES} subtitle lines.`]);
+      return null;
+    }
+    const duration = Math.max(this.contentDurationSeconds(), MIN_CUE_SECONDS);
+    const start = Math.round(Math.min(this.currentTime(), Math.max(0, duration - MIN_CUE_SECONDS)) * 100) / 100;
+    const end = Math.round(Math.min(duration, start + 2) * 100) / 100;
+    const cue: SubtitleCue = { id: newLayerId('sc'), start, end, text: '' };
+    this.setSubtitleCues((cues) => [...cues, cue]);
+    this.selectedFrameLayer.set('subtitles');
+    return cue.id;
+  }
+
+  updateSubtitleCue(id: string, patch: Partial<Pick<SubtitleCue, 'start' | 'end' | 'text'>>): void {
+    const r = (v: number) => Math.max(0, Math.round(v * 100) / 100);
+    this.setSubtitleCues((cues) => cues.map((c) => {
+      if (c.id !== id) return c;
+      const next = { ...c };
+      if (patch.text !== undefined) next.text = patch.text.slice(0, TEXT_MAX_CHARS);
+      if (patch.start !== undefined && Number.isFinite(patch.start)) next.start = r(patch.start);
+      if (patch.end !== undefined && Number.isFinite(patch.end)) next.end = r(patch.end);
+      // A cue may not end before it starts: the edge that was not edited gives way.
+      if (next.end < next.start + MIN_CUE_SECONDS) {
+        if (patch.start !== undefined) next.end = r(next.start + MIN_CUE_SECONDS);
+        else next.start = r(next.end - MIN_CUE_SECONDS);
+      }
+      return next;
+    }));
+  }
+
+  removeSubtitleCue(id: string): void {
+    this.setSubtitleCues((cues) => cues.filter((c) => c.id !== id));
+  }
+
+  clearSubtitles(): void {
+    this.setSubtitleCues(() => []);
+  }
+
+  /** Moves every cue by `seconds` - for a file timed against a different cut. */
+  shiftSubtitles(seconds: number): void {
+    if (!Number.isFinite(seconds) || seconds === 0) return;
+    const r = (v: number) => Math.round(v * 100) / 100;
+    this.setSubtitleCues((cues) => cues
+      .map((c) => ({ ...c, start: r(c.start + seconds), end: r(c.end + seconds) }))
+      .filter((c) => c.end > MIN_CUE_SECONDS)
+      .map((c) => ({ ...c, start: Math.max(0, c.start) })));
+  }
+
+  /** Times a typed or pasted script across the whole video, replacing any cues there were. */
+  subtitlesFromScript(script: string, wordsPerCue: number): number {
+    const duration = this.contentDurationSeconds();
+    if (duration <= 0) {
+      this.status.notify(['Add clips to the timeline first - subtitles are timed across the video.']);
+      return 0;
+    }
+    const cues = cuesFromScript(script, 0, duration, wordsPerCue);
+    this.setSubtitleCues(() => cues);
+    this.selectedFrameLayer.set('subtitles');
+    return cues.length;
+  }
+
+  /** Reads an .srt or .vtt file into cues, replacing or adding to the ones there are. */
+  async importSubtitleFile(file: File, mode: 'replace' | 'append'): Promise<number> {
+    if (file.size > 2 * 1024 * 1024) {
+      this.status.notify(['That subtitle file is too large (2 MB at most).']);
+      return 0;
+    }
+    let cues: SubtitleCue[];
+    try {
+      cues = parseSubtitleFile(await file.text());
+    } catch {
+      this.status.notify(['That file could not be read.']);
+      return 0;
+    }
+    if (cues.length === 0) {
+      this.status.notify(['No timed lines found - use an .srt or .vtt file.']);
+      return 0;
+    }
+    this.setSubtitleCues((existing) => (mode === 'append' ? [...existing, ...cues] : cues));
+    this.selectedFrameLayer.set('subtitles');
+    return cues.length;
+  }
+
+  /** The cues as an .srt download. */
+  downloadSubtitlesSrt(): void {
+    const cues = this.frameLayout().subtitles.cues.filter((c) => c.text.trim());
+    if (cues.length === 0) return;
+    const url = URL.createObjectURL(new Blob([cuesToSrt(cues)], { type: 'application/x-subrip' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'subtitles.srt';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  /** The cue under the playhead, if any - what the panel highlights. */
+  readonly activeSubtitleCueId = computed<string | null>(() => {
+    const t = this.currentTime();
+    return this.frameLayout().subtitles.cues.find((c) => t >= c.start && t < c.end)?.id ?? null;
+  });
+
+  /**
+   * The fit and bar colour the export should use. A chosen bar colour means bars: it
+   * forces Contain, because Cover has none to colour and the blurred backdrop covers them.
+   */
+  exportFraming(defaultFit: ClipFit): { fit: ClipFit; backgroundColor: string | null } {
+    const layout = this.frameLayout();
+    if (layout.bars === 'color') return { fit: 'Contain', backgroundColor: layout.barColor };
+    if (layout.bars === 'blur') return { fit: 'BlurredBackdrop', backgroundColor: null };
+    return { fit: defaultFit, backgroundColor: null };
+  }
+
+  /** The bars' colour on the monitor - null leaves the stage black. */
+  readonly monitorBarColor = computed<string | null>(() => {
+    const layout = this.frameLayout();
+    return layout.bars === 'color' ? layout.barColor : null;
+  });
+
+  /** Width:height of the frame the monitor shows, which is what preview text wraps to. */
+  readonly monitorFrameAspect = computed<[number, number]>(() => {
+    const cls = this.monitorScreenAspectClass();
+    if (cls.includes('aspect-9-16')) return [9, 16];
+    if (cls.includes('aspect-1-1')) return [1, 1];
+    if (cls.includes('aspect-4-5')) return [4, 5];
+    return [16, 9];
+  });
+
+  /** Every block of text on the monitor right now: frame text layers, subtitles, then TXT1's. */
+  readonly monitorTextBlocks = computed<MonitorTextBlock[]>(() => {
+    const [w, h] = this.monitorFrameAspect();
+    const blocks: MonitorTextBlock[] = [];
+    const lines = (text: string, look: TextLook) =>
+      wrapText(look.uppercase ? text.toUpperCase() : text, look.fontSize, w, h);
+
+    if (this.included().length > 0) {
+      const layout = this.frameLayout();
+      const t = this.currentTime();
+      const duration = this.contentDurationSeconds();
+      const selected = this.selectedFrameLayer();
+      for (const layer of layout.texts) {
+        if (!layer.text.trim() || !isLayerActive(layer, t, duration)) continue;
+        const look = resolveTextLook(layer.style);
+        const [start, end] = layerWindow(layer, duration);
+        const m = textMotion(t, start, end, layer.style.transitionIn, layer.style.transitionInDuration,
+          layer.style.transitionOut, layer.style.transitionOutDuration);
+        const shown = lines(layer.text, look);
+        blocks.push({
+          key: `frame-${layer.id}`, target: { kind: 'frame', id: layer.id }, lines: shown, look,
+          opacity: m.opacity, offsetY: m.dyPx, offsetX: m.dx, scale: 1, selected: selected === layer.id,
+          reveal: textReveal(t, start, end, layer.style.transitionIn, layer.style.transitionInDuration, shown),
+        });
+      }
+
+      const subStyle = layout.subtitles.style;
+      const subLook = resolveTextLook(subStyle);
+      for (const cue of layout.subtitles.cues) {
+        if (!cue.text.trim() || t < cue.start || t >= cue.end) continue;
+        const m = textMotion(t, cue.start, cue.end, subStyle.transitionIn, subStyle.transitionInDuration,
+          subStyle.transitionOut, subStyle.transitionOutDuration);
+        const shown = lines(cue.text, subLook);
+        blocks.push({
+          key: `sub-${cue.id}`, target: { kind: 'subtitle' }, lines: shown, look: subLook,
+          opacity: m.opacity, offsetY: m.dyPx, offsetX: m.dx, scale: 1, selected: selected === 'subtitles',
+          reveal: textReveal(t, cue.start, cue.end, subStyle.transitionIn, subStyle.transitionInDuration, shown),
+        });
+      }
+    }
+
+    const txt = this.activeTxtItem();
+    if (txt && txt.src.trim()) {
+      const look = resolveTextLook(txt.textStyle);
+      const motion = this.textOverlayMotion(txt);
+      const shown = lines(txt.src, look);
+      blocks.push({
+        key: txt.id, target: { kind: 'item', id: txt.id }, lines: shown, look,
+        opacity: motion.opacity, offsetY: motion.offsetY, offsetX: motion.offsetX, scale: motion.scale,
+        reveal: textReveal(this.currentTime(), txt.startTime, txt.startTime + txt.duration,
+          txt.textStyle?.transitionIn, txt.textStyle?.transitionInDuration, shown),
+        selected: this.selectedTimelineItemId() === txt.id,
+      });
+    }
+    return blocks;
+  });
+
+  /**
+   * Opacity, slide and zoom of a TXT1 overlay at the playhead. The export eases the same
+   * way (TextOverlayFilters.cs); zoom it cannot draw, and renders as the fade alone.
+   */
+  private textOverlayMotion(txt: TimelineItem): { opacity: number; offsetY: number; offsetX: number; scale: number } {
+    const st = txt.textStyle;
+    const inType = st?.transitionIn ?? 'fade';
+    const outType = st?.transitionOut ?? 'fade';
+    const m = textMotion(this.currentTime(), txt.startTime, txt.startTime + txt.duration,
+      inType, st?.transitionInDuration ?? 0.5, outType, st?.transitionOutDuration ?? 0.5);
+
+    let scale = 1;
+    const ct = this.currentTime();
+    const end = txt.startTime + txt.duration;
+    const inDur = st?.transitionInDuration || 0.5;
+    const outDur = st?.transitionOutDuration || 0.5;
+    if (inType === 'zoom-in' && ct - txt.startTime < inDur) {
+      scale = 0.5 + 0.5 * (1 - Math.pow(1 - Math.max(0, (ct - txt.startTime) / inDur), 3));
+    } else if (outType === 'zoom-out' && end - ct < outDur) {
+      scale = 0.5 + 0.5 * Math.pow(Math.max(0, (end - ct) / outDur), 2);
+    }
+
+    return { opacity: m.opacity, offsetY: m.dyPx, offsetX: m.dx, scale };
   }
 
   updateImageItemTransform(itemId: string, updates: Partial<TimelineItemTransform>): void {
@@ -5167,8 +5936,8 @@ export class StudioStateService implements OnDestroy {
           return;
         }
       } else {
-        this.addMusicTrackFromAsset(row.clip.id, dropTime);
-        this.status.notify([`Added audio "${assetName}" to A1 at ${dropTime.toFixed(1)}s.`]);
+        this.addMusicTrackFromAsset(row.clip.id, dropTime, trackId);
+        this.status.notify([`Added audio "${assetName}" to ${trackId} at ${dropTime.toFixed(1)}s.`]);
         return;
       }
     }
@@ -6186,16 +6955,21 @@ export class StudioStateService implements OnDestroy {
   }
 
   // Music Tracks
-  addMusicTrackFromAsset(assetId: string, customStartSeconds?: number): void {
+  /**
+   * Places an audio file on A1 (voice) or A2 (music). Without an explicit lane, generated
+   * voiceover files ("VO - ...") go to A1 and everything else to A2.
+   */
+  addMusicTrackFromAsset(assetId: string, customStartSeconds?: number, lane?: 'A1' | 'A2'): void {
     const studio = this.studio();
     const candidate = studio?.musicCandidates?.find((m) => m.id === assetId);
     const dur = candidate?.durationSeconds ?? 10.0;
+    const targetLane = lane ?? (candidate?.name.startsWith('VO - ') ? 'A1' : 'A2');
 
     let startSec = 0;
     if (customStartSeconds !== undefined) {
       startSec = Math.max(0, customStartSeconds);
     } else {
-      const tracks = this.musicTracks();
+      const tracks = this.musicTracksForLane(targetLane);
       if (tracks.length > 0) {
         const latestEnd = Math.max(...tracks.map((t) => t.startSeconds + this.musicTrackDurationSeconds(t)));
         const curTime = this.currentTime();
@@ -6210,7 +6984,8 @@ export class StudioStateService implements OnDestroy {
       }
     }
 
-    const newKey = `music_${Date.now()}`;
+    // The key prefix is what puts a row on its lane (see audioLaneOf).
+    const newKey = `${targetLane === 'A1' ? 'vo' : 'music'}_${Date.now()}`;
     const newTrack: MusicTrackRow = {
       key: newKey,
       assetId,
@@ -6222,7 +6997,7 @@ export class StudioStateService implements OnDestroy {
     this.musicTracks.update((t) => [...t, newTrack]);
     this.clearVideoAndItemSelections();
     this.selectedMusicTrackKey.set(newKey);
-    this.showTrackManually('A1');
+    this.showTrackManually(targetLane);
     this.setInspectorTab('audio');
     this.setAudioInspectorView('clip');
     this.markDirty();
@@ -6295,8 +7070,261 @@ export class StudioStateService implements OnDestroy {
     }
   }
 
+  // Undo / Redo
+  /**
+   * Every timeline edit already ends in markDirty(), and buildDraftData()/applyDraft() are
+   * a complete snapshot/restore of the cut - so history is recorded there instead of in
+   * each of the dozens of edit methods. Changes arriving in quick succession (a drag fires
+   * markDirty on every pointermove) are folded into one step.
+   */
+  private static readonly HISTORY_LIMIT = 80;
+  private static readonly HISTORY_BURST_MS = 450;
+  private undoStack: string[] = [];
+  private redoStack: string[] = [];
+  /** The cut as it stands after the last recorded change; what an undo returns to. */
+  private historyBaseline: string | null = null;
+  private historyBurstTimer: ReturnType<typeof setTimeout> | null = null;
+  private restoringHistory = false;
+  readonly canUndo = signal<boolean>(false);
+  readonly canRedo = signal<boolean>(false);
+
+  private historySnapshot(): string {
+    const { savedAt: _savedAt, ...doc } = this.buildDraftData();
+    return JSON.stringify(doc);
+  }
+
+  private recordHistory(): void {
+    if (this.restoringHistory) return;
+    const snapshot = this.historySnapshot();
+    if (this.historyBaseline === null) {
+      this.historyBaseline = snapshot;
+      return;
+    }
+    if (snapshot === this.historyBaseline) return;
+
+    // Only the first change of a burst opens a step; the rest extend it.
+    if (!this.historyBurstTimer) {
+      this.undoStack.push(this.historyBaseline);
+      if (this.undoStack.length > StudioStateService.HISTORY_LIMIT) this.undoStack.shift();
+      this.redoStack = [];
+    } else {
+      clearTimeout(this.historyBurstTimer);
+    }
+    this.historyBurstTimer = setTimeout(() => (this.historyBurstTimer = null), StudioStateService.HISTORY_BURST_MS);
+    this.historyBaseline = snapshot;
+    this.syncHistoryFlags();
+  }
+
+  /**
+   * Takes the cut as it stands now as the starting point. Loading another cut also forgets
+   * its steps; reloading the same one keeps them, since every step is a whole cut anyway.
+   */
+  resetHistory(keepSteps = false): void {
+    if (!keepSteps) {
+      this.undoStack = [];
+      this.redoStack = [];
+    }
+    this.closeHistoryBurst();
+    this.historyBaseline = this.historySnapshot();
+    this.syncHistoryFlags();
+  }
+
+  undo(): void {
+    if (this.undoStack.length === 0) return;
+    // Anything changed since the last recorded step is part of what is being undone.
+    this.recordHistory();
+    this.closeHistoryBurst();
+    const previous = this.undoStack.pop()!;
+    this.redoStack.push(this.historyBaseline ?? this.historySnapshot());
+    this.restoreHistory(previous);
+    this.status.notify(['Undone.']);
+  }
+
+  redo(): void {
+    if (this.redoStack.length === 0) return;
+    this.closeHistoryBurst();
+    const next = this.redoStack.pop()!;
+    this.undoStack.push(this.historyBaseline ?? this.historySnapshot());
+    this.restoreHistory(next);
+    this.status.notify(['Redone.']);
+  }
+
+  private restoreHistory(snapshot: string): void {
+    this.restoringHistory = true;
+    try {
+      this.applyDraft(JSON.parse(snapshot));
+      this.dropVanishedSelections();
+      this.historyBaseline = this.historySnapshot();
+      this.markDirty();
+    } finally {
+      this.restoringHistory = false;
+    }
+    this.syncHistoryFlags();
+  }
+
+  /** A selection pointing at something the restore removed would leave the inspector editing nothing. */
+  private dropVanishedSelections(): void {
+    const musicKey = this.selectedMusicTrackKey();
+    if (musicKey && !this.musicTracks().some((t) => t.key === musicKey)) this.selectedMusicTrackKey.set(null);
+
+    const itemIds = new Set(this.timelineItems().map((i) => i.id));
+    const itemId = this.selectedTimelineItemId();
+    if (itemId && !itemIds.has(itemId)) this.selectedTimelineItemId.set(null);
+    const selectedItems = this.selectedTimelineItemIds();
+    if ([...selectedItems].some((id) => !itemIds.has(id))) {
+      this.selectedTimelineItemIds.set(new Set([...selectedItems].filter((id) => itemIds.has(id))));
+    }
+
+    const rowCount = this.rows().length;
+    const clipIndex = this.selectedTimelineClipIndex();
+    if (clipIndex !== null && clipIndex >= rowCount) this.selectedTimelineClipIndex.set(null);
+  }
+
+  private closeHistoryBurst(): void {
+    if (this.historyBurstTimer) {
+      clearTimeout(this.historyBurstTimer);
+      this.historyBurstTimer = null;
+    }
+  }
+
+  private syncHistoryFlags(): void {
+    this.canUndo.set(this.undoStack.length > 0);
+    this.canRedo.set(this.redoStack.length > 0);
+  }
+
+  // Voiceover
+  /**
+   * Puts generated voiceover lines on A1 as one edit (so one Undo takes them all back).
+   * The assets are added to the studio's audio list in place rather than by reloading,
+   * which would re-apply the server draft over any edit not yet auto-saved.
+   */
+  addVoiceoverTracks(placements: { asset: Asset; startSeconds: number }[], replaceExisting = false): void {
+    if (placements.length === 0) return;
+
+    // Replacing is part of the same edit, so one Undo brings the earlier lines back.
+    if (replaceExisting) this.musicTracks.update((t) => t.filter((track) => !isVoiceoverTrack(track)));
+
+    const studio = this.studio();
+    if (studio) {
+      const known = new Set((studio.musicCandidates || []).map((m) => m.id));
+      const fresh = placements.map((p) => p.asset).filter((a) => !known.has(a.id));
+      if (fresh.length > 0) {
+        this.studio.set({ ...studio, musicCandidates: [...(studio.musicCandidates || []), ...fresh] });
+      }
+    }
+
+    const stamp = Date.now().toString(36);
+    const tracks: MusicTrackRow[] = placements.map((p, i) => ({
+      key: `vo_${stamp}_${i}`,
+      assetId: p.asset.id,
+      startSeconds: Number(Math.max(0, p.startSeconds).toFixed(2)),
+      volume: 1.0,
+      trimStartSeconds: 0,
+      trimEndSeconds: p.asset.durationSeconds ?? 10.0,
+      fadeInSeconds: 0.05,
+      fadeOutSeconds: 0.15,
+    }));
+    this.musicTracks.update((t) => [...t, ...tracks]);
+    this.closeHistoryBurst();
+    this.showTrackManually('A1');
+    this.markDirty();
+    this.closeHistoryBurst();
+  }
+
+  /** Music laid by "Background music" and effects laid by "Sound on every cut", so a re-run replaces them. */
+  readonly autoBedTracks = computed(() => this.musicTracks().filter((t) => t.key.startsWith(AUTO_BED_PREFIX)));
+  readonly autoCutTracks = computed(() => this.musicTracks().filter((t) => t.key.startsWith(AUTO_CUT_PREFIX)));
+
+  /**
+   * Lays a music file on A2 under the whole video - repeated until it covers it, faded in and
+   * out - replacing a bed laid this way before. One Undo takes it back.
+   */
+  layMusicBed(assetId: string, volume: number): number {
+    const asset = this.studio()?.musicCandidates?.find((m) => m.id === assetId);
+    const pieces = bedPieces(asset?.durationSeconds ?? 0, this.totalSeconds());
+    if (!asset || pieces.length === 0) return 0;
+
+    const stamp = Date.now().toString(36);
+    const level = Math.max(0, Math.min(2, volume));
+    const rows: MusicTrackRow[] = pieces.map((p, i) => ({
+      key: `${AUTO_BED_PREFIX}${stamp}_${i}`,
+      assetId,
+      startSeconds: p.startSeconds,
+      volume: level,
+      trimStartSeconds: 0,
+      trimEndSeconds: p.lengthSeconds,
+      fadeInSeconds: p.fadeInSeconds,
+      fadeOutSeconds: p.fadeOutSeconds,
+    }));
+    this.replaceAutoTracks(AUTO_BED_PREFIX, rows);
+    return rows.length;
+  }
+
+  /** Places a short sound (a whoosh, a hit) on A2 at every cut, replacing ones placed this way before. */
+  addCutEffects(assetId: string, volume: number): number {
+    const asset = this.studio()?.musicCandidates?.find((m) => m.id === assetId);
+    const seconds = asset?.durationSeconds ?? 0;
+    if (!asset || seconds <= 0) return 0;
+
+    const stamp = Date.now().toString(36);
+    const level = Math.max(0, Math.min(2, volume));
+    const rows: MusicTrackRow[] = cutEffectStarts(this.clipSchedule().map((c) => c.startSeconds), seconds)
+      .map((start, i) => ({
+        key: `${AUTO_CUT_PREFIX}${stamp}_${i}`,
+        assetId,
+        startSeconds: start,
+        volume: level,
+        trimStartSeconds: 0,
+        trimEndSeconds: seconds,
+        fadeInSeconds: 0.02,
+        fadeOutSeconds: Math.min(0.2, seconds / 3),
+      }));
+    if (rows.length === 0) return 0;
+    this.replaceAutoTracks(AUTO_CUT_PREFIX, rows);
+    return rows.length;
+  }
+
+  /** Takes off the music bed or the cut effects auto-enhance laid. */
+  removeAutoTracks(kind: 'bed' | 'cuts'): void {
+    this.replaceAutoTracks(kind === 'bed' ? AUTO_BED_PREFIX : AUTO_CUT_PREFIX, []);
+  }
+
+  private replaceAutoTracks(prefix: string, rows: MusicTrackRow[]): void {
+    this.closeHistoryBurst();
+    this.musicTracks.update((t) => [...t.filter((track) => !track.key.startsWith(prefix)), ...rows]);
+    if (rows.length > 0) this.showTrackManually('A2');
+    this.markDirty();
+    this.closeHistoryBurst();
+  }
+
+  /**
+   * True while the Voiceover panel plays a fresh take over the clips: the lines already on A1
+   * stay silent so the two takes are not heard on top of each other.
+   */
+  readonly auditioningVoiceover = signal(false);
+
+  /** Voiceover lines on A1 right now. */
+  readonly voiceoverTracks = computed(() => this.musicTracks().filter(isVoiceoverTrack));
+
+  /** True when anything on the timeline still plays this audio file. */
+  isAudioAssetInUse(assetId: string): boolean {
+    return this.musicAssetId() === assetId
+      || this.musicTracks().some((t) => t.assetId === assetId)
+      || this.timelineItems().some((i) => i.src === assetId)
+      || Object.values(this.clipSounds()).some((s) => s.audioAssetId === assetId);
+  }
+
+  /** Drops deleted library files from the studio's audio list without reloading the draft. */
+  forgetAudioAssets(assetIds: string[]): void {
+    const studio = this.studio();
+    if (!studio || assetIds.length === 0) return;
+    const gone = new Set(assetIds);
+    this.studio.set({ ...studio, musicCandidates: (studio.musicCandidates || []).filter((m) => !gone.has(m.id)) });
+  }
+
   // Project Operations & Drafts
   markDirty(): void {
+    this.recordHistory();
     this.hasUnsavedChanges.set(true);
     if (this.autoSaveTimer) {
       clearTimeout(this.autoSaveTimer);
@@ -6324,9 +7352,17 @@ export class StudioStateService implements OnDestroy {
       transitionSeconds: this.transitionSeconds(),
       trackV1Volume: this.trackV1Volume(),
       trackA1Volume: this.trackA1Volume(),
+      trackA2Volume: this.trackA2Volume(),
       projectOverlapRule: this.projectOverlapRule(),
       duckLevel: this.duckLevel(),
+      duckMusicUnderVoice: this.duckMusicUnderVoice(),
+      voiceDuckLevel: this.voiceDuckLevel(),
+      exportYouTubeLoudness: this.exportYouTubeLoudness(),
+      exportIncludeOutro: this.exportIncludeOutro(),
+      endCardInPreview: this.endCardInPreview(),
+      endCardAfter: this.endCardAfter(),
       fit: this.fit(),
+      frameLayout: this.frameLayout(),
       clipFraming: Array.from(this.clipFraming().entries()),
       clipAudioFade: Array.from(this.clipAudioFade().entries()),
       savedAt: new Date().toLocaleTimeString(),
@@ -6437,6 +7473,7 @@ export class StudioStateService implements OnDestroy {
     if (draft.trackV1Volume !== undefined) this.trackV1Volume.set(draft.trackV1Volume);
 
     if (draft.trackA1Volume !== undefined) this.trackA1Volume.set(draft.trackA1Volume);
+    if (draft.trackA2Volume !== undefined) this.trackA2Volume.set(draft.trackA2Volume);
 
     if (draft.projectOverlapRule !== undefined) {
       this.projectOverlapRule.set(draft.projectOverlapRule);
@@ -6454,8 +7491,17 @@ export class StudioStateService implements OnDestroy {
     }
     if (draft.duckLevel !== undefined) this.duckLevel.set(draft.duckLevel);
     else if (draft.videoDuckLevel !== undefined) this.duckLevel.set(draft.videoDuckLevel);
+    if (typeof draft.duckMusicUnderVoice === 'boolean') this.duckMusicUnderVoice.set(draft.duckMusicUnderVoice);
+    if (typeof draft.voiceDuckLevel === 'number' && draft.voiceDuckLevel >= 0 && draft.voiceDuckLevel <= 1) {
+      this.voiceDuckLevel.set(draft.voiceDuckLevel);
+    }
+    if (typeof draft.exportYouTubeLoudness === 'boolean') this.exportYouTubeLoudness.set(draft.exportYouTubeLoudness);
+    if (typeof draft.exportIncludeOutro === 'boolean') this.exportIncludeOutro.set(draft.exportIncludeOutro);
+    if (typeof draft.endCardInPreview === 'boolean') this.endCardInPreview.set(draft.endCardInPreview);
+    if (draft.endCardAfter === 'clips' || draft.endCardAfter === 'everything') this.endCardAfter.set(draft.endCardAfter);
     this.migrateLegacyOverlapSettings();
     if (draft.fit !== undefined) this.fit.set(draft.fit);
+    this.frameLayout.set(readFrameLayout(draft.frameLayout));
     if (Array.isArray(draft.clipFraming)) this.clipFraming.set(new Map(draft.clipFraming));
     if (Array.isArray(draft.clipAudioFade)) this.clipAudioFade.set(new Map(draft.clipAudioFade));
   }
@@ -6596,6 +7642,121 @@ export class StudioStateService implements OnDestroy {
     }));
   }
 
+  // --- bringing in part of another timeline, and handing part of this one to a new cut ---
+
+  /** Whether an overlay item sits on a lane the eye toggle has hidden. */
+  private isOverlayLaneHidden(item: TimelineItem): boolean {
+    const lane = item.type === 'text' ? 'TXT1'
+      : item.trackId === 'V3' ? 'V2'
+      : item.trackId === 'IMG' ? 'IMG1'
+      : item.trackId;
+    const track = this.timelineTracks().find((t) => t.id === lane);
+    return !!track && track.kind !== 'audio' && !track.visible;
+  }
+
+  /** Which transfer dialog is open: bring in from another video, or start a new one from this. */
+  readonly transferDialogMode = signal<'import' | 'create' | null>(null);
+
+  /** Lanes currently hidden in the monitor, so the export dialog can say they stay out. */
+  readonly hiddenLaneLabels = computed<string[]>(() =>
+    this.timelineTracks().filter((t) => t.kind !== 'audio' && t.id !== 'V1' && !t.visible).map((t) => t.name));
+
+  /** The open cut's project, for the transfer dialog. */
+  get openProjectId(): string | null {
+    return this.loadedProjectId;
+  }
+
+  get openEditId(): string | null {
+    return this.loadedEditId;
+  }
+
+  /** Seconds from the first selected clip's start to the last one's end, or null. */
+  readonly selectedClipsRange = computed<TransferRange | null>(() => {
+    const indices = this.selectedCutIndices();
+    if (indices.length === 0) return null;
+    const schedule = this.clipSchedule();
+    const first = schedule[Math.min(...indices)];
+    const last = schedule[Math.max(...indices)];
+    return first && last ? { start: first.startSeconds, end: last.endSeconds } : null;
+  });
+
+  /** Audio file lengths, for music rows that play to the end of their file. */
+  audioFileLength(assetId: string): number | undefined {
+    return this.studio()?.musicCandidates?.find((m) => m.id === assetId)?.durationSeconds ?? undefined;
+  }
+
+  /**
+   * Puts a piece of another timeline into this one. Its clips go into the cut at `at`; its
+   * overlays, text and audio keep their timing relative to those clips. When the clips go
+   * in before the end, everything after that point moves along to make room (ripple), so
+   * existing titles and music stay over the footage they were placed on.
+   */
+  importFragment(fragment: TimelineFragment, at: 'start' | 'playhead' | 'end'): void {
+    const schedule = this.clipSchedule();
+    const cutIndex = at === 'start' ? 0 : at === 'end' ? schedule.length : this.playheadCutIndex();
+    const hasClips = fragment.rows.length > 0;
+
+    // Clips can only go in between clips; with none, the rest lands right at the playhead.
+    const offset = !hasClips && at === 'playhead'
+      ? this.getCurrentTimeExact()
+      : cutIndex >= schedule.length ? this.totalSeconds() : schedule[cutIndex].startSeconds;
+
+    const ripple = hasClips && cutIndex < schedule.length ? fragment.videoSeconds : 0;
+
+    if (hasClips) {
+      const rows = [...this.rows()];
+      rows.splice(this.rowsIndexForCutIndex(cutIndex), 0, ...fragment.rows);
+      this.rows.set(rows);
+      this.insertIndex.set(cutIndex + fragment.rows.length);
+    }
+
+    const shifted = <T>(list: T[], startOf: (x: T) => number, move: (x: T, by: number) => T): T[] =>
+      ripple > 0 ? list.map((x) => (startOf(x) >= offset - 1e-6 ? move(x, ripple) : x)) : list;
+
+    this.timelineItems.update((items) => [
+      ...shifted(items, (it) => it.startTime, (it, by) => ({ ...it, startTime: it.startTime + by })),
+      ...fragment.items.map((it) => ({ ...it, startTime: it.startTime + offset })),
+    ]);
+    this.musicTracks.update((tracks) => [
+      ...shifted(tracks, (t) => t.startSeconds, (t, by) => ({ ...t, startSeconds: t.startSeconds + by })),
+      ...fragment.musicTracks.map((t) => ({ ...t, startSeconds: Number((t.startSeconds + offset).toFixed(3)) })),
+    ]);
+
+    if (Object.keys(fragment.clipSounds).length) this.clipSounds.update((m) => ({ ...m, ...fragment.clipSounds }));
+    if (Object.keys(fragment.clipTransforms).length) this.clipTransforms.update((m) => ({ ...m, ...fragment.clipTransforms }));
+    if (Object.keys(fragment.clipColors).length) this.clipColors.update((m) => ({ ...m, ...fragment.clipColors }));
+    if (Object.keys(fragment.clipTexts).length) this.clipTexts.update((m) => ({ ...m, ...fragment.clipTexts }));
+    if (fragment.clipFraming.length) this.clipFraming.update((m) => new Map([...m, ...fragment.clipFraming]));
+    if (fragment.clipAudioFade.length) this.clipAudioFade.update((m) => new Map([...m, ...fragment.clipAudioFade]));
+    if (fragment.junctionOverrides.length) {
+      this.junctionOverrides.update((m) => new Map([...m, ...fragment.junctionOverrides]));
+      this.junctions.update((m) => ({ ...m, ...Object.fromEntries(fragment.junctionOverrides) }));
+    }
+
+    // Lanes the fragment uses are shown even when this cut had nothing on them yet.
+    const lanes = new Set<string>();
+    for (const it of fragment.items) lanes.add(it.type === 'text' ? 'TXT1' : it.trackId === 'IMG' ? 'IMG1' : it.trackId);
+    if (lanes.size) this.explicitlyShownTracks.update((set) => new Set([...set, ...lanes]));
+
+    this.markDirty();
+    this.seekTo(offset);
+    this.timelineScrollRequest.set({ seconds: offset, nonce: Date.now() });
+  }
+
+  /** Brings newly copied library files into the open studio without reloading the timeline. */
+  refreshStudioLibrary(then?: () => void): void {
+    const projectId = this.loadedProjectId;
+    if (!this.ownsCurrentProject(projectId)) return;
+    this.api.clipStudio(projectId).subscribe({
+      next: (studio) => {
+        if (this.loadedProjectId !== projectId) return;
+        this.studio.set(studio);
+        then?.();
+      },
+      error: () => this.status.error.set('Could not refresh the media library.'),
+    });
+  }
+
   // --- the other cuts of this project, for the header's switcher ---
 
   readonly projectEdits = signal<ProjectEdit[]>([]);
@@ -6604,9 +7765,125 @@ export class StudioStateService implements OnDestroy {
     const projectId = this.loadedProjectId;
     if (!this.ownsCurrentProject(projectId)) return;
     this.api.listEdits(projectId).subscribe({
-      next: (list) => { if (this.loadedProjectId === projectId) this.projectEdits.set(list); },
+      next: (list) => {
+        if (this.loadedProjectId !== projectId) return;
+        this.projectEdits.set(list);
+        this.refreshOtherEditUsage();
+      },
       error: () => {},
     });
+  }
+
+  // --- where each library file is used, across every video of the project ---
+
+  /** The other cuts' saved timelines, read down to the files they use. Keyed by edit id. */
+  private readonly otherEditUsage = signal<Map<string, { updatedAt: string; usage: DraftUsage }>>(new Map());
+  readonly mediaUsageLoading = signal(false);
+  /** Names of cuts whose timeline could not be read, so "unused" is never claimed for them. */
+  readonly mediaUsageFailed = signal<string[]>([]);
+
+  /** The open cut, live - unsaved changes count straight away. */
+  private readonly currentDraftUsage = computed<DraftUsage>(() => draftAssetUsage({
+    rows: this.rows(),
+    timelineItems: this.timelineItems(),
+    musicTracks: this.musicTracks(),
+    musicAssetId: this.musicAssetId(),
+    clipSounds: this.clipSounds(),
+  }));
+
+  /** Per file, how many of the OTHER videos place it. */
+  private readonly otherEditCounts = computed<Map<string, number>>(() => {
+    const current = this.currentEdit()?.id;
+    const counts = new Map<string, number>();
+    for (const [editId, entry] of this.otherEditUsage()) {
+      if (editId === current) continue;
+      for (const assetId of entry.usage.keys()) counts.set(assetId, (counts.get(assetId) ?? 0) + 1);
+    }
+    return counts;
+  });
+
+  /**
+   * Reads the saved timeline of every other cut whose save time changed since it was last
+   * read. The open cut is never fetched: its live state is newer than anything saved.
+   */
+  refreshOtherEditUsage(): void {
+    const projectId = this.loadedProjectId;
+    if (!this.ownsCurrentProject(projectId)) return;
+    const current = this.loadedEditId;
+    const edits = this.projectEdits();
+    const cache = this.otherEditUsage();
+    const stale = edits.filter((e) => e.id !== current && cache.get(e.id)?.updatedAt !== e.updatedAt);
+
+    const keep = new Set(edits.map((e) => e.id));
+    if ([...cache.keys()].some((id) => !keep.has(id))) {
+      this.otherEditUsage.set(new Map([...cache].filter(([id]) => keep.has(id))));
+    }
+    if (stale.length === 0) {
+      this.mediaUsageFailed.set([]);
+      return;
+    }
+
+    this.mediaUsageLoading.set(true);
+    from(stale).pipe(
+      mergeMap((e) => this.api.getEdit(projectId, e.id).pipe(
+        map((full) => ({ edit: e, usage: this.readDraftUsage(full.draftJson) })),
+        catchError(() => of({ edit: e, usage: null as DraftUsage | null })),
+      ), 4),
+      toArray(),
+      finalize(() => this.mediaUsageLoading.set(false)),
+    ).subscribe((results) => {
+      if (this.loadedProjectId !== projectId) return;
+      const next = new Map(this.otherEditUsage());
+      const failed: string[] = [];
+      for (const { edit, usage } of results) {
+        if (usage) next.set(edit.id, { updatedAt: edit.updatedAt, usage });
+        else failed.push(edit.name);
+      }
+      this.otherEditUsage.set(next);
+      this.mediaUsageFailed.set(failed);
+    });
+  }
+
+  /** A cut never opened has no draft and uses nothing; a draft that will not parse is a failure. */
+  private readDraftUsage(draftJson: string | null | undefined): DraftUsage | null {
+    if (!draftJson) return new Map();
+    try {
+      return draftAssetUsage(JSON.parse(draftJson));
+    } catch {
+      return null;
+    }
+  }
+
+  /** How many videos of the project other than the open one place this file. */
+  usedInOtherVideosCount(clip: Clip): number {
+    return this.otherEditCounts().get(this.resolveAssetId(clip)) ?? 0;
+  }
+
+  /** Every video of the project that places this file - the open one first - and where. */
+  mediaUsagePlaces(clip: Clip): MediaUsagePlace[] {
+    const assetId = this.resolveAssetId(clip);
+    const current = this.currentEdit();
+    const places: MediaUsagePlace[] = [];
+    const place = (editId: string, name: string, format: EditFormat | null, isCurrent: boolean, usage: DraftUsage) => {
+      const roles = usage.get(assetId);
+      const total = usageTotal(roles);
+      if (!roles || total === 0) return;
+      places.push({
+        editId, name, format, isCurrent, total,
+        roles: (Object.keys(roles) as UsageRole[])
+          .map((role) => ({ role, label: USAGE_ROLE_LABELS[role], count: roles[role] ?? 0 }))
+          .filter((r) => r.count > 0),
+      });
+    };
+
+    place(current?.id ?? '', current?.name ?? 'This video', current?.format ?? null, true, this.currentDraftUsage());
+    const cache = this.otherEditUsage();
+    for (const e of this.projectEdits()) {
+      if (e.id === current?.id) continue;
+      const entry = cache.get(e.id);
+      if (entry) place(e.id, e.name, e.format, false, entry.usage);
+    }
+    return places;
   }
 
   /** Renames the open cut or changes its format, from inside the editor. */
@@ -6685,6 +7962,7 @@ export class StudioStateService implements OnDestroy {
       this.junctionOverrides.set(new Map());
       this.clipTrims.set(new Map());
       this.clipFraming.set(new Map());
+      this.frameLayout.set(defaultFrameLayout());
       this.clipAudioFade.set(new Map());
       this.clipColor.set(new Map());
       this.clipText.set(new Map());
@@ -6695,10 +7973,29 @@ export class StudioStateService implements OnDestroy {
       this.selectedTimelineItemIds.set(new Set<string>());
       this.clipboard.set(null);
       this.orderResult.set(null);
+      // Playback, the playhead and the lanes' hide/mute/lock state belong to the cut that
+      // was open, not to this one.
+      this.isPlaying.set(false);
+      this.seekTo(0);
+      this.timelineTracks.set(defaultTimelineTracks());
+      this.explicitlyShownTracks.set(new Set<string>());
+      this.selectedMusicTrackKey.set(null);
+      this.insertIndex.set(null);
+      this.selectionAnchorIndex.set(null);
+      this.exportIncludeOutro.set(true);
+      this.endCardInPreview.set(true);
+      this.endCardAfter.set('clips');
+      this.endCardDialogOpen.set(false);
       this.hasUnsavedChanges.set(false);
       this.lastSavedTime.set(null);
       this.restoredDraftTime.set(null);
+      // Another cut's steps must never be undone into this one.
+      this.undoStack = [];
+      this.redoStack = [];
+      this.historyBaseline = null;
+      this.syncHistoryFlags();
     }
+    const keepHistory = this.loadedProjectId === projectId && this.loadedEditId === editId;
     this.loadedProjectId = projectId;
     this.loadedEditId = editId;
     const loadingEditId = editId;
@@ -6711,6 +8008,12 @@ export class StudioStateService implements OnDestroy {
         this.studio.set(studio);
         this.currentEdit.set({ ...edit, draftJson: undefined });
         this.refreshProjectEdits();
+        // Runs once everything below has built the timeline, whichever branch returns.
+        queueMicrotask(() => {
+          if (this.loadedEditId !== loadingEditId) return;
+          this.resetHistory(keepHistory);
+          if (!keepHistory) this.timelineViewReset.update((n) => n + 1);
+        });
 
         // The first cut is the project's original timeline; any other cut created blank
         // starts with nothing in it, so the user picks what goes in.
@@ -6846,10 +8149,123 @@ export class StudioStateService implements OnDestroy {
     return s.volume !== 1 || !!s.audioAssetId || s.audioVolume !== 1 || !s.keepOriginalAudio || Boolean(s.overlapRule && s.overlapRule !== 'Inherit') || (s.duckLevelOverride !== null && s.duckLevelOverride !== undefined);
   }
 
+  /** Gain of an audio lane's bus as the mixer sets it: 0 when the lane is muted. */
+  audioBusGain(lane: 'A1' | 'A2'): number {
+    if (this.isTrackMuted(lane)) return 0;
+    return lane === 'A1' ? this.trackA1Volume() : this.trackA2Volume();
+  }
+
+  /** Audio rows for export, with each lane's bus volume folded in so export matches preview. */
+  musicTracksPayload() {
+    return this.musicTracks().map((t) => ({
+      assetId: t.assetId,
+      startSeconds: t.startSeconds,
+      volume: Math.max(0, Math.min(2.0, t.muted ? 0 : (Number(t.volume) || 0) * this.audioBusGain(audioLaneOf(t)))),
+      trimStartSeconds: t.trimStartSeconds,
+      trimEndSeconds: t.trimEndSeconds,
+      // Voice leads the mix: the server never ducks it, only the music around it.
+      isVoiceover: isVoiceoverTrack(t),
+    }));
+  }
+
+  /**
+   * The frame's layers as overlays: images first so text sits on them, then text layers,
+   * then subtitles on top. The export draws them exactly like IMG1/TXT1 items, with the
+   * entrances, exits, crops and shapes each layer was given.
+   */
+  private frameLayerItems(): TimelineItem[] {
+    const layout = this.frameLayout();
+    const duration = this.contentDurationSeconds();
+    if (duration <= 0) return [];
+    const items: TimelineItem[] = [];
+
+    for (const image of layout.images) {
+      const [start, end] = layerWindow(image, duration);
+      if (end - start < MIN_CUE_SECONDS) continue;
+      const aspect = layerAspect(image);
+      const video = image.kind === 'video';
+      items.push({
+        id: `frame_${image.id}`,
+        type: video ? 'video' : 'image',
+        // V3: picture-in-picture, kept off V2 so it never meets the timeline's own overlay video.
+        trackId: video ? 'V3' : 'IMG1',
+        startTime: start,
+        duration: end - start,
+        src: image.assetId,
+        name: image.name,
+        trimStartSeconds: video && image.trimStart > 0 ? image.trimStart : undefined,
+        // The overlay is placed by its centre's offset from the frame's centre.
+        transform: {
+          scale: 1, widthPercent: image.width, x: image.x - 50, y: image.y - 50, opacity: image.opacity,
+          transitionIn: image.animIn, transitionInDuration: image.animInDuration,
+          transitionOut: image.animOut, transitionOutDuration: image.animOutDuration,
+          cropLeft: image.crop.left, cropTop: image.crop.top, cropRight: image.crop.right, cropBottom: image.crop.bottom,
+          shape: image.shape,
+          borderWidth: image.borderWidth,
+          borderColor: image.borderColor,
+          aspectRatio: aspect ? Math.min(20, Math.max(0.05, Math.round(aspect * 10000) / 10000)) : undefined,
+        },
+      });
+    }
+
+    for (const layer of layout.texts) {
+      const [start, end] = layerWindow(layer, duration);
+      if (!layer.text.trim() || end - start < MIN_CUE_SECONDS) continue;
+      items.push({
+        id: `frame_${layer.id}`,
+        type: 'text' as TimelineItemType,
+        trackId: 'TXT1',
+        startTime: start,
+        duration: end - start,
+        src: layer.text,
+        name: layer.label,
+        textStyle: layer.style,
+      });
+    }
+
+    const subtitleStyle: TimelineItemTextStyle = layout.subtitles.style;
+    for (const cue of layout.subtitles.cues) {
+      const start = Math.min(cue.start, duration);
+      const end = Math.min(cue.end, duration);
+      if (!cue.text.trim() || end - start < MIN_CUE_SECONDS / 2) continue;
+      items.push({
+        id: `sub_${cue.id}`,
+        type: 'text' as TimelineItemType,
+        trackId: 'SUB1',
+        startTime: start,
+        duration: end - start,
+        src: cue.text,
+        name: 'Subtitle',
+        textStyle: subtitleStyle,
+      });
+    }
+    return items;
+  }
+
+  /** The style as the server reads it: every plate field explicit, colours checked. */
+  private exportTextStyle(style: TimelineItemTextStyle | undefined): TimelineItemTextStyle {
+    const look = resolveTextLook(style);
+    const base = style ?? DEFAULT_TEXT_STYLE;
+    return {
+      ...base,
+      fontSize: look.fontSize,
+      color: look.color,
+      boxStyle: look.box,
+      boxColor: look.boxColor,
+      boxOpacity: look.boxOpacity,
+      outlineColor: look.outlineColor,
+      outlineWidth: look.outlineWidth,
+      shadow: look.shadow,
+      uppercase: look.uppercase,
+      ...(base.position === 'custom' ? { x: look.x, y: look.y } : { x: undefined, y: undefined }),
+    };
+  }
+
   timelineItemsPayload(): TimelineItem[] | null {
     // 1. Separate non-V1 overlay items (IMG1, T1, V2, etc.)
+    // A hidden lane is left out of the file too, so the export is what the monitor shows.
     const overlayItems = this.timelineItems().filter(
-      (it) => it.trackId !== 'V1' && it.trackId !== 'video'
+      (it) => it.trackId !== 'V1' && it.trackId !== 'video' && !this.isOverlayLaneHidden(it)
     );
 
     // 2. Exact 1-to-1 V1 timeline items directly from clipSchedule
@@ -6892,7 +8308,7 @@ export class StudioStateService implements OnDestroy {
       };
     });
 
-    const allItems = [...v1Items, ...overlayItems];
+    const allItems = [...v1Items, ...overlayItems, ...this.frameLayerItems()];
     if (allItems.length === 0) return null;
 
     return allItems.map((item) => ({
@@ -6904,8 +8320,10 @@ export class StudioStateService implements OnDestroy {
       src: this.resolveAssetId(item.src) || item.src,
       name: item.name,
       transform: item.transform,
-      textStyle: item.textStyle,
-      volume: item.volume,
+      textStyle: item.type === 'text' ? this.exportTextStyle(item.textStyle) : item.textStyle,
+      volume: item.type === 'audio' && (item.trackId === 'A1' || item.trackId === 'A2')
+        ? (item.volume ?? 1.0) * this.audioBusGain(item.trackId)
+        : item.volume,
       trimStartSeconds: item.trimStartSeconds,
       trimEndSeconds: item.trimEndSeconds,
     }));
@@ -6989,7 +8407,41 @@ export class StudioStateService implements OnDestroy {
         windows.push({ startSeconds: entry.startSeconds, endSeconds: entry.endSeconds, level });
       }
     }
-    return windows;
+
+    const voice = this.voiceDuckWindows();
+    return voice.length === 0 ? windows : deepestDuck([...windows, ...voice]);
+  }
+
+  /**
+   * Where the music steps back for a voiceover line on A1: from just before it starts to a
+   * breath after it ends. Lines less than a short pause apart share one window, so the music
+   * doesn't swell up and down between every sentence.
+   */
+  /** The music's level under the voice at <paramref name="time"/>, for the preview: 1 where no line speaks. */
+  voiceDuckGainAt(time: number): number {
+    const inside = this.voiceDuckWindows().find((w) => time >= w.startSeconds && time < w.endSeconds);
+    return inside ? inside.level : 1;
+  }
+
+  private voiceDuckWindows(): { startSeconds: number; endSeconds: number; level: number }[] {
+    const level = Math.max(0, Math.min(1, this.voiceDuckLevel()));
+    if (!this.duckMusicUnderVoice() || level >= 1) return [];
+    const spans = this.voiceoverTracks()
+      .filter((t) => !t.muted && (Number(t.volume) || 0) > 0)
+      .map((t) => ({
+        startSeconds: Math.max(0, t.startSeconds - 0.1),
+        endSeconds: t.startSeconds + this.musicTrackDurationSeconds(t) + 0.3,
+        level,
+      }))
+      .sort((a, b) => a.startSeconds - b.startSeconds);
+
+    const merged: typeof spans = [];
+    for (const span of spans) {
+      const last = merged[merged.length - 1];
+      if (last && span.startSeconds - last.endSeconds < 0.8) last.endSeconds = Math.max(last.endSeconds, span.endSeconds);
+      else merged.push({ ...span });
+    }
+    return merged;
   }
 
   private pollHandle: any = null;
@@ -7136,6 +8588,8 @@ export class StudioStateService implements OnDestroy {
         return 'This server\'s renderer cannot blur, so letterboxed clips got black bars.';
       case 'WATERMARK_UNAVAILABLE':
         return 'This server has no font available, so the text watermark was left off. A logo image would work.';
+      case 'TEXT_OVERLAY_UNAVAILABLE':
+        return 'This server has no font that can draw some of your text, so those titles or captions were left off.';
       default:
         return code;
     }
@@ -7217,7 +8671,9 @@ export class StudioStateService implements OnDestroy {
     else if (res === 'square_1_1') { outW = 1080; outH = 1080; }
     else if (res === '1080p') { outW = 1920; outH = 1080; }
 
-    const fitMode = res === 'short_9_16' && this.fit() === 'Contain' ? 'BlurredBackdrop' : this.fit();
+    const framing = this.exportFraming(
+      res === 'short_9_16' && this.fit() === 'Contain' ? 'BlurredBackdrop' : this.fit());
+    const fitMode = framing.fit;
 
     const override = this.exportOverrideTransitions();
     const globalTrans = override ? this.transition() : 'None';
@@ -7228,6 +8684,7 @@ export class StudioStateService implements OnDestroy {
         exportName: this.exportName() || this.defaultExportName(),
         assetIds: includedClips,
         fit: fitMode,
+        backgroundColor: framing.backgroundColor,
         outputWidth: outW,
         outputHeight: outH,
         quality: this.exportQuality(),
@@ -7251,18 +8708,14 @@ export class StudioStateService implements OnDestroy {
         muteClipAudio: this.trackV1Muted(),
         backgroundMusicAssetId: this.musicAssetId() || null,
         backgroundMusicVolume: Math.max(0, Math.min(2.0, Number(this.musicVolume()) || 0)),
-        musicTracks: this.musicTracks().map((t) => ({
-          assetId: t.assetId,
-          startSeconds: t.startSeconds,
-          volume: Math.max(0, Math.min(2.0, t.muted ? 0 : (Number(t.volume) || 0))),
-          trimStartSeconds: t.trimStartSeconds,
-          trimEndSeconds: t.trimEndSeconds,
-        })),
+        musicTracks: this.musicTracksPayload(),
         timelineItems: this.timelineItemsPayload(),
         clipAudio: this.clipAudioPayload(),
         musicDuckWindows: this.musicDuckWindowsPayload(),
         watermark: this.exportIncludeWatermark() ? wm : { ...wm, kind: "None" as any },
         includeOutro: this.exportIncludeOutro(),
+        outroHoldSeconds: this.outroHoldSeconds(),
+        youTubeLoudness: this.exportYouTubeLoudness(),
       }),
       (job: RenderJob) => {
         this.job.set(job);
@@ -7288,9 +8741,10 @@ export class StudioStateService implements OnDestroy {
     this.saveDraft();
     this.running.set(true);
 
-    const fitMode: ClipFit = this.fit() === 'BlurredBackdrop'
+    const framing = this.exportFraming(this.fit() === 'BlurredBackdrop'
       ? 'BlurredBackdrop'
-      : (this.fit() === 'Contain' ? 'Contain' : 'Cover');
+      : (this.fit() === 'Contain' ? 'Contain' : 'Cover'));
+    const fitMode: ClipFit = framing.fit;
 
     const wm: WatermarkBody = this.effectiveWatermark();
 
@@ -7303,6 +8757,7 @@ export class StudioStateService implements OnDestroy {
         exportName: this.exportName() || this.defaultExportName(),
         assetIds: ids,
         fit: fitMode,
+        backgroundColor: framing.backgroundColor,
         outputWidth: 1080,
         outputHeight: 1920,
         quality: this.exportQuality(),
@@ -7326,18 +8781,14 @@ export class StudioStateService implements OnDestroy {
         muteClipAudio: this.trackV1Muted(),
         backgroundMusicAssetId: this.musicAssetId() || null,
         backgroundMusicVolume: Math.max(0, Math.min(2.0, Number(this.musicVolume()) || 0)),
-        musicTracks: this.musicTracks().map((t) => ({
-          assetId: t.assetId,
-          startSeconds: t.startSeconds,
-          volume: Math.max(0, Math.min(2.0, t.muted ? 0 : (Number(t.volume) || 0))),
-          trimStartSeconds: t.trimStartSeconds,
-          trimEndSeconds: t.trimEndSeconds,
-        })),
+        musicTracks: this.musicTracksPayload(),
         timelineItems: this.timelineItemsPayload(),
         clipAudio: this.clipAudioPayload(),
         musicDuckWindows: this.musicDuckWindowsPayload(),
         watermark: this.exportIncludeWatermark() ? wm : { ...wm, kind: "None" as any },
         includeOutro: this.exportIncludeOutro(),
+        outroHoldSeconds: this.outroHoldSeconds(),
+        youTubeLoudness: this.exportYouTubeLoudness(),
       }),
       (job: RenderJob) => {
         this.job.set(job);

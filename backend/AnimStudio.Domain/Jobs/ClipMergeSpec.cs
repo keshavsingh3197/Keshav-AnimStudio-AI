@@ -53,6 +53,13 @@ public sealed class ClipMergeSpec
     /// <summary>How clips shaped differently from the canvas are fitted to it.</summary>
     public ClipFit Fit { get; set; } = ClipFit.Contain;
 
+    /// <summary>
+    /// <c>#rrggbb</c> the <see cref="ClipFit.Contain"/> bars are filled with - the space
+    /// above and below a wide clip in a Short, where a headline or caption usually goes.
+    /// Null is black, which is what every job written before this existed says.
+    /// </summary>
+    public string? BackgroundColor { get; set; }
+
     /// <summary>Custom output resolution override (e.g. 1080x1920 for Shorts conversion).</summary>
     public int? OutputWidth { get; set; }
     public int? OutputHeight { get; set; }
@@ -120,6 +127,15 @@ public sealed class ClipMergeSpec
     public List<ClipAudioSpec> ClipAudio { get; set; } = [];
 
     public List<TimelineItemSpec> TimelineItems { get; set; } = [];
+
+    /// <summary>Level the finished mix to YouTube's loudness target (-14 LUFS). False on every job written before it existed.</summary>
+    public bool YouTubeLoudness { get; set; }
+
+    /// <summary>
+    /// Seconds the last clip's final frame is held before the outro, so the outro starts
+    /// once the music or text running past the clips has finished. Zero on older jobs.
+    /// </summary>
+    public double OutroHoldSeconds { get; set; }
 }
 
 /// <summary>
@@ -215,6 +231,9 @@ public sealed class TimedMusicClipSpec
     /// <summary>Optional window on the SOURCE file. Null on either end plays from/to the end.</summary>
     public double? TrimStartSeconds { get; set; }
     public double? TrimEndSeconds { get; set; }
+
+    /// <summary>A voiceover line: music ducks under it, and it never ducks itself.</summary>
+    public bool IsVoiceover { get; set; }
 }
 
 /// <summary>One stretch of the finished timeline over which the music plays quieter.</summary>
@@ -232,10 +251,46 @@ public sealed class MusicDuckWindowSpec
 
 public sealed class TimelineItemTextStyleSpec
 {
+    /// <summary>
+    /// Size in pixels on a frame whose SHORT side is 360 - the size the studio monitor
+    /// shows it at. The render scales it to the real canvas, so a caption is the same
+    /// share of the picture in the preview and in the 1080x1920 export.
+    /// </summary>
     public double FontSize { get; set; } = 36;
     public string Color { get; set; } = "#ffffff";
+
+    /// <summary>
+    /// The CSS colour older clients sent for the plate. Read only when
+    /// <see cref="BoxStyle"/> is absent; <see cref="BoxColor"/>/<see cref="BoxOpacity"/>
+    /// replace it.
+    /// </summary>
     public string BackgroundColor { get; set; } = "rgba(0,0,0,0.6)";
+
+    /// <summary>top, center, bottom - or custom, which places it at <see cref="X"/>/<see cref="Y"/>.</summary>
     public string Position { get; set; } = "bottom";
+
+    /// <summary>Centre of the text block, in percent of the frame. Used when Position is custom.</summary>
+    public double? X { get; set; }
+    public double? Y { get; set; }
+
+    /// <summary>none, box (a plate behind each line) or band (a full-width strip). Null on older jobs.</summary>
+    public string? BoxStyle { get; set; }
+
+    /// <summary><c>#rrggbb</c>.</summary>
+    public string? BoxColor { get; set; }
+
+    /// <summary>0-1.</summary>
+    public double? BoxOpacity { get; set; }
+
+    /// <summary><c>#rrggbb</c>; ignored while <see cref="OutlineWidth"/> is zero.</summary>
+    public string? OutlineColor { get; set; }
+
+    /// <summary>Stroke width, in the same 360-reference pixels as <see cref="FontSize"/>.</summary>
+    public double OutlineWidth { get; set; }
+
+    public bool Shadow { get; set; }
+    public bool Uppercase { get; set; }
+
     public string? TransitionIn { get; set; } = "fade";
     public double TransitionInDuration { get; set; } = 0.5;
     public string? TransitionOut { get; set; } = "fade";
@@ -245,6 +300,13 @@ public sealed class TimelineItemTextStyleSpec
 public sealed class TimelineItemTransformSpec
 {
     public double Scale { get; set; } = 1.0;
+
+    /// <summary>
+    /// Image and video overlays: width in percent of the CANVAS width, replacing
+    /// <see cref="Scale"/> - which multiplies the source's own pixels, so a 4000px logo and a
+    /// 200px one come out wildly different sizes. Null on items written before it existed.
+    /// </summary>
+    public double? WidthPercent { get; set; }
 
     /// <summary>Normalized percentage offset [-50, 50] from canvas centre on X axis.</summary>
     public double X { get; set; }
@@ -271,6 +333,24 @@ public sealed class TimelineItemTransformSpec
 
     /// <summary>Whether video stabilization post-process is requested for this clip.</summary>
     public bool Stabilization { get; set; }
+
+    /// <summary>
+    /// Image and video overlays: <c>rect</c>, <c>rounded</c> or <c>circle</c>. Null on items
+    /// written before shapes existed, which draw as the plain rectangle they always were.
+    /// </summary>
+    public string? Shape { get; set; }
+
+    /// <summary>Ring inside the overlay's edge, in 360-reference pixels. Zero is none.</summary>
+    public double BorderWidth { get; set; }
+
+    /// <summary><c>#rrggbb</c>; ignored while <see cref="BorderWidth"/> is zero.</summary>
+    public string? BorderColor { get; set; }
+
+    /// <summary>
+    /// Width / height of the overlay once cropped, as the studio measured it. Lets the render
+    /// scale a shaped overlay to an exact size without probing it. Null scales by width alone.
+    /// </summary>
+    public double? AspectRatio { get; set; }
 
     public string? TransitionIn { get; set; } = "fade";
     public double TransitionInDuration { get; set; } = 0.5;
@@ -308,7 +388,14 @@ public enum EraseStyle
     /// <see cref="Patch"/>, then the project's own watermark drawn inside the box - the old
     /// mark is replaced by ours in the very same spot.
     /// </summary>
-    Brand = 3
+    Brand = 3,
+
+    /// <summary>
+    /// Rebuilds the box from the pixels around its edges, blended smoothly across it - no
+    /// blur, no copied texture. On a plain band, a gradient or a title strip the text is
+    /// simply gone, leaving an empty area to put your own titles on.
+    /// </summary>
+    Clean = 4
 }
 
 /// <summary>Which neighbouring footage a <see cref="EraseStyle.Patch"/> is copied from.</summary>

@@ -1,0 +1,149 @@
+.tse {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tse-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.tse-designs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.tse-design {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 2px 4px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  min-width: 0;
+}
+
+.tse-design:hover {
+  border-color: #38bdf8;
+}
+
+.tse-design-sample {
+  font-weight: 700;
+  font-size: 0.9rem;
+  line-height: 1.2;
+  padding: 1px 6px;
+  border-radius: 3px;
+  paint-order: stroke fill;
+}
+
+.tse-design-name {
+  font-size: 0.6rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.tse-seg {
+  display: flex;
+  gap: 3px;
+}
+
+.tse-seg button {
+  flex: 1;
+  font-size: 0.7rem;
+  padding: 3px 4px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.tse-seg button.on {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+
+.tse-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tse-row .form-range {
+  flex: 1;
+}
+
+.tse-k {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  width: 48px;
+  flex-shrink: 0;
+}
+
+.tse-v {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  width: 34px;
+  text-align: right;
+}
+
+.tse-colors {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.tse-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  padding: 0;
+}
+
+.tse-swatch.on {
+  outline: 2px solid #38bdf8;
+  outline-offset: 1px;
+}
+
+.tse-picker {
+  width: 28px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.tse-picker:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.tse-toggles {
+  display: flex;
+  gap: 14px;
+  font-size: 0.72rem;
+  color: var(--text);
+}
+
+.tse-toggles label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}

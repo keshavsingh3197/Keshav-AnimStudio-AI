@@ -1,9 +1,14 @@
+import { CharacterVoice } from '../../shared/voice/character-voice';
+import { VoiceChain } from '../../shared/voice/voice-chain';
+
 /**
  * The collab's sound: the original video and your voice, mixed into one track for the
- * recorder. While you talk, the original can dip (ducking) so you're heard over it.
+ * recorder. While you talk, the original can dip (ducking) so you're heard over it. Your
+ * voice can be changed into a character's on the way in.
  * <p>
  * The original also goes to the speakers (the "monitor") so you can react to it live; your
- * voice never does, so there's no feedback. During a re-render the monitor is off.
+ * voice only does when you ask to hear your character (headphones), so there's no feedback.
+ * During a re-render the monitor is off.
  */
 
 /** Voice louder than this (RMS, 0-1) counts as speaking. */
@@ -26,6 +31,9 @@ export class CollabMixer {
   private readonly duckGain: GainNode;
   private readonly voiceGain: GainNode;
   private readonly monitorGain: GainNode;
+  private readonly voiceMonitor: GainNode;
+  private readonly voiceChain: VoiceChain;
+  private readonly monitoring: boolean;
   private readonly analyser: AnalyserNode;
   private readonly samples: Float32Array<ArrayBuffer>;
   private sourceNode: MediaElementAudioSourceNode | null = null;
@@ -42,6 +50,9 @@ export class CollabMixer {
     this.duckGain = this.context.createGain();
     this.voiceGain = this.context.createGain();
     this.monitorGain = this.context.createGain();
+    this.voiceMonitor = this.context.createGain();
+    this.voiceChain = new VoiceChain(this.context);
+    this.monitoring = monitor;
     this.analyser = this.context.createAnalyser();
     this.analyser.fftSize = 1024;
     this.samples = new Float32Array(this.analyser.fftSize);
@@ -51,7 +62,27 @@ export class CollabMixer {
     this.duckGain.connect(this.monitorGain);
     this.monitorGain.connect(this.context.destination);
     this.monitorGain.gain.value = monitor ? 1 : 0;
+    this.voiceChain.output.connect(this.voiceGain);
     this.voiceGain.connect(this.destination);
+    this.voiceChain.output.connect(this.voiceMonitor);
+    this.voiceMonitor.connect(this.context.destination);
+    this.voiceMonitor.gain.value = 0;
+  }
+
+  /** Loads the voice changer's pitch shifter; the character voices work without it, minus pitch. */
+  async init(): Promise<boolean> {
+    await this.voiceChain.init();
+    return !this.voiceChain.pitchUnavailable;
+  }
+
+  /** The character you're speaking as, or null for your own voice. Safe to switch mid-take. */
+  setCharacterVoice(voice: CharacterVoice | null): void {
+    this.voiceChain.apply(voice);
+  }
+
+  /** Lets you hear your changed voice. Headphones only, or the speakers feed back into the mic. */
+  setVoiceMonitor(on: boolean): void {
+    this.voiceMonitor.gain.setTargetAtTime(on && this.monitoring ? 1 : 0, this.context.currentTime, 0.05);
   }
 
   /** The mixed track, always present (silent until something is connected). */
@@ -87,7 +118,8 @@ export class CollabMixer {
     } else if (input) {
       this.voiceNode = this.context.createMediaElementSource(input);
     }
-    this.voiceNode?.connect(this.voiceGain);
+    // Speaking is detected on the raw voice, so an effect's echo or hall doesn't hold the duck.
+    this.voiceNode?.connect(this.voiceChain.input);
     this.voiceNode?.connect(this.analyser);
   }
 
@@ -129,6 +161,7 @@ export class CollabMixer {
   async close(): Promise<void> {
     this.sourceNode?.disconnect();
     this.voiceNode?.disconnect();
+    this.voiceChain.close();
     await this.context.close();
   }
 }

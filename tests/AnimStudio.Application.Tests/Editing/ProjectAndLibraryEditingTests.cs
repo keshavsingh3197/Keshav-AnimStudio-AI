@@ -2,6 +2,8 @@ using AnimStudio.Application.Characters;
 using AnimStudio.Application.Common;
 using AnimStudio.Application.Projects;
 using AnimStudio.Domain.Assets;
+using AnimStudio.Domain.Characters;
+using AnimStudio.Domain.Projects;
 using AnimStudio.Domain.Rendering;
 using AnimStudio.Domain.Scenes;
 
@@ -173,6 +175,120 @@ public class CharacterEditingServiceTests
 
         Assert.Equal("colour-invalid", error.Code);
     }
+
+    [Fact]
+    public async Task A_voice_is_saved_with_the_character()
+    {
+        var world = new EditingWorld();
+
+        var saved = await world.CharacterEditing.UpsertAsync(
+            VoiceCommand(world, new CharacterVoiceCommand
+            {
+                Enabled = true, Preset = "divine", PitchSemitones = -3, BassDecibels = 4, Reverb = 0.6
+            }), CancellationToken.None);
+
+        Assert.NotNull(saved.Voice);
+        Assert.Equal("divine", saved.Voice.Preset);
+        Assert.Equal(-3, saved.Voice.PitchSemitones);
+        Assert.Equal(0.6, saved.Voice.Reverb);
+    }
+
+    [Fact]
+    public async Task Leaving_the_voice_out_keeps_it_and_disabling_it_clears_it()
+    {
+        var world = new EditingWorld();
+        var hero = world.AddCharacter("hero", "Hero");
+        hero.Voice = new CharacterVoice { Preset = "giant", PitchSemitones = -9 };
+
+        var kept = await world.CharacterEditing.UpsertAsync(
+            VoiceCommand(world, null) with { CharacterId = "hero" }, CancellationToken.None);
+        Assert.Equal(-9, kept.Voice?.PitchSemitones);
+
+        var cleared = await world.CharacterEditing.UpsertAsync(
+            VoiceCommand(world, new CharacterVoiceCommand { Enabled = false, PitchSemitones = 99 })
+                with { CharacterId = "hero" }, CancellationToken.None);
+        Assert.Null(cleared.Voice);
+    }
+
+    [Theory]
+    [InlineData(13, 0, 60, "voice-out-of-range")]
+    [InlineData(0, 1.5, 60, "voice-out-of-range")]
+    [InlineData(0, 0, 5, "voice-out-of-range")]
+    [InlineData(double.NaN, 0, 60, "voice-out-of-range")]
+    public async Task A_voice_out_of_range_is_refused_rather_than_clamped(
+        double pitch, double reverb, double robotHertz, string code)
+    {
+        var world = new EditingWorld();
+
+        var error = await Assert.ThrowsAsync<EditingException>(() =>
+            world.CharacterEditing.UpsertAsync(
+                VoiceCommand(world, new CharacterVoiceCommand
+                {
+                    Enabled = true, PitchSemitones = pitch, Reverb = reverb, RobotHertz = robotHertz
+                }), CancellationToken.None));
+
+        Assert.Equal(code, error.Code);
+        Assert.Empty(world.Characters.Items);
+    }
+
+    [Fact]
+    public async Task A_voice_preset_name_is_a_short_lowercase_slug()
+    {
+        var world = new EditingWorld();
+
+        var error = await Assert.ThrowsAsync<EditingException>(() =>
+            world.CharacterEditing.UpsertAsync(
+                VoiceCommand(world, new CharacterVoiceCommand { Enabled = true, Preset = "<b>Divine</b>" }),
+                CancellationToken.None));
+
+        Assert.Equal("voice-preset-invalid", error.Code);
+    }
+
+    [Fact]
+    public async Task A_voice_sample_must_be_a_recording_from_this_project()
+    {
+        var world = new EditingWorld();
+        world.AddAsset("picture", AssetKind.Image);
+        world.AddAsset("elsewhere", AssetKind.Audio, projectId: "another-project");
+        world.AddAsset("voice", AssetKind.Audio);
+
+        var wrongKind = await Assert.ThrowsAsync<EditingException>(() => world.CharacterEditing.UpsertAsync(
+            VoiceCommand(world, new CharacterVoiceCommand { Enabled = true, AiSampleAssetId = "picture", AiSampleConsent = true }),
+            CancellationToken.None));
+        Assert.Equal("asset-wrong-kind", wrongKind.Code);
+
+        var notOurs = await Assert.ThrowsAsync<EditingException>(() => world.CharacterEditing.UpsertAsync(
+            VoiceCommand(world, new CharacterVoiceCommand { Enabled = true, AiSampleAssetId = "elsewhere", AiSampleConsent = true }),
+            CancellationToken.None));
+        Assert.Equal("asset-not-found", notOurs.Code);
+
+        var saved = await world.CharacterEditing.UpsertAsync(
+            VoiceCommand(world, new CharacterVoiceCommand { Enabled = true, AiSampleAssetId = "voice", AiSampleConsent = true }),
+            CancellationToken.None);
+        Assert.Equal("voice", saved.Voice?.AiSampleAssetId);
+    }
+
+    [Fact]
+    public async Task A_voice_sample_without_consent_is_refused()
+    {
+        var world = new EditingWorld();
+        world.AddAsset("voice", AssetKind.Audio);
+
+        var error = await Assert.ThrowsAsync<EditingException>(() => world.CharacterEditing.UpsertAsync(
+            VoiceCommand(world, new CharacterVoiceCommand { Enabled = true, AiSampleAssetId = "voice" }),
+            CancellationToken.None));
+
+        Assert.Equal("voice-consent-required", error.Code);
+        Assert.Empty(world.Characters.Items);
+    }
+
+    private static UpsertCharacterCommand VoiceCommand(EditingWorld world, CharacterVoiceCommand? voice) => new()
+    {
+        ProjectId = world.Project.Id,
+        UserId = EditingWorld.UserId,
+        Name = "Hero",
+        Voice = voice
+    };
 }
 
 public class AssetLibraryServiceTests
@@ -218,6 +334,79 @@ public class AssetLibraryServiceTests
 
         Assert.Empty(world.Assets.Items);
         Assert.Equal(["projects/project-1/assets/spare"], world.Store.Deleted);
+    }
+
+    private static readonly DateTime CopiedAt = new(2026, 10, 10, 12, 0, 0, DateTimeKind.Utc);
+
+    private static Project AddProject(EditingWorld world, string id, string userId = EditingWorld.UserId)
+    {
+        var project = new Project { Id = id, UserId = userId, Name = id };
+        world.Projects.Items.Add(project);
+        return project;
+    }
+
+    [Fact]
+    public async Task A_file_copied_from_another_project_gets_its_own_bytes_in_the_target()
+    {
+        var world = new EditingWorld();
+        AddProject(world, "project-2");
+        var source = world.AddAsset("clip", AssetKind.Image, projectId: "project-2");
+        world.Store.Put(source.StorageKey, [1, 2, 3]);
+
+        var mapping = await world.AssetLibrary.CopyIntoProjectAsync(
+            "project-2", world.Project.Id, ["clip"], EditingWorld.UserId, CopiedAt, CancellationToken.None);
+
+        var copy = Assert.Single(world.Assets.Items, a => a.ProjectId == world.Project.Id);
+        Assert.Equal(copy.Id, mapping["clip"]);
+        Assert.NotEqual(source.StorageKey, copy.StorageKey);
+        Assert.StartsWith("projects/project-1/assets/", copy.StorageKey);
+        Assert.Equal([1, 2, 3], world.Store.Contents[copy.StorageKey]);
+        Assert.Equal("clip", copy.CopiedFromAssetId);
+    }
+
+    [Fact]
+    public async Task Copying_the_same_file_twice_reuses_the_first_copy()
+    {
+        var world = new EditingWorld();
+        AddProject(world, "project-2");
+        var source = world.AddAsset("clip", AssetKind.Image, projectId: "project-2");
+        world.Store.Put(source.StorageKey, [1]);
+
+        var first = await world.AssetLibrary.CopyIntoProjectAsync(
+            "project-2", world.Project.Id, ["clip"], EditingWorld.UserId, CopiedAt, CancellationToken.None);
+        var second = await world.AssetLibrary.CopyIntoProjectAsync(
+            "project-2", world.Project.Id, ["clip"], EditingWorld.UserId, CopiedAt, CancellationToken.None);
+
+        Assert.Equal(first["clip"], second["clip"]);
+        Assert.Single(world.Assets.Items, a => a.ProjectId == world.Project.Id);
+    }
+
+    [Fact]
+    public async Task Only_the_named_source_projects_files_are_copied()
+    {
+        var world = new EditingWorld();
+        AddProject(world, "project-2");
+        AddProject(world, "project-3");
+        var stray = world.AddAsset("stray", AssetKind.Image, projectId: "project-3");
+        world.Store.Put(stray.StorageKey, [1]);
+
+        var mapping = await world.AssetLibrary.CopyIntoProjectAsync(
+            "project-2", world.Project.Id, ["stray"], EditingWorld.UserId, CopiedAt, CancellationToken.None);
+
+        Assert.Empty(mapping);
+        Assert.DoesNotContain(world.Assets.Items, a => a.ProjectId == world.Project.Id);
+    }
+
+    [Fact]
+    public async Task Files_cannot_be_copied_out_of_someone_elses_project()
+    {
+        var world = new EditingWorld();
+        AddProject(world, "theirs", EditingWorld.OtherUserId);
+        world.AddAsset("clip", AssetKind.Image, projectId: "theirs");
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            world.AssetLibrary.CopyIntoProjectAsync(
+                "theirs", world.Project.Id, ["clip"], EditingWorld.UserId, CopiedAt, CancellationToken.None));
     }
 
     [Fact]

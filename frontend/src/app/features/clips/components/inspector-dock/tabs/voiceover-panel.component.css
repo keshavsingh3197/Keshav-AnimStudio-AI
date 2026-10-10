@@ -1,0 +1,552 @@
+.vo-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vo-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.vo-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.vo-badge {
+  font-size: 0.65rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-dim);
+}
+
+.vo-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin-bottom: 2px;
+}
+
+.vo-dim {
+  font-weight: 400;
+  color: var(--text-dim);
+  opacity: 0.75;
+}
+
+.vo-script {
+  width: 100%;
+  min-height: 140px;
+  resize: vertical;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid #1e293b;
+  background: #080d1a;
+  color: var(--text);
+}
+
+.vo-script:focus {
+  outline: none;
+  border-color: rgba(139, 92, 246, 0.6);
+}
+
+.vo-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.vo-field {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.vo-field-rate {
+  flex: 0 0 38%;
+}
+
+.vo-seg {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 8px;
+  border: 1px solid #1e293b;
+  background: #080d1a;
+}
+
+.vo-seg button {
+  flex: 1;
+  padding: 5px 6px;
+  font-size: 0.7rem;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-dim);
+}
+
+.vo-seg button.active {
+  background: #1e293b;
+  color: #fff;
+  border-color: rgba(139, 92, 246, 0.45);
+}
+
+.vo-go {
+  padding: 8px 10px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  border: none;
+  border-radius: 7px;
+  color: #fff;
+  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+}
+
+.vo-go:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.vo-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.vo-step {
+  flex: 1;
+  padding: 7px 8px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  border-radius: 7px;
+  border: 1px solid rgba(139, 92, 246, 0.45);
+  background: #0f172a;
+  color: #ddd6fe;
+}
+
+.vo-step.active {
+  background: rgba(139, 92, 246, 0.25);
+  color: #fff;
+}
+
+.vo-step:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.vo-stale {
+  opacity: 0.55;
+}
+
+.vo-progress {
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: #1e293b;
+}
+
+.vo-progress-bar {
+  height: 100%;
+  background: #8b5cf6;
+  transition: width 0.3s ease;
+}
+
+.vo-progress-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+}
+
+.vo-link {
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 0.7rem;
+  color: #a78bfa;
+  cursor: pointer;
+}
+
+.vo-link:hover {
+  text-decoration: underline;
+}
+
+.vo-note,
+.vo-done,
+.vo-warn,
+.vo-error {
+  font-size: 0.7rem;
+  line-height: 1.4;
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+
+.vo-note {
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.vo-done {
+  color: #bbf7d0;
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+}
+
+.vo-warn {
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.vo-error {
+  color: #fecaca;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.vo-error-list {
+  margin: 4px 0 0;
+  padding-left: 16px;
+}
+
+.vo-script-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.vo-script-hint {
+  font-size: 0.68rem;
+}
+
+.vo-speaker {
+  display: inline-block;
+  margin-right: 4px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 0.64rem;
+  font-weight: 600;
+  color: #ddd6fe;
+  background: rgba(139, 92, 246, 0.2);
+}
+
+.vo-results {
+  margin: 0;
+  padding-left: 20px;
+  max-height: 260px;
+  overflow-y: auto;
+  font-size: 0.72rem;
+  color: var(--text);
+}
+
+.vo-results li {
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.vo-results li.failed {
+  color: #fca5a5;
+}
+
+.vo-result-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vo-result-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.vo-icon {
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  font-size: 0.65rem;
+  border-radius: 4px;
+  border: 1px solid #334155;
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+.vo-over {
+  font-size: 0.65rem;
+  padding: 0 4px;
+  border-radius: 3px;
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.15);
+}
+
+.vo-error-inline {
+  font-size: 0.68rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vo-tips {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+}
+
+.vo-tips summary {
+  cursor: pointer;
+}
+
+.vo-tips ul {
+  margin: 4px 0 0;
+  padding-left: 16px;
+}
+
+.vo-warn code {
+  color: #fef3c7;
+}
+
+.vo-voice-row {
+  display: flex;
+  gap: 4px;
+}
+
+.vo-voice-row select {
+  flex: 1;
+  min-width: 0;
+}
+
+.vo-star {
+  flex: 0 0 30px;
+  padding: 0;
+  font-size: 0.95rem;
+  line-height: 1;
+  border-radius: 6px;
+  border: 1px solid #334155;
+  background: #0f172a;
+  color: var(--text-dim);
+}
+
+.vo-star.on {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.5);
+}
+
+.vo-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.vo-chip {
+  padding: 2px 8px;
+  font-size: 0.68rem;
+  border-radius: 999px;
+  border: 1px solid #334155;
+  background: #0f172a;
+  color: var(--text-dim);
+}
+
+.vo-chip.active {
+  color: #fff;
+  border-color: rgba(251, 191, 36, 0.6);
+  background: rgba(251, 191, 36, 0.12);
+}
+
+.vo-add-voice {
+  align-self: flex-start;
+  font-size: 0.72rem;
+}
+
+.vo-link:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
+.vo-myvoice {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  background: rgba(139, 92, 246, 0.06);
+}
+
+.vo-myvoice-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+  color: var(--text);
+}
+
+.vo-prompt {
+  font-size: 0.72rem;
+  line-height: 1.5;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #080d1a;
+  color: var(--text);
+}
+
+.vo-upload {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  cursor: pointer;
+}
+
+.vo-upload.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.vo-sample {
+  width: 100%;
+  height: 32px;
+}
+
+.vo-consent {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  font-size: 0.7rem;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
+.vo-consent input {
+  margin-top: 2px;
+}
+
+.vo-fit {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+}
+
+/* --- numbered steps and the script list */
+.vo-step-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.vo-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  font-size: 0.65rem;
+  color: #fff;
+  background: rgba(139, 92, 246, 0.55);
+}
+
+.vo-library {
+  display: flex;
+  gap: 4px;
+  align-items: stretch;
+}
+
+.vo-library select,
+.vo-library input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Monochrome line icons: they take the text colour, so they sit right on the dark theme. */
+.vo-tool {
+  flex: 0 0 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid #334155;
+  background: #0f172a;
+  color: var(--text-dim);
+}
+
+.vo-tool:hover:not(:disabled) {
+  color: #fff;
+  border-color: rgba(139, 92, 246, 0.6);
+}
+
+.vo-tool-danger:hover:not(:disabled) {
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+.vo-tool:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.vo-tool svg,
+.vo-ico {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: none;
+}
+
+.vo-assist {
+  display: flex;
+  gap: 6px;
+}
+
+.vo-assist .vo-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.vo-rec-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  animation: vo-pulse 1s ease-in-out infinite;
+}
+
+@keyframes vo-pulse {
+  50% { opacity: 0.3; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vo-rec-dot { animation: none; }
+}
+
+.vo-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.vo-seg-sub button {
+  padding: 4px 6px;
+  font-size: 0.68rem;
+}

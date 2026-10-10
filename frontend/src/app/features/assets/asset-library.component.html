@@ -134,6 +134,10 @@
         <label for="upload" class="upload-btn" title="Upload video, audio, image or subtitle files">
           <span class="btn-icon">⬆</span> Upload Media
         </label>
+        <button type="button" class="upload-btn" (click)="urlImportOpen.set(true)" [disabled]="!store.project()"
+                title="Paste many links (YouTube, Instagram, direct .mp4 …) and download them all into this library">
+          <span class="btn-icon">🔗</span> From links
+        </button>
         <span class="file-drop-hint">or drop / Ctrl+V anywhere</span>
         <input id="upload" type="file" multiple style="display: none"
                accept="image/png,image/jpeg,image/webp,audio/wav,audio/mpeg,audio/mp4,video/mp4,.srt,.vtt"
@@ -469,4 +473,10 @@
       </div>
     </div>
   </div>
+}
+
+@if (urlImportOpen() && store.project(); as project) {
+  <app-url-import-dialog [projectId]="project.id" [folders]="store.folders()"
+                         [initialFolderId]="selectedFolderId()"
+                         (imported)="store.refreshAssets()" (closed)="urlImportOpen.set(false)" />
 }

@@ -434,41 +434,182 @@
   z-index: 5;
 }
 
-.txt-overlay {
+/* Frame pictures and videos: the layer is the frame, and a size container, so a ring's
+   width and a slide's travel are measured against it exactly as the export measures them.
+   Each one is centred on its point. */
+.frame-image-layer {
   position: absolute;
-  left: 5%;
-  right: 5%;
-  text-align: center;
-  padding: 6px 12px;
-  border-radius: 4px;
-  z-index: 10;
-  font-weight: 700;
+  inset: 0;
+  container-type: size;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 8;
+}
+
+.frame-image {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* The crop window. Unmeasured, it simply wraps the whole picture. */
+.frame-media-box {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+}
+
+.frame-media-src {
+  display: block;
+  width: 100%;
+  height: auto;
   pointer-events: none;
 }
 
-.txt-overlay.pos-top {
-  top: 10%;
+.frame-media-box.measured .frame-media-src {
+  position: absolute;
+  max-width: none;
+  object-fit: fill;
 }
-.txt-overlay.pos-center {
-  top: 50%;
-  transform: translateY(-50%);
+
+.frame-media-ring {
+  position: absolute;
+  inset: 0;
+  border-style: solid;
+  pointer-events: none;
 }
-.txt-overlay.pos-bottom {
-  bottom: 12%;
+
+.monitor-screen-container.drop-target {
+  outline: 2px dashed #38bdf8;
+  outline-offset: -2px;
+}
+
+.monitor-drop-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 8%;
+  transform: translateX(-50%);
+  z-index: 30;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(14, 165, 233, 0.9);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 600;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.frame-image.editable {
+  pointer-events: auto;
+  cursor: grab;
+}
+
+.frame-image.editable:active {
+  cursor: grabbing;
+}
+
+.frame-image.editable:hover,
+.frame-image.selected {
+  outline: 1px dashed rgba(56, 189, 248, 0.9);
+  outline-offset: 2px;
+}
+
+.frame-image-handle {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: #38bdf8;
+  border: 1px solid #0f172a;
+  cursor: nwse-resize;
+}
+
+/* Text overlays. The layer is the frame, and a size container, so 100cqmin is the frame's
+   short side: every size below is "pixels on a 360px short side", as in the export. */
+.text-layer {
+  position: absolute;
+  inset: 0;
+  container-type: size;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.text-block {
+  position: absolute;
+  font-size: calc(var(--fs) * 100cqmin / 360);
+  line-height: 1.25;
+  font-weight: 700;
+  /* The bold faces the server's font lookup prefers (WatermarkFontResolver). */
+  font-family: 'Segoe UI', 'DejaVu Sans', Arial, sans-serif;
+  text-align: center;
+  white-space: pre;
+  pointer-events: none;
+  user-select: none;
+}
+
+.text-block.editable {
+  pointer-events: auto;
+  cursor: grab;
+}
+
+.text-block.editable:active {
+  cursor: grabbing;
+}
+
+.text-block.editable:hover,
+.text-block.selected {
+  outline: 1px dashed rgba(56, 189, 248, 0.9);
+  outline-offset: 0.15em;
+}
+
+.text-block.band {
+  left: 0;
+  right: 0;
+  padding: 0.35em 0;
+}
+
+.text-line {
+  height: 1.25em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.text-line span {
+  padding: 0 0.2em;
+  paint-order: stroke fill;
 }
 
 .monitor-watermark-overlay {
   position: absolute;
   inset: 0;
-  display: flex;
   z-index: 15;
   pointer-events: none;
+  container-type: size;
+}
+
+.monitor-watermark-mark {
+  position: absolute;
+  display: flex;
+}
+.monitor-watermark-mark img {
+  height: 100%;
+  max-width: 35cqw;
+  object-fit: contain;
+  display: block;
 }
 
 .wm-text {
-  font-weight: 600;
-  padding: 2px 6px;
-  border-radius: 3px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0 0.25em;
+  white-space: nowrap;
+  font-family: 'Segoe UI', system-ui, sans-serif;
 }
 
 .lower-third-overlay {
@@ -769,4 +910,29 @@
   background: #fff;
   border: 1px solid rgba(0, 0, 0, 0.6);
   cursor: nwse-resize;
+}
+
+/* The end card, over the held last frame once playback runs past the cut. */
+.end-card-layer {
+  z-index: 30;
+  background: #000;
+  object-fit: contain;
+}
+
+.end-card-placeholder {
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: radial-gradient(circle at center, #1a2550 0%, #05070d 75%);
+  color: #c7d2fe;
+  font-size: 0.8rem;
+  text-align: center;
+  padding: 16px;
+}
+
+.end-card-placeholder-icon {
+  font-size: 2rem;
 }

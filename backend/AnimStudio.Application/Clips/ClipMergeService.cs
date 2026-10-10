@@ -24,7 +24,7 @@ public sealed record ClipJunctionOverride(
 /// <summary>One music (or other audio) clip placed at its own point on the timeline.</summary>
 public sealed record TimedMusicClip(
     string AssetId, double StartSeconds, double Volume,
-    double? TrimStartSeconds, double? TrimEndSeconds);
+    double? TrimStartSeconds, double? TrimEndSeconds, bool IsVoiceover = false);
 
 /// <summary>
 /// One stretch of the finished timeline over which the music plays at a reduced level,
@@ -46,6 +46,9 @@ public sealed record ClipMergeCommand
     public IReadOnlyList<string> AssetIds { get; init; } = [];
 
     public ClipFit Fit { get; init; } = ClipFit.Contain;
+
+    /// <summary><c>#rrggbb</c> for the Contain bars; null is black.</summary>
+    public string? BackgroundColor { get; init; }
 
     public int? OutputWidth { get; init; }
     public int? OutputHeight { get; init; }
@@ -92,6 +95,12 @@ public sealed record ClipMergeCommand
     /// one from Admin &gt; Branding. The settings are resolved server-side, never sent.
     /// </summary>
     public bool IncludeOutro { get; init; }
+
+    /// <summary>Seconds the last clip's final frame is held before the outro. Only with an outro.</summary>
+    public double OutroHoldSeconds { get; init; }
+
+    /// <summary>Level the finished mix to YouTube's loudness target (-14 LUFS).</summary>
+    public bool YouTubeLoudness { get; init; }
 
     public IReadOnlyList<TimelineItemSpec>? TimelineItems { get; init; }
 }
@@ -507,7 +516,8 @@ public sealed class ClipMergeService(
                 StartSeconds = t.StartSeconds,
                 Volume = t.Volume,
                 TrimStartSeconds = t.TrimStartSeconds,
-                TrimEndSeconds = t.TrimEndSeconds
+                TrimEndSeconds = t.TrimEndSeconds,
+                IsVoiceover = t.IsVoiceover
             })
             .ToList();
 
@@ -550,6 +560,8 @@ public sealed class ClipMergeService(
                 ExportName = command.ExportName,
                 AssetIds = [.. clipIds],
                 Fit = command.Fit,
+                // Checked here as well as at the API: it ends up inside the pad filter.
+                BackgroundColor = EraseRegionSpec.IsHexColor(command.BackgroundColor) ? command.BackgroundColor : null,
                 OutputWidth = command.OutputWidth,
                 OutputHeight = command.OutputHeight,
                 Quality = command.Quality,
@@ -564,7 +576,10 @@ public sealed class ClipMergeService(
                 ClipAudio = clipAudioSpecs,
                 Watermark = watermark,
                 Outro = outro ?? new OutroSettings(),
-                TimelineItems = command.TimelineItems?.ToList() ?? []
+                // A hold only ever leads into an end card; without one the video ends on the clip.
+                OutroHoldSeconds = outro is { IsEnabled: true } ? Math.Clamp(command.OutroHoldSeconds, 0, 600) : 0,
+                TimelineItems = command.TimelineItems?.ToList() ?? [],
+                YouTubeLoudness = command.YouTubeLoudness
             }
         };
 
@@ -658,7 +673,8 @@ public sealed class ClipMergeService(
             HeadlineSecondary = chosen.HeadlineSecondary,
             SubtextSecondary = chosen.SubtextSecondary,
             BackgroundHex = chosen.BackgroundHex,
-            TextHex = chosen.TextHex
+            TextHex = chosen.TextHex,
+            Animation = chosen.Animation
         };
         copy.Clamp();
         return copy.IsEnabled ? copy : null;

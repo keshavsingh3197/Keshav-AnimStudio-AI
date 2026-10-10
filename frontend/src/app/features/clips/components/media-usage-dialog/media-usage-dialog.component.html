@@ -1,0 +1,100 @@
+<div class="modal-backdrop" (click)="close()">
+  <div class="usage-dialog" role="dialog" aria-modal="true" aria-label="Media details" (click)="$event.stopPropagation()">
+    <div class="usage-header">
+      <h3>Media details</h3>
+      <button class="usage-close" type="button" (click)="close()" aria-label="Close">&times;</button>
+    </div>
+
+    <div class="usage-body">
+      <div class="usage-file">
+        <div class="usage-thumb">
+          @if (type() === 'audio') {
+            <span class="usage-thumb-audio">🎵</span>
+          } @else {
+            <img [src]="state.assetThumbnailUrl(clip().id)" alt="" />
+          }
+        </div>
+        <div class="usage-facts">
+          <div class="usage-name" [title]="clip().name">{{ clip().name }}</div>
+          <dl>
+            <dt>Type</dt>
+            <dd>{{ type() === 'ai' ? 'AI video' : type() === 'image' ? 'Image' : type() === 'audio' ? 'Audio' : 'Video' }}</dd>
+            @if (clip().durationSeconds) {
+              <dt>Length</dt><dd>{{ clip().durationSeconds | number:'1.1-1' }}s</dd>
+            }
+            @if (clip().width && clip().height) {
+              <dt>Size</dt><dd>{{ clip().width }} × {{ clip().height }}</dd>
+            }
+            <dt>File</dt><dd>{{ fileSize(clip().fileSizeBytes) }}</dd>
+            @if (type() !== 'image') {
+              <dt>Sound</dt><dd>{{ clip().hasAudio || type() === 'audio' ? 'Yes' : 'No' }}</dd>
+            }
+            @if (clip().createdAt) {
+              <dt>Added</dt>
+              <dd>
+                {{ clip().createdAt | date:'d MMM y, HH:mm' }}
+                @if (addedToday()) { <span class="usage-chip new">Today</span> }
+              </dd>
+            }
+          </dl>
+        </div>
+      </div>
+
+      <div class="usage-summary" [class.unused]="places().length === 0">
+        @if (places().length === 0) {
+          @if (state.mediaUsageLoading()) {
+            Checking this project's videos…
+          } @else {
+            Not used in any video of this project yet.
+          }
+        } @else {
+          Used in <strong>{{ places().length }}</strong> of {{ state.projectEdits().length || 1 }}
+          video{{ (state.projectEdits().length || 1) === 1 ? '' : 's' }}
+          · {{ placements() }} placement{{ placements() === 1 ? '' : 's' }}
+        }
+      </div>
+
+      @if (places().length > 0) {
+        <ul class="usage-list">
+          @for (p of places(); track p.editId) {
+            <li class="usage-row" [class.current]="p.isCurrent">
+              <span class="usage-fmt" [class]="'usage-fmt fmt-' + (p.format ?? 'video').toLowerCase()">{{ fmtLabel(p.format) }}</span>
+              <div class="usage-row-main">
+                <div class="usage-row-name">
+                  {{ p.name }}
+                  @if (p.isCurrent) { <span class="usage-chip open">Open now</span> }
+                </div>
+                <div class="usage-roles">
+                  @for (r of p.roles; track r.role) {
+                    <span class="usage-chip">{{ r.label }}@if (r.count > 1) { ×{{ r.count }} }</span>
+                  }
+                </div>
+              </div>
+              @if (!p.isCurrent) {
+                <a class="usage-open" [routerLink]="[]" [queryParams]="{ edit: p.editId }" queryParamsHandling="merge"
+                   (click)="close()">Open ›</a>
+              }
+            </li>
+          }
+        </ul>
+      }
+
+      @if (state.mediaUsageLoading() && places().length > 0) {
+        <div class="usage-note">Still checking the other videos…</div>
+      }
+      @if (state.mediaUsageFailed().length > 0) {
+        <div class="usage-note warn">
+          Could not read {{ state.mediaUsageFailed().join(', ') }}; it may use this file too.
+        </div>
+      }
+      <div class="usage-note">Other videos are read as last saved; this one includes unsaved changes.</div>
+    </div>
+
+    <div class="usage-footer">
+      @if (!inCurrent()) {
+        <button type="button" class="usage-btn primary" (click)="addToCut()">+ Add to this cut</button>
+      }
+      <button type="button" class="usage-btn" (click)="close()">Close</button>
+    </div>
+  </div>
+</div>

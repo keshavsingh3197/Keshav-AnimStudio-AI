@@ -11,7 +11,11 @@ import { MediaDockComponent } from './components/media-dock/media-dock.component
 import { VideoViewportComponent } from './components/video-viewport/video-viewport.component';
 import { InspectorDockComponent } from './components/inspector-dock/inspector-dock.component';
 import { TimelineDockComponent } from './components/timeline-dock/timeline-dock.component';
+import { TransferDialogComponent } from './components/transfer-dialog/transfer-dialog.component';
+import { FrameCropDialogComponent } from './components/frame-crop-dialog/frame-crop-dialog.component';
 import { clipboardFiles } from '../../shared/file-drop.directive';
+import { YouTubePublishDialogComponent } from '../../shared/youtube-publish-dialog.component';
+import { lastApplied, loadStoredLibrary, spokenText } from './components/inspector-dock/tabs/voice-script-library';
 
 @Component({
   selector: 'app-clip-studio',
@@ -25,7 +29,10 @@ import { clipboardFiles } from '../../shared/file-drop.directive';
     VideoViewportComponent,
     InspectorDockComponent,
     TimelineDockComponent,
+    TransferDialogComponent,
+    FrameCropDialogComponent,
     RouterLink,
+    YouTubePublishDialogComponent,
   ],
   templateUrl: './clip-studio.component.html',
   styleUrls: ['./clip-studio.component.css'],
@@ -101,6 +108,64 @@ export class ClipStudioComponent implements OnDestroy {
         error: () => this.state.globalOutro.set(null),
       }));
     });
+
+    // Back from connecting a channel on Google: reopen the dialog for the same render.
+    const reopen = this.route.snapshot.queryParamMap.get('youtubePublish');
+    if (reopen && /^[A-Za-z0-9_-]{1,64}$/.test(reopen)) {
+      this.publishJobId.set(reopen);
+      void this.router.navigate([], {
+        relativeTo: this.route, queryParams: { youtubePublish: null }, queryParamsHandling: 'merge', replaceUrl: true,
+      });
+    }
+  }
+
+  // --- Finished export: upload it to YouTube as a draft, or copy its description ---
+
+  /** The render whose Publish to YouTube dialog is open. */
+  readonly publishJobId = signal<string | null>(null);
+  readonly descriptionCopy = signal<'idle' | 'busy' | 'copied' | 'failed'>('idle');
+
+  /** Where Google sign-in returns to: this cut, with the dialog reopened for the same render. */
+  publishReturnPath(jobId: string): string {
+    const tree = this.router.createUrlTree([], {
+      relativeTo: this.route, queryParams: { youtubePublish: jobId }, queryParamsHandling: 'merge',
+    });
+    return this.router.serializeUrl(tree);
+  }
+
+  copyYouTubeDescription(jobId: string): void {
+    if (this.descriptionCopy() === 'busy') return;
+    this.descriptionCopy.set('busy');
+    this.state.api.timelineText(jobId, 'youtube').subscribe({
+      next: (text) => navigator.clipboard.writeText(text).then(
+        () => this.flashCopy('copied'),
+        () => this.flashCopy('failed')),
+      error: () => this.flashCopy('failed'),
+    });
+  }
+
+  readonly scriptCopy = signal<'idle' | 'copied' | 'failed' | 'none'>('idle');
+
+  /** Copies the words of the voiceover script on A1 (the one applied last), for the description or captions. */
+  copyVoiceScript(): void {
+    const projectId = this.state.store.projectId();
+    const library = projectId ? loadStoredLibrary(projectId) : null;
+    const script = library ? lastApplied(library) : null;
+    const text = script ? spokenText(script.text) : '';
+    const flash = (result: 'copied' | 'failed' | 'none') => {
+      this.scriptCopy.set(result);
+      setTimeout(() => this.scriptCopy.set('idle'), 2500);
+    };
+    if (!text) {
+      flash('none');
+      return;
+    }
+    navigator.clipboard.writeText(text).then(() => flash('copied'), () => flash('failed'));
+  }
+
+  private flashCopy(result: 'copied' | 'failed'): void {
+    this.descriptionCopy.set(result);
+    setTimeout(() => this.descriptionCopy.set('idle'), 2500);
   }
 
   ngOnDestroy(): void {
@@ -260,7 +325,14 @@ export class ClipStudioComponent implements OnDestroy {
     }
 
     if (event.ctrlKey || event.metaKey) {
-      if (event.key.toLowerCase() === 's') {
+      const key = event.key.toLowerCase();
+      if ((key === 'z' && event.shiftKey) || key === 'y') {
+        event.preventDefault();
+        this.state.redo();
+      } else if (key === 'z') {
+        event.preventDefault();
+        this.state.undo();
+      } else if (event.key.toLowerCase() === 's') {
         event.preventDefault();
         this.state.saveDraft();
       } else if (event.key.toLowerCase() === 'a') {

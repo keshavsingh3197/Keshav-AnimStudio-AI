@@ -44,7 +44,10 @@ export interface YouTubeVideoMetadata {
 export interface YouTubeDraft {
   title: string;
   description: string;
+  /** The video's own tags. */
   tags: string[];
+  /** The brand channel's default tags (Admin > Publishing), added to every upload's own. */
+  channelTags: string[];
   categoryId: string;
   privacy: YouTubePrivacy;
   madeForKids: boolean;
@@ -61,6 +64,14 @@ export interface YouTubeDraft {
   };
   errors: YouTubeCheck[];
   warnings: YouTubeCheck[];
+}
+
+/** An AI-written title, description and tags; the user reviews them before publishing. */
+export interface YouTubeSuggestion {
+  title: string;
+  description: string;
+  tags: string[];
+  providerId: string;
 }
 
 export type YouTubeUploadState = 'Queued' | 'Uploading' | 'Completed' | 'Failed' | 'Cancelled';

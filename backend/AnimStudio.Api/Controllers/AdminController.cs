@@ -1019,6 +1019,7 @@ public sealed class AdminController(
         TransitionDurationFrames = o.TransitionDurationFrames, QrAssetId = o.QrAssetId,
         Headline = o.Headline, Subtext = o.Subtext, HeadlineSecondary = o.HeadlineSecondary,
         SubtextSecondary = o.SubtextSecondary, BackgroundHex = o.BackgroundHex, TextHex = o.TextHex,
+        Animation = o.Animation,
     };
 
     private static AiProviderId Parse(string providerId) =>

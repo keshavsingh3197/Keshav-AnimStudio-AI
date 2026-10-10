@@ -3,11 +3,12 @@ import { FormsModule } from '@angular/forms';
 import { DecimalPipe } from '@angular/common';
 import { StudioStateService } from '../../../services/studio-state.service';
 import { ScopeBarComponent } from './scope-bar.component';
+import { TextStyleEditorComponent } from './text-style-editor.component';
 
 @Component({
   selector: 'app-text-inspector',
   standalone: true,
-  imports: [FormsModule, DecimalPipe, ScopeBarComponent],
+  imports: [FormsModule, DecimalPipe, ScopeBarComponent, TextStyleEditorComponent],
   templateUrl: './text-inspector.component.html',
 })
 export class TextInspectorComponent {

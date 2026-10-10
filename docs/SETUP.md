@@ -387,8 +387,9 @@ in `appsettings.json` (`Ai:Providers:<id>:Enabled`) and put its key in the admin
 | Local text (GUI) | [LM Studio](https://lmstudio.ai) → start its server | `lmstudio` provider, `http://localhost:1234/v1` |
 | Local image generation | [ComfyUI](https://github.com/comfyanonymous/ComfyUI) (Python 3.10+, GPU strongly recommended) | `comfyui-local`, `http://localhost:8188`, plus a checkpoint file named in `Model` |
 | Local text-to-speech | [Piper](https://github.com/rhasspy/piper) + `.onnx` voices | `piper-local`: `ExecutablePath` and `VoicesPath` |
-| Local TTS (server) | [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI), Docker | `kokoro`, `http://localhost:8880/v1` |
-| Local transcription | [whisper.cpp](https://github.com/ggerganov/whisper.cpp) — build `whisper-cli`, download a `ggml-*.bin` | `whispercpp-local`: `ExecutablePath`, `ModelsPath`, `Model` |
+| Local TTS (server) | [Kokoro-FastAPI](https://github.com/keshavsingh3197/Kokoro-FastAPI) (our fork of remsky's, pinned), natively via `scripts/setup-voiceover.ps1` (needs `uv` + eSpeak NG, no Docker); voice tuning is switched on for "My voices" | `kokoro`, `http://localhost:8880/v1` |
+| "My voices" in the voiceover panel (your own voice) | Kokoro languages (English, Hindi, ...): a Kokoro voice tuned from the sample on the first line (`/dev/tune`), read with each line's `lang_code`, quick. Otherwise: [Seed-VC](https://github.com/Plachtaa/seed-vc) via `scripts/setup-voice-ai.ps1` — slow on a CPU, each line converts once and is cached; also the fallback when the tuned voice fails | `VoiceConversion:Enabled: true` (on in Development) |
+| Local transcription ("Speak it" in the Voiceover panel) | [whisper.cpp](https://github.com/ggerganov/whisper.cpp) — `scripts\setup-dictation.ps1` installs `whisper-cli` and the multilingual `ggml-small` model | `whispercpp-local`: `ExecutablePath`, `ModelsPath`, `Model` |
 | Transcription (server) | [faster-whisper-server](https://github.com/fedirz/faster-whisper-server), Docker | `faster-whisper`, `http://localhost:8000/v1` |
 
 Hosted free tiers (Groq, Gemini, OpenRouter, Cloudflare Workers AI, HuggingFace,
@@ -398,7 +399,59 @@ private addresses are permitted only for providers marked `IsLocal`.
 
 ---
 
-## 7. Troubleshooting
+## 7. Optional — Publish to YouTube
+
+A finished render (Render page or Clip Studio → **Publish to YouTube**) uploads directly to a
+connected channel. You can't publish from the app until the server has a Google OAuth client.
+
+**1. Google Cloud (once per deployment)**
+
+1. [console.cloud.google.com](https://console.cloud.google.com) → create or pick a project.
+2. *APIs & Services → Library* → enable **YouTube Data API v3**.
+3. *OAuth consent screen* → External; add the scopes `youtube.upload` and `youtube.readonly`.
+   While the app is in **Testing**, add each Google account that will publish under *Test users*.
+   Refresh tokens from a Testing app expire after 7 days (the dialog then shows
+   *Reconnect*). Publish the consent screen to stop the expiry.
+4. *Credentials → Create credentials → OAuth client ID → Web application*. Under
+   **Authorized redirect URIs**, add every app address exactly, character for character:
+   - `http://localhost:4200/youtube/callback` (local dev)
+   - `https://studio.keshavsingh.in/youtube/callback` (production, see `render.yaml`)
+
+**2. Give the client to the API.** The secret never goes in `appsettings.json`:
+
+```bash
+cd backend/AnimStudio.Api
+dotnet user-secrets set "YouTube:Publish:ClientId" "<client-id>.apps.googleusercontent.com"
+dotnet user-secrets set "YouTube:Publish:ClientSecret" "<client-secret>"
+# Only when the frontend isn't on http://localhost:4200:
+dotnet user-secrets set "YouTube:Publish:RedirectUri" "https://<host>/youtube/callback"
+```
+
+On Render, set `YouTube__Publish__ClientId` / `YouTube__Publish__ClientSecret` in the dashboard
+(`sync: false`). `Encryption:DataKey` must also be set, because refresh tokens are stored AES-256-GCM encrypted.
+
+**3. Channel defaults (optional).** *Admin → Publishing* holds, per brand channel: the linked
+YouTube channel, visibility, category, audience, notify, **default tags** and a **description
+footer**. Every upload for a project on that brand channel starts from these:
+
+- The footer is appended below the description.
+- The default tags appear as chips. They're added to the video's own tags, and any of them can be left out for one video.
+
+**4. Publishing flow.** Open the dialog, then:
+
+1. Connect a channel (first time only; *＋ Add* for brand accounts).
+2. Optionally click **✨ Suggest with AI**. It writes a title, description and tags from the
+   project's name, description and script, using the `video-metadata` prompt on the
+   `Ai:Chains:Text` chain. Chapters, credits and the footer stay below the suggested text.
+3. Edit the details, then **Review & publish…** → **Confirm & upload**. The upload runs on the
+   server in resumable chunks, so the dialog can be closed.
+
+Limits checked before sending: title ≤ 100 chars, description ≤ 5,000 bytes, tags ≤ 500 chars,
+no `<` / `>`, audience required. Videos over 15 minutes need a verified channel.
+
+---
+
+## 8. Troubleshooting
 
 | Symptom | Cause and fix |
 | --- | --- |

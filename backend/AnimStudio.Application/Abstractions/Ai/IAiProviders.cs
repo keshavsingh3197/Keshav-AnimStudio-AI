@@ -44,6 +44,29 @@ public interface ISpeechAiProvider : IAiProvider
 
 public sealed record AiVoice(string VoiceId, string DisplayName, string? LanguageCode, string? Gender);
 
+/// <summary>
+/// A speech engine that can make a voice of its own from a reference recording and keep it
+/// (Kokoro-FastAPI's <c>/dev/tune</c>), so lines are spoken in that voice directly instead of
+/// being spoken by a stock voice and re-voiced afterwards.
+/// </summary>
+public interface IVoiceTuningSpeechProvider : ISpeechAiProvider
+{
+    /// <summary>
+    /// False unless the engine runs on this machine: the recording is a real person's voice,
+    /// and it is never sent to a hosted service.
+    /// </summary>
+    bool CanTuneVoices { get; }
+
+    /// <summary>
+    /// Tunes a voice from <paramref name="referenceWav"/> and keeps it as <paramref name="name"/>;
+    /// returns the voice id to speak with. Tuning the same name again returns the voice already kept.
+    /// </summary>
+    Task<string> TuneVoiceAsync(byte[] referenceWav, string name, CancellationToken ct);
+
+    /// <summary>Deletes a voice <see cref="TuneVoiceAsync"/> kept. One that is already gone is not an error.</summary>
+    Task DeleteTunedVoiceAsync(string voiceId, CancellationToken ct);
+}
+
 public interface ITranscriptionProvider : IAiProvider
 {
     Task<AiTranscriptionResult> TranscribeAsync(AiTranscriptionRequest request, CancellationToken ct);

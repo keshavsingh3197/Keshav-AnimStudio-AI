@@ -24,7 +24,12 @@
 
     <!-- Centering Stage for letterbox & pillarbox canvas -->
     <div class="monitor-stage">
-      <div #monitorContainer [class]="'monitor-screen-container ' + state.monitorScreenAspectClass()">
+      <div #monitorContainer [class]="'monitor-screen-container ' + state.monitorScreenAspectClass()"
+           [class.drop-target]="dropHover()"
+           [style.background]="state.monitorBarColor()"
+           (dragover)="onMonitorDragOver($event)"
+           (dragleave)="onMonitorDragLeave($event)"
+           (drop)="onMonitorDrop($event)">
       @if (state.included().length === 0) {
         <div class="monitor-empty-state">
           <span style="font-size: 2.2rem">🎬</span>
@@ -87,6 +92,27 @@
                  playsinline preload="auto"></video>
         }
 
+        <!-- End card: after the last clip, as the export appends it -->
+        @if (endCardActive()) {
+          @if (state.endCardMedia(); as media) {
+            <video #endCardVideo class="pv-monitor-layer layer-front end-card-layer"
+                   [src]="media.url"
+                   [muted]="state.isMonitorMuted()"
+                   (loadedmetadata)="state.isPlaying() && $any($event.target).play()"
+                   playsinline preload="auto"></video>
+          } @else {
+            <div class="pv-monitor-layer layer-front end-card-placeholder">
+              <span class="end-card-placeholder-icon">🏁</span>
+              <strong>{{ state.endCard()?.label ?? 'End card' }}</strong>
+              <span>
+                @if (state.endCardRendering()) { Rendering the end card… }
+                @else if (state.endCardRenderError(); as err) { {{ err }} }
+                @else { End card plays here in the export }
+              </span>
+            </div>
+          }
+        }
+
         <!-- Static Image Clip Monitor Layer -->
         @if (state.activeClipIsImage()) {
           <img #imageMonitor crossorigin="anonymous"
@@ -119,7 +145,7 @@
                      [style.mask-image]="m.mask"
                      [style.backdrop-filter]="m.region.style === 'Blur' ? eraseBlur(m) : null"
                      [style.background-color]="m.region.style === 'Fill' ? eraseFill(m) : null">
-                  @if (m.region.style === 'Patch' || m.region.style === 'Brand') {
+                  @if (m.region.style === 'Patch' || m.region.style === 'Brand' || m.region.style === 'Clean') {
                     <canvas #patchCanvas class="erase-patch" [attr.data-erase]="m.index"
                             [style.filter]="state.computedMonitorFilter()"></canvas>
                   }
@@ -170,41 +196,98 @@
                alt="" />
         }
 
-        <!-- TXT1 Text Overlay Layer -->
-        @if (state.activeTxtItem(); as txt) {
-          <div class="txt-overlay monitor-overlay-txt"
-               [class.pos-top]="txt.textStyle?.position === 'top'"
-               [class.pos-center]="txt.textStyle?.position === 'center'"
-               [class.pos-bottom]="!txt.textStyle || !txt.textStyle.position || txt.textStyle.position === 'bottom'"
-               [style.fontSize.px]="txt.textStyle?.fontSize ?? 28"
-               [style.color]="txt.textStyle?.color ?? '#ffffff'"
-               [style.backgroundColor]="txt.textStyle?.backgroundColor ?? 'rgba(0,0,0,0.6)'"
-               [style.opacity]="state.getTextOverlayEffectiveOpacity(txt)"
-               [style.transform]="state.getTextOverlayTransform(txt)">
-            {{ txt.src }}
+        <!-- Frame images: logos and stickers, placed by their centre and sized by a share of
+             the frame's width - the same numbers the export scales and places them with. -->
+        @if (state.monitorFrameImages().length > 0) {
+          <div class="frame-image-layer">
+            @for (im of state.monitorFrameImages(); track im.id) {
+              <div class="frame-image"
+                   [class.editable]="!state.isPlaying()"
+                   [class.selected]="im.selected"
+                   [style.left.%]="im.x" [style.top.%]="im.y" [style.width.%]="im.width"
+                   [style.opacity]="im.opacity * im.motion.opacity"
+                   [style.transform]="frameMediaTransform(im)"
+                   [title]="state.isPlaying() ? '' : im.name + ' - drag to move, double-click to crop'"
+                   (pointerdown)="startFrameImageDrag($event, im, 'move')"
+                   (dblclick)="state.openFrameCrop(im.id)">
+                <!-- The crop window: the source sized and shifted so only the kept part shows. -->
+                <div class="frame-media-box"
+                     [class.measured]="im.aspect !== null"
+                     [style.aspect-ratio]="im.aspect"
+                     [style.border-radius]="im.radius">
+                  @if (im.kind === 'video') {
+                    <video class="frame-media-src frame-video" [src]="im.url" [attr.data-layer]="im.id"
+                           [attr.data-at]="im.sourceTime" [style]="cropStyle(im)"
+                           muted playsinline preload="auto" draggable="false"></video>
+                  } @else {
+                    <img class="frame-media-src" [src]="im.url" alt="" draggable="false" [style]="cropStyle(im)" />
+                  }
+                  @if (im.borderWidth > 0) {
+                    <span class="frame-media-ring" [style.border-radius]="im.radius"
+                          [style.border-color]="im.borderColor"
+                          [style.border-width]="'calc(' + im.borderWidth + ' * 100cqmin / 360)'"></span>
+                  }
+                </div>
+                @if (!state.isPlaying()) {
+                  <span class="frame-image-handle" title="Drag to resize"
+                        (pointerdown)="startFrameImageDrag($event, im, 'resize')"></span>
+                }
+              </div>
+            }
+          </div>
+        }
+
+        @if (dropHover()) {
+          <div class="monitor-drop-hint">Drop to place it here, on this clip</div>
+        }
+
+        <!-- Text: the frame's text layers and subtitles, then the TXT1 overlay. Laid out in
+             the same lines, sizes and places the export draws them (text-overlay-layout.ts). -->
+        @if (state.monitorTextBlocks().length > 0) {
+          <div class="text-layer">
+            @for (b of state.monitorTextBlocks(); track b.key) {
+              <div class="text-block"
+                   [class.editable]="!state.isPlaying()"
+                   [class.selected]="b.selected"
+                   [class.band]="b.look.box === 'band'"
+                   [style.left.%]="b.look.box === 'band' ? null : b.look.x"
+                   [style.top.%]="b.look.y"
+                   [style.--fs]="b.look.fontSize"
+                   [style.color]="b.look.color"
+                   [style.opacity]="b.opacity"
+                   [style.transform]="textBlockTransform(b)"
+                   [style.translate]="b.offsetX !== 0 ? (b.offsetX * 100) + 'cqw 0' : null"
+                   [style.background]="textBandBackground(b)"
+                   [title]="state.isPlaying() ? '' : 'Drag to move'"
+                   (pointerdown)="startTextDrag($event, b)">
+                @for (line of b.lines; track $index) {
+                  <!-- A typed entrance shows the share of the line typed so far, as the export does. -->
+                  <div class="text-line"><span [style]="textLineStyle(b)"
+                        [style.clip-path]="b.reveal ? revealClip(b.reveal[$index]) : null">{{ line }}</span></div>
+                }
+              </div>
+            }
           </div>
         }
 
         <!-- Live Watermark Overlay -->
         @if (state.effectiveWatermark().kind !== 'None' && state.monitorShowsCornerWatermark()) {
-          <div class="monitor-watermark-overlay"
-               [style.padding.px]="state.preview().inset"
-               [style.align-items]="state.preview().top ? 'flex-start' : 'flex-end'"
-               [style.justify-content]="state.preview().align">
-            @if (state.effectiveWatermark().kind === 'Logo') {
-              @if (state.logoUrl(); as url) {
-                <img [src]="url" alt="" [style.height.px]="state.preview().fontSize"
-                     [style.opacity]="state.effectiveWatermark().opacity" />
+          <!-- Sized and placed in units of the frame, as the export does - not in pixels. -->
+          <div class="monitor-watermark-overlay">
+            <div class="monitor-watermark-mark" [style]="monitorWatermarkStyle()">
+              @if (state.effectiveWatermark().kind === 'Logo') {
+                @if (state.logoUrl(); as url) {
+                  <img [src]="url" alt="" [style.opacity]="state.effectiveWatermark().opacity" />
+                }
+              } @else {
+                <span class="wm-text"
+                      [style.color]="state.effectiveWatermark().colorHex"
+                      [style.opacity]="state.effectiveWatermark().opacity"
+                      [style.background]="'rgba(0,0,0,' + state.effectiveWatermark().backplateOpacity + ')'">
+                  {{ state.effectiveWatermark().text || 'yoursite.example' }}
+                </span>
               }
-            } @else {
-              <span class="wm-text"
-                    [style.font-size.px]="state.preview().fontSize"
-                    [style.color]="state.effectiveWatermark().colorHex"
-                    [style.opacity]="state.effectiveWatermark().opacity"
-                    [style.background]="'rgba(0,0,0,' + state.effectiveWatermark().backplateOpacity + ')'">
-                {{ state.effectiveWatermark().text || 'yoursite.example' }}
-              </span>
-            }
+            </div>
           </div>
         }
 
@@ -222,6 +305,8 @@
       <!-- Audio elements for background soundtrack and replacement clip audio -->
       <audio #bgMusicAudio loop></audio>
       <audio #clipSoundAudio></audio>
+      <audio #voiceoverAudio></audio>
+      <audio #effectAudio></audio>
     </div>
   </div>
 

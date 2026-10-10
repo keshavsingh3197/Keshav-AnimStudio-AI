@@ -7,6 +7,8 @@ import { ColorInspectorComponent } from './tabs/color-inspector.component';
 import { EffectsInspectorComponent } from './tabs/effects-inspector.component';
 import { TransitionsInspectorComponent } from './tabs/transitions-inspector.component';
 import { TextInspectorComponent } from './tabs/text-inspector.component';
+import { FrameLayoutInspectorComponent } from './tabs/frame-layout-inspector.component';
+import { VoiceoverPanelComponent } from './tabs/voiceover-panel.component';
 
 @Component({
   selector: 'app-inspector-dock',
@@ -19,6 +21,8 @@ import { TextInspectorComponent } from './tabs/text-inspector.component';
     EffectsInspectorComponent,
     TransitionsInspectorComponent,
     TextInspectorComponent,
+    FrameLayoutInspectorComponent,
+    VoiceoverPanelComponent,
   ],
   templateUrl: './inspector-dock.component.html',
   styleUrls: ['./inspector-dock.component.css'],

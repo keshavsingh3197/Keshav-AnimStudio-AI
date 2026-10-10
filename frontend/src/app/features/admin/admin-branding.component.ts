@@ -7,7 +7,7 @@ import { FormsModule } from '@angular/forms';
 
 import {
   BrandChannel, DEFAULT_BRAND_CHANNEL,
-  OUTRO_KINDS, OutroBody, OutroKind, WATERMARK_POSITIONS, WatermarkBody, WatermarkKind, WatermarkPosition,
+  EndCardAnimation, OUTRO_KINDS, OutroBody, OutroKind, WATERMARK_POSITIONS, WatermarkBody, WatermarkKind, WatermarkPosition,
 } from '../../core/models/api.models';
 import { ApiService } from '../../core/services/api.service';
 import { MediaToolsService } from '../../core/services/media-tools.service';
@@ -216,6 +216,7 @@ export class AdminBrandingComponent {
             subtextSecondary: outro.subtextSecondary ?? '',
             backgroundHex: outro.backgroundHex || '#101828',
             textHex: outro.textHex || '#FFFFFF',
+            animation: (outro.animation ?? 'Rise') as EndCardAnimation,
           };
           if (outro.kind !== 'None' && outro.kind !== 'Card' && outro.assetId) {
             this.outroMediaUrl.set(this.api.globalOutroMediaUrl(channel) + '&t=' + Date.now());
@@ -455,6 +456,7 @@ export class AdminBrandingComponent {
       subtextSecondary: this.outroForm.subtextSecondary?.trim() || null,
       backgroundHex: this.outroForm.backgroundHex,
       textHex: this.outroForm.textHex,
+      animation: this.outroForm.animation,
     };
   }
 
@@ -516,6 +518,7 @@ function blankOutroForm() {
     subtextSecondary: '',
     backgroundHex: '#101828',
     textHex: '#FFFFFF',
+    animation: 'Rise' as EndCardAnimation,
   };
 }
 

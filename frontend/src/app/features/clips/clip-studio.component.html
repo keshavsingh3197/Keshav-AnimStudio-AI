@@ -41,6 +41,101 @@
     adding and pasting both confirm here, with a preview of the resulting order so the
     answer is checkable before it is committed.
   -->
+  @if (state.transferDialogMode(); as transferMode) {
+    <app-transfer-dialog [mode]="transferMode" (closed)="state.transferDialogMode.set(null)"></app-transfer-dialog>
+  }
+
+  <!-- Crop & shape editor for a frame picture or video; renders nothing while closed. -->
+  @if (state.cropLayerId()) {
+    <app-frame-crop-dialog></app-frame-crop-dialog>
+  }
+
+  @if (state.endCardDialogOpen()) {
+    <div class="modal-backdrop" (click)="state.endCardDialogOpen.set(false)">
+      <div class="insert-dialog end-card-dialog" role="dialog" aria-modal="true" aria-label="End card"
+           (click)="$event.stopPropagation()">
+        <div class="insert-dialog-header">
+          <h3>🏁 End card</h3>
+          <button class="close-btn" type="button" (click)="state.endCardDialogOpen.set(false)">&times;</button>
+        </div>
+
+        @if (state.endCard(); as card) {
+          <p class="insert-dialog-sub">
+            {{ card.label }} &middot; {{ card.seconds | number:'1.0-1' }}s, after the last thing on the timeline.
+          </p>
+
+          <label class="end-card-toggle">
+            <input type="checkbox" [checked]="state.exportIncludeOutro()"
+                   (change)="state.setExportIncludeOutro($any($event.target).checked)" />
+            <span>
+              <strong>Add it to the export</strong>
+              <small>The exported video ends with this card.</small>
+            </span>
+          </label>
+          <label class="end-card-toggle" [class.disabled]="!state.exportIncludeOutro()">
+            <input type="checkbox" [checked]="state.endCardInPreview()" [disabled]="!state.exportIncludeOutro()"
+                   (change)="state.setEndCardInPreview($any($event.target).checked)" />
+            <span>
+              <strong>Play it in the preview</strong>
+              <small>Playback runs on into the end card instead of stopping at the last clip.</small>
+            </span>
+          </label>
+
+          <div class="end-card-start" [class.disabled]="!state.exportIncludeOutro()">
+            <span class="end-card-start-label">Starts</span>
+            <div class="insert-quick-row">
+              <button type="button" class="insert-quick-btn" [class.active]="state.endCardAfter() === 'clips'"
+                      [disabled]="!state.exportIncludeOutro()" (click)="state.setEndCardAfter('clips')"
+                      title="Joined straight after the last video clip; music or text running on plays under the card">
+                Right after the last clip
+              </button>
+              <button type="button" class="insert-quick-btn" [class.active]="state.endCardAfter() === 'everything'"
+                      [disabled]="!state.exportIncludeOutro()" (click)="state.setEndCardAfter('everything')"
+                      title="Holds the last frame until music, voice and text have finished, then the card">
+                After everything ends
+              </button>
+            </div>
+            <small>
+              @if (state.contentOverhangSeconds() <= 0.05) {
+                Nothing runs on past the last clip, so both start at the same point.
+              } @else if (state.endCardAfter() === 'everything') {
+                The last frame is held {{ state.contentOverhangSeconds() | number:'1.0-1' }}s until the music/text ends, then the card plays.
+              } @else {
+                Music/text running {{ state.contentOverhangSeconds() | number:'1.0-1' }}s past the last clip plays under the card.
+              }
+            </small>
+          </div>
+
+          @if (state.endCardMedia(); as media) {
+            <video class="end-card-dialog-video" [src]="media.url" controls playsinline></video>
+          } @else if (state.endCardRendering()) {
+            <p class="insert-dialog-sub">Rendering a preview of the end card…</p>
+          } @else if (state.endCardRenderError(); as err) {
+            <p class="end-card-dialog-error">{{ err }}</p>
+          }
+
+          <div class="end-card-dialog-actions">
+            <a class="end-card-dialog-link" routerLink="/admin/branding/end-card">Change the end card in Settings &rarr;</a>
+            <button type="button" class="insert-quick-btn" [disabled]="state.endCardRendering()"
+                    (click)="state.renderEndCardPreview(true)">↻ Re-render</button>
+            <button type="button" class="insert-quick-btn active"
+                    [disabled]="!state.endCardPlaysInPreview()"
+                    [title]="state.endCardPlaysInPreview() ? 'Play the last second of the cut and the end card' : 'Turn on both options above first'"
+                    (click)="state.playEndCard()">▶ Play it on the timeline</button>
+          </div>
+        } @else {
+          <p class="insert-dialog-sub">
+            No end card is set up for this project or its channel yet, so the export finishes on the last clip.
+            Set one up - an outro video, a graphic or a "support us" QR card - and it appears here.
+          </p>
+          <div class="end-card-dialog-actions">
+            <a class="end-card-dialog-link" routerLink="/admin/branding/end-card">Set up an end card in Settings &rarr;</a>
+          </div>
+        }
+      </div>
+    </div>
+  }
+
   @if (state.insertPrompt(); as prompt) {
     <div class="modal-backdrop" (click)="state.cancelInsertPrompt()">
       <div class="insert-dialog" (click)="$event.stopPropagation()">
@@ -837,6 +932,11 @@
 
         <!-- Body -->
         <div class="export-dialog-body">
+          @if (state.hiddenLaneLabels().length > 0) {
+            <p class="export-hidden-lanes">
+              👁 Hidden on the timeline, so left out of this export: {{ state.hiddenLaneLabels().join(', ') }}.
+            </p>
+          }
           <!-- Timeline Summary Card -->
           <div class="export-summary-card">
             <div class="export-stat">
@@ -1059,7 +1159,7 @@
                   <span>Include Watermark / Logo</span>
                 </label>
                 <label class="export-check-item" title="Set up in Admin → Branding → Global Channel Outro">
-                  <input type="checkbox" [ngModel]="state.exportIncludeOutro()" (ngModelChange)="state.exportIncludeOutro.set($event)" />
+                  <input type="checkbox" [ngModel]="state.exportIncludeOutro()" (ngModelChange)="state.setExportIncludeOutro($event)" />
                   <span>Include End Card / Outro (support QR)</span>
                 </label>
               </div>
@@ -1354,10 +1454,14 @@
                   <button type="button" class="btn btn-outline-info" (click)="state.openExportPreview()">
                     ▶ Preview Video
                   </button>
+                  <button type="button" class="btn btn-outline-danger" (click)="publishJobId.set(completedJob.jobId)"
+                          title="Upload straight to your YouTube channel as a private draft, then finish it in YouTube Studio">
+                    <svg class="ex-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4M7 9l5-5 5 5M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3" /></svg> Upload to YouTube
+                  </button>
                   <a routerLink="/live"
                      [queryParams]="{ renderJobId: completedJob.jobId, title: state.exportName() || null }"
                      class="btn btn-outline-danger" title="Stream this export to YouTube Live">
-                    🔴 Go live
+                    <span class="ex-live-dot" aria-hidden="true"></span> Go live
                   </a>
                 </div>
                 @if (completedJob.hasTimeline) {
@@ -1369,17 +1473,35 @@
                     <a [href]="state.timelineUrl(completedJob.jobId, 'youtube')" download
                        class="btn btn-sm btn-outline-light"
                        title="Description draft with chapters (0:00 …), music credits and the footage list">
-                      📝 YouTube description
+                      <svg class="ex-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5ZM14 3v5h5M9 13h6M9 17h4" /></svg> YouTube description
                     </a>
+                    <button type="button" class="btn btn-sm btn-outline-light"
+                            (click)="copyYouTubeDescription(completedJob.jobId)" [disabled]="descriptionCopy() === 'busy'"
+                            title="Copy the description draft (chapters, credits, footage list) to the clipboard">
+                      @switch (descriptionCopy()) {
+                        @case ('copied') { ✓ Copied }
+                        @case ('failed') { ✕ Copy failed }
+                        @default { <svg class="ex-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></svg> Copy description }
+                      }
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-light" (click)="copyVoiceScript()"
+                            title="Copy the words of the voiceover on A1 (the script applied last), one line each - for the description, a pinned comment or captions">
+                      @switch (scriptCopy()) {
+                        @case ('copied') { ✓ Copied }
+                        @case ('failed') { ✕ Copy failed }
+                        @case ('none') { No voiceover script applied }
+                        @default { <svg class="ex-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></svg> Copy voiceover script }
+                      }
+                    </button>
                     <a [href]="state.timelineUrl(completedJob.jobId, 'csv')" download
                        class="btn btn-sm btn-outline-light"
                        title="One row per item with start/end timecodes, source trims and credits">
-                      📊 CSV
+                      <svg class="ex-ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2" /><path d="M4 10h16M4 15h16M10 4v16" /></svg> CSV
                     </a>
                     <a [href]="state.timelineUrl(completedJob.jobId, 'json')" download
                        class="btn btn-sm btn-outline-light"
                        title="Full timeline for scripts and other tools">
-                      &#123; &#125; JSON
+                      <svg class="ex-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4H7a2 2 0 0 0-2 2v4l-2 2 2 2v4a2 2 0 0 0 2 2h1M16 4h1a2 2 0 0 1 2 2v4l2 2-2 2v4a2 2 0 0 1-2 2h-1" /></svg> JSON
                     </a>
                   </div>
                 }
@@ -1519,5 +1641,14 @@
         </div>
       </div>
     </div>
+  }
+
+  @if (publishJobId(); as publishId) {
+    <app-youtube-publish-dialog
+      [jobId]="publishId"
+      [previewSrc]="state.api.previewUrl(publishId)"
+      [returnPath]="publishReturnPath(publishId)"
+      [asDraft]="true"
+      (closed)="publishJobId.set(null)" />
   }
 </div>

@@ -134,7 +134,8 @@ public sealed class RenderJobWorker(
             var clipSettings = new ClipRenderSettings(
                 fonts.FontFilePath, DeliveryProfile(), _options.IntermediatePreset, lease,
                 HardwareEncoder: _options.UseHardwareEncoder ? _hwEncoder : null,
-                FontForText: fonts.FontFor);
+                FontForText: fonts.FontFor,
+                FontRunsForText: fonts.RunsFor);
 
             await clips.ExecuteAsync(job, _instanceId, clipSettings, ct).ConfigureAwait(false);
         }

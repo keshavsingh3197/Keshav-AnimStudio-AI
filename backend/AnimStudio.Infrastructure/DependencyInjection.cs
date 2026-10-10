@@ -1,3 +1,5 @@
+using AnimStudio.Infrastructure.Voices;
+using AnimStudio.Application.Voices;
 using AnimStudio.Application.Abstractions.Ai;
 using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Abstractions.Rendering;
@@ -66,6 +68,7 @@ public static class DependencyInjection
         services.Configure<SegmentationOptions>(configuration.GetSection("Segmentation"));
         services.Configure<ParsingOptions>(configuration.GetSection("Parsing"));
         services.Configure<AiOptions>(configuration.GetSection(AiOptions.Section));
+        services.Configure<VoiceConversionOptions>(configuration.GetSection(VoiceConversionOptions.Section));
 
         // Settings changed from the admin console (the WebSettings table) reach these options
         // without a restart: IOptions<T> answers with the monitor's current value. Program.cs
@@ -124,6 +127,7 @@ public static class DependencyInjection
             services.AddScoped<IAiCredentialRepository, SqlAiCredentialRepository>();
             services.AddScoped<ILiveStreamKeyRepository, SqlLiveStreamKeyRepository>();
             services.AddScoped<IYouTubeConnectionRepository, SqlYouTubeConnectionRepository>();
+            services.AddScoped<IVoiceProfileRepository, SqlVoiceProfileRepository>();
             services.AddScoped<IWebSettingRepository, SqlWebSettingRepository>();
             services.AddScoped<IPromptTemplateRepository, SqlPromptTemplateRepository>();
             services.AddScoped<IAiSettingsRepository, SqlAiSettingsRepository>();
@@ -157,6 +161,7 @@ public static class DependencyInjection
             services.AddScoped<IAiCredentialRepository, MongoAiCredentialRepository>();
             services.AddScoped<ILiveStreamKeyRepository, MongoLiveStreamKeyRepository>();
             services.AddScoped<IYouTubeConnectionRepository, MongoYouTubeConnectionRepository>();
+            services.AddScoped<IVoiceProfileRepository, MongoVoiceProfileRepository>();
             services.AddScoped<IWebSettingRepository, MongoWebSettingRepository>();
             services.AddScoped<IPromptTemplateRepository, MongoPromptTemplateRepository>();
             services.AddScoped<IAiSettingsRepository, MongoAiSettingsRepository>();
@@ -252,6 +257,10 @@ public static class DependencyInjection
         services.AddScoped<IMediaProbeService, FfprobeMediaProbeService>();
         services.AddSingleton<YtDlpMediaDownloader>();
         services.AddSingleton<FfmpegVideoChunker>();
+        services.AddSingleton<IStudioVoiceRenderer, FfmpegStudioVoiceRenderer>();
+        services.AddSingleton<INarrationCleaner, FfmpegNarrationCleaner>();
+        services.AddSingleton<IVoiceConverter, SeedVcVoiceConverter>();
+        services.AddScoped<MyVoiceTuning>();
         services.AddSingleton<FfmpegReleaseKitBuilder>();
         services.AddSingleton<ReleaseKitStore>();
 
@@ -419,6 +428,15 @@ public static class DependencyInjection
                         sp.GetRequiredService<IAiSecretResolver>(),
                         sp.GetRequiredService<IOptionsMonitor<AiOptions>>(),
                         sp.GetRequiredService<ILogger<OpenAiCompatibleTtsProvider>>()));
+                    break;
+
+                case AiProviderFamily.GeminiTts:
+                    services.AddSingleton<IAiProvider>(sp => new GeminiTtsProvider(
+                        providerId,
+                        sp.GetRequiredService<IAiHttpClientFactory>(),
+                        sp.GetRequiredService<IAiSecretResolver>(),
+                        sp.GetRequiredService<IOptionsMonitor<AiOptions>>(),
+                        sp.GetRequiredService<ILogger<GeminiTtsProvider>>()));
                     break;
 
                 case AiProviderFamily.ComfyUiImage:

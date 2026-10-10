@@ -92,6 +92,12 @@ public sealed record ClipRenderPlan
     /// <summary>How a clip shaped differently from the canvas is fitted to it.</summary>
     public ClipFit Fit { get; init; } = ClipFit.Contain;
 
+    /// <summary>
+    /// Six hex digits the <see cref="ClipFit.Contain"/> bars are filled with. Validated
+    /// before it gets here: it is written straight into the pad filter.
+    /// </summary>
+    public string PadColorRgb { get; init; } = "000000";
+
     /// <summary>True when the source is an image asset requiring looped frame generation.</summary>
     public bool SourceIsImage { get; init; }
 
@@ -236,7 +242,14 @@ public sealed record EndCardPlan(
     string? QrRelativePath,
     int BoxX, int BoxY, int BoxSize, int QrSize,
     IReadOnlyList<EndCardLine> Lines,
-    double FadeInSeconds = 0);
+    double FadeInSeconds = 0)
+{
+    /// <summary>
+    /// Bring the pieces in one after another - headline down from above, code and small
+    /// text up from below - rather than all at once. False on plans built before it existed.
+    /// </summary>
+    public bool Animate { get; init; }
+}
 
 /// <summary>
 /// One line of an end card. The font is per line because it is per SCRIPT: a Latin face

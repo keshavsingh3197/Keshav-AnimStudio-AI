@@ -3,6 +3,7 @@ using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Publishing;
 using AnimStudio.Domain.Scenes;
 using AnimStudio.Domain.System;
+using AnimStudio.Domain.Voices;
 using KeshavSingh.Mongo.NoSql;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -73,6 +74,11 @@ public sealed class MongoIndexInitializer(
             await youTube.Indexes.CreateOneAsync(
                 new CreateIndexModel<YouTubeChannelConnection>(Builders<YouTubeChannelConnection>.IndexKeys
                     .Ascending(c => c.UserId)), cancellationToken: ct).ConfigureAwait(false);
+
+            var voiceProfiles = mongo.GetCollection<VoiceProfile>(MongoCollections.VoiceProfiles);
+            await voiceProfiles.Indexes.CreateOneAsync(
+                new CreateIndexModel<VoiceProfile>(Builders<VoiceProfile>.IndexKeys
+                    .Ascending(v => v.UserId)), cancellationToken: ct).ConfigureAwait(false);
 
                         // Migration / Seeder for Static Hub Data
             var hubConfig = mongo.GetCollection<HubConfig>(MongoCollections.HubConfig);

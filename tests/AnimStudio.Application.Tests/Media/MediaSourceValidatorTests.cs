@@ -164,6 +164,7 @@ public class MediaDownloadFailureClassifierTests
     [InlineData("ERROR: [generic] Unsupported URL: https://example.com/", "unsupported-url")]
     [InlineData("ERROR: Unable to download webpage: <urlopen error [Errno 11001] getaddrinfo failed>", "network")]
     [InlineData("ERROR: [LinkedIn] 123: Unable to extract video; please report this issue on https://github.com/yt-dlp/yt-dlp/issues", "page-not-readable")]
+    [InlineData("ERROR: [facebook] 4415354785343966: Cannot parse data; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest version using  yt-dlp -U", "page-not-readable")]
     [InlineData("ERROR: [LinkedIn] 123: Unable to extract uploader id; please report this issue on https://github.com/yt-dlp/yt-dlp/issues", "downloader-outdated")]
     [InlineData("ERROR: ffmpeg not found. Please install or provide the path using --ffmpeg-location", "ffmpeg-missing")]
     [InlineData("something entirely unexpected", "download-failed")]

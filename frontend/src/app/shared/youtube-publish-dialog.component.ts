@@ -47,6 +47,30 @@ interface PublishPrefs {
           @if (!st.configured) {
             <p class="yt-err">Publishing to YouTube isn't set up on this server. An admin needs to set
               <code>YouTube:Publish:ClientId</code>, <code>ClientSecret</code> and <code>RedirectUri</code>.</p>
+          } @else if (reviewing()) {
+            <div class="yt-review">
+              <p class="yt-muted">Check everything once more. Nothing is sent to YouTube until you confirm.</p>
+              <dl>
+                <div><dt>Channel</dt><dd>{{ selectedChannel()?.channelTitle }}</dd></div>
+                <div><dt>Visibility</dt><dd>{{ privacyLabel() }}{{ notify() && privacy() === 'public' ? ' · subscribers notified' : '' }}</dd></div>
+                <div><dt>Audience</dt><dd>{{ madeForKids() ? 'Made for kids' : 'Not made for kids' }}</dd></div>
+                <div><dt>Category</dt><dd>{{ categoryName() }}</dd></div>
+                <div><dt>Title</dt><dd><strong>{{ title().trim() }}</strong></dd></div>
+                <div><dt>Tags ({{ tags().length }})</dt><dd>{{ tags().join(', ') || '—' }}</dd></div>
+                <div><dt>Description</dt><dd><pre>{{ description().trim() || '—' }}</pre></dd></div>
+              </dl>
+              @for (c of warnings(); track c.code) { <p class="yt-warn">⚠ {{ c.message }}</p> }
+              @if (privacy() === 'public') {
+                <p class="yt-warn">This goes live publicly as soon as YouTube finishes processing it.</p>
+              }
+            </div>
+            @if (error()) { <p class="yt-err">{{ error() }}</p> }
+            <div class="yt-actions">
+              <button type="button" class="secondary" (click)="reviewing.set(false)" [disabled]="busy()">Back to edit</button>
+              <button type="button" (click)="publish()" [disabled]="!canPublish()">
+                {{ busy() ? 'Starting…' : privacy() === 'private' ? 'Confirm & upload as draft' : 'Confirm & upload' }}
+              </button>
+            </div>
           } @else {
             <div class="yt-grid">
               <div class="yt-form">
@@ -82,6 +106,18 @@ interface PublishPrefs {
                   }
                 }
 
+                <div class="yt-suggest">
+                  <button type="button" class="secondary" (click)="suggest()" [disabled]="suggesting() || uploading()"
+                          title="Write a title, description and tags from the project's name, description and script">
+                    {{ suggesting() ? 'Writing…' : suggestedOnce() ? '✨ Suggest again' : '✨ Suggest with AI' }}
+                  </button>
+                  <select [ngModel]="language()" (ngModelChange)="language.set($event)" aria-label="Suggestion language" [disabled]="suggesting() || uploading()">
+                    <option value="en">English</option>
+                    <option value="hi">Hindi</option>
+                  </select>
+                  @if (suggestNote()) { <span class="yt-muted">{{ suggestNote() }}</span> }
+                </div>
+
                 <label>Title
                   <input type="text" [ngModel]="title()" (ngModelChange)="title.set($event)" [disabled]="uploading()"
                          [class.invalid]="fieldError('title')" maxlength="200" />
@@ -98,7 +134,20 @@ interface PublishPrefs {
                   {{ descriptionBytes() | number }} / {{ st.limits.maxDescriptionBytes | number }}
                 </div>
 
-                <label>Tags <span class="yt-muted">(comma-separated, # is optional)</span>
+                @if (draft()?.channelTags?.length) {
+                  <div class="yt-chips" aria-label="Channel default tags">
+                    <span class="yt-muted">From channel settings:</span>
+                    @for (t of draft()!.channelTags; track t) {
+                      <span class="chip" [class.off]="excludedChannelTags().has(t)">
+                        {{ t }}
+                        <button type="button" [disabled]="uploading()" (click)="toggleChannelTag(t)"
+                                [attr.aria-label]="(excludedChannelTags().has(t) ? 'Add back ' : 'Leave out ') + t">
+                          {{ excludedChannelTags().has(t) ? '＋' : '✕' }}</button>
+                      </span>
+                    }
+                  </div>
+                }
+                <label>{{ draft()?.channelTags?.length ? 'More tags for this video' : 'Tags' }} <span class="yt-muted">(comma-separated, # is optional)</span>
                   <input type="text" [ngModel]="tagsText()" (ngModelChange)="tagsText.set($event)" [disabled]="uploading()"
                          [class.invalid]="fieldError('tags')" placeholder="HoneyBadger, Wildlife, NatureComedy" />
                 </label>
@@ -127,6 +176,10 @@ interface PublishPrefs {
                   <label class="inline"><input type="radio" name="kids" [checked]="madeForKids() === true" (change)="madeForKids.set(true)" /> Made for kids</label>
                 </fieldset>
                 <label class="inline"><input type="checkbox" [ngModel]="notify()" (ngModelChange)="notify.set($event)" [disabled]="uploading()" /> Notify subscribers</label>
+                @if (privacy() === 'private') {
+                  <p class="yt-muted">Private works as a draft: only you can see it until you change its visibility in YouTube Studio,
+                    where you can also add a thumbnail, end screen and playlists.</p>
+                }
               </div>
 
               <div class="yt-side">
@@ -157,7 +210,8 @@ interface PublishPrefs {
                     <p class="ok">✓ Published to {{ u.channelTitle }} ({{ u.privacy }}).
                       <a [href]="u.videoUrl" target="_blank" rel="noopener noreferrer">Watch ↗</a> ·
                       <a [href]="u.studioUrl" target="_blank" rel="noopener noreferrer">Open in YouTube Studio ↗</a></p>
-                    <p class="yt-muted">YouTube may still be processing HD versions for a few minutes.</p>
+                    <p class="yt-muted">YouTube may still be processing HD versions for a few minutes.
+                      @if (u.privacy === 'private') { Finish the details and publish it from YouTube Studio. }</p>
                   }
                   @case ('Failed') { <p class="yt-err">{{ u.error }}</p> }
                   @case ('Cancelled') { <p class="yt-muted">{{ u.error || 'Upload cancelled.' }}</p> }
@@ -179,8 +233,8 @@ interface PublishPrefs {
                 <button type="button" (click)="closed.emit()">Close</button>
               } @else {
                 <button type="button" class="secondary" (click)="closed.emit()">{{ upload()?.state === 'Completed' ? 'Close' : 'Cancel' }}</button>
-                <button type="button" (click)="publish()" [disabled]="!canPublish()">
-                  {{ upload()?.state === 'Completed' ? 'Publish again' : 'Publish' }}
+                <button type="button" (click)="review()" [disabled]="!canPublish()">
+                  {{ upload()?.state === 'Completed' ? 'Publish again…' : privacy() === 'private' ? 'Review & upload as draft…' : 'Review & publish…' }}
                 </button>
               }
             </div>
@@ -236,6 +290,20 @@ interface PublishPrefs {
     .yt-muted { color: var(--muted, #94a3b8); font-size: .85rem; margin: 0; }
     .yt-err { color: #fca5a5; font-size: .9rem; }
     .yt-warn { color: #fcd34d; font-size: .85rem; margin: 0; }
+    .yt-suggest { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-bottom: .25rem; }
+    .yt-suggest select { width: auto; }
+    .yt-chips { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem; font-size: .8rem; margin-top: .35rem; }
+    .chip { display: inline-flex; align-items: center; gap: .15rem; padding: .1rem .2rem .1rem .5rem; border-radius: 999px;
+      background: rgba(108, 140, 255, .18); }
+    .chip.off { opacity: .45; text-decoration: line-through; }
+    .chip button { background: transparent; border: 0; color: inherit; cursor: pointer; padding: 0 .25rem; font-size: .75rem; }
+    .yt-review dl { display: grid; gap: .5rem; margin: .75rem 0; }
+    .yt-review dl div { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: .75rem; }
+    @media (max-width: 560px) { .yt-review dl div { grid-template-columns: 1fr; gap: .1rem; } }
+    .yt-review dt { color: var(--muted, #94a3b8); font-size: .85rem; }
+    .yt-review dd { margin: 0; overflow-wrap: anywhere; }
+    .yt-review pre { margin: 0; white-space: pre-wrap; font: inherit; max-height: 30vh; overflow: auto;
+      background: rgba(148, 163, 184, .08); padding: .5rem .6rem; border-radius: 6px; }
     .yt-actions { display: flex; justify-content: flex-end; gap: .5rem; margin-top: 1rem; }
   `],
 })
@@ -246,6 +314,11 @@ export class YouTubePublishDialogComponent implements OnInit {
   readonly previewSrc = input.required<string>();
   /** The in-app path to come back to after connecting a channel. */
   readonly returnPath = input.required<string>();
+  /**
+   * Upload as a draft: private and silent, to finish (thumbnail, end screens, playlists) in
+   * YouTube Studio. The API has no real draft state, so private is the closest equivalent.
+   */
+  readonly asDraft = input(false);
   readonly closed = output<void>();
 
   readonly loading = signal(true);
@@ -269,9 +342,26 @@ export class YouTubePublishDialogComponent implements OnInit {
   readonly madeForKids = signal<boolean | null>(false);
   readonly notify = signal(true);
 
+  /** Channel default tags left out of this one video. */
+  readonly excludedChannelTags = signal<ReadonlySet<string>>(new Set());
+  /** Showing the final summary; the upload only starts from there. */
+  readonly reviewing = signal(false);
+  readonly suggesting = signal(false);
+  readonly suggestedOnce = signal(false);
+  readonly suggestNote = signal<string | null>(null);
+  readonly language = signal<'en' | 'hi'>('en');
+
   readonly selectedChannel = computed(() =>
     this.status()?.channels.find((c) => c.channelId === this.channelId()) ?? null);
-  readonly tags = computed(() => parseYouTubeTags(this.tagsText()));
+  /** The video's own tags first, then the channel's defaults that weren't left out. */
+  readonly tags = computed(() => {
+    const channel = (this.draft()?.channelTags ?? []).filter((t) => !this.excludedChannelTags().has(t));
+    return parseYouTubeTags([this.tagsText(), ...channel].join(','));
+  });
+  readonly categoryName = computed(() =>
+    this.status()?.categories.find((c) => c.id === this.categoryId())?.name ?? this.categoryId());
+  readonly privacyLabel = computed(() =>
+    ({ public: 'Public', unlisted: 'Unlisted', private: 'Private (draft)' })[this.privacy()]);
   readonly tagsLength = computed(() => youTubeTagsLength(this.tags()));
   readonly descriptionBytes = computed(() => new TextEncoder().encode(this.description().trim()).length);
   readonly uploading = computed(() => {
@@ -300,7 +390,7 @@ export class YouTubePublishDialogComponent implements OnInit {
     return list;
   });
 
-  readonly canPublish = computed(() => !this.busy() && !this.uploading() && this.problems().length === 0);
+  readonly canPublish = computed(() => !this.busy() && !this.suggesting() && !this.uploading() && this.problems().length === 0);
 
   private pollHandle: ReturnType<typeof setTimeout> | null = null;
 
@@ -338,6 +428,10 @@ export class YouTubePublishDialogComponent implements OnInit {
           this.madeForKids.set(prefs.madeForKids ?? draft.madeForKids);
           const remembered = status.channels.find((c) => c.channelId === prefs.channelId);
           this.channelId.set(remembered?.channelId ?? status.channels[0]?.channelId ?? '');
+        }
+        if (this.asDraft()) {
+          this.privacy.set('private');
+          this.notify.set(false);
         }
 
         // Reattach to an upload of this render that is still going (or just finished).
@@ -393,6 +487,41 @@ export class YouTubePublishDialogComponent implements OnInit {
     });
   }
 
+  suggest(): void {
+    this.suggesting.set(true);
+    this.suggestNote.set(null);
+    this.error.set(null);
+    this.api.suggest(this.jobId(), this.language(), this.suggestedOnce()).subscribe({
+      next: (s) => {
+        this.title.set(s.title);
+        this.description.set(s.description);
+        this.tagsText.set(s.tags.join(', '));
+        this.suggestedOnce.set(true);
+        this.suggestNote.set('Filled in by AI. Read it through and edit before publishing.');
+        this.suggesting.set(false);
+      },
+      error: (e: Error) => {
+        this.error.set(e.message);
+        this.suggesting.set(false);
+      },
+    });
+  }
+
+  toggleChannelTag(tag: string): void {
+    this.excludedChannelTags.update((set) => {
+      const next = new Set(set);
+      if (!next.delete(tag)) next.add(tag);
+      return next;
+    });
+  }
+
+  /** The last look before anything is sent. */
+  review(): void {
+    if (!this.canPublish()) return;
+    this.error.set(null);
+    this.reviewing.set(true);
+  }
+
   publish(): void {
     if (!this.canPublish()) return;
     this.busy.set(true);
@@ -411,6 +540,7 @@ export class YouTubePublishDialogComponent implements OnInit {
     }).subscribe({
       next: (upload) => {
         this.upload.set(upload);
+        this.reviewing.set(false);
         this.busy.set(false);
         if (!isUploadFinished(upload)) this.poll(upload.uploadId);
       },

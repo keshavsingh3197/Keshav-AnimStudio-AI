@@ -142,7 +142,7 @@
                          (input)="onRange(i, 'opacity', $event)" aria-label="Fill density" />
                   <span class="val">{{ r.opacity ?? 100 | number:'1.0-0' }}%</span>
                 </div>
-              } @else {
+              } @else if (r.style !== 'Clean') {
                 <div class="field">
                   <span class="field-label" title="How far the edge fades into the footage around the box">Soft edge</span>
                   <input type="range" class="slider" min="0" max="100" step="1" [value]="feather(r)"

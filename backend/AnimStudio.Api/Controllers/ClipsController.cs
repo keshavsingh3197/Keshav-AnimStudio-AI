@@ -146,6 +146,7 @@ public sealed class ClipsController(
             ExportName = request.ExportName,
             AssetIds = request.AssetIds,
             Fit = request.Fit,
+            BackgroundColor = request.BackgroundColor,
             OutputWidth = request.OutputWidth,
             OutputHeight = request.OutputHeight,
             Quality = request.Quality,
@@ -160,7 +161,7 @@ public sealed class ClipsController(
             BackgroundMusicVolume = request.BackgroundMusicVolume,
             MusicTracks = request.MusicTracks
                 .Select(t => new TimedMusicClip(
-                    t.AssetId, t.StartSeconds, t.Volume, t.TrimStartSeconds, t.TrimEndSeconds))
+                    t.AssetId, t.StartSeconds, t.Volume, t.TrimStartSeconds, t.TrimEndSeconds, t.IsVoiceover))
                 .ToList(),
             MusicDuckWindows = request.MusicDuckWindows
                 .Select(w => new MusicDuckWindow(w.StartSeconds, w.EndSeconds, w.Level))
@@ -171,6 +172,8 @@ public sealed class ClipsController(
                 .ToList(),
             Watermark = request.Watermark.ToSettings(),
             IncludeOutro = request.IncludeOutro,
+            OutroHoldSeconds = request.OutroHoldSeconds,
+            YouTubeLoudness = request.YouTubeLoudness,
             TimelineItems = request.TimelineItems?
                 .Select(t => new TimelineItemSpec
                 {
@@ -184,6 +187,7 @@ public sealed class ClipsController(
                     Transform = t.Transform is null ? null : new TimelineItemTransformSpec
                     {
                         Scale = t.Transform.Scale,
+                        WidthPercent = t.Transform.WidthPercent,
                         X = t.Transform.X,
                         Y = t.Transform.Y,
                         Opacity = t.Transform.Opacity,
@@ -193,6 +197,10 @@ public sealed class ClipsController(
                         CropTop = t.Transform.CropTop,
                         CropBottom = t.Transform.CropBottom,
                         Stabilization = t.Transform.Stabilization,
+                        Shape = t.Transform.Shape,
+                        BorderWidth = t.Transform.BorderWidth,
+                        BorderColor = t.Transform.BorderColor,
+                        AspectRatio = t.Transform.AspectRatio,
                         EraseRegions = (t.Transform.EraseRegions ?? [])
                             .Select(r => new EraseRegionSpec
                             {
@@ -216,6 +224,15 @@ public sealed class ClipsController(
                         Color = t.TextStyle.Color,
                         BackgroundColor = t.TextStyle.BackgroundColor,
                         Position = t.TextStyle.Position,
+                        X = t.TextStyle.X,
+                        Y = t.TextStyle.Y,
+                        BoxStyle = t.TextStyle.BoxStyle,
+                        BoxColor = t.TextStyle.BoxColor,
+                        BoxOpacity = t.TextStyle.BoxOpacity,
+                        OutlineColor = t.TextStyle.OutlineColor,
+                        OutlineWidth = t.TextStyle.OutlineWidth,
+                        Shadow = t.TextStyle.Shadow,
+                        Uppercase = t.TextStyle.Uppercase,
                         TransitionIn = t.TextStyle.TransitionIn,
                         TransitionInDuration = t.TextStyle.TransitionInDuration,
                         TransitionOut = t.TextStyle.TransitionOut,

@@ -64,6 +64,10 @@ internal static class EraseFilters
                          .Append($":color={color}@{FilterExpr.N(r.Opacity / 100)}:t=fill[{next}];\n");
                     break;
 
+                case EraseStyle.Clean:
+                    AppendClean(graph, current, next, r);
+                    break;
+
                 case EraseStyle.Blur:
                     // A radius of 0.4 of the patch's short side at full strength is well
                     // past legibility, and always under boxblur's hard limit of half of it.
@@ -134,6 +138,70 @@ internal static class EraseFilters
              .Append($":y='min(main_h*{P(oy)},main_h-overlay_h)'")
              .Append(alpha is null ? "" : ":format=auto")
              .Append($"[{next}];\n");
+    }
+
+    /// <summary>Pixels kept around a Clean box: its outermost row and column are what it is rebuilt from.</summary>
+    private const int CleanEdge = 2;
+
+    /// <summary>
+    /// Rebuilds the box from the footage just outside it: each pixel is the edge above and
+    /// below blended by height, and the edge left and right blended by width, mixed by
+    /// which edge is nearer - the way delogo interpolates, without delogo's pixel-only
+    /// coordinates or its failure on a box that touches the frame edge. A side against the
+    /// frame edge has nothing to read, so the box is built from the other sides alone.
+    /// <para>
+    /// The patch starts on an even pixel so a 4:2:0 overlay does not round it a pixel off
+    /// what it was cut from.
+    /// </para>
+    /// </summary>
+    private static void AppendClean(StringBuilder graph, string current, string next, EraseRegionSpec r)
+    {
+        bool top = r.Y > 0.5, bottom = r.Y + r.Height < 99.5, left = r.X > 0.5, right = r.X + r.Width < 99.5;
+        if (!(top || bottom || left || right))
+        {
+            // The whole frame: there is nothing outside to rebuild it from.
+            graph.Append($"[{current}]drawbox=x=0:y=0:w=iw:h=ih:color=black:t=fill[{next}];\n");
+            return;
+        }
+
+        int mt = top ? CleanEdge : 0, mb = bottom ? CleanEdge : 0, ml = left ? CleanEdge : 0, mr = right ? CleanEdge : 0;
+        var x0 = $"2*floor(max(0,floor(iw*{P(r.X)})-{ml})/2)";
+        var y0 = $"2*floor(max(0,floor(ih*{P(r.Y)})-{mt})/2)";
+        var w = $"min(iw,ceil(iw*{P(r.X + r.Width)})+{mr})-{x0}";
+        var h = $"min(ih,ceil(ih*{P(r.Y + r.Height)})+{mb})-{y0}";
+
+        string Plane(string p)
+        {
+            string? v = null, dy = null, hz = null, dx = null;
+            if (top && bottom)
+            {
+                v = $"{p}(X,0)*(1-Y/(H-1))+{p}(X,H-1)*Y/(H-1)";
+                dy = "min(Y,H-1-Y)";
+            }
+            else if (top) { v = $"{p}(X,0)"; dy = "Y"; }
+            else if (bottom) { v = $"{p}(X,H-1)"; dy = "(H-1-Y)"; }
+
+            if (left && right)
+            {
+                hz = $"{p}(0,Y)*(1-X/(W-1))+{p}(W-1,Y)*X/(W-1)";
+                dx = "min(X,W-1-X)";
+            }
+            else if (left) { hz = $"{p}(0,Y)"; dx = "X"; }
+            else if (right) { hz = $"{p}(W-1,Y)"; dx = "(W-1-X)"; }
+
+            // Near a top or bottom edge the vertical blend wins, near a side the horizontal one.
+            var fill = v is not null && hz is not null
+                ? $"(({v})*{dx}+({hz})*{dy})/max(0.001,{dx}+{dy})"
+                : v ?? hz!;
+            var inside = $"gte(Y,{mt})*lt(Y,H-{mb})*gte(X,{ml})*lt(X,W-{mr})";
+            return $"if({inside},{fill},{p}(X,Y))";
+        }
+
+        graph.Append($"[{current}]split=2[{next}m][{next}s];\n")
+             .Append($"[{next}s]crop=w='{w}':h='{h}':x='{x0}':y='{y0}':exact=1,format=yuv444p,")
+             .Append($"geq=lum='{Plane("lum")}':cb='{Plane("cb")}':cr='{Plane("cr")}'[{next}b];\n")
+             .Append($"[{next}m][{next}b]overlay=x='{x0.Replace("iw", "main_w")}'")
+             .Append($":y='{y0.Replace("ih", "main_h")}'[{next}];\n");
     }
 
     /// <summary>

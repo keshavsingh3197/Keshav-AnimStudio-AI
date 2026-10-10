@@ -1,0 +1,103 @@
+@if (layer(); as l) {
+  <div class="cd-backdrop" (click)="close()"></div>
+  <div class="cd-dialog" role="dialog" aria-modal="true" aria-label="Crop and shape">
+    <div class="cd-head">
+      <div class="cd-title">✂ Crop &amp; shape · <span class="cd-name">{{ l.name }}</span></div>
+      <button type="button" class="cd-x" (click)="close()" title="Close (Esc)">✕</button>
+    </div>
+
+    <div class="cd-body">
+      <div class="cd-left">
+        <div class="cd-ratios">
+          @for (r of ratios; track r.id) {
+            <button type="button" [class.on]="shape() !== 'circle' && ratioId() === r.id"
+                    [disabled]="shape() === 'circle' || (r.ratio !== null && !sourceAspect())"
+                    (click)="setRatio(r.id)">{{ r.label }}</button>
+          }
+          <button type="button" class="cd-reset" (click)="reset()" title="Show the whole picture">Reset</button>
+        </div>
+
+        <div class="cd-stage-wrap">
+          <div #stage class="cd-stage" [style.aspect-ratio]="sourceAspect() ?? 1"
+               [style.width]="'min(100%, calc((min(52vh, 460px) - 16px) * ' + (sourceAspect() ?? 1) + '))'">
+            @if (l.kind === 'video') {
+              <video #preview class="cd-media" [src]="state.assetUrl(l.assetId)" muted playsinline preload="auto"
+                     (loadedmetadata)="onVideoReady(preview)"></video>
+            } @else {
+              <img class="cd-media" [src]="state.assetUrl(l.assetId)" alt="" draggable="false" />
+            }
+
+            @let r = rect();
+            <div class="cd-window"
+                 [style.left.%]="r.x" [style.top.%]="r.y" [style.width.%]="r.w" [style.height.%]="r.h"
+                 (pointerdown)="startDrag($event, 'move')">
+              <span class="cd-shape" [style.border-radius]="radius()"></span>
+              <span class="cd-grid"></span>
+              <span class="cd-handle nw" (pointerdown)="startDrag($event, 'nw')"></span>
+              <span class="cd-handle ne" (pointerdown)="startDrag($event, 'ne')"></span>
+              <span class="cd-handle sw" (pointerdown)="startDrag($event, 'sw')"></span>
+              <span class="cd-handle se" (pointerdown)="startDrag($event, 'se')"></span>
+            </div>
+          </div>
+        </div>
+        <p class="cd-hint">Drag the box to choose what shows; drag a corner to resize it.</p>
+
+        @if (l.kind === 'video') {
+          <div class="cd-row">
+            <span class="cd-label">Start the clip at</span>
+            <input type="number" class="cd-num" min="0" step="0.1" [ngModel]="trimStart()"
+                   (ngModelChange)="setTrimStart(+$event)" aria-label="Start the clip at (seconds)" />
+            <span class="cd-hint">seconds</span>
+          </div>
+        }
+      </div>
+
+      <div class="cd-right">
+        <div class="cd-label">Shape</div>
+        <div class="cd-seg">
+          @for (s of shapes; track s.id) {
+            <button type="button" [class.on]="shape() === s.id" (click)="setShape(s.id)">{{ s.label }}</button>
+          }
+        </div>
+        @if (shape() === 'circle') {
+          <p class="cd-hint">A circle keeps the box square.</p>
+        }
+
+        <div class="cd-label">Ring</div>
+        <div class="cd-slider">
+          <input type="range" class="form-range" min="0" [max]="maxBorder" step="0.5"
+                 [ngModel]="borderWidth()" (ngModelChange)="borderWidth.set(+$event)" aria-label="Ring width" />
+          <span class="mono">{{ borderWidth() | number:'1.0-1' }}</span>
+        </div>
+        <div class="cd-swatches">
+          @for (c of ringSwatches; track c) {
+            <button type="button" class="cd-swatch" [class.on]="borderColor() === c" [style.background]="c"
+                    [title]="c" (click)="pickRingColor(c)"></button>
+          }
+          <input type="color" class="cd-picker" [ngModel]="borderColor()" (ngModelChange)="borderColor.set($event)"
+                 title="Any colour" />
+        </div>
+
+        <div class="cd-label">Result</div>
+        <div class="cd-result-wrap">
+          <div class="cd-result" [style.aspect-ratio]="cropAspect()" [style.border-radius]="radius()">
+            @if (l.kind === 'video') {
+              <span class="cd-result-video">▶ video</span>
+            } @else {
+              <img [src]="state.assetUrl(l.assetId)" alt="" [style]="resultStyle()" />
+            }
+            @if (borderWidth() > 0) {
+              <span class="cd-result-ring" [style.border-radius]="radius()" [style.border-color]="borderColor()"
+                    [style.border-width.px]="borderWidth() * 0.6"></span>
+            }
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="cd-foot">
+      <button type="button" class="btn btn-outline-secondary btn-sm" (click)="close()">Cancel</button>
+      <button type="button" class="btn btn-primary btn-sm" (click)="apply()">Apply</button>
+    </div>
+  </div>
+}

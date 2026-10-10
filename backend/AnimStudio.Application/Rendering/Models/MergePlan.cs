@@ -1,3 +1,4 @@
+using AnimStudio.Application.Rendering;
 using AnimStudio.Domain.Rendering;
 
 namespace AnimStudio.Application.Rendering.Models;
@@ -10,7 +11,7 @@ public sealed record MergeSceneInput(string RelativePath, FrameCount Length, Tra
 /// </summary>
 public sealed record MergeMusicTrack(
     string RelativePath, double StartSeconds, double Volume,
-    double? TrimStartSeconds, double? TrimEndSeconds);
+    double? TrimStartSeconds, double? TrimEndSeconds, bool IsVoiceover = false);
 
 /// <summary>
 /// One stretch of the finished timeline over which the music plays at a reduced level.
@@ -26,15 +27,84 @@ public sealed record MergeOverlayItem(
     double X,
     double Y,
     double Opacity,
-    string? Text,
-    double FontSize,
-    string Color,
-    string BackgroundColor,
-    string Position,
     string? TransitionIn = "fade",
     double TransitionInDuration = 0.5,
     string? TransitionOut = "fade",
-    double TransitionOutDuration = 0.5);
+    double TransitionOutDuration = 0.5)
+{
+    /// <summary>What to draw for a text overlay; null for image and video overlays.</summary>
+    public MergeTextOverlay? Text { get; init; }
+
+    /// <summary>
+    /// Image and video overlays: width in percent of the canvas, already held to 1-100.
+    /// Null falls back to <see cref="Scale"/> on the source's own pixels.
+    /// </summary>
+    public double? WidthPercent { get; init; }
+
+    /// <summary>Image and video overlays: crop, shape, ring and source trim. Null draws the whole source as a rectangle.</summary>
+    public MergeMediaOverlay? Media { get; init; }
+}
+
+/// <summary>
+/// How an image or video overlay is cut and framed, already validated: crops are percent of
+/// the source held so something always shows, the ring colour is a checked <c>rrggbb</c>.
+/// </summary>
+/// <param name="BorderWidth">Ring width in 360-reference pixels; zero for none.</param>
+/// <param name="AspectRatio">Width / height after the crop, or null when the studio did not send one.</param>
+/// <param name="TrimStartSeconds">Video overlays: where in the source to start playing.</param>
+public sealed record MergeMediaOverlay(
+    double CropLeft, double CropTop, double CropRight, double CropBottom,
+    OverlayShape Shape, double BorderWidth, string BorderRgb, double? AspectRatio,
+    double TrimStartSeconds = 0)
+{
+    public bool HasCrop => CropLeft > 0 || CropTop > 0 || CropRight > 0 || CropBottom > 0;
+}
+
+/// <summary>
+/// A text overlay ready to draw: already wrapped into lines, each line already in a file.
+/// <para>
+/// Files for the same reason as <see cref="WatermarkPlan"/>: a caption is free text, and
+/// <c>:</c> <c>,</c> <c>'</c> <c>%</c> and <c>\</c> are all syntax to drawtext's option
+/// parser. One file per line because drawtext cannot centre the lines of a block, only the
+/// block - each line is its own drawtext, centred on its own.
+/// </para>
+/// </summary>
+/// <param name="LineRelativePaths">One per line, top to bottom; null for a blank line, which keeps its slot.</param>
+/// <param name="LineLengths">
+/// Characters (text elements) on each line, for a typed entrance that reveals a line one
+/// character's width at a time. Null when unknown - the reveal then sweeps evenly.
+/// </param>
+/// <param name="LineRuns">
+/// Per line, the runs it is drawn in when it needs more than <paramref name="FontFilePath"/>
+/// - an emoji or symbol that face lacks. Null (or a null entry) draws the line whole from
+/// its file, as one drawtext.
+/// </param>
+public sealed record MergeTextOverlay(
+    IReadOnlyList<string?> LineRelativePaths,
+    string FontFilePath,
+    TextOverlayLook Look,
+    IReadOnlyList<int>? LineLengths = null,
+    IReadOnlyList<MergeTextLineRuns?>? LineRuns = null);
+
+/// <summary>One stretch of a line drawn in one face, with its measured advance in ems.</summary>
+public sealed record FontRun(string Text, string FontFilePath, double AdvanceEm);
+
+/// <summary>A line cut into runs, with the ascent and descent of the line's own face in ems.</summary>
+public sealed record FontRunLine(IReadOnlyList<FontRun> Runs, double AscentEm, double DescentEm)
+{
+    public double WidthEm => Runs.Sum(r => r.AdvanceEm);
+}
+
+/// <summary>A run ready to draw: its text in a file, and where it starts along the line in ems.</summary>
+public sealed record MergeTextRun(string RelativePath, string FontFilePath, double OffsetEm);
+
+/// <summary>
+/// A line drawn as several runs. drawtext measures each run only by itself, so the line is
+/// laid out from these measured widths: centred on <see cref="WidthEm"/>, every run on one
+/// baseline placed from the line face's <see cref="AscentEm"/> and <see cref="DescentEm"/>.
+/// </summary>
+public sealed record MergeTextLineRuns(
+    IReadOnlyList<MergeTextRun> Runs, double WidthEm, double AscentEm, double DescentEm);
 
 public sealed record MergePlan
 {
@@ -56,6 +126,9 @@ public sealed record MergePlan
     /// the music holding one level throughout, exactly as it always did.
     /// </summary>
     public IReadOnlyList<MergeDuckWindow> MusicDuckWindows { get; init; } = [];
+
+    /// <summary>Level the finished mix to YouTube's loudness target (-14 LUFS) before it is encoded.</summary>
+    public bool YouTubeLoudness { get; init; }
 
     public IReadOnlyList<MergeOverlayItem> Overlays { get; init; } = [];
 

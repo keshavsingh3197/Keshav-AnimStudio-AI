@@ -1020,3 +1020,124 @@
 @media (min-width: 2200px) {
   .character-studio { max-width: 2400px; }
 }
+
+/* ── Character Voice ────────────────────────────────────────────────── */
+.voice-field {
+  background: rgba(15, 20, 32, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 0.9rem;
+}
+
+.voice-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 0.65rem;
+}
+
+.voice-chip {
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  color: #c7d2fe;
+  font-size: 0.78rem;
+  padding: 4px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.voice-chip:hover {
+  background: rgba(99, 102, 241, 0.18);
+}
+
+.voice-chip.selected {
+  background: rgba(99, 102, 241, 0.35);
+  border-color: #818cf8;
+  color: #fff;
+}
+
+.voice-sliders {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.6rem 1rem;
+  margin-top: 0.9rem;
+}
+
+.voice-sliders label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.78rem;
+  color: #cbd5e1;
+}
+
+.voice-sliders label span {
+  color: #8b9bb4;
+  font-variant-numeric: tabular-nums;
+}
+
+.voice-sliders input[type='range'] {
+  padding: 0;
+  accent-color: #6366f1;
+}
+
+.voice-sliders .voice-check {
+  flex-direction: row;
+  align-items: center;
+}
+
+.voice-sliders .voice-check input {
+  width: auto;
+}
+
+.voice-tester {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 0.9rem;
+}
+
+.voice-error {
+  color: #fca5a5;
+}
+
+.voice-ai {
+  margin-top: 1rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.voice-ai-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 0.6rem;
+}
+
+.voice-ai-row select {
+  flex: 1 1 200px;
+}
+
+.voice-upload {
+  cursor: pointer;
+}
+
+.voice-upload.disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.voice-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 0.7rem;
+  font-size: 0.8rem;
+  color: #cbd5e1;
+}
+
+.voice-consent input {
+  width: auto;
+  margin-top: 2px;
+}

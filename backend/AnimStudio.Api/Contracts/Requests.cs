@@ -2,6 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using AnimStudio.Application.Clips;
+using AnimStudio.Application.Rendering;
 using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Projects;
 using AnimStudio.Domain.Rendering;
@@ -139,6 +140,28 @@ public sealed record CreateCharacterRequest
     [StringLength(9)] public string? SubtitleColorHex { get; init; }
 
     public CharacterAppearanceRequest? Appearance { get; init; }
+
+    /// <summary>Null leaves the voice as it is; <c>Enabled = false</c> clears it.</summary>
+    public CharacterVoiceRequest? Voice { get; init; }
+}
+
+/// <summary>The ranges are checked again by the editing service, which owns the rules.</summary>
+public sealed record CharacterVoiceRequest
+{
+    public bool Enabled { get; init; }
+    [StringLength(40)] public string? Preset { get; init; }
+    [Range(-12, 12)] public double PitchSemitones { get; init; }
+    [Range(-6, 6)] public double SizeSemitones { get; init; }
+    [Range(-12, 12)] public double BassDecibels { get; init; }
+    [Range(-12, 12)] public double TrebleDecibels { get; init; }
+    [Range(0, 1)] public double Drive { get; init; }
+    [Range(0, 1)] public double Robot { get; init; }
+    [Range(20, 400)] public double RobotHertz { get; init; } = 60;
+    public bool Radio { get; init; }
+    [Range(0, 1)] public double Echo { get; init; }
+    [Range(0, 1)] public double Reverb { get; init; }
+    [StringLength(64)] public string? AiSampleAssetId { get; init; }
+    public bool AiSampleConsent { get; init; }
 }
 
 public sealed record AssignSceneBackgroundRequest
@@ -348,6 +371,8 @@ public sealed record OutroRequest
     [RegularExpression("^#[0-9A-Fa-f]{6}$")]
     public string? TextHex { get; init; }
 
+    public EndCardAnimation Animation { get; init; } = EndCardAnimation.Rise;
+
     public OutroSettings ToSettings() => new()
     {
         Kind = Kind,
@@ -361,7 +386,8 @@ public sealed record OutroRequest
         HeadlineSecondary = HeadlineSecondary,
         SubtextSecondary = SubtextSecondary,
         BackgroundHex = BackgroundHex ?? "#101828",
-        TextHex = TextHex ?? "#FFFFFF"
+        TextHex = TextHex ?? "#FFFFFF",
+        Animation = Animation
     };
 }
 
@@ -423,6 +449,9 @@ public sealed record TimedMusicClipRequest
     [Range(0, ClipAudioSpec.MaxGain)] public double Volume { get; init; } = 0.5;
     [Range(0, 86400)] public double? TrimStartSeconds { get; init; }
     [Range(0, 86400)] public double? TrimEndSeconds { get; init; }
+
+    /// <summary>A voiceover line (A1): it leads the mix, so music ducks under it and it never ducks itself.</summary>
+    public bool IsVoiceover { get; init; }
 }
 
 /// <summary>
@@ -477,6 +506,9 @@ public sealed record ClipMergeRequest
 
     public ClipFit Fit { get; init; } = ClipFit.Contain;
 
+    /// <summary>Colour of the Contain bars, <c>#rrggbb</c>. Null is black.</summary>
+    [RegularExpression("^#[0-9a-fA-F]{6}$")] public string? BackgroundColor { get; init; }
+
     [Range(360, 3840)] public int? OutputWidth { get; init; }
     [Range(360, 3840)] public int? OutputHeight { get; init; }
 
@@ -526,15 +558,40 @@ public sealed record ClipMergeRequest
     /// </summary>
     public bool IncludeOutro { get; init; }
 
+    /// <summary>
+    /// Seconds to hold the last clip's final frame before the end card, so the card starts
+    /// after music or text that runs on past the clips instead of over it.
+    /// </summary>
+    [Range(0, 600)] public double OutroHoldSeconds { get; init; }
+
+    /// <summary>Level the finished mix to YouTube's loudness target (-14 LUFS), so it plays as loud as other videos.</summary>
+    public bool YouTubeLoudness { get; init; }
+
     public List<TimelineItemRequest>? TimelineItems { get; init; }
 }
 
 public sealed record TimelineItemTextStyleRequest
 {
+    /// <summary>Pixels on a frame whose short side is 360; scaled to the real canvas.</summary>
+    [Range(TextOverlayLayout.MinFontSize, TextOverlayLayout.MaxFontSize)]
     public double FontSize { get; init; } = 36;
     [StringLength(32)] public string Color { get; init; } = "#ffffff";
     [StringLength(32)] public string BackgroundColor { get; init; } = "rgba(0,0,0,0.6)";
+    [RegularExpression("^(top|center|bottom|custom)$")]
     [StringLength(16)] public string Position { get; init; } = "bottom";
+
+    /// <summary>Centre of the text, in percent of the frame. Used with Position custom.</summary>
+    [Range(0, 100)] public double? X { get; init; }
+    [Range(0, 100)] public double? Y { get; init; }
+
+    [RegularExpression("^(none|box|band)$")] public string? BoxStyle { get; init; }
+    [RegularExpression("^#[0-9a-fA-F]{6}$")] public string? BoxColor { get; init; }
+    [Range(0, 1)] public double? BoxOpacity { get; init; }
+    [RegularExpression("^#[0-9a-fA-F]{6}$")] public string? OutlineColor { get; init; }
+    [Range(0, TextOverlayLayout.MaxOutlineWidth)] public double OutlineWidth { get; init; }
+    public bool Shadow { get; init; }
+    public bool Uppercase { get; init; }
+
     [StringLength(32)] public string? TransitionIn { get; init; } = "fade";
     public double TransitionInDuration { get; init; } = 0.5;
     [StringLength(32)] public string? TransitionOut { get; init; } = "fade";
@@ -544,6 +601,9 @@ public sealed record TimelineItemTextStyleRequest
 public sealed record TimelineItemTransformRequest
 {
     public double Scale { get; init; } = 1.0;
+
+    /// <summary>Overlay width in percent of the canvas width; replaces Scale when set.</summary>
+    [Range(1, 100)] public double? WidthPercent { get; init; }
 
     /// <summary>Normalized percentage offset [-50, 50] from canvas centre on X axis.</summary>
     public double X { get; init; }
@@ -564,6 +624,17 @@ public sealed record TimelineItemTransformRequest
 
     /// <summary>Request video stabilization for this clip.</summary>
     public bool Stabilization { get; init; }
+
+    /// <summary>Image and video overlays: rect, rounded or circle.</summary>
+    [RegularExpression("^(rect|rounded|circle)$")] public string? Shape { get; init; }
+
+    /// <summary>Ring drawn inside the overlay's edge, in 360-reference pixels like text sizes.</summary>
+    [Range(0, MediaOverlayShape.MaxBorderWidth)] public double BorderWidth { get; init; }
+
+    [RegularExpression("^#[0-9a-fA-F]{6}$")] public string? BorderColor { get; init; }
+
+    /// <summary>Width / height of the overlay after its crop, so a shaped overlay is scaled to a known size.</summary>
+    [Range(MediaOverlayShape.MinAspectRatio, MediaOverlayShape.MaxAspectRatio)] public double? AspectRatio { get; init; }
 
     /// <summary>Existing marks to wipe from the source frame before our own is drawn.</summary>
     [MaxLength(EraseRegionSpec.MaxPerClip)]
@@ -611,4 +682,36 @@ public sealed record TimelineItemRequest
 public sealed record UpdateStorageQuotaRequest
 {
     [Range(1, 1_000_000)] public double? QuotaGb { get; init; }
+}
+
+/// <summary>One voice switch in a studio-voice timeline; a null voice is the performer's own.</summary>
+public sealed record StudioVoiceSegmentRequest
+{
+    public double StartSeconds { get; init; }
+    public CharacterVoiceRequest? Voice { get; init; }
+}
+
+/// <summary>One script line to speak. Limits are enforced (and reported per field) by the controller.</summary>
+public sealed record VoiceoverRequest
+{
+    [StringLength(4000)] public string? Text { get; init; }
+    [StringLength(64)] public string? VoiceId { get; init; }
+    public double? Rate { get; init; }
+    [StringLength(120)] public string? Name { get; init; }
+
+    /// <summary>One of the caller's own voices: the line is spoken by <see cref="VoiceId"/>, then re-voiced into it.</summary>
+    [StringLength(64)] public string? MyVoiceId { get; init; }
+
+    /// <summary>The speech engine to use instead of the configured order; ignored for <see cref="MyVoiceId"/>.</summary>
+    [StringLength(64)] public string? Engine { get; init; }
+
+    /// <summary>One of <see cref="Engine"/>'s offered models; null for its configured one.</summary>
+    [StringLength(80)] public string? Model { get; init; }
+}
+
+/// <summary>A voiceover script to rewrite so it reads aloud well. <see cref="Fresh"/> asks for a new take, not the cached one.</summary>
+public sealed record VoiceScriptPolishRequest
+{
+    [StringLength(12_000)] public string? Script { get; init; }
+    public bool Fresh { get; init; }
 }

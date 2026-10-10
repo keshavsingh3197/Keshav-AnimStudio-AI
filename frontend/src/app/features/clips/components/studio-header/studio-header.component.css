@@ -240,6 +240,15 @@
   text-decoration: none;
   font-size: 0.8rem;
 }
+button.cut-item {
+  width: 100%;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.8rem;
+}
 .cut-item:hover { background: color-mix(in srgb, #fff 6%, transparent); }
 .cut-item.active { background: color-mix(in srgb, var(--brand, #6c8cff) 18%, transparent); }
 .cut-item-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }

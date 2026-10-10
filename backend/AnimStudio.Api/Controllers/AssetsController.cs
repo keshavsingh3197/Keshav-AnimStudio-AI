@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using AnimStudio.Api.Common;
 using AnimStudio.Api.Contracts;
 using AnimStudio.Application.Abstractions.Persistence;
@@ -434,6 +435,34 @@ public sealed class AssetsController(
     {
         await library.DeleteAsync(id, currentUser.UserId, ct);
         return Ok(ApiResponse<EmptyPayload>.Ok(EmptyPayload.Value));
+    }
+
+    public sealed record CopyAssetsRequest
+    {
+        [Required, MaxLength(64)] public string SourceProjectId { get; init; } = string.Empty;
+        [Required, MaxLength(AssetLibraryService.MaxCopyPerRequest)] public List<string> AssetIds { get; init; } = [];
+    }
+
+    /// <summary>Source asset id to the id of the same file in this project.</summary>
+    public sealed record CopyAssetsResponse(IReadOnlyDictionary<string, string> Mapping);
+
+    /// <summary>
+    /// Copies files from another of the user's projects into this one, for a timeline being
+    /// brought over from that project. Both projects must be the caller's.
+    /// </summary>
+    [HttpPost("api/projects/{projectId}/assets/copy")]
+    public async Task<ActionResult<ApiResponse<CopyAssetsResponse>>> CopyFromProject(
+        string projectId, [FromBody] CopyAssetsRequest request, CancellationToken ct)
+    {
+        if (!IsSafeId(projectId) || !IsSafeId(request.SourceProjectId))
+            return NotFound();
+
+        // An id becomes part of no path here, but anything not shaped like one is not one.
+        var ids = request.AssetIds.Where(IsSafeId).ToList();
+        var mapping = await library.CopyIntoProjectAsync(
+            request.SourceProjectId, projectId, ids, currentUser.UserId, clock.GetUtcNow().UtcDateTime, ct);
+
+        return Ok(ApiResponse<CopyAssetsResponse>.Ok(new CopyAssetsResponse(mapping)));
     }
 
     private async Task EnsureOwnedAsync(string projectId, CancellationToken ct)
