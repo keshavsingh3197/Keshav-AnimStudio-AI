@@ -92,6 +92,13 @@ export const routes: Routes = [
           import('./features/media-tools/media-tools.component')
             .then((m) => m.MediaToolsComponent),
       },
+      {
+        path: 'music',
+        title: 'Music - AnimStudio AI',
+        loadComponent: () =>
+          import('./features/music/music-library.component')
+            .then((m) => m.MusicLibraryComponent),
+      },
     ],
   },
 

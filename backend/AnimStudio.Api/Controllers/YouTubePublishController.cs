@@ -5,6 +5,7 @@ using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Admin;
 using AnimStudio.Application.Ai;
 using AnimStudio.Application.Clips;
+using AnimStudio.Application.Music;
 using AnimStudio.Application.Publishing;
 using AnimStudio.Application.Security;
 using AnimStudio.Domain.Jobs;
@@ -33,6 +34,7 @@ public sealed partial class YouTubePublishController(
     YouTubeOAuthClient oauth,
     IRenderJobRepository jobs,
     IProjectRepository projects,
+    IAssetRepository assets,
     IAiSettingsRepository settingsRepo,
     ISceneRepository scenes,
     IAiExecutor ai,
@@ -136,8 +138,13 @@ public sealed partial class YouTubePublishController(
 
         // The project's own description, then what a clip export knows: chapters and credits.
         var details = job.Timeline is { } timeline ? ExportTimelineFormatter.ToPublishingDetails(timeline) : string.Empty;
+        // Licensed music asks for credit; a CC BY track without it would breach its licence.
+        var musicIds = MusicCredits.AssetIdsUsedBy(job, project);
+        var musicCredits = musicIds.Count == 0
+            ? string.Empty
+            : MusicCredits.Compose((await assets.GetManyAsync(musicIds, ct)).Where(a => a.ProjectId == job.ProjectId));
         var description = string.Join("\n\n",
-            new[] { project?.Description?.Trim(), details.Trim() }.Where(p => !string.IsNullOrEmpty(p)));
+            new[] { project?.Description?.Trim(), details.Trim(), musicCredits }.Where(p => !string.IsNullOrEmpty(p)));
 
         var facts = Facts(job);
         var errors = YouTubePublishValidator.CheckVideo(facts, out var warnings);
@@ -162,7 +169,8 @@ public sealed partial class YouTubePublishController(
             brandName,
             new YouTubeVideoFactsResponse(facts.DurationSeconds, facts.SizeBytes, facts.Width, facts.Height, facts.IsVertical),
             errors,
-            warnings)));
+            warnings,
+            defaults?.FirstComment)));
     }
 
     /// <summary>
@@ -338,6 +346,17 @@ public sealed partial class YouTubePublishController(
                 [.. validation.Errors.Select(e => new ApiError(e.Code, e.Message, Field: e.Field))]));
         }
 
+        var (firstComment, commentError) = YouTubeCommentRules.Normalize(request.FirstComment);
+        if (commentError is not null)
+            return BadRequest(ApiResponse<YouTubeUploadStatus>.Fail(commentError.Message,
+                new ApiError(commentError.Code, commentError.Message, Field: commentError.Field)));
+        // Caught here rather than after the upload, where it could only be a warning.
+        if (firstComment is not null && !YouTubeOAuthClient.AllowsComments(connection.Scopes))
+            return BadRequest(ApiResponse<YouTubeUploadStatus>.Fail("Reconnect this channel to post comments.",
+                new ApiError("youtube-comment-scope",
+                    "This channel was connected before AnimStudio could post comments. Reconnect it, or leave the first comment empty.",
+                    Field: "firstComment")));
+
         try
         {
             var status = uploads.Start(new YouTubeUploadRequest(
@@ -349,7 +368,8 @@ public sealed partial class YouTubePublishController(
                 connection.ChannelTitle,
                 validation.Normalized!,
                 job.ProjectId,
-                [.. related.Select(r => r.VideoId)]));
+                [.. related.Select(r => r.VideoId)],
+                firstComment));
 
             logger.LogInformation("User {UserId} queued render {JobId} for YouTube channel {ChannelId} ({Privacy})",
                 currentUser.UserId, job.Id, connection.ChannelId, validation.Normalized!.Privacy);
@@ -515,7 +535,9 @@ public sealed record YouTubeConnectStartResponse(string AuthorizationUrl);
 public sealed record YouTubeConnectCompleteRequest(string? Code, string? State);
 public sealed record YouTubeConnectCompleteResponse(YouTubeConnectionStatus Connection, string ReturnPath);
 
-public sealed record YouTubePublishRequest(string? ChannelId, YouTubeVideoMetadata? Metadata, IReadOnlyList<string>? RelatedVideoIds = null);
+public sealed record YouTubePublishRequest(string? ChannelId, YouTubeVideoMetadata? Metadata, IReadOnlyList<string>? RelatedVideoIds = null,
+    /// <summary>Posted as a comment once the video is on YouTube; empty posts nothing.</summary>
+    string? FirstComment = null);
 public sealed record YouTubeVideosRefreshRequest(string? ProjectId, bool Force);
 
 public sealed record YouTubeSuggestRequest(string? Language, bool Fresh, string? Tone = null, string? Brief = null, string? ProviderId = null);
@@ -550,4 +572,6 @@ public sealed record YouTubeDraftResponse(
     string BrandChannelName,
     YouTubeVideoFactsResponse Video,
     IReadOnlyList<YouTubeCheck> Errors,
-    IReadOnlyList<YouTubeCheck> Warnings);
+    IReadOnlyList<YouTubeCheck> Warnings,
+    /// <summary>The brand channel's default first comment, if one is set.</summary>
+    string? FirstComment = null);

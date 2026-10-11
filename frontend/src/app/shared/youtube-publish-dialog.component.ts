@@ -60,6 +60,9 @@ interface PublishPrefs {
                 <div><dt>Title</dt><dd><strong>{{ title().trim() }}</strong></dd></div>
                 <div><dt>Tags ({{ tags().length }})</dt><dd>{{ tags().join(', ') || '—' }}</dd></div>
                 <div><dt>Description</dt><dd><pre>{{ finalDescription() || '—' }}</pre></dd></div>
+                @if (firstComment().trim()) {
+                  <div><dt>First comment</dt><dd><pre>{{ firstComment().trim() }}</pre></dd></div>
+                }
                 @if (relatedSelected().length) {
                   <div><dt>Related ({{ relatedSelected().length }})</dt><dd>{{ relatedTitles() }}</dd></div>
                 }
@@ -259,6 +262,25 @@ interface PublishPrefs {
                   }
                 </section>
 
+                <!-- First comment: posted on the video as soon as the upload finishes. -->
+                <section class="yt-field">
+                  <div class="yt-field-head">
+                    <label for="yt-first-comment">First comment <span class="yt-muted">(posted automatically once the video is up)</span></label>
+                    <span class="yt-muted">{{ firstComment().trim().length }}/{{ maxCommentLength }}</span>
+                  </div>
+                  <textarea id="yt-first-comment" rows="3" [ngModel]="firstComment()" (ngModelChange)="firstComment.set($event)"
+                            [disabled]="uploading()" [class.invalid]="fieldError('firstComment')"
+                            placeholder="Thanks for watching! Which part was your favourite? 👇"></textarea>
+                  @if (firstComment().trim() && selectedChannel(); as ch) {
+                    @if (!ch.canComment) {
+                      <p class="yt-warn">{{ ch.channelTitle }} was connected before AnimStudio could post comments.
+                        <button type="button" class="link" (click)="connect()" [disabled]="busy()">Reconnect it</button> or leave this empty.</p>
+                    } @else if (privacy() === 'private' || madeForKids()) {
+                      <p class="yt-muted">Not posted on {{ madeForKids() ? 'videos made for kids' : 'private videos' }} - YouTube has comments off there.</p>
+                    }
+                  }
+                </section>
+
                 <!-- Related videos: the user's own uploads from AnimStudio, linked at the end of the description. -->
                 <section class="yt-field yt-related">
                   <span class="yt-label">Related videos <span class="yt-muted">(linked at the end of the description)</span></span>
@@ -311,6 +333,7 @@ interface PublishPrefs {
                       <a [href]="u.studioUrl" target="_blank" rel="noopener noreferrer">Open in YouTube Studio ↗</a></p>
                     <p class="yt-muted">YouTube may still be processing HD versions for a few minutes.
                       @if (u.privacy === 'private') { Finish the details and publish it from YouTube Studio. }</p>
+                    @if (u.commentId) { <p class="yt-muted">💬 First comment posted. Pin it from YouTube Studio if you want it on top.</p> }
                     @if (u.warning) { <p class="yt-warn">⚠ {{ u.warning }}</p> }
                   }
                   @case ('Failed') { <p class="yt-err">{{ u.error }}</p> }
@@ -514,6 +537,8 @@ export class YouTubePublishDialogComponent implements OnInit {
   readonly privacy = signal<YouTubePrivacy>('public');
   readonly madeForKids = signal<boolean | null>(false);
   readonly notify = signal(true);
+  readonly firstComment = signal('');
+  readonly maxCommentLength = 10000;
 
   /** Channel default tags left out of this one video. */
   readonly excludedChannelTags = signal<ReadonlySet<string>>(new Set());
@@ -608,6 +633,9 @@ export class YouTubePublishDialogComponent implements OnInit {
     if (!this.channelId()) list.push({ field: 'channelId', code: 'channel-missing', message: 'Connect a channel to publish to.' });
     if (this.selectedChannel()?.needsReconnect) list.push({ field: 'channelId', code: 'youtube-reconnect', message: 'This channel needs to be connected again.' });
     if (this.madeForKids() === null) list.push({ field: 'madeForKids', code: 'audience-missing', message: 'Choose an audience.' });
+    const comment = this.firstComment().trim();
+    if (comment.length > this.maxCommentLength) list.push({ field: 'firstComment', code: 'comment-too-long', message: `The first comment is over ${this.maxCommentLength} characters.` });
+    if (comment && this.selectedChannel() && !this.selectedChannel()!.canComment) list.push({ field: 'firstComment', code: 'youtube-comment-scope', message: 'Reconnect the channel to post the first comment, or leave it empty.' });
     for (const e of this.serverErrors()) if (!list.some((x) => x.code === e.code)) list.push(e);
     return list;
   });
@@ -643,6 +671,7 @@ export class YouTubePublishDialogComponent implements OnInit {
         this.description.set(draft.description);
         this.tagsText.set(draft.tags.join(', '));
         this.notify.set(draft.notifySubscribers);
+        this.firstComment.set(draft.firstComment ?? '');
 
         // A brand channel with a publishing setup decides; otherwise this browser's last choices.
         const brand = draft.channelId ? status.channels.find((c) => c.channelId === draft.channelId) : undefined;
@@ -817,7 +846,7 @@ export class YouTubePublishDialogComponent implements OnInit {
       privacy: this.privacy(),
       madeForKids: this.madeForKids(),
       notifySubscribers: this.notify(),
-    }, this.relatedSelected().map((v) => v.videoId)).subscribe({
+    }, this.relatedSelected().map((v) => v.videoId), this.firstComment().trim()).subscribe({
       next: (upload) => {
         this.upload.set(upload);
         // The dialog can be closed mid-upload; the activity panel keeps following it.

@@ -38,7 +38,9 @@ public sealed record YouTubeUploadStatus(
     /// <summary>The saved record of the finished upload, once it exists.</summary>
     string? PublicationId = null,
     /// <summary>Something the user should know about a finished upload, e.g. the link wasn't saved.</summary>
-    string? Warning = null);
+    string? Warning = null,
+    /// <summary>The first comment's thread id, once it is posted.</summary>
+    string? CommentId = null);
 
 /// <summary>What the controller has already checked and resolved before an upload is queued.</summary>
 public sealed record YouTubeUploadRequest(
@@ -50,7 +52,9 @@ public sealed record YouTubeUploadRequest(
     string ChannelTitle,
     NormalizedYouTubeMetadata Metadata,
     string ProjectId = "",
-    IReadOnlyList<string>? RelatedVideoIds = null);
+    IReadOnlyList<string>? RelatedVideoIds = null,
+    /// <summary>Already normalized by <see cref="YouTubeCommentRules"/>; null posts nothing.</summary>
+    string? FirstComment = null);
 
 /// <summary>
 /// Runs uploads in the background so the publish button returns at once and the dialog can
@@ -62,6 +66,7 @@ public sealed class YouTubeUploadManager : IHostedService, IDisposable
 {
     private readonly IServiceScopeFactory _scopes;
     private readonly YouTubeVideoUploader _uploader;
+    private readonly YouTubeCommentClient _comments;
     private readonly IOptionsMonitor<YouTubePublishOptions> _options;
     private readonly TimeProvider _clock;
     private readonly ILogger<YouTubeUploadManager> _logger;
@@ -73,12 +78,14 @@ public sealed class YouTubeUploadManager : IHostedService, IDisposable
     public YouTubeUploadManager(
         IServiceScopeFactory scopes,
         YouTubeVideoUploader uploader,
+        YouTubeCommentClient comments,
         IOptionsMonitor<YouTubePublishOptions> options,
         TimeProvider clock,
         ILogger<YouTubeUploadManager> logger)
     {
         _scopes = scopes;
         _uploader = uploader;
+        _comments = comments;
         _options = options;
         _clock = clock;
         _logger = logger;
@@ -177,6 +184,8 @@ public sealed class YouTubeUploadManager : IHostedService, IDisposable
 
             // Saved before the state flips, so a client that sees Completed finds the link in the list.
             await RecordPublicationAsync(scope.ServiceProvider, entry, video.VideoId).ConfigureAwait(false);
+            // Before Completed too, so the dialog's last poll already says whether it went up.
+            await PostFirstCommentAsync(connections, entry, video.VideoId).ConfigureAwait(false);
             entry.State = YouTubeUploadState.Completed;
 
             try
@@ -241,6 +250,76 @@ public sealed class YouTubeUploadManager : IHostedService, IDisposable
         }
     }
 
+    /// <summary>
+    /// Waits between tries while YouTube catches up with a video it has only just accepted:
+    /// right after the upload, <c>commentThreads.insert</c> can still answer "video not found".
+    /// </summary>
+    private static readonly TimeSpan[] CommentRetryDelays = [TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15)];
+
+    /// <summary>
+    /// Posts the upload's first comment, best effort: the video is already on YouTube, so a
+    /// comment that can't be posted becomes a warning on the entry, never a failed upload.
+    /// </summary>
+    private async Task PostFirstCommentAsync(YouTubeConnectionStore connections, Entry entry, string videoId)
+    {
+        var request = entry.Request;
+        if (request.FirstComment is not { Length: > 0 } text) return;
+
+        if (YouTubeCommentRules.WhyNotPostable(request.Metadata) is { } reason)
+        {
+            AddWarning(entry, reason);
+            return;
+        }
+
+        // Not tied to the upload's cancellation: the upload is done, and Cancel no longer applies.
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_stopping.Token);
+        timeout.CancelAfter(TimeSpan.FromMinutes(1));
+        var ct = timeout.Token;
+
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                var token = await connections.GetAccessTokenAsync(request.UserId, request.ChannelId, ct).ConfigureAwait(false);
+                entry.CommentId = await _comments.PostAsync(videoId, text, token, ct).ConfigureAwait(false);
+                _logger.LogInformation("Posted the first comment on YouTube video {VideoId} for render {JobId}", videoId, request.JobId);
+                return;
+            }
+            catch (YouTubePublishException ex) when (ex.Code is "youtube-comment-not-ready" or "youtube-unreachable"
+                                                     && attempt < CommentRetryDelays.Length)
+            {
+                try
+                {
+                    await Task.Delay(CommentRetryDelays[attempt], _clock, ct).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    AddWarning(entry, "The first comment wasn't posted before the server stopped. Add it in YouTube Studio.");
+                    return;
+                }
+            }
+            catch (YouTubePublishException ex)
+            {
+                AddWarning(entry, ex.Message);
+                return;
+            }
+            catch (OperationCanceledException)
+            {
+                AddWarning(entry, "The first comment took too long to post. Add it in YouTube Studio.");
+                return;
+            }
+            catch (Exception ex)
+            {
+                AddWarning(entry, "The first comment wasn't posted. Add it in YouTube Studio.");
+                _logger.LogError(ex, "Posting the first comment on YouTube video {VideoId} failed unexpectedly", videoId);
+                return;
+            }
+        }
+    }
+
+    private static void AddWarning(Entry entry, string message) =>
+        entry.Warning = entry.Warning is null ? message : $"{entry.Warning} {message}";
+
     private void Prune()
     {
         var cutoff = _clock.GetUtcNow().UtcDateTime - TimeSpan.FromHours(Math.Clamp(_options.CurrentValue.KeepFinishedHours, 1, 24 * 7));
@@ -289,6 +368,7 @@ public sealed class YouTubeUploadManager : IHostedService, IDisposable
         public DateTime? CompletedAt { get; set; }
         public string? PublicationId { get; set; }
         public string? Warning { get; set; }
+        public string? CommentId { get; set; }
 
         public bool IsFinished => State is YouTubeUploadState.Completed or YouTubeUploadState.Failed or YouTubeUploadState.Cancelled;
 
@@ -306,7 +386,7 @@ public sealed class YouTubeUploadManager : IHostedService, IDisposable
                 videoId,
                 videoId is null ? null : $"https://youtu.be/{videoId}",
                 videoId is null ? null : $"https://studio.youtube.com/video/{videoId}/edit",
-                ErrorCode, Error, StartedAt, CompletedAt, PublicationId, Warning);
+                ErrorCode, Error, StartedAt, CompletedAt, PublicationId, Warning, CommentId);
         }
     }
 }

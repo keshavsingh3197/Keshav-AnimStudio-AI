@@ -181,6 +181,9 @@
             <option [value]="asset.id">{{ asset.name }}</option>
           }
         </select>
+        @if (store.project(); as p) {
+          <a [routerLink]="['/projects', p.id, 'music']" style="display: inline-block; margin-top: 0.4rem; font-size: 0.82rem;">🎵 Find trending royalty-free music →</a>
+        }
       </div>
 
       @if (form.backgroundMusicAssetId) {

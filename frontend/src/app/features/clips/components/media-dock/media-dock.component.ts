@@ -6,11 +6,12 @@ import { Clip } from '../../../../core/models/api.models';
 import { ClipRow } from '../../models/clip-studio.models';
 import { UrlImportDialogComponent } from '../../../../shared/url-import-dialog.component';
 import { MediaUsageDialogComponent } from '../media-usage-dialog/media-usage-dialog.component';
+import { MusicPickerDialogComponent } from '../../../music/music-picker-dialog.component';
 
 @Component({
   selector: 'app-media-dock',
   standalone: true,
-  imports: [CommonModule, FormsModule, UrlImportDialogComponent, MediaUsageDialogComponent],
+  imports: [CommonModule, FormsModule, UrlImportDialogComponent, MediaUsageDialogComponent, MusicPickerDialogComponent],
   templateUrl: './media-dock.component.html',
   styleUrls: ['./media-dock.component.css'],
 })
@@ -20,6 +21,17 @@ export class MediaDockComponent implements OnDestroy {
   /** The paste-many-links import; the clip list reloads once when it closes, if anything arrived. */
   readonly urlImportOpen = signal(false);
   private urlImported = false;
+
+  /** The music library dialog; tracks picked there land on the A2 lane at the playhead. */
+  readonly musicOpen = signal(false);
+
+  openMusic(): void {
+    // Previews would play over the cut otherwise.
+    if (this.state.isPlaying()) this.state.pause();
+    this.previewAudioEl?.pause();
+    this.previewingAudioId.set(null);
+    this.musicOpen.set(true);
+  }
 
   /** The file whose details-and-usage dialog is open. */
   readonly usageClip = signal<Clip | null>(null);

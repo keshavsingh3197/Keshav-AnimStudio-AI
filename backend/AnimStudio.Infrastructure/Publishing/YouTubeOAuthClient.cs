@@ -34,9 +34,17 @@ public sealed class YouTubeOAuthClient : IDisposable
 
     /// <summary>
     /// Upload is the scope that matters; readonly is only so <c>channels.list?mine=true</c>
-    /// can say which channel the user picked. Nothing here can edit or delete videos.
+    /// can say which channel the user picked; force-ssl is what <c>commentThreads.insert</c>
+    /// needs to post the first comment. The app never edits or deletes videos with it, and a
+    /// channel connected without it still uploads - only the comment is skipped.
     /// </summary>
-    public const string Scopes = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly";
+    public const string Scopes = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly " + CommentScope;
+
+    public const string CommentScope = "https://www.googleapis.com/auth/youtube.force-ssl";
+
+    /// <summary>Whether a connection's granted scopes let it post comments.</summary>
+    public static bool AllowsComments(string? grantedScopes) =>
+        (grantedScopes ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains(CommentScope, StringComparer.Ordinal);
 
     private readonly IOptionsMonitor<YouTubePublishOptions> _options;
     private readonly ILogger<YouTubeOAuthClient> _logger;

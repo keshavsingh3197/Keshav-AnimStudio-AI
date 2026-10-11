@@ -7056,6 +7056,20 @@ export class StudioStateService implements OnDestroy {
     this.markDirty();
   }
 
+  /**
+   * Puts a track just added from the music library on A2, at the playhead (or after the music
+   * already under it). The asset joins the studio's audio list in place, as voiceover lines do,
+   * since a reload would re-apply the server draft over any edit not yet auto-saved.
+   */
+  addLibraryMusic(asset: Asset): void {
+    const studio = this.studio();
+    if (!studio) return;
+    if (!(studio.musicCandidates || []).some((m) => m.id === asset.id)) {
+      this.studio.set({ ...studio, musicCandidates: [...(studio.musicCandidates || []), asset] });
+    }
+    this.addMusicTrackFromAsset(asset.id, undefined, 'A2');
+  }
+
   duplicateClip(clipId: string): void {
     const studio = this.studio();
     const isAudio = studio?.musicCandidates?.some((m) => m.id === clipId);

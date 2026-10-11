@@ -44,6 +44,8 @@ export interface ChannelPublishSettings {
   notifySubscribers: boolean;
   tags: string[];
   descriptionFooter: string | null;
+  /** Posted as a comment on every upload; the publish dialog can change it per video. */
+  firstComment?: string | null;
 }
 
 @Injectable({ providedIn: 'root' })

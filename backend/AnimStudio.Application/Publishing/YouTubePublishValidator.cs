@@ -179,6 +179,9 @@ public static class YouTubePublishValidator
         if (!Privacies.Contains(privacy))
             errors.Add(new("privacy", "privacy-invalid", "Visibility must be Public, Unlisted or Private."));
 
+        var (firstComment, commentError) = YouTubeCommentRules.Normalize(input.FirstComment);
+        if (commentError is not null) errors.Add(commentError);
+
         if (errors.Count > 0) return (null, errors);
 
         var title = Clean(input.YouTubeChannelTitle);
@@ -191,7 +194,8 @@ public static class YouTubePublishValidator
             MadeForKids = input.MadeForKids,
             NotifySubscribers = input.NotifySubscribers,
             Tags = tags,
-            DescriptionFooter = footer.Length == 0 ? null : footer
+            DescriptionFooter = footer.Length == 0 ? null : footer,
+            FirstComment = firstComment
         }, errors);
     }
 

@@ -87,6 +87,11 @@ import { YouTubePublishService } from '../../core/services/youtube-publish.servi
             <textarea rows="5" [value]="f.descriptionFooter ?? ''" (input)="patch({ descriptionFooter: $any($event.target).value })"></textarea>
           </label>
           <div class="count" [class.over]="footerBytes() > 2500">{{ footerBytes() }} / 2500 bytes</div>
+          <label>First comment <span class="muted small">(posted on every video once it's uploaded; leave empty for none)</span>
+            <textarea rows="3" [value]="f.firstComment ?? ''" (input)="patch({ firstComment: $any($event.target).value })"
+                      placeholder="Thanks for watching! New videos every week 🔔"></textarea>
+          </label>
+          <div class="count" [class.over]="(f.firstComment ?? '').trim().length > 10000">{{ (f.firstComment ?? '').trim().length }} / 10000</div>
         </div>
 
         <div class="pb-actions">

@@ -55,9 +55,12 @@ export class YouTubePublishService {
       .pipe(map((r) => r.data as YouTubeSuggestion));
   }
 
-  publish(jobId: string, channelId: string, metadata: YouTubeVideoMetadata, relatedVideoIds: string[] = []): Observable<YouTubeUpload> {
+  /** `firstComment` is posted on the video once it is up; empty posts nothing. */
+  publish(jobId: string, channelId: string, metadata: YouTubeVideoMetadata, relatedVideoIds: string[] = [],
+          firstComment = ''): Observable<YouTubeUpload> {
     return this.http
-      .post<ApiResponse<YouTubeUpload>>(`${this.base}/render-jobs/${encodeURIComponent(jobId)}/publish`, { channelId, metadata, relatedVideoIds })
+      .post<ApiResponse<YouTubeUpload>>(`${this.base}/render-jobs/${encodeURIComponent(jobId)}/publish`,
+        { channelId, metadata, relatedVideoIds, firstComment: firstComment || null })
       .pipe(map((r) => r.data as YouTubeUpload));
   }
 

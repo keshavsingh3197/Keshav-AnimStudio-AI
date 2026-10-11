@@ -24,6 +24,9 @@ public sealed class ChannelPublishSettings
     /// <summary>Appended below every description: links, credits, the support message.</summary>
     public string? DescriptionFooter { get; set; }
 
+    /// <summary>Posted as a comment on every upload once it is on YouTube; the dialog can change it per video.</summary>
+    public string? FirstComment { get; set; }
+
     /// <summary>A copy for a duplicated channel - minus the YouTube link, which belongs to the original.</summary>
     public ChannelPublishSettings CopyDefaults() => new()
     {
@@ -32,6 +35,7 @@ public sealed class ChannelPublishSettings
         MadeForKids = MadeForKids,
         NotifySubscribers = NotifySubscribers,
         Tags = [.. Tags],
-        DescriptionFooter = DescriptionFooter
+        DescriptionFooter = DescriptionFooter,
+        FirstComment = FirstComment
     };
 }

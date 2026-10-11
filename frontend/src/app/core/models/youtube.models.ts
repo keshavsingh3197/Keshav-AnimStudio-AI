@@ -9,6 +9,8 @@ export interface YouTubeChannel {
   lastUploadAt?: string;
   /** Google refused the saved access; the channel must be connected again. */
   needsReconnect: boolean;
+  /** False when connected before comment permission was asked for; reconnecting fixes it. */
+  canComment: boolean;
 }
 
 export interface YouTubeCategory {
@@ -64,6 +66,8 @@ export interface YouTubeDraft {
   };
   errors: YouTubeCheck[];
   warnings: YouTubeCheck[];
+  /** The brand channel's default first comment (Admin > Publishing). */
+  firstComment?: string;
 }
 
 /** An AI-written title, description and tags; the user reviews them before publishing. */
@@ -125,6 +129,8 @@ export interface YouTubeUpload {
   publicationId?: string;
   /** e.g. the video is on YouTube but its link couldn't be saved. */
   warning?: string;
+  /** The first comment's thread id, once it is posted. */
+  commentId?: string;
 }
 
 export type YouTubeVideoHealth = 'Unknown' | 'Processing' | 'Ok' | 'Issue' | 'Removed';

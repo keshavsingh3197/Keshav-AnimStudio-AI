@@ -17,7 +17,9 @@ public sealed record YouTubeConnectionStatus(
     string? ThumbnailUrl,
     DateTime ConnectedAt,
     DateTime? LastUploadAt,
-    bool NeedsReconnect);
+    bool NeedsReconnect,
+    /// <summary>False for a channel connected before comment permission was asked for; reconnecting fixes it.</summary>
+    bool CanComment = false);
 
 /// <summary>
 /// Sign-ins that have been started but not finished: the random <c>state</c> sent to Google,
@@ -236,7 +238,8 @@ public sealed partial class YouTubeConnectionStore(
     }
 
     private static YouTubeConnectionStatus Describe(YouTubeChannelConnection c) =>
-        new(c.ChannelId, c.ChannelTitle, c.ChannelHandle, c.ThumbnailUrl, c.ConnectedAt, c.LastUploadAt, c.RevokedAt is not null);
+        new(c.ChannelId, c.ChannelTitle, c.ChannelHandle, c.ThumbnailUrl, c.ConnectedAt, c.LastUploadAt, c.RevokedAt is not null,
+        YouTubeOAuthClient.AllowsComments(c.Scopes));
 
     private static string Truncate(string value, int max) => value.Length <= max ? value : value[..max];
 

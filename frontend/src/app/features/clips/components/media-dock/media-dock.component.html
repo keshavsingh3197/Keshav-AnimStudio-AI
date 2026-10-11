@@ -10,6 +10,8 @@
     </label>
     <button type="button" class="media-import-btn" (click)="urlImportOpen.set(true)" [disabled]="!state.store.project()"
             title="Import from links - paste many URLs and download them all into this project">🔗</button>
+    <button type="button" class="media-import-btn" (click)="openMusic()" [disabled]="!state.store.project()"
+            title="Music library - search, listen and add royalty-free music to the timeline">🎵</button>
 
     <div class="media-search-box">
       <svg class="search-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -406,6 +408,10 @@
 
 @if (usageClip(); as clip) {
   <app-media-usage-dialog [clip]="clip" (closed)="usageClip.set(null)" />
+}
+
+@if (musicOpen()) {
+  <app-music-picker-dialog (picked)="state.addLibraryMusic($event)" (closed)="musicOpen.set(false)" />
 }
 
 @if (urlImportOpen() && state.store.project(); as project) {

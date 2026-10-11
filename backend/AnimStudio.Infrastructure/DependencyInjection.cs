@@ -7,6 +7,7 @@ using AnimStudio.Application.Abstractions.Storage;
 using AnimStudio.Application.Abstractions.Diagnostics;
 using AnimStudio.Application.Abstractions.Transcripts;
 using AnimStudio.Application.Abstractions.Workbooks;
+using AnimStudio.Application.Abstractions.Music;
 using AnimStudio.Application.Admin;
 using AnimStudio.Application.Ai;
 using AnimStudio.Application.Assets;
@@ -40,6 +41,7 @@ using AnimStudio.Infrastructure.Storage;
 using AnimStudio.Infrastructure.Subtitles;
 using AnimStudio.Infrastructure.Diagnostics;
 using AnimStudio.Infrastructure.Media;
+using AnimStudio.Infrastructure.Music;
 using AnimStudio.Infrastructure.Workbooks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -294,6 +296,8 @@ public static class DependencyInjection
         services.AddSingleton(sp => new YouTubeVideoUploader(
             sp.GetRequiredService<IOptionsMonitor<YouTubePublishOptions>>(),
             sp.GetRequiredService<ILogger<YouTubeVideoUploader>>()));
+        services.AddSingleton(sp => new YouTubeCommentClient(
+            sp.GetRequiredService<ILogger<YouTubeCommentClient>>()));
         services.AddSingleton<YouTubeOAuthStateCache>();
         services.AddScoped<YouTubeConnectionStore>();
         services.AddSingleton<YouTubeUploadManager>();
@@ -310,6 +314,13 @@ public static class DependencyInjection
             sp.GetRequiredService<ILogger<YouTubeStatsClient>>()));
         services.AddSingleton<YouTubeDashboardCache>();
         services.AddScoped<YouTubeDashboardService>();
+
+        // The music picker: royalty-free, licence-checked tracks imported as audio assets.
+        services.Configure<MusicLibraryOptions>(configuration.GetSection(MusicLibraryOptions.Section));
+        services.AddSingleton<IMusicCatalog>(sp => new JamendoMusicCatalog(
+            sp.GetRequiredService<IOptionsMonitor<MusicLibraryOptions>>(),
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<ILogger<JamendoMusicCatalog>>()));
 
         services.AddScoped<ProjectRenderOrchestrator>();
 
