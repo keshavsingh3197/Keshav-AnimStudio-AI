@@ -13,6 +13,7 @@ import { InspectorDockComponent } from './components/inspector-dock/inspector-do
 import { TimelineDockComponent } from './components/timeline-dock/timeline-dock.component';
 import { TransferDialogComponent } from './components/transfer-dialog/transfer-dialog.component';
 import { FrameCropDialogComponent } from './components/frame-crop-dialog/frame-crop-dialog.component';
+import { PhotoStoryComponent } from './components/photo-story/photo-story.component';
 import { clipboardFiles } from '../../shared/file-drop.directive';
 import { YouTubePublishDialogComponent } from '../../shared/youtube-publish-dialog.component';
 import { lastApplied, loadStoredLibrary, spokenText } from './components/inspector-dock/tabs/voice-script-library';
@@ -31,6 +32,7 @@ import { lastApplied, loadStoredLibrary, spokenText } from './components/inspect
     TimelineDockComponent,
     TransferDialogComponent,
     FrameCropDialogComponent,
+    PhotoStoryComponent,
     RouterLink,
     YouTubePublishDialogComponent,
   ],

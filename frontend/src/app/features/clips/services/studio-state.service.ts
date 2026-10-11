@@ -33,9 +33,33 @@ import {
   isHexColor, layerAspect, newFrameText, newLayerId, parseSubtitleFile, readCrop, readFrameLayout, readMotion,
   resolveTextLook, sortCues, wrapText,
 } from './text-overlay-layout';
+import { CinematicImage, IMAGE_MOTION_MAX, IMAGE_MOTION_MIN } from './cinematic-image';
 import {
   LayerMotion, MAX_BORDER_WIDTH, MAX_MOTION_SECONDS, measureMediaAspect, mediaMotion, shapeRadius, textMotion, textReveal,
 } from './frame-media';
+
+/** One still in a photo story, with how its shot moves and looks. */
+export interface PhotoStorySlide {
+  assetId: string;
+  name: string;
+  seconds: number;
+  cinematic: CinematicImage;
+  /** Into the next slide; ignored on the last. */
+  transition: string;
+}
+
+export interface PhotoStoryOptions {
+  name: string;
+  width: number;
+  height: number;
+  fit: ClipFit;
+  quality: ExportQuality;
+  transitionSeconds: number;
+  /** Mix in the studio's music and voice-over tracks. */
+  includeMusic: boolean;
+  watermark: boolean;
+  outro: boolean;
+}
 
 /** One video of the project that places a library file, and where it does. */
 export interface MediaUsagePlace {
@@ -8897,6 +8921,96 @@ export class StudioStateService implements OnDestroy {
         this.recordExportOnEdit(projectId, editId, job);
         this.openExportProgress();
         this.status.notify(['Started building vertical Short (9:16) video!']);
+      }
+    );
+  }
+
+  /** The Photo Story builder: stills turned into moving shots, no AI video needed. */
+  readonly photoStoryOpen = signal(false);
+
+  /**
+   * Exports a video made only of stills. Each still is a V1 clip carrying its own camera
+   * move and grade, so the server renders it through the same clip path as footage - and
+   * the studio's own cut is left untouched.
+   */
+  buildPhotoStory(slides: PhotoStorySlide[], options: PhotoStoryOptions): void {
+    const projectId = this.loadedProjectId;
+    if (!this.ownsCurrentProject(projectId) || this.blockedReason() !== null) return;
+    if (slides.length === 0) {
+      this.status.notify(['Add at least one picture to the story.']);
+      return;
+    }
+
+    const seconds = (v: number) => Math.min(60, Math.max(1, Number(v) || 5));
+    let at = 0;
+    const timelineItems: TimelineItem[] = slides.map((s, k) => {
+      const c = s.cinematic;
+      const item: TimelineItem = {
+        id: `story_${k}`,
+        type: 'image',
+        trackId: 'V1',
+        startTime: at,
+        duration: seconds(s.seconds),
+        src: s.assetId,
+        name: s.name,
+        transform: {
+          scale: 1, x: 0, y: 0, opacity: 1,
+          motion: c.motion,
+          motionIntensity: Math.min(IMAGE_MOTION_MAX, Math.max(IMAGE_MOTION_MIN, c.intensity)),
+          motionEasing: c.easing,
+          focusX: Math.min(100, Math.max(0, c.focusX)),
+          focusY: Math.min(100, Math.max(0, c.focusY)),
+          look: c.look,
+          vignette: c.vignette,
+          grain: c.grain,
+          cinemaBars: c.cinemaBars,
+        },
+      };
+      at += item.duration;
+      return item;
+    });
+
+    // Each gap takes the transition of the slide before it; the overlap is split evenly,
+    // and a still has no spare footage, so the server freezes into it.
+    const junctions = slides.slice(0, -1).map((s) => {
+      const secs = s.transition === 'None' ? 0 : Math.min(2, Math.max(0.2, options.transitionSeconds));
+      return {
+        transition: s.transition, transitionSeconds: secs,
+        leadInSeconds: secs / 2, tailOutSeconds: secs / 2, freezeHead: false, freezeTail: false,
+      };
+    });
+
+    const wm: WatermarkBody = this.effectiveWatermark();
+    this.status.run(
+      this.api.mergeClips(projectId, {
+        exportName: options.name.trim() || 'Photo story',
+        assetIds: slides.map((s) => s.assetId),
+        fit: options.fit,
+        backgroundColor: null,
+        outputWidth: options.width,
+        outputHeight: options.height,
+        quality: options.quality,
+        transition: 'None',
+        transitionSeconds: 0,
+        junctions,
+        muteClipAudio: true,
+        backgroundMusicAssetId: options.includeMusic ? this.musicAssetId() || null : null,
+        backgroundMusicVolume: Math.max(0, Math.min(2.0, Number(this.musicVolume()) || 0)),
+        musicTracks: options.includeMusic ? this.musicTracksPayload() : [],
+        timelineItems,
+        watermark: options.watermark ? wm : { ...wm, kind: 'None' as WatermarkKind },
+        includeOutro: options.outro,
+        youTubeLoudness: options.includeMusic,
+      }),
+      (job: RenderJob) => {
+        this.job.set(job);
+        this.running.set(true);
+        this.startExportTimer();
+        this.startPolling(job.jobId);
+        this.trackExport(job);
+        this.photoStoryOpen.set(false);
+        this.openExportProgress();
+        this.status.notify([`Rendering your photo story: ${slides.length} shots, ${Math.round(at)}s.`]);
       }
     );
   }

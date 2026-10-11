@@ -294,6 +294,40 @@ public sealed class ClipMergeRenderTests : IAsyncLifetime
         Assert.Equal("360", ProbeStream(path, "v:0", "height"));
     }
 
+    // --- cinematic stills ----------------------------------------------------
+
+    [Theory]
+    [InlineData("zoom-in", "cinematic")]
+    [InlineData("zoom-out", "warm")]
+    [InlineData("pan-left", "cool")]
+    [InlineData("pan-up", "vintage")]
+    [InlineData("drift", "noir")]
+    [InlineData("handheld", "vivid")]
+    [InlineData("breathe", "matte")]
+    public async Task A_still_becomes_a_moving_graded_shot_of_its_full_length(string motion, string look)
+    {
+        if (!FfmpegLocator.IsAvailable) return;
+
+        Directory.CreateDirectory(Path_("in"));
+        Run($"-y -f lavfi -i testsrc=size=800x600:rate=1:duration=1 -frames:v 1 \"{Path_("in/still.png")}\"");
+
+        var plan = Plan(0, "in/still.png", ClipFit.Cover, hasAudio: false) with
+        {
+            SourceIsImage = true,
+            ImageDurationSeconds = 2,
+            // A still has no length of its own; the orchestrator states it, and -frames:v holds to it.
+            ExpectedFrames = new FrameCount(60),
+            Cinematic = CinematicImageSettings.From(motion, 0.2, 30, 70, "ease", look, true, true, true)
+        };
+
+        var result = await _service.RenderClipAsync(plan, _workspace, null, Ct);
+        var path = _workspace.Resolve(result.RelativePath);
+
+        Assert.Equal("640", ProbeStream(path, "v:0", "width"));
+        Assert.Equal("360", ProbeStream(path, "v:0", "height"));
+        Assert.InRange(result.Frames.Value, 59, 61);
+    }
+
     // --- watermark ----------------------------------------------------------
 
     [FfmpegFontFact]

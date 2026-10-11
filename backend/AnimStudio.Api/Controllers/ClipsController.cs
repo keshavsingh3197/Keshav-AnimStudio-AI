@@ -201,6 +201,15 @@ public sealed class ClipsController(
                         BorderWidth = t.Transform.BorderWidth,
                         BorderColor = t.Transform.BorderColor,
                         AspectRatio = t.Transform.AspectRatio,
+                        Motion = t.Transform.Motion,
+                        MotionIntensity = t.Transform.MotionIntensity,
+                        MotionEasing = t.Transform.MotionEasing,
+                        FocusX = t.Transform.FocusX,
+                        FocusY = t.Transform.FocusY,
+                        Look = t.Transform.Look,
+                        Vignette = t.Transform.Vignette,
+                        Grain = t.Transform.Grain,
+                        CinemaBars = t.Transform.CinemaBars,
                         EraseRegions = (t.Transform.EraseRegions ?? [])
                             .Select(r => new EraseRegionSpec
                             {

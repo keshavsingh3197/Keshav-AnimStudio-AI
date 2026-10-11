@@ -50,7 +50,9 @@ public sealed record ClipRenderSettings(
     /// font lacks still draw; returns null when the line draws whole. Absent, every line
     /// draws whole in its one font.
     /// </summary>
-    Func<string, string, FontRunLine?>? FontRunsForText = null)
+    Func<string, string, FontRunLine?>? FontRunsForText = null,
+    /// <summary>Multiple of the canvas an image clip is moved at; see <see cref="ClipRenderPlan.MotionSupersample"/>.</summary>
+    int KenBurnsSupersample = 2)
 {
     /// <summary>The font for <paramref name="text"/>, honouring the fallback.</summary>
     public string? FontFor(string text) => FontForText is not null ? FontForText(text) : WatermarkFontFile;
@@ -366,6 +368,8 @@ public sealed class ClipMergeOrchestrator(
                             : "000000",
                         SourceIsImage = isImage,
                         ImageDurationSeconds = imageDur,
+                        Cinematic = isImage ? CinematicOf(v1Transform) : null,
+                        MotionSupersample = Math.Clamp(settings.KenBurnsSupersample, 1, 4),
                         TrimStartSeconds = finalTrimStart,
                         TrimEndSeconds = finalTrimEnd,
                         DurationSeconds = origDuration,
@@ -1025,6 +1029,17 @@ public sealed class ClipMergeOrchestrator(
 
         return media is { HasCrop: false, Shape: OverlayShape.Rect, BorderWidth: 0, TrimStartSeconds: 0 } ? null : media;
     }
+
+    /// <summary>
+    /// An image clip's camera move, grade and lens finish, checked here because every value
+    /// ends up inside an ffmpeg expression. Null keeps the still on its static graph.
+    /// </summary>
+    internal static CinematicImageSettings? CinematicOf(TimelineItemTransformSpec? tr) =>
+        tr is null
+            ? null
+            : CinematicImageSettings.From(
+                tr.Motion, tr.MotionIntensity, tr.FocusX, tr.FocusY, tr.MotionEasing,
+                tr.Look, tr.Vignette, tr.Grain, tr.CinemaBars);
 
     /// <summary>Zero transitions, for the pre-flight total used to weight progress.</summary>
     private static IReadOnlyList<FrameCount> ZerosFor(IReadOnlyList<FrameCount> lengths) =>

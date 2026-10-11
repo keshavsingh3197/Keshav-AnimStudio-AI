@@ -702,7 +702,28 @@ export interface TimelineItemTransform {
   borderColor?: string;
   /** Width / height after the crop, so the export sizes a shaped overlay exactly. */
   aspectRatio?: number;
+  /** Image clips on V1: the camera move over the still. Absent holds it still. */
+  motion?: ImageCameraMotion;
+  /** Zoom amount or pan travel as a fraction of the frame, 0.02-0.5. */
+  motionIntensity?: number;
+  motionEasing?: 'ease' | 'linear';
+  /** Where a zoom heads, in percent of the image across and down. */
+  focusX?: number;
+  focusY?: number;
+  /** Image clips: colour grade. */
+  look?: ImageLook;
+  vignette?: boolean;
+  grain?: boolean;
+  cinemaBars?: boolean;
 }
+
+/** Camera moves over a still. Mirrors ImageMotion on the server (CinematicImage.cs). */
+export type ImageCameraMotion =
+  | 'none' | 'zoom-in' | 'zoom-out' | 'pan-left' | 'pan-right' | 'pan-up' | 'pan-down'
+  | 'drift' | 'handheld' | 'breathe';
+
+/** Colour grades for a still. Mirrors ImageLook on the server. */
+export type ImageLook = 'none' | 'cinematic' | 'warm' | 'cool' | 'vintage' | 'noir' | 'vivid' | 'matte';
 
 /** How an overlay arrives or leaves. 'pop' is an entrance only; as an exit it shrinks like 'zoom'. */
 export type OverlayMotion =

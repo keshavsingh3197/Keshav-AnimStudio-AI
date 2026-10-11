@@ -359,6 +359,30 @@ public sealed class TimelineItemTransformSpec
     /// </summary>
     public double? AspectRatio { get; set; }
 
+    /// <summary>
+    /// Image clips on V1: the camera move over the still - <c>zoom-in</c>, <c>zoom-out</c>,
+    /// <c>pan-left|right|up|down</c>, <c>drift</c>, <c>handheld</c>, <c>breathe</c>. Null or
+    /// <c>none</c> holds it still, as every image clip did before this existed.
+    /// </summary>
+    public string? Motion { get; set; }
+
+    /// <summary>Zoom amount or pan travel as a fraction of the frame.</summary>
+    public double MotionIntensity { get; set; } = 0.15;
+
+    /// <summary><c>ease</c> (the default) or <c>linear</c>.</summary>
+    public string? MotionEasing { get; set; }
+
+    /// <summary>Where a zoom heads, in percent of the image across and down.</summary>
+    public double FocusX { get; set; } = 50;
+    public double FocusY { get; set; } = 50;
+
+    /// <summary>Colour grade: <c>cinematic</c>, <c>warm</c>, <c>cool</c>, <c>vintage</c>, <c>noir</c>, <c>vivid</c>, <c>matte</c>.</summary>
+    public string? Look { get; set; }
+
+    public bool Vignette { get; set; }
+    public bool Grain { get; set; }
+    public bool CinemaBars { get; set; }
+
     public string? TransitionIn { get; set; } = "fade";
     public double TransitionInDuration { get; set; } = 0.5;
     public string? TransitionOut { get; set; } = "fade";

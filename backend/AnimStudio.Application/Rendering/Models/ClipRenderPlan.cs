@@ -104,6 +104,18 @@ public sealed record ClipRenderPlan
     /// <summary>Duration in seconds for an image clip (default 5.0 seconds).</summary>
     public double ImageDurationSeconds { get; init; } = 5.0;
 
+    /// <summary>
+    /// Image clips only: camera motion, grade and lens finish over the still. Null holds the
+    /// still as the static frame it always was.
+    /// </summary>
+    public CinematicImageSettings? Cinematic { get; init; }
+
+    /// <summary>
+    /// The still is worked on at this multiple of the canvas before its motion, so a slow
+    /// move steps by sub-pixels instead of visibly juddering. Same lever as a scene's.
+    /// </summary>
+    public int MotionSupersample { get; init; } = 2;
+
     /// <summary>Optional trim start in-point on the video source.</summary>
     public double? TrimStartSeconds { get; init; }
 

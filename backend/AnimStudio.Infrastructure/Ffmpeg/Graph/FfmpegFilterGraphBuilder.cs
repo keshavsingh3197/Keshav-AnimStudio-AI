@@ -343,10 +343,41 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
             drawsText = false;
         }
 
-        graph.Append(FitChain(fit, canvas, rate, plan.Encoder.PixelFormat, plan, source));
+        var cinematic = plan.SourceIsImage ? plan.Cinematic : null;
+        if (cinematic is { Moves: true } && !capabilities.Supports(RenderFeature.KenBurns))
+        {
+            // The grade still applies; only the move is lost.
+            warnings.Add("IMAGE_MOTION_UNAVAILABLE");
+            cinematic = cinematic with { Motion = ImageMotion.None };
+        }
 
         var current = "base";
         var stage = 0;
+
+        if (cinematic is { Moves: true })
+        {
+            // Fitted at a multiple of the canvas, then moved and scaled back down by zoompan.
+            var k = Math.Max(plan.MotionSupersample, 1);
+            graph.Append(FitChain(fit, canvas with { Width = canvas.Width * k, Height = canvas.Height * k },
+                rate, plan.Encoder.PixelFormat, plan, source));
+
+            var frames = FrameCount.FromSeconds(plan.ImageDurationSeconds, rate).Value;
+            var next = $"m{++stage}";
+            graph.Append($"[{current}]{CinematicImageFilters.Motion(cinematic, canvas, frames)}")
+                 .Append($",setsar=1,format={plan.Encoder.PixelFormat}[{next}];\n");
+            current = next;
+        }
+        else
+        {
+            graph.Append(FitChain(fit, canvas, rate, plan.Encoder.PixelFormat, plan, source));
+        }
+
+        if (cinematic is not null && CinematicImageFilters.Finish(cinematic, canvas) is { Length: > 0 } finish)
+        {
+            var next = $"g{++stage}";
+            graph.Append($"[{current}]{finish},format={plan.Encoder.PixelFormat}[{next}];\n");
+            current = next;
+        }
 
         // Audio-only clip: the frame is painted over with the backdrop, after the fit so the
         // size and timing are the normal clip's, and before the watermark so the mark stays.

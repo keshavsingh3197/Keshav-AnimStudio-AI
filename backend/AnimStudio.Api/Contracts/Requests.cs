@@ -639,6 +639,27 @@ public sealed record TimelineItemTransformRequest
     /// <summary>Width / height of the overlay after its crop, so a shaped overlay is scaled to a known size.</summary>
     [Range(MediaOverlayShape.MinAspectRatio, MediaOverlayShape.MaxAspectRatio)] public double? AspectRatio { get; init; }
 
+    /// <summary>Image clips: camera move over the still.</summary>
+    [RegularExpression("^(none|zoom-in|zoom-out|pan-left|pan-right|pan-up|pan-down|drift|handheld|breathe)$")]
+    public string? Motion { get; init; }
+
+    [Range(CinematicImageSettings.MinIntensity, CinematicImageSettings.MaxIntensity)]
+    public double MotionIntensity { get; init; } = CinematicImageSettings.DefaultIntensity;
+
+    [RegularExpression("^(ease|linear)$")] public string? MotionEasing { get; init; }
+
+    /// <summary>Where a zoom heads, in percent of the image.</summary>
+    [Range(0, 100)] public double FocusX { get; init; } = 50;
+    [Range(0, 100)] public double FocusY { get; init; } = 50;
+
+    /// <summary>Image clips: colour grade.</summary>
+    [RegularExpression("^(none|cinematic|warm|cool|vintage|noir|vivid|matte)$")]
+    public string? Look { get; init; }
+
+    public bool Vignette { get; init; }
+    public bool Grain { get; init; }
+    public bool CinemaBars { get; init; }
+
     /// <summary>Existing marks to wipe from the source frame before our own is drawn.</summary>
     [MaxLength(EraseRegionSpec.MaxPerClip)]
     public List<EraseRegionRequest>? EraseRegions { get; init; }

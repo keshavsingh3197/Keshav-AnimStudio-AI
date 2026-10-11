@@ -32,11 +32,12 @@ feature rather than the whole app:
 | `--enable-libass` + `subtitles` filter | Burned-in subtitles (both are checked; libass fails silently otherwise) |
 | `libx264` encoder | Video output |
 | `aac` encoder | Audio output |
-| `zoompan` filter | Ken Burns motion |
+| `zoompan` filter | Ken Burns motion, and the camera moves on Photo Story stills |
 | `xfade` / `acrossfade` | Video / audio transitions (scene merges **and** clip joins) |
 | `drawtext` filter | On-screen text, and the **text watermark** on a clip stitch |
 | `gblur` filter | Blurred backdrop behind a letterboxed clip (falls back to black bars) |
 | `alimiter` filter | Audio limiting |
+| `colorbalance` `curves` `eq` `hue` `vignette` `noise` `drawbox` | Photo Story colour looks and lens effects (all in a stock build) |
 
 **Version 7.0 or newer is strongly recommended.** The filtergraph is always handed over in
 a file rather than on the command line (a forty-scene merge approaches the platform
@@ -300,7 +301,7 @@ Confirm the FFmpeg build has what the renderer needs — every line below should
 
 ```bash
 ffmpeg -hide_banner -buildconf | grep -oE '\-\-enable-(libass|libx264|libfreetype|fontconfig)'
-ffmpeg -hide_banner -filters  | awk '{print $2}' | grep -xE 'subtitles|drawtext|zoompan|xfade|acrossfade|alimiter|gblur'
+ffmpeg -hide_banner -filters  | awk '{print $2}' | grep -xE 'subtitles|drawtext|zoompan|xfade|acrossfade|alimiter|gblur|colorbalance|curves|eq|hue|vignette|noise|drawbox'
 ffmpeg -hide_banner -encoders | awk '{print $2}' | grep -xE 'libx264|aac'
 fc-list | grep -ci dejavu    # 0 on Windows → see the font note above
 ```
