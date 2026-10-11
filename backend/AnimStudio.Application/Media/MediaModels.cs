@@ -31,7 +31,10 @@ public sealed record MediaDownloadRequest(
     string CompressionPreset = "original", // "original", "balanced", "high", "ultracompact"
     string? FolderId = null,
     string? FolderName = null,
-    bool AddToClipOrder = true);
+    bool AddToClipOrder = true,
+    // Files the asset in a top-level folder named after the website (YouTube, Instagram…),
+    // created on first use. Ignored when FolderId or FolderName is given.
+    bool FolderBySource = false);
 
 public sealed record MediaDownloadResult(
     string Ticket,
@@ -44,7 +47,9 @@ public sealed record MediaDownloadResult(
     string StreamUrl,
     string? ProjectId = null,
     string? FolderId = null,
-    string? FolderName = null);
+    string? FolderName = null,
+    // The library name the asset got (the video's title unless one was given).
+    string? AssetName = null);
 
 /// <summary>One downloadable source, for the "where can I download from" list.</summary>
 public sealed record SupportedPlatformInfo(

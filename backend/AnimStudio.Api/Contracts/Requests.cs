@@ -474,6 +474,9 @@ public sealed record ClipAudioRequest
 
     /// <summary>Plays that sound OVER the clip's own audio rather than instead of it.</summary>
     public bool KeepOriginalAudio { get; init; }
+
+    /// <summary>Uses the clip for its sound only: the picture is blanked to the backdrop colour.</summary>
+    public bool HideVideo { get; init; }
 }
 
 /// <summary>

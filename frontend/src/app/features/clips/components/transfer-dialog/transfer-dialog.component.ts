@@ -2,7 +2,8 @@ import { Component, OnInit, computed, inject, input, output, signal } from '@ang
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { Observable, concatMap, forkJoin, map, of } from 'rxjs';
-import { ClipStudio, EDIT_FORMATS, EditFormat, Project, ProjectEdit } from '../../../../core/models/api.models';
+import { ClipStudio, EDIT_FORMATS, EditFormat, Project, ProjectEdit, editNameTaken } from '../../../../core/models/api.models';
+import { ApiFailure } from '../../../../core/interceptors/api-error.interceptor';
 import { ApiService } from '../../../../core/services/api.service';
 import { StudioStateService } from '../../services/studio-state.service';
 import {
@@ -142,9 +143,12 @@ export class TransferDialogComponent implements OnInit {
     if (this.working() || this.rangeInvalid()) return false;
     const f = this.preview();
     if (!f || isEmptyFragment(f)) return false;
-    if (this.mode() === 'create') return this.newName().trim().length > 0;
+    if (this.mode() === 'create') return this.newName().trim().length > 0 && !this.nameTaken();
     return !!this.source();
   });
+
+  /** Names are unique within a project. */
+  readonly nameTaken = computed(() => editNameTaken(this.newName(), this.state.projectEdits()));
 
   ngOnInit(): void {
     if (this.mode() === 'create') {
@@ -157,7 +161,10 @@ export class TransferDialogComponent implements OnInit {
         this.rangeEnd.set(round1(this.state.contentDurationSeconds()));
       }
       const current = this.state.currentEdit()?.name ?? 'Video';
-      this.newName.set(range ? `${current} - part` : `${current} - new`);
+      const base = range ? `${current} - part` : `${current} - new`;
+      let name = base;
+      for (let n = 2; editNameTaken(name, this.state.projectEdits()); n++) name = `${base} ${n}`;
+      this.newName.set(name);
       return;
     }
 
@@ -388,9 +395,9 @@ export class TransferDialogComponent implements OnInit {
           this.router.navigate([], { queryParams: { edit: edit.id }, queryParamsHandling: 'merge' });
         }
       },
-      error: () => {
+      error: (err: unknown) => {
         this.working.set(false);
-        this.error.set('Could not create the new video.');
+        this.error.set(err instanceof ApiFailure && err.status === 409 && err.message ? err.message : 'Could not create the new video.');
       },
     });
   }

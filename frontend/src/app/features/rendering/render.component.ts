@@ -7,6 +7,7 @@ import {
   RenderJob, aspectRatioLabel, isTerminal, videoFormat,
 } from '../../core/models/api.models';
 import { YouTubePublication, needsAttention } from '../../core/models/youtube.models';
+import { ActivityService } from '../../core/services/activity.service';
 import { ApiService } from '../../core/services/api.service';
 import { ProjectStore } from '../../core/services/project-store';
 import { StatusService } from '../../core/services/status.service';
@@ -43,6 +44,7 @@ interface HistoryPrefs {
 })
 export class RenderComponent implements OnDestroy {
   private readonly api = inject(ApiService);
+  private readonly activity = inject(ActivityService);
   private readonly youtube = inject(YouTubePublishService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
@@ -806,6 +808,8 @@ export class RenderComponent implements OnDestroy {
       this.job.set(job);
       this.jobs.update((list) => [job, ...list]);
       this.startPolling(job.jobId);
+      this.activity.trackRenderJob(
+        job, job.name || this.store.project()?.name || 'Project render', ['/projects', projectId, 'render']);
     });
   }
 

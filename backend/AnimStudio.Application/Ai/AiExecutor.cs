@@ -35,7 +35,10 @@ public sealed class AiExecutor(
         AiTextRequest request, AiCallContext context, CancellationToken ct) =>
         ExecuteAsync(
             AiCapability.Text,
-            registry.TextChain(),
+            request.ProviderId is null
+                ? registry.TextChain()
+                : [.. registry.UsableTextProviders().Where(p =>
+                    string.Equals(p.Id.Value, request.ProviderId, StringComparison.OrdinalIgnoreCase))],
             FingerprintOf(request),
             request.BypassCache,
             request.Seed,
@@ -306,12 +309,22 @@ public sealed class AiExecutor(
     // missing from one of these is a cache that returns the wrong answer, so each list is
     // deliberately exhaustive over its request type.
 
-    private static string FingerprintOf(AiTextRequest r) => Join(
-        r.SystemPrompt, r.Prompt, r.JsonSchema,
-        r.MaxOutputTokens.ToString(CultureInfo.InvariantCulture),
-        r.Temperature.ToString("R", CultureInfo.InvariantCulture),
-        r.Seed?.ToString(CultureInfo.InvariantCulture),
-        r.PromptTemplateKey, r.PromptTemplateVersion.ToString(CultureInfo.InvariantCulture));
+    // A pinned engine gets its own cache entry - asking Claude must not hand back Groq's
+    // answer. Chain requests keep the fingerprint they always had, so the cache survives.
+    private static string FingerprintOf(AiTextRequest r) => r.ProviderId is null
+        ? Join(
+            r.SystemPrompt, r.Prompt, r.JsonSchema,
+            r.MaxOutputTokens.ToString(CultureInfo.InvariantCulture),
+            r.Temperature.ToString("R", CultureInfo.InvariantCulture),
+            r.Seed?.ToString(CultureInfo.InvariantCulture),
+            r.PromptTemplateKey, r.PromptTemplateVersion.ToString(CultureInfo.InvariantCulture))
+        : Join(
+            r.SystemPrompt, r.Prompt, r.JsonSchema,
+            r.MaxOutputTokens.ToString(CultureInfo.InvariantCulture),
+            r.Temperature.ToString("R", CultureInfo.InvariantCulture),
+            r.Seed?.ToString(CultureInfo.InvariantCulture),
+            r.PromptTemplateKey, r.PromptTemplateVersion.ToString(CultureInfo.InvariantCulture),
+            "provider:" + r.ProviderId.ToLowerInvariant());
 
     private static string FingerprintOf(AiImageRequest r) => Join(
         r.Prompt, r.NegativePrompt,

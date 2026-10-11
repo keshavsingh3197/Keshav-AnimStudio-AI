@@ -29,6 +29,12 @@ public sealed record AiTextRequest
 
     /// <summary>Set for "regenerate this one" - skips the result cache for this call only.</summary>
     public bool BypassCache { get; init; }
+
+    /// <summary>
+    /// The one text engine to use instead of walking the chain - "write this with my local
+    /// Claude session". It must be enabled and configured (the chain is not required); no fallback.
+    /// </summary>
+    public string? ProviderId { get; init; }
 }
 
 public sealed record AiTextResult(

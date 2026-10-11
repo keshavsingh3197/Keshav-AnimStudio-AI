@@ -173,6 +173,13 @@ public sealed class ClipAudioSpec
     public bool KeepOriginalAudio { get; set; }
 
     /// <summary>
+    /// Plays the clip for its sound alone: the picture is replaced by the backdrop colour
+    /// for the clip's whole length, so overlay tracks (images, text) still show on top.
+    /// False on every job written before it existed.
+    /// </summary>
+    public bool HideVideo { get; set; }
+
+    /// <summary>
     /// Loudest anything may be lifted, as a multiplier. +6dB is enough to rescue a quiet
     /// recording; past that, a clip is not quiet but broken, and boosting it only makes
     /// the noise floor louder.

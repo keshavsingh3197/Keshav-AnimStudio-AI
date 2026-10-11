@@ -28,9 +28,23 @@
 
     <select class="vp-sort" [value]="sort()" (change)="sort.set($any($event.target).value)" aria-label="Sort">
       <option value="recent">Recently edited</option>
+      <option value="number">Order (#) newest first</option>
       <option value="name">Name</option>
       <option value="longest">Longest first</option>
     </select>
+  </div>
+
+  <div class="chips cats" role="group" aria-label="Status">
+    <span class="chips-label">Status</span>
+    <button type="button" class="chip small" [class.on]="statusFilter() === 'All'" (click)="statusFilter.set('All')">Any</button>
+    <button type="button" class="chip small" [class.on]="statusFilter() === 'NotUploaded'" (click)="statusFilter.set('NotUploaded')"
+            title="Not on YouTube yet, exported or not">Not on YouTube <span>{{ statusCounts().NotUploaded }}</span></button>
+    <button type="button" class="chip small" [class.on]="statusFilter() === 'NotExported'" (click)="statusFilter.set('NotExported')">
+      Not exported <span>{{ statusCounts().NotExported }}</span></button>
+    <button type="button" class="chip small" [class.on]="statusFilter() === 'ExportedOnly'" (click)="statusFilter.set('ExportedOnly')"
+            title="Exported but not uploaded">Exported, not uploaded <span>{{ statusCounts().ExportedOnly }}</span></button>
+    <button type="button" class="chip small" [class.on]="statusFilter() === 'OnYouTube'" (click)="statusFilter.set('OnYouTube')">
+      On YouTube <span>{{ statusCounts().OnYouTube }}</span></button>
   </div>
 
   @if (categories().length > 0) {
@@ -48,11 +62,12 @@
   } @else if (visible().length === 0) {
     <div class="card vp-empty">
       <div class="muted">No videos match these filters.</div>
-      <button type="button" class="secondary" (click)="search.set(''); formatFilter.set('All'); categoryFilter.set(null)">Clear filters</button>
+      <button type="button" class="secondary" (click)="search.set(''); formatFilter.set('All'); categoryFilter.set(null); statusFilter.set('All')">Clear filters</button>
     </div>
   } @else {
     <div class="vp-grid">
       @for (e of visible(); track e.id) {
+        @let b = badge(e);
         <article class="vcard">
           <button type="button" class="vthumb" (click)="open(e)" [title]="'Open ' + e.name + ' in the editor'">
             <div class="vframe" [class]="'vframe f-' + e.format.toLowerCase()">
@@ -64,6 +79,7 @@
             </div>
             <span class="badge fmt" [class]="'badge fmt f-' + e.format.toLowerCase()">{{ ratio(e.format) }}</span>
             <span class="badge dur">{{ clock(e.durationSeconds) }}</span>
+            <span class="badge num" title="Order in this project">#{{ e.number }}</span>
             <span class="vopen">Open in editor →</span>
           </button>
 
@@ -75,6 +91,29 @@
             <div class="vmeta">
               {{ formatLabel(e.format) }} · {{ e.clipCount }} clip{{ e.clipCount === 1 ? '' : 's' }} · edited {{ ago(e.updatedAt) }}
             </div>
+            <div class="vstatus">
+              <span [class]="'vst st-' + b.kind" [title]="b.title">{{ b.label }}</span>
+              @if (e.publish.youTubeUrl; as yt) {
+                <a class="vst-link" [href]="yt" target="_blank" rel="noopener noreferrer">Watch ↗</a>
+              }
+              @if (e.publish.lastExportedAt; as at) { <span class="muted">exported {{ ago(at) }}</span> }
+              @if (e.publish.youTubeState === 'MarkedUploaded') {
+                <button type="button" class="linkish" (click)="setUploaded(e, false)" [disabled]="busy()"
+                        title="Take back the 'uploaded' mark">Unmark</button>
+              } @else if (e.publish.youTubeState === 'NotUploaded' && markingId() !== e.id) {
+                <button type="button" class="linkish" (click)="startMarking(e)"
+                        title="Uploaded it to YouTube yourself? Mark it so it is not uploaded twice">Mark as uploaded…</button>
+              }
+            </div>
+            @if (markingId() === e.id) {
+              <div class="vmark">
+                <input type="url" maxlength="2048" placeholder="YouTube link (optional)" [value]="markUrl()"
+                       (input)="markUrl.set($any($event.target).value)" (keydown.enter)="setUploaded(e, true)"
+                       aria-label="YouTube link of the uploaded video" />
+                <button type="button" class="primary-sm" (click)="setUploaded(e, true)" [disabled]="busy()">Mark uploaded</button>
+                <button type="button" class="secondary sm" (click)="markingId.set(null)">Cancel</button>
+              </div>
+            }
             <div class="vtags">
               @if (e.category) { <span class="tag cat">{{ e.category }}</span> }
               @for (t of e.tags; track t) { <span class="tag">#{{ t }}</span> }

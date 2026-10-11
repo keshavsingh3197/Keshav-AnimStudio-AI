@@ -478,5 +478,5 @@
 @if (urlImportOpen() && store.project(); as project) {
   <app-url-import-dialog [projectId]="project.id" [folders]="store.folders()"
                          [initialFolderId]="selectedFolderId()"
-                         (imported)="store.refreshAssets()" (closed)="urlImportOpen.set(false)" />
+                         (imported)="store.refreshAssets(); store.refreshFolders()" (closed)="urlImportOpen.set(false)" />
 }

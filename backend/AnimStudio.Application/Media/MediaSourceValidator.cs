@@ -171,6 +171,33 @@ public static partial class MediaSourceValidator
         DirectMedia,
     ];
 
+    /// <summary>
+    /// The library folder a link from this site is filed under when imports are sorted by
+    /// website: "YouTube", "Instagram", "LinkedIn"… A direct CDN link is filed under the site
+    /// that CDN serves, so a LinkedIn post and its raw media file land in the same folder.
+    /// </summary>
+    public static string FolderNameFor(MediaPlatform platform, string canonicalUrl)
+    {
+        if (platform.Id == "x") return "X";
+        if (platform.Id != DirectMedia.Id) return platform.Name;
+
+        var host = Uri.TryCreate(canonicalUrl, UriKind.Absolute, out var uri) ? uri.Host : string.Empty;
+        return host switch
+        {
+            _ when host.EndsWith("licdn.com", StringComparison.Ordinal) => "LinkedIn",
+            _ when host.EndsWith("twimg.com", StringComparison.Ordinal) => "X",
+            _ when host.EndsWith(".cdninstagram.com", StringComparison.Ordinal) => "Instagram",
+            _ when host.EndsWith(".fbcdn.net", StringComparison.Ordinal) => "Facebook",
+            _ when host.Contains("tiktokcdn", StringComparison.Ordinal) => "TikTok",
+            _ when host.EndsWith(".vimeocdn.com", StringComparison.Ordinal)
+                   || host == "vod-progressive.akamaized.net" => "Vimeo",
+            _ when host.EndsWith(".ttvnw.net", StringComparison.Ordinal) => "Twitch",
+            _ when host.EndsWith(".dmcdn.net", StringComparison.Ordinal) => "Dailymotion",
+            _ when host.EndsWith(".redd.it", StringComparison.Ordinal) => "Reddit",
+            _ => "Direct links",
+        };
+    }
+
     public static MediaSourceValidationResult Validate(string? input, bool allowHttp = false)
     {
         if (string.IsNullOrWhiteSpace(input))

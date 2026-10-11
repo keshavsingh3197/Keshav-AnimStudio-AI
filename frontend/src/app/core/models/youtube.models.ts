@@ -72,6 +72,33 @@ export interface YouTubeSuggestion {
   description: string;
   tags: string[];
   providerId: string;
+  /** Other titles to pick from; the main one is not repeated. */
+  titleOptions?: string[];
+  /** Other descriptions in different styles (short, detailed), each with the same chapters, credits and footer. */
+  descriptionOptions?: string[];
+  /** More tags to pick from, none already in `tags`. */
+  tagIdeas?: string[];
+}
+
+/** A text engine that can write suggestions now - a hosted model or a local signed-in CLI. */
+export interface YouTubeSuggestEngine {
+  id: string;
+  name: string;
+  runsLocally: boolean;
+}
+
+export interface YouTubeSuggestOptions {
+  engines: YouTubeSuggestEngine[];
+  tones: string[];
+}
+
+/** What to ask for, beyond the project's own material. */
+export interface YouTubeSuggestParams {
+  language: string;
+  fresh: boolean;
+  tone?: string;
+  brief?: string;
+  providerId?: string;
 }
 
 export type YouTubeUploadState = 'Queued' | 'Uploading' | 'Completed' | 'Failed' | 'Cancelled';
@@ -158,4 +185,42 @@ export function parseYouTubeTags(text: string): string[] {
     tags.push(tag);
   }
   return tags;
+}
+
+/** A connected channel with its live counters; counters are null when they couldn't be read. */
+export interface YouTubeChannelOverview {
+  channelId: string;
+  channelTitle: string;
+  channelHandle?: string | null;
+  thumbnailUrl?: string | null;
+  channelUrl: string;
+  studioUrl: string;
+  connectedAt: string;
+  lastUploadAt?: string | null;
+  needsReconnect: boolean;
+  subscribers?: number | null;
+  /** The owner hides the subscriber count on YouTube. */
+  subscribersHidden: boolean;
+  totalViews?: number | null;
+  totalVideos?: number | null;
+  /** Videos uploaded to this channel from the app. */
+  appUploads: number;
+  /** Why the counters couldn't be read, if they couldn't. */
+  statsError?: string | null;
+}
+
+export interface YouTubeVideoStats {
+  views?: number | null;
+  likes?: number | null;
+  comments?: number | null;
+}
+
+/** Everything the YouTube page shows, in one call. */
+export interface YouTubeDashboard {
+  configured: boolean;
+  channels: YouTubeChannelOverview[];
+  videos: YouTubePublication[];
+  /** Keyed by YouTube video id; videos YouTube no longer has are absent. */
+  videoStats: Record<string, YouTubeVideoStats>;
+  statsFetchedAt?: string | null;
 }

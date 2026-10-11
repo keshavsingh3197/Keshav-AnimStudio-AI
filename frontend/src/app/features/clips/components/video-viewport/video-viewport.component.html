@@ -67,6 +67,7 @@
                [style.filter]="state.computedMonitorFilter()"
                [style.transform]="state.activeClipTransform()"
                [style.clip-path]="state.activeClipClipPath()"
+               [style.visibility]="state.currentClipHidesVideo() ? 'hidden' : null"
                [muted]="state.isMonitorMuted()"
                (loadedmetadata)="onVideoMetadata('A', $event)"
                playsinline preload="auto"></video>
@@ -78,6 +79,7 @@
                [style.filter]="state.computedMonitorFilter()"
                [style.transform]="state.activeClipTransform()"
                [style.clip-path]="state.activeClipClipPath()"
+               [style.visibility]="state.currentClipHidesVideo() ? 'hidden' : null"
                [muted]="state.isMonitorMuted()"
                (loadedmetadata)="onVideoMetadata('B', $event)"
                playsinline preload="auto"></video>

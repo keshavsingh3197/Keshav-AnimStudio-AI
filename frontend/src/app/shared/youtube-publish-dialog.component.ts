@@ -4,9 +4,10 @@ import { FormsModule } from '@angular/forms';
 import { catchError, forkJoin, of } from 'rxjs';
 
 import {
-  MAX_RELATED_VIDEOS, YouTubeCheck, YouTubeDraft, YouTubePrivacy, YouTubePublication, YouTubePublishStatus, YouTubeUpload,
+  MAX_RELATED_VIDEOS, YouTubeCheck, YouTubeDraft, YouTubePrivacy, YouTubePublication, YouTubePublishStatus, YouTubeSuggestEngine, YouTubeUpload,
   isUploadFinished, parseYouTubeTags, relatedVideosBlock, youTubeTagsLength,
 } from '../core/models/youtube.models';
+import { ActivityService } from '../core/services/activity.service';
 import { YouTubePublishService } from '../core/services/youtube-publish.service';
 
 /** Remembered per browser so the next publish starts where the last one left off. */
@@ -36,11 +37,12 @@ interface PublishPrefs {
   template: `
     <div class="yt-backdrop" (click)="closed.emit()">
       <div class="yt-dialog" role="dialog" aria-modal="true" aria-label="Publish to YouTube" (click)="$event.stopPropagation()">
-        <div class="yt-head">
-          <h4>Publish to YouTube</h4>
+        <header class="yt-head">
+          <h4><span class="yt-logo" aria-hidden="true">▶</span> {{ reviewing() ? 'Review before uploading' : 'Publish to YouTube' }}</h4>
           <button type="button" class="yt-x" aria-label="Close" (click)="closed.emit()">✕</button>
-        </div>
+        </header>
 
+        <div class="yt-body">
         @if (loading()) {
           <p class="yt-muted">Loading…</p>
         } @else if (status(); as st) {
@@ -67,99 +69,198 @@ interface PublishPrefs {
                 <p class="yt-warn">This goes live publicly as soon as YouTube finishes processing it.</p>
               }
             </div>
-            @if (error()) { <p class="yt-err">{{ error() }}</p> }
-            <div class="yt-actions">
-              <button type="button" class="secondary" (click)="reviewing.set(false)" [disabled]="busy()">Back to edit</button>
-              <button type="button" (click)="publish()" [disabled]="!canPublish()">
-                {{ busy() ? 'Starting…' : privacy() === 'private' ? 'Confirm & upload as draft' : 'Confirm & upload' }}
-              </button>
-            </div>
           } @else {
             <div class="yt-grid">
-              <div class="yt-form">
-                <!-- Channel -->
-                <div class="yt-channel">
-                  @if (st.channels.length === 0) {
-                    <span class="yt-muted">No channel connected yet.</span>
-                    <button type="button" (click)="connect()" [disabled]="busy()">Connect a YouTube channel</button>
-                  } @else {
-                    @if (selectedChannel(); as ch) {
-                      @if (ch.thumbnailUrl) { <img [src]="ch.thumbnailUrl" alt="" referrerpolicy="no-referrer" /> }
-                    }
-                    <select [ngModel]="channelId()" (ngModelChange)="channelId.set($event)" aria-label="Channel" [disabled]="uploading()">
-                      @for (ch of st.channels; track ch.channelId) {
-                        <option [value]="ch.channelId">{{ ch.channelTitle }}{{ ch.needsReconnect ? ' (reconnect needed)' : '' }}</option>
-                      }
-                    </select>
-                    <button type="button" class="link" (click)="connect()" [disabled]="busy() || uploading()" title="Connect another channel or brand account">＋ Add</button>
-                    @if (selectedChannel(); as ch) {
-                      @if (ch.needsReconnect) {
-                        <button type="button" class="link" (click)="connect()" [disabled]="busy()">Reconnect</button>
-                      }
-                      <button type="button" class="link" (click)="disconnect(ch.channelId)" [disabled]="busy() || uploading()">Disconnect</button>
-                    }
-                  }
+              <!-- Left: what is being published, where, and how. -->
+              <aside class="yt-side">
+                <div class="yt-stage" [class.vertical]="draft()?.video?.isVertical">
+                  <video [src]="previewSrc()" controls playsinline preload="metadata"></video>
                 </div>
-
                 @if (draft(); as d) {
-                  @if (brandLinked()) {
-                    <p class="yt-muted">Brand channel <strong>{{ d.brandChannelName }}</strong> publishes here; details below start from its defaults.</p>
-                  } @else if (brandMissing()) {
-                    <p class="yt-warn">Brand channel <strong>{{ d.brandChannelName }}</strong> publishes to a YouTube channel you haven't connected. Use ＋ Add to connect it.</p>
-                  }
+                  <dl class="yt-facts">
+                    @if (d.video.durationSeconds != null) { <div><dt>Length</dt><dd>{{ clock(d.video.durationSeconds) }}</dd></div> }
+                    @if (d.video.width && d.video.height) { <div><dt>Picture</dt><dd>{{ d.video.width }}×{{ d.video.height }}</dd></div> }
+                    @if (d.video.sizeBytes) { <div><dt>Size</dt><dd>{{ d.video.sizeBytes / 1048576 | number: '1.0-1' }} MB</dd></div> }
+                    <div><dt>Type</dt><dd>{{ d.video.isVertical && (d.video.durationSeconds ?? 0) <= 180 ? 'Short' : 'Video' }}</dd></div>
+                  </dl>
                 }
+                <ul class="yt-checks">
+                  @for (c of problems(); track c.code + c.field) { <li class="err">✕ {{ c.message }}</li> }
+                  @for (c of warnings(); track c.code) { <li class="warn">⚠ {{ c.message }}</li> }
+                  @if (problems().length === 0 && !upload()) { <li class="ok">✓ Ready to publish</li> }
+                </ul>
 
-                <div class="yt-suggest">
-                  <button type="button" class="secondary" (click)="suggest()" [disabled]="suggesting() || uploading()"
-                          title="Write a title, description and tags from the project's name, description and script">
-                    {{ suggesting() ? 'Writing…' : suggestedOnce() ? '✨ Suggest again' : '✨ Suggest with AI' }}
-                  </button>
-                  <select [ngModel]="language()" (ngModelChange)="language.set($event)" aria-label="Suggestion language" [disabled]="suggesting() || uploading()">
-                    <option value="en">English</option>
-                    <option value="hi">Hindi</option>
-                  </select>
-                  @if (suggestNote()) { <span class="yt-muted">{{ suggestNote() }}</span> }
-                </div>
-
-                <label>Title
-                  <input type="text" [ngModel]="title()" (ngModelChange)="title.set($event)" [disabled]="uploading()"
-                         [class.invalid]="fieldError('title')" maxlength="200" />
-                </label>
-                <div class="yt-count" [class.over]="title().trim().length > st.limits.maxTitleLength">
-                  {{ title().trim().length }} / {{ st.limits.maxTitleLength }}
-                </div>
-
-                <label>Description
-                  <textarea rows="6" [ngModel]="description()" (ngModelChange)="description.set($event)" [disabled]="uploading()"
-                            [class.invalid]="fieldError('description')"></textarea>
-                </label>
-                <div class="yt-count" [class.over]="descriptionBytes() > st.limits.maxDescriptionBytes">
-                  {{ descriptionBytes() | number }} / {{ st.limits.maxDescriptionBytes | number }}{{ relatedSelected().length ? ' incl. related videos' : '' }}
-                </div>
-
-                @if (draft()?.channelTags?.length) {
-                  <div class="yt-chips" aria-label="Channel default tags">
-                    <span class="yt-muted">From channel settings:</span>
-                    @for (t of draft()!.channelTags; track t) {
-                      <span class="chip" [class.off]="excludedChannelTags().has(t)">
-                        {{ t }}
-                        <button type="button" [disabled]="uploading()" (click)="toggleChannelTag(t)"
-                                [attr.aria-label]="(excludedChannelTags().has(t) ? 'Add back ' : 'Leave out ') + t">
-                          {{ excludedChannelTags().has(t) ? '＋' : '✕' }}</button>
-                      </span>
+                <section class="yt-card">
+                  <span class="yt-label">Channel</span>
+                  <div class="yt-channel">
+                    @if (st.channels.length === 0) {
+                      <span class="yt-muted">No channel connected yet.</span>
+                      <button type="button" (click)="connect()" [disabled]="busy()">Connect a YouTube channel</button>
+                    } @else {
+                      @if (selectedChannel(); as ch) {
+                        @if (ch.thumbnailUrl) { <img [src]="ch.thumbnailUrl" alt="" referrerpolicy="no-referrer" /> }
+                      }
+                      <select [ngModel]="channelId()" (ngModelChange)="channelId.set($event)" aria-label="Channel" [disabled]="uploading()">
+                        @for (ch of st.channels; track ch.channelId) {
+                          <option [value]="ch.channelId">{{ ch.channelTitle }}{{ ch.needsReconnect ? ' (reconnect needed)' : '' }}</option>
+                        }
+                      </select>
                     }
                   </div>
-                }
-                <label>{{ draft()?.channelTags?.length ? 'More tags for this video' : 'Tags' }} <span class="yt-muted">(comma-separated, # is optional)</span>
-                  <input type="text" [ngModel]="tagsText()" (ngModelChange)="tagsText.set($event)" [disabled]="uploading()"
+                  @if (st.channels.length > 0) {
+                    <div class="yt-links">
+                      <button type="button" class="link" (click)="connect()" [disabled]="busy() || uploading()" title="Connect another channel or brand account">＋ Add channel</button>
+                      @if (selectedChannel(); as ch) {
+                        @if (ch.needsReconnect) {
+                          <button type="button" class="link" (click)="connect()" [disabled]="busy()">Reconnect</button>
+                        }
+                        <button type="button" class="link" (click)="disconnect(ch.channelId)" [disabled]="busy() || uploading()">Disconnect</button>
+                      }
+                    </div>
+                  }
+                  @if (draft(); as d) {
+                    @if (brandLinked()) {
+                      <p class="yt-muted">Brand channel <strong>{{ d.brandChannelName }}</strong> publishes here; details start from its defaults.</p>
+                    } @else if (brandMissing()) {
+                      <p class="yt-warn">Brand channel <strong>{{ d.brandChannelName }}</strong> publishes to a YouTube channel you haven't connected. Use ＋ Add channel.</p>
+                    }
+                  }
+                </section>
+
+                <section class="yt-card">
+                  <div class="yt-row">
+                    <label>Category
+                      <select [ngModel]="categoryId()" (ngModelChange)="categoryId.set($event)" [disabled]="uploading()">
+                        @for (c of st.categories; track c.id) { <option [value]="c.id">{{ c.name }}</option> }
+                      </select>
+                    </label>
+                    <label>Visibility
+                      <select [ngModel]="privacy()" (ngModelChange)="privacy.set($event)" [disabled]="uploading()">
+                        <option value="public">Public</option>
+                        <option value="unlisted">Unlisted</option>
+                        <option value="private">Private</option>
+                      </select>
+                    </label>
+                  </div>
+                  <fieldset class="yt-audience" [disabled]="uploading()">
+                    <legend>Audience</legend>
+                    <label class="inline"><input type="radio" name="kids" [checked]="madeForKids() === false" (change)="madeForKids.set(false)" /> Not made for kids</label>
+                    <label class="inline"><input type="radio" name="kids" [checked]="madeForKids() === true" (change)="madeForKids.set(true)" /> Made for kids</label>
+                  </fieldset>
+                  <label class="inline"><input type="checkbox" [ngModel]="notify()" (ngModelChange)="notify.set($event)" [disabled]="uploading()" /> Notify subscribers</label>
+                  @if (privacy() === 'private') {
+                    <p class="yt-muted">Private works as a draft: only you can see it until you change its visibility in YouTube Studio,
+                      where you can also add a thumbnail, end screen and playlists.</p>
+                  }
+                </section>
+              </aside>
+
+              <!-- Right: the words. -->
+              <div class="yt-form">
+                <section class="yt-ai">
+                  <div class="yt-suggest">
+                    <button type="button" class="yt-ai-go" (click)="suggest()" [disabled]="suggesting() || uploading()"
+                            title="Write titles, descriptions and tags from the project, its clips, captions and your notes">
+                      {{ suggesting() ? 'Writing…' : suggestedOnce() ? '✨ Suggest again' : '✨ Suggest with AI' }}
+                    </button>
+                    <select [ngModel]="tone()" (ngModelChange)="tone.set($event)" aria-label="Tone" title="Tone" [disabled]="suggesting() || uploading()">
+                      @for (t of tones(); track t) { <option [value]="t">{{ toneLabel(t) }}</option> }
+                    </select>
+                    <select [ngModel]="language()" (ngModelChange)="language.set($event)" aria-label="Suggestion language" [disabled]="suggesting() || uploading()">
+                      <option value="en">English</option>
+                      <option value="hi">Hindi</option>
+                    </select>
+                    <select [ngModel]="engine()" (ngModelChange)="engine.set($event)" aria-label="AI engine"
+                            title="Auto tries your providers in order. Local engines use the Claude Code / Copilot CLI signed in on this machine - no API key."
+                            [disabled]="suggesting() || uploading()">
+                      <option value="">Auto (provider chain)</option>
+                      @for (e of engines(); track e.id) {
+                        <option [value]="e.id">{{ e.runsLocally ? '💻 ' : '🔑 ' }}{{ e.name }}</option>
+                      }
+                    </select>
+                  </div>
+                  <input type="text" class="yt-brief" maxlength="1000" [ngModel]="brief()" (ngModelChange)="brief.set($event)"
+                         [disabled]="suggesting() || uploading()" aria-label="What's it about? (optional, helps the AI)"
+                         placeholder="Optional notes for the AI - e.g. Day 1 of Navratri, for devotees, keep it short" />
+                  @if (suggestNote()) { <p class="yt-muted">{{ suggestNote() }}</p> }
+                </section>
+
+                <section class="yt-field">
+                  <div class="yt-field-head">
+                    <label for="yt-title">Title</label>
+                    <span class="yt-count" [class.over]="title().trim().length > st.limits.maxTitleLength">
+                      {{ title().trim().length }} / {{ st.limits.maxTitleLength }}</span>
+                  </div>
+                  <input id="yt-title" type="text" [ngModel]="title()" (ngModelChange)="title.set($event)" [disabled]="uploading()"
+                         [class.invalid]="fieldError('title')" maxlength="200" />
+                  @if (titleOptions().length) {
+                    <div class="yt-ideas" role="group" aria-label="Title ideas">
+                      <span class="yt-ideas-label">Title ideas</span>
+                      @for (t of titleOptions(); track t) {
+                        <button type="button" class="yt-chip" [class.active]="t === title()" (click)="title.set(t)"
+                                [disabled]="uploading()">{{ t }}</button>
+                      }
+                    </div>
+                  }
+                </section>
+
+                <section class="yt-field">
+                  <div class="yt-field-head">
+                    <label for="yt-description">Description</label>
+                    <span class="yt-count" [class.over]="descriptionBytes() > st.limits.maxDescriptionBytes">
+                      {{ descriptionBytes() | number }} / {{ st.limits.maxDescriptionBytes | number }}{{ relatedSelected().length ? ' incl. related videos' : '' }}</span>
+                  </div>
+                  @if (descriptionOptions().length > 1) {
+                    <div class="yt-tabs" role="tablist" aria-label="Description versions">
+                      @for (d of descriptionOptions(); track $index) {
+                        <button type="button" role="tab" class="yt-tab" [class.active]="d === description()"
+                                [attr.aria-selected]="d === description()" [title]="preview(d)"
+                                (click)="description.set(d)" [disabled]="uploading()">
+                          {{ descriptionLabel($index) }}
+                        </button>
+                      }
+                      @if (!descriptionOptions().includes(description())) { <span class="yt-tab-edited">✎ Edited</span> }
+                    </div>
+                  }
+                  <textarea id="yt-description" rows="11" [ngModel]="description()" (ngModelChange)="description.set($event)" [disabled]="uploading()"
+                            [class.invalid]="fieldError('description')"></textarea>
+                </section>
+
+                <section class="yt-field">
+                  <div class="yt-field-head">
+                    <label for="yt-tags">{{ draft()?.channelTags?.length ? 'More tags for this video' : 'Tags' }} <span class="yt-muted">(comma-separated)</span></label>
+                    <span class="yt-count" [class.over]="tagsLength() > st.limits.maxTagsLength">
+                      {{ tags().length }} tags · {{ tagsLength() }} / {{ st.limits.maxTagsLength }}</span>
+                  </div>
+                  <input id="yt-tags" type="text" [ngModel]="tagsText()" (ngModelChange)="tagsText.set($event)" [disabled]="uploading()"
                          [class.invalid]="fieldError('tags')" placeholder="HoneyBadger, Wildlife, NatureComedy" />
-                </label>
-                <div class="yt-count" [class.over]="tagsLength() > st.limits.maxTagsLength">
-                  {{ tags().length }} tags · {{ tagsLength() }} / {{ st.limits.maxTagsLength }}
-                </div>
+                  @if (tagIdeasLeft().length) {
+                    <div class="yt-ideas" role="group" aria-label="Tag ideas">
+                      <span class="yt-ideas-label">Tag ideas</span>
+                      @for (t of tagIdeasLeft(); track t) {
+                        <button type="button" class="yt-chip yt-chip-add" (click)="addTag(t)" [disabled]="uploading()"
+                                [attr.aria-label]="'Add tag ' + t">＋ {{ t }}</button>
+                      }
+                      <button type="button" class="link" (click)="addAllTagIdeas()" [disabled]="uploading()">Add all that fit</button>
+                    </div>
+                  }
+                  @if (draft()?.channelTags?.length) {
+                    <div class="yt-chips" aria-label="Channel default tags">
+                      <span class="yt-ideas-label">From channel settings</span>
+                      @for (t of draft()!.channelTags; track t) {
+                        <span class="chip" [class.off]="excludedChannelTags().has(t)">
+                          {{ t }}
+                          <button type="button" [disabled]="uploading()" (click)="toggleChannelTag(t)"
+                                  [attr.aria-label]="(excludedChannelTags().has(t) ? 'Add back ' : 'Leave out ') + t">
+                            {{ excludedChannelTags().has(t) ? '＋' : '✕' }}</button>
+                        </span>
+                      }
+                    </div>
+                  }
+                </section>
 
                 <!-- Related videos: the user's own uploads from AnimStudio, linked at the end of the description. -->
-                <div class="yt-related">
+                <section class="yt-field yt-related">
                   <span class="yt-label">Related videos <span class="yt-muted">(linked at the end of the description)</span></span>
                   @if (relatedSelected().length) {
                     <div class="yt-chips" aria-label="Selected related videos">
@@ -189,64 +290,26 @@ interface PublishPrefs {
                   } @else {
                     <p class="yt-muted">Up to {{ maxRelated }} related videos.</p>
                   }
-                </div>
-
-                <div class="yt-row">
-                  <label>Category
-                    <select [ngModel]="categoryId()" (ngModelChange)="categoryId.set($event)" [disabled]="uploading()">
-                      @for (c of st.categories; track c.id) { <option [value]="c.id">{{ c.name }}</option> }
-                    </select>
-                  </label>
-                  <label>Visibility
-                    <select [ngModel]="privacy()" (ngModelChange)="privacy.set($event)" [disabled]="uploading()">
-                      <option value="public">Public</option>
-                      <option value="unlisted">Unlisted</option>
-                      <option value="private">Private</option>
-                    </select>
-                  </label>
-                </div>
-
-                <fieldset class="yt-audience" [disabled]="uploading()">
-                  <legend>Audience</legend>
-                  <label class="inline"><input type="radio" name="kids" [checked]="madeForKids() === false" (change)="madeForKids.set(false)" /> Not made for kids</label>
-                  <label class="inline"><input type="radio" name="kids" [checked]="madeForKids() === true" (change)="madeForKids.set(true)" /> Made for kids</label>
-                </fieldset>
-                <label class="inline"><input type="checkbox" [ngModel]="notify()" (ngModelChange)="notify.set($event)" [disabled]="uploading()" /> Notify subscribers</label>
-                @if (privacy() === 'private') {
-                  <p class="yt-muted">Private works as a draft: only you can see it until you change its visibility in YouTube Studio,
-                    where you can also add a thumbnail, end screen and playlists.</p>
-                }
-              </div>
-
-              <div class="yt-side">
-                <div class="yt-stage" [class.vertical]="draft()?.video?.isVertical">
-                  <video [src]="previewSrc()" controls playsinline preload="metadata"></video>
-                </div>
-                @if (draft(); as d) {
-                  <dl class="yt-facts">
-                    @if (d.video.durationSeconds != null) { <div><dt>Length</dt><dd>{{ clock(d.video.durationSeconds) }}</dd></div> }
-                    @if (d.video.width && d.video.height) { <div><dt>Picture</dt><dd>{{ d.video.width }}×{{ d.video.height }}</dd></div> }
-                    @if (d.video.sizeBytes) { <div><dt>Size</dt><dd>{{ d.video.sizeBytes / 1048576 | number: '1.0-1' }} MB</dd></div> }
-                    <div><dt>Type</dt><dd>{{ d.video.isVertical && (d.video.durationSeconds ?? 0) <= 180 ? 'Short' : 'Video' }}</dd></div>
-                  </dl>
-                }
-
-                <ul class="yt-checks">
-                  @for (c of problems(); track c.code + c.field) { <li class="err">✕ {{ c.message }}</li> }
-                  @for (c of warnings(); track c.code) { <li class="warn">⚠ {{ c.message }}</li> }
-                  @if (problems().length === 0 && !upload()) { <li class="ok">✓ Ready to publish</li> }
-                </ul>
+                </section>
               </div>
             </div>
+          }
+        } @else if (error()) {
+          <p class="yt-err">{{ error() }}</p>
+        }
+        </div>
 
-            @if (upload(); as u) {
-              <div class="yt-progress">
+        <!-- Always visible: progress, errors and the buttons. -->
+        @if (!loading() && status()?.configured) {
+          <footer class="yt-foot">
+            <div class="yt-foot-status">
+              @if (upload(); as u) {
                 @switch (u.state) {
                   @case ('Completed') {
                     <p class="ok">✓ Published to {{ u.channelTitle }} ({{ u.privacy }}).
                       <a [href]="u.videoUrl" target="_blank" rel="noopener noreferrer">Watch ↗</a> ·
                       <a [href]="u.studioUrl" target="_blank" rel="noopener noreferrer">Open in YouTube Studio ↗</a></p>
-                    <p class="yt-muted">The link is saved with this render. YouTube may still be processing HD versions for a few minutes.
+                    <p class="yt-muted">YouTube may still be processing HD versions for a few minutes.
                       @if (u.privacy === 'private') { Finish the details and publish it from YouTube Studio. }</p>
                     @if (u.warning) { <p class="yt-warn">⚠ {{ u.warning }}</p> }
                   }
@@ -259,13 +322,19 @@ interface PublishPrefs {
                       — you can close this window; the upload continues.</p>
                   }
                 }
-              </div>
-            }
-
-            @if (error()) { <p class="yt-err">{{ error() }}</p> }
-
+              }
+              @if (error()) { <p class="yt-err">{{ error() }}</p> }
+              @if (!upload() && !error() && !reviewing() && problems().length) {
+                <p class="yt-muted">{{ problems().length }} thing{{ problems().length === 1 ? '' : 's' }} to fix before publishing (see the left).</p>
+              }
+            </div>
             <div class="yt-actions">
-              @if (uploading()) {
+              @if (reviewing()) {
+                <button type="button" class="secondary" (click)="reviewing.set(false)" [disabled]="busy()">Back to edit</button>
+                <button type="button" (click)="publish()" [disabled]="!canPublish()">
+                  {{ busy() ? 'Starting…' : privacy() === 'private' ? 'Confirm & upload as draft' : 'Confirm & upload' }}
+                </button>
+              } @else if (uploading()) {
                 <button type="button" class="secondary" (click)="cancelUpload()">Cancel upload</button>
                 <button type="button" (click)="closed.emit()">Close</button>
               } @else {
@@ -275,9 +344,7 @@ interface PublishPrefs {
                 </button>
               }
             </div>
-          }
-        } @else if (error()) {
-          <p class="yt-err">{{ error() }}</p>
+          </footer>
         }
       </div>
     </div>
@@ -286,70 +353,127 @@ interface PublishPrefs {
     .yt-backdrop { position: fixed; inset: 0; z-index: 1000; background: rgba(2, 6, 23, 0.78);
       display: flex; align-items: center; justify-content: center; padding: 16px; }
     .yt-dialog { background: var(--surface, #0f172a); border: 1px solid var(--border, rgba(148, 163, 184, 0.2));
-      border-radius: 12px; padding: 1rem 1.25rem; width: min(980px, 100%); max-height: calc(100vh - 32px);
-      overflow: auto; color: var(--text, #e2e8f0); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); }
-    .yt-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: .75rem; }
-    .yt-head h4 { margin: 0; font-size: 1.1rem; }
+      border-radius: 14px; width: min(1240px, 100%); height: calc(100vh - 32px); max-height: 980px;
+      display: flex; flex-direction: column; overflow: hidden;
+      color: var(--text, #e2e8f0); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); }
+
+    .yt-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem;
+      padding: .8rem 1.25rem; border-bottom: 1px solid var(--border, rgba(148, 163, 184, .2)); flex: none; }
+    .yt-head h4 { margin: 0; font-size: 1.05rem; display: flex; align-items: center; gap: .55rem; }
+    .yt-logo { display: inline-grid; place-items: center; width: 1.6rem; height: 1.1rem; border-radius: 5px;
+      background: #ff3d3d; color: #fff; font-size: .6rem; }
     .yt-x { background: transparent; border: 0; color: inherit; font-size: 1.1rem; cursor: pointer; }
-    .yt-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 1.25rem; }
-    @media (max-width: 760px) { .yt-grid { grid-template-columns: 1fr; } }
-    .yt-form { display: grid; gap: .35rem; align-content: start; }
-    .yt-form label { display: grid; gap: .25rem; font-size: .85rem; color: var(--muted, #94a3b8); }
-    .yt-form label.inline { display: flex; align-items: center; gap: .4rem; color: inherit; }
-    .yt-form input[type=text], .yt-form textarea, .yt-form select { width: 100%; box-sizing: border-box; }
-    .yt-form textarea { resize: vertical; min-height: 110px; }
-    .invalid { outline: 1px solid #ef4444; }
-    .yt-row { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; margin-top: .35rem; }
-    .yt-count { font-size: .75rem; text-align: right; color: var(--muted, #94a3b8); font-variant-numeric: tabular-nums; }
-    .yt-count.over { color: #f87171; font-weight: 600; }
-    .yt-channel { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; padding: .6rem .75rem;
-      background: rgba(148, 163, 184, .08); border-radius: 8px; margin-bottom: .5rem; }
-    .yt-channel img { width: 28px; height: 28px; border-radius: 50%; }
-    .yt-channel select { flex: 1; min-width: 140px; width: auto; }
-    .link { background: transparent; border: 0; color: var(--brand, #6c8cff); cursor: pointer; padding: .2rem .3rem; }
-    .yt-audience { border: 0; padding: 0; margin: .35rem 0 0; display: flex; gap: 1rem; flex-wrap: wrap; }
-    .yt-audience legend { font-size: .85rem; color: var(--muted, #94a3b8); padding: 0; margin-bottom: .25rem; }
-    .yt-stage { background: #000; border-radius: 8px; overflow: hidden; }
-    .yt-stage video { display: block; width: 100%; max-height: 42vh; background: #000; }
-    .yt-stage.vertical video { max-height: 52vh; }
-    .yt-facts { display: flex; flex-wrap: wrap; gap: .3rem 1rem; margin: .6rem 0 0; font-size: .82rem; }
+
+    .yt-body { flex: 1 1 auto; overflow: auto; padding: 1rem 1.25rem; }
+    .yt-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+      padding: .75rem 1.25rem; border-top: 1px solid var(--border, rgba(148, 163, 184, .2));
+      background: color-mix(in srgb, var(--surface-2, #1e293b) 55%, var(--surface, #0f172a)); }
+    .yt-foot-status { min-width: 0; flex: 1 1 auto; display: grid; gap: .25rem; }
+    .yt-foot-status p { margin: 0; }
+    .yt-actions { display: flex; gap: .5rem; flex: none; }
+
+    .yt-grid { display: grid; grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); gap: 1.4rem; align-items: start; }
+    @media (max-width: 860px) { .yt-grid { grid-template-columns: 1fr; } }
+
+    /* Left column */
+    .yt-side { display: grid; gap: .75rem; align-content: start; }
+    .yt-stage { background: #000; border-radius: 10px; overflow: hidden; display: grid; place-items: center; }
+    .yt-stage video { display: block; width: 100%; max-height: 34vh; background: #000; }
+    .yt-stage.vertical video { max-height: 44vh; }
+    .yt-facts { display: flex; flex-wrap: wrap; gap: .3rem 1rem; margin: 0; font-size: .82rem; }
     .yt-facts div { display: flex; gap: .3rem; }
     .yt-facts dt { color: var(--muted, #94a3b8); }
     .yt-facts dd { margin: 0; font-variant-numeric: tabular-nums; }
-    .yt-checks { list-style: none; padding: 0; margin: .75rem 0 0; display: grid; gap: .3rem; font-size: .85rem; }
+    .yt-checks { list-style: none; padding: 0; margin: 0; display: grid; gap: .3rem; font-size: .85rem; }
     .yt-checks .err { color: #fca5a5; }
     .yt-checks .warn { color: #fcd34d; }
-    .ok { color: #86efac; }
-    .yt-progress { margin-top: 1rem; }
-    .yt-progress p { margin: .35rem 0 0; }
-    .bar { height: 8px; background: #1e293b; border-radius: 4px; overflow: hidden; }
-    .bar div { height: 100%; background: #ef4444; transition: width .4s ease; }
-    .yt-muted { color: var(--muted, #94a3b8); font-size: .85rem; margin: 0; }
-    .yt-err { color: #fca5a5; font-size: .9rem; }
-    .yt-warn { color: #fcd34d; font-size: .85rem; margin: 0; }
-    .yt-suggest { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-bottom: .25rem; }
-    .yt-suggest select { width: auto; }
-    .yt-chips { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem; font-size: .8rem; margin-top: .35rem; }
+    .yt-card { display: grid; gap: .5rem; padding: .75rem .85rem; border-radius: 10px;
+      background: rgba(148, 163, 184, .07); border: 1px solid rgba(148, 163, 184, .12); }
+    .yt-card label { display: grid; gap: .25rem; font-size: .82rem; color: var(--muted, #94a3b8); margin: 0; }
+    .yt-card label.inline { display: flex; align-items: center; gap: .4rem; color: inherit; font-size: .88rem; }
+    .yt-card select { width: 100%; box-sizing: border-box; }
+    .yt-channel { display: flex; align-items: center; gap: .5rem; }
+    .yt-channel img { width: 30px; height: 30px; border-radius: 50%; flex: none; }
+    .yt-channel select { flex: 1; min-width: 0; }
+    .yt-links { display: flex; flex-wrap: wrap; gap: .25rem; margin: -.2rem 0 0 -.3rem; }
+    .yt-row { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
+    .yt-audience { border: 0; padding: 0; margin: 0; display: flex; gap: 1rem; flex-wrap: wrap; }
+    .yt-audience legend { font-size: .82rem; color: var(--muted, #94a3b8); padding: 0; margin-bottom: .25rem; }
+
+    /* Right column */
+    .yt-form { display: grid; gap: 1rem; align-content: start; min-width: 0; }
+    .yt-ai { display: grid; gap: .5rem; padding: .75rem .85rem; border-radius: 10px;
+      background: linear-gradient(135deg, rgba(108, 140, 255, .12), rgba(168, 85, 247, .08));
+      border: 1px solid rgba(108, 140, 255, .25); }
+    .yt-suggest { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; }
+    .yt-suggest select { width: auto; flex: 0 1 auto; }
+    .yt-ai-go { font-weight: 700; }
+    input.yt-brief { width: 100%; box-sizing: border-box; }
+    .yt-field { display: grid; gap: .4rem; }
+    .yt-field-head { display: flex; align-items: baseline; justify-content: space-between; gap: .75rem; }
+    .yt-field-head label { margin: 0; font-weight: 700; font-size: .9rem; }
+    .yt-field input[type=text], .yt-field textarea, .yt-field select { width: 100%; box-sizing: border-box; }
+    .yt-field textarea { resize: vertical; min-height: 180px; line-height: 1.45; }
+    .invalid { outline: 1px solid #ef4444; }
+    .yt-count { font-size: .75rem; color: var(--muted, #94a3b8); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .yt-count.over { color: #f87171; font-weight: 600; }
+
+    .yt-ideas { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; max-height: 8.5rem; overflow: auto; padding: .1rem 0; }
+    .yt-ideas-label { font-size: .72rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+      color: var(--muted, #94a3b8); margin-right: .15rem; }
+    .yt-chip { font-size: .8rem; padding: .25rem .6rem; border-radius: 999px; border: 1px solid #334155;
+      background: #111827; color: inherit; cursor: pointer; text-align: left; font-weight: 500; line-height: 1.3; }
+    .yt-chip:hover:not(:disabled) { border-color: #6366f1; box-shadow: none; }
+    .yt-chip.active { border-color: #6366f1; background: #1e1b4b; }
+    .yt-chip-add { color: var(--text-dim, #cbd5e1); }
+
+    .yt-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem; padding: .2rem; border-radius: 999px;
+      background: rgba(148, 163, 184, .08); border: 1px solid rgba(148, 163, 184, .15); width: fit-content; max-width: 100%; }
+    .yt-tab { padding: .3rem .8rem; border-radius: 999px; border: 0; background: transparent; color: var(--muted, #94a3b8);
+      font-size: .82rem; font-weight: 600; cursor: pointer; }
+    .yt-tab:hover:not(:disabled) { color: var(--text, #e2e8f0); box-shadow: none; }
+    .yt-tab.active { background: rgba(108, 140, 255, .25); color: var(--text, #e2e8f0); }
+    .yt-tab-edited { font-size: .78rem; color: var(--muted, #94a3b8); padding: 0 .5rem; }
+
+    .yt-chips { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem; font-size: .8rem; }
     .chip { display: inline-flex; align-items: center; gap: .15rem; padding: .1rem .2rem .1rem .5rem; border-radius: 999px;
       background: rgba(108, 140, 255, .18); }
     .chip.off { opacity: .45; text-decoration: line-through; }
     .chip button { background: transparent; border: 0; color: inherit; cursor: pointer; padding: 0 .25rem; font-size: .75rem; }
+    .yt-related-pick { display: grid; gap: .35rem; }
+    .yt-related-pick input, .yt-related-pick select { width: 100%; box-sizing: border-box; }
+
+    .link { background: transparent; border: 0; color: var(--brand, #6c8cff); cursor: pointer; padding: .2rem .3rem; font-size: .84rem; }
+    .link:hover:not(:disabled) { box-shadow: none; text-decoration: underline; }
+    .ok { color: #86efac; }
+    .bar { height: 8px; background: #1e293b; border-radius: 4px; overflow: hidden; }
+    .bar div { height: 100%; background: #ef4444; transition: width .4s ease; }
+    .yt-label { font-size: .82rem; color: var(--muted, #94a3b8); font-weight: 600; }
+    .yt-related .yt-label { color: var(--text, #e2e8f0); font-weight: 700; font-size: .9rem; }
+    .yt-muted { color: var(--muted, #94a3b8); font-size: .84rem; margin: 0; }
+    .yt-err { color: #fca5a5; font-size: .9rem; margin: 0; }
+    .yt-warn { color: #fcd34d; font-size: .85rem; margin: 0; }
+
+    .yt-review { max-width: 860px; margin: 0 auto; }
     .yt-review dl { display: grid; gap: .5rem; margin: .75rem 0; }
     .yt-review dl div { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: .75rem; }
     @media (max-width: 560px) { .yt-review dl div { grid-template-columns: 1fr; gap: .1rem; } }
     .yt-review dt { color: var(--muted, #94a3b8); font-size: .85rem; }
     .yt-review dd { margin: 0; overflow-wrap: anywhere; }
-    .yt-review pre { margin: 0; white-space: pre-wrap; font: inherit; max-height: 30vh; overflow: auto;
+    .yt-review pre { margin: 0; white-space: pre-wrap; font: inherit; max-height: 40vh; overflow: auto;
       background: rgba(148, 163, 184, .08); padding: .5rem .6rem; border-radius: 6px; }
-    .yt-actions { display: flex; justify-content: flex-end; gap: .5rem; margin-top: 1rem; }
-    .yt-related { display: grid; gap: .35rem; margin-top: .5rem; }
-    .yt-label { font-size: .85rem; color: var(--muted, #94a3b8); }
-    .yt-related-pick { display: grid; gap: .35rem; }
-    .yt-related-pick input, .yt-related-pick select { width: 100%; box-sizing: border-box; }
+
+    @media (max-width: 640px) {
+      .yt-backdrop { padding: 0; }
+      .yt-dialog { height: 100vh; max-height: none; border-radius: 0; }
+      .yt-foot { flex-direction: column; align-items: stretch; }
+      .yt-actions { justify-content: flex-end; }
+    }
   `],
 })
 export class YouTubePublishDialogComponent implements OnInit {
   private readonly api = inject(YouTubePublishService);
+  private readonly activity = inject(ActivityService);
 
   readonly jobId = input.required<string>();
   readonly previewSrc = input.required<string>();
@@ -399,6 +523,33 @@ export class YouTubePublishDialogComponent implements OnInit {
   readonly suggestedOnce = signal(false);
   readonly suggestNote = signal<string | null>(null);
   readonly language = signal<'en' | 'hi'>('en');
+  readonly tone = signal('auto');
+  readonly tones = signal<string[]>(['auto']);
+  /** '' is the provider chain; otherwise one engine, pinned for this request. */
+  readonly engine = signal('');
+  readonly engines = signal<YouTubeSuggestEngine[]>([]);
+  readonly brief = signal('');
+  /** Every title the last suggestion offered, the chosen one included, so it can be switched back. */
+  readonly titleOptions = signal<string[]>([]);
+  /** Every description the last suggestion offered: the main one first, then short and detailed. */
+  readonly descriptionOptions = signal<string[]>([]);
+  /** Extra tags the last suggestion offered, to add with a click. */
+  readonly tagIdeas = signal<string[]>([]);
+  /** Ideas not already among the tags. */
+  readonly tagIdeasLeft = computed(() => {
+    const have = new Set(this.tags().map((t) => t.toLowerCase()));
+    return this.tagIdeas().filter((t) => !have.has(t.toLowerCase()));
+  });
+
+  private static readonly ToneLabels: Record<string, string> = {
+    auto: '🎯 Any tone', funny: '😂 Funny', devotional: '🙏 Devotional', emotional: '🥹 Emotional',
+    dramatic: '🎭 Dramatic', informative: '📘 Informative', energetic: '⚡ Energetic', kids: '🧸 For kids',
+    motivational: '💪 Motivational', 'clickbait-free': '✅ Honest / no clickbait',
+  };
+
+  toneLabel(id: string): string {
+    return YouTubePublishDialogComponent.ToneLabels[id] ?? id;
+  }
 
   readonly selectedChannel = computed(() =>
     this.status()?.channels.find((c) => c.channelId === this.channelId()) ?? null);
@@ -470,6 +621,12 @@ export class YouTubePublishDialogComponent implements OnInit {
   }
 
   ngOnInit(): void {
+    // Optional: without it the pickers just offer Auto and "any tone".
+    this.api.suggestOptions().pipe(catchError(() => of(null))).subscribe((o) => {
+      if (!o) return;
+      this.engines.set(o.engines);
+      if (o.tones.length) this.tones.set(o.tones);
+    });
     forkJoin({
       status: this.api.status(),
       draft: this.api.draft(this.jobId()),
@@ -565,13 +722,23 @@ export class YouTubePublishDialogComponent implements OnInit {
     this.suggesting.set(true);
     this.suggestNote.set(null);
     this.error.set(null);
-    this.api.suggest(this.jobId(), this.language(), this.suggestedOnce()).subscribe({
+    this.api.suggest(this.jobId(), {
+      language: this.language(),
+      fresh: this.suggestedOnce(),
+      tone: this.tone(),
+      brief: this.brief().trim() || undefined,
+      providerId: this.engine() || undefined,
+    }).subscribe({
       next: (s) => {
         this.title.set(s.title);
+        this.titleOptions.set(s.titleOptions?.length ? [s.title, ...s.titleOptions] : []);
         this.description.set(s.description);
+        this.descriptionOptions.set(s.descriptionOptions?.length ? [s.description, ...s.descriptionOptions] : []);
         this.tagsText.set(s.tags.join(', '));
+        this.tagIdeas.set(s.tagIdeas ?? []);
         this.suggestedOnce.set(true);
-        this.suggestNote.set('Filled in by AI. Read it through and edit before publishing.');
+        const by = this.engines().find((e) => e.id === s.providerId)?.name ?? s.providerId;
+        this.suggestNote.set(`Filled in by ${by}. Read it through and edit before publishing.`);
         this.suggesting.set(false);
       },
       error: (e: Error) => {
@@ -589,6 +756,35 @@ export class YouTubePublishDialogComponent implements OnInit {
 
   removeRelated(videoId: string): void {
     this.relatedIds.update((ids) => ids.filter((id) => id !== videoId));
+  }
+
+  /** The main suggestion, then the short and detailed versions the prompt asks for. */
+  descriptionLabel(index: number): string {
+    return ['✨ Suggested', '⚡ Short', '📖 Detailed'][index] ?? `Version ${index + 1}`;
+  }
+
+  /** The start of a version, for its tab's tooltip. */
+  preview(text: string): string {
+    const flat = text.replace(/\s+/g, ' ').trim();
+    return flat.length > 160 ? `${flat.slice(0, 160)}…` : flat;
+  }
+
+  addTag(tag: string): void {
+    const current = this.tagsText().trim().replace(/,\s*$/, '');
+    this.tagsText.set(current ? `${current}, ${tag}` : tag);
+  }
+
+  /** Adds ideas in order while the tags stay within YouTube's length limit. */
+  addAllTagIdeas(): void {
+    const limit = this.status()?.limits.maxTagsLength ?? 500;
+    for (const tag of this.tagIdeasLeft()) {
+      const before = this.tagsText();
+      this.addTag(tag);
+      if (this.tagsLength() > limit) {
+        this.tagsText.set(before);
+        break;
+      }
+    }
   }
 
   toggleChannelTag(tag: string): void {
@@ -624,6 +820,8 @@ export class YouTubePublishDialogComponent implements OnInit {
     }, this.relatedSelected().map((v) => v.videoId)).subscribe({
       next: (upload) => {
         this.upload.set(upload);
+        // The dialog can be closed mid-upload; the activity panel keeps following it.
+        this.activity.trackYouTubeUpload(upload);
         this.reviewing.set(false);
         this.busy.set(false);
         if (!isUploadFinished(upload)) this.poll(upload.uploadId);

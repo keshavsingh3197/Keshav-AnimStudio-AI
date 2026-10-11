@@ -647,6 +647,8 @@ export interface ClipAudioBody {
   keepOriginalAudio: boolean;
   trimStartSeconds?: number | null;
   trimEndSeconds?: number | null;
+  /** Sound only: the export blanks this clip's picture to the backdrop colour. */
+  hideVideo?: boolean;
 }
 
 /** Loudest anything may be lifted. Mirrors ClipAudioSpec.MaxGain on the server. */
@@ -1241,8 +1243,82 @@ export interface ProjectEdit {
   pendingRangeEnd: number | null;
   createdAt: string;
   updatedAt: string;
+  /** Its place in the project, in the order videos were made (#1, #2...); never reused. */
+  number: number;
+  /** Library videos the timeline starts with, until the editor first saves it. */
+  initialAssetIds: string[];
+  /** Exported or not, on YouTube or not. */
+  publish: EditPublishInfo;
   /** Only on a single-cut fetch. */
   draftJson?: string | null;
+}
+
+export type EditExportState = 'NotExported' | 'Exporting' | 'Exported' | 'Failed';
+/** Uploaded = from the app (found through an export); MarkedUploaded = the user said so. */
+export type EditYouTubeState = 'NotUploaded' | 'Uploaded' | 'MarkedUploaded';
+
+export interface EditPublishInfo {
+  exportState: EditExportState;
+  lastExportedAt: string | null;
+  youTubeState: EditYouTubeState;
+  youTubeVideoId: string | null;
+  youTubeUrl: string | null;
+  youTubeHealth: string | null;
+  uploadedAt: string | null;
+}
+
+export interface EditStatusBadge {
+  /** CSS modifier: yt | yt-marked | exported | exporting | failed | none */
+  kind: 'yt' | 'yt-marked' | 'exported' | 'exporting' | 'failed' | 'none';
+  label: string;
+  title: string;
+}
+
+/** One badge saying how far a video got: on YouTube, exported, or not yet. */
+export function editStatusBadge(e: ProjectEdit): EditStatusBadge {
+  const p = e.publish;
+  if (!p) return { kind: 'none', label: 'Not exported', title: 'Not exported yet' };
+  if (p.youTubeState === 'Uploaded') {
+    const issue = p.youTubeHealth && p.youTubeHealth !== 'Ok' && p.youTubeHealth !== 'Processing' ? ` (${p.youTubeHealth})` : '';
+    return { kind: 'yt', label: `On YouTube${issue}`, title: 'Uploaded to YouTube from AnimStudio' };
+  }
+  if (p.youTubeState === 'MarkedUploaded') {
+    return { kind: 'yt-marked', label: 'On YouTube', title: 'You marked this as uploaded to YouTube' };
+  }
+  switch (p.exportState) {
+    case 'Exported': return { kind: 'exported', label: 'Exported', title: 'Exported, not on YouTube yet' };
+    case 'Exporting': return { kind: 'exporting', label: 'Exporting…', title: 'An export is running' };
+    case 'Failed': return { kind: 'failed', label: 'Export failed', title: 'The last export failed' };
+    default: return { kind: 'none', label: 'Not exported', title: 'Not exported or uploaded yet' };
+  }
+}
+
+/**
+ * The next "Short 7" / "Video 3" style number: one past the highest already used, so a
+ * deleted "Short 5" never comes back as a second "Short 5" next to a newer one.
+ */
+export function nextEditNumber(format: EditFormat, taken: { name: string }[]): number {
+  const prefix = editNamePrefix(format).toLowerCase();
+  let max = 0;
+  for (const e of taken) {
+    const m = /^(\S+)\s+(\d+)\b/.exec(e.name.trim().toLowerCase());
+    if (m && m[1] === prefix) max = Math.max(max, Number(m[2]));
+  }
+  return max + 1;
+}
+
+export function editNamePrefix(format: EditFormat): string {
+  return format === 'Short' ? 'Short' : format === 'Square' ? 'Square' : 'Video';
+}
+
+export function nextEditName(format: EditFormat, taken: { name: string }[]): string {
+  return `${editNamePrefix(format)} ${nextEditNumber(format, taken)}`;
+}
+
+/** Whether another video of the project already uses this name (trimmed, case ignored). */
+export function editNameTaken(name: string, edits: { id: string; name: string }[], exceptId?: string): boolean {
+  const key = name.trim().toLowerCase();
+  return !!key && edits.some((e) => e.id !== exceptId && e.name.trim().toLowerCase() === key);
 }
 
 export type CreateEditMode = 'Blank' | 'Copy' | 'Range';
@@ -1256,6 +1332,8 @@ export interface CreateEditBody {
   sourceEditId?: string | null;
   rangeStart?: number | null;
   rangeEnd?: number | null;
+  /** Blank only: library videos the timeline starts with, in this order. */
+  initialAssetIds?: string[];
 }
 
 export interface UpdateEditBody {

@@ -68,6 +68,26 @@ export class ClipAudioInspectorComponent {
     return ids.every((id) => this.state.clipOverlapRule(id) === first) ? first : null;
   }
 
+  useLabel(volume: number, hideVideo: boolean): string {
+    if (hideVideo) return volume > 0 ? 'Sound only' : 'Nothing (muted + hidden)';
+    return volume > 0 ? 'Video + sound' : 'Video only';
+  }
+
+  useBoth(clipId: string, volume: number): void {
+    this.state.setClipHideVideo(clipId, false);
+    if (volume === 0) this.state.setClipVolume(clipId, 1);
+  }
+
+  useVideoOnly(clipId: string): void {
+    this.state.setClipHideVideo(clipId, false);
+    this.state.setClipVolume(clipId, 0);
+  }
+
+  useSoundOnly(clipId: string, volume: number): void {
+    this.state.setClipHideVideo(clipId, true);
+    if (volume === 0) this.state.setClipVolume(clipId, 1);
+  }
+
   scopeLabel(): string {
     const scope = this.state.targetScope();
     if (scope === 'current') return 'the clip under the playhead';

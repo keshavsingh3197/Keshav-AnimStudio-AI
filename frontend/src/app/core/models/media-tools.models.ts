@@ -32,6 +32,8 @@ export interface MediaDownloadRequest {
   /** A top-level folder to use, created if the project has none by that name. */
   folderName?: string;
   addToClipOrder?: boolean;
+  /** File into a top-level folder named after the website (YouTube, Instagram…), made on first use. */
+  folderBySource?: boolean;
 }
 
 export interface MediaDownloadResult {
@@ -46,6 +48,8 @@ export interface MediaDownloadResult {
   projectId?: string;
   folderId?: string;
   folderName?: string;
+  /** The library name the asset got: the video's title unless one was given. */
+  assetName?: string;
 }
 
 export interface SupportedPlatform {

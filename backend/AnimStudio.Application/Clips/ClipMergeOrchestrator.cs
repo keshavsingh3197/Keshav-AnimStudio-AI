@@ -383,6 +383,7 @@ public sealed class ClipMergeOrchestrator(
                         ExtraAudioTrimEndSeconds = audio?.TrimEndSeconds,
                         ExtraAudioVolume = audio?.AudioVolume ?? 1.0,
                         KeepOwnAudio = audio?.KeepOriginalAudio ?? false,
+                        HideVideo = audio?.HideVideo ?? false,
                         Watermark = watermark,
                         Encoder = clipEncoder,
                         EncoderThreads = perClipThreads,

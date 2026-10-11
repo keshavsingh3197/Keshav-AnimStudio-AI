@@ -141,7 +141,8 @@ public sealed class AdminController(
             }
 
             var needsExecutable = descriptor?.Family
-                is AiProviderFamily.PiperSpeech or AiProviderFamily.WhisperCppTranscription;
+                is AiProviderFamily.PiperSpeech or AiProviderFamily.WhisperCppTranscription
+                    or AiProviderFamily.LocalCliText;
 
             rows.Add(new AdminProviderResponse(
                 provider.Id.Value,

@@ -184,4 +184,20 @@ public class MediaDownloadFailureClassifierTests
 
         Assert.Equal("ERROR: unable to open for writing: <path>", detail);
     }
+
+    [Theory]
+    [InlineData("https://www.youtube.com/shorts/dQw4w9WgXcQ", "YouTube")]
+    [InlineData("https://www.linkedin.com/posts/someone_video-ugcPost-7509870755388755968-cpYB/", "LinkedIn")]
+    [InlineData("https://x.com/someone/status/1790000000000000000", "X")]
+    [InlineData("https://www.instagram.com/reel/C1a2b3c4d5e/", "Instagram")]
+    [InlineData("https://dms.licdn.com/playlist/vid/v2/D4D05AQ/mp4-720p-30fp-crf28/0/1699", "LinkedIn")]
+    [InlineData("https://scontent-lhr8-1.cdninstagram.com/o1/v/t16/f1/m86/clip.mp4", "Instagram")]
+    [InlineData("https://video.twimg.com/ext_tw_video/123/pu/vid/720x1280/abc.mp4", "X")]
+    public void Files_each_link_under_the_website_it_came_from(string url, string folder)
+    {
+        var result = MediaSourceValidator.Validate(url);
+
+        Assert.True(result.IsValid, result.ErrorMessage);
+        Assert.Equal(folder, MediaSourceValidator.FolderNameFor(result.Platform!, result.CanonicalUrl!));
+    }
 }

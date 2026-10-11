@@ -44,6 +44,7 @@
             <label class="xfer-field">
               <span>Name</span>
               <input type="text" maxlength="120" [ngModel]="newName()" (ngModelChange)="newName.set($event)" />
+              @if (nameTaken()) { <small class="name-taken" style="color:#f87171">Another video already has this name.</small> }
             </label>
             <label class="xfer-field">
               <span>Format</span>

@@ -109,24 +109,45 @@
     </button>
   </div>
 
-  <!-- Timeline Status Sub-Filter (Row 2: All / Unused / In Cut) -->
+  <!-- Usage Sub-Filter (Row 2): matches the New / Unused / In other / In Cut badges on the cards -->
   <div class="media-status-pills">
     <button type="button" class="status-pill"
             [class.active]="state.statusFilter() === 'all'"
             (click)="state.statusFilter.set('all'); state.currentPage.set(0)">
-      All Status
+      All
     </button>
-    <button type="button" class="status-pill unused-pill"
+    <button type="button" class="status-pill"
+            [class.active]="state.statusFilter() === 'new'"
+            (click)="state.statusFilter.set('new'); state.currentPage.set(0)"
+            title="Added today and not used in any video yet">
+      <span class="status-badge-dot new-dot"></span>
+      New ({{ state.newUnusedCount() }})
+    </button>
+    <button type="button" class="status-pill"
             [class.active]="state.statusFilter() === 'unused'"
             (click)="state.statusFilter.set('unused'); state.currentPage.set(0)"
-            title="Show only media not yet placed on timeline">
+            title="Not used in any video of this project (includes New)">
       <span class="status-badge-dot unused-dot"></span>
+      Unused ({{ state.unusedAnywhereCount() }})
+    </button>
+    <button type="button" class="status-pill"
+            [class.active]="state.statusFilter() === 'other'"
+            (click)="state.statusFilter.set('other'); state.currentPage.set(0)"
+            title="Not in this cut, but used in other videos of this project">
+      <span class="status-badge-dot other-dot"></span>
+      In Others ({{ state.inOtherVideosCount() }})
+    </button>
+    <button type="button" class="status-pill"
+            [class.active]="state.statusFilter() === 'not_in_cut'"
+            (click)="state.statusFilter.set('not_in_cut'); state.currentPage.set(0)"
+            title="Not placed on this video's timeline">
+      <span class="status-badge-dot notincut-dot"></span>
       Not in Cut ({{ state.unusedCount() }})
     </button>
-    <button type="button" class="status-pill incut-pill"
+    <button type="button" class="status-pill"
             [class.active]="state.statusFilter() === 'in_cut'"
             (click)="state.statusFilter.set('in_cut'); state.currentPage.set(0)"
-            title="Show only media placed on timeline">
+            title="Placed on this video's timeline">
       <span class="status-badge-dot incut-dot"></span>
       In Cut ({{ state.inCutCount() }})
     </button>
@@ -389,5 +410,6 @@
 
 @if (urlImportOpen() && state.store.project(); as project) {
   <app-url-import-dialog [projectId]="project.id" [folders]="state.store.folders()"
-                         (imported)="onUrlImported()" (closed)="onUrlImportClosed()" />
+                         (imported)="onUrlImported()" (closed)="onUrlImportClosed()"
+                         (editsCreated)="state.refreshProjectEdits()" />
 }

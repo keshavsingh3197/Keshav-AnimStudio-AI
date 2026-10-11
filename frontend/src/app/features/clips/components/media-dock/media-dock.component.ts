@@ -27,6 +27,8 @@ export class MediaDockComponent implements OnDestroy {
   onUrlImported(): void {
     this.urlImported = true;
     this.state.store.refreshAssets();
+    // "Sort by website" may have just made a YouTube/Instagram/… folder.
+    this.state.store.refreshFolders();
   }
 
   onUrlImportClosed(): void {

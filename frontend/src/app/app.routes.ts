@@ -112,6 +112,14 @@ export const routes: Routes = [
   },
 
   {
+    path: 'youtube',
+    title: 'YouTube - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/youtube/youtube-dashboard.component')
+        .then((m) => m.YouTubeDashboardComponent),
+  },
+
+  {
     path: 'youtube/callback',
     title: 'Connecting YouTube - AnimStudio AI',
     loadComponent: () =>

@@ -5,11 +5,16 @@ import { ApiService } from '../../core/services/api.service';
 import { ProjectStore } from '../../core/services/project-store';
 import { StatusService } from '../../core/services/status.service';
 import { RangePickerComponent } from './range-picker/range-picker.component';
+import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
 import {
   CreateEditBody, CreateEditMode, EDIT_CATEGORY_SUGGESTIONS, EDIT_FORMATS, EditFormat, ProjectEdit, SHORTS_MAX_SECONDS,
+  editNameTaken, editStatusBadge, nextEditName,
 } from '../../core/models/api.models';
 
-type SortKey = 'recent' | 'name' | 'longest';
+type SortKey = 'recent' | 'number' | 'name' | 'longest';
+
+/** Where a video stands on its way out: the filter chips under the search. */
+type StatusFilter = 'All' | 'NotUploaded' | 'NotExported' | 'ExportedOnly' | 'OnYouTube';
 
 /** What the create / details dialog is editing. */
 interface EditForm {
@@ -55,7 +60,16 @@ export class VideosPageComponent {
   readonly search = signal('');
   readonly formatFilter = signal<EditFormat | 'All'>('All');
   readonly categoryFilter = signal<string | null>(null);
+  readonly statusFilter = signal<StatusFilter>('All');
   readonly sort = signal<SortKey>('recent');
+
+  readonly badge = editStatusBadge;
+
+  readonly statusCounts = computed(() => {
+    const c: Record<StatusFilter, number> = { All: 0, NotUploaded: 0, NotExported: 0, ExportedOnly: 0, OnYouTube: 0 };
+    for (const e of this.edits()) for (const k of Object.keys(c) as StatusFilter[]) if (this.matchesStatus(e, k)) c[k]++;
+    return c;
+  });
 
   readonly categories = computed(() => {
     const set = new Set<string>();
@@ -79,14 +93,16 @@ export class VideosPageComponent {
     const list = this.edits().filter((e) =>
       (fmt === 'All' || e.format === fmt)
       && (!cat || e.category === cat)
-      && (!q || e.name.toLowerCase().includes(q)
+      && this.matchesStatus(e, this.statusFilter())
+      && (!q || e.name.toLowerCase().includes(q) || `#${e.number}` === q
         || (e.category ?? '').toLowerCase().includes(q)
         || e.tags.some((t) => t.toLowerCase().includes(q))));
     const by = this.sort();
     return [...list].sort((a, b) =>
       by === 'name' ? a.name.localeCompare(b.name)
         : by === 'longest' ? b.durationSeconds - a.durationSeconds
-          : b.updatedAt.localeCompare(a.updatedAt));
+          : by === 'number' ? b.number - a.number
+            : b.updatedAt.localeCompare(a.updatedAt));
   });
 
   // --- dialog
@@ -105,6 +121,10 @@ export class VideosPageComponent {
   readonly formError = computed<string | null>(() => {
     const f = this.form();
     if (!f.name.trim()) return 'Give it a name.';
+    const d = this.dialog();
+    if (editNameTaken(f.name, this.edits(), d?.kind === 'details' ? d.edit.id : undefined)) {
+      return 'Another video in this project already has this name.';
+    }
     if (this.dialog()?.kind !== 'create') return null;
     if (f.mode !== 'Blank' && !f.sourceEditId) return 'Choose which video to start from.';
     if (f.mode === 'Range' && this.formRangeLength() < 1) return 'The part to keep must be at least one second long.';
@@ -143,6 +163,45 @@ export class VideosPageComponent {
       error: () => {
         this.loading.set(false);
         this.status.error.set("Could not load this project's videos.");
+      },
+    });
+  }
+
+  // --- marking a video as uploaded to YouTube outside the app
+  readonly markingId = signal<string | null>(null);
+  readonly markUrl = signal('');
+
+  private matchesStatus(e: ProjectEdit, f: StatusFilter): boolean {
+    const p = e.publish;
+    const onYouTube = p?.youTubeState === 'Uploaded' || p?.youTubeState === 'MarkedUploaded';
+    switch (f) {
+      case 'NotUploaded': return !onYouTube;
+      case 'NotExported': return !onYouTube && p?.exportState !== 'Exported';
+      case 'ExportedOnly': return !onYouTube && p?.exportState === 'Exported';
+      case 'OnYouTube': return onYouTube;
+      default: return true;
+    }
+  }
+
+  startMarking(e: ProjectEdit): void {
+    this.markUrl.set('');
+    this.markingId.set(e.id);
+  }
+
+  /** "I uploaded it myself" - with the link if the user has it - or taking that mark back. */
+  setUploaded(e: ProjectEdit, uploaded: boolean): void {
+    const id = this.projectId();
+    if (!id || this.busy()) return;
+    this.busy.set(true);
+    this.api.markEditUploaded(id, e.id, uploaded, uploaded ? this.markUrl().trim() : null).subscribe({
+      next: (saved) => {
+        this.edits.update((list) => list.map((x) => (x.id === saved.id ? saved : x)));
+        this.markingId.set(null);
+        this.busy.set(false);
+      },
+      error: (err: unknown) => {
+        this.busy.set(false);
+        this.status.error.set(err instanceof ApiFailure && err.message ? err.message : 'Could not update the YouTube status.');
       },
     });
   }
@@ -199,10 +258,9 @@ export class VideosPageComponent {
   openCreate(from: ProjectEdit | null = null, mode: CreateEditMode = 'Blank', format: EditFormat = from ? 'Short' : 'Video'): void {
     const length = from?.durationSeconds ?? 0;
     const end = format === 'Short' ? Math.min(length, 60) : length;
-    const n = this.edits().filter((e) => e.format === format).length + 1;
     this.form.set({
       ...this.blankForm(),
-      name: format === 'Short' ? `Short ${n}` : format === 'Square' ? `Square ${n}` : `Video ${n}`,
+      name: nextEditName(format, this.edits()),
       format,
       category: format === 'Short' ? 'Short' : '',
       mode: from ? mode : 'Blank',
@@ -295,7 +353,7 @@ export class VideosPageComponent {
           this.busy.set(false);
           this.closeDialog();
         },
-        error: () => { this.busy.set(false); this.status.error.set('Could not save the details.'); },
+        error: (err: unknown) => { this.busy.set(false); this.status.error.set(this.failMessage(err, 'Could not save the details.')); },
       });
       return;
     }
@@ -317,8 +375,13 @@ export class VideosPageComponent {
         this.closeDialog();
         if (f.openAfter) this.open(created);
       },
-      error: () => { this.busy.set(false); this.status.error.set('Could not create the video.'); },
+      error: (err: unknown) => { this.busy.set(false); this.status.error.set(this.failMessage(err, 'Could not create the video.')); },
     });
+  }
+
+  /** A duplicate name is the user's to fix, so the server's wording is shown as is. */
+  private failMessage(err: unknown, fallback: string): string {
+    return err instanceof ApiFailure && err.status === 409 && err.message ? err.message : fallback;
   }
 
   duplicate(e: ProjectEdit): void {

@@ -286,6 +286,7 @@
 /* ── Timeline Status Sub-Filter (Row 2) ───────────────────── */
 .media-status-pills {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   margin-bottom: 8px;
   flex-shrink: 0;
@@ -293,7 +294,7 @@
 }
 
 .status-pill {
-  flex: 1;
+  flex: 1 1 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -335,6 +336,18 @@
 
 .incut-dot {
   background: #34d399;
+}
+
+.new-dot {
+  background: #f59e0b;
+}
+
+.other-dot {
+  background: #a78bfa;
+}
+
+.notincut-dot {
+  background: #94a3b8;
 }
 
 /* ── Bulk Action Row ───────────────────────────────────────── */

@@ -5,7 +5,7 @@ import { Observable, map } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../models/api.models';
 import {
-  YouTubeChannel, YouTubeDraft, YouTubePublication, YouTubePublishStatus, YouTubeSuggestion, YouTubeUpload, YouTubeVideoMetadata,
+  YouTubeChannel, YouTubeDashboard, YouTubeDraft, YouTubePublication, YouTubePublishStatus, YouTubeSuggestion, YouTubeSuggestOptions, YouTubeSuggestParams, YouTubeUpload, YouTubeVideoMetadata,
 } from '../models/youtube.models';
 
 @Injectable({ providedIn: 'root' })
@@ -43,9 +43,15 @@ export class YouTubePublishService {
   }
 
   /** AI-written details from the project's name, description and script. Saves nothing. */
-  suggest(jobId: string, language: string, fresh: boolean): Observable<YouTubeSuggestion> {
+  suggestOptions(): Observable<YouTubeSuggestOptions> {
     return this.http
-      .post<ApiResponse<YouTubeSuggestion>>(`${this.base}/render-jobs/${encodeURIComponent(jobId)}/suggest`, { language, fresh })
+      .get<ApiResponse<YouTubeSuggestOptions>>(`${this.base}/suggest-options`)
+      .pipe(map((r) => r.data as YouTubeSuggestOptions));
+  }
+
+  suggest(jobId: string, params: YouTubeSuggestParams): Observable<YouTubeSuggestion> {
+    return this.http
+      .post<ApiResponse<YouTubeSuggestion>>(`${this.base}/render-jobs/${encodeURIComponent(jobId)}/suggest`, params)
       .pipe(map((r) => r.data as YouTubeSuggestion));
   }
 
@@ -68,6 +74,13 @@ export class YouTubePublishService {
     return this.http
       .post<ApiResponse<YouTubePublication[]>>(`${this.base}/videos/refresh`, { projectId: projectId ?? null, force })
       .pipe(map((r) => r.data ?? []));
+  }
+
+  /** Channels with subscriber/view counts and every app-uploaded video with its numbers. */
+  dashboard(force = false): Observable<YouTubeDashboard> {
+    return this.http
+      .get<ApiResponse<YouTubeDashboard>>(`${this.base}/dashboard${force ? '?force=true' : ''}`)
+      .pipe(map((r) => r.data as YouTubeDashboard));
   }
 
   /** Forgets the app's link to a video; the video on YouTube is untouched. */

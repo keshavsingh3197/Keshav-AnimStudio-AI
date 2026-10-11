@@ -3,6 +3,7 @@ using AnimStudio.Api.Common;
 using AnimStudio.Application.Abstractions.Ai;
 using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Admin;
+using AnimStudio.Application.Ai;
 using AnimStudio.Application.Clips;
 using AnimStudio.Application.Publishing;
 using AnimStudio.Application.Security;
@@ -35,6 +36,7 @@ public sealed partial class YouTubePublishController(
     IAiSettingsRepository settingsRepo,
     ISceneRepository scenes,
     IAiExecutor ai,
+    IAiProviderRegistry aiProviders,
     IPromptLibrary prompts,
     ICurrentUser currentUser,
     AdminAuditService audit,
@@ -104,6 +106,24 @@ public sealed partial class YouTubePublishController(
         return NoContent();
     }
 
+    /// <summary>
+    /// The text engines that could write suggestions right now - hosted ones with a key and
+    /// local signed-in CLIs alike - and the tones on offer, for the dialog's pickers.
+    /// </summary>
+    [HttpGet("suggest-options")]
+    public ActionResult<ApiResponse<YouTubeSuggestOptionsResponse>> SuggestOptions()
+    {
+        var engines = aiProviders.UsableTextProviders()
+            .Select(p =>
+            {
+                var descriptor = KnownAiProviders.Find(p.Id.Value);
+                return new YouTubeSuggestEngine(p.Id.Value, descriptor?.DisplayName ?? p.Id.Value, descriptor?.RunsLocally ?? false);
+            })
+            .ToList();
+        var tones = YouTubeMetadataSuggester.Tones.Keys.ToList();
+        return Ok(ApiResponse<YouTubeSuggestOptionsResponse>.Ok(new YouTubeSuggestOptionsResponse(engines, tones)));
+    }
+
     /// <summary>Pre-filled details and the file's own checks, for the dialog to open with.</summary>
     [HttpGet("render-jobs/{jobId}/draft")]
     public async Task<ActionResult<ApiResponse<YouTubeDraftResponse>>> Draft(string jobId, CancellationToken ct)
@@ -114,10 +134,10 @@ public sealed partial class YouTubePublishController(
         var title = (project?.Name ?? string.Empty).Trim();
         if (title.Length > YouTubePublishValidator.MaxTitleLength) title = title[..YouTubePublishValidator.MaxTitleLength].TrimEnd();
 
-        // A clip export knows its chapters and credits; a project render only has the project's description.
-        var description = job.Timeline is { } timeline
-            ? ExportTimelineFormatter.ToYouTubeDescription(timeline, null)
-            : project?.Description ?? string.Empty;
+        // The project's own description, then what a clip export knows: chapters and credits.
+        var details = job.Timeline is { } timeline ? ExportTimelineFormatter.ToPublishingDetails(timeline) : string.Empty;
+        var description = string.Join("\n\n",
+            new[] { project?.Description?.Trim(), details.Trim() }.Where(p => !string.IsNullOrEmpty(p)));
 
         var facts = Facts(job);
         var errors = YouTubePublishValidator.CheckVideo(facts, out var warnings);
@@ -154,27 +174,62 @@ public sealed partial class YouTubePublishController(
     public async Task<ActionResult<ApiResponse<YouTubeSuggestResponse>>> Suggest(
         string jobId, [FromBody] YouTubeSuggestRequest? request, CancellationToken ct)
     {
+        if (request?.Brief is { Length: > YouTubeMetadataSuggester.MaxBriefChars * 4 }
+            || request?.Tone is { } tone && !YouTubeMetadataSuggester.Tones.ContainsKey(tone))
+            return SuggestFailure(StatusCodes.Status400BadRequest, "suggest-input-invalid",
+                $"Keep the notes under {YouTubeMetadataSuggester.MaxBriefChars} characters and pick a tone from the list.");
+
         var job = await LoadOwnedJobAsync(jobId, ct);
         var project = await projects.GetAsync(job.ProjectId, ct);
         var projectScenes = project is null ? [] : await scenes.ListByProjectAsync(project.Id, ct);
 
         var chapters = job.Timeline is { } timeline ? ExportTimelineFormatter.Chapters(timeline).Select(c => c.Label) : null;
-        var summary = YouTubeMetadataSuggester.BuildSummary(project?.Name, project?.Description, projectScenes, chapters);
+        var captions = job.ClipMerge?.TimelineItems.Where(i => i.Type == "text").Select(i => i.Src);
+        var clipLabels = job.Timeline is { } clipTimeline ? ExportTimelineFormatter.ClipLabels(clipTimeline) : null;
+        var summary = YouTubeMetadataSuggester.BuildSummary(project?.Name, project?.Description, projectScenes, chapters, captions, clipLabels);
+        var brief = YouTubeMetadataSuggester.CleanBrief(request?.Brief);
+        if (summary.Length == 0 && brief.Length > 0) summary = "(Only the creator's notes describe this video.)";
         if (summary.Length == 0)
             return SuggestFailure(StatusCodes.Status400BadRequest, "suggest-nothing-to-go-on",
-                "This render has no project name, description or script to write from. Fill in the details by hand.");
+                "This render has no project name, description or script to write from. Describe the video in the notes box, or fill in the details by hand.");
+
+        // An engine the client names must be one that can answer now; anything else is refused
+        // rather than silently falling back to a different (possibly paid) engine.
+        string? engine = null;
+        if (!string.IsNullOrWhiteSpace(request?.ProviderId))
+        {
+            engine = aiProviders.UsableTextProviders()
+                .Select(p => p.Id.Value)
+                .FirstOrDefault(id => string.Equals(id, request.ProviderId, StringComparison.OrdinalIgnoreCase));
+            if (engine is null)
+                return SuggestFailure(StatusCodes.Status400BadRequest, "suggest-engine-unavailable",
+                    "That AI engine isn't turned on or isn't ready. Pick another, or choose Auto.");
+        }
+        var toneText = YouTubeMetadataSuggester.ToneText(request?.Tone);
+        var style = job.ClipMerge is not null ? "an edited short video made from clips" : "animated";
 
         var language = request?.Language is { } lang && YouTubeMetadataSuggester.Languages.Contains(lang) ? lang : "en";
 
         RenderedPrompt rendered;
         try
         {
-            rendered = await prompts.RenderAsync(YouTubeMetadataSuggester.TemplateKey, new Dictionary<string, string?>
+            // An admin-edited (v1) template may not declare tone and brief; they then ride along in
+            // "style", which is fenced prose too, so nothing reaches the prompt unfenced.
+            var template = await prompts.FindAsync(YouTubeMetadataSuggester.TemplateKey, ct);
+            var declared = template?.Variables.ToHashSet(StringComparer.Ordinal) ?? [];
+            var briefText = brief.Length > 0 ? brief : "(none)";
+            var variables = new Dictionary<string, string?>
             {
                 ["summary"] = summary,
-                ["style"] = "animated",
-                ["language"] = language
-            }, ct);
+                ["language"] = language,
+                ["style"] = declared.Contains("tone")
+                    ? style
+                    : $"{style}. Tone: {toneText}. Creator's notes: {briefText}",
+            };
+            if (declared.Contains("tone")) variables["tone"] = toneText;
+            if (declared.Contains("brief")) variables["brief"] = briefText;
+
+            rendered = await prompts.RenderAsync(YouTubeMetadataSuggester.TemplateKey, variables, ct);
         }
         catch (PromptTemplateException ex)
         {
@@ -196,9 +251,10 @@ public sealed partial class YouTubePublishController(
                 JsonSchema = rendered.OutputJsonSchema,
                 PromptTemplateKey = rendered.TemplateKey,
                 PromptTemplateVersion = rendered.Version,
-                MaxOutputTokens = 1500,
+                MaxOutputTokens = 4000,
                 Temperature = 0.6,
-                BypassCache = request?.Fresh == true
+                BypassCache = request?.Fresh == true,
+                ProviderId = engine
             }, new AiCallContext(job.ProjectId, currentUser.UserId), ct);
         }
         finally
@@ -206,6 +262,9 @@ public sealed partial class YouTubePublishController(
             SuggestSlots.Release();
         }
 
+        if (outcome.Kind == AiOutcomeKind.Unavailable && engine is not null)
+            return SuggestFailure(StatusCodes.Status503ServiceUnavailable, "suggest-unavailable",
+                "That AI engine isn't available just now (off, out of quota, or paused after errors). Try Auto or another engine.");
         if (outcome.Kind == AiOutcomeKind.Unavailable)
             return SuggestFailure(StatusCodes.Status503ServiceUnavailable, "suggest-unavailable",
                 "No AI text model is turned on. Enable one under Admin > AI providers, or fill in the details by hand.");
@@ -221,7 +280,7 @@ public sealed partial class YouTubePublishController(
 
         var brandSettings = await settingsRepo.GetAsync(ct);
         var footer = brandSettings?.PublishingFor(project?.Settings.BrandChannelId)?.DescriptionFooter;
-        var renderDetails = job.Timeline is { } t ? ExportTimelineFormatter.ToYouTubeDescription(t, null) : null;
+        var renderDetails = job.Timeline is { } t ? ExportTimelineFormatter.ToPublishingDetails(t) : null;
 
         logger.LogInformation("Suggested YouTube details for render {JobId} with {Provider}.",
             job.Id, outcome.Value.Provenance.ProviderId);
@@ -229,7 +288,11 @@ public sealed partial class YouTubePublishController(
             suggestion.Title,
             YouTubeMetadataSuggester.ComposeDescription(suggestion.Description, renderDetails, footer),
             suggestion.Tags,
-            outcome.Value.Provenance.ProviderId)));
+            outcome.Value.Provenance.ProviderId,
+            suggestion.TitleOptions,
+            // Each option carries the same chapters, credits and footer, so picking one is complete.
+            [.. suggestion.DescriptionOptions.Select(d => YouTubeMetadataSuggester.ComposeDescription(d, renderDetails, footer))],
+            suggestion.TagIdeas)));
     }
 
     /// <summary>Checks everything, then queues the upload. Returns at once with an upload to poll.</summary>
@@ -364,6 +427,28 @@ public sealed partial class YouTubePublishController(
         }
     }
 
+    /// <summary>
+    /// The YouTube page: connected channels with subscriber and view counts, and every video
+    /// uploaded from the app with its views, likes and comments. Counters are cached for a few
+    /// minutes; <paramref name="force"/> re-reads them if the last read is over a minute old.
+    /// </summary>
+    [HttpGet("dashboard")]
+    public async Task<ActionResult<ApiResponse<YouTubeDashboard>>> Dashboard(
+        [FromServices] YouTubeDashboardService dashboard, [FromQuery] bool force, CancellationToken ct)
+    {
+        if (!await RefreshSlots.WaitAsync(TimeSpan.FromSeconds(20), ct))
+            return StatusCode(StatusCodes.Status429TooManyRequests, ApiResponse<YouTubeDashboard>.Fail(
+                "Other checks are running. Try again in a minute.", new ApiError("youtube-busy", "Other checks are running. Try again in a minute.")));
+        try
+        {
+            return Ok(ApiResponse<YouTubeDashboard>.Ok(await dashboard.GetAsync(currentUser.UserId, force, ct)));
+        }
+        finally
+        {
+            RefreshSlots.Release();
+        }
+    }
+
     /// <summary>Forgets the app's link to a video. The video on YouTube is not touched.</summary>
     [HttpDelete("videos/{id}")]
     public async Task<IActionResult> ForgetVideo(string id, CancellationToken ct)
@@ -433,8 +518,11 @@ public sealed record YouTubeConnectCompleteResponse(YouTubeConnectionStatus Conn
 public sealed record YouTubePublishRequest(string? ChannelId, YouTubeVideoMetadata? Metadata, IReadOnlyList<string>? RelatedVideoIds = null);
 public sealed record YouTubeVideosRefreshRequest(string? ProjectId, bool Force);
 
-public sealed record YouTubeSuggestRequest(string? Language, bool Fresh);
-public sealed record YouTubeSuggestResponse(string Title, string Description, IReadOnlyList<string> Tags, string ProviderId);
+public sealed record YouTubeSuggestRequest(string? Language, bool Fresh, string? Tone = null, string? Brief = null, string? ProviderId = null);
+public sealed record YouTubeSuggestResponse(string Title, string Description, IReadOnlyList<string> Tags, string ProviderId,
+    IReadOnlyList<string> TitleOptions, IReadOnlyList<string> DescriptionOptions, IReadOnlyList<string> TagIdeas);
+public sealed record YouTubeSuggestEngine(string Id, string Name, bool RunsLocally);
+public sealed record YouTubeSuggestOptionsResponse(IReadOnlyList<YouTubeSuggestEngine> Engines, IReadOnlyList<string> Tones);
 
 public sealed record YouTubeCategoryResponse(string Id, string Name);
 public sealed record YouTubeLimitsResponse(int MaxTitleLength, int MaxDescriptionBytes, int MaxTagsLength);

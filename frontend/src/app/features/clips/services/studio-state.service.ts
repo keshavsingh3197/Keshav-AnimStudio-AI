@@ -10,6 +10,7 @@ import {
   ERASE_DEFAULT_FEATHER, ERASE_DEFAULT_STRENGTH,
   EDIT_FORMATS, EditFormat, ProjectEdit, SaveEditDraftBody, Asset,
 } from '../../../core/models/api.models';
+import { ActivityService, formatBytes } from '../../../core/services/activity.service';
 import { ApiService } from '../../../core/services/api.service';
 import { ProjectStore } from '../../../core/services/project-store';
 import { StatusService } from '../../../core/services/status.service';
@@ -22,6 +23,7 @@ import {
 import { EraseRect, eraseFeatherMask, eraseOuter } from './erase-geometry';
 import { bedPieces, cutEffectStarts, deepestDuck } from './audio-enhance';
 import { TimelineFragment, TransferRange } from './timeline-transfer';
+import { ApiFailure } from '../../../core/interceptors/api-error.interceptor';
 import { DraftUsage, USAGE_ROLE_LABELS, UsageRole, draftAssetUsage, usageTotal } from './media-usage';
 import {
   DEFAULT_LAYER_MOTION, DEFAULT_TEXT_STYLE, FRAME_IMAGE_MAX_WIDTH, FRAME_IMAGE_MIN_WIDTH, FrameDesign, FrameImage, FrameLayout, NO_CROP,
@@ -132,6 +134,7 @@ export class StudioStateService implements OnDestroy {
   readonly api = inject(ApiService);
   readonly store = inject(ProjectStore);
   readonly status = inject(StatusService);
+  private readonly activity = inject(ActivityService);
 
   readonly Math = Math;
   readonly trackColors = TRACK_COLORS;
@@ -257,7 +260,12 @@ export class StudioStateService implements OnDestroy {
   // Media Library Filtering & Paging
   readonly searchQuery = signal<string>('');
   readonly activeCategory = signal<'all' | 'video' | 'image' | 'audio'>('all');
-  readonly statusFilter = signal<'all' | 'unused' | 'in_cut'>('all');
+  /**
+   * Usage filter for the media panel. 'new' and 'unused' mean "in no video of this project"
+   * (New is the subset added today), matching the badges on the cards; 'not_in_cut' and
+   * 'in_cut' only look at the open video's timeline.
+   */
+  readonly statusFilter = signal<'all' | 'new' | 'unused' | 'other' | 'not_in_cut' | 'in_cut'>('all');
   readonly pageSize = signal<number>(12);
   readonly currentPage = signal<number>(0);
   readonly selectedLibraryIds = signal<Set<string>>(new Set<string>());
@@ -345,10 +353,16 @@ export class StudioStateService implements OnDestroy {
       list = list.filter((r) => this.getClipType(r.clip) === cat);
     }
     const stat = this.statusFilter();
-    if (stat === 'unused') {
+    if (stat === 'not_in_cut') {
       list = list.filter((r) => !this.isClipOnTimeline(r.clip.id));
     } else if (stat === 'in_cut') {
       list = list.filter((r) => this.isClipOnTimeline(r.clip.id));
+    } else if (stat === 'new') {
+      list = list.filter((r) => this.isClipUnusedAnywhere(r.clip) && this.isClipAddedToday(r.clip));
+    } else if (stat === 'unused') {
+      list = list.filter((r) => this.isClipUnusedAnywhere(r.clip));
+    } else if (stat === 'other') {
+      list = list.filter((r) => !this.isClipOnTimeline(r.clip.id) && this.usedInOtherVideosCount(r.clip) > 0);
     }
     const q = this.searchQuery().trim().toLowerCase();
     if (q) {
@@ -375,6 +389,11 @@ export class StudioStateService implements OnDestroy {
 
   readonly unusedCount = computed(() => this.libraryRows().filter((r) => !this.isClipOnTimeline(r.clip.id)).length);
   readonly inCutCount = computed(() => this.libraryRows().filter((r) => this.isClipOnTimeline(r.clip.id)).length);
+  readonly unusedAnywhereCount = computed(() => this.libraryRows().filter((r) => this.isClipUnusedAnywhere(r.clip)).length);
+  readonly newUnusedCount = computed(() =>
+    this.libraryRows().filter((r) => this.isClipUnusedAnywhere(r.clip) && this.isClipAddedToday(r.clip)).length);
+  readonly inOtherVideosCount = computed(() =>
+    this.libraryRows().filter((r) => !this.isClipOnTimeline(r.clip.id) && this.usedInOtherVideosCount(r.clip) > 0).length);
 
   readonly selectedUnplacedCount = computed(() => {
     let count = 0;
@@ -2050,6 +2069,7 @@ export class StudioStateService implements OnDestroy {
     clipId: string;
     isTimelineItem: boolean;
     volume: number;
+    hideVideo: boolean;
     overlapRule: AudioOverlapRuleOrInherit;
     duckLevelOverride: number | null;
     fadeInSeconds: number;
@@ -2064,6 +2084,7 @@ export class StudioStateService implements OnDestroy {
         clipId: tlItem.id,
         isTimelineItem: true,
         volume: tlItem.volume ?? 1.0,
+        hideVideo: false,
         overlapRule: this.clipOverlapRule(tlItem.id),
         duckLevelOverride: this.clipDuckLevelOverride(tlItem.id),
         fadeInSeconds: 0,
@@ -2081,6 +2102,7 @@ export class StudioStateService implements OnDestroy {
         clipId: clip.id,
         isTimelineItem: false,
         volume: sound.volume,
+        hideVideo: sound.hideVideo === true,
         overlapRule: sound.overlapRule ?? 'Inherit',
         duckLevelOverride: sound.duckLevelOverride ?? null,
         fadeInSeconds: fade.fadeInSeconds,
@@ -2600,6 +2622,11 @@ export class StudioStateService implements OnDestroy {
   }
 
   /** True when the file was added on the viewer's local calendar day. */
+  /** In no video of this project: not on the open timeline and not in any other edit. */
+  isClipUnusedAnywhere(clip: Clip): boolean {
+    return !this.isClipOnTimeline(clip.id) && this.usedInOtherVideosCount(clip) === 0;
+  }
+
   isClipAddedToday(clip: Clip): boolean {
     if (!clip.createdAt) return false;
     const added = new Date(clip.createdAt);
@@ -3724,6 +3751,29 @@ export class StudioStateService implements OnDestroy {
   setBatchMute(muted: boolean): void {
     this.setBatchVolume(muted ? 0.0 : 1.0);
   }
+
+  /**
+   * Picture on or off for clips in the cut. Off means "use only this clip's sound": the
+   * preview hides it and the export paints the frame with the backdrop colour.
+   */
+  setClipHideVideo(clipId: string, hide: boolean): void {
+    for (const id of this.getTargetClipIds(clipId)) {
+      this.updateClipAudioSetting(id, { hideVideo: hide });
+    }
+  }
+
+  setBatchHideVideo(hide: boolean): void {
+    const cutIds = new Set(this.included().map((r) => r.clip.id));
+    for (const id of this.batchTargetIds()) {
+      if (cutIds.has(id)) this.updateClipAudioSetting(id, { hideVideo: hide });
+    }
+  }
+
+  /** True while the clip under the playhead is set to sound only, so the monitor hides it. */
+  readonly currentClipHidesVideo = computed(() => {
+    const current = this.currentScheduledClip();
+    return current ? this.clipSound(current.clip.id).hideVideo === true : false;
+  });
 
   setAudioInspectorView(mode: 'auto' | 'clip' | 'mixer' | 'voiceover'): void {
     this.audioInspectorViewMode.set(mode);
@@ -6933,7 +6983,10 @@ export class StudioStateService implements OnDestroy {
     from(files)
       .pipe(
         concatMap((file) => {
-          return this.api.uploadAsset(projectId, file).pipe(
+          return this.activity.trackRequest('upload', file.name,
+            (onProgress) => this.api.uploadAsset(projectId, file, null, onProgress),
+            { detail: formatBytes(file.size), reportsProgress: true },
+          ).pipe(
             map(() => ({ ok: true })),
             catchError((err: unknown) => {
               this.status.error.set(`Failed to upload ${file.name}`);
@@ -7897,7 +7950,8 @@ export class StudioStateService implements OnDestroy {
         this.currentEdit.set(e);
         this.projectEdits.update((list) => list.map((x) => (x.id === e.id ? e : x)));
       },
-      error: () => this.status.error.set('Could not update this video.'),
+      error: (err: unknown) => this.status.error.set(err instanceof ApiFailure && err.status === 409 && err.message
+        ? err.message : 'Could not update this video.'),
     });
   }
 
@@ -8019,13 +8073,25 @@ export class StudioStateService implements OnDestroy {
         // starts with nothing in it, so the user picks what goes in.
         const isMainCut = edit.id.startsWith('main-');
         const startsEmpty = !edit.draftJson && !isMainCut && !edit.sourceEditId;
-        const rowList: ClipRow[] = (studio.clips || [])
+        let rowList: ClipRow[] = (studio.clips || [])
           .filter((clip) => this.getClipType(clip) !== 'audio')
           .filter((clip) => this.getClipType(clip) === 'video')
           .map((clip) => ({
             clip,
             included: !startsEmpty,
           }));
+        // A cut made with chosen clips (e.g. one Short per imported link) starts with
+        // exactly those, in that order, ahead of the rest of the library.
+        const initialIds = !edit.draftJson ? (edit.initialAssetIds ?? []) : [];
+        if (initialIds.length > 0) {
+          const byAsset = new Map(rowList.map((r) => [this.resolveAssetId(r.clip), r]));
+          const first = initialIds.flatMap((id) => {
+            const row = byAsset.get(id);
+            return row ? [{ ...row, included: true }] : [];
+          });
+          const firstIds = new Set(first.map((r) => r.clip.id));
+          rowList = [...first, ...rowList.filter((r) => !firstIds.has(r.clip.id)).map((r) => ({ ...r, included: false }))];
+        }
         this.rows.set(rowList);
 
         // Check for server draft first
@@ -8080,6 +8146,17 @@ export class StudioStateService implements OnDestroy {
           } catch (e) {
             console.warn('Failed to parse local draft', e);
           }
+        }
+
+        if (initialIds.length > 0) {
+          // Saved straight away: the timeline is now the cut's, and the server forgets the list.
+          const built = JSON.stringify(this.buildDraftData());
+          this.writeLocalDraft(projectId, loadingEditId, built);
+          this.persistEditDraft(projectId, loadingEditId, built).subscribe({
+            next: (saved) => { if (this.loadedEditId === loadingEditId) this.currentEdit.set(saved); },
+            error: (err) => console.warn('Failed to save the new cut', err),
+          });
+          return;
         }
 
         if (startsEmpty) return;
@@ -8146,7 +8223,7 @@ export class StudioStateService implements OnDestroy {
   isClipSoundCustom(clipId: string): boolean {
     const s = this.clipSounds()[clipId];
     if (!s) return false;
-    return s.volume !== 1 || !!s.audioAssetId || s.audioVolume !== 1 || !s.keepOriginalAudio || Boolean(s.overlapRule && s.overlapRule !== 'Inherit') || (s.duckLevelOverride !== null && s.duckLevelOverride !== undefined);
+    return s.volume !== 1 || s.hideVideo === true || !!s.audioAssetId || s.audioVolume !== 1 || !s.keepOriginalAudio || Boolean(s.overlapRule && s.overlapRule !== 'Inherit') || (s.duckLevelOverride !== null && s.duckLevelOverride !== undefined);
   }
 
   /** Gain of an audio lane's bus as the mixer sets it: 0 when the lane is muted. */
@@ -8380,6 +8457,7 @@ export class StudioStateService implements OnDestroy {
         keepOriginalAudio: sound.keepOriginalAudio,
         trimStartSeconds: trimStart,
         trimEndSeconds: trimEnd,
+        hideVideo: sound.hideVideo === true,
       };
     });
   }
@@ -8555,6 +8633,8 @@ export class StudioStateService implements OnDestroy {
               this.restoreExportProgress();
             }
             this.status.notify(job.warnings.map((w) => this.explainWarning(w)));
+            // The switcher's "Exported" badge follows the job's outcome.
+            this.refreshProjectEdits();
           }
         },
         error: () => {
@@ -8649,6 +8729,7 @@ export class StudioStateService implements OnDestroy {
 
   build(): void {
     const projectId = this.loadedProjectId;
+    const editId = this.loadedEditId;
     if (!this.ownsCurrentProject(projectId) || this.blockedReason() !== null) return;
 
     const includedClips = this.included().map((r) => r.clip.id);
@@ -8722,6 +8803,8 @@ export class StudioStateService implements OnDestroy {
         this.running.set(true);
         this.startExportTimer();
         this.startPolling(job.jobId);
+        this.trackExport(job);
+        this.recordExportOnEdit(projectId, editId, job);
         this.openExportProgress();
         this.status.notify(['Export started successfully.']);
       }
@@ -8730,6 +8813,7 @@ export class StudioStateService implements OnDestroy {
 
   buildShort(clipIds?: string[]): void {
     const projectId = this.loadedProjectId;
+    const editId = this.loadedEditId;
     if (!this.ownsCurrentProject(projectId) || this.blockedReason() !== null) return;
 
     const ids = clipIds && clipIds.length > 0
@@ -8795,10 +8879,33 @@ export class StudioStateService implements OnDestroy {
         this.running.set(true);
         this.startExportTimer();
         this.startPolling(job.jobId);
+        this.trackExport(job);
+        this.recordExportOnEdit(projectId, editId, job);
         this.openExportProgress();
         this.status.notify(['Started building vertical Short (9:16) video!']);
       }
     );
+  }
+
+  /**
+   * Ties the export to the cut it was made from, so the videos list can tell exported from
+   * not-yet-exported, and an upload of this render counts as this cut's.
+   */
+  private recordExportOnEdit(projectId: string, editId: string | null, job: RenderJob): void {
+    if (!editId) return;
+    this.api.recordEditExport(projectId, editId, job.jobId).subscribe({
+      next: (e) => {
+        if (this.loadedEditId === e.id) this.currentEdit.set({ ...e, draftJson: undefined });
+        this.projectEdits.update((list) => list.map((x) => (x.id === e.id ? e : x)));
+      },
+      error: (err) => console.warn('Could not link the export to its video', err),
+    });
+  }
+
+  /** Lists the export in the shell's activity panel, which keeps following it after the studio closes. */
+  private trackExport(job: RenderJob): void {
+    this.activity.trackRenderJob(
+      job, job.name || this.exportName() || this.defaultExportName(), ['/projects', job.projectId, 'render']);
   }
 
   cancel(): void {

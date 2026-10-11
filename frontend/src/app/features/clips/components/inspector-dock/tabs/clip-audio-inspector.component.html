@@ -226,6 +226,17 @@
       </div>
     </div>
 
+    <!-- PICTURE -->
+    <div class="inner-audio-card mb-2" style="border-left: 3px solid #22c55e;">
+      <div class="d-flex justify-content-between align-items-center">
+        <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">Picture</span>
+        <div class="d-flex gap-1">
+          <button type="button" class="audio-action-btn" style="font-size: 0.65rem; padding: 2px 7px;" (click)="state.setBatchHideVideo(false)" title="Show these clips' picture">🎬 Show</button>
+          <button type="button" class="audio-action-btn" style="font-size: 0.65rem; padding: 2px 7px;" (click)="state.setBatchHideVideo(true)" title="Use only these clips' sound">🔊 Sound only</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 2. OVERLAP RULE -->
     <div class="inner-audio-card" style="border-left: 3px solid #8b5cf6;">
       <div class="d-flex justify-content-between align-items-center mb-1">
@@ -284,6 +295,35 @@
         </div>
       </div>
     </div>
+
+    <!-- 0. WHAT TO USE: picture, sound, or both -->
+    @if (!target.isTimelineItem) {
+      <div class="inner-audio-card mb-2" style="border-left: 3px solid #22c55e;">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <span style="font-size: 0.72rem; color: var(--text-dim); font-weight: 600;">Use from this clip</span>
+          <span class="badge bg-secondary font-monospace" style="font-size: 0.65rem;">{{ useLabel(target.volume, target.hideVideo) }}</span>
+        </div>
+        <div class="duck-seg-grid mb-1">
+          <button type="button" class="duck-seg-btn"
+                  [class.active]="!target.hideVideo && target.volume > 0"
+                  (click)="useBoth(target.clipId, target.volume)"
+                  title="Show the picture and play its sound">🎬 Video + sound</button>
+          <button type="button" class="duck-seg-btn"
+                  [class.active]="!target.hideVideo && target.volume === 0"
+                  (click)="useVideoOnly(target.clipId)"
+                  title="Show the picture, silence its own sound">🖼 Video only</button>
+          <button type="button" class="duck-seg-btn"
+                  [class.active]="target.hideVideo"
+                  (click)="useSoundOnly(target.clipId, target.volume)"
+                  title="Play its sound only; the picture is blanked (images and text on other tracks still show)">🔊 Sound only</button>
+        </div>
+        @if (target.hideVideo) {
+          <p class="muted mb-0" style="font-size: 0.66rem;">
+            The picture is replaced by the backdrop colour. Put an image on the IMG track over it to show something else.
+          </p>
+        }
+      </div>
+    }
 
     <!-- 1. LEVEL -->
     <div class="inner-audio-card mb-2" style="border-left: 3px solid #3b82f6;">

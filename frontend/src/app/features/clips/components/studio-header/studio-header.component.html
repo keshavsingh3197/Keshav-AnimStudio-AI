@@ -20,13 +20,21 @@
         @if (cutMenuOpen()) {
           <div class="cut-backdrop" (click)="cutMenuOpen.set(false)"></div>
           <div class="cut-menu" role="menu">
-            <div class="cut-menu-title">This project's videos</div>
-            @for (e of state.projectEdits(); track e.id) {
+            <div class="cut-menu-title">
+              This project's videos
+              @if (notUploadedCount() > 0) {
+                <span class="cut-menu-count" title="Videos not on YouTube yet">· {{ notUploadedCount() }} not on YouTube</span>
+              }
+            </div>
+            @for (e of editsByNumber(); track e.id) {
+              @let b = badge(e);
               <a class="cut-item" role="menuitem" [class.active]="e.id === state.currentEdit()?.id"
                  [routerLink]="[]" [queryParams]="{ edit: e.id }" queryParamsHandling="merge"
                  (click)="cutMenuOpen.set(false)">
                 <span class="cut-fmt" [class]="'cut-fmt fmt-' + e.format.toLowerCase()">{{ fmtLabel(e.format) }}</span>
-                <span class="cut-item-name">{{ e.name }}</span>
+                <span class="cut-num" title="Order in this project">#{{ e.number }}</span>
+                <span class="cut-item-name" [title]="e.name">{{ e.name }}</span>
+                <span [class]="'cut-status st-' + b.kind" [title]="b.title">{{ b.label }}</span>
                 <span class="cut-item-dur">{{ duration(e.durationSeconds) }}</span>
               </a>
             }

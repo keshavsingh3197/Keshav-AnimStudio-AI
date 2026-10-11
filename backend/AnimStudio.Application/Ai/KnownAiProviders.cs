@@ -19,7 +19,9 @@ public enum AiProviderFamily
     OpenAiCompatibleTts = 8,
     WhisperCppTranscription = 9,
     OpenAiCompatibleAsr = 10,
-    GeminiTts = 11
+    GeminiTts = 11,
+    /// <summary>A signed-in command-line agent on this machine (Claude Code, Copilot CLI).</summary>
+    LocalCliText = 12
 }
 
 /// <summary>
@@ -93,6 +95,8 @@ public static class KnownAiProviders
     public const string FasterWhisper = "faster-whisper";
     public const string GroqWhisper = "groq-whisper";
     public const string OpenAiAsr = "openai-asr";
+    public const string ClaudeCodeLocal = "claude-code";
+    public const string CopilotCliLocal = "copilot-cli";
 
     public static IReadOnlyList<AiProviderDescriptor> All { get; } =
     [
@@ -151,6 +155,26 @@ public static class KnownAiProviders
             RunsLocally: true,
             "Same as Ollama, for people who already run LM Studio's server. The model is " +
             "whichever one LM Studio has loaded, so the model name may be left empty.",
+            KeyUrl: null),
+
+        new(ClaudeCodeLocal, AiCapability.Text, AiProviderFamily.LocalCliText,
+            "Claude Code (local session)",
+            DefaultBaseUrl: null,
+            DefaultModel: null,
+            RunsLocally: true,
+            "Uses the Claude Code CLI already signed in on this machine, so a Claude " +
+            "subscription does the writing and no API key is stored here. Install Claude Code, " +
+            "run \"claude\" once to sign in, then enable this. Runs with its tools switched off.",
+            KeyUrl: null),
+
+        new(CopilotCliLocal, AiCapability.Text, AiProviderFamily.LocalCliText,
+            "GitHub Copilot CLI (local session)",
+            DefaultBaseUrl: null,
+            DefaultModel: null,
+            RunsLocally: true,
+            "Uses the GitHub Copilot CLI signed in on this machine (Copilot Pro, Business or " +
+            "Enterprise). Run \"copilot\" once and /login, then enable this. Point the " +
+            "executable at copilot.exe, not the npm .cmd shim.",
             KeyUrl: null),
 
         new(Pollinations, AiCapability.Image, AiProviderFamily.PollinationsImage,
@@ -294,7 +318,9 @@ public static class KnownAiProviders
     /// </summary>
     public static AiCapability CapabilityOf(AiProviderFamily family) => family switch
     {
-        AiProviderFamily.OpenAiCompatibleText or AiProviderFamily.GeminiText => AiCapability.Text,
+        AiProviderFamily.OpenAiCompatibleText
+            or AiProviderFamily.GeminiText
+            or AiProviderFamily.LocalCliText => AiCapability.Text,
 
         AiProviderFamily.PollinationsImage
             or AiProviderFamily.CloudflareWorkersAiImage

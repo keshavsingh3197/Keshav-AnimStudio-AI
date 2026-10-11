@@ -305,6 +305,12 @@ public static class DependencyInjection
         services.AddScoped<YouTubePublicationService>();
         services.AddHostedService<YouTubeHealthMonitor>();
 
+        // The YouTube page: subscriber/view counts per channel and per video, cached briefly.
+        services.AddSingleton(sp => new YouTubeStatsClient(
+            sp.GetRequiredService<ILogger<YouTubeStatsClient>>()));
+        services.AddSingleton<YouTubeDashboardCache>();
+        services.AddScoped<YouTubeDashboardService>();
+
         services.AddScoped<ProjectRenderOrchestrator>();
 
         // The clip stitch. Shares the queue, the workspace and the merge with the project
@@ -420,6 +426,13 @@ public static class DependencyInjection
                         sp.GetRequiredService<IAiSecretResolver>(),
                         sp.GetRequiredService<IOptionsMonitor<AiOptions>>(),
                         sp.GetRequiredService<ILogger<HuggingFaceImageProvider>>()));
+                    break;
+
+                case AiProviderFamily.LocalCliText:
+                    services.AddSingleton<IAiProvider>(sp => new LocalCliTextProvider(
+                        providerId,
+                        sp.GetRequiredService<IOptionsMonitor<AiOptions>>(),
+                        sp.GetRequiredService<ILogger<LocalCliTextProvider>>()));
                     break;
 
                 case AiProviderFamily.PiperSpeech:

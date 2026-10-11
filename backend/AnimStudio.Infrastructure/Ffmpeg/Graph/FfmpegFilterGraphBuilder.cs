@@ -348,6 +348,15 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         var current = "base";
         var stage = 0;
 
+        // Audio-only clip: the frame is painted over with the backdrop, after the fit so the
+        // size and timing are the normal clip's, and before the watermark so the mark stays.
+        if (plan.HideVideo)
+        {
+            var next = $"h{++stage}";
+            graph.Append($"[{current}]drawbox=x=0:y=0:w=iw:h=ih:color={PadColor(plan.PadColorRgb)}:t=fill[{next}];\n");
+            current = next;
+        }
+
         if (drawsLogo)
         {
             var logoInput = inputs.Count;

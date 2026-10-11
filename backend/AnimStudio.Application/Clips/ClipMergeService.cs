@@ -37,7 +37,8 @@ public sealed record MusicDuckWindow(double StartSeconds, double EndSeconds, dou
 /// either replaces that audio or plays over it. Position in the list IS the clip it names.
 /// </summary>
 public sealed record ClipAudioTrack(
-    double Volume, string? AudioAssetId, double AudioVolume, bool KeepOriginalAudio, double? TrimStartSeconds, double? TrimEndSeconds);
+    double Volume, string? AudioAssetId, double AudioVolume, bool KeepOriginalAudio, double? TrimStartSeconds, double? TrimEndSeconds,
+    bool HideVideo = false);
 
 /// <summary>What to stitch, and how. The order of <see cref="AssetIds"/> is the edit.</summary>
 public sealed record ClipMergeCommand
@@ -525,7 +526,8 @@ public sealed class ClipMergeService(
         // document carry one entry per clip to express "as recorded".
         var clipAudioSpecs = command.ClipAudio is { Count: > 0 } tracks
                              && tracks.Any(t => t.Volume != 1.0
-                                                || t.AudioAssetId is { Length: > 0 })
+                                                || t.AudioAssetId is { Length: > 0 }
+                                                || t.HideVideo)
             ? tracks
                 .Select(t => new ClipAudioSpec
                 {
@@ -534,7 +536,8 @@ public sealed class ClipMergeService(
                     AudioVolume = t.AudioVolume,
                     KeepOriginalAudio = t.KeepOriginalAudio,
                     TrimStartSeconds = t.TrimStartSeconds,
-                    TrimEndSeconds = t.TrimEndSeconds
+                    TrimEndSeconds = t.TrimEndSeconds,
+                    HideVideo = t.HideVideo
                 })
                 .ToList()
             : [];

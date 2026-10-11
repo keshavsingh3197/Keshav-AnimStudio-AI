@@ -171,6 +171,12 @@ public sealed record ClipRenderPlan
     /// </summary>
     public bool KeepOwnAudio { get; init; }
 
+    /// <summary>
+    /// Blanks the picture to <see cref="PadColorRgb"/> and keeps only the sound - "use this
+    /// clip's audio, not its video". Timing, trims and freezes are unchanged.
+    /// </summary>
+    public bool HideVideo { get; init; }
+
     public WatermarkPlan? Watermark { get; init; }
 
     /// <summary>

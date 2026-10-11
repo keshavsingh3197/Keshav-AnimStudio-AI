@@ -2,6 +2,7 @@ import { DecimalPipe } from '@angular/common';
 import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 
 import { Asset, StorageDetail } from '../../core/models/api.models';
+import { ActivityService, formatBytes } from '../../core/services/activity.service';
 import { ApiService } from '../../core/services/api.service';
 import { ProjectStore } from '../../core/services/project-store';
 import { StatusService } from '../../core/services/status.service';
@@ -18,6 +19,7 @@ import { RouterLink } from '@angular/router';
 })
 export class AssetLibraryComponent {
   private readonly api = inject(ApiService);
+  private readonly activity = inject(ActivityService);
   readonly store = inject(ProjectStore);
   readonly status = inject(StatusService);
 
@@ -214,7 +216,10 @@ export class AssetLibraryComponent {
     if (!projectId || !files || files.length === 0) return;
 
     for (const file of Array.from(files)) {
-      this.status.run(this.api.uploadAsset(projectId, file, folderId), (asset) => {
+      const upload = this.activity.trackRequest('upload', file.name,
+        (onProgress) => this.api.uploadAsset(projectId, file, folderId, onProgress),
+        { detail: formatBytes(file.size), link: ['/projects', projectId, 'assets'], reportsProgress: true });
+      this.status.run(upload, (asset) => {
         this.store.refreshAssets();
 
         if (asset.kind === 'Image' && !asset.hasAlpha) {

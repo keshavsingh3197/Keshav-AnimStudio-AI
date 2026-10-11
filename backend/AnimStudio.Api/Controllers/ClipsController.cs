@@ -168,7 +168,7 @@ public sealed class ClipsController(
                 .ToList(),
             ClipAudio = request.ClipAudio?
                 .Select(c => new ClipAudioTrack(
-                    c.Volume, c.AudioAssetId, c.AudioVolume, c.KeepOriginalAudio, c.TrimStartSeconds, c.TrimEndSeconds))
+                    c.Volume, c.AudioAssetId, c.AudioVolume, c.KeepOriginalAudio, c.TrimStartSeconds, c.TrimEndSeconds, c.HideVideo))
                 .ToList(),
             Watermark = request.Watermark.ToSettings(),
             IncludeOutro = request.IncludeOutro,

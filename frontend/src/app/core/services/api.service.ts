@@ -1,6 +1,6 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpEventType, HttpResponse } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { Observable, map, catchError, of } from 'rxjs';
+import { Observable, map, catchError, filter, of, tap } from 'rxjs';
 
 import { CharacterVoice } from '../../shared/voice/character-voice';
 import { environment } from '../../../environments/environment';
@@ -165,14 +165,28 @@ export class ApiService {
     return this.unwrap(this.http.put<ApiResponse<Asset>>(`${this.base}/api/projects/${projectId}/assets/${assetId}/folder`, { folderId }));
   }
 
-  uploadAsset(projectId: string, file: File, folderId?: string | null): Observable<Asset> {
+  /** `onProgress` (0-100) is told how much of the file has been sent, for a progress bar. */
+  uploadAsset(
+    projectId: string, file: File, folderId?: string | null, onProgress?: (percent: number) => void,
+  ): Observable<Asset> {
     const form = new FormData();
     form.append('file', file, file.name);
     if (folderId) {
       form.append('folderId', folderId);
     }
-    return this.unwrap(
-      this.http.post<ApiResponse<Asset>>(`${this.base}/api/projects/${projectId}/assets`, form));
+    const url = `${this.base}/api/projects/${projectId}/assets`;
+    if (!onProgress) {
+      return this.unwrap(this.http.post<ApiResponse<Asset>>(url, form));
+    }
+    return this.http.post<ApiResponse<Asset>>(url, form, { reportProgress: true, observe: 'events' }).pipe(
+      tap((event) => {
+        if (event.type === HttpEventType.UploadProgress && event.total) {
+          onProgress(Math.round((event.loaded / event.total) * 100));
+        }
+      }),
+      filter((event): event is HttpResponse<ApiResponse<Asset>> => event.type === HttpEventType.Response),
+      map((event) => event.body?.data as Asset),
+    );
   }
 
   deleteAsset(assetId: string): Observable<unknown> {
@@ -529,6 +543,19 @@ export class ApiService {
     return this.unwrap(this.http.post<ApiResponse<{ mapping: Record<string, string> }>>(
       `${this.base}/api/projects/${projectId}/assets/copy`, { sourceProjectId, assetIds }))
       .pipe(map((r) => r.mapping ?? {}));
+  }
+
+  /** Links a queued export to the video it was made from, so the list can say it was exported. */
+  recordEditExport(projectId: string, editId: string, jobId: string): Observable<ProjectEdit> {
+    return this.unwrap(this.http.post<ApiResponse<ProjectEdit>>(
+      `${this.base}/api/projects/${projectId}/edits/${encodeURIComponent(editId)}/exports`, { jobId }));
+  }
+
+  /** Marks a video as uploaded to YouTube outside the app (or clears that mark). */
+  markEditUploaded(projectId: string, editId: string, uploaded: boolean, youTubeUrl?: string | null): Observable<ProjectEdit> {
+    return this.unwrap(this.http.put<ApiResponse<ProjectEdit>>(
+      `${this.base}/api/projects/${projectId}/edits/${encodeURIComponent(editId)}/uploaded`,
+      { uploaded, youTubeUrl: youTubeUrl || null }));
   }
 
   duplicateEdit(projectId: string, editId: string): Observable<ProjectEdit> {

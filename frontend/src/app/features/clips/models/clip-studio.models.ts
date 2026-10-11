@@ -64,6 +64,8 @@ export interface ClipAudioSetting {
    * when the resolved rule is DuckMusic or DuckVideo.
    */
   duckLevelOverride?: number | null;
+  /** Use this clip for its sound only: the picture is blanked (overlays still show on top). */
+  hideVideo?: boolean;
   /** @deprecated Superseded by overlapRule; read once on load to migrate old drafts. */
   duckMode?: 'Normal' | 'Ducked' | 'MuteOnAudio' | 'LeadVoice';
   /** @deprecated Superseded by overlapRule + duckLevelOverride. */
