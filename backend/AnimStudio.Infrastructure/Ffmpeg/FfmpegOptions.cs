@@ -144,4 +144,10 @@ public sealed class RenderOptions
     /// whoever runs the server instead of once per video by whoever makes them.
     /// </summary>
     public string WatermarkText { get; set; } = string.Empty;
+
+    /// <summary>
+    /// How a new render is named. Tokens: {project}, {format}, {aspect}, {resolution}, {n},
+    /// {date}, {time}. See <c>RenderJobNaming</c>.
+    /// </summary>
+    public string JobNameTemplate { get; set; } = AnimStudio.Application.Rendering.RenderJobNaming.DefaultTemplate;
 }

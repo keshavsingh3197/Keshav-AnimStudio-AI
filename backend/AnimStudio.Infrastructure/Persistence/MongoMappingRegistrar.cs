@@ -79,6 +79,9 @@ public static class MongoMappingRegistrar
             // "{userId}:{channelId}" - one connection per user per channel.
             MapWithLiteralId<YouTubeChannelConnection>();
 
+            // App-assigned GUID - one record per video uploaded from the app.
+            MapWithLiteralId<YouTubePublication>();
+
             // The configuration path, e.g. "Render:Crf" - one value per key.
             MapWithLiteralId<WebSetting>();
 

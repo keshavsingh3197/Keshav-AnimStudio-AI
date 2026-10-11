@@ -212,7 +212,8 @@ public static class Mappings
             job.CreatedAt, job.CompletedAt,
             job.Width, job.Height, job.TargetFormat,
             diag,
-            job.Timeline is { Entries.Count: > 0 });
+            job.Timeline is { Entries.Count: > 0 },
+            job.Name ?? job.ClipMerge?.ExportName);
     }
 
     /// <summary>One video or image clip, with the facts a running order is laid out from.</summary>

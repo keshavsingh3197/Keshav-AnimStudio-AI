@@ -75,6 +75,19 @@ public sealed class MongoIndexInitializer(
                 new CreateIndexModel<YouTubeChannelConnection>(Builders<YouTubeChannelConnection>.IndexKeys
                     .Ascending(c => c.UserId)), cancellationToken: ct).ConfigureAwait(false);
 
+            // Published videos are listed per owner (and project) newest first; the health
+            // sweep looks for the least recently checked.
+            var publications = mongo.GetCollection<YouTubePublication>(MongoCollections.YouTubePublications);
+            await publications.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<YouTubePublication>(Builders<YouTubePublication>.IndexKeys
+                    .Ascending(p => p.UserId).Ascending(p => p.ProjectId).Descending(p => p.PublishedAt)),
+                new CreateIndexModel<YouTubePublication>(Builders<YouTubePublication>.IndexKeys
+                    .Ascending(p => p.UserId).Ascending(p => p.VideoId)),
+                new CreateIndexModel<YouTubePublication>(Builders<YouTubePublication>.IndexKeys
+                    .Ascending(p => p.LastCheckedAt).Descending(p => p.PublishedAt)),
+            ], ct).ConfigureAwait(false);
+
             var voiceProfiles = mongo.GetCollection<VoiceProfile>(MongoCollections.VoiceProfiles);
             await voiceProfiles.Indexes.CreateOneAsync(
                 new CreateIndexModel<VoiceProfile>(Builders<VoiceProfile>.IndexKeys

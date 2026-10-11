@@ -34,7 +34,11 @@ public sealed record YouTubeUploadStatus(
     string? ErrorCode,
     string? Error,
     DateTime StartedAt,
-    DateTime? CompletedAt);
+    DateTime? CompletedAt,
+    /// <summary>The saved record of the finished upload, once it exists.</summary>
+    string? PublicationId = null,
+    /// <summary>Something the user should know about a finished upload, e.g. the link wasn't saved.</summary>
+    string? Warning = null);
 
 /// <summary>What the controller has already checked and resolved before an upload is queued.</summary>
 public sealed record YouTubeUploadRequest(
@@ -44,7 +48,9 @@ public sealed record YouTubeUploadRequest(
     long SizeBytes,
     string ChannelId,
     string ChannelTitle,
-    NormalizedYouTubeMetadata Metadata);
+    NormalizedYouTubeMetadata Metadata,
+    string ProjectId = "",
+    IReadOnlyList<string>? RelatedVideoIds = null);
 
 /// <summary>
 /// Runs uploads in the background so the publish button returns at once and the dialog can
@@ -166,11 +172,22 @@ public sealed class YouTubeUploadManager : IHostedService, IDisposable
 
             entry.VideoId = video.VideoId;
             entry.BytesSent = length;
-            entry.State = YouTubeUploadState.Completed;
-
-            await connections.MarkUploadedAsync(request.UserId, request.ChannelId, CancellationToken.None).ConfigureAwait(false);
             _logger.LogInformation("Render {JobId} uploaded to YouTube channel {ChannelId} as video {VideoId}",
                 request.JobId, request.ChannelId, video.VideoId);
+
+            // Saved before the state flips, so a client that sees Completed finds the link in the list.
+            await RecordPublicationAsync(scope.ServiceProvider, entry, video.VideoId).ConfigureAwait(false);
+            entry.State = YouTubeUploadState.Completed;
+
+            try
+            {
+                await connections.MarkUploadedAsync(request.UserId, request.ChannelId, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // Bookkeeping only: the video is uploaded, so this must not turn it into a failure.
+                _logger.LogWarning(ex, "Recording the last upload time for channel {ChannelId} failed", request.ChannelId);
+            }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -197,6 +214,30 @@ public sealed class YouTubeUploadManager : IHostedService, IDisposable
             entry.CompletedAt = _clock.GetUtcNow().UtcDateTime;
             if (slotTaken) _slots.Release();
             entry.Cancellation.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Saves the finished upload's link so the render page can open it on YouTube long after
+    /// this in-memory entry is gone. The video is already on YouTube by now, so a failed save
+    /// is logged and reported on the entry rather than turning the upload into a failure.
+    /// </summary>
+    private async Task RecordPublicationAsync(IServiceProvider services, Entry entry, string videoId)
+    {
+        var request = entry.Request;
+        try
+        {
+            var publications = services.GetRequiredService<YouTubePublicationService>();
+            var saved = await publications.RecordAsync(
+                request.UserId, request.ProjectId, request.JobId, request.ChannelId, request.ChannelTitle,
+                videoId, request.Metadata.Title, request.Metadata.Privacy, request.RelatedVideoIds ?? [],
+                CancellationToken.None).ConfigureAwait(false);
+            entry.PublicationId = saved.Id;
+        }
+        catch (Exception ex)
+        {
+            entry.Warning = "The video is on YouTube, but its link couldn't be saved in AnimStudio. Copy the link from here.";
+            _logger.LogError(ex, "Saving YouTube video {VideoId} for render {JobId} failed", videoId, request.JobId);
         }
     }
 
@@ -246,6 +287,8 @@ public sealed class YouTubeUploadManager : IHostedService, IDisposable
         public string? ErrorCode { get; set; }
         public string? Error { get; set; }
         public DateTime? CompletedAt { get; set; }
+        public string? PublicationId { get; set; }
+        public string? Warning { get; set; }
 
         public bool IsFinished => State is YouTubeUploadState.Completed or YouTubeUploadState.Failed or YouTubeUploadState.Cancelled;
 
@@ -263,7 +306,7 @@ public sealed class YouTubeUploadManager : IHostedService, IDisposable
                 videoId,
                 videoId is null ? null : $"https://youtu.be/{videoId}",
                 videoId is null ? null : $"https://studio.youtube.com/video/{videoId}/edit",
-                ErrorCode, Error, StartedAt, CompletedAt);
+                ErrorCode, Error, StartedAt, CompletedAt, PublicationId, Warning);
         }
     }
 }

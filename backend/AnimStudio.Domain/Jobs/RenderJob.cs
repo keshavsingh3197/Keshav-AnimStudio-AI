@@ -24,6 +24,13 @@ public sealed class RenderJob
     public string ProjectId { get; set; } = string.Empty;
     public string UserId { get; set; } = string.Empty;
 
+    /// <summary>
+    /// What the render is called on screen and in its download filename. Set from the
+    /// configurable template when queued and renamed by the user once it has finished.
+    /// Null on renders from before names existed.
+    /// </summary>
+    public string? Name { get; set; }
+
     public RenderJobKind Kind { get; set; } = RenderJobKind.Project;
 
     /// <summary>

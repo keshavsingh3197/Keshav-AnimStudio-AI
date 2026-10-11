@@ -427,6 +427,8 @@ export interface RenderJob {
   diagnostics?: RenderDiagnostics;
   /** True when the export recorded where each clip, sound and overlay landed. */
   hasTimeline?: boolean;
+  /** Shown on screen and used as the download filename; renamed once the render has finished. */
+  name?: string;
 }
 
 /** Downloadable forms of an export's timeline: a YouTube description draft, CSV or JSON. */

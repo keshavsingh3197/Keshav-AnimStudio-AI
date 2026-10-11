@@ -127,6 +127,7 @@ public static class DependencyInjection
             services.AddScoped<IAiCredentialRepository, SqlAiCredentialRepository>();
             services.AddScoped<ILiveStreamKeyRepository, SqlLiveStreamKeyRepository>();
             services.AddScoped<IYouTubeConnectionRepository, SqlYouTubeConnectionRepository>();
+            services.AddScoped<IYouTubePublicationRepository, SqlYouTubePublicationRepository>();
             services.AddScoped<IVoiceProfileRepository, SqlVoiceProfileRepository>();
             services.AddScoped<IWebSettingRepository, SqlWebSettingRepository>();
             services.AddScoped<IPromptTemplateRepository, SqlPromptTemplateRepository>();
@@ -161,6 +162,7 @@ public static class DependencyInjection
             services.AddScoped<IAiCredentialRepository, MongoAiCredentialRepository>();
             services.AddScoped<ILiveStreamKeyRepository, MongoLiveStreamKeyRepository>();
             services.AddScoped<IYouTubeConnectionRepository, MongoYouTubeConnectionRepository>();
+            services.AddScoped<IYouTubePublicationRepository, MongoYouTubePublicationRepository>();
             services.AddScoped<IVoiceProfileRepository, MongoVoiceProfileRepository>();
             services.AddScoped<IWebSettingRepository, MongoWebSettingRepository>();
             services.AddScoped<IPromptTemplateRepository, MongoPromptTemplateRepository>();
@@ -296,6 +298,12 @@ public static class DependencyInjection
         services.AddScoped<YouTubeConnectionStore>();
         services.AddSingleton<YouTubeUploadManager>();
         services.AddHostedService(sp => sp.GetRequiredService<YouTubeUploadManager>());
+
+        // Finished uploads are recorded durably and re-checked on YouTube for problems.
+        services.AddSingleton(sp => new YouTubeVideoStatusClient(
+            sp.GetRequiredService<ILogger<YouTubeVideoStatusClient>>()));
+        services.AddScoped<YouTubePublicationService>();
+        services.AddHostedService<YouTubeHealthMonitor>();
 
         services.AddScoped<ProjectRenderOrchestrator>();
 

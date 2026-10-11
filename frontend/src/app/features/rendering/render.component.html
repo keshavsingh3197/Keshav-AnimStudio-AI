@@ -1,725 +1,489 @@
-<div class="page-head">
-  <div>
+<!-- ============================================================ -->
+<!-- Header: what this project renders as, and the two ways to go -->
+<!-- ============================================================ -->
+<header class="rp-head">
+  <div class="rp-head-text">
     <h2>
-      🎬 Render
+      Render
       @if (store.project(); as project) {
         <span [class]="formatClass(project.width, project.height)">
-          {{ format(project.width, project.height) }} &middot;
-          {{ aspect(project.width, project.height) }}
+          {{ format(project.width, project.height) }} &middot; {{ aspect(project.width, project.height) }}
         </span>
       }
     </h2>
     <p class="muted">
-      Each scene is rendered on its own, then merged with its transitions, music and
-      subtitles into one MP4. The file is named for what it is, so a Short and a landscape
-      cut of the same project do not arrive as two files called the same thing.
+      Scenes are rendered one by one, then merged with transitions, music and subtitles into one MP4.
+      Each render gets a name you can change, and videos you publish keep their YouTube link here.
     </p>
   </div>
-</div>
 
-<div class="card">
-  <div class="row" style="gap: .75rem; flex-wrap: wrap; align-items: center">
-    <button type="button" (click)="render()"
-            [disabled]="status.busy() || running() || blockedReason() !== null">
-      🎬 Render Video ({{ aspect(store.project()?.width ?? 1920, store.project()?.height ?? 1080) }})
-    </button>
-
+  <div class="rp-head-actions">
+    @if (running()) {
+      <button class="secondary" type="button" (click)="cancel()">⏹ Cancel render</button>
+    }
     <button class="secondary" type="button" (click)="renderAsShort()"
             [disabled]="status.busy() || running() || blockedReason() !== null"
-            title="Switch project canvas to vertical 9:16 and render as a Short">
-      📱 Render as Short (9:16)
+            title="Switch the project canvas to vertical 9:16 and render a Short">
+      📱 Render as Short
     </button>
-
-    @if (running()) {
-      <button class="secondary" type="button" (click)="cancel()">⏹ Cancel</button>
-    }
-
-    @if (blockedReason(); as reason) {
-      <span class="muted">{{ reason }}</span>
-      @if (store.scenesMissingBackground().length > 0) {
-        <a routerLink="../scenes"><button class="secondary" type="button">Fix scenes</button></a>
-      }
-    }
+    <button type="button" (click)="render()"
+            [disabled]="status.busy() || running() || blockedReason() !== null">
+      🎬 Render video ({{ aspect(store.project()?.width ?? 1920, store.project()?.height ?? 1080) }})
+    </button>
   </div>
+</header>
 
-  @if (store.scenes().length === 0) {
-    <div class="notice" style="margin-top: 1rem; border-left: 4px solid var(--brand)">
-      <strong>{{ hasVideoClips() ? 'Assembling or editing video clips?' : 'Need to edit video clips or storyboard scenes?' }}</strong>
-      <p style="margin: .3rem 0 .6rem; font-size: .85rem">
-        @if (hasVideoClips()) {
-          This project has video clips. In AnimStudio AI, clip sequencing, trimming, transitions, color grading, and final MP4 builds are done in the <strong>Video Studio</strong>.
-        } @else {
-          Storyboard animations are created by adding scenes with backgrounds and audio. If you want to merge MP4 video clips instead, use the Video Studio.
-        }
-      </p>
-      <div class="row" style="gap: .5rem">
-        <a routerLink="../clips">
-          <button type="button">Go to Video Studio &rarr;</button>
-        </a>
-        <a routerLink="../storyboard">
-          <button class="secondary" type="button">Create Storyboard Scenes</button>
-        </a>
-      </div>
-    </div>
-  }
-
-  @if (job(); as current) {
-    <div style="margin-top: 1.25rem">
-
-      <!-- ====================================================== -->
-      <!-- ATTRACTIVE PROGRESS PANEL (mirrors Media Studio style) -->
-      <!-- ====================================================== -->
-      @if (!current.hasOutput) {
-        <div class="render-progress-panel">
-          <!-- Header row: status badge + format + resolution + % -->
-          <div class="progress-header">
-            <div class="row" style="gap: .5rem; align-items: center; flex-wrap: wrap;">
-              <span [class]="statusClass(current.status)">{{ current.status }}</span>
-              <span [class]="jobFormatClass(current)">{{ jobFormat(current) }} &middot; {{ jobAspect(current) }}</span>
-              <span class="muted mono" style="font-size: .82rem">{{ jobResolution(current) }}</span>
-              @if (current.message) {
-                <span class="muted" style="font-size: .82rem">{{ current.message }}</span>
-              }
-            </div>
-            <span class="progress-pct-label mono" style="font-size: 1.5rem; font-weight: 800; color: #38bdf8;">{{ current.progress }}%</span>
-          </div>
-
-          <!-- Progress bar with shimmer -->
-          <div class="render-bar-wrap">
-            <div class="render-bar-track" style="height: 8px; border-radius: 4px;">
-              <div class="render-bar-fill" [style.width.%]="current.progress"
-                   [class.fill-failed]="current.status === 'Failed'"
-                   [class.fill-cancelled]="current.status === 'Cancelled'"
-                   style="height: 100%; border-radius: 4px; background: linear-gradient(90deg, #3b82f6, #8b5cf6, #06b6d4);">
-              </div>
-            </div>
-          </div>
-
-          <!-- 4 Core Metrics Grid -->
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-top: 1rem;">
-            <div style="background: rgba(30, 41, 59, 0.45); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 0.6rem 0.8rem; display: flex; flex-direction: column; gap: 2px;">
-              <span style="font-size: 0.68rem; text-transform: uppercase; color: var(--text-dim, #94a3b8); font-weight: 600;">Scenes Done</span>
-              <span class="mono" style="font-size: 1.05rem; font-weight: 700; color: #38bdf8;">{{ scenesDone() }} / {{ scenesTotal() }}</span>
-              <span style="font-size: 0.68rem; color: #64748b;">{{ scenesRemaining() }} remaining</span>
-            </div>
-            <div style="background: rgba(30, 41, 59, 0.45); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 0.6rem 0.8rem; display: flex; flex-direction: column; gap: 2px;">
-              <span style="font-size: 0.68rem; text-transform: uppercase; color: var(--text-dim, #94a3b8); font-weight: 600;">Time Elapsed</span>
-              <span class="mono" style="font-size: 1.05rem; font-weight: 700; color: #38bdf8;">{{ elapsedFormatted() }}</span>
-              <span style="font-size: 0.68rem; color: #64748b;">Live timer</span>
-            </div>
-            <div style="background: rgba(30, 41, 59, 0.45); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 0.6rem 0.8rem; display: flex; flex-direction: column; gap: 2px;">
-              <span style="font-size: 0.68rem; text-transform: uppercase; color: var(--text-dim, #94a3b8); font-weight: 600;">Estimated Remaining</span>
-              <span class="mono" style="font-size: 1.05rem; font-weight: 700; color: #38bdf8;">{{ etaFormatted() }}</span>
-              <span style="font-size: 0.68rem; color: #64748b;">Dynamic ETA</span>
-            </div>
-            <div style="background: rgba(30, 41, 59, 0.45); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 0.6rem 0.8rem; display: flex; flex-direction: column; gap: 2px;">
-              <span style="font-size: 0.68rem; text-transform: uppercase; color: var(--text-dim, #94a3b8); font-weight: 600;">Render Speed</span>
-              <span class="mono" style="font-size: 1.05rem; font-weight: 700; color: #38bdf8;">{{ renderSpeed() }}</span>
-              <span style="font-size: 0.68rem; color: #64748b;">Real-time factor</span>
-            </div>
-          </div>
-
-          <!-- Pipeline Stage Breakdown Checklist & Component Durations -->
-          <div style="margin-top: 1rem; background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 8px 12px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-              <strong style="font-size: 0.84rem; color: #e2e8f0;">Pipeline Component Breakdown</strong>
-              <span style="font-size: 0.72rem; color: var(--text-dim, #94a3b8);">Durations per stage</span>
-            </div>
-            <div style="display: flex; flex-direction: column; gap: 6px;">
-              @for (st of pipelineStages(); track st.id) {
-                <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: 6px; background: rgba(255, 255, 255, 0.02);"
-                     [style.background]="st.state === 'active' ? 'rgba(59, 130, 246, 0.12)' : 'rgba(255, 255, 255, 0.02)'"
-                     [style.border]="st.state === 'active' ? '1px solid rgba(59, 130, 246, 0.3)' : '1px solid transparent'">
-                  <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="font-size: 0.8rem;">
-                      @if (st.state === 'completed') { <span style="color: #10b981; font-weight: bold;">✓</span> }
-                      @else if (st.state === 'active') { <span style="color: #3b82f6; font-weight: bold;">⚡</span> }
-                      @else { <span style="color: #64748b;">○</span> }
-                    </span>
-                    <span style="font-size: 0.82rem; font-weight: 600; color: #f1f5f9;">{{ st.icon }} {{ st.name }}</span>
-                    <span style="font-size: 0.72rem; color: var(--text-dim, #94a3b8); margin-left: 4px;">&middot; {{ st.summary }}</span>
-                  </div>
-                  <span class="mono" style="font-size: 0.78rem; font-weight: 600; color: #cbd5e1;">
-                    @if (st.durationSec > 0) { {{ formatStageDuration(st.durationSec) }} }
-                    @else if (st.state === 'active') { In Progress... }
-                    @else { — }
-                  </span>
-                </div>
-              }
-            </div>
-          </div>
-        </div>
-      }
-
-      <!-- Full success status line (when not yet complete) -->
-      @if (current.hasOutput) {
-        <div class="row" style="justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap;">
-          <div class="row" style="gap: .5rem; align-items: center">
-            <span [class]="statusClass(current.status)">{{ current.status }}</span>
-            <span [class]="jobFormatClass(current)">{{ jobFormat(current) }} &middot; {{ jobAspect(current) }}</span>
-            <span class="muted mono" style="font-size: .85rem">{{ jobResolution(current) }}</span>
-          </div>
-          <span class="pill ok">✅ 100% complete</span>
-        </div>
-      }
-
-      @if (current.errorMessage) {
-        <div class="notice error" style="margin-top: .75rem;">
-          {{ current.errorMessage }}
-          <span class="mono muted"> ({{ current.errorCode }})</span>
-        </div>
-      }
-
-      @if (current.hasOutput) {
-        <div class="render-output-card">
-          <div class="row" style="justify-content: space-between; align-items: center; flex-wrap: wrap; gap: .5rem">
-            <div class="row" style="gap: .5rem; align-items: center">
-              <strong>Final Video Preview</strong>
-              <span [class]="jobFormatClass(current)">{{ jobFormat(current) }} ({{ jobAspect(current) }})</span>
-              <span class="pill">{{ jobResolution(current) }}</span>
-            </div>
-
-            <!-- Preview Framing & Zoom Toggles -->
-            <div class="row" style="gap: .6rem; align-items: center; flex-wrap: wrap">
-              <span class="pill ok" style="font-size: .75rem; display: inline-flex; align-items: center; gap: .25rem">
-                🔒 Channel Logo Protected
-              </span>
-
-              <div class="aspect-pill-group">
-                <button type="button" class="aspect-pill" [class.active]="previewFit() === 'contain'"
-                        (click)="setPreviewFit('contain')" title="Fit whole frame with black letterbox bars (Entire video &amp; logo 100% visible)">
-                  Fit (Letterbox)
-                </button>
-                <button type="button" class="aspect-pill" [class.active]="previewFit() === 'cover'"
-                        (click)="setPreviewFit('cover')" title="Fill preview container without bars">
-                  Fill (Cover)
-                </button>
-              </div>
-
-              <div class="row" style="gap: .3rem; align-items: center">
-                <span class="muted mono" style="font-size: .8rem">Zoom:</span>
-                <input type="range" min="100" max="250" step="5" [ngModel]="previewZoom()"
-                       (ngModelChange)="setPreviewZoom($event)" style="width: 75px" />
-                <span class="muted mono" style="font-size: .78rem">{{ previewZoom() }}%</span>
-              </div>
-
-              @if (current.outputDurationSeconds) {
-                <span class="muted mono" style="font-weight: 600; font-size: .85rem">
-                  ⏱ {{ current.outputDurationSeconds | number: '1.1-1' }}s
-                </span>
-              }
-            </div>
-          </div>
-
-          @if (previewFit() === 'cover' || previewZoom() > 100) {
-            <p class="muted" style="margin: 0; font-size: .8rem; color: #fbbf24">
-              ℹ️ Fill/Zoom preview scales the player display. The generated MP4 file retains full frame dimensions and uncropped logo.
-            </p>
-          }
-
-          <div class="render-video-player-wrap"
-               [ngStyle]="playerContainerStyle(current)"
-               style="position: relative; width: 100%; background: #000; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 16px rgba(0,0,0,0.3)">
-            <video [src]="previewUrl(current.jobId)" controls preload="metadata"
-                   [style.object-fit]="previewFit()"
-                   [style.transform]="previewZoom() > 100 ? 'scale(' + (previewZoom() / 100) + ')' : 'none'"
-                   style="width: 100%; height: 100%; display: block; transition: transform 0.15s ease"></video>
-          </div>
-
-          <!-- Performance & Diagnostics Summary Card -->
-          <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 12px 16px; margin-top: 0.5rem;">
-            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;">
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <span style="font-size: 1rem;">📊</span>
-                <strong style="font-size: 0.88rem; color: #f1f5f9;">Export Performance &amp; Pipeline Breakdown</strong>
-              </div>
-              <button class="secondary" type="button" (click)="openDiagnostics(current)" style="font-size: 0.78rem; padding: 3px 10px;">
-                🔍 View Detailed Diagnostics
-              </button>
-            </div>
-
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-bottom: 10px;">
-              <div style="background: rgba(30, 41, 59, 0.5); border-radius: 6px; padding: 6px 10px; border: 1px solid rgba(255, 255, 255, 0.05);">
-                <div style="font-size: 0.66rem; text-transform: uppercase; color: #94a3b8; font-weight: 600;">Total Duration</div>
-                <div class="mono" style="font-size: 0.95rem; font-weight: 700; color: #38bdf8;">{{ elapsedFormatted() }}</div>
-              </div>
-              <div style="background: rgba(30, 41, 59, 0.5); border-radius: 6px; padding: 6px 10px; border: 1px solid rgba(255, 255, 255, 0.05);">
-                <div style="font-size: 0.66rem; text-transform: uppercase; color: #94a3b8; font-weight: 600;">Render Speed</div>
-                <div class="mono" style="font-size: 0.95rem; font-weight: 700; color: #38bdf8;">{{ renderSpeed() }}</div>
-              </div>
-              <div style="background: rgba(30, 41, 59, 0.5); border-radius: 6px; padding: 6px 10px; border: 1px solid rgba(255, 255, 255, 0.05);">
-                <div style="font-size: 0.66rem; text-transform: uppercase; color: #94a3b8; font-weight: 600;">Items Processed</div>
-                <div class="mono" style="font-size: 0.95rem; font-weight: 700; color: #38bdf8;">{{ scenesTotal() }}</div>
-              </div>
-              <div style="background: rgba(30, 41, 59, 0.5); border-radius: 6px; padding: 6px 10px; border: 1px solid rgba(255, 255, 255, 0.05);">
-                <div style="font-size: 0.66rem; text-transform: uppercase; color: #94a3b8; font-weight: 600;">Output Length</div>
-                <div class="mono" style="font-size: 0.95rem; font-weight: 700; color: #38bdf8;">{{ current.outputDurationSeconds ? (current.outputDurationSeconds | number: '1.1-1') + 's' : '—' }}</div>
-              </div>
-              @if (current.diagnostics?.hardwareEncoder; as hw) {
-                <div style="background: rgba(30, 41, 59, 0.5); border-radius: 6px; padding: 6px 10px; border: 1px solid rgba(255, 255, 255, 0.05);">
-                  <div style="font-size: 0.66rem; text-transform: uppercase; color: #94a3b8; font-weight: 600;">Engine</div>
-                  @if (hw === 'h264_nvenc') {
-                    <div class="mono" style="font-size: 0.85rem; font-weight: 700; color: #34d399;">⚡ NVENC GPU</div>
-                  } @else if (hw === 'h264_qsv') {
-                    <div class="mono" style="font-size: 0.85rem; font-weight: 700; color: #34d399;">⚡ QSV GPU</div>
-                  } @else if (hw === 'h264_videotoolbox') {
-                    <div class="mono" style="font-size: 0.85rem; font-weight: 700; color: #34d399;">⚡ VideoToolbox</div>
-                  } @else {
-                    <div class="mono" style="font-size: 0.85rem; font-weight: 700; color: #94a3b8;">🖥 CPU</div>
-                  }
-                </div>
-              }
-            </div>
-
-            <!-- Mini Stage Breakdown Pills -->
-            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-              @for (st of pipelineStages(); track st.id) {
-                <div style="display: flex; align-items: center; gap: 4px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 4px; padding: 3px 8px; font-size: 0.74rem;">
-                  <span style="color: #10b981; font-weight: bold;">✓</span>
-                  <span style="color: #cbd5e1;">{{ st.name }}</span>
-                  <span class="mono" style="font-weight: 600; color: #38bdf8; margin-left: 2px;">
-                    @if (st.durationSec > 0) { {{ formatStageDuration(st.durationSec) }} } @else { — }
-                  </span>
-                </div>
-              }
-            </div>
-          </div>
-
-          <div class="row" style="gap: .75rem; justify-content: center; flex-wrap: wrap; margin-top: .5rem">
-            <a [href]="downloadUrl(current.jobId)" download style="text-decoration: none">
-              <button type="button" style="display: inline-flex; align-items: center; gap: .4rem">
-                <span>&#128229;</span> Download MP4 Video
-              </button>
-            </a>
-            <button type="button" (click)="openPublish(current.jobId)" title="Upload this video to your YouTube channel">
-              ▶ Publish to YouTube
-            </button>
-            <a routerLink="/live" [queryParams]="{ renderJobId: current.jobId }" style="text-decoration: none">
-              <button class="secondary" type="button" title="Stream this video to YouTube Live">🔴 Go live</button>
-            </a>
-            @if (subtitlesUrl(); as srtUrl) {
-              <a [href]="srtUrl" download="subtitles.srt" style="text-decoration: none">
-                <button class="secondary" type="button">Download Subtitles (.srt)</button>
-              </a>
-            }
-            @if (jobFormat(current) !== 'Short') {
-              <button class="secondary" type="button" (click)="renderAsShort()"
-                      title="Render a vertical Short (9:16) version of this project">
-                📱 Create Short Version (9:16)
-              </button>
-            }
-          </div>
-        </div>
-      }
-    </div>
-  }
-</div>
-
-@if (jobs().length > 0) {
-  <div class="card">
-    <h3>Earlier renders</h3>
-    <table>
-      <thead>
-        <tr>
-          <th>Started</th>
-          <th>Format</th>
-          <th>Status</th>
-          <th>Progress</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        @for (item of jobs(); track item.jobId) {
-          <tr>
-            <td class="muted">{{ item.createdAt | date: 'medium' }}</td>
-            <td>
-              <span [class]="jobFormatClass(item)">{{ jobFormat(item) }}</span>
-              <span class="mono muted" style="font-size: .8rem; margin-left: .3rem">({{ jobAspect(item) }})</span>
-            </td>
-            <td><span [class]="statusClass(item.status)">{{ item.status }}</span></td>
-            <td>
-              <!-- Mini progress bar in history table -->
-              <div style="display: flex; align-items: center; gap: .4rem;">
-                <div style="width: 60px; height: 6px; background: #1e293b; border-radius: 3px; overflow: hidden;">
-                  <div [style.width.%]="item.progress"
-                       [style.background]="item.status === 'Completed' || item.status === 'CompletedWithWarnings' ? '#22c55e' : item.status === 'Failed' ? '#ef4444' : '#38bdf8'"
-                       style="height: 100%; border-radius: 3px; transition: width .3s ease;">
-                  </div>
-                </div>
-                <span class="mono" style="font-size: .78rem; color: #94a3b8;">{{ item.progress }}%</span>
-              </div>
-            </td>
-            <td style="text-align: right; white-space: nowrap">
-              <button class="secondary" type="button" (click)="openDiagnostics(item)" title="View pipeline timing and speed diagnostics" style="margin-right: .3rem">📊 Diagnostics</button>
-              <button class="secondary" type="button" (click)="watch(item)">Show</button>
-              @if (item.hasOutput) {
-                <a [href]="downloadUrl(item.jobId)" download>
-                  <button class="secondary" type="button">&#128229; Download</button>
-                </a>
-                <button class="secondary" type="button" (click)="openPublish(item.jobId)" title="Upload this video to your YouTube channel">▶ Publish</button>
-                <a routerLink="/live" [queryParams]="{ renderJobId: item.jobId }">
-                  <button class="secondary" type="button" title="Stream this video to YouTube Live">🔴 Go live</button>
-                </a>
-              }
-            </td>
-          </tr>
-        }
-      </tbody>
-    </table>
+@if (blockedReason(); as reason) {
+  <div class="notice rp-blocked">
+    <span>{{ reason }}</span>
+    @if (store.scenesMissingBackground().length > 0) {
+      <a routerLink="../scenes"><button class="secondary" type="button">Fix scenes</button></a>
+    }
   </div>
 }
 
-<!-- Diagnostics Modal -->
+@if (store.scenes().length === 0) {
+  <div class="notice rp-hint">
+    <strong>{{ hasVideoClips() ? 'Assembling or editing video clips?' : 'Need to edit video clips or storyboard scenes?' }}</strong>
+    <p>
+      @if (hasVideoClips()) {
+        This project has video clips. Sequencing, trimming, transitions, colour and final MP4 builds happen in the <strong>Video Studio</strong>.
+      } @else {
+        Storyboard animations are built from scenes with backgrounds and audio. To merge MP4 clips instead, use the Video Studio.
+      }
+    </p>
+    <div class="row">
+      <a routerLink="../clips"><button type="button">Go to Video Studio &rarr;</button></a>
+      <a routerLink="../storyboard"><button class="secondary" type="button">Create storyboard scenes</button></a>
+    </div>
+  </div>
+}
+
+<!-- ============================================================ -->
+<!-- YouTube issues: anything YouTube rejected, failed or removed  -->
+<!-- ============================================================ -->
+@if (youtubeIssues().length > 0) {
+  <section class="rp-issues" role="alert">
+    <div class="rp-issues-head">
+      <strong>⚠ {{ youtubeIssues().length }} {{ youtubeIssues().length === 1 ? 'video has' : 'videos have' }} an issue on YouTube. Please check {{ youtubeIssues().length === 1 ? 'it' : 'them' }}.</strong>
+      <button class="secondary small" type="button" (click)="loadPublications(true)" [disabled]="checkingYouTube()">
+        {{ checkingYouTube() ? 'Checking…' : '↻ Check again' }}
+      </button>
+    </div>
+    <ul>
+      @for (p of youtubeIssues(); track p.id) {
+        <li>
+          <div class="rp-issue-text">
+            <span class="rp-issue-title">{{ p.title }}</span>
+            <span class="muted">{{ p.issueMessage || 'Open it in YouTube Studio to see what is wrong.' }}</span>
+          </div>
+          <div class="rp-issue-actions">
+            @if (p.health !== 'Removed') {
+              <a [href]="p.studioUrl" target="_blank" rel="noopener noreferrer"><button class="secondary small" type="button">Open in Studio ↗</button></a>
+            }
+            <button class="secondary small" type="button" (click)="showJobById(p.jobId)">Show render</button>
+            <button class="secondary small" type="button" (click)="forgetPublication(p)" title="Remove the saved link; the video on YouTube is untouched">Dismiss</button>
+          </div>
+        </li>
+      }
+    </ul>
+  </section>
+}
+
+<!-- ============================================================ -->
+<!-- Current render: live progress, or the finished video          -->
+<!-- ============================================================ -->
+@if (job(); as current) {
+  <section class="card rp-current">
+    <div class="rp-current-head">
+      <div class="rp-title-block">
+        @if (editingId() === current.jobId) {
+          <form class="rp-rename" (submit)="$event.preventDefault(); saveRename(current)">
+            <input type="text" [ngModel]="editName()" (ngModelChange)="editName.set($event)" name="renderName"
+                   maxlength="120" aria-label="Render name" (keydown.escape)="cancelRename()" autofocus />
+            <button type="submit" class="small" [disabled]="renaming()">Save</button>
+            <button type="button" class="secondary small" (click)="cancelRename()">Cancel</button>
+          </form>
+        } @else {
+          <h3 class="rp-name" [title]="displayName(current)">{{ displayName(current) }}</h3>
+          @if (isTerminalStatus(current.status)) {
+            <button type="button" class="rp-icon-btn" (click)="startRename(current)" title="Rename this render" aria-label="Rename this render">✎</button>
+          }
+        }
+      </div>
+      <div class="rp-meta">
+        <span [class]="statusClass(current.status)">{{ statusLabel(current.status) }}</span>
+        <span [class]="jobFormatClass(current)">{{ jobFormat(current) }} &middot; {{ jobAspect(current) }}</span>
+        <span class="muted mono">{{ jobResolution(current) }}</span>
+        @if (current.outputDurationSeconds) {
+          <span class="muted mono">⏱ {{ current.outputDurationSeconds | number: '1.1-1' }}s</span>
+        }
+        <span class="muted">{{ current.createdAt | date: 'medium' }}</span>
+      </div>
+    </div>
+
+    @if (!current.hasOutput) {
+      <!-- Live progress -->
+      <div class="rp-progress">
+        <div class="rp-progress-top">
+          <span class="muted">{{ current.message || 'Working…' }}</span>
+          <span class="rp-pct mono">{{ current.progress }}%</span>
+        </div>
+        <div class="rp-bar" role="progressbar" [attr.aria-valuenow]="current.progress" aria-valuemin="0" aria-valuemax="100">
+          <div class="rp-bar-fill" [style.width.%]="current.progress"
+               [class.failed]="current.status === 'Failed'" [class.cancelled]="current.status === 'Cancelled'"></div>
+        </div>
+
+        <div class="rp-stats">
+          <div class="rp-stat"><span class="rp-stat-label">Scenes done</span><span class="rp-stat-value mono">{{ scenesDone() }} / {{ scenesTotal() }}</span><span class="rp-stat-sub">{{ scenesRemaining() }} remaining</span></div>
+          <div class="rp-stat"><span class="rp-stat-label">Elapsed</span><span class="rp-stat-value mono">{{ elapsedFormatted() }}</span><span class="rp-stat-sub">Live timer</span></div>
+          <div class="rp-stat"><span class="rp-stat-label">Remaining</span><span class="rp-stat-value mono">{{ etaFormatted() }}</span><span class="rp-stat-sub">Estimated</span></div>
+          <div class="rp-stat"><span class="rp-stat-label">Speed</span><span class="rp-stat-value mono">{{ renderSpeed() }}</span><span class="rp-stat-sub">Real-time factor</span></div>
+        </div>
+
+        <ol class="rp-stages">
+          @for (st of pipelineStages(); track st.id) {
+            <li [class]="'rp-stage ' + st.state">
+              <span class="rp-stage-dot" aria-hidden="true">
+                @if (st.state === 'completed') { ✓ } @else if (st.state === 'active') { ● } @else { ○ }
+              </span>
+              <span class="rp-stage-name">{{ st.icon }} {{ st.name }}</span>
+              <span class="rp-stage-sum muted">{{ st.summary }}</span>
+              <span class="rp-stage-time mono">
+                @if (st.durationSec > 0) { {{ formatStageDuration(st.durationSec) }} }
+                @else if (st.state === 'active') { In progress… }
+                @else { — }
+              </span>
+            </li>
+          }
+        </ol>
+      </div>
+    }
+
+    @if (current.errorMessage) {
+      <div class="notice error">
+        {{ current.errorMessage }} <span class="mono muted">({{ current.errorCode }})</span>
+      </div>
+    }
+
+    @if (current.hasOutput) {
+      <div class="rp-output">
+        <!-- Player -->
+        <div class="rp-player-col">
+          <div class="rp-player" [ngStyle]="playerContainerStyle(current)">
+            <video [src]="previewUrl(current.jobId)" controls preload="metadata"
+                   [style.object-fit]="previewFit()"
+                   [style.transform]="previewZoom() > 100 ? 'scale(' + (previewZoom() / 100) + ')' : 'none'"></video>
+          </div>
+          <div class="rp-player-tools">
+            <div class="rp-seg" role="group" aria-label="Preview framing">
+              <button type="button" [class.active]="previewFit() === 'contain'" (click)="setPreviewFit('contain')"
+                      title="Whole frame with letterbox bars">Fit</button>
+              <button type="button" [class.active]="previewFit() === 'cover'" (click)="setPreviewFit('cover')"
+                      title="Fill the preview without bars">Fill</button>
+            </div>
+            <label class="rp-zoom">
+              <span class="muted">Zoom</span>
+              <input type="range" min="100" max="250" step="5" [ngModel]="previewZoom()" (ngModelChange)="setPreviewZoom($event)" />
+              <span class="muted mono">{{ previewZoom() }}%</span>
+            </label>
+          </div>
+          @if (previewFit() === 'cover' || previewZoom() > 100) {
+            <p class="rp-note">Fill and zoom only change this preview. The MP4 keeps the full, uncropped frame.</p>
+          }
+        </div>
+
+        <!-- Actions, YouTube and stats -->
+        <div class="rp-side">
+          <div class="rp-primary-actions">
+            <a [href]="downloadUrl(current.jobId)" download class="rp-btn-link">
+              <button type="button">⬇ Download MP4</button>
+            </a>
+            <button type="button" class="rp-yt-btn" (click)="openPublish(current.jobId)" title="Upload this video to your YouTube channel">
+              ▶ {{ jobPublications(current.jobId).length ? 'Publish again' : 'Publish to YouTube' }}
+            </button>
+          </div>
+
+          <div class="rp-panel">
+            <div class="rp-panel-head">
+              <strong>On YouTube</strong>
+              @if (jobPublications(current.jobId).length) {
+                <button type="button" class="rp-link-btn" (click)="loadPublications(true)" [disabled]="checkingYouTube()">
+                  {{ checkingYouTube() ? 'Checking…' : '↻ Check status' }}
+                </button>
+              }
+            </div>
+            @for (p of jobPublications(current.jobId); track p.id) {
+              <div class="rp-yt-item" [class.issue]="p.health === 'Issue' || p.health === 'Removed'">
+                @if (p.thumbnailUrl) { <img [src]="p.thumbnailUrl" alt="" referrerpolicy="no-referrer" loading="lazy" /> }
+                <div class="rp-yt-body">
+                  <a class="rp-yt-title" [href]="p.videoUrl" target="_blank" rel="noopener noreferrer">{{ p.title }} ↗</a>
+                  <span class="muted small">{{ p.channelTitle }} · {{ p.publishedAt | date: 'mediumDate' }}</span>
+                  <div class="rp-yt-row">
+                    <span [class]="healthClass(p)">{{ healthLabel(p) }}</span>
+                    <a [href]="p.studioUrl" target="_blank" rel="noopener noreferrer" class="small">Studio ↗</a>
+                    <button type="button" class="rp-link-btn small" (click)="copyLink(p.videoUrl)">Copy link</button>
+                  </div>
+                  @if (p.issueMessage) { <span class="rp-yt-issue">{{ p.issueMessage }}</span> }
+                  @if (p.relatedVideoIds.length) { <span class="muted small">Links {{ p.relatedVideoIds.length }} related video{{ p.relatedVideoIds.length === 1 ? '' : 's' }}</span> }
+                </div>
+              </div>
+            } @empty {
+              <p class="muted small">Not published yet. When you publish, the YouTube link is saved here automatically.</p>
+            }
+            @if (youtubeError()) { <p class="rp-yt-issue">{{ youtubeError() }}</p> }
+          </div>
+
+          <div class="rp-panel">
+            <div class="rp-panel-head">
+              <strong>Export performance</strong>
+              <button type="button" class="rp-link-btn" (click)="openDiagnostics(current)">Details</button>
+            </div>
+            <dl class="rp-facts">
+              <div><dt>Render time</dt><dd class="mono">{{ elapsedFormatted() }}</dd></div>
+              <div><dt>Speed</dt><dd class="mono">{{ renderSpeed() }}</dd></div>
+              <div><dt>Items</dt><dd class="mono">{{ scenesTotal() }}</dd></div>
+              @if (current.diagnostics?.hardwareEncoder; as hw) {
+                <div><dt>Engine</dt><dd class="mono">{{ encoderLabel(hw) }}</dd></div>
+              }
+            </dl>
+          </div>
+
+          <div class="rp-more-actions">
+            <a routerLink="/live" [queryParams]="{ renderJobId: current.jobId }" class="rp-btn-link">
+              <button class="secondary small" type="button" title="Stream this video to YouTube Live">🔴 Go live</button>
+            </a>
+            @if (subtitlesUrl(); as srtUrl) {
+              <a [href]="srtUrl" download="subtitles.srt" class="rp-btn-link">
+                <button class="secondary small" type="button">Subtitles (.srt)</button>
+              </a>
+            }
+            @if (jobFormat(current) !== 'Short') {
+              <button class="secondary small" type="button" (click)="renderAsShort()"
+                      [disabled]="status.busy() || running() || blockedReason() !== null"
+                      title="Render a vertical 9:16 version of this project">📱 Short version</button>
+            }
+          </div>
+        </div>
+      </div>
+    }
+  </section>
+}
+
+<!-- ============================================================ -->
+<!-- History: search, filter, sort, paginate                       -->
+<!-- ============================================================ -->
+@if (jobs().length > 0) {
+  <section class="card rp-history">
+    <div class="rp-history-head">
+      <h3>All renders <span class="muted">({{ jobs().length }})</span></h3>
+      <div class="rp-status-tabs" role="tablist" aria-label="Filter by status">
+        @for (tab of statusTabs; track tab.key) {
+          <button type="button" role="tab" [attr.aria-selected]="statusFilter() === tab.key"
+                  [class.active]="statusFilter() === tab.key" (click)="setStatusFilter(tab.key)">
+            {{ tab.label }} <span class="rp-count">{{ statusCounts()[tab.key] }}</span>
+          </button>
+        }
+      </div>
+    </div>
+
+    <div class="rp-toolbar">
+      <input type="search" class="rp-search" [ngModel]="query()" (ngModelChange)="setQuery($event)"
+             placeholder="Search by name, format, status or YouTube title…" aria-label="Search renders" />
+      <select [ngModel]="formatFilter()" (ngModelChange)="setFormatFilter($event)" aria-label="Format">
+        <option value="all">All formats</option>
+        <option value="Video">Video (landscape)</option>
+        <option value="Short">Short (vertical)</option>
+        <option value="Square">Square</option>
+      </select>
+      <select [ngModel]="youtubeFilter()" (ngModelChange)="setYouTubeFilter($event)" aria-label="YouTube">
+        <option value="all">Any YouTube state</option>
+        <option value="published">Published</option>
+        <option value="unpublished">Not published</option>
+        <option value="issues">Has a YouTube issue</option>
+      </select>
+      <select [ngModel]="sortKey()" (ngModelChange)="setSort($event)" aria-label="Sort">
+        <option value="newest">Newest first</option>
+        <option value="oldest">Oldest first</option>
+        <option value="name">Name A–Z</option>
+        <option value="length">Longest first</option>
+      </select>
+      @if (hasActiveFilters()) {
+        <button type="button" class="secondary small" (click)="clearFilters()">Clear</button>
+      }
+    </div>
+
+    @if (pagedJobs().length === 0) {
+      <div class="rp-empty">
+        <p>No renders match these filters.</p>
+        <button type="button" class="secondary small" (click)="clearFilters()">Clear filters</button>
+      </div>
+    } @else {
+      <ul class="rp-list">
+        @for (item of pagedJobs(); track item.jobId) {
+          <li class="rp-row" [class.selected]="job()?.jobId === item.jobId" [class.has-issue]="jobHasIssue(item.jobId)">
+            <span [class]="'rp-format-badge ' + jobFormat(item).toLowerCase()" aria-hidden="true">{{ jobAspect(item) }}</span>
+
+            <div class="rp-row-main">
+              @if (editingId() === item.jobId) {
+                <form class="rp-rename" (submit)="$event.preventDefault(); saveRename(item)">
+                  <input type="text" [ngModel]="editName()" (ngModelChange)="editName.set($event)" name="rowName"
+                         maxlength="120" aria-label="Render name" (keydown.escape)="cancelRename()" autofocus />
+                  <button type="submit" class="small" [disabled]="renaming()">Save</button>
+                  <button type="button" class="secondary small" (click)="cancelRename()">Cancel</button>
+                </form>
+              } @else {
+                <button type="button" class="rp-row-name" (click)="watch(item)" [title]="'Show ' + displayName(item)">
+                  {{ displayName(item) }}
+                </button>
+              }
+              <div class="rp-row-sub">
+                <span>{{ item.createdAt | date: 'MMM d, y · HH:mm' }}</span>
+                <span class="mono">{{ jobResolution(item) }}</span>
+                @if (item.outputDurationSeconds) { <span class="mono">{{ item.outputDurationSeconds | number: '1.0-1' }}s</span> }
+                @for (p of jobPublications(item.jobId); track p.id) {
+                  <a [href]="p.videoUrl" target="_blank" rel="noopener noreferrer" [class]="'rp-yt-chip ' + p.health.toLowerCase()"
+                     [title]="p.issueMessage || ('Open on YouTube: ' + p.title)">
+                    ▶ {{ p.health === 'Issue' ? 'Issue' : p.health === 'Removed' ? 'Removed' : 'YouTube' }}
+                  </a>
+                }
+              </div>
+            </div>
+
+            <div class="rp-row-status">
+              @if (statusGroup(item) === 'active') {
+                <div class="rp-mini-bar"><div [style.width.%]="item.progress"></div></div>
+                <span class="mono muted">{{ item.progress }}%</span>
+              } @else {
+                <span [class]="statusClass(item.status)">{{ statusLabel(item.status) }}</span>
+              }
+            </div>
+
+            <div class="rp-row-actions">
+              @if (item.hasOutput) {
+                <a [href]="downloadUrl(item.jobId)" download class="rp-btn-link">
+                  <button type="button" class="rp-icon-btn" title="Download MP4" aria-label="Download MP4">⬇</button>
+                </a>
+              }
+              <div class="rp-menu-wrap">
+                <button type="button" class="rp-icon-btn" (click)="toggleMenu(item.jobId, $event)"
+                        [attr.aria-expanded]="menuFor() === item.jobId" aria-haspopup="menu" aria-label="More actions">⋯</button>
+                @if (menuFor() === item.jobId) {
+                  <div class="rp-menu" role="menu" (click)="$event.stopPropagation()">
+                    <button type="button" role="menuitem" (click)="menuFor.set(null); watch(item)">👁 Show</button>
+                    @if (isTerminalStatus(item.status)) {
+                      <button type="button" role="menuitem" (click)="startRename(item)">✎ Rename</button>
+                    }
+                    @if (item.hasOutput) {
+                      <button type="button" role="menuitem" (click)="openPublish(item.jobId)">▶ Publish to YouTube</button>
+                      @for (p of jobPublications(item.jobId); track p.id) {
+                        <button type="button" role="menuitem" (click)="copyLink(p.videoUrl)">🔗 Copy YouTube link{{ jobPublications(item.jobId).length > 1 ? ' (' + p.channelTitle + ')' : '' }}</button>
+                      }
+                      <a role="menuitem" routerLink="/live" [queryParams]="{ renderJobId: item.jobId }">🔴 Go live</a>
+                    }
+                    <button type="button" role="menuitem" (click)="menuFor.set(null); openDiagnostics(item)">📊 Diagnostics</button>
+                  </div>
+                }
+              </div>
+            </div>
+          </li>
+        }
+      </ul>
+    }
+
+    <footer class="rp-pager">
+      <span class="muted">{{ rangeLabel() }}</span>
+      <label class="rp-page-size">
+        <span class="muted">Per page</span>
+        <select [ngModel]="pageSize()" (ngModelChange)="setPageSize($event)" aria-label="Renders per page">
+          @for (size of pageSizes; track size) { <option [ngValue]="size">{{ size }}</option> }
+        </select>
+      </label>
+      <nav class="rp-pages" aria-label="Pages">
+        <button type="button" class="secondary small" (click)="goToPage(currentPage() - 1)" [disabled]="currentPage() <= 1" aria-label="Previous page">‹</button>
+        @for (n of pageNumbers(); track $index) {
+          @if (n === 0) {
+            <span class="rp-gap">…</span>
+          } @else {
+            <button type="button" class="secondary small" [class.active]="n === currentPage()" (click)="goToPage(n)"
+                    [attr.aria-current]="n === currentPage() ? 'page' : null">{{ n }}</button>
+          }
+        }
+        <button type="button" class="secondary small" (click)="goToPage(currentPage() + 1)" [disabled]="currentPage() >= totalPages()" aria-label="Next page">›</button>
+      </nav>
+    </footer>
+  </section>
+}
+
 @if (publishJobId(); as publishId) {
   <app-youtube-publish-dialog
     [jobId]="publishId"
     [previewSrc]="previewUrl(publishId)"
     [returnPath]="publishReturnPath(publishId)"
-    (closed)="publishJobId.set(null)" />
+    (published)="onPublished()"
+    (closed)="publishJobId.set(null); onPublished()" />
 }
 
+<!-- Diagnostics modal -->
 @if (diagnosticsModalOpen() && selectedDiagnosticsJob(); as diagJob) {
   <div class="diag-modal-backdrop" (click)="closeDiagnostics()">
-    <div class="diag-modal-card" (click)="$event.stopPropagation()">
+    <div class="diag-modal-card" role="dialog" aria-modal="true" aria-label="Render diagnostics" (click)="$event.stopPropagation()">
       <div class="diag-modal-header">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <span style="font-size: 1.3rem;">📊</span>
-          <div>
-            <h3 style="margin: 0; font-size: 1.05rem; color: #f8fafc;">Render Diagnostics &amp; Pipeline Breakdown</h3>
-            <span class="mono muted" style="font-size: 0.74rem;">Job: {{ diagJob.jobId }} &middot; {{ jobFormat(diagJob) }} ({{ jobResolution(diagJob) }})</span>
-          </div>
+        <div>
+          <h3>Render diagnostics</h3>
+          <span class="mono muted small">{{ displayName(diagJob) }} &middot; {{ jobFormat(diagJob) }} ({{ jobResolution(diagJob) }})</span>
         </div>
-        <button class="diag-close-btn" type="button" (click)="closeDiagnostics()">&times;</button>
+        <button class="diag-close-btn" type="button" (click)="closeDiagnostics()" aria-label="Close">&times;</button>
       </div>
 
-      <!-- Quick Metrics Summary -->
       <div class="diag-metrics-grid">
         <div class="diag-metric-item">
           <span class="diag-metric-label">Status</span>
-          <span [class]="statusClass(diagJob.status)">{{ diagJob.status }}</span>
+          <span [class]="statusClass(diagJob.status)">{{ statusLabel(diagJob.status) }}</span>
         </div>
         <div class="diag-metric-item">
-          <span class="diag-metric-label">Total Duration</span>
+          <span class="diag-metric-label">Render time</span>
           <span class="mono diag-metric-val">{{ selectedDiagnosticsElapsedFormatted() }}</span>
         </div>
         <div class="diag-metric-item">
-          <span class="diag-metric-label">Output Length</span>
+          <span class="diag-metric-label">Output length</span>
           <span class="mono diag-metric-val">{{ diagJob.outputDurationSeconds ? (diagJob.outputDurationSeconds | number: '1.1-1') + 's' : '—' }}</span>
         </div>
         <div class="diag-metric-item">
-          <span class="diag-metric-label">Speed Factor</span>
-          <span class="mono diag-metric-val" style="color: #38bdf8;">{{ selectedDiagnosticsSpeed() }}</span>
+          <span class="diag-metric-label">Speed</span>
+          <span class="mono diag-metric-val">{{ selectedDiagnosticsSpeed() }}</span>
         </div>
         @if (diagJob.diagnostics?.hardwareEncoder; as hw) {
           <div class="diag-metric-item">
-            <span class="diag-metric-label">Encoder Engine</span>
-            @if (hw === 'h264_nvenc') {
-              <span class="mono diag-metric-val" style="color: #34d399;">⚡ NVENC GPU</span>
-            } @else if (hw === 'h264_qsv') {
-              <span class="mono diag-metric-val" style="color: #34d399;">⚡ QSV GPU</span>
-            } @else if (hw === 'h264_videotoolbox') {
-              <span class="mono diag-metric-val" style="color: #34d399;">⚡ VideoToolbox</span>
-            } @else {
-              <span class="mono diag-metric-val" style="color: #94a3b8;">🖥 CPU (Multi-core)</span>
-            }
+            <span class="diag-metric-label">Encoder</span>
+            <span class="mono diag-metric-val">{{ encoderLabel(hw) }}</span>
           </div>
         }
       </div>
 
-      <!-- Stages Breakdown -->
       <div class="diag-stages-wrap">
-        <h4 style="margin: 0 0 8px 0; font-size: 0.88rem; color: #e2e8f0;">Component Pipeline Timings</h4>
-        <div style="display: flex; flex-direction: column; gap: 8px;">
-          @for (st of selectedDiagnosticsStages(); track st.id) {
-            <div class="diag-stage-row">
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <span style="color: #10b981; font-weight: bold;">✓</span>
-                <div>
-                  <div style="font-size: 0.84rem; font-weight: 600; color: #f1f5f9;">{{ st.icon }} {{ st.name }}</div>
-                  <div style="font-size: 0.72rem; color: #94a3b8;">{{ st.summary }}</div>
-                </div>
-              </div>
-              <div class="mono" style="font-size: 0.85rem; font-weight: 700; color: #38bdf8;">
-                {{ formatStageDuration(st.durationSec) }}
-              </div>
+        <h4>Pipeline timings</h4>
+        @for (st of selectedDiagnosticsStages(); track st.id) {
+          <div class="diag-stage-row">
+            <div>
+              <div class="diag-stage-name">{{ st.icon }} {{ st.name }}</div>
+              <div class="muted small">{{ st.summary }}</div>
             </div>
-          }
-        </div>
+            <div class="mono diag-stage-time">{{ formatStageDuration(st.durationSec) }}</div>
+          </div>
+        }
       </div>
 
       @if (diagJob.errorMessage) {
-        <div class="notice error" style="margin-top: 1rem;">
+        <div class="notice error">
           {{ diagJob.errorMessage }} <span class="mono muted">({{ diagJob.errorCode }})</span>
         </div>
       }
 
       <div class="diag-modal-footer">
-        <span class="muted mono" style="font-size: 0.75rem;">Completed: {{ (diagJob.completedAt || diagJob.createdAt) | date: 'medium' }}</span>
+        <span class="muted mono small">Finished: {{ (diagJob.completedAt || diagJob.createdAt) | date: 'medium' }}</span>
         <button class="secondary" type="button" (click)="closeDiagnostics()">Close</button>
       </div>
     </div>
   </div>
 }
-
-<!-- =========================================================== -->
-<!-- Render progress styles (scoped here since no external .css) -->
-<!-- =========================================================== -->
-<style>
-.render-progress-panel {
-  background: rgba(15, 23, 42, 0.7);
-  border: 1px solid #334155;
-  border-radius: 12px;
-  padding: 1.25rem 1.5rem;
-  margin-bottom: 1rem;
-}
-
-.progress-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1rem;
-  flex-wrap: wrap;
-  gap: .5rem;
-}
-
-.progress-pct-label {
-  font-size: 1.4rem;
-  font-weight: 800;
-  color: #38bdf8;
-  font-family: monospace;
-}
-
-/* Step dots */
-.render-steps {
-  display: flex;
-  align-items: center;
-  margin-bottom: .9rem;
-}
-
-.render-step {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-
-.render-step span {
-  font-size: .72rem;
-  color: #64748b;
-  white-space: nowrap;
-  transition: color .3s;
-}
-.render-step.active span, .render-step.done span { color: #38bdf8; }
-
-.step-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #334155;
-  border: 2px solid #475569;
-  transition: all .3s;
-}
-.render-step.active .step-dot {
-  background: #38bdf8;
-  border-color: #38bdf8;
-  box-shadow: 0 0 8px rgba(56,189,248,.7);
-  animation: pulse-step 1s ease-in-out infinite;
-}
-.render-step.done .step-dot {
-  background: #22c55e;
-  border-color: #22c55e;
-}
-
-@keyframes pulse-step {
-  0%, 100% { box-shadow: 0 0 6px rgba(56,189,248,.5); }
-  50%       { box-shadow: 0 0 14px rgba(56,189,248,.9); }
-}
-
-.render-connector {
-  flex: 1;
-  height: 2px;
-  background: #334155;
-  margin: 0 6px;
-  margin-bottom: 16px;
-  transition: background .4s;
-}
-.render-connector.active { background: linear-gradient(to right, #22c55e, #38bdf8); }
-
-/* Bar */
-.render-bar-wrap { margin-bottom: .75rem; }
-
-.render-bar-track {
-  width: 100%;
-  height: 10px;
-  background: #1e293b;
-  border-radius: 5px;
-  overflow: hidden;
-}
-
-.render-bar-fill {
-  height: 100%;
-  background: linear-gradient(to right, #0284c7, #38bdf8);
-  border-radius: 5px;
-  transition: width .6s ease;
-  position: relative;
-  overflow: hidden;
-}
-
-.render-bar-fill::after {
-  content: '';
-  position: absolute;
-  top: 0; left: -100%;
-  width: 100%; height: 100%;
-  background: linear-gradient(to right, transparent, rgba(255,255,255,.3), transparent);
-  animation: bar-shimmer 1.6s infinite;
-}
-
-@keyframes bar-shimmer { to { left: 200%; } }
-
-.render-bar-fill.fill-failed    { background: #ef4444; }
-.render-bar-fill.fill-cancelled { background: #f59e0b; }
-
-/* Stage text row */
-.render-stage-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: .8rem;
-}
-.render-stage-text   { color: #94a3b8; font-family: monospace; }
-.render-scene-counter { color: #38bdf8; font-weight: 600; }
-
-/* Output card */
-.render-output-card {
-  margin-top: 1.25rem;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 1.2rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-/* Aspect pills */
-.aspect-pill-group {
-  display: flex;
-  border: 1px solid #334155;
-  border-radius: 6px;
-  overflow: hidden;
-}
-.aspect-pill {
-  padding: .3rem .75rem;
-  font-size: .78rem;
-  font-weight: 500;
-  background: transparent;
-  border: none;
-  color: #94a3b8;
-  cursor: pointer;
-  transition: all .15s;
-}
-.aspect-pill + .aspect-pill { border-left: 1px solid #334155; }
-.aspect-pill:hover { background: rgba(56,189,248,.06); color: #e2e8f0; }
-.aspect-pill.active { background: #0284c7; color: #fff; }
-
-/* Diagnostics Modal Styles */
-.diag-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.75);
-  backdrop-filter: blur(6px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 9999;
-  padding: 1rem;
-}
-
-.diag-modal-card {
-  background: #0f172a;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 14px;
-  width: 100%;
-  max-width: 620px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
-  padding: 1.25rem 1.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.diag-modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  padding-bottom: 0.75rem;
-}
-
-.diag-close-btn {
-  background: none;
-  border: none;
-  color: #94a3b8;
-  font-size: 1.5rem;
-  cursor: pointer;
-  padding: 0 4px;
-  line-height: 1;
-}
-.diag-close-btn:hover {
-  color: #fff;
-}
-
-.diag-metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-}
-
-.diag-metric-item {
-  background: rgba(30, 41, 59, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 8px;
-  padding: 8px 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.diag-metric-label {
-  font-size: 0.68rem;
-  text-transform: uppercase;
-  color: #94a3b8;
-  font-weight: 600;
-}
-
-.diag-metric-val {
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: #f1f5f9;
-}
-
-.diag-stages-wrap {
-  background: rgba(15, 23, 42, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 8px;
-  padding: 10px 12px;
-}
-
-.diag-stage-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 10px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.04);
-}
-
-.diag-modal-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  padding-top: 0.75rem;
-}
-</style>

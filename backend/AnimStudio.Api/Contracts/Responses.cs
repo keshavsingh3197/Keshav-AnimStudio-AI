@@ -124,7 +124,8 @@ public sealed record RenderJobResponse(
     DateTime CreatedAt, DateTime? CompletedAt,
     int? Width = null, int? Height = null, string? TargetFormat = null,
     RenderDiagnosticsResponse? Diagnostics = null,
-    bool HasTimeline = false);
+    bool HasTimeline = false,
+    string? Name = null);
 
 public sealed record RendererStatusResponse(
     bool Available, string? Version, string? UnavailableReason,

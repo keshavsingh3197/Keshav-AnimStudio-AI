@@ -437,6 +437,12 @@ export class ApiService {
       this.http.post<ApiResponse<unknown>>(`${this.base}/api/render-jobs/${jobId}/cancel`, {}));
   }
 
+  /** Renames a finished render; the name also becomes its download filename. */
+  renameJob(jobId: string, name: string): Observable<RenderJob> {
+    return this.unwrap(
+      this.http.patch<ApiResponse<RenderJob>>(`${this.base}/api/render-jobs/${encodeURIComponent(jobId)}`, { name }));
+  }
+
   previewUrl(jobId: string): string {
     return `${this.base}/api/render-jobs/${jobId}/preview`;
   }

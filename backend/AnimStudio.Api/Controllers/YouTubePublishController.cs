@@ -28,6 +28,7 @@ namespace AnimStudio.Api.Controllers;
 public sealed partial class YouTubePublishController(
     YouTubeConnectionStore connections,
     YouTubeUploadManager uploads,
+    YouTubePublicationService publications,
     YouTubeOAuthClient oauth,
     IRenderJobRepository jobs,
     IProjectRepository projects,
@@ -41,6 +42,9 @@ public sealed partial class YouTubePublishController(
 {
     /// <summary>Writing suggestions keeps a model (or a metered quota) busy, so only a couple run at once.</summary>
     private static readonly SemaphoreSlim SuggestSlots = new(2, 2);
+
+    /// <summary>Health checks call YouTube once per channel; a few at a time is plenty.</summary>
+    private static readonly SemaphoreSlim RefreshSlots = new(3, 3);
 
     [HttpGet("status")]
     public async Task<ActionResult<ApiResponse<YouTubePublishStatusResponse>>> Status(CancellationToken ct)
@@ -247,7 +251,23 @@ public sealed partial class YouTubePublishController(
             return BadRequest(ApiResponse<YouTubeUploadStatus>.Fail("Reconnect this channel.",
                 new ApiError("youtube-reconnect", "YouTube access for this channel has expired or was removed. Connect the channel again.", Field: "channelId")));
 
-        var validation = YouTubePublishValidator.Validate(request.Metadata, Facts(job));
+        // Related videos must be the user's own app-published videos; the links are built here
+        // from stored ids, then the whole description is validated against YouTube's limits.
+        var relatedIds = (request.RelatedVideoIds ?? []).Distinct(StringComparer.Ordinal).ToList();
+        if (relatedIds.Count > YouTubeRelatedVideos.MaxRelated || relatedIds.Any(id => !YouTubeRelatedVideos.IsVideoId(id)))
+            return BadRequest(ApiResponse<YouTubeUploadStatus>.Fail("Choose up to 10 related videos from the list.",
+                new ApiError("related-invalid", $"Choose up to {YouTubeRelatedVideos.MaxRelated} related videos from the list.", Field: "relatedVideoIds")));
+
+        var related = await publications.ResolveRelatedAsync(currentUser.UserId, relatedIds, ct);
+        if (related.Count != relatedIds.Count)
+            return BadRequest(ApiResponse<YouTubeUploadStatus>.Fail("A related video is no longer in your list.",
+                new ApiError("related-not-found", "A related video is no longer in your list. Pick again.", Field: "relatedVideoIds")));
+
+        var metadata = request.Metadata is null || related.Count == 0
+            ? request.Metadata
+            : request.Metadata with { Description = YouTubeRelatedVideos.AppendToDescription(request.Metadata.Description ?? string.Empty, related) };
+
+        var validation = YouTubePublishValidator.Validate(metadata, Facts(job));
         if (!validation.IsValid)
         {
             var first = validation.Errors[0];
@@ -264,7 +284,9 @@ public sealed partial class YouTubePublishController(
                 job.OutputSizeBytes ?? 0,
                 connection.ChannelId,
                 connection.ChannelTitle,
-                validation.Normalized!));
+                validation.Normalized!,
+                job.ProjectId,
+                [.. related.Select(r => r.VideoId)]));
 
             logger.LogInformation("User {UserId} queued render {JobId} for YouTube channel {ChannelId} ({Privacy})",
                 currentUser.UserId, job.Id, connection.ChannelId, validation.Normalized!.Privacy);
@@ -292,6 +314,66 @@ public sealed partial class YouTubePublishController(
         IsUploadId(uploadId) && uploads.Cancel(currentUser.UserId, uploadId)
             ? NoContent()
             : throw new KeyNotFoundException();
+
+    /// <summary>
+    /// Videos uploaded from the app, newest first: the render page's YouTube links and the
+    /// related-videos picker. Always the caller's own; <paramref name="projectId"/> only narrows.
+    /// </summary>
+    [HttpGet("videos")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<YouTubePublicationStatus>>>> ListVideos(
+        [FromQuery] string? projectId, CancellationToken ct)
+    {
+        if (projectId is not null && !IsEntityId(projectId))
+            return BadRequest(ApiResponse<IReadOnlyList<YouTubePublicationStatus>>.Fail("Unknown project.",
+                new ApiError("project-invalid", "Unknown project.", Field: "projectId")));
+
+        return Ok(ApiResponse<IReadOnlyList<YouTubePublicationStatus>>.Ok(
+            await publications.ListAsync(currentUser.UserId, projectId, ct)));
+    }
+
+    /// <summary>
+    /// Asks YouTube how the caller's videos are doing (rejected, failed, deleted…) and returns
+    /// the updated list. Videos checked in the last few minutes are not asked about again, so
+    /// reopening the page doesn't spend quota.
+    /// </summary>
+    [HttpPost("videos/refresh")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<YouTubePublicationStatus>>>> RefreshVideos(
+        [FromBody] YouTubeVideosRefreshRequest? request, CancellationToken ct)
+    {
+        var projectId = request?.ProjectId;
+        if (projectId is not null && !IsEntityId(projectId))
+            return BadRequest(ApiResponse<IReadOnlyList<YouTubePublicationStatus>>.Fail("Unknown project.",
+                new ApiError("project-invalid", "Unknown project.", Field: "projectId")));
+
+        if (!oauth.IsConfigured)
+            return Ok(ApiResponse<IReadOnlyList<YouTubePublicationStatus>>.Ok(
+                await publications.ListAsync(currentUser.UserId, projectId, ct)));
+
+        if (!await RefreshSlots.WaitAsync(TimeSpan.FromSeconds(20), ct))
+            return StatusCode(StatusCodes.Status429TooManyRequests, ApiResponse<IReadOnlyList<YouTubePublicationStatus>>.Fail(
+                "Other checks are running. Try again in a minute.", new ApiError("youtube-busy", "Other checks are running. Try again in a minute.")));
+        try
+        {
+            var minAge = request?.Force == true ? TimeSpan.FromSeconds(30) : TimeSpan.FromMinutes(5);
+            return Ok(ApiResponse<IReadOnlyList<YouTubePublicationStatus>>.Ok(
+                await publications.RefreshAsync(currentUser.UserId, projectId, minAge, ct)));
+        }
+        finally
+        {
+            RefreshSlots.Release();
+        }
+    }
+
+    /// <summary>Forgets the app's link to a video. The video on YouTube is not touched.</summary>
+    [HttpDelete("videos/{id}")]
+    public async Task<IActionResult> ForgetVideo(string id, CancellationToken ct)
+    {
+        if (!IsUploadId(id) || !await publications.ForgetAsync(currentUser.UserId, id, ct))
+            return NotFound(ApiResponse<string>.Fail("That video isn't in your list.", new ApiError("not-found", "That video isn't in your list.")));
+
+        await audit.RecordAsync("youtube.video.forget", id, "linked", "none", RemoteAddress(), ct);
+        return NoContent();
+    }
 
     private async Task<RenderJob> LoadOwnedJobAsync(string jobId, CancellationToken ct)
     {
@@ -331,12 +413,16 @@ public sealed partial class YouTubePublishController(
 
     private static bool IsChannelId(string? value) => value is not null && ChannelIdPattern().IsMatch(value);
     private static bool IsUploadId(string value) => UploadIdPattern().IsMatch(value);
+    private static bool IsEntityId(string value) => EntityIdPattern().IsMatch(value);
 
     [GeneratedRegex("^UC[A-Za-z0-9_-]{22}$")]
     private static partial Regex ChannelIdPattern();
 
     [GeneratedRegex("^[0-9a-f]{32}$")]
     private static partial Regex UploadIdPattern();
+
+    [GeneratedRegex("^[A-Za-z0-9_-]{1,64}$")]
+    private static partial Regex EntityIdPattern();
 }
 
 public sealed record YouTubeConnectStartRequest(string? ReturnPath);
@@ -344,7 +430,8 @@ public sealed record YouTubeConnectStartResponse(string AuthorizationUrl);
 public sealed record YouTubeConnectCompleteRequest(string? Code, string? State);
 public sealed record YouTubeConnectCompleteResponse(YouTubeConnectionStatus Connection, string ReturnPath);
 
-public sealed record YouTubePublishRequest(string? ChannelId, YouTubeVideoMetadata? Metadata);
+public sealed record YouTubePublishRequest(string? ChannelId, YouTubeVideoMetadata? Metadata, IReadOnlyList<string>? RelatedVideoIds = null);
+public sealed record YouTubeVideosRefreshRequest(string? ProjectId, bool Force);
 
 public sealed record YouTubeSuggestRequest(string? Language, bool Fresh);
 public sealed record YouTubeSuggestResponse(string Title, string Description, IReadOnlyList<string> Tags, string ProviderId);

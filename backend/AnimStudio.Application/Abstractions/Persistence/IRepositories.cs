@@ -132,4 +132,10 @@ public interface IRenderJobRepository
     /// its output.
     /// </summary>
     Task<bool> RequeueAsync(string jobId, CancellationToken ct);
+
+    /// <summary>
+    /// Sets <see cref="RenderJob.Name"/> on a finished job only. A running job is skipped
+    /// (false) because the worker's final write replaces the whole record and would undo it.
+    /// </summary>
+    Task<bool> RenameAsync(string jobId, string name, CancellationToken ct);
 }

@@ -27,6 +27,16 @@ public sealed class YouTubePublishOptions
     /// <summary>How long a finished upload stays in the list.</summary>
     public int KeepFinishedHours { get; set; } = 24;
 
+    /// <summary>
+    /// How often published videos are re-checked on YouTube in the background, so a rejected
+    /// or deleted video shows up as an issue in the app. 0 turns the background check off
+    /// (the render page still checks when it opens).
+    /// </summary>
+    public int HealthCheckMinutes { get; set; } = 60;
+
+    /// <summary>Videos published longer ago than this are no longer checked in the background.</summary>
+    public int HealthCheckDays { get; set; } = 30;
+
     public bool IsConfigured =>
         !string.IsNullOrWhiteSpace(ClientId)
         && !string.IsNullOrWhiteSpace(ClientSecret)

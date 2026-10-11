@@ -5,7 +5,7 @@ import { Observable, map } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../models/api.models';
 import {
-  YouTubeChannel, YouTubeDraft, YouTubePublishStatus, YouTubeSuggestion, YouTubeUpload, YouTubeVideoMetadata,
+  YouTubeChannel, YouTubeDraft, YouTubePublication, YouTubePublishStatus, YouTubeSuggestion, YouTubeUpload, YouTubeVideoMetadata,
 } from '../models/youtube.models';
 
 @Injectable({ providedIn: 'root' })
@@ -49,10 +49,30 @@ export class YouTubePublishService {
       .pipe(map((r) => r.data as YouTubeSuggestion));
   }
 
-  publish(jobId: string, channelId: string, metadata: YouTubeVideoMetadata): Observable<YouTubeUpload> {
+  publish(jobId: string, channelId: string, metadata: YouTubeVideoMetadata, relatedVideoIds: string[] = []): Observable<YouTubeUpload> {
     return this.http
-      .post<ApiResponse<YouTubeUpload>>(`${this.base}/render-jobs/${encodeURIComponent(jobId)}/publish`, { channelId, metadata })
+      .post<ApiResponse<YouTubeUpload>>(`${this.base}/render-jobs/${encodeURIComponent(jobId)}/publish`, { channelId, metadata, relatedVideoIds })
       .pipe(map((r) => r.data as YouTubeUpload));
+  }
+
+  /** Videos uploaded from the app, newest first; optionally one project's. */
+  videos(projectId?: string): Observable<YouTubePublication[]> {
+    const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : '';
+    return this.http
+      .get<ApiResponse<YouTubePublication[]>>(`${this.base}/videos${query}`)
+      .pipe(map((r) => r.data ?? []));
+  }
+
+  /** Asks YouTube how the videos are doing (rejected, failed, deleted) and returns the updated list. */
+  refreshVideos(projectId?: string, force = false): Observable<YouTubePublication[]> {
+    return this.http
+      .post<ApiResponse<YouTubePublication[]>>(`${this.base}/videos/refresh`, { projectId: projectId ?? null, force })
+      .pipe(map((r) => r.data ?? []));
+  }
+
+  /** Forgets the app's link to a video; the video on YouTube is untouched. */
+  forgetVideo(id: string): Observable<unknown> {
+    return this.http.delete(`${this.base}/videos/${encodeURIComponent(id)}`);
   }
 
   uploads(jobId?: string): Observable<YouTubeUpload[]> {

@@ -94,6 +94,48 @@ export interface YouTubeUpload {
   error?: string;
   startedAt: string;
   completedAt?: string;
+  /** The saved record of a finished upload. */
+  publicationId?: string;
+  /** e.g. the video is on YouTube but its link couldn't be saved. */
+  warning?: string;
+}
+
+export type YouTubeVideoHealth = 'Unknown' | 'Processing' | 'Ok' | 'Issue' | 'Removed';
+
+/** A video uploaded from the app, saved automatically when the upload finished. */
+export interface YouTubePublication {
+  id: string;
+  projectId: string;
+  jobId: string;
+  channelId: string;
+  channelTitle: string;
+  videoId: string;
+  title: string;
+  privacy: string;
+  videoUrl: string;
+  studioUrl: string;
+  relatedVideoIds: string[];
+  publishedAt: string;
+  health: YouTubeVideoHealth;
+  privacyStatus?: string;
+  issueCode?: string;
+  issueMessage?: string;
+  thumbnailUrl?: string;
+  lastCheckedAt?: string;
+}
+
+export const MAX_RELATED_VIDEOS = 10;
+
+/** True when the owner should look at the video on YouTube. */
+export function needsAttention(p: YouTubePublication): boolean {
+  return p.health === 'Issue' || p.health === 'Removed';
+}
+
+/** Mirrors the server's block, so the review screen and the byte count show what will be sent. */
+export function relatedVideosBlock(related: Pick<YouTubePublication, 'videoId' | 'title'>[]): string {
+  if (related.length === 0) return '';
+  const lines = related.map((r) => `▶ ${r.title.replace(/[\r\n]+/g, ' ').replace(/[<>]/g, '').trim() || 'Video'}: https://youtu.be/${r.videoId}`);
+  return `Related videos:\n${lines.join('\n')}`;
 }
 
 export function isUploadFinished(upload: YouTubeUpload): boolean {

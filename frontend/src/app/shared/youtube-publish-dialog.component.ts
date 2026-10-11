@@ -1,11 +1,11 @@
 import { DecimalPipe } from '@angular/common';
 import { Component, DestroyRef, OnInit, computed, inject, input, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { forkJoin } from 'rxjs';
+import { catchError, forkJoin, of } from 'rxjs';
 
 import {
-  YouTubeCheck, YouTubeDraft, YouTubePrivacy, YouTubePublishStatus, YouTubeUpload,
-  isUploadFinished, parseYouTubeTags, youTubeTagsLength,
+  MAX_RELATED_VIDEOS, YouTubeCheck, YouTubeDraft, YouTubePrivacy, YouTubePublication, YouTubePublishStatus, YouTubeUpload,
+  isUploadFinished, parseYouTubeTags, relatedVideosBlock, youTubeTagsLength,
 } from '../core/models/youtube.models';
 import { YouTubePublishService } from '../core/services/youtube-publish.service';
 
@@ -57,7 +57,10 @@ interface PublishPrefs {
                 <div><dt>Category</dt><dd>{{ categoryName() }}</dd></div>
                 <div><dt>Title</dt><dd><strong>{{ title().trim() }}</strong></dd></div>
                 <div><dt>Tags ({{ tags().length }})</dt><dd>{{ tags().join(', ') || '—' }}</dd></div>
-                <div><dt>Description</dt><dd><pre>{{ description().trim() || '—' }}</pre></dd></div>
+                <div><dt>Description</dt><dd><pre>{{ finalDescription() || '—' }}</pre></dd></div>
+                @if (relatedSelected().length) {
+                  <div><dt>Related ({{ relatedSelected().length }})</dt><dd>{{ relatedTitles() }}</dd></div>
+                }
               </dl>
               @for (c of warnings(); track c.code) { <p class="yt-warn">⚠ {{ c.message }}</p> }
               @if (privacy() === 'public') {
@@ -131,7 +134,7 @@ interface PublishPrefs {
                             [class.invalid]="fieldError('description')"></textarea>
                 </label>
                 <div class="yt-count" [class.over]="descriptionBytes() > st.limits.maxDescriptionBytes">
-                  {{ descriptionBytes() | number }} / {{ st.limits.maxDescriptionBytes | number }}
+                  {{ descriptionBytes() | number }} / {{ st.limits.maxDescriptionBytes | number }}{{ relatedSelected().length ? ' incl. related videos' : '' }}
                 </div>
 
                 @if (draft()?.channelTags?.length) {
@@ -153,6 +156,39 @@ interface PublishPrefs {
                 </label>
                 <div class="yt-count" [class.over]="tagsLength() > st.limits.maxTagsLength">
                   {{ tags().length }} tags · {{ tagsLength() }} / {{ st.limits.maxTagsLength }}
+                </div>
+
+                <!-- Related videos: the user's own uploads from AnimStudio, linked at the end of the description. -->
+                <div class="yt-related">
+                  <span class="yt-label">Related videos <span class="yt-muted">(linked at the end of the description)</span></span>
+                  @if (relatedSelected().length) {
+                    <div class="yt-chips" aria-label="Selected related videos">
+                      @for (v of relatedSelected(); track v.videoId) {
+                        <span class="chip">
+                          {{ v.title }}
+                          <button type="button" [disabled]="uploading()" (click)="removeRelated(v.videoId)" [attr.aria-label]="'Remove ' + v.title">✕</button>
+                        </span>
+                      }
+                    </div>
+                  }
+                  @if (videosAvailable().length === 0) {
+                    <p class="yt-muted">Videos you publish from AnimStudio will appear here to link.</p>
+                  } @else if (relatedSelected().length < maxRelated) {
+                    <div class="yt-related-pick">
+                      @if (videosAvailable().length > 8) {
+                        <input type="search" [ngModel]="relatedQuery()" (ngModelChange)="relatedQuery.set($event)" [disabled]="uploading()"
+                               placeholder="Filter your videos…" aria-label="Filter related videos" />
+                      }
+                      <select #relatedPick (change)="addRelated(relatedPick.value); relatedPick.value = ''" [disabled]="uploading()" aria-label="Add a related video">
+                        <option value="">＋ Add a related video ({{ relatedOptions().length }})…</option>
+                        @for (v of relatedOptions(); track v.videoId) {
+                          <option [value]="v.videoId">{{ v.title }} — {{ v.channelTitle }}{{ v.health === 'Issue' ? ' (has an issue)' : '' }}</option>
+                        }
+                      </select>
+                    </div>
+                  } @else {
+                    <p class="yt-muted">Up to {{ maxRelated }} related videos.</p>
+                  }
                 </div>
 
                 <div class="yt-row">
@@ -210,8 +246,9 @@ interface PublishPrefs {
                     <p class="ok">✓ Published to {{ u.channelTitle }} ({{ u.privacy }}).
                       <a [href]="u.videoUrl" target="_blank" rel="noopener noreferrer">Watch ↗</a> ·
                       <a [href]="u.studioUrl" target="_blank" rel="noopener noreferrer">Open in YouTube Studio ↗</a></p>
-                    <p class="yt-muted">YouTube may still be processing HD versions for a few minutes.
+                    <p class="yt-muted">The link is saved with this render. YouTube may still be processing HD versions for a few minutes.
                       @if (u.privacy === 'private') { Finish the details and publish it from YouTube Studio. }</p>
+                    @if (u.warning) { <p class="yt-warn">⚠ {{ u.warning }}</p> }
                   }
                   @case ('Failed') { <p class="yt-err">{{ u.error }}</p> }
                   @case ('Cancelled') { <p class="yt-muted">{{ u.error || 'Upload cancelled.' }}</p> }
@@ -305,6 +342,10 @@ interface PublishPrefs {
     .yt-review pre { margin: 0; white-space: pre-wrap; font: inherit; max-height: 30vh; overflow: auto;
       background: rgba(148, 163, 184, .08); padding: .5rem .6rem; border-radius: 6px; }
     .yt-actions { display: flex; justify-content: flex-end; gap: .5rem; margin-top: 1rem; }
+    .yt-related { display: grid; gap: .35rem; margin-top: .5rem; }
+    .yt-label { font-size: .85rem; color: var(--muted, #94a3b8); }
+    .yt-related-pick { display: grid; gap: .35rem; }
+    .yt-related-pick input, .yt-related-pick select { width: 100%; box-sizing: border-box; }
   `],
 })
 export class YouTubePublishDialogComponent implements OnInit {
@@ -320,6 +361,14 @@ export class YouTubePublishDialogComponent implements OnInit {
    */
   readonly asDraft = input(false);
   readonly closed = output<void>();
+  /** An upload of this render finished; the link is now saved with it. */
+  readonly published = output<YouTubeUpload>();
+
+  readonly maxRelated = MAX_RELATED_VIDEOS;
+  /** The user's videos uploaded from the app, for the related-videos picker. */
+  readonly videos = signal<YouTubePublication[]>([]);
+  readonly relatedIds = signal<string[]>([]);
+  readonly relatedQuery = signal('');
 
   readonly loading = signal(true);
   readonly busy = signal(false);
@@ -363,7 +412,29 @@ export class YouTubePublishDialogComponent implements OnInit {
   readonly privacyLabel = computed(() =>
     ({ public: 'Public', unlisted: 'Unlisted', private: 'Private (draft)' })[this.privacy()]);
   readonly tagsLength = computed(() => youTubeTagsLength(this.tags()));
-  readonly descriptionBytes = computed(() => new TextEncoder().encode(this.description().trim()).length);
+  /** Not removed from YouTube; one entry per video even if it was recorded twice. */
+  readonly videosAvailable = computed(() => {
+    const seen = new Set<string>();
+    return this.videos().filter((v) => v.health !== 'Removed' && !seen.has(v.videoId) && seen.add(v.videoId));
+  });
+  readonly relatedSelected = computed(() => {
+    const byId = new Map(this.videosAvailable().map((v) => [v.videoId, v] as const));
+    return this.relatedIds().map((id) => byId.get(id)).filter((v): v is YouTubePublication => v !== undefined);
+  });
+  readonly relatedOptions = computed(() => {
+    const chosen = new Set(this.relatedIds());
+    const q = this.relatedQuery().trim().toLowerCase();
+    return this.videosAvailable().filter((v) => !chosen.has(v.videoId)
+      && (!q || v.title.toLowerCase().includes(q) || v.channelTitle.toLowerCase().includes(q)));
+  });
+  readonly relatedTitles = computed(() => this.relatedSelected().map((v) => v.title).join(', '));
+  /** Exactly what YouTube receives: the typed description plus the related-videos block. */
+  readonly finalDescription = computed(() => {
+    const body = this.description().trim();
+    const block = relatedVideosBlock(this.relatedSelected());
+    return !block ? body : body ? `${body}\n\n${block}` : block;
+  });
+  readonly descriptionBytes = computed(() => new TextEncoder().encode(this.finalDescription()).length);
   readonly uploading = computed(() => {
     const u = this.upload();
     return u !== null && !isUploadFinished(u);
@@ -403,10 +474,13 @@ export class YouTubePublishDialogComponent implements OnInit {
       status: this.api.status(),
       draft: this.api.draft(this.jobId()),
       uploads: this.api.uploads(this.jobId()),
+      // The picker is optional: a failure here leaves it empty rather than blocking publishing.
+      videos: this.api.videos().pipe(catchError(() => of([] as YouTubePublication[]))),
     }).subscribe({
-      next: ({ status, draft, uploads }) => {
+      next: ({ status, draft, uploads, videos }) => {
         const prefs = this.readPrefs();
         this.status.set(status);
+        this.videos.set(videos);
         this.draft.set(draft);
         this.title.set(draft.title);
         this.description.set(draft.description);
@@ -507,6 +581,16 @@ export class YouTubePublishDialogComponent implements OnInit {
     });
   }
 
+  addRelated(videoId: string): void {
+    if (!videoId || this.relatedIds().includes(videoId) || this.relatedIds().length >= this.maxRelated) return;
+    if (!this.videosAvailable().some((v) => v.videoId === videoId)) return;
+    this.relatedIds.update((ids) => [...ids, videoId]);
+  }
+
+  removeRelated(videoId: string): void {
+    this.relatedIds.update((ids) => ids.filter((id) => id !== videoId));
+  }
+
   toggleChannelTag(tag: string): void {
     this.excludedChannelTags.update((set) => {
       const next = new Set(set);
@@ -537,12 +621,13 @@ export class YouTubePublishDialogComponent implements OnInit {
       privacy: this.privacy(),
       madeForKids: this.madeForKids(),
       notifySubscribers: this.notify(),
-    }).subscribe({
+    }, this.relatedSelected().map((v) => v.videoId)).subscribe({
       next: (upload) => {
         this.upload.set(upload);
         this.reviewing.set(false);
         this.busy.set(false);
         if (!isUploadFinished(upload)) this.poll(upload.uploadId);
+        else if (upload.state === 'Completed') this.published.emit(upload);
       },
       error: (e: Error & { code?: string }) => {
         this.error.set(e.message);
@@ -578,6 +663,7 @@ export class YouTubePublishDialogComponent implements OnInit {
           this.upload.set(u);
           if (u.errorCode === 'youtube-reconnect') this.markNeedsReconnect();
           if (!isUploadFinished(u)) this.poll(uploadId);
+          else if (u.state === 'Completed') this.published.emit(u);
         },
         // A blip while polling isn't the upload failing; try again a little later.
         error: () => this.poll(uploadId),
