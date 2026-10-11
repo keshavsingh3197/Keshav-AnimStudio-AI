@@ -298,6 +298,9 @@ public static class DependencyInjection
             sp.GetRequiredService<ILogger<YouTubeVideoUploader>>()));
         services.AddSingleton(sp => new YouTubeCommentClient(
             sp.GetRequiredService<ILogger<YouTubeCommentClient>>()));
+        // Go Live can create the YouTube broadcast and its stream key itself.
+        services.AddSingleton(sp => new YouTubeLiveClient(
+            sp.GetRequiredService<ILogger<YouTubeLiveClient>>()));
         services.AddSingleton<YouTubeOAuthStateCache>();
         services.AddScoped<YouTubeConnectionStore>();
         // Brand channels take their name and picture from the YouTube channel they publish to.

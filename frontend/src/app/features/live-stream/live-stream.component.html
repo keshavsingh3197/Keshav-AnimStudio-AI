@@ -262,9 +262,15 @@
           <input type="radio" name="keyMode" value="paste" [(ngModel)]="form.keyMode" />
           Paste a key for this stream
         </label>
+        <label>
+          <input type="radio" name="keyMode" value="youtube" [(ngModel)]="form.keyMode" />
+          ✨ Create on YouTube (AI title, description &amp; tags)
+        </label>
       </div>
 
-      @if (form.keyMode === 'channel') {
+      @if (form.keyMode === 'youtube') {
+        <app-youtube-live-setup kind="playlist" [initial]="youTubeBroadcast()" [disabled]="!!submitting()" (broadcastChange)="youTubeBroadcast.set($event)" />
+      } @else if (form.keyMode === 'channel') {
         <div class="ls-field">
           <label for="ls-channel">Channel</label>
           <select id="ls-channel" [(ngModel)]="form.channelId">

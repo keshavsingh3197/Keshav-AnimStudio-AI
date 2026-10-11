@@ -990,13 +990,16 @@
 
           <fieldset class="cs-field" [disabled]="onAir()">
             <legend>Stream key</legend>
-            @if (setup()?.canUseSavedKeys) {
-              <div class="cs-chips">
+            <div class="cs-chips">
+              <button type="button" [class.active]="form.keyMode === 'youtube'" (click)="form.keyMode = 'youtube'">✨ Create on YouTube</button>
+              @if (setup()?.canUseSavedKeys) {
                 <button type="button" [class.active]="form.keyMode === 'channel'" (click)="form.keyMode = 'channel'">🔑 Channel's saved key</button>
-                <button type="button" [class.active]="form.keyMode === 'paste'" (click)="form.keyMode = 'paste'">📋 Paste a key</button>
-              </div>
-            }
-            @if (form.keyMode === 'channel') {
+              }
+              <button type="button" [class.active]="form.keyMode === 'paste'" (click)="form.keyMode = 'paste'">📋 Paste a key</button>
+            </div>
+            @if (form.keyMode === 'youtube') {
+              <app-youtube-live-setup kind="camera" [initial]="youTubeBroadcast()" [disabled]="onAir()" (broadcastChange)="youTubeBroadcast.set($event)" />
+            } @else if (form.keyMode === 'channel') {
               <select [(ngModel)]="form.channelId" aria-label="Channel">
                 @for (c of setup()?.channels ?? []; track c.id) {
                   <option [value]="c.id">{{ c.name }} - {{ keyStatus(c)?.state === 'Saved' ? 'key ' + keyStatus(c)?.masked : 'no usable key' }}</option>

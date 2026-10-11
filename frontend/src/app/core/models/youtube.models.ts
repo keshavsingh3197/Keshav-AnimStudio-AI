@@ -230,3 +230,40 @@ export interface YouTubeDashboard {
   videoStats: Record<string, YouTubeVideoStats>;
   statsFetchedAt?: string | null;
 }
+
+/** A broadcast on a connected channel that Go Live can stream to. Never carries the stream key. */
+export interface YouTubeLiveBroadcast {
+  broadcastId: string;
+  title: string;
+  privacy: string;
+  lifeCycleStatus: string;
+  scheduledStartTime?: string;
+  watchUrl: string;
+  studioUrl: string;
+}
+
+/** What the live setup panel opens with for one connected channel. */
+export interface YouTubeLiveSetup {
+  /** False when the channel was connected without live-stream permission; reconnecting fixes it. */
+  canManageLive: boolean;
+  privacy: YouTubePrivacy;
+  categoryId: string;
+  madeForKids: boolean;
+  tags: string[];
+  descriptionFooter?: string;
+  upcoming: YouTubeLiveBroadcast[];
+  warning?: string;
+}
+
+export type YouTubeLiveKind = 'camera' | 'playlist' | 'music';
+
+export interface YouTubeLiveSuggestParams {
+  topic: string;
+  brief?: string;
+  tone?: string;
+  language: string;
+  kind: YouTubeLiveKind;
+  channelId?: string;
+  providerId?: string;
+  fresh: boolean;
+}

@@ -15,6 +15,7 @@ using AnimStudio.Domain.Errors;
 using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Rendering;
 using AnimStudio.Infrastructure.LiveStreams;
+using AnimStudio.Infrastructure.Publishing;
 using AnimStudio.Infrastructure.Releases;
 using AnimStudio.Infrastructure.Storage;
 using Microsoft.AspNetCore.Authorization;
@@ -46,6 +47,8 @@ public sealed partial class LiveStreamsController(
     IAssetRepository assets,
     IProjectRepository projects,
     IAiSettingsRepository settingsRepository,
+    YouTubeConnectionStore youTubeConnections,
+    YouTubeLiveClient youTubeLive,
     IObjectStore store,
     ICurrentUser currentUser,
     AdminAuditService audit,
@@ -490,9 +493,13 @@ public sealed partial class LiveStreamsController(
     {
         var hasKey = !string.IsNullOrWhiteSpace(request?.StreamKey);
         var hasChannel = !string.IsNullOrWhiteSpace(request?.ChannelId);
+        var hasBroadcast = request?.YouTube is not null;
 
-        if (hasKey == hasChannel)
-            return (null, Invalid("key-source-invalid", "Choose a channel with a saved key, or paste a stream key.", "streamKey"));
+        if ((hasKey ? 1 : 0) + (hasChannel ? 1 : 0) + (hasBroadcast ? 1 : 0) != 1)
+            return (null, Invalid("key-source-invalid", "Choose a channel with a saved key, a YouTube broadcast, or paste a stream key.", "streamKey"));
+
+        if (hasBroadcast)
+            return await ResolveYouTubeBroadcastAsync(request!.YouTube!, destinationId, ct);
 
         if (hasKey)
         {

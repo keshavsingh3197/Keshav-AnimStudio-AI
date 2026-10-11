@@ -21,6 +21,7 @@ import {
 } from '../../core/models/live-stream.models';
 import { ApiService } from '../../core/services/api.service';
 import { LiveStreamService } from '../../core/services/live-stream.service';
+import { SelectedYouTubeBroadcast, YouTubeLiveSetupComponent } from '../../shared/youtube-live-setup.component';
 import { StatusService } from '../../core/services/status.service';
 import { AudioMixer } from './audio-mixer';
 import { BACKLOG_WARNING, CameraUplink, RecorderFormat, UplinkStats, pickRecorderFormat } from './camera-uplink';
@@ -60,7 +61,7 @@ import {
 import { PersonMask, VisionEngine } from './vision-engine';
 
 type Panel = 'identity' | 'designer' | 'motion' | 'brand' | 'voice' | 'picture' | 'overlays' | 'scenes' | 'stream' | 'health';
-type KeyMode = 'channel' | 'paste';
+type KeyMode = 'channel' | 'paste' | 'youtube';
 type Sections = Omit<StudioSettings, 'version' | 'source'>;
 
 interface Preset {
@@ -135,7 +136,7 @@ export const SCENES: { id: SceneId; label: string; icon: string; key: string }[]
  */
 @Component({
   selector: 'app-live-camera',
-  imports: [FormsModule, DecimalPipe, RouterLink],
+  imports: [FormsModule, DecimalPipe, RouterLink, YouTubeLiveSetupComponent],
   templateUrl: './live-camera.component.html',
   styleUrls: ['./live-camera.component.css'],
   host: { '(document:keydown)': 'onKey($event)' },
@@ -250,6 +251,8 @@ export class LiveCameraComponent {
   /** Held only in this component's memory: never stored, sent only when going live. */
   streamKey = '';
   readonly showKey = signal(false);
+  /** A broadcast created (or picked) on a connected YouTube channel; its key stays on the server. */
+  readonly youTubeBroadcast = signal<SelectedYouTubeBroadcast | null>(null);
 
   // Audience
   readonly subscribers = signal<number | null>(null);
@@ -552,7 +555,7 @@ export class LiveCameraComponent {
     const live = this.setup()?.channels.find((c) => c.id === channel.id);
     if (live && !this.onAir()) {
       this.form.channelId = live.id;
-      if (this.setup()?.canUseSavedKeys && this.keyStatus(live)?.state === 'Saved') this.form.keyMode = 'channel';
+      if (this.form.keyMode !== 'youtube' && this.setup()?.canUseSavedKeys && this.keyStatus(live)?.state === 'Saved') this.form.keyMode = 'channel';
       this.scheduleRemember();
     }
   }
@@ -1306,6 +1309,7 @@ export class LiveCameraComponent {
   }
 
   keyMissing(): string | null {
+    if (this.form.keyMode === 'youtube') return this.youTubeBroadcast() ? null : 'Create or pick a YouTube broadcast.';
     if (this.form.keyMode === 'paste') return this.streamKey.trim() ? null : 'Paste the stream key from YouTube Studio.';
     if (!this.form.channelId) return 'Choose a channel.';
     return this.keyStatus(this.selectedChannel())?.state === 'Saved' ? null : 'That channel has no usable saved key.';
@@ -1329,9 +1333,12 @@ export class LiveCameraComponent {
     this.error.set(null);
     this.scheduleRemember();
     try {
-      const target: LiveStreamGoLive = this.form.keyMode === 'channel'
-        ? { channelId: this.form.channelId }
-        : { streamKey: this.streamKey.trim() };
+      const broadcast = this.youTubeBroadcast();
+      const target: LiveStreamGoLive = this.form.keyMode === 'youtube' && broadcast
+        ? { youTube: { channelId: broadcast.channelId, broadcastId: broadcast.broadcast.broadcastId } }
+        : this.form.keyMode === 'channel'
+          ? { channelId: this.form.channelId }
+          : { streamKey: this.streamKey.trim() };
       const status = await firstValueFrom(this.live.startCamera({
         destination: this.form.destination,
         orientation: this.form.orientation,
@@ -1736,7 +1743,7 @@ export class LiveCameraComponent {
       this.setup.set(setup);
       if (!setup.destinations.some((d) => d.id === this.form.destination)) this.form.destination = setup.destinations[0]?.id ?? '';
       if (!setup.channels.some((c) => c.id === this.form.channelId)) this.form.channelId = setup.channels[0]?.id ?? '';
-      if (!setup.canUseSavedKeys) this.form.keyMode = 'paste';
+      if (!setup.canUseSavedKeys && this.form.keyMode === 'channel') this.form.keyMode = 'paste';
       this.ensureAudiencePolling();
     } catch (err: unknown) {
       this.error.set(err instanceof ApiFailure ? err.message : 'Could not load the stream settings.');
@@ -1751,7 +1758,7 @@ export class LiveCameraComponent {
       if (typeof saved.micId === 'string') this.micId = saved.micId.slice(0, 200);
       if (saved.quality === 'Hd720' || saved.quality === 'Hd1080') this.form.quality = saved.quality;
       if (saved.orientation === 'Landscape' || saved.orientation === 'Portrait') this.form.orientation = saved.orientation;
-      if (saved.keyMode === 'channel' || saved.keyMode === 'paste') this.form.keyMode = saved.keyMode;
+      if (saved.keyMode === 'channel' || saved.keyMode === 'paste' || saved.keyMode === 'youtube') this.form.keyMode = saved.keyMode;
       if (typeof saved.channelId === 'string') this.form.channelId = saved.channelId.slice(0, 128);
     } catch {
       // Storage unavailable or unreadable: the defaults are fine.

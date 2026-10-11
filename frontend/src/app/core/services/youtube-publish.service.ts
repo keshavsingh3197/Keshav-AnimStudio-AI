@@ -5,7 +5,8 @@ import { Observable, map } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../models/api.models';
 import {
-  YouTubeChannel, YouTubeDashboard, YouTubeDraft, YouTubePublication, YouTubePublishStatus, YouTubeSuggestion, YouTubeSuggestOptions, YouTubeSuggestParams, YouTubeUpload, YouTubeVideoMetadata,
+  YouTubeChannel, YouTubeDashboard, YouTubeDraft, YouTubeLiveBroadcast, YouTubeLiveSetup, YouTubeLiveSuggestParams, YouTubePublication, YouTubePublishStatus,
+  YouTubeSuggestion, YouTubeSuggestOptions, YouTubeSuggestParams, YouTubeUpload, YouTubeVideoMetadata,
 } from '../models/youtube.models';
 
 @Injectable({ providedIn: 'root' })
@@ -114,5 +115,28 @@ export class YouTubePublishService {
 
   cancel(uploadId: string): Observable<unknown> {
     return this.http.post(`${this.base}/uploads/${encodeURIComponent(uploadId)}/cancel`, {});
+  }
+
+  // ------------------------------------------------------------------ live
+
+  /** A connected channel's live defaults and the broadcasts not yet streamed to. */
+  liveSetup(channelId: string): Observable<YouTubeLiveSetup> {
+    return this.http
+      .get<ApiResponse<YouTubeLiveSetup>>(`${this.base}/live/channels/${encodeURIComponent(channelId)}`)
+      .pipe(map((r) => r.data as YouTubeLiveSetup));
+  }
+
+  /** AI-written title, description and tags for a stream, from its topic. Saves nothing. */
+  liveSuggest(params: YouTubeLiveSuggestParams): Observable<YouTubeSuggestion> {
+    return this.http
+      .post<ApiResponse<YouTubeSuggestion>>(`${this.base}/live/suggest`, params)
+      .pipe(map((r) => r.data as YouTubeSuggestion));
+  }
+
+  /** Creates the broadcast and its stream key on YouTube. The key stays on the server. */
+  createBroadcast(channelId: string, metadata: YouTubeVideoMetadata, scheduledStartTime: string | null, enableDvr: boolean): Observable<YouTubeLiveBroadcast> {
+    return this.http
+      .post<ApiResponse<YouTubeLiveBroadcast>>(`${this.base}/live/broadcasts`, { channelId, metadata, scheduledStartTime, enableDvr })
+      .pipe(map((r) => r.data as YouTubeLiveBroadcast));
   }
 }

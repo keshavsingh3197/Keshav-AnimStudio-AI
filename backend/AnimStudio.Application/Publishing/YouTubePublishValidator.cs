@@ -101,7 +101,18 @@ public static class YouTubePublishValidator
         var warnings = new List<YouTubeCheck>();
 
         CheckVideo(video, errors, warnings);
+        return ValidateDetails(input, errors, warnings);
+    }
 
+    /// <summary>
+    /// The details alone, with no file to check - for a live broadcast, whose video doesn't
+    /// exist until the stream starts.
+    /// </summary>
+    public static YouTubePublishValidation ValidateDetails(YouTubeVideoMetadata? input) =>
+        ValidateDetails(input, [], []);
+
+    private static YouTubePublishValidation ValidateDetails(YouTubeVideoMetadata? input, List<YouTubeCheck> errors, List<YouTubeCheck> warnings)
+    {
         if (input is null)
         {
             errors.Add(new("metadata", "metadata-missing", "Video details are required."));
