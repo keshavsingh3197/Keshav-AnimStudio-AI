@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using AnimStudio.Api.Common;
+using AnimStudio.Api.Security;
 using AnimStudio.Application.Abstractions.Ai;
 using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Admin;
@@ -10,6 +11,7 @@ using AnimStudio.Application.Publishing;
 using AnimStudio.Application.Security;
 using AnimStudio.Domain.Jobs;
 using AnimStudio.Infrastructure.Publishing;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AnimStudio.Api.Controllers;
@@ -42,8 +44,14 @@ public sealed partial class YouTubePublishController(
     IPromptLibrary prompts,
     ICurrentUser currentUser,
     AdminAuditService audit,
+    BrandChannelSyncService brandSync,
+    IAuthorizationService authorization,
     ILogger<YouTubePublishController> logger) : ControllerBase
 {
+    /// <summary>Brand channels are studio-wide settings, so only an admin's connections change them.</summary>
+    private async Task<bool> IsAdminAsync() =>
+        (await authorization.AuthorizeAsync(User, AdminAccess.Policy)).Succeeded;
+
     /// <summary>Writing suggestions keeps a model (or a metered quota) busy, so only a couple run at once.</summary>
     private static readonly SemaphoreSlim SuggestSlots = new(2, 2);
 
@@ -88,6 +96,12 @@ public sealed partial class YouTubePublishController(
                 currentUser.UserId, request?.Code, request?.State, ct);
 
             await audit.RecordAsync("youtube.channel.connect", connection.ChannelId, null, connection.ChannelTitle, RemoteAddress(), ct);
+
+            // An admin connecting a channel gets its brand channel without typing a name:
+            // created if none publishes there yet, renamed if the channel was renamed on YouTube.
+            if (await IsAdminAsync())
+                await brandSync.SyncAsync([connection], createMissing: true, RemoteAddress(), ct);
+
             return Ok(ApiResponse<YouTubeConnectCompleteResponse>.Ok(new YouTubeConnectCompleteResponse(connection, returnPath)));
         }
         catch (YouTubePublishException ex)
@@ -95,6 +109,32 @@ public sealed partial class YouTubePublishController(
             logger.LogWarning("YouTube connect failed for user {UserId} from {RemoteAddress}: {Code}",
                 currentUser.UserId, RemoteAddress(), ex.Code);
             return Failure<YouTubeConnectCompleteResponse>(ex);
+        }
+    }
+
+    /// <summary>
+    /// Re-reads the caller's connected channels from YouTube (name, handle, picture). For an
+    /// admin, brand channels publishing to them follow; nothing new is created here.
+    /// </summary>
+    [HttpPost("channels/refresh")]
+    public async Task<ActionResult<ApiResponse<YouTubeRefreshResult>>> RefreshChannels(CancellationToken ct)
+    {
+        if (!oauth.IsConfigured)
+            return Ok(ApiResponse<YouTubeRefreshResult>.Ok(new YouTubeRefreshResult(await connections.ListAsync(currentUser.UserId, ct), [])));
+
+        if (!await RefreshSlots.WaitAsync(TimeSpan.FromSeconds(20), ct))
+            return StatusCode(StatusCodes.Status429TooManyRequests, ApiResponse<YouTubeRefreshResult>.Fail(
+                "Other checks are running. Try again in a minute.", new ApiError("youtube-busy", "Other checks are running. Try again in a minute.")));
+        try
+        {
+            var result = await connections.RefreshAsync(currentUser.UserId, ct);
+            if (await IsAdminAsync())
+                await brandSync.SyncAsync(result.Channels, createMissing: false, RemoteAddress(), ct);
+            return Ok(ApiResponse<YouTubeRefreshResult>.Ok(result));
+        }
+        finally
+        {
+            RefreshSlots.Release();
         }
     }
 

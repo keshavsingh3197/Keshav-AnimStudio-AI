@@ -13,7 +13,7 @@ import {
   CreateSceneBody, DialogueBody, IngestCapabilities, IngestResult, IngestSummary,
   PlacementBody, Project, RenderJob, ExportTimelineFormat, RendererStatus, Scene, SceneAudioBody, SceneDetail,
   SceneGenerationResult, ScriptDetail, ScriptSummary, UpdateProjectBody, UpdateSceneBody,
-  WatermarkBody, OutroBody, BrandChannel, DEFAULT_BRAND_CHANNEL, StorageSummary, StorageDetail,
+  WatermarkBody, OutroBody, BrandChannel, BrandChannelSyncResult, DEFAULT_BRAND_CHANNEL, StorageSummary, StorageDetail,
   ProjectEdit, CreateEditBody, UpdateEditBody, SaveEditDraftBody,
 } from '../models/api.models';
 
@@ -709,11 +709,37 @@ export class ApiService {
       `${this.admin}/branding/channels/${encodeURIComponent(channelId)}`, { name }));
   }
 
-  /** `moveProjectsTo`: where the channel's projects go; omitted, they go to the default. */
+  /**
+   * Makes a channel the default. The two swap places; projects and stream keys stay with the
+   * look they had, so no existing video changes.
+   */
+  makeDefaultBrandChannel(channelId: string): Observable<BrandChannel[]> {
+    return this.unwrap(this.http.post<ApiResponse<BrandChannel[]>>(
+      `${this.admin}/branding/channels/${encodeURIComponent(channelId)}/make-default`, {}));
+  }
+
+  /**
+   * `moveProjectsTo`: where the channel's projects go; omitted, they go to the default.
+   * Deleting the default requires it: that channel becomes the new default.
+   */
   deleteBrandChannel(channelId: string, moveProjectsTo?: string | null): Observable<BrandChannel[]> {
     const move = moveProjectsTo ? `?moveProjectsTo=${encodeURIComponent(moveProjectsTo)}` : '';
     return this.unwrap(this.http.delete<ApiResponse<BrandChannel[]>>(
       `${this.admin}/branding/channels/${encodeURIComponent(channelId)}${move}`));
+  }
+
+  /**
+   * Re-reads the admin's connected YouTube channels, renames the brand channels publishing
+   * to them, and adds one for any connected YouTube channel that has none yet.
+   */
+  syncBrandChannelsFromYouTube(): Observable<BrandChannelSyncResult> {
+    return this.unwrap(this.http.post<ApiResponse<BrandChannelSyncResult>>(`${this.admin}/branding/channels/sync-youtube`, {}));
+  }
+
+  /** Makes the channel's YouTube profile picture its watermark logo. */
+  useYouTubePictureAsLogo(channel?: string | null): Observable<WatermarkBody | null> {
+    return this.unwrap(this.http.post<ApiResponse<WatermarkBody | null>>(
+      `${this.admin}/branding/logo/from-youtube${channelQuery(channel)}`, {}));
   }
 
   /** Projects per channel id; projects with no (or a vanished) channel count under the default. */

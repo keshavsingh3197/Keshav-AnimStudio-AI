@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using AnimStudio.Application.Abstractions.Persistence;
+using AnimStudio.Application.Publishing;
 using AnimStudio.Domain.Publishing;
 using KeshavSingh.Security;
 using Microsoft.Extensions.Logging;
@@ -20,6 +21,12 @@ public sealed record YouTubeConnectionStatus(
     bool NeedsReconnect,
     /// <summary>False for a channel connected before comment permission was asked for; reconnecting fixes it.</summary>
     bool CanComment = false);
+
+/// <summary>A connected channel whose details couldn't be re-read from YouTube, and why (safe to show).</summary>
+public sealed record YouTubeRefreshFailure(string ChannelId, string ChannelTitle, string Reason);
+
+/// <summary>Every connected channel after a refresh, and the ones YouTube couldn't answer for.</summary>
+public sealed record YouTubeRefreshResult(IReadOnlyList<YouTubeConnectionStatus> Channels, IReadOnlyList<YouTubeRefreshFailure> Failed);
 
 /// <summary>
 /// Sign-ins that have been started but not finished: the random <c>state</c> sent to Google,
@@ -204,6 +211,57 @@ public sealed partial class YouTubeConnectionStore(
             throw;
         }
     }
+
+    /// <summary>
+    /// Re-reads every connected channel's name, handle and picture from YouTube, so a channel
+    /// renamed (or re-pictured) on YouTube shows up here without reconnecting. A channel
+    /// that can't be read is reported, not dropped: its last known identity stays.
+    /// </summary>
+    public async Task<YouTubeRefreshResult> RefreshAsync(string userId, CancellationToken ct)
+    {
+        var failed = new List<YouTubeRefreshFailure>();
+        foreach (var stored in await repository.ListByUserAsync(userId, ct).ConfigureAwait(false))
+        {
+            if (stored.RevokedAt is not null)
+            {
+                failed.Add(new(stored.ChannelId, stored.ChannelTitle, "YouTube access has expired or was removed. Connect the channel again."));
+                continue;
+            }
+
+            try
+            {
+                var accessToken = await GetAccessTokenAsync(userId, stored.ChannelId, ct).ConfigureAwait(false);
+                var channel = await oauth.GetMyChannelAsync(accessToken, ct).ConfigureAwait(false);
+                if (!string.Equals(channel.Id, stored.ChannelId, StringComparison.Ordinal))
+                {
+                    // The token answers for a different channel than it was saved for; trust neither.
+                    logger.LogWarning("YouTube connection {ChannelId} for user {UserId} now reports channel {OtherChannelId}",
+                        stored.ChannelId, userId, channel.Id);
+                    failed.Add(new(stored.ChannelId, stored.ChannelTitle, "YouTube answered for a different channel. Connect the channel again."));
+                    continue;
+                }
+
+                var title = Truncate(channel.Title, 200);
+                var handle = channel.Handle is null ? null : Truncate(channel.Handle, 100);
+                if (stored.ChannelTitle == title && stored.ChannelHandle == handle && stored.ThumbnailUrl == channel.ThumbnailUrl) continue;
+
+                stored.ChannelTitle = title;
+                stored.ChannelHandle = handle;
+                stored.ThumbnailUrl = channel.ThumbnailUrl;
+                await repository.UpsertAsync(stored, ct).ConfigureAwait(false);
+                logger.LogInformation("YouTube channel {ChannelId} details refreshed for user {UserId}", stored.ChannelId, userId);
+            }
+            catch (YouTubePublishException ex)
+            {
+                failed.Add(new(stored.ChannelId, stored.ChannelTitle, ex.Message));
+            }
+        }
+
+        return new YouTubeRefreshResult(await ListAsync(userId, ct).ConfigureAwait(false), failed);
+    }
+
+    public static YouTubeChannelIdentity ToIdentity(YouTubeConnectionStatus c) =>
+        new(c.ChannelId, c.ChannelTitle, c.ChannelHandle, c.ThumbnailUrl);
 
     public async Task MarkUploadedAsync(string userId, string channelId, CancellationToken ct)
     {

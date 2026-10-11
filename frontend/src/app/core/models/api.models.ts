@@ -64,6 +64,18 @@ export interface BrandChannel {
   /** The YouTube channel this brand publishes to, from Settings → YouTube publishing. */
   youTubeChannelId?: string | null;
   youTubeChannelTitle?: string | null;
+  /** As YouTube last reported them; a linked brand's name follows the YouTube channel's title. */
+  youTubeChannelHandle?: string | null;
+  youTubeThumbnailUrl?: string | null;
+}
+
+/** What "Sync from YouTube" did, and the channel list after it. */
+export interface BrandChannelSyncResult {
+  channels: BrandChannel[];
+  youTubeChannels: number;
+  created: string[];
+  renamed: { brandChannelId: string; before: string; after: string }[];
+  failed: { channelId: string; channelTitle: string; reason: string }[];
 }
 
 export interface UpdateProjectBody extends CreateProjectBody {

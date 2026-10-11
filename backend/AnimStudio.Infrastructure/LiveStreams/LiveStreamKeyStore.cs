@@ -95,6 +95,46 @@ public sealed class LiveStreamKeyStore(
     }
 
     /// <summary>
+    /// Exchanges two channels' saved keys, when the channels themselves swap places (a
+    /// channel made the default). The ciphertext moves as it is; nothing is decrypted.
+    /// </summary>
+    public async Task<int> SwapChannelsAsync(string channelA, string channelB, CancellationToken ct)
+    {
+        var all = await repository.ListAsync(ct).ConfigureAwait(false);
+        var moving = all.Where(k => k.ChannelId == channelA || k.ChannelId == channelB).ToList();
+        if (moving.Count == 0) return 0;
+
+        var swapped = moving.Select(k =>
+        {
+            var other = k.ChannelId == channelA ? channelB : channelA;
+            return new LiveStreamKey
+            {
+                Id = LiveStreamKey.IdFor(other, k.DestinationId),
+                ChannelId = other,
+                DestinationId = k.DestinationId,
+                CipherText = k.CipherText,
+                Fingerprint = k.Fingerprint,
+                Last4 = k.Last4,
+                CreatedByUserId = k.CreatedByUserId,
+                CreatedAt = k.CreatedAt,
+                RotatedAt = k.RotatedAt,
+                LastUsedAt = k.LastUsedAt,
+                RejectedAt = k.RejectedAt
+            };
+        }).ToList();
+
+        foreach (var key in swapped) await repository.UpsertAsync(key, ct).ConfigureAwait(false);
+
+        // A key whose counterpart didn't exist leaves its old id behind; that one goes.
+        var kept = swapped.Select(k => k.Id).ToHashSet(StringComparer.Ordinal);
+        foreach (var stale in moving.Where(k => !kept.Contains(k.Id)))
+            await repository.DeleteAsync(stale.Id, ct).ConfigureAwait(false);
+
+        logger.LogInformation("Swapped {Count} stream key(s) between channels {ChannelA} and {ChannelB}", moving.Count, channelA, channelB);
+        return moving.Count;
+    }
+
+    /// <summary>
     /// The plaintext key and its fingerprint, for the stream that is about to connect - or
     /// null with the reason the saved key can't be used.
     /// </summary>

@@ -88,6 +88,15 @@ public sealed class OutroSettings
         _ => false
     };
 
+    public OutroSettings Clone() => new()
+    {
+        Kind = Kind, AssetId = AssetId, DurationSeconds = DurationSeconds, Transition = Transition,
+        TransitionDurationFrames = TransitionDurationFrames, QrAssetId = QrAssetId,
+        Headline = Headline, Subtext = Subtext, HeadlineSecondary = HeadlineSecondary,
+        SubtextSecondary = SubtextSecondary, BackgroundHex = BackgroundHex, TextHex = TextHex,
+        Animation = Animation,
+    };
+
     public void Clamp()
     {
         DurationSeconds = Math.Clamp(DurationSeconds, 1.0, 30.0);

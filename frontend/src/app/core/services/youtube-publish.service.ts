@@ -32,6 +32,14 @@ export class YouTubePublishService {
       .pipe(map((r) => r.data!));
   }
 
+  /** Re-reads connected channels' names and pictures from YouTube; for an admin, linked brand channels follow. */
+  refreshChannels(): Observable<{ channels: YouTubeChannel[]; failed: { channelId: string; channelTitle: string; reason: string }[] }> {
+    return this.http
+      .post<ApiResponse<{ channels: YouTubeChannel[]; failed: { channelId: string; channelTitle: string; reason: string }[] }>>(
+        `${this.base}/channels/refresh`, {})
+      .pipe(map((r) => r.data!));
+  }
+
   disconnect(channelId: string): Observable<unknown> {
     return this.http.delete(`${this.base}/channels/${encodeURIComponent(channelId)}`);
   }

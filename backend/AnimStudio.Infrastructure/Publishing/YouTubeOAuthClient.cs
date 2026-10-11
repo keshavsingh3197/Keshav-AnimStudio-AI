@@ -176,7 +176,8 @@ public sealed class YouTubeOAuthClient : IDisposable
         if (snippet.ValueKind == JsonValueKind.Object && snippet.TryGetProperty("thumbnails", out var thumbs)
             && thumbs.ValueKind == JsonValueKind.Object)
         {
-            foreach (var size in new[] { "default", "medium", "high" })
+            // Largest first: the picture can also become a watermark logo, where 88px would be blurry.
+            foreach (var size in new[] { "high", "medium", "default" })
             {
                 if (thumbs.TryGetProperty(size, out var t) && t.TryGetProperty("url", out var url)
                     && Uri.TryCreate(url.GetString(), UriKind.Absolute, out var parsed) && parsed.Scheme == Uri.UriSchemeHttps)

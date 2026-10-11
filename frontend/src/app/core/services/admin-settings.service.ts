@@ -38,6 +38,9 @@ export interface WebSettingsOverview {
 export interface ChannelPublishSettings {
   youTubeChannelId: string | null;
   youTubeChannelTitle: string | null;
+  /** As YouTube last reported them; set by the server, never trusted from the request. */
+  youTubeChannelHandle?: string | null;
+  youTubeThumbnailUrl?: string | null;
   privacy: 'public' | 'unlisted' | 'private';
   categoryId: string;
   madeForKids: boolean;

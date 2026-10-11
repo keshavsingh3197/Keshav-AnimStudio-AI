@@ -43,7 +43,21 @@ public sealed record ProjectResponse(
 public sealed record BrandChannelResponse(
     string Id, string Name, bool IsDefault, WatermarkResponse? Watermark, OutroResponse? Outro,
     // The YouTube channel this brand publishes to (Settings → YouTube publishing): an id, not a secret.
-    string? YouTubeChannelId = null, string? YouTubeChannelTitle = null);
+    string? YouTubeChannelId = null, string? YouTubeChannelTitle = null,
+    // As YouTube last reported them. When the brand publishes to a YouTube channel, its Name follows that channel's title.
+    string? YouTubeChannelHandle = null, string? YouTubeThumbnailUrl = null);
+
+/// <summary>What "Sync from YouTube" did, and the channel list after it.</summary>
+public sealed record BrandChannelSyncResponse(
+    IReadOnlyList<BrandChannelResponse> Channels,
+    int YouTubeChannels,
+    IReadOnlyList<string> Created,
+    IReadOnlyList<BrandChannelRenameResponse> Renamed,
+    IReadOnlyList<YouTubeSyncFailureResponse> Failed);
+
+public sealed record BrandChannelRenameResponse(string BrandChannelId, string Before, string After);
+
+public sealed record YouTubeSyncFailureResponse(string ChannelId, string ChannelTitle, string Reason);
 
 public sealed record CharacterResponse(
     string Id, string Name, string? Description, IReadOnlyList<string> Aliases,

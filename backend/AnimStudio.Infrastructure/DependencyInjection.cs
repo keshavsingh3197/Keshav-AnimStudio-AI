@@ -300,6 +300,10 @@ public static class DependencyInjection
             sp.GetRequiredService<ILogger<YouTubeCommentClient>>()));
         services.AddSingleton<YouTubeOAuthStateCache>();
         services.AddScoped<YouTubeConnectionStore>();
+        // Brand channels take their name and picture from the YouTube channel they publish to.
+        services.AddScoped<BrandChannelSyncService>();
+        services.AddSingleton(sp => new YouTubeAvatarDownloader(
+            sp.GetRequiredService<ILogger<YouTubeAvatarDownloader>>()));
         services.AddSingleton<YouTubeUploadManager>();
         services.AddHostedService(sp => sp.GetRequiredService<YouTubeUploadManager>());
 

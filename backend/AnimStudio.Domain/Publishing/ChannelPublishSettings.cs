@@ -13,6 +13,12 @@ public sealed class ChannelPublishSettings
     /// <summary>Shown in the console so the link is readable even when the publisher hasn't connected it.</summary>
     public string? YouTubeChannelTitle { get; set; }
 
+    /// <summary>The channel's <c>@handle</c>, as YouTube last reported it.</summary>
+    public string? YouTubeChannelHandle { get; set; }
+
+    /// <summary>The channel's profile picture on YouTube (https only), as YouTube last reported it.</summary>
+    public string? YouTubeThumbnailUrl { get; set; }
+
     public string Privacy { get; set; } = "public";
     public string CategoryId { get; set; } = "1";
     public bool MadeForKids { get; set; }
