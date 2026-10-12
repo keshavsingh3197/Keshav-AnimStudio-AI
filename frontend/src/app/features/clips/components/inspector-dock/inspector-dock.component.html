@@ -114,6 +114,7 @@
     <!-- Inspector Content Area hosting modular tab sub-components -->
     <div class="inspector-content">
       @if (state.activeInspectorTab() === 'clip') {
+        <app-image-shot-inspector />
         <app-transform-inspector />
       }
 
@@ -122,6 +123,7 @@
       }
 
       @if (state.activeInspectorTab() === 'effects') {
+        <app-image-shot-inspector />
         <app-effects-inspector />
       }
 

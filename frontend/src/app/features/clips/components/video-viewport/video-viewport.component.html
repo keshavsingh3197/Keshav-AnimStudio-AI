@@ -121,8 +121,8 @@
                [class]="'pv-monitor-layer layer-front ' + state.monitorFitClass() + (liveTransitionActive() ? ' ' + liveTransitionClass() : '')"
                [style.animation-duration.s]="liveTransitionDuration()"
                [src]="state.activeClipImageUrl()"
-               [style.filter]="state.computedMonitorFilter()"
-               [style.transform]="state.activeClipTransform()"
+               [style.filter]="shotFilter(state.computedMonitorFilter())"
+               [style.transform]="shotTransform(state.activeClipTransform())"
                [style.clip-path]="state.activeClipClipPath()"
                [style.object-fit]="state.monitorFitClass() === 'fit-cover' ? 'cover' : 'contain'"
                alt="" />
@@ -188,14 +188,36 @@
           </div>
         }
 
-        <!-- Image Overlay Layer -->
+        <!-- Image Overlay Layer. A picture with a camera move or look is a shot: it fills the
+             frame in its slot with the export's fit, and moves and grades as the export does. -->
         @if (state.activeImgItem(); as img) {
-          <img crossorigin="anonymous"
-               class="pv-monitor-layer layer-front v3-image-overlay monitor-overlay-img"
-               [src]="state.assetUrl(img.src)"
-               [style.opacity]="state.getOverlayEffectiveOpacity(img)"
-               [style.transform]="state.getOverlayTransform(img)"
-               alt="" />
+          @if (state.monitorShot()?.lane) {
+            <img crossorigin="anonymous"
+                 class="pv-monitor-layer layer-front monitor-overlay-img shot-still"
+                 [src]="state.assetUrl(img.src)"
+                 [style.object-fit]="state.fit() === 'Cover' ? 'cover' : 'contain'"
+                 [style.opacity]="state.getOverlayEffectiveOpacity(img)"
+                 [style.transform]="shotTransform('none')"
+                 [style.filter]="shotFilter('none')"
+                 alt="" />
+          } @else {
+            <img crossorigin="anonymous"
+                 class="pv-monitor-layer layer-front v3-image-overlay monitor-overlay-img"
+                 [src]="state.assetUrl(img.src)"
+                 [style.opacity]="state.getOverlayEffectiveOpacity(img)"
+                 [style.transform]="state.getOverlayTransform(img)"
+                 alt="" />
+          }
+        }
+
+        <!-- A still's lens finish, over the picture as the export draws it. -->
+        @if (state.monitorShot(); as shot) {
+          @if (shot.shot.vignette) { <div class="pv-monitor-layer shot-vignette"></div> }
+          @if (shot.shot.grain) { <div class="shot-grain-clip"><div class="shot-grain"></div></div> }
+          @if (shot.shot.cinemaBars) {
+            <div class="shot-bar top" [style.height.%]="state.monitorCinemaBarPercent()"></div>
+            <div class="shot-bar bottom" [style.height.%]="state.monitorCinemaBarPercent()"></div>
+          }
         }
 
         <!-- Frame images: logos and stickers, placed by their centre and sized by a share of

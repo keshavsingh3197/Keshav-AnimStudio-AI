@@ -1134,7 +1134,8 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
             if (overlay.Type is "image" or "video" && overlay.RelativePath is { Length: > 0 })
             {
                 currentVideoLabel = MediaOverlayFilters.Append(
-                    graph, inputs, currentVideoLabel, idx, overlay, plan.Canvas);
+                    graph, inputs, currentVideoLabel, idx, overlay, plan.Canvas,
+                    capabilities.Supports(RenderFeature.KenBurns));
             }
             else if (overlay is { Type: "text", Text: { } text })
             {

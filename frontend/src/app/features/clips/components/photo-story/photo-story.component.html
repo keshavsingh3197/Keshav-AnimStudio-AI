@@ -210,6 +210,10 @@
   <div class="ps-foot">
     <span class="ps-muted">{{ slides().length }} shots · {{ totalSeconds() | number:'1.0-1' }}s · {{ format().width }}×{{ format().height }}</span>
     <button type="button" class="ps-btn" (click)="close()">Cancel</button>
+    <button type="button" class="ps-btn" [disabled]="slides().length === 0" (click)="applyToTimeline()"
+            title="Put these camera moves and looks on the same pictures in your edit, so the editor plays them">
+      🎬 Apply to timeline
+    </button>
     <button type="button" class="ps-btn primary" [disabled]="slides().length === 0 || state.running()" (click)="build()">
       🚀 Render video
     </button>

@@ -84,7 +84,8 @@ export class PhotoStoryComponent implements OnDestroy {
     const start = onTimeline.length > 0
       ? onTimeline
       : this.state.frameImageCandidates().map((c) => ({ id: c.id, name: c.name, seconds: 5 }));
-    this.slides.set(start.slice(0, 40).map((c, k) => this.newSlide(c.id, c.name, c.seconds, k)));
+    // A picture that already moves in the edit opens with that move, so both stay one shot.
+    this.slides.set(start.slice(0, 40).map((c, k) => this.newSlide(c.id, c.name, c.seconds, k, this.state.shotOfPicture(c.id))));
     this.selectedId.set(this.slides()[0]?.id ?? null);
     this.loop();
   }
@@ -100,12 +101,12 @@ export class PhotoStoryComponent implements OnDestroy {
 
   // --- slides ---
 
-  private newSlide(assetId: string, name: string, seconds: number, index: number): Slide {
+  private newSlide(assetId: string, name: string, seconds: number, index: number, shot: CinematicImage | null = null): Slide {
     return {
       id: `s${++nextSlideId}`,
       assetId, name,
       seconds: Math.min(60, Math.max(1, Math.round((seconds || 5) * 10) / 10)),
-      cinematic: { ...DEFAULT_CINEMATIC, motion: autoMotion(index) },
+      cinematic: shot ? { ...shot } : { ...DEFAULT_CINEMATIC, motion: autoMotion(index) },
       transition: 'Fade',
     };
   }
@@ -224,6 +225,18 @@ export class PhotoStoryComponent implements OnDestroy {
   numberOr(value: unknown, fallback: number): number {
     const n = Number(value);
     return Number.isFinite(n) ? n : fallback;
+  }
+
+  // --- back to the edit ---
+
+  /** Puts each slide's move and look on the same picture in the edit, so the monitor plays it. */
+  applyToTimeline(): void {
+    this.stop();
+    const applied = this.state.applyShotsToTimeline(this.slides().map(({ id: _id, ...s }) => s));
+    this.state.status.notify([applied > 0
+      ? `Applied camera and look to ${applied} picture(s) in your edit - play it in the editor to see them.`
+      : 'None of these pictures are in your edit yet. Add them to the timeline first.']);
+    if (applied > 0) this.close();
   }
 
   // --- export ---

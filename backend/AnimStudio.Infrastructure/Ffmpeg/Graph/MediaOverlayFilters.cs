@@ -29,7 +29,7 @@ internal static class MediaOverlayFilters
     /// <summary>Appends the overlay to <paramref name="graph"/> and returns the label it ends on.</summary>
     public static string Append(
         StringBuilder graph, List<FfmpegInputSpec> inputs, string current, int index,
-        MergeOverlayItem overlay, Canvas canvas)
+        MergeOverlayItem overlay, Canvas canvas, bool canMove = true)
     {
         var rate = canvas.FrameRate;
         var start = overlay.StartSeconds;
@@ -38,6 +38,13 @@ internal static class MediaOverlayFilters
         var endSec = FilterExpr.N(end);
         var media = overlay.Media;
         var isImage = overlay.Type == "image";
+        var shot = isImage ? overlay.Shot : null;
+        if (shot is not null)
+        {
+            // A shot fills the canvas, so the placed-overlay sizing, shape and offsets do not apply.
+            media = null;
+            overlay = overlay with { WidthPercent = null, Scale = 1.0, X = 0, Y = 0 };
+        }
 
         var scale = TextOverlayLayout.Scale(canvas.Width, canvas.Height);
         var border = media is null || media.BorderWidth <= 0
@@ -73,6 +80,11 @@ internal static class MediaOverlayFilters
         }
 
         var chain = new StringBuilder($"[{input}:v]format=rgba");
+
+        if (shot is not null)
+        {
+            chain.Append(',').Append(ShotChain(shot, canvas, overlay.DurationSeconds, canMove));
+        }
 
         if (media is { HasCrop: true })
         {
@@ -157,6 +169,38 @@ internal static class MediaOverlayFilters
         var next = $"v_ov_{index}";
         graph.Append($"[{current}][{placed}]overlay=x={x}:y={y}:enable='between(t,{startSec},{endSec})'[{next}];\n");
         return next;
+    }
+
+    /// <summary>
+    /// A lane picture as a shot: fitted to the canvas the way a V1 picture clip is, moved by
+    /// the same zoompan (at a multiple of the canvas, so the crop steps by sub-pixels), then
+    /// graded and finished - and back to RGBA so the overlay's fades still work on it.
+    /// </summary>
+    internal static string ShotChain(MergeImageShot shot, Canvas canvas, double seconds, bool canMove)
+    {
+        var settings = canMove ? shot.Settings : shot.Settings with { Motion = ImageMotion.None };
+        var k = settings.Moves ? Math.Max(shot.Supersample, 1) : 1;
+        var size = $"{canvas.Width * k}:{canvas.Height * k}";
+        var steps = new List<string>
+        {
+            shot.Fit == ClipFit.Cover
+                ? $"scale={size}:force_original_aspect_ratio=increase:flags=bicubic,crop={size}"
+                : $"scale={size}:force_original_aspect_ratio=decrease:flags=bicubic,pad={size}:(ow-iw)/2:(oh-ih)/2:color=0x{shot.PadRgb}",
+            "setsar=1",
+        };
+
+        if (settings.Moves)
+        {
+            var frames = FrameCount.FromSeconds(seconds, canvas.FrameRate).Value;
+            steps.Add(CinematicImageFilters.Motion(settings, canvas, frames));
+            steps.Add("setsar=1");
+        }
+
+        var finish = CinematicImageFilters.Finish(settings, canvas);
+        if (finish.Length > 0) steps.Add(finish);
+
+        steps.Add("format=rgba");
+        return string.Join(",", steps);
     }
 
     /// <summary>

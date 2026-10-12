@@ -617,7 +617,8 @@ public sealed class ClipMergeOrchestrator(
                         WidthPercent = tr?.WidthPercent is { } width && double.IsFinite(width)
                             ? Math.Clamp(width, 1, 100)
                             : null,
-                        Media = item.Type is "image" or "video" ? MediaOverlayOf(item) : null
+                        Media = item.Type is "image" or "video" ? MediaOverlayOf(item) : null,
+                        Shot = ShotOf(item, spec, settings)
                     });
                 }
                 else if (item.TrackId is "A1" or "A2" && item.Type == "audio")
@@ -1146,6 +1147,20 @@ public sealed class ClipMergeOrchestrator(
             : CinematicImageSettings.From(
                 tr.Motion, tr.MotionIntensity, tr.FocusX, tr.FocusY, tr.MotionEasing,
                 tr.Look, tr.Vignette, tr.Grain, tr.CinemaBars);
+
+    /// <summary>
+    /// A lane picture's camera move and look, when it asks for one. Only image lanes - frame
+    /// logos and stickers ride IMG1 too, but carry no shot, so they keep the overlay path.
+    /// </summary>
+    internal static MergeImageShot? ShotOf(TimelineItemSpec item, ClipMergeSpec spec, ClipRenderSettings settings) =>
+        item.Type == "image" && item.TrackId is "IMG1" or "IMG" or "IMAGE" or "V3"
+            && CinematicOf(item.Transform) is { } shot
+            ? new MergeImageShot(
+                shot,
+                spec.Fit,
+                EraseRegionSpec.IsHexColor(spec.BackgroundColor) ? spec.BackgroundColor![1..].ToLowerInvariant() : "000000",
+                Math.Clamp(settings.KenBurnsSupersample, 1, 4))
+            : null;
 
     /// <summary>Zero transitions, for the pre-flight total used to weight progress.</summary>
     private static IReadOnlyList<FrameCount> ZerosFor(IReadOnlyList<FrameCount> lengths) =>

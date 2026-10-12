@@ -9,11 +9,13 @@ import { TransitionsInspectorComponent } from './tabs/transitions-inspector.comp
 import { TextInspectorComponent } from './tabs/text-inspector.component';
 import { FrameLayoutInspectorComponent } from './tabs/frame-layout-inspector.component';
 import { VoiceoverPanelComponent } from './tabs/voiceover-panel.component';
+import { ImageShotInspectorComponent } from './tabs/image-shot-inspector.component';
 
 @Component({
   selector: 'app-inspector-dock',
   standalone: true,
   imports: [
+    ImageShotInspectorComponent,
     TransformInspectorComponent,
     ClipAudioInspectorComponent,
     MasterAudioMixerComponent,

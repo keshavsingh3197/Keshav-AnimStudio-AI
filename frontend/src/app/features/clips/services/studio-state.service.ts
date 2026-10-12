@@ -33,7 +33,9 @@ import {
   isHexColor, layerAspect, newFrameText, newLayerId, parseSubtitleFile, readCrop, readFrameLayout, readMotion,
   resolveTextLook, sortCues, wrapText,
 } from './text-overlay-layout';
-import { CinematicImage, IMAGE_MOTION_MAX, IMAGE_MOTION_MIN } from './cinematic-image';
+import {
+  CinematicImage, DEFAULT_CINEMATIC, cinemaBarPercent, cinematicFields, cinematicOf,
+} from './cinematic-image';
 import { SlotLayout, isSlotItem, layoutSlots, normalizeSlots, remapSlots } from './sequence-slots';
 import {
   LayerMotion, MAX_BORDER_WIDTH, MAX_MOTION_SECONDS, measureMediaAspect, mediaMotion, shapeRadius, textMotion, textReveal,
@@ -48,6 +50,23 @@ export interface PhotoStorySlide {
   /** Into the next slide; ignored on the last. */
   transition: string;
 }
+
+/** Image lanes whose pictures play full frame in their slot, and so can carry a shot. */
+const SHOT_LANES: ReadonlySet<string> = new Set(['IMG1', 'IMG', 'IMAGE', 'V3']);
+
+/** A still on the monitor that moves or is graded, and where on the timeline it plays. */
+export interface MonitorShot {
+  key: string;
+  start: number;
+  duration: number;
+  shot: CinematicImage;
+  /** A lane picture: drawn full frame in its slot, as the export draws it. */
+  lane: boolean;
+}
+
+export type ShotTarget =
+  | { kind: 'item'; id: string; name: string }
+  | { kind: 'clips'; ids: string[]; name: string };
 
 export interface PhotoStoryOptions {
   name: string;
@@ -2019,6 +2038,130 @@ export class StudioStateService implements OnDestroy {
     if (!sched) return false;
     return this.getClipType(sched.clip) === 'image';
   });
+
+  /**
+   * The still on screen when it carries a camera move or look: a picture clip on V1, or a
+   * picture in a slot on an image lane. Null for anything that plays as it always did.
+   */
+  readonly monitorShot = computed<MonitorShot | null>(() => {
+    const img = this.activeImgItem();
+    if (img) {
+      const shot = img.type === 'image' ? cinematicOf(img.transform) : null;
+      return shot ? { key: img.id, start: img.startTime, duration: img.duration, shot, lane: true } : null;
+    }
+    if (this.inSlotGap() || !this.activeClipIsImage()) return null;
+    const sched = this.currentScheduledClip();
+    const shot = sched ? cinematicOf(this.clipTransforms()[sched.clip.id]) : null;
+    return sched && shot
+      ? { key: `v1_${sched.index}`, start: sched.startSeconds, duration: sched.durationSeconds, shot, lane: false }
+      : null;
+  });
+
+  /** Each cinema bar's height on the monitor, percent of its height. */
+  readonly monitorCinemaBarPercent = computed(() => {
+    const { width, height } = this.monitorCanvasPixels();
+    return cinemaBarPercent(width, height);
+  });
+
+  /**
+   * What the Camera & Look panel edits: the selected picture on an image lane, else the
+   * picture clips on V1 in the inspector's scope. Null when no picture is in reach.
+   */
+  readonly shotTarget = computed<ShotTarget | null>(() => {
+    const item = this.selectedTimelineItem();
+    if (item) {
+      return item.type === 'image' && SHOT_LANES.has(item.trackId)
+        ? { kind: 'item', id: item.id, name: item.name || 'Picture' }
+        : null;
+    }
+    const clip = this.activeTargetClip();
+    if (!clip || this.getClipType(clip) !== 'image') return null;
+    const rows = this.allMediaRows();
+    const ids = this.getTargetClipIds(clip.id).filter((id) => {
+      const c = rows.find((r) => r.clip.id === id)?.clip;
+      return !!c && this.getClipType(c) === 'image';
+    });
+    return ids.length > 0 ? { kind: 'clips', ids, name: ids.length > 1 ? `${ids.length} pictures` : clip.name } : null;
+  });
+
+  /** The shot on the panel's target; a still with no look when it has none yet. */
+  readonly shotSetting = computed<CinematicImage>(() => {
+    const target = this.shotTarget();
+    const transform = !target ? null
+      : target.kind === 'item'
+        ? this.timelineItems().find((it) => it.id === target.id)?.transform
+        : this.clipTransforms()[target.ids[0]];
+    return cinematicOf(transform) ?? { ...DEFAULT_CINEMATIC, motion: 'none' };
+  });
+
+  /** Changes the shot on every picture the panel targets. */
+  updateShot(patch: Partial<CinematicImage>): void {
+    const target = this.shotTarget();
+    if (!target) return;
+    const fields = cinematicFields({ ...this.shotSetting(), ...patch });
+    if (target.kind === 'item') {
+      this.updateImageItemTransform(target.id, fields);
+      return;
+    }
+    this.clipTransforms.update((rec) => {
+      const next = { ...rec };
+      for (const id of target.ids) next[id] = { ...this.clipTransformSetting(id), ...fields };
+      return next;
+    });
+    this.markDirty();
+  }
+
+  /** Writes Photo Story's shots onto the pictures already in the edit, matched by file in order. */
+  applyShotsToTimeline(slides: readonly PhotoStorySlide[]): number {
+    const laneItems = this.timelineItems()
+      .filter((it) => it.type === 'image' && SHOT_LANES.has(it.trackId))
+      .sort((a, b) => a.startTime - b.startTime);
+    const v1Images = this.included().map((r) => r.clip).filter((c) => this.getClipType(c) === 'image');
+    const usedItems = new Set<string>();
+    const clipShots: Record<string, Partial<TimelineItemTransform>> = {};
+    const itemShots = new Map<string, Partial<TimelineItemTransform>>();
+    let applied = 0;
+
+    for (const slide of slides) {
+      const fields = cinematicFields(slide.cinematic);
+      const item = laneItems.find((it) => !usedItems.has(it.id) && (it.src === slide.assetId || this.resolveAssetId(it.src) === slide.assetId));
+      if (item) {
+        usedItems.add(item.id);
+        itemShots.set(item.id, fields);
+        applied++;
+        continue;
+      }
+      const clip = v1Images.find((c) => !(c.id in clipShots) && (c.id === slide.assetId || this.resolveAssetId(c) === slide.assetId));
+      if (clip) {
+        clipShots[clip.id] = fields;
+        applied++;
+      }
+    }
+    if (applied === 0) return 0;
+
+    if (itemShots.size > 0) {
+      this.timelineItems.update((items) => items.map((it) => {
+        const fields = itemShots.get(it.id);
+        return fields ? { ...it, transform: { ...(it.transform ?? { scale: 1, x: 0, y: 0, opacity: 1 }), ...fields } } : it;
+      }));
+    }
+    if (Object.keys(clipShots).length > 0) {
+      this.clipTransforms.update((rec) => {
+        const next = { ...rec };
+        for (const [id, fields] of Object.entries(clipShots)) next[id] = { ...this.clipTransformSetting(id), ...fields };
+        return next;
+      });
+    }
+    this.markDirty();
+    return applied;
+  }
+
+  /** A picture's shot as Photo Story opens it, so the builder starts from what the edit shows. */
+  shotOfPicture(assetId: string): CinematicImage | null {
+    const item = this.timelineItems().find((it) => it.type === 'image' && SHOT_LANES.has(it.trackId) && it.src === assetId);
+    if (item) return cinematicOf(item.transform);
+    return cinematicOf(this.clipTransforms()[assetId]);
+  }
 
   readonly activeClipImageUrl = computed(() => {
     const sched = this.currentScheduledClip();
@@ -4151,7 +4294,9 @@ export class StudioStateService implements OnDestroy {
     'scale' | 'x' | 'y' | 'opacity' | 'rotation' | 'cropLeft' | 'cropRight' | 'cropTop' | 'cropBottom' | 'cropLinked' | 'stabilization' | 'eraseRegions'
   >> {
     const t = this.clipTransforms()[clipId];
+    // Fields this does not default (a picture's shot) ride along, so editing scale or crop keeps them.
     return {
+      ...t,
       scale: t?.scale ?? 1,
       x: t?.x ?? 0,
       y: t?.y ?? 0,
@@ -8548,6 +8693,8 @@ export class StudioStateService implements OnDestroy {
         stabilization: t.stabilization,
         eraseRegions: t.eraseRegions.length > 0 ? t.eraseRegions : undefined,
       };
+      const shot = this.getClipType(entry.clip) === 'image' ? cinematicOf(t) : null;
+      if (shot) Object.assign(transformSpec, cinematicFields(shot));
 
       return {
         id: `v1_${index}_${clipId}`,
@@ -9087,7 +9234,6 @@ export class StudioStateService implements OnDestroy {
     const seconds = (v: number) => Math.min(60, Math.max(1, Number(v) || 5));
     let at = 0;
     const timelineItems: TimelineItem[] = slides.map((s, k) => {
-      const c = s.cinematic;
       const item: TimelineItem = {
         id: `story_${k}`,
         type: 'image',
@@ -9096,18 +9242,7 @@ export class StudioStateService implements OnDestroy {
         duration: seconds(s.seconds),
         src: s.assetId,
         name: s.name,
-        transform: {
-          scale: 1, x: 0, y: 0, opacity: 1,
-          motion: c.motion,
-          motionIntensity: Math.min(IMAGE_MOTION_MAX, Math.max(IMAGE_MOTION_MIN, c.intensity)),
-          motionEasing: c.easing,
-          focusX: Math.min(100, Math.max(0, c.focusX)),
-          focusY: Math.min(100, Math.max(0, c.focusY)),
-          look: c.look,
-          vignette: c.vignette,
-          grain: c.grain,
-          cinemaBars: c.cinemaBars,
-        },
+        transform: { scale: 1, x: 0, y: 0, opacity: 1, ...cinematicFields(s.cinematic) },
       };
       at += item.duration;
       return item;

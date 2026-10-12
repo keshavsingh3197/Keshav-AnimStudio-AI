@@ -43,7 +43,19 @@ public sealed record MergeOverlayItem(
 
     /// <summary>Image and video overlays: crop, shape, ring and source trim. Null draws the whole source as a rectangle.</summary>
     public MergeMediaOverlay? Media { get; init; }
+
+    /// <summary>
+    /// A picture on an image lane with a camera move or look: drawn as a full-frame shot -
+    /// fitted to the canvas, moved and graded the way a V1 picture clip is - instead of as a
+    /// placed overlay. Null keeps the overlay path.
+    /// </summary>
+    public MergeImageShot? Shot { get; init; }
 }
+
+/// <summary>How a lane picture fills the canvas as a shot.</summary>
+/// <param name="PadRgb">The <see cref="ClipFit.Contain"/> bar colour, a checked <c>rrggbb</c>.</param>
+/// <param name="Supersample">Multiple of the canvas the still is fitted at before the move.</param>
+public sealed record MergeImageShot(CinematicImageSettings Settings, ClipFit Fit, string PadRgb, int Supersample);
 
 /// <summary>
 /// How an image or video overlay is cut and framed, already validated: crops are percent of

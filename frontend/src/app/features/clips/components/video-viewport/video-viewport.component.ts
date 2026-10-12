@@ -9,6 +9,7 @@ import { erasePatchOrigin } from '../../services/erase-geometry';
 import { watermarkMarkStyle } from '../../../../shared/watermark-preview.component';
 import { ERASE_DEFAULT_STRENGTH, TimelineItemTransform } from '../../../../core/models/api.models';
 import { MusicTrackRow, isCutEffectTrack, isVoiceoverTrack } from '../../models/clip-studio.models';
+import { cameraTransformCentered, lookFilter } from '../../services/cinematic-image';
 
 @Component({
   selector: 'app-video-viewport',
@@ -55,7 +56,20 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
   private lastPrefetchSec = -1;
   private readonly prefetchedAssetIds = new Set<string>();
 
+  /** The still's camera this frame, from the exact playhead rather than the 10fps signal. */
+  readonly shotCamera = signal('');
+  private shotFrameId: number | null = null;
+
   constructor() {
+    // A still with a camera move: follow the exact playhead every frame while it is on screen.
+    effect(() => {
+      const shot = this.state.monitorShot();
+      untracked(() => {
+        if (shot?.shot.motion && shot.shot.motion !== 'none') this.startShotLoop();
+        else this.stopShotLoop();
+      });
+    });
+
     // React to Seek Requests
     effect(() => {
       const req = this.state.seekRequest();
@@ -136,6 +150,44 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     });
   }
 
+  private startShotLoop(): void {
+    if (this.shotFrameId !== null) return;
+    const tick = () => {
+      const shot = this.state.monitorShot();
+      if (!shot || shot.shot.motion === 'none') {
+        this.shotFrameId = null;
+        this.shotCamera.set('');
+        return;
+      }
+      const t = Math.max(0, this.state.getCurrentTimeExact() - shot.start);
+      const p = shot.duration > 0 ? t / shot.duration : 0;
+      const camera = cameraTransformCentered(shot.shot, p, t);
+      if (camera !== this.shotCamera()) this.shotCamera.set(camera);
+      this.shotFrameId = requestAnimationFrame(tick);
+    };
+    this.shotFrameId = requestAnimationFrame(tick);
+  }
+
+  private stopShotLoop(): void {
+    if (this.shotFrameId !== null) cancelAnimationFrame(this.shotFrameId);
+    this.shotFrameId = null;
+    this.shotCamera.set('');
+  }
+
+  /** A V1 picture clip's transform with its camera move applied inside the clip's own framing. */
+  shotTransform(base: string): string {
+    const camera = this.state.monitorShot() ? this.shotCamera() : '';
+    if (!camera) return base;
+    return base === 'none' || !base ? camera : `${base} ${camera}`;
+  }
+
+  /** The monitor's colour filter followed by the still's grade. */
+  shotFilter(base: string): string {
+    const look = lookFilter(this.state.monitorShot()?.shot.look ?? 'none');
+    if (look === 'none') return base;
+    return base === 'none' || !base ? look : `${base} ${look}`;
+  }
+
   ngOnInit(): void {
     // Initial sync
     setTimeout(() => {
@@ -144,6 +196,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.stopShotLoop();
     if (this.animFrameId !== null) {
       cancelAnimationFrame(this.animFrameId);
       this.animFrameId = null;

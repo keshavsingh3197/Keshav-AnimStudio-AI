@@ -1,4 +1,4 @@
-import { ImageCameraMotion, ImageLook } from '../../../core/models/api.models';
+import { ImageCameraMotion, ImageLook, TimelineItemTransform } from '../../../core/models/api.models';
 
 /**
  * Camera moves and grades for stills - the numbers the export draws with
@@ -102,6 +102,66 @@ export function cameraTransform(s: CinematicImage, p: number, t: number): string
   const tx = -(z - 1) * cx * 100;
   const ty = -(z - 1) * cy * 100;
   return `translate(${tx.toFixed(3)}%, ${ty.toFixed(3)}%) scale(${z.toFixed(4)})`;
+}
+
+/**
+ * The same window for a box whose transform-origin is its centre, so it can follow a clip's
+ * own position/rotation/scale in one transform list without changing that origin.
+ */
+export function cameraTransformCentered(s: CinematicImage, p: number, t: number): string {
+  const { z, cx, cy } = cameraAt(s, Math.min(1, Math.max(0, p)), t);
+  if (z === 1) return '';
+  const tx = (z - 1) * (0.5 - cx) * 100;
+  const ty = (z - 1) * (0.5 - cy) * 100;
+  return `translate(${tx.toFixed(3)}%, ${ty.toFixed(3)}%) scale(${z.toFixed(4)})`;
+}
+
+/** True when the shot asks for nothing - the picture plays exactly as it always did. */
+export function isPlainShot(s: CinematicImage): boolean {
+  return s.motion === 'none' && s.look === 'none' && !s.vignette && !s.grain && !s.cinemaBars;
+}
+
+/** The shot a clip or lane image carries; null when it carries none. */
+export function cinematicOf(t: Partial<TimelineItemTransform> | null | undefined): CinematicImage | null {
+  if (!t) return null;
+  const shot: CinematicImage = {
+    motion: t.motion ?? 'none',
+    intensity: clampIntensity(t.motionIntensity),
+    easing: t.motionEasing === 'linear' ? 'linear' : 'ease',
+    focusX: clampPercent(t.focusX),
+    focusY: clampPercent(t.focusY),
+    look: t.look ?? 'none',
+    vignette: t.vignette === true,
+    grain: t.grain === true,
+    cinemaBars: t.cinemaBars === true,
+  };
+  return isPlainShot(shot) ? null : shot;
+}
+
+/** The transform fields that carry a shot, as the export reads them. */
+export function cinematicFields(s: CinematicImage | null): Partial<TimelineItemTransform> {
+  const c = s ?? { ...DEFAULT_CINEMATIC, motion: 'none' as ImageCameraMotion };
+  return {
+    motion: c.motion,
+    motionIntensity: clampIntensity(c.intensity),
+    motionEasing: c.easing,
+    focusX: clampPercent(c.focusX),
+    focusY: clampPercent(c.focusY),
+    look: c.look,
+    vignette: c.vignette,
+    grain: c.grain,
+    cinemaBars: c.cinemaBars,
+  };
+}
+
+function clampIntensity(v: number | undefined): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.min(IMAGE_MOTION_MAX, Math.max(IMAGE_MOTION_MIN, n)) : IMAGE_MOTION_DEFAULT;
+}
+
+function clampPercent(v: number | undefined): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 50;
 }
 
 /** A close CSS stand-in for each grade; the export's colorbalance/curves are the truth. */
