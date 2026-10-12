@@ -496,6 +496,15 @@ public sealed record MusicDuckWindowRequest
     [Range(0, 1)] public double Level { get; init; } = 1.0;
 }
 
+/// <summary>A blank stretch in the running order, where a slotted image, overlay video or title plays.</summary>
+public sealed record ClipSlotRequest
+{
+    /// <summary>How many clips play before it: 0 is before the first, the clip count after the last.</summary>
+    [Range(0, ClipMergeSpec.MaxClips)] public int BeforeClipIndex { get; init; }
+
+    [Range(0, ClipMergeSpec.MaxSlotSeconds)] public double Seconds { get; init; }
+}
+
 /// <summary>
 /// One video built from several clips. The order of <c>AssetIds</c> IS the running order -
 /// there is no separate sequence field that could disagree with it.
@@ -571,6 +580,13 @@ public sealed record ClipMergeRequest
     public bool YouTubeLoudness { get; init; }
 
     public List<TimelineItemRequest>? TimelineItems { get; init; }
+
+    /// <summary>
+    /// Blank stretches the cut opens for images, overlay videos and text that take their own
+    /// slot. Null means the clips play back to back.
+    /// </summary>
+    [MaxLength(ClipMergeSpec.MaxClips + 1)]
+    public List<ClipSlotRequest>? Slots { get; init; }
 }
 
 public sealed record TimelineItemTextStyleRequest

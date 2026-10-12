@@ -16,6 +16,8 @@ export interface JunctionView {
   right: Clip;
   transition: string;
   seconds: number;
+  /** An image, overlay video or text sits in a slot here, so the clips never meet: always a cut. */
+  slotted?: boolean;
 }
 
 export type SideUploadTarget =

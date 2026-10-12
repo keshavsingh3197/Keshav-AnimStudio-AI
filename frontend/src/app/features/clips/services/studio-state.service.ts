@@ -2,7 +2,7 @@ import { Injectable, computed, effect, inject, signal, untracked, OnDestroy } fr
 import { catchError, concatMap, finalize, forkJoin, from, map, mergeMap, of, toArray } from 'rxjs';
 
 import {
-  Clip, ClipAudioBody, ClipFit, ClipOrder, ClipStudio, ExportQuality, MAX_CLIP_GAIN, RenderJob, ExportTimelineFormat,
+  Clip, ClipAudioBody, ClipFit, ClipOrder, ClipSlotBody, ClipStudio, ExportQuality, MAX_CLIP_GAIN, RenderJob, ExportTimelineFormat,
   SHORTS_MAX_SECONDS, TRANSITIONS, WATERMARK_POSITIONS, WatermarkBody, WatermarkKind, WatermarkPosition,
   aspectRatioLabel, isTerminal, videoFormat, OutroBody,
   TimelineItem, TimelineItemType, TrackControlState, TimelineItemTransform, TimelineItemTextStyle,
@@ -34,6 +34,7 @@ import {
   resolveTextLook, sortCues, wrapText,
 } from './text-overlay-layout';
 import { CinematicImage, IMAGE_MOTION_MAX, IMAGE_MOTION_MIN } from './cinematic-image';
+import { SlotLayout, isSlotItem, layoutSlots, normalizeSlots, remapSlots } from './sequence-slots';
 import {
   LayerMotion, MAX_BORDER_WIDTH, MAX_MOTION_SECONDS, measureMediaAspect, mediaMotion, shapeRadius, textMotion, textReveal,
 } from './frame-media';
@@ -1406,6 +1407,120 @@ export class StudioStateService implements OnDestroy {
    * loading, shortens it under the playhead - and a needle left minutes beyond the end also
    * stretches the scroll area to reach it.
    */
+  /** The cut and the positions the slot normalizer last left things in; see `keepSlotsInSequence`. */
+  private slotRows: readonly ClipRow[] = [];
+  private slotPlaced = new Map<string, number>();
+
+  /**
+   * Images, overlay videos and text take their own slot between V1 clips instead of playing
+   * over them (sequence-slots.ts). Whatever changed - a drag, a new item, a clip added,
+   * removed, trimmed or moved - this puts every slotted item back on a cut point and writes
+   * its time back, so the lanes, the monitor and the export agree. It writes only when
+   * something moved, so the write that re-runs it finds nothing to do.
+   */
+  private readonly keepSlotsInSequence = effect(() => {
+    this.included();
+    this.timelineItems();
+    untracked(() => this.settleSlots());
+  });
+
+  /**
+   * Runs the slot normalizer now rather than when the effect next flushes - for an action
+   * that has to know where the item it just added actually landed.
+   */
+  settleSlots(): void {
+    const rows = this.included();
+    const items = this.timelineItems();
+    const remapped = remapSlots(this.slotRows, rows, items, (r) => r.clip.id) ?? items;
+    this.slotRows = rows;
+    const normalized = normalizeSlots(this.clipDurations(rows), remapped, this.slotPlaced) ?? remapped;
+    this.slotPlaced = new Map(normalized.filter(isSlotItem).map((it) => [it.id, it.startTime]));
+    if (normalized !== items) this.timelineItems.set(normalized);
+  }
+
+  /** The cut index of the V1 clip being dragged on the timeline, or null. */
+  readonly draggingCutIndex = signal<number | null>(null);
+
+  /**
+   * Moves a clip already in the cut to the place in the picture sequence nearest `time` -
+   * between two clips, between two images, or between a clip and an image. Everything
+   * else keeps its order: only this clip moves, never a copy, and no image jumps sides.
+   */
+  placeCutClipAt(row: ClipRow, time: number): void {
+    type Element = { start: number; end: number; row?: ClipRow; itemId?: string };
+    const elements: Element[] = [];
+    for (const s of this.clipSchedule()) {
+      if (s.row && s.row !== row) elements.push({ start: s.startSeconds, end: s.endSeconds, row: s.row });
+    }
+    for (const it of this.timelineItems()) {
+      if (isSlotItem(it)) elements.push({ start: it.startTime, end: it.startTime + it.duration, itemId: it.id });
+    }
+    elements.sort((a, b) => a.start - b.start);
+
+    // In before every element whose middle is left of the drop point.
+    const at = elements.filter((e) => (e.start + e.end) / 2 < time).length;
+    const sequence = [...elements.slice(0, at), { start: time, end: time, row }, ...elements.slice(at)];
+
+    const cut: ClipRow[] = [];
+    const slotOf = new Map<string, number>();
+    for (const e of sequence) {
+      if (e.row) cut.push(e.row);
+      else if (e.itemId) slotOf.set(e.itemId, cut.length);
+    }
+
+    const k = cut.indexOf(row);
+    const rows = this.rows().filter((r) => r !== row);
+    const prev = cut[k - 1];
+    const next = cut[k + 1];
+    const index = prev ? rows.indexOf(prev) + 1 : next ? rows.indexOf(next) : rows.length;
+    rows.splice(index, 0, row);
+
+    this.rows.set(rows);
+    this.timelineItems.update((items) => items.map((it) => {
+      const slot = slotOf.get(it.id);
+      return slot === undefined || slot === it.slotIndex ? it : { ...it, slotIndex: slot };
+    }));
+    // Slots were set for the new order just above, so nothing is translated from the old one.
+    this.slotRows = this.included();
+    this.settleSlots();
+
+    this.selectedTimelineClipIndex.set(k);
+    this.selectedClipId.set(row.clip.id);
+    this.markDirty();
+    this.saveOrder();
+  }
+
+  /** A library video dropped on the timeline: added to the cut, then put where it was dropped. */
+  addVideoToCutAt(clipId: string, time: number): void {
+    const before = new Set(this.included());
+    this.addClipToTimeline(clipId);
+    const added = this.included().find((r) => !before.has(r));
+    if (added) this.placeCutClipAt(added, time);
+  }
+
+  /** Forgets the last cut's slot bookkeeping, so a cut being loaded is taken as saved. */
+  private resetSlotTracking(): void {
+    this.slotRows = [];
+    this.slotPlaced = new Map();
+  }
+
+  private clipDurations(rows: readonly ClipRow[]): number[] {
+    return rows.map((r) => r.clip.durationSeconds ?? 5.0);
+  }
+
+  /** The picture sequence: where the gaps for slotted items open between the clips. */
+  readonly slotLayout = computed<SlotLayout>(() =>
+    layoutSlots(this.clipDurations(this.included()), this.timelineItems()));
+
+  /** True while the playhead is in a slot - no V1 clip is playing, only the item in it. */
+  readonly inSlotGap = computed<boolean>(() => {
+    const t = this.currentTime();
+    const sched = this.clipSchedule();
+    if (sched.length === 0) return false;
+    if (t >= sched[sched.length - 1].endSeconds) return t < this.totalSeconds();
+    return !sched.some((s) => t >= s.startSeconds && t < s.endSeconds);
+  });
+
   private readonly clampPlayheadToTimeline = effect(() => {
     const limit = this.timelineSeconds();
     if (!this.studio()) return;
@@ -1655,6 +1770,8 @@ export class StudioStateService implements OnDestroy {
     const junctionsMap = this.junctionOverrides();
     const defaultTrans = this.transition();
     const defaultSecs = this.transitionSeconds();
+    // Seconds of slotted images/text before each clip: the cut opens a gap for them.
+    const gapBefore = this.slotLayout().gapBefore;
 
     let curStart = 0;
     const schedule: ScheduledClip[] = [];
@@ -1664,6 +1781,7 @@ export class StudioStateService implements OnDestroy {
       const clip = row.clip;
       const dur = clip.durationSeconds ?? 5.0;
       const rowIndex = allRows.indexOf(row);
+      curStart += gapBefore[i] ?? 0;
 
       // Junction AFTER this clip (to the next one).
       let jTrans = 'None';
@@ -1678,6 +1796,8 @@ export class StudioStateService implements OnDestroy {
         const defaultSecsToUse = isSplitAdjacent ? 0 : defaultSecs;
         jTrans = custom ? custom.transition : defaultTransToUse;
         jSecs = custom ? custom.seconds : defaultSecsToUse;
+        // A slot between the two means they never meet, so there is nothing to blend.
+        if ((gapBefore[i + 1] ?? 0) > 0) jTrans = 'None';
         if (jTrans === 'None') jSecs = 0;
       }
 
@@ -1692,6 +1812,7 @@ export class StudioStateService implements OnDestroy {
         const defaultSecsToUse = isSplitAdjacent ? 0 : defaultSecs;
         let prevJTrans = custom ? custom.transition : defaultTransToUse;
         prevJSecs = custom ? custom.seconds : defaultSecsToUse;
+        if ((gapBefore[i] ?? 0) > 0) prevJTrans = 'None';
         if (prevJTrans === 'None') prevJSecs = 0;
       }
 
@@ -1730,11 +1851,12 @@ export class StudioStateService implements OnDestroy {
   });
 
 
+  /** Where the picture sequence ends: the last clip, or the last slot after it. */
   readonly totalSeconds = computed(() => {
     const sched = this.clipSchedule();
     if (sched.length === 0) return 0;
     const last = sched[sched.length - 1];
-    return last.endSeconds;
+    return Math.max(last.endSeconds, this.slotLayout().end);
   });
 
   readonly contentDurationSeconds = computed(() => {
@@ -2312,6 +2434,7 @@ export class StudioStateService implements OnDestroy {
   readonly junctionsList = computed<JunctionView[]>(() => {
     const clips = this.included().map((r) => r.clip);
     const overrides = this.junctionOverrides();
+    const gapBefore = this.slotLayout().gapBefore;
     const list: JunctionView[] = [];
 
     for (let i = 0; i < clips.length - 1; i++) {
@@ -2324,12 +2447,14 @@ export class StudioStateService implements OnDestroy {
       const defaultTrans = isSplitAdjacent ? 'None' : this.transition();
       const defaultSecs = isSplitAdjacent ? 0 : this.transitionSeconds();
 
+      const slotted = (gapBefore[i + 1] ?? 0) > 0;
       list.push({
         key,
         left,
         right,
-        transition: override?.transition ?? defaultTrans,
-        seconds: override?.seconds ?? defaultSecs,
+        transition: slotted ? 'None' : override?.transition ?? defaultTrans,
+        seconds: slotted ? 0 : override?.seconds ?? defaultSecs,
+        slotted,
       });
     }
 
@@ -4954,9 +5079,11 @@ export class StudioStateService implements OnDestroy {
     this.selectedClipId.set(null);
     this.selectedTimelineClipIndex.set(null);
     this.activeInspectorTab.set('text');
-    this.seekTo(validStart);
+    // The text takes the slot at the nearest cut point, so the playhead goes there with it.
+    this.settleSlots();
+    this.seekTo(this.timelineItems().find((it) => it.id === newItem.id)?.startTime ?? validStart);
     this.markDirty();
-    this.status.notify(['Added text overlay to TXT1.']);
+    this.status.notify(['Added text to TXT1.']);
   }
 
   onTextToolbarClicked(): void {
@@ -5908,6 +6035,9 @@ export class StudioStateService implements OnDestroy {
 
   clampItemCollision(trackId: string, startTime: number, duration: number, excludeItemId?: string): number {
     const minStart = Math.max(0, startTime);
+    // Slotted lanes never overlap anything: the slot normalizer puts the item on the cut
+    // point nearest this time, and pushing it past a neighbour here would only skew that.
+    if (isSlotItem({ trackId })) return minStart;
     const minDur = Math.max(0.5, duration);
     const siblings = this.timelineItems()
       .filter((i) => i.trackId === trackId && i.id !== excludeItemId)
@@ -7461,6 +7591,7 @@ export class StudioStateService implements OnDestroy {
   }
 
   applyDraft(draft: any): void {
+    this.resetSlotTracking();
     let draftItems: TimelineItem[] = Array.isArray(draft.timelineItems) ? [...draft.timelineItems] : [];
 
     if (draft.rows && Array.isArray(draft.rows)) {
@@ -7806,7 +7937,8 @@ export class StudioStateService implements OnDestroy {
 
     this.timelineItems.update((items) => [
       ...shifted(items, (it) => it.startTime, (it, by) => ({ ...it, startTime: it.startTime + by })),
-      ...fragment.items.map((it) => ({ ...it, startTime: it.startTime + offset })),
+      // Slots count the clips of the cut it came from, so they are found again from time.
+      ...fragment.items.map((it) => ({ ...it, slotIndex: undefined, startTime: it.startTime + offset })),
     ]);
     this.musicTracks.update((tracks) => [
       ...shifted(tracks, (t) => t.startSeconds, (t, by) => ({ ...t, startSeconds: t.startSeconds + by })),
@@ -8376,6 +8508,14 @@ export class StudioStateService implements OnDestroy {
     };
   }
 
+  /** The gaps the cut opens for slotted items, as the export draws them; null when there are none. */
+  slotsPayload(): ClipSlotBody[] | null {
+    const slots = this.slotLayout().gapBefore
+      .map((seconds, beforeClipIndex) => ({ beforeClipIndex, seconds: Math.round(seconds * 1000) / 1000 }))
+      .filter((s) => s.seconds > 0);
+    return slots.length > 0 ? slots : null;
+  }
+
   timelineItemsPayload(): TimelineItem[] | null {
     // 1. Separate non-V1 overlay items (IMG1, T1, V2, etc.)
     // A hidden lane is left out of the file too, so the export is what the monitor shows.
@@ -8811,8 +8951,8 @@ export class StudioStateService implements OnDestroy {
         transitionSeconds: globalSecs,
         junctions: this.junctionsList().map((j, k) => {
           const sched = this.clipSchedule();
-          const tr = override ? this.transition() : j.transition;
-          const trSec = override
+          const tr = override && !j.slotted ? this.transition() : j.transition;
+          const trSec = override && !j.slotted
             ? (this.transition() === 'None' ? 0 : this.transitionSeconds())
             : (j.transition === 'None' ? 0 : j.seconds);
           return {
@@ -8835,6 +8975,7 @@ export class StudioStateService implements OnDestroy {
         includeOutro: this.exportIncludeOutro(),
         outroHoldSeconds: this.outroHoldSeconds(),
         youTubeLoudness: this.exportYouTubeLoudness(),
+        slots: this.slotsPayload(),
       }),
       (job: RenderJob) => {
         this.job.set(job);
@@ -8887,8 +9028,8 @@ export class StudioStateService implements OnDestroy {
         transitionSeconds: globalSecs,
         junctions: this.junctionsList().map((j, k) => {
           const sched = this.clipSchedule();
-          const tr = override ? this.transition() : j.transition;
-          const trSec = override
+          const tr = override && !j.slotted ? this.transition() : j.transition;
+          const trSec = override && !j.slotted
             ? (this.transition() === 'None' ? 0 : this.transitionSeconds())
             : (j.transition === 'None' ? 0 : j.seconds);
           return {
@@ -8911,6 +9052,8 @@ export class StudioStateService implements OnDestroy {
         includeOutro: this.exportIncludeOutro(),
         outroHoldSeconds: this.outroHoldSeconds(),
         youTubeLoudness: this.exportYouTubeLoudness(),
+        // The slots are positions in the cut; a hand-picked list of clips is another cut.
+        slots: clipIds && clipIds.length > 0 ? null : this.slotsPayload(),
       }),
       (job: RenderJob) => {
         this.job.set(job);

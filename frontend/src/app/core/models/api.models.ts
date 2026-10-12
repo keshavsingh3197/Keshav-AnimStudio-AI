@@ -825,6 +825,12 @@ export interface TimelineItem {
   trimEndSeconds?: number;
   duckMode?: 'Normal' | 'Ducked' | 'MuteOnAudio' | 'LeadVoice';
   musicVolumeOverride?: number | null;
+  /**
+   * Image, overlay-video and text lanes only: how many V1 clips play before this item. The
+   * item takes its own slot in the sequence there instead of playing over a clip, and
+   * `startTime` is derived from it. See sequence-slots.ts.
+   */
+  slotIndex?: number;
 }
 
 export interface TrackControlState {
@@ -870,6 +876,17 @@ export interface ClipMergeBody {
    * folded into a clip's own volume, so the server builds a gain envelope from these.
    */
   musicDuckWindows?: MusicDuckWindowBody[] | null;
+  /**
+   * Blank stretches the cut opens for images, overlay videos and text that take their own
+   * slot, which the export then draws into. Omitted means the clips play back to back.
+   */
+  slots?: ClipSlotBody[] | null;
+}
+
+/** A blank stretch in the cut, played before clip `beforeClipIndex` (the clip count = after the last). */
+export interface ClipSlotBody {
+  beforeClipIndex: number;
+  seconds: number;
 }
 
 /** One stretch of the finished timeline over which the music plays at a reduced level. */

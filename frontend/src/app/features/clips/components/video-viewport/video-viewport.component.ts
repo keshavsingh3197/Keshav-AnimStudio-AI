@@ -178,8 +178,10 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       // Pause tick progression if video is actively seeking/buffering (with max 500ms stall timeout)
       // Past the last clip the picture is a held frame, so nothing there is worth waiting on.
       const sched = this.state.clipSchedule();
-      const pastPicture = sched.length > 0
-        && this.state.getCurrentTimeExact() >= sched[sched.length - 1].endSeconds;
+      // Nor is a slot, where only the image or text in it is on screen.
+      const pastPicture = (sched.length > 0
+        && this.state.getCurrentTimeExact() >= sched[sched.length - 1].endSeconds)
+        || this.state.inSlotGap();
       const isBuffering = !pastPicture && Boolean(
         activeEl &&
         !activeEl.error &&
@@ -433,10 +435,14 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     if (schedule.length === 0) return;
 
     const time = this.state.getCurrentTimeExact();
-    const curr = schedule.find((s) => time >= s.startSeconds && time < s.endSeconds)
+    const playingNow = schedule.find((s) => time >= s.startSeconds && time < s.endSeconds);
+    // In a slot no clip plays: the next one waits, paused, so it starts clean after the gap.
+    const curr = playingNow
+      ?? schedule.find((s) => s.startSeconds > time)
       ?? schedule[schedule.length - 1];
 
     if (!curr) return;
+    const inGap = !playingNow && time < curr.startSeconds;
 
     // Past the last clip only audio is left (a voiceover line that runs on): hold the final
     // frame. Seeking the video beyond its end kept it "seeking" on every tick, which stalled
@@ -542,6 +548,9 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       if (currentActiveVideo && !currentActiveVideo.paused) {
         currentActiveVideo.pause();
       }
+    } else if (inGap && currentActiveVideo) {
+      if (!currentActiveVideo.paused) currentActiveVideo.pause();
+      currentActiveVideo.muted = true;
     } else if (pastPicture && currentActiveVideo) {
       if (!currentActiveVideo.paused) currentActiveVideo.pause();
       currentActiveVideo.muted = true;
@@ -770,7 +779,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
 
     // 5. Sync Replacement Clip Sound (Voiceover)
     const clipSoundAudio = this.clipSoundAudioRef?.nativeElement;
-    if (clipSoundAudio && sound.audioAssetId && sound.audioVolume > 0 && !pastPicture) {
+    if (clipSoundAudio && sound.audioAssetId && sound.audioVolume > 0 && !pastPicture && !inGap) {
       const clipSoundUrl = this.state.assetUrl(sound.audioAssetId);
       const clipRun = this.state.clipSoundRunOffset(curr.clip.id);
       const targetClipSoundTime = localTime + clipRun.startOffset;

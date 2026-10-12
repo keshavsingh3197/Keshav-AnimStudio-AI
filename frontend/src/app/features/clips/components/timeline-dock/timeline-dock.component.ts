@@ -6,7 +6,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { StudioStateService } from '../../services/studio-state.service';
 import { TimelineItem } from '../../../../core/models/api.models';
-import { ClipRow, JunctionView, MusicTrackRow } from '../../models/clip-studio.models';
+import { ClipRow, JunctionView, MusicTrackRow, ScheduledClip } from '../../models/clip-studio.models';
 
 @Component({
   selector: 'app-timeline-dock',
@@ -270,7 +270,22 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
     let dropTime = dropX / this.state.pxPerSecond();
     dropTime = this.state.applySnap(dropTime);
 
+    // A clip dragged within the cut is MOVED to where it is dropped, whichever lane or gap
+    // it lands on - before this, a drop between images added a second copy at the end.
+    const cutIndex = this.state.draggingCutIndex();
+    if (cutIndex !== null) {
+      const row = this.state.included()[cutIndex];
+      this.endClipDrag();
+      if (row) this.state.placeCutClipAt(row, dropTime);
+      return;
+    }
+
     const dragging = this.state.draggingAsset();
+    if (dragging && trackId === 'V1' && this.state.getClipType(dragging.clip) === 'video') {
+      this.state.addVideoToCutAt(dragging.clip.id, dropTime);
+      this.state.draggingAsset.set(null);
+      return;
+    }
     if (dragging) {
       this.state.addAssetToTrack(trackId, dragging, dropTime);
       this.state.draggingAsset.set(null);
@@ -284,6 +299,18 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
         this.state.addAssetToTrack(trackId, row, dropTime);
       }
     }
+  }
+
+  /** A V1 clip starts being dragged within the cut. */
+  onClipDragStart(cutIndex: number, sched: ScheduledClip, event: DragEvent): void {
+    this.state.onRowDragStart(sched.rowIndex ?? cutIndex, sched.row);
+    this.state.draggingCutIndex.set(cutIndex);
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+  }
+
+  endClipDrag(): void {
+    this.state.draggingCutIndex.set(null);
+    this.state.onRowDragEnd();
   }
 
   onTimelineWheel(event: WheelEvent): void {

@@ -46,6 +46,12 @@ public sealed class ClipMergeSpec
     /// </summary>
     public const int MaxDuckWindows = 2000;
 
+    /// <summary>
+    /// Longest blank stretch one slot may open. A slot holds an image, an overlay video or a
+    /// title, and an hour of one is already far past anything an editor would place.
+    /// </summary>
+    public const double MaxSlotSeconds = 3600;
+
     /// <summary>Video asset ids in playback order.</summary>
     public string? ExportName { get; set; }
     public List<string> AssetIds { get; set; } = [];
@@ -136,6 +142,23 @@ public sealed class ClipMergeSpec
     /// once the music or text running past the clips has finished. Zero on older jobs.
     /// </summary>
     public double OutroHoldSeconds { get; set; }
+
+    /// <summary>
+    /// Blank stretches opened in the running order for images, overlay videos and text that
+    /// take their own slot instead of playing over a clip; their timeline items are drawn
+    /// into them like any overlay. At most one per position, in position order. Empty - every
+    /// job written before slots existed - means the clips play back to back.
+    /// </summary>
+    public List<ClipSlotSpec> Slots { get; set; } = [];
+}
+
+/// <summary>A blank stretch in the running order.</summary>
+public sealed class ClipSlotSpec
+{
+    /// <summary>How many clips play before it: 0 is before the first, <c>AssetIds.Count</c> after the last.</summary>
+    public int BeforeClipIndex { get; set; }
+
+    public double Seconds { get; set; }
 }
 
 /// <summary>

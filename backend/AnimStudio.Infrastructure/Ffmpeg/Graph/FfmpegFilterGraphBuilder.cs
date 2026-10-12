@@ -263,7 +263,11 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         var rate = canvas.FrameRate;
         var warnings = new List<string>();
         var inputArgsList = new List<string>();
-        if (plan.SourceIsImage)
+        if (plan.SourceIsBlank)
+        {
+            inputArgsList.AddRange(["-f", "lavfi"]);
+        }
+        else if (plan.SourceIsImage)
         {
             inputArgsList.AddRange(["-loop", "1", "-t", FilterExpr.N(plan.ImageDurationSeconds)]);
         }
@@ -291,7 +295,17 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
                 inputArgsList.AddRange(["-t", FilterExpr.N(durationToExtract.Value)]);
             }
         }
-        var inputs = new List<FfmpegInputSpec> { new(inputArgsList, plan.SourceRelativePath) };
+        // A slot is drawn from a colour source the size of the canvas, so the fit below is a
+        // no-op on it and the watermark lands exactly where it does on every other clip.
+        var inputs = new List<FfmpegInputSpec>
+        {
+            plan.SourceIsBlank
+                ? new(inputArgsList,
+                    $"color=c={PadColor(plan.PadColorRgb)}:s={canvas.Width}x{canvas.Height}"
+                    + $":r={rate.ToFfmpegRate()}:d={FilterExpr.N(plan.ImageDurationSeconds)}")
+                { IsLavfi = true }
+                : new(inputArgsList, plan.SourceRelativePath)
+        };
         var graph = new StringBuilder();
 
         var fit = plan.Fit;
@@ -668,7 +682,8 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         var format = AudioFilters.Format(plan.Encoder);
 
         var ownVolume = Math.Clamp(plan.AudioVolume, 0, ClipAudioSpec.MaxGain);
-        var usesOwn = plan.SourceHasAudio && !plan.MuteAudio && ownVolume > 0;
+        // A slot is a colour source: it has no sound of its own, whatever the plan says.
+        var usesOwn = plan.SourceHasAudio && !plan.SourceIsBlank && !plan.MuteAudio && ownVolume > 0;
 
         var extraVolume = Math.Clamp(plan.ExtraAudioVolume, 0, ClipAudioSpec.MaxGain);
         var hasExtra = plan.ExtraAudioRelativePath is { Length: > 0 } && extraVolume > 0;

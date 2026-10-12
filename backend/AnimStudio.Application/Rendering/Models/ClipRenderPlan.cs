@@ -101,6 +101,14 @@ public sealed record ClipRenderPlan
     /// <summary>True when the source is an image asset requiring looped frame generation.</summary>
     public bool SourceIsImage { get; init; }
 
+    /// <summary>
+    /// A slot in the running order: no source at all, just <see cref="PadColorRgb"/> for
+    /// <see cref="ImageDurationSeconds"/> with the watermark and silence, for a slotted image
+    /// or title to be drawn into at the join. Set together with <see cref="SourceIsImage"/>,
+    /// whose fixed-length output it shares; <see cref="SourceRelativePath"/> is ignored.
+    /// </summary>
+    public bool SourceIsBlank { get; init; }
+
     /// <summary>Duration in seconds for an image clip (default 5.0 seconds).</summary>
     public double ImageDurationSeconds { get; init; } = 5.0;
 

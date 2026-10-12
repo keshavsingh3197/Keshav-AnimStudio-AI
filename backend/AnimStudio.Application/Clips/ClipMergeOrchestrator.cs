@@ -258,6 +258,11 @@ public sealed class ClipMergeOrchestrator(
             // pair, which is the entire behaviour this had before junctions existed.
             var hasJunctionOverrides = spec.Junctions.Count > 0 && spec.Junctions.Count == spec.AssetIds.Count - 1;
 
+            // Seconds of blank opened before each clip for a slotted image or title; the
+            // last entry is after the last clip. Two clips with a slot between them never
+            // meet, so nothing is borrowed or blended across it.
+            var slotBefore = SlotSecondsBefore(spec.Slots, spec.AssetIds.Count);
+
             using var throttle = new SemaphoreSlim(concurrency);
 
             var clipTasks = Enumerable.Range(0, spec.AssetIds.Count).Select(async index =>
@@ -303,15 +308,19 @@ public sealed class ClipMergeOrchestrator(
                         ? spec.TransitionFrames / canvas.FrameRate.AsDouble
                         : 0.0;
 
-                    var requestedLeadIn = prevJunction != null
+                    var requestedLeadIn = slotBefore[index] > 0 ? 0.0
+                        : prevJunction != null
                         ? prevJunction.LeadInSeconds
                         : (index > 0 ? uniformJunctionSecs / 2.0 : 0.0);
-                    var requestedTailOut = nextJunction != null
+                    var requestedTailOut = slotBefore[index + 1] > 0 ? 0.0
+                        : nextJunction != null
                         ? nextJunction.TailOutSeconds
                         : (index < spec.AssetIds.Count - 1 ? uniformJunctionSecs / 2.0 : 0.0);
 
-                    // The hold before the end card: the last clip's final frame, frozen.
+                    // The hold before the end card: the last clip's final frame, frozen. After
+                    // a trailing slot the blank is held instead - see RenderSlotsAsync.
                     var holdBeforeOutro = index == spec.AssetIds.Count - 1 && spec.Outro is { IsEnabled: true }
+                        && slotBefore[^1] == 0
                         ? Math.Max(0, spec.OutroHoldSeconds) : 0.0;
                     requestedTailOut += holdBeforeOutro;
 
@@ -424,6 +433,10 @@ public sealed class ClipMergeOrchestrator(
 
             await Task.WhenAll(clipTasks).ConfigureAwait(false);
 
+            var slots = await RenderSlotsAsync(
+                spec, slotBefore, canvas, clipEncoder, watermark, perClipThreads, workspace, token)
+                .ConfigureAwait(false);
+
             // --- the outro: conformed with the same encoder as the clips, so it joins them
             // by stream copy. No progress report - the aggregator's slots are the clips.
             var outro = await RenderOutroAsync(
@@ -444,17 +457,17 @@ public sealed class ClipMergeOrchestrator(
             // pair, which is the entire behaviour this had before junctions existed.
             hasJunctionOverrides = spec.Junctions.Count > 0 && spec.Junctions.Count == lengths.Count - 1;
 
-            var requestedFrames = hasJunctionOverrides
+            var requestedFrames = (hasJunctionOverrides
                 ? spec.Junctions.Select(j => new FrameCount(j.TransitionFrames)).ToList()
-                : Enumerable.Repeat(new FrameCount(spec.TransitionFrames), Math.Max(lengths.Count - 1, 0)).ToList();
+                : Enumerable.Repeat(new FrameCount(spec.TransitionFrames), Math.Max(lengths.Count - 1, 0)).ToList())
+                .Select((f, k) => slotBefore[k + 1] > 0 ? FrameCount.Zero : f)
+                .ToList();
 
             var transitions = lengths.Count < 2
                 ? []
                 : ClipPlanFactory.ClampTransitions(lengths, requestedFrames);
 
-            var requestedByJunction = hasJunctionOverrides
-                ? spec.Junctions.Select(j => j.TransitionFrames).ToList()
-                : requestedFrames.Select(f => f.Value).ToList();
+            var requestedByJunction = requestedFrames.Select(f => f.Value).ToList();
 
             if (transitions.Select((t, k) => (t, k))
                     .Any(pair => requestedByJunction[pair.k] > 0 && pair.t.Value < requestedByJunction[pair.k]))
@@ -462,9 +475,26 @@ public sealed class ClipMergeOrchestrator(
                 warnings.Add("TRANSITION_SHORTENED");
             }
 
-            var joined = new List<MergeSceneInput>(prepared.Length);
+            // Every input of the join in playing order - clips, the slots between them and the
+            // outro - with the length of each and the transition after it. A slot meets its
+            // neighbours with a cut, so the clip-level transitions above are untouched by it.
+            var joined = new List<MergeSceneInput>(prepared.Length + slots.Count + 1);
+            var sceneLengths = new List<FrameCount>(joined.Capacity);
+            var sceneTransitions = new List<FrameCount>(joined.Capacity);
+            var transitionKinds = new List<SceneTransition>(prepared.Length);
+
+            void Join(string path, FrameCount length, TransitionSettings toNext)
+            {
+                if (joined.Count > 0) sceneTransitions.Add(joined[^1].TransitionToNext.Duration);
+                joined.Add(new MergeSceneInput(path, length, toNext));
+                sceneLengths.Add(length);
+            }
+
             for (var index = 0; index < prepared.Length; index++)
             {
+                if (slots.TryGetValue(index, out var before))
+                    Join(before.RelativePath, before.Frames, TransitionSettings.None);
+
                 var kind = hasJunctionOverrides && index < spec.Junctions.Count
                     ? spec.Junctions[index].Transition
                     : spec.Transition;
@@ -473,40 +503,52 @@ public sealed class ClipMergeOrchestrator(
                     ? new TransitionSettings(kind, transitions[index])
                     : TransitionSettings.None;
 
-                joined.Add(new MergeSceneInput(prepared[index].RelativePath, lengths[index], toNext));
+                if (index < transitions.Count) transitionKinds.Add(toNext.Kind);
+                Join(prepared[index].RelativePath, lengths[index], toNext);
             }
 
-            // The outro joins after the last clip, clamped by the same half-the-shorter-
-            // neighbour rule as every other junction. Only the outro's own setting decides
-            // its transition, never the clips' uniform one.
+            var slotFrames = Enumerable.Range(0, prepared.Length + 1)
+                .Select(k => slots.TryGetValue(k, out var s) ? s.Frames : FrameCount.Zero)
+                .ToList();
+            if (slots.TryGetValue(prepared.Length, out var trailing))
+                Join(trailing.RelativePath, trailing.Frames, TransitionSettings.None);
+
+            // The outro joins after the last clip - or the slot after it - clamped by the same
+            // half-the-shorter-neighbour rule as every other junction. Only the outro's own
+            // setting decides its transition, never the clips' uniform one.
             if (outro is not null)
             {
                 var requested = new FrameCount(OutroPlanFactory.Crossfades(spec.Outro) ? spec.Outro.TransitionDurationFrames : 0);
-                var intoOutro = ClipPlanFactory.ClampTransitions([lengths[^1], outro.Frames], requested)[0];
+                var intoOutro = ClipPlanFactory.ClampTransitions([sceneLengths[^1], outro.Frames], requested)[0];
 
+                var outroKind = SceneTransition.None;
                 if (intoOutro.Value > 0)
                 {
                     joined[^1] = joined[^1] with
                     {
                         TransitionToNext = new TransitionSettings(spec.Outro.Transition, intoOutro)
                     };
+                    outroKind = spec.Outro.Transition;
                 }
 
                 transitions = [.. transitions, intoOutro];
+                transitionKinds.Add(outroKind);
                 lengths.Add(outro.Frames);
-                joined.Add(new MergeSceneInput(outro.RelativePath, outro.Frames, TransitionSettings.None));
+                Join(outro.RelativePath, outro.Frames, TransitionSettings.None);
             }
 
-            var total = RenderTimeline.TotalLength(lengths, transitions);
+            var total = RenderTimeline.TotalLength(sceneLengths, sceneTransitions);
 
             var timeline = ExportTimelineBuilder.Build(
                 spec,
                 id => assetMap.TryGetValue(id, out var a) ? a
                     : assetMap.GetValueOrDefault(ClipMergeService.CleanClipId(id)),
                 new ExportTimelineFacts(
-                    lengths, transitions,
-                    [.. joined.Take(transitions.Count).Select(j => j.TransitionToNext.Kind)],
-                    leadIns, canvas.FrameRate, total));
+                    lengths, transitions, transitionKinds,
+                    leadIns, canvas.FrameRate, total)
+                {
+                    SlotsBefore = slotFrames
+                });
 
             reporter.Report(new RenderProgress(
                 RenderStage.Merging, prepared.Length, prepared.Length, FrameCount.Zero, total,
@@ -988,6 +1030,70 @@ public sealed class ClipMergeOrchestrator(
         return plan is null
             ? null
             : await renderer.RenderClipAsync(plan, workspace, null, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Seconds of slot before each clip, the last entry after the last clip. A position the
+    /// clip list does not have is dropped rather than moved somewhere it was never put.
+    /// </summary>
+    public static double[] SlotSecondsBefore(IReadOnlyList<ClipSlotSpec> slots, int clipCount)
+    {
+        var before = new double[clipCount + 1];
+        foreach (var slot in slots)
+        {
+            if (slot.BeforeClipIndex < 0 || slot.BeforeClipIndex > clipCount) continue;
+            if (!double.IsFinite(slot.Seconds) || slot.Seconds <= 0) continue;
+            before[slot.BeforeClipIndex] = Math.Min(
+                before[slot.BeforeClipIndex] + slot.Seconds, ClipMergeSpec.MaxSlotSeconds);
+        }
+        return before;
+    }
+
+    /// <summary>
+    /// Renders each slot as a blank clip of the canvas - the backdrop colour, the watermark
+    /// and silence - with the clips' own encoder, so the join can still stream-copy it.
+    /// Keyed by the clip index it plays before. A trailing slot also carries the hold before
+    /// the end card, which would otherwise freeze the last clip AHEAD of it and push every
+    /// slotted item after it late.
+    /// </summary>
+    private async Task<Dictionary<int, SceneRenderResult>> RenderSlotsAsync(
+        ClipMergeSpec spec, double[] slotBefore, Canvas canvas, EncoderProfile encoder,
+        WatermarkPlan? watermark, int threads, IRenderWorkspace workspace, CancellationToken ct)
+    {
+        var clipCount = spec.AssetIds.Count;
+        var result = new Dictionary<int, SceneRenderResult>();
+        for (var k = 0; k <= clipCount; k++)
+        {
+            var seconds = slotBefore[k];
+            if (k == clipCount && seconds > 0 && spec.Outro is { IsEnabled: true })
+                seconds += Math.Max(0, spec.OutroHoldSeconds);
+
+            var frames = FrameCount.FromSeconds(seconds, canvas.FrameRate);
+            if (frames.Value <= 0) continue;
+
+            var plan = new ClipRenderPlan
+            {
+                // Past the clips and the outro, so graph scripts and logs never share a name.
+                ClipIndex = clipCount + 1 + k,
+                SourceRelativePath = string.Empty,
+                Canvas = canvas,
+                OutputRelativePath = $"clips/slot_{k:D3}.mp4",
+                ExpectedFrames = frames,
+                PadColorRgb = EraseRegionSpec.IsHexColor(spec.BackgroundColor)
+                    ? spec.BackgroundColor![1..].ToLowerInvariant()
+                    : "000000",
+                SourceIsImage = true,
+                SourceIsBlank = true,
+                SourceHasAudio = false,
+                ImageDurationSeconds = frames.ToSeconds(canvas.FrameRate),
+                Watermark = watermark,
+                Encoder = encoder,
+                EncoderThreads = threads,
+            };
+
+            result[k] = await renderer.RenderClipAsync(plan, workspace, null, ct).ConfigureAwait(false);
+        }
+        return result;
     }
 
     /// <summary>Longest entrance or exit, in seconds - long enough to type out a title.</summary>

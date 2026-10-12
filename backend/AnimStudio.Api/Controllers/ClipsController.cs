@@ -174,6 +174,9 @@ public sealed class ClipsController(
             IncludeOutro = request.IncludeOutro,
             OutroHoldSeconds = request.OutroHoldSeconds,
             YouTubeLoudness = request.YouTubeLoudness,
+            Slots = request.Slots?
+                .Select(s => new ClipSlot(s.BeforeClipIndex, s.Seconds))
+                .ToList() ?? [],
             TimelineItems = request.TimelineItems?
                 .Select(t => new TimelineItemSpec
                 {

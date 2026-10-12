@@ -32,6 +32,9 @@ public sealed record TimedMusicClip(
 /// </summary>
 public sealed record MusicDuckWindow(double StartSeconds, double EndSeconds, double Level);
 
+/// <summary>A blank stretch of <paramref name="Seconds"/> played before clip <paramref name="BeforeClipIndex"/>.</summary>
+public sealed record ClipSlot(int BeforeClipIndex, double Seconds);
+
 /// <summary>
 /// One clip's sound: the level of its own audio, and optionally a sound of its own that
 /// either replaces that audio or plays over it. Position in the list IS the clip it names.
@@ -104,6 +107,12 @@ public sealed record ClipMergeCommand
     public bool YouTubeLoudness { get; init; }
 
     public IReadOnlyList<TimelineItemSpec>? TimelineItems { get; init; }
+
+    /// <summary>
+    /// Blank stretches in the running order, for images, overlay videos and text that take
+    /// their own slot. Empty means the clips play back to back.
+    /// </summary>
+    public IReadOnlyList<ClipSlot> Slots { get; init; } = [];
 }
 
 /// <summary>
@@ -417,6 +426,21 @@ public sealed class ClipMergeService(
             }
         }
 
+        foreach (var slot in command.Slots)
+        {
+            if (slot.BeforeClipIndex < 0 || slot.BeforeClipIndex > clipIds.Count)
+            {
+                throw EditingException.Invalid("slot-out-of-range",
+                    "A slot must sit before, between or after the clips in the video.");
+            }
+
+            if (!double.IsFinite(slot.Seconds) || slot.Seconds is < 0 or > ClipMergeSpec.MaxSlotSeconds)
+            {
+                throw EditingException.Invalid("slot-out-of-range",
+                    $"A slot must be between 0 and {ClipMergeSpec.MaxSlotSeconds:0} seconds long.");
+            }
+        }
+
         if (command.MusicTracks.Count > ClipMergeSpec.MaxMusicTracks)
         {
             throw EditingException.Invalid("too-many-music-tracks",
@@ -582,7 +606,8 @@ public sealed class ClipMergeService(
                 // A hold only ever leads into an end card; without one the video ends on the clip.
                 OutroHoldSeconds = outro is { IsEnabled: true } ? Math.Clamp(command.OutroHoldSeconds, 0, 600) : 0,
                 TimelineItems = command.TimelineItems?.ToList() ?? [],
-                YouTubeLoudness = command.YouTubeLoudness
+                YouTubeLoudness = command.YouTubeLoudness,
+                Slots = BuildSlots(command.Slots)
             }
         };
 
@@ -734,6 +759,24 @@ public sealed class ClipMergeService(
     /// touch at the same level, so a long dialogue run is one envelope step rather than a
     /// separate duck per cut.
     /// </summary>
+    /// <summary>
+    /// One slot per position, in position order: two sent for the same place play back to
+    /// back, which is one longer blank. Anything too short to hold a frame is dropped.
+    /// </summary>
+    public static List<ClipSlotSpec> BuildSlots(IReadOnlyList<ClipSlot> slots) =>
+        [.. slots
+            .GroupBy(s => s.BeforeClipIndex)
+            .Select(g => new ClipSlotSpec
+            {
+                BeforeClipIndex = g.Key,
+                Seconds = Math.Min(g.Sum(s => s.Seconds), ClipMergeSpec.MaxSlotSeconds)
+            })
+            .Where(s => s.Seconds >= MinSlotSeconds)
+            .OrderBy(s => s.BeforeClipIndex)];
+
+    /// <summary>Below this a slot cannot hold a single frame at any rate the studio exports.</summary>
+    private const double MinSlotSeconds = 0.01;
+
     private static List<MusicDuckWindowSpec> BuildDuckWindows(IReadOnlyList<MusicDuckWindow> windows)
     {
         var result = new List<MusicDuckWindowSpec>();

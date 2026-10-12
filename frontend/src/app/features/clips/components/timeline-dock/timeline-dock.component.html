@@ -442,10 +442,10 @@
                      draggable="true"
                      (click)="state.selectTimelineClip(i, sched.clip.id, $event)"
                      (dblclick)="$event.stopPropagation(); state.selectAndSeekClip(sched.clip)"
-                     (dragstart)="state.onRowDragStart(sched.rowIndex ?? i, sched.row)"
+                     (dragstart)="onClipDragStart(i, sched, $event)"
                      (dragover)="state.onRowDragOver(sched.rowIndex ?? i, $event)"
-                     (drop)="state.onRowDrop(sched.rowIndex ?? i, $event)"
-                     (dragend)="state.onRowDragEnd()"
+                     (drop)="onTrackDrop('V1', $event)"
+                     (dragend)="endClipDrag()"
                      [title]="sched.clip.name">
                   <button class="tl-clip-remove" type="button" (pointerdown)="$event.stopPropagation(); state.removeTimelineClipAtIndex(sched.clip.id, i)" (click)="$event.stopPropagation(); state.removeTimelineClipAtIndex(sched.clip.id, i)" title="Remove clip from timeline cut">×</button>
                   @if (state.timelineThumbnailMode() === 'filmstrip') {
