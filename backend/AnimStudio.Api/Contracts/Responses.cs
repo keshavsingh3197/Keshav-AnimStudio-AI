@@ -78,6 +78,16 @@ public sealed record AssetResponse(
     string Id, string Name, string Kind, string MimeType, long FileSizeBytes,
     int? Width, int? Height, bool HasAlpha, double? DurationSeconds, string ReviewStatus, string? FolderId = null);
 
+/// <summary>A file in another of the user's projects, found by the reuse search.</summary>
+/// <param name="IsExport">A cut exported from Clip Studio rather than an upload.</param>
+/// <param name="AlreadyAdded">The searching project already has a copy of it.</param>
+public sealed record AssetSearchHitResponse(
+    AssetResponse Asset, string ProjectId, string ProjectName, string ChannelId,
+    bool SameChannel, bool IsExport, bool AlreadyAdded, DateTime CreatedAt);
+
+public sealed record AssetSearchResponse(
+    IReadOnlyList<AssetSearchHitResponse> Items, int ProjectsSearched, bool Truncated);
+
 public sealed record IngestResponse(
     string IngestId, string? ScriptId, int CueCount, int SegmentCount,
     string TimingSource, bool HasSourceTimings, IReadOnlyList<string> Warnings);

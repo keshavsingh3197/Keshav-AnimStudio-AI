@@ -6,7 +6,7 @@ import { CharacterVoice } from '../../shared/voice/character-voice';
 import { environment } from '../../../environments/environment';
 import {
   AdminAccess, AdminAuditEntry, AdminHealth, AdminJob, AdminProviderBody, AdminProviders,
-  AdminProviderTest, AdminUsage, AiCapabilities, ApiResponse, Asset, BundleApplyBody,
+  AdminProviderTest, AdminUsage, AiCapabilities, ApiResponse, Asset, AssetSearchResult, AssetSearchScope, BundleApplyBody,
   VoiceoverBody, VoiceoverVoices, MyVoice, VoiceScriptDictation, VoiceScriptPolish,
   BundleImportResult, BundlePreview, Character, CharacterBody, ClipMergeBody, ClipOrder,
   ClipStudio, CreateProjectBody,
@@ -543,6 +543,23 @@ export class ApiService {
     return this.unwrap(this.http.post<ApiResponse<{ mapping: Record<string, string> }>>(
       `${this.base}/api/projects/${projectId}/assets/copy`, { sourceProjectId, assetIds }))
       .pipe(map((r) => r.mapping ?? {}));
+  }
+
+  /**
+   * Searches the user's other projects for files to reuse here - this project's channel by
+   * default, or every project with `scope: 'all'` (same channel still ranked first).
+   * Bring hits over with {@link copyAssetsFromProject}.
+   */
+  searchReusableAssets(
+    projectId: string, options: { q?: string; scope?: AssetSearchScope; kind?: string; limit?: number } = {},
+  ): Observable<AssetSearchResult> {
+    const params: Record<string, string> = {};
+    if (options.q) params['q'] = options.q;
+    if (options.scope) params['scope'] = options.scope;
+    if (options.kind) params['kind'] = options.kind;
+    if (options.limit) params['limit'] = String(options.limit);
+    return this.unwrap(this.http.get<ApiResponse<AssetSearchResult>>(
+      `${this.base}/api/projects/${encodeURIComponent(projectId)}/assets/search`, { params }));
   }
 
   /** Links a queued export to the video it was made from, so the list can say it was exported. */

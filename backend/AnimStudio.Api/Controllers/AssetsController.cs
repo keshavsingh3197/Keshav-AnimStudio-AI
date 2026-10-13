@@ -24,6 +24,7 @@ public sealed class AssetsController(
     IObjectStore store,
     IMediaProbeService probe,
     AssetLibraryService library,
+    AssetSearchService search,
     IOptions<IngestOptions> ingestOptions,
     ICurrentUser currentUser,
     AppDataPaths dataPaths,
@@ -463,6 +464,58 @@ public sealed class AssetsController(
             request.SourceProjectId, projectId, ids, currentUser.UserId, clock.GetUtcNow().UtcDateTime, ct);
 
         return Ok(ApiResponse<CopyAssetsResponse>.Ok(new CopyAssetsResponse(mapping)));
+    }
+
+    /// <summary>
+    /// Searches the caller's other projects for files to reuse here: by default those on the
+    /// same brand channel, or with <c>scope=all</c> every project (same channel still first).
+    /// Bring a hit over with <see cref="CopyFromProject"/>.
+    /// </summary>
+    [HttpGet("api/projects/{projectId}/assets/search")]
+    public async Task<ActionResult<ApiResponse<AssetSearchResponse>>> Search(
+        string projectId,
+        [FromQuery] string? q,
+        [FromQuery] string? scope,
+        [FromQuery] string? kind,
+        [FromQuery] int? limit,
+        CancellationToken ct)
+    {
+        if (!IsSafeId(projectId)) return NotFound();
+
+        AssetSearchScope? parsedScope = scope?.ToLowerInvariant() switch
+        {
+            null or "" or "channel" => AssetSearchScope.Channel,
+            "all" => AssetSearchScope.All,
+            _ => null
+        };
+
+        // Spelled out rather than Enum.TryParse, which would also take "0" or "Unknown".
+        (bool Ok, AssetKind? Value) parsedKind = kind?.ToLowerInvariant() switch
+        {
+            null or "" or "any" => (true, null),
+            "image" => (true, AssetKind.Image),
+            "video" => (true, AssetKind.Video),
+            "audio" => (true, AssetKind.Audio),
+            "subtitle" => (true, AssetKind.Subtitle),
+            _ => (false, null)
+        };
+
+        if (parsedScope is null || !parsedKind.Ok || q?.Length > AssetSearchService.MaxQueryLength)
+            return BadRequest(ApiResponse<AssetSearchResponse>.Fail("Unsupported search options.",
+                new ApiError("invalid-search", "Unsupported search options.")));
+
+        var result = await search.SearchAsync(new AssetSearchQuery
+        {
+            TargetProjectId = projectId,
+            UserId = currentUser.UserId,
+            Text = q,
+            Scope = parsedScope.Value,
+            Kind = parsedKind.Value,
+            Limit = limit ?? AssetSearchService.DefaultLimit
+        }, ct);
+
+        return Ok(ApiResponse<AssetSearchResponse>.Ok(new AssetSearchResponse(
+            [.. result.Hits.Select(h => h.ToResponse())], result.ProjectsSearched, result.Truncated)));
     }
 
     private async Task EnsureOwnedAsync(string projectId, CancellationToken ct)

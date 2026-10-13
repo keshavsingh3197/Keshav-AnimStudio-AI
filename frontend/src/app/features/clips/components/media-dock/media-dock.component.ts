@@ -5,13 +5,14 @@ import { StudioStateService } from '../../services/studio-state.service';
 import { Clip } from '../../../../core/models/api.models';
 import { ClipRow } from '../../models/clip-studio.models';
 import { UrlImportDialogComponent } from '../../../../shared/url-import-dialog.component';
+import { AssetReuseDialogComponent } from '../../../../shared/asset-reuse-dialog.component';
 import { MediaUsageDialogComponent } from '../media-usage-dialog/media-usage-dialog.component';
 import { MusicPickerDialogComponent } from '../../../music/music-picker-dialog.component';
 
 @Component({
   selector: 'app-media-dock',
   standalone: true,
-  imports: [CommonModule, FormsModule, UrlImportDialogComponent, MediaUsageDialogComponent, MusicPickerDialogComponent],
+  imports: [CommonModule, FormsModule, UrlImportDialogComponent, AssetReuseDialogComponent, MediaUsageDialogComponent, MusicPickerDialogComponent],
   templateUrl: './media-dock.component.html',
   styleUrls: ['./media-dock.component.css'],
 })
@@ -21,6 +22,15 @@ export class MediaDockComponent implements OnDestroy {
   /** The paste-many-links import; the clip list reloads once when it closes, if anything arrived. */
   readonly urlImportOpen = signal(false);
   private urlImported = false;
+
+  /** Search other projects (this channel first) for files to bring in; reloads like the link import. */
+  readonly reuseOpen = signal(false);
+
+  onReuseClosed(): void {
+    this.reuseOpen.set(false);
+    if (this.urlImported) this.state.reload(false);
+    this.urlImported = false;
+  }
 
   /** The music library dialog; tracks picked there land on the A2 lane at the playhead. */
   readonly musicOpen = signal(false);

@@ -138,6 +138,10 @@
                 title="Paste many links (YouTube, Instagram, direct .mp4 …) and download them all into this library">
           <span class="btn-icon">🔗</span> From links
         </button>
+        <button type="button" class="upload-btn" (click)="reuseOpen.set(true)" [disabled]="!store.project()"
+                title="Search your other projects - this channel first - and add their files here">
+          <span class="btn-icon">♻️</span> From other projects
+        </button>
         <span class="file-drop-hint">or drop / Ctrl+V anywhere</span>
         <input id="upload" type="file" multiple style="display: none"
                accept="image/png,image/jpeg,image/webp,audio/wav,audio/mpeg,audio/mp4,video/mp4,.srt,.vtt"
@@ -479,4 +483,10 @@
   <app-url-import-dialog [projectId]="project.id" [folders]="store.folders()"
                          [initialFolderId]="selectedFolderId()"
                          (imported)="store.refreshAssets(); store.refreshFolders()" (closed)="urlImportOpen.set(false)" />
+}
+
+@if (reuseOpen() && store.project(); as project) {
+  <app-asset-reuse-dialog [projectId]="project.id" [channelId]="project.brandChannelId"
+                          [folderId]="realSelectedFolderId()"
+                          (added)="store.refreshAssets()" (closed)="reuseOpen.set(false)" />
 }

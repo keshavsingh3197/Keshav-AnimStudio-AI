@@ -1,5 +1,6 @@
 using AnimStudio.Domain.Ai;
 using AnimStudio.Domain.Assets;
+using AnimStudio.Application.Assets;
 using AnimStudio.Application.Characters;
 using AnimStudio.Application.Clips;
 using AnimStudio.Domain.Characters;
@@ -230,6 +231,13 @@ public static class Mappings
         // Always written as UTC; the SQL store reads it back unspecified, which would
         // serialize without a 'Z' and make the browser's "added today" check drift.
         DateTime.SpecifyKind(a.CreatedAt, DateTimeKind.Utc));
+
+    public static AssetSearchHitResponse ToResponse(this AssetSearchHit hit) => new(
+        hit.Asset.ToResponse(), hit.Project.Id, hit.Project.Name, hit.ChannelId,
+        hit.SameChannel,
+        hit.Asset.StorageKey.StartsWith("renders/", StringComparison.Ordinal),
+        hit.AlreadyAdded,
+        DateTime.SpecifyKind(hit.Asset.CreatedAt, DateTimeKind.Utc));
 
     public static ClipOrderResponse ToResponse(this ClipOrderResult result) => new(
         result.AssetIds,

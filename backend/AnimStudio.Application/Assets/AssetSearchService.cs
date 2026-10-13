@@ -1,0 +1,165 @@
+using AnimStudio.Application.Abstractions.Persistence;
+using AnimStudio.Application.Common;
+using AnimStudio.Domain.Assets;
+using AnimStudio.Domain.Projects;
+using AnimStudio.Domain.Rendering;
+
+namespace AnimStudio.Application.Assets;
+
+/// <summary>Where a search for files to reuse looks.</summary>
+public enum AssetSearchScope
+{
+    /// <summary>The user's other projects on the same brand channel as the target project.</summary>
+    Channel,
+
+    /// <summary>All of the user's other projects, same-channel ones still ranked first.</summary>
+    All
+}
+
+public sealed record AssetSearchQuery
+{
+    public required string TargetProjectId { get; init; }
+    public required string UserId { get; init; }
+    public string? Text { get; init; }
+    public AssetSearchScope Scope { get; init; } = AssetSearchScope.Channel;
+    public AssetKind? Kind { get; init; }
+    public int Limit { get; init; } = AssetSearchService.DefaultLimit;
+}
+
+/// <summary>One file from another project that could be brought into the target.</summary>
+/// <param name="AlreadyAdded">A copy of it is already in the target project.</param>
+public sealed record AssetSearchHit(Asset Asset, Project Project, string ChannelId, bool SameChannel, bool AlreadyAdded);
+
+/// <param name="ProjectsSearched">How many of the user's projects were looked in.</param>
+/// <param name="Truncated">More files matched than <see cref="AssetSearchQuery.Limit"/>.</param>
+public sealed record AssetSearchResult(IReadOnlyList<AssetSearchHit> Hits, int ProjectsSearched, bool Truncated);
+
+/// <summary>
+/// Finds files in the user's other projects - uploads, downloads, exported cuts - so one
+/// made for an earlier video can be reused in this one without uploading it again.
+/// <para>
+/// Only ever the caller's own projects: the project list comes from the user id, never from
+/// the request. Bringing a hit over goes through
+/// <see cref="AssetLibraryService.CopyIntoProjectAsync"/>, which checks ownership again
+/// and gives the target its own copy of the bytes.
+/// </para>
+/// <para>
+/// Ranking: same brand channel first (a channel's videos share intros, logos and music),
+/// then how well the name matches, then the newest.
+/// </para>
+/// </summary>
+public sealed class AssetSearchService(IAssetRepository assets, IProjectRepository projects)
+{
+    public const int DefaultLimit = 40;
+    public const int MaxLimit = 100;
+    public const int MaxQueryLength = 100;
+
+    /// <summary>
+    /// The most projects one search opens, most recently updated first. Assets are listed
+    /// per project, so this bounds the work a single request can cause.
+    /// </summary>
+    public const int MaxProjectsSearched = 200;
+
+    public async Task<AssetSearchResult> SearchAsync(AssetSearchQuery query, CancellationToken ct)
+    {
+        var text = (query.Text ?? string.Empty).Trim();
+        if (text.Length > MaxQueryLength)
+            throw EditingException.Invalid("query-too-long", $"Search for at most {MaxQueryLength} characters.");
+
+        var limit = Math.Clamp(query.Limit, 1, MaxLimit);
+
+        var target = await projects.GetAsync(query.TargetProjectId, ct).ConfigureAwait(false)
+            ?? throw new KeyNotFoundException();
+
+        if (!string.Equals(target.UserId, query.UserId, StringComparison.Ordinal))
+            throw new UnauthorizedAccessException();
+
+        var targetChannel = ChannelKey(target.Settings.BrandChannelId);
+
+        var candidates = (await projects.ListAsync(query.UserId, ct).ConfigureAwait(false))
+            .Where(p => !string.Equals(p.Id, target.Id, StringComparison.Ordinal))
+            .Where(p => query.Scope == AssetSearchScope.All
+                        || string.Equals(ChannelKey(p.Settings.BrandChannelId), targetChannel, StringComparison.Ordinal))
+            .OrderByDescending(p => string.Equals(ChannelKey(p.Settings.BrandChannelId), targetChannel, StringComparison.Ordinal))
+            .ThenByDescending(p => p.UpdatedAt)
+            .Take(MaxProjectsSearched)
+            .ToList();
+
+        // What the target already holds a copy of, so the dialog can say "added" instead of
+        // offering to add it a second time.
+        var copiedHere = (await assets.ListByProjectAsync(target.Id, ct).ConfigureAwait(false))
+            .Where(a => a.CopiedFromAssetId is not null)
+            .Select(a => a.CopiedFromAssetId!)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var terms = text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        var scored = new List<(AssetSearchHit Hit, int Score)>();
+
+        foreach (var project in candidates)
+        {
+            var channel = ChannelKey(project.Settings.BrandChannelId);
+            var sameChannel = string.Equals(channel, targetChannel, StringComparison.Ordinal);
+            var list = await assets.ListByProjectAsync(project.Id, ct).ConfigureAwait(false);
+
+            foreach (var asset in list)
+            {
+                if (asset.Kind == AssetKind.Unknown) continue;
+                if (query.Kind is { } kind && asset.Kind != kind) continue;
+
+                var match = MatchScore(asset, project, text, terms);
+                if (match < 0) continue;
+
+                var hit = new AssetSearchHit(asset, project, channel, sameChannel,
+                    copiedHere.Contains(asset.Id));
+                scored.Add((hit, (sameChannel ? 1000 : 0) + match));
+            }
+        }
+
+        var ordered = scored
+            .OrderByDescending(s => s.Score)
+            .ThenByDescending(s => s.Hit.Asset.CreatedAt)
+            .ThenBy(s => s.Hit.Asset.Id, StringComparer.Ordinal)
+            .ToList();
+
+        return new AssetSearchResult(
+            [.. ordered.Take(limit).Select(s => s.Hit)],
+            candidates.Count,
+            ordered.Count > limit);
+    }
+
+    /// <summary>
+    /// How well a file matches, higher is better; -1 for no match. Every word typed must
+    /// appear in the file's name, its original file name, or its project's name. A blank
+    /// search matches everything equally, so recency decides.
+    /// </summary>
+    internal static int MatchScore(Asset asset, Project project, string text, IReadOnlyList<string> terms)
+    {
+        if (terms.Count == 0) return 0;
+
+        var name = asset.Name;
+        var fileName = asset.DisplayFileName ?? string.Empty;
+        var projectName = project.Name;
+
+        var inName = 0;
+        foreach (var term in terms)
+        {
+            if (Contains(name, term) || Contains(fileName, term)) inName++;
+            else if (!Contains(projectName, term)) return -1;
+        }
+
+        if (string.Equals(name, text, StringComparison.OrdinalIgnoreCase)) return 400;
+        if (name.StartsWith(text, StringComparison.OrdinalIgnoreCase)) return 300;
+        if (Contains(name, text)) return 200;
+        if (inName == terms.Count) return 100;
+
+        // Some words only matched the project's name: a weaker hit, but still a hit.
+        return 10 + inName;
+    }
+
+    private static bool Contains(string haystack, string needle) =>
+        haystack.Contains(needle, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Null, blank and "default" all name the built-in channel.</summary>
+    private static string ChannelKey(string? channelId) =>
+        BrandChannel.IsDefault(channelId) ? BrandChannel.DefaultId : channelId!;
+}

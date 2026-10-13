@@ -119,6 +119,29 @@ export interface Asset {
   folderId?: string | null;
 }
 
+/** Where a reuse search looks: this project's channel only, or every project. */
+export type AssetSearchScope = 'channel' | 'all';
+
+/** A file in another of the user's projects that could be brought into this one. */
+export interface AssetSearchHit {
+  asset: Asset;
+  projectId: string;
+  projectName: string;
+  channelId: string;
+  sameChannel: boolean;
+  /** A cut exported from Clip Studio rather than an upload. */
+  isExport: boolean;
+  /** This project already has a copy of it. */
+  alreadyAdded: boolean;
+  createdAt: string;
+}
+
+export interface AssetSearchResult {
+  items: AssetSearchHit[];
+  projectsSearched: number;
+  truncated: boolean;
+}
+
 /** One voice the server's speech engine can speak a voiceover in. */
 export interface VoiceoverVoice {
   id: string;

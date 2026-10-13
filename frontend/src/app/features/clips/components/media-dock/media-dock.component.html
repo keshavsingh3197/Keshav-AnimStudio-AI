@@ -10,6 +10,8 @@
     </label>
     <button type="button" class="media-import-btn" (click)="urlImportOpen.set(true)" [disabled]="!state.store.project()"
             title="Import from links - paste many URLs and download them all into this project">🔗</button>
+    <button type="button" class="media-import-btn" (click)="reuseOpen.set(true)" [disabled]="!state.store.project()"
+            title="Reuse from other projects - search this channel's (or every) project and add their files here">♻️</button>
     <button type="button" class="media-import-btn" (click)="openMusic()" [disabled]="!state.store.project()"
             title="Music library - search, listen and add royalty-free music to the timeline">🎵</button>
 
@@ -418,4 +420,9 @@
   <app-url-import-dialog [projectId]="project.id" [folders]="state.store.folders()"
                          (imported)="onUrlImported()" (closed)="onUrlImportClosed()"
                          (editsCreated)="state.refreshProjectEdits()" />
+}
+
+@if (reuseOpen() && state.store.project(); as project) {
+  <app-asset-reuse-dialog [projectId]="project.id" [channelId]="project.brandChannelId"
+                          (added)="onUrlImported()" (closed)="onReuseClosed()" />
 }

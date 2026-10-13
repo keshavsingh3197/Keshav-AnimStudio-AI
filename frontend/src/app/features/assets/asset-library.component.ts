@@ -8,12 +8,13 @@ import { ProjectStore } from '../../core/services/project-store';
 import { StatusService } from '../../core/services/status.service';
 import { FileDropDirective } from '../../shared/file-drop.directive';
 import { UrlImportDialogComponent } from '../../shared/url-import-dialog.component';
+import { AssetReuseDialogComponent } from '../../shared/asset-reuse-dialog.component';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 
 @Component({
   selector: 'app-asset-library',
-  imports: [DecimalPipe, FormsModule, FileDropDirective, RouterLink, UrlImportDialogComponent],
+  imports: [DecimalPipe, FormsModule, FileDropDirective, RouterLink, UrlImportDialogComponent, AssetReuseDialogComponent],
   templateUrl: './asset-library.component.html',
   styleUrls: ['./asset-library.component.css']
 })
@@ -31,6 +32,13 @@ export class AssetLibraryComponent {
   readonly isDraggingFiles = signal<boolean>(false);
   /** The paste-many-links import, open over the library. */
   readonly urlImportOpen = signal(false);
+  /** Search other projects (this channel first) and copy files from them into this one. */
+  readonly reuseOpen = signal(false);
+  /** The folder being shown, when it is a real one the reused files can be put in. */
+  readonly realSelectedFolderId = computed(() => {
+    const id = this.selectedFolderId();
+    return ['all', 'images', 'videos', 'audio', 'subtitles'].includes(id) ? null : id;
+  });
   
   // View mode & sorting
   readonly viewMode = signal<'grid' | 'table'>('grid');
