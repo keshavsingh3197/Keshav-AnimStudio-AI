@@ -11,8 +11,9 @@ namespace AnimStudio.Api.Controllers;
 
 /// <summary>
 /// Music release preparation: turns a finished song into the files and metadata a
-/// distributor asks for. Delivery to the stores themselves stays with the distributor -
-/// they require a contract this app does not have - so the output is a kit to upload there.
+/// distributor asks for. Delivery to the audio stores stays with the distributor - they
+/// require a contract this app does not have. The kit's visualizer goes to YouTube (and so
+/// YouTube Music) through <c>api/youtube/release-kits/{id}/publish</c>, the one upload path.
 /// </summary>
 [ApiController]
 [Route("api/releases")]
@@ -126,7 +127,8 @@ public sealed class ReleaseKitController(
             if (coverFile is not null) System.IO.File.Delete(Path.Combine(workDir, coverFile));
 
             kits.Add(jobId, new ReleaseKitTicket(userId, workDir,
-                result.Files.Select(f => f.Name).ToHashSet(StringComparer.Ordinal), clock.GetUtcNow().UtcDateTime));
+                result.Files.Select(f => f.Name).ToHashSet(StringComparer.Ordinal), clock.GetUtcNow().UtcDateTime,
+                validation.Normalized, result));
 
             logger.LogInformation("Release kit {JobId} finished with {FileCount} files", jobId, result.Files.Count);
             return Ok(ApiResponse<ReleaseKitResult>.Ok(result));
@@ -168,6 +170,13 @@ public sealed class ReleaseKitController(
             BuildSlots.Release();
         }
     }
+
+    /// <summary>A finished kit again, e.g. when the page comes back from connecting a YouTube channel. Only the caller's own.</summary>
+    [HttpGet("kits/{jobId}")]
+    public ActionResult<ApiResponse<ReleaseKitResult>> GetKit(string jobId) =>
+        kits.TryGetOwned(jobId, currentUser.UserId) is { Result: { } result }
+            ? Ok(ApiResponse<ReleaseKitResult>.Ok(result))
+            : KitNotFound();
 
     /// <summary>One file from a finished kit. Only the caller's own kits, and only files the kit lists.</summary>
     [HttpGet("kits/{jobId}/files/{name}")]

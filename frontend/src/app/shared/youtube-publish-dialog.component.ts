@@ -4,7 +4,8 @@ import { FormsModule } from '@angular/forms';
 import { catchError, forkJoin, of } from 'rxjs';
 
 import {
-  MAX_RELATED_VIDEOS, YouTubeCheck, YouTubeDraft, YouTubePrivacy, YouTubePublication, YouTubePublishStatus, YouTubeSuggestEngine, YouTubeUpload,
+  MAX_RELATED_VIDEOS, YOUTUBE_MUSIC_CATEGORY_ID, YouTubeCheck, YouTubeDraft, YouTubePrivacy, YouTubePublication, YouTubePublishSource,
+  YouTubePublishStatus, YouTubeSuggestEngine, YouTubeUpload,
   isUploadFinished, parseYouTubeTags, relatedVideosBlock, youTubeTagsLength,
 } from '../core/models/youtube.models';
 import { ActivityService } from '../core/services/activity.service';
@@ -28,6 +29,9 @@ interface PublishPrefs {
  *   @if (publishJobId(); as id) {
  *     <app-youtube-publish-dialog [jobId]="id" [previewSrc]="previewUrl(id)" [returnPath]="..." (closed)="publishJobId.set(null)" />
  *   }
+ *
+ * With `source="release"`, `jobId` is a release kit's id and its visualizer goes up as a
+ * Music video - the same dialog and uploader, so a song reaches YouTube Music the same way.
  */
 @Component({
   selector: 'app-youtube-publish-dialog',
@@ -38,7 +42,7 @@ interface PublishPrefs {
     <div class="yt-backdrop" (click)="closed.emit()">
       <div class="yt-dialog" role="dialog" aria-modal="true" aria-label="Publish to YouTube" (click)="$event.stopPropagation()">
         <header class="yt-head">
-          <h4><span class="yt-logo" aria-hidden="true">▶</span> {{ reviewing() ? 'Review before uploading' : 'Publish to YouTube' }}</h4>
+          <h4><span class="yt-logo" aria-hidden="true">▶</span> {{ reviewing() ? 'Review before uploading' : isRelease() ? 'Publish to YouTube Music' : 'Publish to YouTube' }}</h4>
           <button type="button" class="yt-x" aria-label="Close" (click)="closed.emit()">✕</button>
         </header>
 
@@ -145,6 +149,9 @@ interface PublishPrefs {
                       </select>
                     </label>
                   </div>
+                  @if (isRelease() && categoryId() !== musicCategoryId) {
+                    <p class="yt-warn">Only the Music category lists this song on YouTube Music.</p>
+                  }
                   <fieldset class="yt-audience" [disabled]="uploading()">
                     <legend>Audience</legend>
                     <label class="inline"><input type="radio" name="kids" [checked]="madeForKids() === false" (change)="madeForKids.set(false)" /> Not made for kids</label>
@@ -160,6 +167,8 @@ interface PublishPrefs {
 
               <!-- Right: the words. -->
               <div class="yt-form">
+                <!-- AI suggestions read a project's script; a song's details come from its release sheet instead. -->
+                @if (!isRelease()) {
                 <section class="yt-ai">
                   <div class="yt-suggest">
                     <button type="button" class="yt-ai-go" (click)="suggest()" [disabled]="suggesting() || uploading()"
@@ -187,6 +196,7 @@ interface PublishPrefs {
                          placeholder="Optional notes for the AI - e.g. Day 1 of Navratri, for devotees, keep it short" />
                   @if (suggestNote()) { <p class="yt-muted">{{ suggestNote() }}</p> }
                 </section>
+                }
 
                 <section class="yt-field">
                   <div class="yt-field-head">
@@ -499,6 +509,9 @@ export class YouTubePublishDialogComponent implements OnInit {
   private readonly activity = inject(ActivityService);
 
   readonly jobId = input.required<string>();
+  /** A render (the default) or a release kit's visualizer. */
+  readonly source = input<YouTubePublishSource>('render');
+  readonly isRelease = computed(() => this.source() === 'release');
   readonly previewSrc = input.required<string>();
   /** The in-app path to come back to after connecting a channel. */
   readonly returnPath = input.required<string>();
@@ -512,6 +525,7 @@ export class YouTubePublishDialogComponent implements OnInit {
   readonly published = output<YouTubeUpload>();
 
   readonly maxRelated = MAX_RELATED_VIDEOS;
+  readonly musicCategoryId = YOUTUBE_MUSIC_CATEGORY_ID;
   /** The user's videos uploaded from the app, for the related-videos picker. */
   readonly videos = signal<YouTubePublication[]>([]);
   readonly relatedIds = signal<string[]>([]);
@@ -657,7 +671,7 @@ export class YouTubePublishDialogComponent implements OnInit {
     });
     forkJoin({
       status: this.api.status(),
-      draft: this.api.draft(this.jobId()),
+      draft: this.api.draft(this.jobId(), this.source()),
       uploads: this.api.uploads(this.jobId()),
       // The picker is optional: a failure here leaves it empty rather than blocking publishing.
       videos: this.api.videos().pipe(catchError(() => of([] as YouTubePublication[]))),
@@ -689,6 +703,8 @@ export class YouTubePublishDialogComponent implements OnInit {
           const remembered = status.channels.find((c) => c.channelId === prefs.channelId);
           this.channelId.set(remembered?.channelId ?? status.channels[0]?.channelId ?? '');
         }
+        // A song is always Music, whatever was last picked for a render: that lists it on YouTube Music.
+        if (this.isRelease()) this.categoryId.set(YOUTUBE_MUSIC_CATEGORY_ID);
         if (this.asDraft()) {
           this.privacy.set('private');
           this.notify.set(false);
@@ -846,7 +862,7 @@ export class YouTubePublishDialogComponent implements OnInit {
       privacy: this.privacy(),
       madeForKids: this.madeForKids(),
       notifySubscribers: this.notify(),
-    }, this.relatedSelected().map((v) => v.videoId), this.firstComment().trim()).subscribe({
+    }, this.relatedSelected().map((v) => v.videoId), this.firstComment().trim(), this.source()).subscribe({
       next: (upload) => {
         this.upload.set(upload);
         // The dialog can be closed mid-upload; the activity panel keeps following it.

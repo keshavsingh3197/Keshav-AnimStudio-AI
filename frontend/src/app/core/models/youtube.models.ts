@@ -33,6 +33,15 @@ export interface YouTubeCheck {
 
 export type YouTubePrivacy = 'public' | 'unlisted' | 'private';
 
+/**
+ * What is being published: a finished render, or a release kit's visualizer - a song, sent
+ * as a Music-category video so it is listed on YouTube Music under the channel.
+ */
+export type YouTubePublishSource = 'render' | 'release';
+
+/** YouTube's Music category; what makes an upload show up on YouTube Music. */
+export const YOUTUBE_MUSIC_CATEGORY_ID = '10';
+
 export interface YouTubeVideoMetadata {
   title: string;
   description: string;

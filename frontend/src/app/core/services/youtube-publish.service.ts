@@ -5,7 +5,7 @@ import { Observable, map } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../models/api.models';
 import {
-  YouTubeChannel, YouTubeDashboard, YouTubeDraft, YouTubeLiveBroadcast, YouTubeLiveSetup, YouTubeLiveSuggestParams, YouTubePublication, YouTubePublishStatus,
+  YouTubeChannel, YouTubeDashboard, YouTubeDraft, YouTubeLiveBroadcast, YouTubeLiveSetup, YouTubeLiveSuggestParams, YouTubePublication, YouTubePublishSource, YouTubePublishStatus,
   YouTubeSuggestion, YouTubeSuggestOptions, YouTubeSuggestParams, YouTubeUpload, YouTubeVideoMetadata,
 } from '../models/youtube.models';
 
@@ -45,9 +45,10 @@ export class YouTubePublishService {
     return this.http.delete(`${this.base}/channels/${encodeURIComponent(channelId)}`);
   }
 
-  draft(jobId: string): Observable<YouTubeDraft> {
+  /** `id` is a render job's id, or a release kit's id when `source` is `'release'`. */
+  draft(id: string, source: YouTubePublishSource = 'render'): Observable<YouTubeDraft> {
     return this.http
-      .get<ApiResponse<YouTubeDraft>>(`${this.base}/render-jobs/${encodeURIComponent(jobId)}/draft`)
+      .get<ApiResponse<YouTubeDraft>>(`${this.sourceUrl(id, source)}/draft`)
       .pipe(map((r) => r.data as YouTubeDraft));
   }
 
@@ -65,12 +66,16 @@ export class YouTubePublishService {
   }
 
   /** `firstComment` is posted on the video once it is up; empty posts nothing. */
-  publish(jobId: string, channelId: string, metadata: YouTubeVideoMetadata, relatedVideoIds: string[] = [],
-          firstComment = ''): Observable<YouTubeUpload> {
+  publish(id: string, channelId: string, metadata: YouTubeVideoMetadata, relatedVideoIds: string[] = [],
+          firstComment = '', source: YouTubePublishSource = 'render'): Observable<YouTubeUpload> {
     return this.http
-      .post<ApiResponse<YouTubeUpload>>(`${this.base}/render-jobs/${encodeURIComponent(jobId)}/publish`,
+      .post<ApiResponse<YouTubeUpload>>(`${this.sourceUrl(id, source)}/publish`,
         { channelId, metadata, relatedVideoIds, firstComment: firstComment || null })
       .pipe(map((r) => r.data as YouTubeUpload));
+  }
+
+  private sourceUrl(id: string, source: YouTubePublishSource): string {
+    return `${this.base}/${source === 'release' ? 'release-kits' : 'render-jobs'}/${encodeURIComponent(id)}`;
   }
 
   /** Videos uploaded from the app, newest first; optionally one project's. */

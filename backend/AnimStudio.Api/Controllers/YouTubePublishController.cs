@@ -10,7 +10,9 @@ using AnimStudio.Application.Music;
 using AnimStudio.Application.Publishing;
 using AnimStudio.Application.Security;
 using AnimStudio.Domain.Jobs;
+using AnimStudio.Domain.Publishing;
 using AnimStudio.Infrastructure.Publishing;
+using AnimStudio.Infrastructure.Releases;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -45,6 +47,7 @@ public sealed partial class YouTubePublishController(
     ICurrentUser currentUser,
     AdminAuditService audit,
     BrandChannelSyncService brandSync,
+    ReleaseKitStore releaseKits,
     IAuthorizationService authorization,
     ILogger<YouTubePublishController> logger) : ControllerBase
 {
@@ -350,6 +353,31 @@ public sealed partial class YouTubePublishController(
     {
         var job = await LoadOwnedJobAsync(jobId, ct);
 
+        return await QueueUploadAsync(request, Facts(job), "render", (connection, metadata, related, firstComment) => new YouTubeUploadRequest(
+            currentUser.UserId,
+            job.Id,
+            job.OutputStorageKey!,
+            job.OutputSizeBytes ?? 0,
+            connection.ChannelId,
+            connection.ChannelTitle,
+            metadata,
+            job.ProjectId,
+            related,
+            firstComment), ct);
+    }
+
+    /// <summary>
+    /// The checks every publish shares - channel, related videos, details against YouTube's
+    /// limits and the file's facts, first comment - then the upload, queued through
+    /// <see cref="YouTubeUploadManager"/>, the one path any video takes to YouTube.
+    /// </summary>
+    private async Task<ActionResult<ApiResponse<YouTubeUploadStatus>>> QueueUploadAsync(
+        YouTubePublishRequest? request,
+        YouTubeVideoFacts facts,
+        string sourceKind,
+        Func<YouTubeChannelConnection, NormalizedYouTubeMetadata, IReadOnlyList<string>, string?, YouTubeUploadRequest> buildUpload,
+        CancellationToken ct)
+    {
         if (request is null || !IsChannelId(request.ChannelId))
             return BadRequest(ApiResponse<YouTubeUploadStatus>.Fail("Choose a channel to publish to.",
                 new ApiError("channel-missing", "Choose a channel to publish to.", Field: "channelId")));
@@ -378,7 +406,7 @@ public sealed partial class YouTubePublishController(
             ? request.Metadata
             : request.Metadata with { Description = YouTubeRelatedVideos.AppendToDescription(request.Metadata.Description ?? string.Empty, related) };
 
-        var validation = YouTubePublishValidator.Validate(metadata, Facts(job));
+        var validation = YouTubePublishValidator.Validate(metadata, facts);
         if (!validation.IsValid)
         {
             var first = validation.Errors[0];
@@ -399,20 +427,11 @@ public sealed partial class YouTubePublishController(
 
         try
         {
-            var status = uploads.Start(new YouTubeUploadRequest(
-                currentUser.UserId,
-                job.Id,
-                job.OutputStorageKey!,
-                job.OutputSizeBytes ?? 0,
-                connection.ChannelId,
-                connection.ChannelTitle,
-                validation.Normalized!,
-                job.ProjectId,
-                [.. related.Select(r => r.VideoId)],
-                firstComment));
+            var upload = buildUpload(connection, validation.Normalized!, [.. related.Select(r => r.VideoId)], firstComment);
+            var status = uploads.Start(upload);
 
-            logger.LogInformation("User {UserId} queued render {JobId} for YouTube channel {ChannelId} ({Privacy})",
-                currentUser.UserId, job.Id, connection.ChannelId, validation.Normalized!.Privacy);
+            logger.LogInformation("User {UserId} queued {Source} {JobId} for YouTube channel {ChannelId} ({Privacy}, category {CategoryId})",
+                currentUser.UserId, sourceKind, upload.JobId, connection.ChannelId, upload.Metadata.Privacy, upload.Metadata.CategoryId);
             return Accepted(ApiResponse<YouTubeUploadStatus>.Ok(status));
         }
         catch (YouTubePublishException ex)

@@ -54,7 +54,12 @@ public sealed record YouTubeUploadRequest(
     string ProjectId = "",
     IReadOnlyList<string>? RelatedVideoIds = null,
     /// <summary>Already normalized by <see cref="YouTubeCommentRules"/>; null posts nothing.</summary>
-    string? FirstComment = null);
+    string? FirstComment = null,
+    /// <summary>
+    /// A server-resolved file on local disk (a release kit's visualizer) to send instead of
+    /// <see cref="StorageKey"/>. Never a path from the client.
+    /// </summary>
+    string? LocalFilePath = null);
 
 /// <summary>
 /// Runs uploads in the background so the publish button returns at once and the dialog can
@@ -161,8 +166,8 @@ public sealed class YouTubeUploadManager : IHostedService, IDisposable
             var store = scope.ServiceProvider.GetRequiredService<IObjectStore>();
             var connections = scope.ServiceProvider.GetRequiredService<YouTubeConnectionStore>();
 
-            await using var content = await store.OpenAsync(request.StorageKey, ct).ConfigureAwait(false)
-                ?? throw new YouTubePublishException("video-missing", "The rendered file is no longer on the server. Render it again.");
+            await using var content = await OpenContentAsync(store, request, ct).ConfigureAwait(false)
+                ?? throw new YouTubePublishException("video-missing", "The video file is no longer on the server. Render or build it again.");
 
             var length = content.CanSeek ? content.Length : request.SizeBytes;
             if (length <= 0)
@@ -223,6 +228,22 @@ public sealed class YouTubeUploadManager : IHostedService, IDisposable
             entry.CompletedAt = _clock.GetUtcNow().UtcDateTime;
             if (slotTaken) _slots.Release();
             entry.Cancellation.Dispose();
+        }
+    }
+
+    private static async Task<Stream?> OpenContentAsync(IObjectStore store, YouTubeUploadRequest request, CancellationToken ct)
+    {
+        if (request.LocalFilePath is null)
+            return await store.OpenAsync(request.StorageKey, ct).ConfigureAwait(false);
+
+        try
+        {
+            return new FileStream(request.LocalFilePath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, FileOptions.Asynchronous);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            // The kit expired and was swept between publishing and the upload starting.
+            return null;
         }
     }
 
