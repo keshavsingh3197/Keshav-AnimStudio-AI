@@ -10,6 +10,7 @@ using AnimStudio.Application.Music;
 using AnimStudio.Application.Publishing;
 using AnimStudio.Application.Security;
 using AnimStudio.Domain.Jobs;
+using AnimStudio.Domain.Projects;
 using AnimStudio.Domain.Publishing;
 using AnimStudio.Infrastructure.Publishing;
 using AnimStudio.Infrastructure.Releases;
@@ -197,6 +198,8 @@ public sealed partial class YouTubePublishController(
         var brandSettings = await settingsRepo.GetAsync(ct);
         var defaults = brandSettings?.PublishingFor(brandChannelId);
         var brandName = brandSettings?.FindChannel(brandChannelId)?.Name ?? brandSettings?.DefaultChannelName ?? "Default";
+        // A music project goes to YouTube Music: the Music category, whatever the channel's default.
+        var isMusic = project?.Settings.ContentType == ProjectContentType.Music;
 
         return Ok(ApiResponse<YouTubeDraftResponse>.Ok(new YouTubeDraftResponse(
             title,
@@ -204,7 +207,7 @@ public sealed partial class YouTubePublishController(
             // The video's own tags start empty; the channel's defaults are added on top of them.
             [],
             defaults?.Tags ?? [],
-            defaults?.CategoryId ?? "1",
+            isMusic ? YouTubeMusicMetadata.MusicCategoryId : defaults?.CategoryId ?? "1",
             defaults?.Privacy ?? "public",
             defaults?.MadeForKids ?? false,
             defaults?.NotifySubscribers ?? true,
@@ -213,7 +216,8 @@ public sealed partial class YouTubePublishController(
             new YouTubeVideoFactsResponse(facts.DurationSeconds, facts.SizeBytes, facts.Width, facts.Height, facts.IsVertical),
             errors,
             warnings,
-            defaults?.FirstComment)));
+            defaults?.FirstComment,
+            isMusic)));
     }
 
     /// <summary>
@@ -633,4 +637,6 @@ public sealed record YouTubeDraftResponse(
     IReadOnlyList<YouTubeCheck> Errors,
     IReadOnlyList<YouTubeCheck> Warnings,
     /// <summary>The brand channel's default first comment, if one is set.</summary>
-    string? FirstComment = null);
+    string? FirstComment = null,
+    /// <summary>A song or music project: the dialog opens set to YouTube Music.</summary>
+    bool IsMusic = false);

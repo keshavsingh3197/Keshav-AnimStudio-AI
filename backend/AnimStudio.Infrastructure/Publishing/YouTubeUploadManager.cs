@@ -40,7 +40,9 @@ public sealed record YouTubeUploadStatus(
     /// <summary>Something the user should know about a finished upload, e.g. the link wasn't saved.</summary>
     string? Warning = null,
     /// <summary>The first comment's thread id, once it is posted.</summary>
-    string? CommentId = null);
+    string? CommentId = null,
+    /// <summary>The same video on music.youtube.com, for an upload in the Music category.</summary>
+    string? MusicUrl = null);
 
 /// <summary>What the controller has already checked and resolved before an upload is queued.</summary>
 public sealed record YouTubeUploadRequest(
@@ -261,7 +263,7 @@ public sealed class YouTubeUploadManager : IHostedService, IDisposable
             var saved = await publications.RecordAsync(
                 request.UserId, request.ProjectId, request.JobId, request.ChannelId, request.ChannelTitle,
                 videoId, request.Metadata.Title, request.Metadata.Privacy, request.RelatedVideoIds ?? [],
-                CancellationToken.None).ConfigureAwait(false);
+                CancellationToken.None, request.Metadata.CategoryId).ConfigureAwait(false);
             entry.PublicationId = saved.Id;
         }
         catch (Exception ex)
@@ -407,7 +409,8 @@ public sealed class YouTubeUploadManager : IHostedService, IDisposable
                 videoId,
                 videoId is null ? null : $"https://youtu.be/{videoId}",
                 videoId is null ? null : $"https://studio.youtube.com/video/{videoId}/edit",
-                ErrorCode, Error, StartedAt, CompletedAt, PublicationId, Warning, CommentId);
+                ErrorCode, Error, StartedAt, CompletedAt, PublicationId, Warning, CommentId,
+                videoId is null ? null : YouTubeRelatedVideos.MusicUrlFor(videoId, Request.Metadata.CategoryId));
         }
     }
 }

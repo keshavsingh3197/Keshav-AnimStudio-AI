@@ -49,7 +49,8 @@ public sealed partial class YouTubePublishController
             new YouTubeVideoFactsResponse(facts.DurationSeconds, facts.SizeBytes, facts.Width, facts.Height, facts.IsVertical),
             errors,
             warnings,
-            defaults?.FirstComment)));
+            defaults?.FirstComment,
+            IsMusic: true)));
     }
 
     /// <summary>Checks everything, then queues the visualizer's upload. Returns at once with an upload to poll.</summary>

@@ -35,6 +35,9 @@ public sealed record UpdateProjectCommand
 
     /// <summary>Null leaves it unchanged.</summary>
     public bool? FollowChannelWatermark { get; init; }
+
+    /// <summary>Null leaves it unchanged.</summary>
+    public ProjectContentType? ContentType { get; init; }
     public bool? IsPinned { get; init; }
     public string? CustomThumbnail { get; init; }
 }
@@ -128,6 +131,9 @@ public sealed class ProjectEditingService(
 
         if (command.FollowChannelWatermark is { } follow)
             project.Settings.FollowChannelWatermark = follow;
+
+        if (command.ContentType is { } contentType)
+            project.Settings.ContentType = contentType;
 
         if (command.BrandChannelId is not null)
         {

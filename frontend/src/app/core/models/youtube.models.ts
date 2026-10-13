@@ -42,6 +42,13 @@ export type YouTubePublishSource = 'render' | 'release';
 /** YouTube's Music category; what makes an upload show up on YouTube Music. */
 export const YOUTUBE_MUSIC_CATEGORY_ID = '10';
 
+/**
+ * Where an upload is meant to be found. Both are one YouTube upload with one video id: the
+ * Music destination only sends it in the Music category, which lists it on YouTube Music
+ * as well, at music.youtube.com/watch?v=<same id>.
+ */
+export type YouTubeDestination = 'youtube' | 'music';
+
 export interface YouTubeVideoMetadata {
   title: string;
   description: string;
@@ -77,6 +84,8 @@ export interface YouTubeDraft {
   warnings: YouTubeCheck[];
   /** The brand channel's default first comment (Admin > Publishing). */
   firstComment?: string;
+  /** A song, or a render of a music project: the dialog opens set to YouTube Music. */
+  isMusic?: boolean;
 }
 
 /** An AI-written title, description and tags; the user reviews them before publishing. */
@@ -140,6 +149,8 @@ export interface YouTubeUpload {
   warning?: string;
   /** The first comment's thread id, once it is posted. */
   commentId?: string;
+  /** The same video on music.youtube.com; set for a Music-category upload. */
+  musicUrl?: string;
 }
 
 export type YouTubeVideoHealth = 'Unknown' | 'Processing' | 'Ok' | 'Issue' | 'Removed';
@@ -164,6 +175,8 @@ export interface YouTubePublication {
   issueMessage?: string;
   thumbnailUrl?: string;
   lastCheckedAt?: string;
+  /** The same video on music.youtube.com; set when it went up in the Music category. */
+  musicUrl?: string;
 }
 
 export const MAX_RELATED_VIDEOS = 10;

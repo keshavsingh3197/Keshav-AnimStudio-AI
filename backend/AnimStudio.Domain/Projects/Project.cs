@@ -6,6 +6,12 @@ public enum ProjectStatus { Draft = 0, Ready = 1, Rendering = 2, Rendered = 3, A
 
 public enum DistributionIntent { Personal = 0, Public = 1, Monetized = 2 }
 
+/// <summary>
+/// What the project makes. A music project's renders publish to YouTube Music by default:
+/// the Music category, a song-style title, and a music.youtube.com link once it is up.
+/// </summary>
+public enum ProjectContentType { Video = 0, Music = 1 }
+
 public sealed class ProjectSettings
 {
     public int Width { get; set; } = 1920;
@@ -14,6 +20,8 @@ public sealed class ProjectSettings
     public int FrameRateDen { get; set; } = 1;
 
     public DistributionIntent DistributionIntent { get; set; } = DistributionIntent.Personal;
+
+    public ProjectContentType ContentType { get; set; } = ProjectContentType.Video;
 
     public bool AcceptShareAlikeObligation { get; set; }
 

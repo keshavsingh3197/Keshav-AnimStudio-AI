@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
 import {
-  RenderJob, aspectRatioLabel, isTerminal, videoFormat,
+  ProjectContentType, RenderJob, aspectRatioLabel, isTerminal, videoFormat,
 } from '../../core/models/api.models';
 import { YouTubePublication, needsAttention } from '../../core/models/youtube.models';
 import { ActivityService } from '../../core/services/activity.service';
@@ -487,6 +487,31 @@ export class RenderComponent implements OnDestroy {
         this.store.project.set(updated);
         this.render();
       }
+    );
+  }
+
+  /** A music project's renders publish to YouTube Music (the Music category) by default. */
+  readonly isMusicProject = computed(() => this.store.project()?.contentType === 'music');
+
+  /** Saved on the project, so every render of it - and the publish dialog - knows what it is for. */
+  setContentType(contentType: ProjectContentType): void {
+    const project = this.store.project();
+    if (!project || (project.contentType ?? 'video') === contentType) return;
+
+    this.status.run(
+      this.api.updateProject(project.id, {
+        name: project.name,
+        description: project.description ?? undefined,
+        width: project.width,
+        height: project.height,
+        fps: project.fps,
+        distributionIntent: project.distributionIntent,
+        acceptShareAlikeObligation: project.acceptShareAlikeObligation,
+        backgroundMusicAssetId: project.backgroundMusicAssetId ?? null,
+        backgroundMusicVolume: project.backgroundMusicVolume,
+        contentType,
+      }),
+      (updated) => this.store.project.set(updated),
     );
   }
 

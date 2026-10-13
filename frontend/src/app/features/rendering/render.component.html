@@ -11,6 +11,20 @@
         </span>
       }
     </h2>
+    @if (store.project()) {
+      <!-- What the export is for: Music sends its renders to YouTube Music (the Music category). -->
+      <div class="rp-kind" role="radiogroup" aria-label="This project makes">
+        <span class="muted small">Made for</span>
+        <button type="button" role="radio" class="secondary small" [class.active]="!isMusicProject()" [attr.aria-checked]="!isMusicProject()"
+                (click)="setContentType('video')" [disabled]="status.busy()">🎬 Video</button>
+        <button type="button" role="radio" class="secondary small" [class.active]="isMusicProject()" [attr.aria-checked]="isMusicProject()"
+                (click)="setContentType('music')" [disabled]="status.busy()"
+                title="Publish renders to YouTube Music: Music category, listed in the YouTube Music app and on YouTube">♪ Music</button>
+        @if (isMusicProject()) {
+          <span class="muted small">Publishes to YouTube + YouTube Music</span>
+        }
+      </div>
+    }
     <p class="muted">
       Scenes are rendered one by one, then merged with transitions, music and subtitles into one MP4.
       Each render gets a name you can change, and videos you publish keep their YouTube link here.
@@ -199,8 +213,9 @@
             <a [href]="downloadUrl(current.jobId)" download class="rp-btn-link">
               <button type="button">⬇ Download MP4</button>
             </a>
-            <button type="button" class="rp-yt-btn" (click)="openPublish(current.jobId)" title="Upload this video to your YouTube channel">
-              ▶ {{ jobPublications(current.jobId).length ? 'Publish again' : 'Publish to YouTube' }}
+            <button type="button" class="rp-yt-btn" (click)="openPublish(current.jobId)"
+                    [title]="isMusicProject() ? 'Upload to your channel in the Music category, so it is on YouTube and YouTube Music' : 'Upload this video to your YouTube channel'">
+              {{ isMusicProject() ? '♪' : '▶' }} {{ jobPublications(current.jobId).length ? 'Publish again' : isMusicProject() ? 'Publish to YouTube Music' : 'Publish to YouTube' }}
             </button>
           </div>
 
@@ -221,6 +236,9 @@
                   <span class="muted small">{{ p.channelTitle }} · {{ p.publishedAt | date: 'mediumDate' }}</span>
                   <div class="rp-yt-row">
                     <span [class]="healthClass(p)">{{ healthLabel(p) }}</span>
+                    @if (p.musicUrl) {
+                      <a [href]="p.musicUrl" target="_blank" rel="noopener noreferrer" class="small" title="The same video in the YouTube Music app">♪ YouTube Music ↗</a>
+                    }
                     <a [href]="p.studioUrl" target="_blank" rel="noopener noreferrer" class="small">Studio ↗</a>
                     <button type="button" class="rp-link-btn small" (click)="copyLink(p.videoUrl)">Copy link</button>
                   </div>
@@ -375,9 +393,12 @@
                       <button type="button" role="menuitem" (click)="startRename(item)">✎ Rename</button>
                     }
                     @if (item.hasOutput) {
-                      <button type="button" role="menuitem" (click)="openPublish(item.jobId)">▶ Publish to YouTube</button>
+                      <button type="button" role="menuitem" (click)="openPublish(item.jobId)">{{ isMusicProject() ? '♪ Publish to YouTube Music' : '▶ Publish to YouTube' }}</button>
                       @for (p of jobPublications(item.jobId); track p.id) {
                         <button type="button" role="menuitem" (click)="copyLink(p.videoUrl)">🔗 Copy YouTube link{{ jobPublications(item.jobId).length > 1 ? ' (' + p.channelTitle + ')' : '' }}</button>
+                        @if (p.musicUrl) {
+                          <button type="button" role="menuitem" (click)="copyLink(p.musicUrl)">♪ Copy YouTube Music link{{ jobPublications(item.jobId).length > 1 ? ' (' + p.channelTitle + ')' : '' }}</button>
+                        }
                       }
                       <a role="menuitem" routerLink="/live" [queryParams]="{ renderJobId: item.jobId }">🔴 Go live</a>
                     }

@@ -1,214 +1,453 @@
 @let current = selected();
 @let shown = previewSlide();
+@let music = musicSeconds();
+@let gap = musicGap();
 
 <div class="ps-backdrop" (click)="close()"></div>
-<div class="ps-dialog" role="dialog" aria-modal="true" aria-labelledby="ps-title">
+<div class="ps-dialog" role="dialog" aria-modal="true" aria-labelledby="ps-title" aria-describedby="ps-sub">
   <div class="ps-head">
-    <div>
+    <div class="ps-title">
       <h3 id="ps-title">🎞 Photo Story <span class="ps-badge">no AI video needed</span></h3>
-      <p class="ps-sub">Turn still pictures into a moving, cinematic video: every picture gets a camera move, a colour grade and lens effects.</p>
+      <p class="ps-sub" id="ps-sub">Turn still pictures into a moving, cinematic video: every picture gets a camera move, a colour grade and lens effects.</p>
     </div>
-    <button type="button" class="ps-close" (click)="close()" title="Close (Esc)">&times;</button>
+
+    <!-- The steps only switch the settings panel; the filmstrip and preview stay in view. -->
+    <nav class="ps-steps" aria-label="Photo story steps">
+      <ol>
+        @for (s of steps; track s.id; let i = $index) {
+          <li>
+            <button type="button" class="ps-step" [class.on]="step() === s.id" [class.done]="i < stepIndex()"
+                    [attr.aria-current]="step() === s.id ? 'step' : null" (click)="goTo(s.id)">
+              <span class="ps-step-num" aria-hidden="true">{{ i < stepIndex() ? '✓' : i + 1 }}</span>
+              <span class="ps-step-text">
+                <span class="ps-step-label">{{ s.label }}</span>
+                <span class="ps-step-sum">{{ stepSummary(s.id) }}</span>
+              </span>
+            </button>
+          </li>
+        }
+      </ol>
+    </nav>
+
+    <button type="button" class="ps-close" (click)="close()" title="Close (Esc)" aria-label="Close Photo Story">&times;</button>
   </div>
 
   <div class="ps-body">
-    <!-- Left: the story, in order -->
-    <aside class="ps-col ps-story">
+    <!-- Left: the library to pick from -->
+    <aside class="ps-col ps-library-col" aria-label="Picture library"
+           [class.file-over]="fileOver()" (dragover)="onFileDragOver($event)" (dragleave)="onStripDragLeave($event)" (drop)="onFileDrop($event)">
       <div class="ps-col-head">
-        <span>Shots <span class="ps-count">{{ slides().length }}</span></span>
-        <span class="ps-muted mono">{{ totalSeconds() | number:'1.0-1' }}s</span>
+        <span>Library <span class="ps-count">{{ state.frameImageCandidates().length }}</span></span>
+        <span class="ps-head-actions">
+          <button type="button" class="ps-mini" (click)="addAllUnused()" title="Add every picture that is not in the story yet">+ Add all</button>
+          <button type="button" class="ps-mini" (click)="chooseFiles()" [disabled]="state.photoStoryUploading() > 0">⬆ Upload</button>
+        </span>
       </div>
-      <div class="ps-slides">
-        @for (s of slides(); track s.id; let i = $index, first = $first, last = $last) {
-          <div class="ps-slide" [class.on]="current?.id === s.id" [class.playing]="playing() && previewIndex() === i"
-               role="button" tabindex="0" (click)="select(s.id)" (keydown.enter)="select(s.id)">
-            <span class="ps-num">{{ i + 1 }}</span>
-            <img [src]="state.assetUrl(s.assetId)" alt="" [style.filter]="filterOf(s)" />
-            <span class="ps-slide-text">
-              <span class="ps-slide-name" [title]="s.name">{{ s.name }}</span>
-              <span class="ps-muted">{{ motionLabel(s) }} · {{ s.seconds }}s</span>
-            </span>
-            <span class="ps-slide-actions" (click)="$event.stopPropagation()">
-              <button type="button" [disabled]="first" (click)="move(s.id, -1)" title="Earlier">↑</button>
-              <button type="button" [disabled]="last" (click)="move(s.id, 1)" title="Later">↓</button>
-              <button type="button" class="danger" (click)="remove(s.id)" title="Remove">✕</button>
-            </span>
-          </div>
-        } @empty {
-          <p class="ps-muted ps-pad">Pick pictures below to start your story.</p>
-        }
-      </div>
-
-      <div class="ps-col-head">Add pictures</div>
+      <input #fileInput type="file" class="ps-sr" accept="image/png,image/jpeg,image/webp,image/gif" multiple
+             tabindex="-1" aria-hidden="true" (change)="onFilesChosen(fileInput)" />
+      @if (state.photoStoryUploading() > 0) {
+        <p class="ps-muted ps-pad" role="status">Uploading {{ state.photoStoryUploading() }} picture(s)…</p>
+      }
       <div class="ps-library">
         @for (c of state.frameImageCandidates(); track c.id) {
           <button type="button" class="ps-pick" [class.used]="isInStory(c.id)" (click)="addPicture(c.id, c.name)"
-                  [title]="(isInStory(c.id) ? 'Already in the story - add again: ' : 'Add: ') + c.name">
-            <img [src]="state.assetUrl(c.id)" alt="" loading="lazy" />
-            <span>+</span>
+                  draggable="true" (dragstart)="onLibraryDragStart($event, c.id, c.name)" (dragend)="onDragEnd()"
+                  [title]="(isInStory(c.id) ? 'Already in the story - add again: ' : 'Add: ') + c.name"
+                  [attr.aria-label]="(isInStory(c.id) ? 'Add again: ' : 'Add: ') + c.name">
+            <img [src]="state.assetUrl(c.id)" alt="" loading="lazy" draggable="false" />
+            <span class="ps-pick-add" aria-hidden="true">+</span>
+            @if (isInStory(c.id)) { <span class="ps-pick-used" aria-hidden="true">✓</span> }
           </button>
         } @empty {
-          <p class="ps-muted ps-pad">No pictures in this project yet. Upload images in the media library first.</p>
+          <button type="button" class="ps-drop ps-drop-small" (click)="chooseFiles()">
+            <span class="ps-drop-icon" aria-hidden="true">🖼</span>
+            No pictures in this project yet.<br />Drop images here or click to upload.
+          </button>
         }
       </div>
+      <p class="ps-hint">Click to add at the end, or drag a picture onto the filmstrip to place it. Drop files from your computer anywhere here.</p>
     </aside>
 
-    <!-- Centre: preview -->
-    <section class="ps-col ps-stage">
-      <div class="ps-frame" #frame [style.aspect-ratio]="format().width + ' / ' + format().height"
-           [style.width]="'min(100cqw - 24px, (100cqh - 90px) * ' + (format().width / format().height) + ')'"
-           [class.focusable]="!playing() && current" (click)="setFocus($event)"
-           [title]="playing() ? '' : 'Click to set where the camera heads'">
-        @if (shown) {
-          <div class="ps-camera" [style.transform]="previewTransform()" [style.filter]="filterOf(shown)">
-            @if (fit() === 'BlurredBackdrop') {
-              <img class="ps-img ps-blur" [src]="state.assetUrl(shown.assetId)" alt="" />
+    <!-- Centre: preview on top, the story's filmstrip below -->
+    <section class="ps-col ps-centre" aria-label="Preview and story order">
+      <div class="ps-stage">
+        <div class="ps-frame" #frame [style.aspect-ratio]="format().width + ' / ' + format().height"
+             [style.width]="'min(100cqw - 24px, (100cqh - 16px) * ' + (format().width / format().height) + ')'"
+             [class.focusable]="!playing() && current" (click)="setFocus($event)"
+             [title]="playing() ? '' : 'Click to set where the camera heads'">
+          @if (shown) {
+            <div class="ps-camera" [style.transform]="previewTransform()" [style.filter]="filterOf(shown)">
+              @if (fit() === 'BlurredBackdrop') {
+                <img class="ps-img ps-blur" [src]="state.assetUrl(shown.assetId)" alt="" />
+              }
+              <img class="ps-img" [class.contain]="fit() !== 'Cover'" [src]="state.assetUrl(shown.assetId)" [alt]="shown.name" />
+            </div>
+            @if (shown.cinematic.vignette) { <div class="ps-vignette"></div> }
+            @if (shown.cinematic.grain) { <div class="ps-grain"></div> }
+            @if (shown.cinematic.cinemaBars) {
+              <div class="ps-bar top" [style.height.%]="barPercent()"></div>
+              <div class="ps-bar bottom" [style.height.%]="barPercent()"></div>
             }
-            <img class="ps-img" [class.contain]="fit() !== 'Cover'" [src]="state.assetUrl(shown.assetId)" alt="" />
-          </div>
-          @if (shown.cinematic.vignette) { <div class="ps-vignette"></div> }
-          @if (shown.cinematic.grain) { <div class="ps-grain"></div> }
-          @if (shown.cinematic.cinemaBars) {
-            <div class="ps-bar top" [style.height.%]="barPercent()"></div>
-            <div class="ps-bar bottom" [style.height.%]="barPercent()"></div>
+            @if (shown.caption?.trim()) {
+              <div class="ps-caption"><span>{{ shown.caption }}</span></div>
+            }
+            @if (!playing() && current && shown.cinematic.motion !== 'none') {
+              <span class="ps-focus" [style.left.%]="shown.cinematic.focusX" [style.top.%]="shown.cinematic.focusY"></span>
+            }
+            @if (tryMotion() && !playing()) { <span class="ps-trying">Trying: {{ tryLabel() }}</span> }
+            <div class="ps-progress" [style.width.%]="previewProgress() * 100"></div>
+          } @else {
+            <div class="ps-empty">Your story's preview appears here</div>
           }
-          @if (!playing() && current && shown.cinematic.motion !== 'none') {
-            <span class="ps-focus" [style.left.%]="shown.cinematic.focusX" [style.top.%]="shown.cinematic.focusY"></span>
-          }
-          <div class="ps-progress" [style.width.%]="previewProgress() * 100"></div>
-        } @else {
-          <div class="ps-empty">Your story's preview appears here</div>
-        }
+        </div>
       </div>
+
       <div class="ps-transport">
         @if (playing()) {
           <button type="button" class="ps-btn" (click)="stop()">■ Stop</button>
-          <span class="ps-muted">Shot {{ previewIndex() + 1 }} of {{ slides().length }}</span>
+          <span class="ps-muted mono" aria-live="off">Shot {{ previewIndex() + 1 }}/{{ slides().length }} · {{ runTime(previewClock()) }} / {{ runTime(totalSeconds()) }}</span>
         } @else {
-          <button type="button" class="ps-btn primary" [disabled]="slides().length === 0" (click)="play()">▶ Play whole story</button>
-          <span class="ps-muted">Previewing the selected shot on a loop. Click the picture to set its focus point.</span>
+          <button type="button" class="ps-btn primary" [disabled]="slides().length === 0" (click)="play()">▶ Play story</button>
+          <button type="button" class="ps-btn" [disabled]="!current" (click)="playFromSelected()">▶ From this shot</button>
+          <span class="ps-muted">Selected shot loops. Click the picture to set its focus point.</span>
         }
       </div>
-      <p class="ps-note">The preview approximates colour grades; motion, timing and framing match the export.</p>
+
+      <!-- Filmstrip toolbar: order and selection -->
+      <div class="ps-strip-bar" role="toolbar" aria-label="Story order tools">
+        <span class="ps-strip-title">Story <span class="ps-count">{{ slides().length }}</span>
+          <span class="ps-muted mono">{{ runTime(totalSeconds()) }}</span></span>
+        <button type="button" class="ps-mini" (click)="shuffle()" [disabled]="slides().length < 2" title="Random order">🔀 Shuffle</button>
+        <button type="button" class="ps-mini" (click)="reverse()" [disabled]="slides().length < 2" title="Last shot first">⇄ Reverse</button>
+        <button type="button" class="ps-mini" (click)="sortByName()" [disabled]="slides().length < 2" title="Sort by file name">A→Z</button>
+        <button type="button" class="ps-mini" (click)="sortByDate()" [disabled]="slides().length < 2" title="Oldest upload first">📅 Date</button>
+        <span class="ps-sep" aria-hidden="true"></span>
+        @if (checkedCount() > 0) {
+          <span class="ps-muted">{{ checkedCount() }} selected</span>
+          <button type="button" class="ps-mini danger" (click)="removeChecked()">✕ Remove</button>
+          <button type="button" class="ps-mini" (click)="checkAll(false)">Clear</button>
+        } @else {
+          <button type="button" class="ps-mini" (click)="checkAll(true)" [disabled]="slides().length === 0">Select all</button>
+        }
+        <button type="button" class="ps-mini" (click)="undo()" [disabled]="!canUndo()" title="Undo (Ctrl+Z)">↶ Undo</button>
+      </div>
+
+      <p id="ps-strip-keys" class="ps-sr">
+        Use left and right arrows to pick a shot, Control or Alt with an arrow to move it, Delete to remove it,
+        Space to play, Control A to select all, Control Z to undo.
+      </p>
+      <ol class="ps-strip" #strip aria-label="Story order" aria-describedby="ps-strip-keys"
+          [class.file-over]="fileOver()" [class.dragging]="dropIndex() !== null"
+          (keydown)="onStripKey($event)" (dragover)="onStripDragOver($event)" (dragleave)="onStripDragLeave($event)" (drop)="onStripDrop($event)">
+        @for (s of slides(); track s.id; let i = $index, last = $last) {
+          @let mv = motionOf(s);
+          <li class="ps-shot-wrap" draggable="true"
+              [class.drop-before]="dropIndex() === i" [class.drop-after]="last && dropIndex() === i + 1"
+              (dragstart)="onShotDragStart($event, s.id)" (dragend)="onDragEnd()" (dragover)="onShotDragOver($event, i)">
+            <button type="button" class="ps-shot" [attr.data-shot]="s.id"
+                    [class.on]="current?.id === s.id" [class.checked]="checked().has(s.id)"
+                    [class.playing]="playing() && previewIndex() === i"
+                    [attr.tabindex]="(current?.id ?? slides()[0]?.id) === s.id ? 0 : -1"
+                    [attr.aria-current]="current?.id === s.id ? 'true' : null"
+                    [attr.aria-label]="'Shot ' + (i + 1) + ' of ' + slides().length + ': ' + s.name + ', ' + mv.label + ', ' + s.seconds + ' seconds' + (s.caption?.trim() ? ', has caption' : '')"
+                    (click)="onShotClick($event, s.id)">
+              <span class="ps-shot-thumb">
+                <img [src]="state.assetUrl(s.assetId)" alt="" [style.filter]="filterOf(s)" draggable="false" />
+                <span class="ps-num" aria-hidden="true">{{ i + 1 }}</span>
+                @if (s.caption?.trim()) { <span class="ps-cap-flag" aria-hidden="true" title="Has a caption">T</span> }
+              </span>
+              <span class="ps-shot-chips" aria-hidden="true">
+                <span class="ps-tag" [title]="mv.label">{{ mv.icon }} {{ mv.label }}</span>
+                <span class="ps-tag mono">{{ s.seconds }}s</span>
+              </span>
+            </button>
+            <input type="checkbox" class="ps-shot-check" [checked]="checked().has(s.id)" (change)="toggleChecked(s.id)"
+                   [attr.aria-label]="'Select shot ' + (i + 1) + ' for bulk actions'" />
+            @if (!last) {
+              <span class="ps-join" aria-hidden="true" [title]="'Into next: ' + transitionLabel(s.transition)">
+                {{ s.transition === 'None' ? '|' : '⟩' }}
+              </span>
+            }
+          </li>
+        } @empty {
+          <li class="ps-drop-li">
+            <button type="button" class="ps-drop" (click)="chooseFiles()">
+              <span class="ps-drop-icon" aria-hidden="true">📷</span>
+              <strong>Start your story</strong>
+              <span>Drop pictures here, drag them from the library, or click to upload.</span>
+            </button>
+          </li>
+        }
+      </ol>
+      <p class="ps-note">Drag shots to reorder. Ctrl/Shift+click to select several. The preview approximates colour grades; motion, timing and framing match the export.</p>
     </section>
 
-    <!-- Right: the selected shot's settings, then the whole video's -->
-    <aside class="ps-col ps-settings">
-      @if (current) {
-        <div class="ps-card">
-          <div class="ps-label">🎥 Camera move</div>
-          <div class="ps-chips">
-            @for (m of motions; track m.id) {
-              <button type="button" class="ps-chip" [class.on]="current.cinematic.motion === m.id" [title]="m.hint"
-                      (click)="updateLook(current.id, { motion: m.id })">
-                <span class="ps-chip-icon">{{ m.icon }}</span>{{ m.label }}
-              </button>
-            }
-          </div>
-          @if (current.cinematic.motion !== 'none') {
-            <label class="ps-slider">
-              <span>Strength</span>
-              <input type="range" class="form-range" [min]="minIntensity" [max]="maxIntensity" step="0.01"
-                     [ngModel]="current.cinematic.intensity"
-                     (ngModelChange)="updateLook(current.id, { intensity: +$event })" />
-              <span class="mono">{{ current.cinematic.intensity * 100 | number:'1.0-0' }}%</span>
-            </label>
-            <div class="ps-seg">
-              <button type="button" [class.on]="current.cinematic.easing === 'ease'" (click)="updateLook(current.id, { easing: 'ease' })"
-                      title="Starts and settles gently">Smooth</button>
-              <button type="button" [class.on]="current.cinematic.easing === 'linear'" (click)="updateLook(current.id, { easing: 'linear' })"
-                      title="Constant speed">Constant</button>
-              <button type="button" (click)="updateLook(current.id, { focusX: 50, focusY: 50 })" title="Head for the centre">⌖ Centre focus</button>
+    <!-- Right: the settings of the current step -->
+    <aside class="ps-col ps-settings" aria-label="Step settings">
+      @switch (step()) {
+        @case ('photos') {
+          @if (current) {
+            <div class="ps-card">
+              <div class="ps-label">📷 Shot {{ selectedIndex() + 1 }} of {{ slides().length }}</div>
+              <div class="ps-shot-head">
+                <img [src]="state.assetUrl(current.assetId)" alt="" [style.filter]="filterOf(current)" />
+                <span class="ps-slide-name" [title]="current.name">{{ current.name }}</span>
+              </div>
+              <label class="ps-field">
+                <span>Caption <span class="ps-muted">(optional, shown over this picture)</span></span>
+                <textarea class="form-control form-control-sm" rows="2" [maxlength]="captionMax"
+                          placeholder="e.g. Summer 2024, Goa" [ngModel]="current.caption"
+                          (ngModelChange)="update(current.id, { caption: $event })"></textarea>
+                <span class="ps-muted ps-right mono">{{ (current.caption ?? '').length }}/{{ captionMax }}</span>
+              </label>
+              <div class="ps-seg">
+                <button type="button" [disabled]="selectedIndex() <= 0" (click)="move(current.id, -1)">← Earlier</button>
+                <button type="button" [disabled]="selectedIndex() >= slides().length - 1" (click)="move(current.id, 1)">Later →</button>
+                <button type="button" (click)="duplicate(current.id)" title="Use this picture again right after">⧉ Duplicate</button>
+                <button type="button" class="danger" (click)="remove(current.id)">✕ Remove</button>
+              </div>
+            </div>
+          } @else {
+            <div class="ps-card">
+              <div class="ps-label">📷 Pick your photos</div>
+              <p class="ps-muted ps-pad">Add pictures from the library on the left, or drop files onto the filmstrip. Up to 40 shots.</p>
             </div>
           }
-        </div>
+          <div class="ps-card">
+            <div class="ps-label">⌨ Shortcuts <span class="ps-muted">(filmstrip focused)</span></div>
+            <dl class="ps-keys">
+              <dt>← →</dt><dd>Pick shot</dd>
+              <dt>Ctrl/Alt + ← →</dt><dd>Move shot</dd>
+              <dt>Delete</dt><dd>Remove shot / selected</dd>
+              <dt>Space</dt><dd>Play / stop</dd>
+              <dt>Ctrl + A / Z</dt><dd>Select all / undo</dd>
+            </dl>
+          </div>
+        }
 
-        <div class="ps-card">
-          <div class="ps-label">🎨 Colour look</div>
-          <div class="ps-looks">
-            @for (l of looks; track l.id) {
-              <button type="button" class="ps-look" [class.on]="current.cinematic.look === l.id"
-                      (click)="updateLook(current.id, { look: l.id })">
-                <span class="ps-swatch" [style.background]="l.swatch"></span>{{ l.label }}
+        @case ('style') {
+          <div class="ps-card">
+            <div class="ps-label">✨ Style presets <span class="ps-muted">- every shot</span></div>
+            <div class="ps-presets">
+              @for (p of presets; track p.id) {
+                <button type="button" class="ps-preset" [class.on]="presetId() === p.id" [title]="p.hint"
+                        [attr.aria-pressed]="presetId() === p.id" [disabled]="slides().length === 0" (click)="applyPreset(p)">
+                  <span class="ps-preset-icon" aria-hidden="true">{{ p.icon }}</span>
+                  <span class="ps-preset-text">
+                    <strong>{{ p.label }}</strong>
+                    <span>{{ p.seconds }}s · {{ transitionLabel(p.transition) }}</span>
+                  </span>
+                </button>
+              }
+            </div>
+          </div>
+
+          @if (current) {
+            <div class="ps-card">
+              <div class="ps-label">🎥 Camera move <span class="ps-muted">- shot {{ selectedIndex() + 1 }}</span></div>
+              <div class="ps-chips" role="group" aria-label="Camera move" (mouseleave)="previewMotion(null)">
+                @for (m of motions; track m.id) {
+                  <button type="button" class="ps-chip" [class.on]="current.cinematic.motion === m.id" [title]="m.hint"
+                          [attr.aria-pressed]="current.cinematic.motion === m.id"
+                          (mouseenter)="previewMotion(m.id)" (focus)="previewMotion(m.id)" (blur)="previewMotion(null)"
+                          (click)="updateLook(current.id, { motion: m.id }); previewMotion(null)">
+                    <span class="ps-chip-icon" aria-hidden="true">{{ m.icon }}</span>{{ m.label }}
+                  </button>
+                }
+              </div>
+              <p class="ps-hint">Hover a move to try it in the preview.</p>
+              @if (current.cinematic.motion !== 'none') {
+                <label class="ps-slider">
+                  <span>Strength</span>
+                  <input type="range" class="form-range" [min]="minIntensity" [max]="maxIntensity" step="0.01"
+                         [ngModel]="current.cinematic.intensity"
+                         (ngModelChange)="updateLook(current.id, { intensity: +$event })" />
+                  <span class="mono">{{ current.cinematic.intensity * 100 | number:'1.0-0' }}%</span>
+                </label>
+                <div class="ps-seg">
+                  <button type="button" [class.on]="current.cinematic.easing === 'ease'" (click)="updateLook(current.id, { easing: 'ease' })"
+                          title="Starts and settles gently">Smooth</button>
+                  <button type="button" [class.on]="current.cinematic.easing === 'linear'" (click)="updateLook(current.id, { easing: 'linear' })"
+                          title="Constant speed">Constant</button>
+                  <button type="button" (click)="updateLook(current.id, { focusX: 50, focusY: 50 })" title="Head for the centre">⌖ Centre focus</button>
+                </div>
+              }
+              <div class="ps-seg">
+                <button type="button" (click)="applyMoveToAll()" [title]="'Use this move, strength and easing on ' + bulkLabel()">⧉ Move to {{ bulkLabel() }}</button>
+                <button type="button" (click)="autoCinematic()" title="Give every shot a different camera move">🎲 Auto moves</button>
+              </div>
+            </div>
+
+            <div class="ps-card">
+              <div class="ps-label">🎨 Colour look</div>
+              <div class="ps-looks">
+                @for (l of looks; track l.id) {
+                  <button type="button" class="ps-look" [class.on]="current.cinematic.look === l.id"
+                          [attr.aria-pressed]="current.cinematic.look === l.id"
+                          (click)="updateLook(current.id, { look: l.id })">
+                    <span class="ps-swatch" [style.background]="l.swatch" aria-hidden="true"></span>{{ l.label }}
+                  </button>
+                }
+              </div>
+              <div class="ps-label">🔍 Lens effects</div>
+              <div class="ps-toggles">
+                <label><input type="checkbox" [ngModel]="current.cinematic.vignette" (ngModelChange)="updateLook(current.id, { vignette: $event })" /> Vignette</label>
+                <label><input type="checkbox" [ngModel]="current.cinematic.grain" (ngModelChange)="updateLook(current.id, { grain: $event })" /> Film grain</label>
+                <label><input type="checkbox" [ngModel]="current.cinematic.cinemaBars" (ngModelChange)="updateLook(current.id, { cinemaBars: $event })" /> Cinema bars</label>
+              </div>
+              <button type="button" class="ps-btn" (click)="applyToAll()"
+                      [title]="'Copy this shot’s look, effects, strength, timing and transition to ' + bulkLabel() + ' (each keeps its own move)'">
+                ⧉ Apply look to {{ bulkLabel() }}
               </button>
-            }
-          </div>
-          <div class="ps-label">✨ Lens effects</div>
-          <div class="ps-toggles">
-            <label><input type="checkbox" [ngModel]="current.cinematic.vignette" (ngModelChange)="updateLook(current.id, { vignette: $event })" /> Vignette</label>
-            <label><input type="checkbox" [ngModel]="current.cinematic.grain" (ngModelChange)="updateLook(current.id, { grain: $event })" /> Film grain</label>
-            <label><input type="checkbox" [ngModel]="current.cinematic.cinemaBars" (ngModelChange)="updateLook(current.id, { cinemaBars: $event })" /> Cinema bars</label>
-          </div>
-        </div>
+            </div>
+          }
+        }
 
-        <div class="ps-card">
-          <div class="ps-label">⏱ Timing</div>
-          <label class="ps-slider">
-            <span>On screen</span>
-            <input type="range" class="form-range" min="1" max="20" step="0.5"
-                   [ngModel]="current.seconds" (ngModelChange)="update(current.id, { seconds: +$event })" />
-            <span class="mono">{{ current.seconds }}s</span>
-          </label>
-          <label class="ps-row">
-            <span>Into next</span>
-            <select class="form-select form-select-sm" [ngModel]="current.transition"
-                    (ngModelChange)="update(current.id, { transition: $event })">
-              @for (t of transitions; track t) { <option [value]="t">{{ t === 'None' ? 'Cut' : t }}</option> }
-            </select>
-          </label>
-          <div class="ps-seg">
-            <button type="button" (click)="applyToAll()" title="Copy this shot's look, effects, strength, timing and transition to every shot (each keeps its own move)">
-              ⧉ Apply look to all
+        @case ('timing') {
+          <div class="ps-card">
+            <div class="ps-label">🎵 Run time</div>
+            <div class="ps-meter" [class.over]="gap !== null && gap > 0.5" [class.fits]="gap !== null && gap >= -0.5 && gap <= 0.5">
+              <div class="ps-meter-row"><span>Story</span><strong class="mono">{{ runTime(totalSeconds()) }}</strong></div>
+              <div class="ps-meter-row">
+                <span>Studio music &amp; voice</span>
+                <strong class="mono">{{ music !== null ? runTime(music) : '-' }}</strong>
+              </div>
+              @if (music !== null) {
+                <div class="ps-meter-bar" aria-hidden="true">
+                  <span [style.width.%]="Math.min(100, (totalSeconds() / Math.max(music, totalSeconds(), 0.1)) * 100)"></span>
+                  <i [style.left.%]="Math.min(100, (music / Math.max(music, totalSeconds(), 0.1)) * 100)"></i>
+                </div>
+                <p class="ps-muted ps-pad" role="status">
+                  @if (gap !== null && gap > 0.5) { The story runs {{ gap | number:'1.0-1' }}s past the music. }
+                  @else if (gap !== null && gap < -0.5) { The music runs {{ -gap | number:'1.0-1' }}s past the story. }
+                  @else { The story matches the music. }
+                </p>
+              } @else {
+                <p class="ps-muted ps-pad">No music with a known length on the studio timeline - fit to a length of your own below.</p>
+              }
+            </div>
+            <button type="button" class="ps-btn primary" [disabled]="music === null || slides().length === 0 || !includeMusic()"
+                    [title]="!includeMusic() ? 'Turn on studio music & voice under Create first' : 'Change every shot’s time so the story ends with the music'"
+                    (click)="fitToMusic()">
+              ♫ Fit to music{{ music !== null ? ' (' + runTime(music) + ')' : '' }}
             </button>
-            <button type="button" (click)="autoCinematic()" title="Give every shot a different camera move">🎲 Auto moves</button>
+            <div class="ps-inline">
+              <label for="ps-target">Fit to</label>
+              <input id="ps-target" type="number" class="form-control form-control-sm" min="1" [max]="slides().length * maxSeconds || maxSeconds" step="1"
+                     [ngModel]="targetSeconds()" (ngModelChange)="targetSeconds.set(numberOr($event, targetSeconds()))" />
+              <span class="ps-muted">s</span>
+              <button type="button" class="ps-btn" [disabled]="slides().length === 0" (click)="fitTo(targetSeconds())">Fit</button>
+            </div>
+            <label class="ps-check"><input type="checkbox" [ngModel]="keepShares()" (ngModelChange)="keepShares.set($event)" />
+              Keep each shot's share <span class="ps-muted">(off: equal time for every shot)</span></label>
           </div>
-        </div>
+
+          @if (current) {
+            <div class="ps-card">
+              <div class="ps-label">⏱ Shot {{ selectedIndex() + 1 }}</div>
+              <label class="ps-slider">
+                <span>On screen</span>
+                <input type="range" class="form-range" [min]="minSeconds" [max]="Math.max(20, current.seconds)" step="0.5"
+                       [ngModel]="current.seconds" (ngModelChange)="update(current.id, { seconds: +$event })" />
+                <input type="number" class="form-control form-control-sm ps-num-input" [min]="minSeconds" [max]="maxSeconds" step="0.1"
+                       aria-label="Seconds on screen" [ngModel]="current.seconds"
+                       (ngModelChange)="update(current.id, { seconds: numberOr($event, current.seconds) })" />
+              </label>
+              <label class="ps-row">
+                <span>Into next</span>
+                <select class="form-select form-select-sm" [ngModel]="current.transition"
+                        (ngModelChange)="update(current.id, { transition: $event })">
+                  @for (t of transitions; track t) { <option [value]="t">{{ transitionLabel(t) }}</option> }
+                </select>
+              </label>
+              <button type="button" class="ps-btn" (click)="applyTransitionToAll()">⧉ Transition to {{ bulkLabel() }}</button>
+            </div>
+          }
+
+          <div class="ps-card">
+            <div class="ps-label">⧗ Every shot <span class="ps-muted">- {{ bulkLabel() }}</span></div>
+            <div class="ps-inline">
+              <label for="ps-bulk-secs">Set to</label>
+              <input id="ps-bulk-secs" type="number" class="form-control form-control-sm" [min]="minSeconds" [max]="maxSeconds" step="0.5"
+                     [ngModel]="bulkSeconds()" (ngModelChange)="bulkSeconds.set(numberOr($event, bulkSeconds()))" />
+              <span class="ps-muted">s</span>
+              <button type="button" class="ps-btn" [disabled]="slides().length === 0" (click)="setAllSeconds()">Apply</button>
+            </div>
+            <label class="ps-slider">
+              <span>Transition</span>
+              <input type="range" class="form-range" min="0.2" max="2" step="0.1"
+                     [ngModel]="transitionSeconds()" (ngModelChange)="transitionSeconds.set(+$event)" />
+              <span class="mono">{{ transitionSeconds() | number:'1.1-1' }}s</span>
+            </label>
+          </div>
+        }
+
+        @case ('create') {
+          <div class="ps-card">
+            <div class="ps-label">🎬 Video</div>
+            <label class="ps-row">
+              <span>Name</span>
+              <input class="form-control form-control-sm" maxlength="120" [ngModel]="name()" (ngModelChange)="name.set($event)" />
+            </label>
+            <div class="ps-seg" role="group" aria-label="Format">
+              @for (f of formats; track f.id) {
+                <button type="button" [class.on]="formatId() === f.id" [attr.aria-pressed]="formatId() === f.id" (click)="formatId.set(f.id)">{{ f.label }}</button>
+              }
+            </div>
+            <label class="ps-row">
+              <span>Framing</span>
+              <select class="form-select form-select-sm" [ngModel]="fit()" (ngModelChange)="fit.set($event)">
+                <option value="Cover">Fill the frame (crop edges)</option>
+                <option value="BlurredBackdrop">Whole picture on a blurred fill</option>
+                <option value="Contain">Whole picture with bars</option>
+              </select>
+            </label>
+            <label class="ps-row">
+              <span>Quality</span>
+              <select class="form-select form-select-sm" [ngModel]="quality()" (ngModelChange)="quality.set($event)">
+                <option value="Fast">Fast</option>
+                <option value="High">High</option>
+                <option value="Best">Best</option>
+              </select>
+            </label>
+            <div class="ps-toggles">
+              <label title="The music and voice-over tracks on the studio timeline"><input type="checkbox" [ngModel]="includeMusic()" (ngModelChange)="includeMusic.set($event)" /> Studio music &amp; voice</label>
+              <label><input type="checkbox" [ngModel]="watermark()" (ngModelChange)="watermark.set($event)" /> Watermark</label>
+              <label><input type="checkbox" [ngModel]="outro()" (ngModelChange)="outro.set($event)" /> End card</label>
+            </div>
+          </div>
+
+          <div class="ps-card">
+            <div class="ps-label">📋 Summary</div>
+            <dl class="ps-summary">
+              <dt>Shots</dt><dd>{{ slides().length }}</dd>
+              <dt>Length</dt><dd class="mono">{{ runTime(totalSeconds()) }}{{ outro() ? ' + end card' : '' }}</dd>
+              <dt>Style</dt><dd>{{ presetLabel() ?? 'Custom' }}</dd>
+              <dt>Captions</dt><dd>{{ captionCount() }}</dd>
+              <dt>Music</dt><dd>{{ includeMusic() ? (music !== null ? runTime(music) : 'Studio tracks') : 'Off' }}</dd>
+              <dt>Output</dt><dd class="mono">{{ format().width }}×{{ format().height }}</dd>
+            </dl>
+            @if (captionCount() > 0) {
+              <p class="ps-hint">Captions are drawn in the rendered video. "Apply to timeline" carries the camera and look only.</p>
+            }
+            <button type="button" class="ps-btn primary" [disabled]="slides().length === 0 || state.running()" (click)="build()">
+              🚀 Render video
+            </button>
+          </div>
+        }
       }
 
-      <div class="ps-card">
-        <div class="ps-label">🎬 Video</div>
-        <label class="ps-row">
-          <span>Name</span>
-          <input class="form-control form-control-sm" maxlength="120" [ngModel]="name()" (ngModelChange)="name.set($event)" />
-        </label>
-        <div class="ps-seg">
-          @for (f of formats; track f.id) {
-            <button type="button" [class.on]="formatId() === f.id" (click)="formatId.set(f.id)">{{ f.label }}</button>
-          }
-        </div>
-        <label class="ps-row">
-          <span>Framing</span>
-          <select class="form-select form-select-sm" [ngModel]="fit()" (ngModelChange)="fit.set($event)">
-            <option value="Cover">Fill the frame (crop edges)</option>
-            <option value="BlurredBackdrop">Whole picture on a blurred fill</option>
-            <option value="Contain">Whole picture with bars</option>
-          </select>
-        </label>
-        <label class="ps-slider">
-          <span>Transition</span>
-          <input type="range" class="form-range" min="0.2" max="2" step="0.1"
-                 [ngModel]="transitionSeconds()" (ngModelChange)="transitionSeconds.set(+$event)" />
-          <span class="mono">{{ transitionSeconds() | number:'1.1-1' }}s</span>
-        </label>
-        <label class="ps-row">
-          <span>Quality</span>
-          <select class="form-select form-select-sm" [ngModel]="quality()" (ngModelChange)="quality.set($event)">
-            <option value="Fast">Fast</option>
-            <option value="High">High</option>
-            <option value="Best">Best</option>
-          </select>
-        </label>
-        <div class="ps-toggles">
-          <label title="The music and voice-over tracks on the studio timeline"><input type="checkbox" [ngModel]="includeMusic()" (ngModelChange)="includeMusic.set($event)" /> Studio music &amp; voice</label>
-          <label><input type="checkbox" [ngModel]="watermark()" (ngModelChange)="watermark.set($event)" /> Watermark</label>
-          <label><input type="checkbox" [ngModel]="outro()" (ngModelChange)="outro.set($event)" /> End card</label>
-        </div>
+      <div class="ps-step-nav">
+        <button type="button" class="ps-btn" [disabled]="stepIndex() === 0" (click)="nextStep(-1)">← Back</button>
+        @if (stepIndex() < steps.length - 1) {
+          <button type="button" class="ps-btn primary" (click)="nextStep(1)">Next: {{ steps[stepIndex() + 1].label }} →</button>
+        }
       </div>
     </aside>
   </div>
 
   <div class="ps-foot">
-    <span class="ps-muted">{{ slides().length }} shots · {{ totalSeconds() | number:'1.0-1' }}s · {{ format().width }}×{{ format().height }}</span>
+    <span class="ps-muted">{{ slides().length }} shots · {{ runTime(totalSeconds()) }} · {{ format().width }}×{{ format().height }}</span>
     <button type="button" class="ps-btn" (click)="close()">Cancel</button>
     <button type="button" class="ps-btn" [disabled]="slides().length === 0" (click)="applyToTimeline()"
             title="Put these camera moves and looks on the same pictures in your edit, so the editor plays them">
@@ -218,4 +457,6 @@
       🚀 Render video
     </button>
   </div>
+
+  <span class="ps-sr" aria-live="polite">{{ announce() }}</span>
 </div>

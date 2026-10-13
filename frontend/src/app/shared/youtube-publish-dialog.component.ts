@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { catchError, forkJoin, of } from 'rxjs';
 
 import {
-  MAX_RELATED_VIDEOS, YOUTUBE_MUSIC_CATEGORY_ID, YouTubeCheck, YouTubeDraft, YouTubePrivacy, YouTubePublication, YouTubePublishSource,
+  MAX_RELATED_VIDEOS, YOUTUBE_MUSIC_CATEGORY_ID, YouTubeCheck, YouTubeDestination, YouTubeDraft, YouTubePrivacy, YouTubePublication, YouTubePublishSource,
   YouTubePublishStatus, YouTubeSuggestEngine, YouTubeUpload,
   isUploadFinished, parseYouTubeTags, relatedVideosBlock, youTubeTagsLength,
 } from '../core/models/youtube.models';
@@ -42,7 +42,8 @@ interface PublishPrefs {
     <div class="yt-backdrop" (click)="closed.emit()">
       <div class="yt-dialog" role="dialog" aria-modal="true" aria-label="Publish to YouTube" (click)="$event.stopPropagation()">
         <header class="yt-head">
-          <h4><span class="yt-logo" aria-hidden="true">▶</span> {{ reviewing() ? 'Review before uploading' : isRelease() ? 'Publish to YouTube Music' : 'Publish to YouTube' }}</h4>
+          <h4><span class="yt-logo" [class.music]="isMusic()" aria-hidden="true">{{ isMusic() ? '♪' : '▶' }}</span>
+            {{ reviewing() ? 'Review before uploading' : isMusic() ? 'Publish to YouTube Music' : 'Publish to YouTube' }}</h4>
           <button type="button" class="yt-x" aria-label="Close" (click)="closed.emit()">✕</button>
         </header>
 
@@ -57,6 +58,7 @@ interface PublishPrefs {
             <div class="yt-review">
               <p class="yt-muted">Check everything once more. Nothing is sent to YouTube until you confirm.</p>
               <dl>
+                <div><dt>Destination</dt><dd>{{ isMusic() ? 'YouTube + YouTube Music (Music category)' : 'YouTube' }}</dd></div>
                 <div><dt>Channel</dt><dd>{{ selectedChannel()?.channelTitle }}</dd></div>
                 <div><dt>Visibility</dt><dd>{{ privacyLabel() }}{{ notify() && privacy() === 'public' ? ' · subscribers notified' : '' }}</dd></div>
                 <div><dt>Audience</dt><dd>{{ madeForKids() ? 'Made for kids' : 'Not made for kids' }}</dd></div>
@@ -77,6 +79,28 @@ interface PublishPrefs {
               }
             </div>
           } @else {
+            <!-- Where it should be found. Either way it is one upload with one video id. -->
+            <div class="yt-dest" role="radiogroup" aria-label="Publish to">
+              <button type="button" role="radio" class="yt-dest-opt" [class.active]="!isMusic()" [attr.aria-checked]="!isMusic()"
+                      (click)="setDestination('youtube')" [disabled]="uploading() || isRelease()"
+                      [title]="isRelease() ? 'A song always goes up as Music' : 'An ordinary video, in the category you pick'">
+                <span class="yt-dest-icon" aria-hidden="true">▶</span>
+                <span><strong>YouTube</strong><small>A video, in the category you pick</small></span>
+              </button>
+              <button type="button" role="radio" class="yt-dest-opt music" [class.active]="isMusic()" [attr.aria-checked]="isMusic()"
+                      (click)="setDestination('music')" [disabled]="uploading()">
+                <span class="yt-dest-icon" aria-hidden="true">♪</span>
+                <span><strong>YouTube Music</strong><small>Music category · also listed in the YouTube Music app</small></span>
+              </button>
+            </div>
+            @if (isMusic()) {
+              <p class="yt-dest-note">
+                <strong>One upload, two places.</strong> The video goes up on YouTube as usual and, being in the Music
+                category, is listed on YouTube Music under the channel too - same video, same views, likes and comments,
+                two links: <code>youtube.com</code> and <code>music.youtube.com</code>. Official audio-only songs
+                ("Art Tracks") on YouTube Music still only come from a music distributor.
+              </p>
+            }
             <div class="yt-grid">
               <!-- Left: what is being published, where, and how. -->
               <aside class="yt-side">
@@ -137,7 +161,8 @@ interface PublishPrefs {
                 <section class="yt-card">
                   <div class="yt-row">
                     <label>Category
-                      <select [ngModel]="categoryId()" (ngModelChange)="categoryId.set($event)" [disabled]="uploading()">
+                      <select [ngModel]="categoryId()" (ngModelChange)="categoryId.set($event)" [disabled]="uploading() || isMusic()"
+                              [title]="isMusic() ? 'YouTube Music needs the Music category. Switch to YouTube above to pick another.' : ''">
                         @for (c of st.categories; track c.id) { <option [value]="c.id">{{ c.name }}</option> }
                       </select>
                     </label>
@@ -149,9 +174,6 @@ interface PublishPrefs {
                       </select>
                     </label>
                   </div>
-                  @if (isRelease() && categoryId() !== musicCategoryId) {
-                    <p class="yt-warn">Only the Music category lists this song on YouTube Music.</p>
-                  }
                   <fieldset class="yt-audience" [disabled]="uploading()">
                     <legend>Audience</legend>
                     <label class="inline"><input type="radio" name="kids" [checked]="madeForKids() === false" (change)="madeForKids.set(false)" /> Not made for kids</label>
@@ -339,8 +361,12 @@ interface PublishPrefs {
                 @switch (u.state) {
                   @case ('Completed') {
                     <p class="ok">✓ Published to {{ u.channelTitle }} ({{ u.privacy }}).
-                      <a [href]="u.videoUrl" target="_blank" rel="noopener noreferrer">Watch ↗</a> ·
+                      <a [href]="u.videoUrl" target="_blank" rel="noopener noreferrer">Watch on YouTube ↗</a> ·
+                      @if (u.musicUrl) { <a [href]="u.musicUrl" target="_blank" rel="noopener noreferrer">Play on YouTube Music ↗</a> · }
                       <a [href]="u.studioUrl" target="_blank" rel="noopener noreferrer">Open in YouTube Studio ↗</a></p>
+                    @if (u.musicUrl) {
+                      <p class="yt-muted">Both links open the same video. YouTube Music may take a while to list it under the channel.</p>
+                    }
                     <p class="yt-muted">YouTube may still be processing HD versions for a few minutes.
                       @if (u.privacy === 'private') { Finish the details and publish it from YouTube Studio. }</p>
                     @if (u.commentId) { <p class="yt-muted">💬 First comment posted. Pin it from YouTube Studio if you want it on top.</p> }
@@ -395,7 +421,24 @@ interface PublishPrefs {
     .yt-head h4 { margin: 0; font-size: 1.05rem; display: flex; align-items: center; gap: .55rem; }
     .yt-logo { display: inline-grid; place-items: center; width: 1.6rem; height: 1.1rem; border-radius: 5px;
       background: #ff3d3d; color: #fff; font-size: .6rem; }
+    .yt-logo.music { border-radius: 50%; width: 1.25rem; height: 1.25rem; font-size: .75rem; }
     .yt-x { background: transparent; border: 0; color: inherit; font-size: 1.1rem; cursor: pointer; }
+
+    .yt-dest { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; margin-bottom: .75rem; }
+    @media (max-width: 560px) { .yt-dest { grid-template-columns: 1fr; } }
+    .yt-dest-opt { display: flex; align-items: center; gap: .65rem; text-align: left; padding: .6rem .8rem; border-radius: 10px;
+      border: 1px solid rgba(148, 163, 184, .2); background: rgba(148, 163, 184, .06); color: inherit; cursor: pointer; }
+    .yt-dest-opt:hover:not(:disabled) { border-color: rgba(148, 163, 184, .45); box-shadow: none; }
+    .yt-dest-opt:disabled { cursor: default; opacity: .55; }
+    .yt-dest-opt.active { border-color: #ff3d3d; background: rgba(255, 61, 61, .1); opacity: 1; }
+    .yt-dest-opt span:last-child { display: grid; gap: .1rem; }
+    .yt-dest-opt small { color: var(--muted, #94a3b8); font-size: .76rem; font-weight: 400; }
+    .yt-dest-icon { display: inline-grid; place-items: center; flex: none; width: 2rem; height: 2rem; border-radius: 8px;
+      background: #ff3d3d; color: #fff; font-size: .8rem; }
+    .yt-dest-opt.music .yt-dest-icon { border-radius: 50%; font-size: 1rem; }
+    .yt-dest-note { margin: 0 0 .9rem; padding: .6rem .8rem; border-radius: 10px; font-size: .84rem; line-height: 1.45;
+      background: rgba(255, 61, 61, .07); border: 1px solid rgba(255, 61, 61, .2); }
+    .yt-dest-note code { font-size: .8rem; }
 
     .yt-body { flex: 1 1 auto; overflow: auto; padding: 1rem 1.25rem; }
     .yt-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 1rem;
@@ -512,6 +555,11 @@ export class YouTubePublishDialogComponent implements OnInit {
   /** A render (the default) or a release kit's visualizer. */
   readonly source = input<YouTubePublishSource>('render');
   readonly isRelease = computed(() => this.source() === 'release');
+  /** YouTube, or YouTube Music (the Music category). A song, or a music project's render, starts on Music. */
+  readonly destination = signal<YouTubeDestination>('youtube');
+  readonly isMusic = computed(() => this.destination() === 'music');
+  /** The category picked before switching to Music, to give back when switching away again. */
+  private categoryBeforeMusic: string | null = null;
   readonly previewSrc = input.required<string>();
   /** The in-app path to come back to after connecting a channel. */
   readonly returnPath = input.required<string>();
@@ -525,7 +573,6 @@ export class YouTubePublishDialogComponent implements OnInit {
   readonly published = output<YouTubeUpload>();
 
   readonly maxRelated = MAX_RELATED_VIDEOS;
-  readonly musicCategoryId = YOUTUBE_MUSIC_CATEGORY_ID;
   /** The user's videos uploaded from the app, for the related-videos picker. */
   readonly videos = signal<YouTubePublication[]>([]);
   readonly relatedIds = signal<string[]>([]);
@@ -703,8 +750,8 @@ export class YouTubePublishDialogComponent implements OnInit {
           const remembered = status.channels.find((c) => c.channelId === prefs.channelId);
           this.channelId.set(remembered?.channelId ?? status.channels[0]?.channelId ?? '');
         }
-        // A song is always Music, whatever was last picked for a render: that lists it on YouTube Music.
-        if (this.isRelease()) this.categoryId.set(YOUTUBE_MUSIC_CATEGORY_ID);
+        // A song or a music project goes to YouTube Music, whatever was last picked for a video.
+        if (this.isRelease() || draft.isMusic) this.setDestination('music');
         if (this.asDraft()) {
           this.privacy.set('private');
           this.notify.set(false);
@@ -723,6 +770,28 @@ export class YouTubePublishDialogComponent implements OnInit {
         this.loading.set(false);
       },
     });
+  }
+
+  /**
+   * Music sends the upload in the Music category, which is all that lists it on YouTube Music;
+   * switching back restores the category picked before. A song can't leave Music.
+   */
+  setDestination(destination: YouTubeDestination): void {
+    if (this.uploading() || (this.isRelease() && destination !== 'music')) return;
+    if (destination === 'music') {
+      if (!this.isMusic()) this.categoryBeforeMusic = this.categoryId();
+      this.categoryId.set(YOUTUBE_MUSIC_CATEGORY_ID);
+    } else if (this.isMusic()) {
+      this.categoryId.set(this.videoCategory() ?? '1');
+    }
+    this.destination.set(destination);
+  }
+
+  /** The non-Music category this upload would have as an ordinary video, if one is known. */
+  private videoCategory(): string | undefined {
+    const known = new Set(this.status()?.categories.map((c) => c.id));
+    return [this.categoryBeforeMusic, this.readPrefs().categoryId, this.draft()?.categoryId]
+      .find((id): id is string => !!id && id !== YOUTUBE_MUSIC_CATEGORY_ID && known.has(id));
   }
 
   connect(): void {
@@ -938,7 +1007,8 @@ export class YouTubePublishDialogComponent implements OnInit {
     try {
       const prefs: PublishPrefs = {
         channelId: this.channelId(),
-        categoryId: this.categoryId(),
+        // Music is decided per upload, so the next ordinary video keeps the category picked for videos.
+        categoryId: this.isMusic() ? this.videoCategory() : this.categoryId(),
         privacy: this.privacy(),
         madeForKids: this.madeForKids() ?? undefined,
       };

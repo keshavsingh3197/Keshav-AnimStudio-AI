@@ -49,6 +49,8 @@ export interface PhotoStorySlide {
   cinematic: CinematicImage;
   /** Into the next slide; ignored on the last. */
   transition: string;
+  /** Optional words over this slide in the export, as a TXT1 text item. */
+  caption?: string;
 }
 
 /** Image lanes whose pictures play full frame in their slot, and so can carry a shot. */
@@ -9219,6 +9221,58 @@ export class StudioStateService implements OnDestroy {
   readonly photoStoryOpen = signal(false);
 
   /**
+   * How long the studio's music and voice run from 0, as a photo story mixes them: the
+   * background bed and every unmuted timed track. Null when there is none, or no length
+   * is known for any of it.
+   */
+  readonly photoStoryMusicSeconds = computed<number | null>(() => {
+    let end = 0;
+    const bedId = this.musicAssetId();
+    if (bedId) {
+      const bed = this.musicCandidates().find((m) => m.id === bedId);
+      if (bed?.durationSeconds && bed.durationSeconds > 0) end = bed.durationSeconds;
+    }
+    for (const t of this.musicTracks()) {
+      if (t.muted || !this.musicTrackAsset(t)?.durationSeconds) continue;
+      end = Math.max(end, Math.max(0, t.startSeconds) + this.musicTrackDurationSeconds(t));
+    }
+    return end > 0 ? Math.round(end * 10) / 10 : null;
+  });
+
+  /** Pictures still uploading from inside Photo Story. */
+  readonly photoStoryUploading = signal(0);
+
+  /**
+   * Uploads pictures dropped or chosen in Photo Story, one at a time so they arrive in the
+   * order given, and hands each finished asset back so the story can add it.
+   */
+  uploadPhotoStoryPictures(files: readonly File[], added: (asset: { id: string; name: string }) => void): void {
+    const projectId = this.store.projectId();
+    if (!projectId) return;
+    const images = files.filter((f) => /^image\/(png|jpeg|webp|gif)$/.test(f.type));
+    if (images.length < files.length) this.status.notify(['Only PNG, JPEG, WebP and GIF pictures can go in a photo story.']);
+    if (images.length === 0) return;
+
+    this.photoStoryUploading.update((n) => n + images.length);
+    from(images).pipe(
+      concatMap((file) => this.api.uploadAsset(projectId, file).pipe(
+        map((asset) => ({ id: asset.id, name: asset.name })),
+        catchError(() => {
+          this.status.error.set(`Failed to upload ${file.name}`);
+          return of(null);
+        }),
+        finalize(() => this.photoStoryUploading.update((n) => Math.max(0, n - 1))),
+      )),
+    ).subscribe({
+      next: (asset) => { if (asset) added(asset); },
+      complete: () => {
+        this.store.refreshAssets();
+        this.loadStudio();
+      },
+    });
+  }
+
+  /**
    * Exports a video made only of stills. Each still is a V1 clip carrying its own camera
    * move and grade, so the server renders it through the same clip path as footage - and
    * the studio's own cut is left untouched.
@@ -9258,6 +9312,27 @@ export class StudioStateService implements OnDestroy {
       };
     });
 
+    // A caption sits on its own slide, clear of the transitions either side. The server
+    // lengthens each still by its lead-in/tail-out, so a slide's start holds as laid out.
+    const captionItems: TimelineItem[] = [];
+    timelineItems.forEach((it, k) => {
+      const text = (slides[k].caption ?? '').replace(/\s+/g, ' ').trim().slice(0, 140);
+      if (!text) return;
+      const padIn = k > 0 ? junctions[k - 1].transitionSeconds / 2 : 0;
+      const padOut = k < junctions.length ? junctions[k].transitionSeconds / 2 : 0;
+      const duration = it.duration - padIn - padOut;
+      captionItems.push({
+        id: `story_caption_${k}`,
+        type: 'text',
+        trackId: 'TXT1',
+        startTime: duration >= 0.5 ? it.startTime + padIn : it.startTime,
+        duration: duration >= 0.5 ? duration : it.duration,
+        src: text,
+        name: 'Caption',
+        textStyle: this.exportTextStyle({ ...DEFAULT_TEXT_STYLE }),
+      });
+    });
+
     const wm: WatermarkBody = this.effectiveWatermark();
     this.status.run(
       this.api.mergeClips(projectId, {
@@ -9275,7 +9350,7 @@ export class StudioStateService implements OnDestroy {
         backgroundMusicAssetId: options.includeMusic ? this.musicAssetId() || null : null,
         backgroundMusicVolume: Math.max(0, Math.min(2.0, Number(this.musicVolume()) || 0)),
         musicTracks: options.includeMusic ? this.musicTracksPayload() : [],
-        timelineItems,
+        timelineItems: [...timelineItems, ...captionItems],
         watermark: options.watermark ? wm : { ...wm, kind: 'None' as WatermarkKind },
         includeOutro: options.outro,
         youTubeLoudness: options.includeMusic,

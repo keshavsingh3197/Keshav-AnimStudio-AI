@@ -20,6 +20,16 @@ public static partial class YouTubeRelatedVideos
 
     public static string WatchUrl(string videoId) => $"https://youtu.be/{videoId}";
 
+    /// <summary>
+    /// The same video in the YouTube Music app. There is one upload and one id: YouTube Music
+    /// plays any video by it, and lists a Music-category one under the channel.
+    /// </summary>
+    public static string MusicUrl(string videoId) => $"https://music.youtube.com/watch?v={videoId}";
+
+    /// <summary>The music link for an upload in the Music category; null for any other.</summary>
+    public static string? MusicUrlFor(string videoId, string? categoryId) =>
+        categoryId == YouTubeMusicMetadata.MusicCategoryId ? MusicUrl(videoId) : null;
+
     /// <summary>The description with a "Related videos" block appended; unchanged when there are none.</summary>
     public static string AppendToDescription(string description, IReadOnlyList<RelatedYouTubeVideo> related)
     {

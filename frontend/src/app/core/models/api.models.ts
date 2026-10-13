@@ -38,7 +38,12 @@ export interface Project {
   brandChannelId?: string | null;
   /** True: the watermark is the channel's, live. False: defaultWatermark is this project's own. */
   followChannelWatermark?: boolean;
+  /** A music project's renders publish to YouTube Music by default. */
+  contentType?: ProjectContentType;
 }
+
+/** What a project makes; 'music' sends its renders to YouTube Music (the Music category). */
+export type ProjectContentType = 'video' | 'music';
 
 export interface CreateProjectBody {
   name: string;
@@ -49,6 +54,7 @@ export interface CreateProjectBody {
   distributionIntent: string;
   /** Channel to publish under; its watermark is copied into the new project. */
   brandChannelId?: string | null;
+  contentType?: ProjectContentType;
 }
 
 /** The id of the built-in brand channel (the studio's original single branding). */

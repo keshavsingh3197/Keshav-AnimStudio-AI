@@ -37,7 +37,9 @@ public sealed record ProjectResponse(
     WatermarkResponse? DefaultWatermark = null,
     OutroResponse? DefaultOutro = null,
     string? BrandChannelId = null,
-    bool FollowChannelWatermark = true);
+    bool FollowChannelWatermark = true,
+    /// <summary>"video" or "music"; a music project publishes to YouTube Music by default.</summary>
+    string ContentType = ProjectContentTypes.Video);
 
 /// <summary>A brand channel and its look. The built-in default comes first, with IsDefault set.</summary>
 public sealed record BrandChannelResponse(

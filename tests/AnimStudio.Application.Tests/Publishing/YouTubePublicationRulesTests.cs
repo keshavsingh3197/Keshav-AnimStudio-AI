@@ -28,6 +28,21 @@ public class YouTubePublicationRulesTests
     }
 
     [Fact]
+    public void A_music_upload_also_links_to_the_same_video_on_YouTube_Music()
+    {
+        Assert.Equal("https://music.youtube.com/watch?v=AAAAAAAAAAA",
+            YouTubeRelatedVideos.MusicUrlFor("AAAAAAAAAAA", YouTubeMusicMetadata.MusicCategoryId));
+        Assert.Equal("https://youtu.be/AAAAAAAAAAA", YouTubeRelatedVideos.WatchUrl("AAAAAAAAAAA"));
+    }
+
+    [Theory]
+    [InlineData("1")]
+    [InlineData("24")]
+    [InlineData(null)]
+    public void Other_categories_get_no_YouTube_Music_link(string? categoryId) =>
+        Assert.Null(YouTubeRelatedVideos.MusicUrlFor("AAAAAAAAAAA", categoryId));
+
+    [Fact]
     public void No_related_videos_leaves_the_description_unchanged()
     {
         Assert.Equal("Just this.", YouTubeRelatedVideos.AppendToDescription("Just this.  ", []));

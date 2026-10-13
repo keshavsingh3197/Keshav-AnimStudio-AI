@@ -9,6 +9,13 @@
       </div>
     </div>
     <div class="settings-top-actions">
+      <label class="channel-picker" title="Music: renders publish to YouTube Music (Music category), and so also appear on YouTube">
+        <span>🎯 Made for</span>
+        <select class="form-select" [(ngModel)]="form.contentType" aria-label="What this project makes">
+          <option value="video">🎬 Video</option>
+          <option value="music">♪ Music (YouTube Music)</option>
+        </select>
+      </label>
       @if (channels().length > 1) {
         <label class="channel-picker" title="Which YouTube channel this project publishes under: its watermark and end card">
           <span>📺 Channel</span>

@@ -61,6 +61,22 @@ public sealed record CreateProjectRequest
 
     /// <summary>The channel to publish under; its watermark is copied in. Null means the default.</summary>
     [StringLength(64)] public string? BrandChannelId { get; init; }
+
+    /// <summary>"video" or "music"; null is a video.</summary>
+    [AllowedValues(ProjectContentTypes.Video, ProjectContentTypes.Music, null)]
+    public string? ContentType { get; init; }
+}
+
+/// <summary>A project's content type on the wire, and back.</summary>
+public static class ProjectContentTypes
+{
+    public const string Video = "video";
+    public const string Music = "music";
+
+    public static ProjectContentType Parse(string? value) =>
+        value == Music ? ProjectContentType.Music : ProjectContentType.Video;
+
+    public static string Format(ProjectContentType type) => type == ProjectContentType.Music ? Music : Video;
 }
 
 /// <summary>A new brand channel, optionally starting as a copy of an existing one's look.</summary>
@@ -197,6 +213,10 @@ public sealed record UpdateProjectRequest
 
     /// <summary>Null leaves the channel unchanged; "default" (or blank) picks the default channel.</summary>
     [StringLength(64)] public string? BrandChannelId { get; init; }
+
+    /// <summary>"video" or "music". Null leaves it unchanged.</summary>
+    [AllowedValues(ProjectContentTypes.Video, ProjectContentTypes.Music, null)]
+    public string? ContentType { get; init; }
 
     /// <summary>True: use the channel's watermark live; false: DefaultWatermark is custom. Null: unchanged.</summary>
     public bool? FollowChannelWatermark { get; init; }

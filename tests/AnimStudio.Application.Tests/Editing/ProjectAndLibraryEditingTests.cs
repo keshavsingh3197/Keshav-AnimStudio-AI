@@ -64,6 +64,18 @@ public class ProjectEditingServiceTests
     }
 
     [Fact]
+    public async Task A_project_can_be_marked_as_music_and_an_edit_without_it_keeps_it()
+    {
+        var world = new EditingWorld();
+
+        await world.ProjectEditing.UpdateAsync(
+            Command(world) with { ContentType = ProjectContentType.Music }, CancellationToken.None);
+        var project = await world.ProjectEditing.UpdateAsync(Command(world), CancellationToken.None);
+
+        Assert.Equal(ProjectContentType.Music, project.Settings.ContentType);
+    }
+
+    [Fact]
     public async Task The_music_bed_must_be_an_audio_file_from_this_project()
     {
         var world = new EditingWorld();

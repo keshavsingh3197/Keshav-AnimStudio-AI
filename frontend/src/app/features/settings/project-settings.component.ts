@@ -6,7 +6,7 @@ import { Router, RouterLink } from '@angular/router';
 import {
   BrandChannel, DEFAULT_BRAND_CHANNEL,
   CANVAS_PRESETS, DISTRIBUTION_INTENTS, WATERMARK_POSITIONS, WatermarkBody, WatermarkKind, WatermarkPosition,
-  OutroBody, OutroKind, aspectRatioLabel, videoFormat,
+  OutroBody, OutroKind, ProjectContentType, aspectRatioLabel, videoFormat,
 } from '../../core/models/api.models';
 import { ApiService } from '../../core/services/api.service';
 import { ProjectStore } from '../../core/services/project-store';
@@ -77,6 +77,7 @@ export class ProjectSettingsComponent {
     defaultOutroTransitionDurationFrames: 15,
     brandChannelId: DEFAULT_BRAND_CHANNEL as string,
     followChannelWatermark: true,
+    contentType: 'video' as ProjectContentType,
   };
 
   /**
@@ -169,6 +170,7 @@ export class ProjectSettingsComponent {
         defaultOutroTransitionDurationFrames: project.defaultOutro?.transitionDurationFrames || 15,
         brandChannelId: project.brandChannelId || DEFAULT_BRAND_CHANNEL,
         followChannelWatermark: project.followChannelWatermark ?? true,
+        contentType: project.contentType ?? 'video',
       };
 
       this.presetIndex = this.matchPreset(project.width, project.height);
@@ -472,6 +474,7 @@ export class ProjectSettingsComponent {
         name: this.form.name,
         brandChannelId: this.form.brandChannelId || DEFAULT_BRAND_CHANNEL,
         followChannelWatermark: this.form.followChannelWatermark,
+        contentType: this.form.contentType,
         description: this.form.description.trim() || undefined,
         width: this.form.width,
         height: this.form.height,

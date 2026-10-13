@@ -47,6 +47,9 @@ public sealed class YouTubePublication
     /// <summary>The visibility it was uploaded with: public, unlisted or private.</summary>
     public string Privacy { get; set; } = string.Empty;
 
+    /// <summary>YouTube's category id; "10" (Music) lists it on YouTube Music. Null on records from before it was kept.</summary>
+    public string? CategoryId { get; set; }
+
     /// <summary>Other app-published videos linked from this one's description.</summary>
     public List<string> RelatedVideoIds { get; set; } = [];
 

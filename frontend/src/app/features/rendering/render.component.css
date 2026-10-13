@@ -18,6 +18,8 @@ button.small { padding: .3rem .65rem; font-size: .8rem; }
 .rp-head h2 { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin: 0 0 .3rem; }
 .rp-head p { margin: 0; max-width: 62ch; }
 .rp-head-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+.rp-kind { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; margin: 0 0 .45rem; }
+.rp-kind button.active { border-color: #ff3d3d; background: rgba(255, 61, 61, .14); color: var(--text, #e2e8f0); }
 
 .rp-blocked { display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }
 .rp-hint { border-left-color: var(--brand); }
