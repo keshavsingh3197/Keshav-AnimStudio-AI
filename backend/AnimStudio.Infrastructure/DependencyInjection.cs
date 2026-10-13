@@ -260,6 +260,7 @@ public static class DependencyInjection
         services.AddScoped<IVideoRenderingService, FfmpegVideoRenderingService>();
         services.AddScoped<IOutroPreviewRenderer, OutroPreviewRenderer>();
         services.AddScoped<IMediaProbeService, FfprobeMediaProbeService>();
+        services.AddSingleton<SunoSongResolver>();
         services.AddSingleton<YtDlpMediaDownloader>();
         services.AddSingleton<FfmpegVideoChunker>();
         services.AddSingleton<IStudioVoiceRenderer, FfmpegStudioVoiceRenderer>();

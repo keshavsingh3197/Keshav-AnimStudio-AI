@@ -917,6 +917,7 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
       case 'reddit': return 'r/';
       case 'dailymotion': return 'd';
       case 'twitch': return '⌁';
+      case 'suno': return '♫';
       case 'direct': return '⬇';
       default: return '🔗';
     }

@@ -20,6 +20,9 @@ public class MediaSourceValidatorTests
     [InlineData("https://dms.licdn.com/playlist/vid/v2/D4D05AQ/mp4-720p-30fp-crf28/0/1699", "direct")]
     [InlineData("https://scontent-lhr8-1.cdninstagram.com/o1/v/t16/f1/m86/clip.mp4", "direct")]
     [InlineData("https://video.twimg.com/ext_tw_video/123/pu/vid/720x1280/abc.mp4", "direct")]
+    [InlineData("https://suno.com/s/EJNkIKevMH881izF", "suno")]
+    [InlineData("https://suno.com/song/dd960128-3027-4ed2-a87c-09ead3696137?sh=EJNkIKevMH881izF", "suno")]
+    [InlineData("https://cdn1.suno.ai/dd960128-3027-4ed2-a87c-09ead3696137.mp4", "direct")]
     public void Detects_the_platform_of_supported_video_links(string url, string platformId)
     {
         var result = MediaSourceValidator.Validate(url);
@@ -67,6 +70,25 @@ public class MediaSourceValidatorTests
 
         Assert.True(result.IsValid, result.ErrorMessage);
         Assert.Equal(url, result.CanonicalUrl);
+    }
+
+    [Fact]
+    public void Drops_the_share_code_from_a_suno_song_link()
+    {
+        var result = MediaSourceValidator.Validate(
+            "https://suno.com/song/dd960128-3027-4ed2-a87c-09ead3696137?sh=EJNkIKevMH881izF");
+
+        Assert.True(result.IsValid, result.ErrorMessage);
+        Assert.Equal("https://suno.com/song/dd960128-3027-4ed2-a87c-09ead3696137", result.CanonicalUrl);
+    }
+
+    [Fact]
+    public void Rejects_a_suno_profile_page()
+    {
+        var result = MediaSourceValidator.Validate("https://suno.com/@keshavsingh4522");
+
+        Assert.False(result.IsValid);
+        Assert.Equal("url-not-a-video", result.ErrorCode);
     }
 
     [Fact]
