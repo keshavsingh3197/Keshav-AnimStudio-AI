@@ -85,8 +85,16 @@ public sealed record AssetSearchHitResponse(
     AssetResponse Asset, string ProjectId, string ProjectName, string ChannelId,
     bool SameChannel, bool IsExport, bool AlreadyAdded, DateTime CreatedAt);
 
+/// <summary>A project the reuse search looked in that has matching files.</summary>
+public sealed record AssetSearchProjectResponse(
+    string Id, string Name, string ChannelId, bool SameChannel, int Matches);
+
+/// <param name="Total">Matches across every page.</param>
+/// <param name="Truncated">More matches follow this page.</param>
+/// <param name="KindCounts">Matches per file type (lower-case kind), ignoring the type filter.</param>
 public sealed record AssetSearchResponse(
-    IReadOnlyList<AssetSearchHitResponse> Items, int ProjectsSearched, bool Truncated);
+    IReadOnlyList<AssetSearchHitResponse> Items, int Total, int ProjectsSearched, bool Truncated,
+    IReadOnlyDictionary<string, int> KindCounts, IReadOnlyList<AssetSearchProjectResponse> Projects);
 
 public sealed record IngestResponse(
     string IngestId, string? ScriptId, int CueCount, int SegmentCount,

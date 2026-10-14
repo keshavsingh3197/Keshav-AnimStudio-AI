@@ -478,9 +478,28 @@ public sealed class AssetsController(
         [FromQuery] string? scope,
         [FromQuery] string? kind,
         [FromQuery] int? limit,
+        [FromQuery] string? channel,
+        [FromQuery] string? project,
+        [FromQuery] string? sort,
+        [FromQuery] int? offset,
         CancellationToken ct)
     {
         if (!IsSafeId(projectId)) return NotFound();
+
+        AssetSearchSort? parsedSort = sort?.ToLowerInvariant() switch
+        {
+            null or "" or "relevance" => AssetSearchSort.Relevance,
+            "newest" => AssetSearchSort.Newest,
+            "oldest" => AssetSearchSort.Oldest,
+            "name" => AssetSearchSort.Name,
+            "largest" => AssetSearchSort.Largest,
+            _ => null
+        };
+
+        // Both only narrow the caller's own projects, so a wrong id just finds nothing.
+        var badFilter = (!string.IsNullOrEmpty(channel) && !IsSafeId(channel))
+                        || (!string.IsNullOrEmpty(project) && !IsSafeId(project))
+                        || offset is < 0 or > AssetSearchService.MaxOffset;
 
         AssetSearchScope? parsedScope = scope?.ToLowerInvariant() switch
         {
@@ -500,7 +519,8 @@ public sealed class AssetsController(
             _ => (false, null)
         };
 
-        if (parsedScope is null || !parsedKind.Ok || q?.Length > AssetSearchService.MaxQueryLength)
+        if (parsedScope is null || !parsedKind.Ok || parsedSort is null || badFilter
+            || q?.Length > AssetSearchService.MaxQueryLength)
             return BadRequest(ApiResponse<AssetSearchResponse>.Fail("Unsupported search options.",
                 new ApiError("invalid-search", "Unsupported search options.")));
 
@@ -510,12 +530,15 @@ public sealed class AssetsController(
             UserId = currentUser.UserId,
             Text = q,
             Scope = parsedScope.Value,
+            ChannelId = string.IsNullOrEmpty(channel) ? null : channel,
+            SourceProjectId = string.IsNullOrEmpty(project) ? null : project,
             Kind = parsedKind.Value,
+            Sort = parsedSort.Value,
+            Offset = offset ?? 0,
             Limit = limit ?? AssetSearchService.DefaultLimit
         }, ct);
 
-        return Ok(ApiResponse<AssetSearchResponse>.Ok(new AssetSearchResponse(
-            [.. result.Hits.Select(h => h.ToResponse())], result.ProjectsSearched, result.Truncated)));
+        return Ok(ApiResponse<AssetSearchResponse>.Ok(result.ToResponse()));
     }
 
     private async Task EnsureOwnedAsync(string projectId, CancellationToken ct)

@@ -136,10 +136,43 @@ export interface AssetSearchHit {
   createdAt: string;
 }
 
+/** How reuse search results are ordered. */
+export type AssetSearchSort = 'relevance' | 'newest' | 'oldest' | 'name' | 'largest';
+
+/** A project the reuse search looked in that has matching files. */
+export interface AssetSearchProject {
+  id: string;
+  name: string;
+  channelId: string;
+  sameChannel: boolean;
+  /** Matching files, ignoring the project filter. */
+  matches: number;
+}
+
 export interface AssetSearchResult {
+  /** One page of the matches. */
   items: AssetSearchHit[];
+  /** Matches across every page. */
+  total: number;
   projectsSearched: number;
+  /** More matches follow this page. */
   truncated: boolean;
+  /** Matches per lower-case kind ('video', 'image', …), ignoring the type filter. */
+  kindCounts: Record<string, number>;
+  projects: AssetSearchProject[];
+}
+
+export interface AssetSearchOptions {
+  q?: string;
+  scope?: AssetSearchScope;
+  /** One brand channel; overrides `scope`. */
+  channel?: string;
+  /** One source project. */
+  project?: string;
+  kind?: string;
+  sort?: AssetSearchSort;
+  offset?: number;
+  limit?: number;
 }
 
 /** One voice the server's speech engine can speak a voiceover in. */

@@ -161,6 +161,78 @@ public class AssetSearchServiceTests
     }
 
     [Fact]
+    public async Task Pages_follow_on_without_repeating_and_report_the_total()
+    {
+        var world = new EditingWorld();
+        AddProject(world, "p2", null);
+        for (var i = 0; i < 5; i++) AddAsset(world, $"a{i}", "p2", $"Clip {i}", ageDays: i);
+
+        var search = new AssetSearchService(world.Assets, world.Projects);
+        AssetSearchQuery Page(int offset) => new()
+        {
+            TargetProjectId = world.Project.Id, UserId = EditingWorld.UserId, Offset = offset, Limit = 2
+        };
+
+        var first = await search.SearchAsync(Page(0), CancellationToken.None);
+        var last = await search.SearchAsync(Page(4), CancellationToken.None);
+
+        Assert.Equal(["a0", "a1"], first.Hits.Select(h => h.Asset.Id));
+        Assert.True(first.Truncated);
+        Assert.Equal(5, first.Total);
+        Assert.Equal("a4", Assert.Single(last.Hits).Asset.Id);
+        Assert.False(last.Truncated);
+    }
+
+    [Fact]
+    public async Task A_named_channel_and_project_narrow_the_search_and_facets_ignore_their_own_filter()
+    {
+        var world = new EditingWorld();
+        world.Project.Settings.BrandChannelId = "kids";
+        AddProject(world, "k1", "kids");
+        AddProject(world, "n1", "news");
+        AddProject(world, "n2", "news");
+        AddAsset(world, "n1-video", "n1", "Intro");
+        AddAsset(world, "n1-image", "n1", "Logo", AssetKind.Image);
+        AddAsset(world, "n2-video", "n2", "Outro");
+        AddAsset(world, "k1-video", "k1", "Kids intro");
+
+        var search = new AssetSearchService(world.Assets, world.Projects);
+        var result = await search.SearchAsync(new AssetSearchQuery
+        {
+            TargetProjectId = world.Project.Id, UserId = EditingWorld.UserId,
+            ChannelId = "news", SourceProjectId = "n1", Kind = AssetKind.Video
+        }, CancellationToken.None);
+
+        Assert.Equal("n1-video", Assert.Single(result.Hits).Asset.Id);
+        Assert.Equal(2, result.ProjectsSearched);
+        // Projects ignore the project filter but keep the type filter: n1 and n2 each have one video.
+        Assert.Equal(["n1", "n2"], result.Projects.Select(p => p.ProjectId).Order());
+        Assert.All(result.Projects, p => Assert.Equal(1, p.Matches));
+        // Types ignore the type filter but keep the project filter: n1 has a video and an image.
+        Assert.Equal(1, result.KindCounts[AssetKind.Video]);
+        Assert.Equal(1, result.KindCounts[AssetKind.Image]);
+    }
+
+    [Fact]
+    public async Task Sort_by_name_and_by_size()
+    {
+        var world = new EditingWorld();
+        AddProject(world, "p2", null);
+        AddAsset(world, "b", "p2", "beta").FileSizeBytes = 10;
+        AddAsset(world, "a", "p2", "Alpha").FileSizeBytes = 5;
+        AddAsset(world, "c", "p2", "charlie").FileSizeBytes = 50;
+
+        var search = new AssetSearchService(world.Assets, world.Projects);
+        Task<AssetSearchResult> Sorted(AssetSearchSort sort) => search.SearchAsync(new AssetSearchQuery
+        {
+            TargetProjectId = world.Project.Id, UserId = EditingWorld.UserId, Sort = sort
+        }, CancellationToken.None);
+
+        Assert.Equal(["a", "b", "c"], (await Sorted(AssetSearchSort.Name)).Hits.Select(h => h.Asset.Id));
+        Assert.Equal(["c", "b", "a"], (await Sorted(AssetSearchSort.Largest)).Hits.Select(h => h.Asset.Id));
+    }
+
+    [Fact]
     public async Task Searching_from_someone_elses_project_is_refused()
     {
         var world = new EditingWorld();

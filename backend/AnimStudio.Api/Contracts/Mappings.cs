@@ -239,6 +239,15 @@ public static class Mappings
         hit.AlreadyAdded,
         DateTime.SpecifyKind(hit.Asset.CreatedAt, DateTimeKind.Utc));
 
+    public static AssetSearchResponse ToResponse(this AssetSearchResult result) => new(
+        [.. result.Hits.Select(h => h.ToResponse())],
+        result.Total,
+        result.ProjectsSearched,
+        result.Truncated,
+        // Lower-case to match the kind filter the dialog sends back.
+        result.KindCounts.ToDictionary(k => k.Key.ToString().ToLowerInvariant(), k => k.Value),
+        [.. result.Projects.Select(p => new AssetSearchProjectResponse(p.ProjectId, p.Name, p.ChannelId, p.SameChannel, p.Matches))]);
+
     public static ClipOrderResponse ToResponse(this ClipOrderResult result) => new(
         result.AssetIds,
         [.. result.Lines.Select(l =>

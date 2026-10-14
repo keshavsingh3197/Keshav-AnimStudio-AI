@@ -6,7 +6,7 @@ import { CharacterVoice } from '../../shared/voice/character-voice';
 import { environment } from '../../../environments/environment';
 import {
   AdminAccess, AdminAuditEntry, AdminHealth, AdminJob, AdminProviderBody, AdminProviders,
-  AdminProviderTest, AdminUsage, AiCapabilities, ApiResponse, Asset, AssetSearchResult, AssetSearchScope, BundleApplyBody,
+  AdminProviderTest, AdminUsage, AiCapabilities, ApiResponse, Asset, AssetSearchOptions, AssetSearchResult, BundleApplyBody,
   VoiceoverBody, VoiceoverVoices, MyVoice, VoiceScriptDictation, VoiceScriptPolish,
   BundleImportResult, BundlePreview, Character, CharacterBody, ClipMergeBody, ClipOrder,
   ClipStudio, CreateProjectBody,
@@ -551,12 +551,16 @@ export class ApiService {
    * Bring hits over with {@link copyAssetsFromProject}.
    */
   searchReusableAssets(
-    projectId: string, options: { q?: string; scope?: AssetSearchScope; kind?: string; limit?: number } = {},
+    projectId: string, options: AssetSearchOptions = {},
   ): Observable<AssetSearchResult> {
     const params: Record<string, string> = {};
     if (options.q) params['q'] = options.q;
     if (options.scope) params['scope'] = options.scope;
+    if (options.channel) params['channel'] = options.channel;
+    if (options.project) params['project'] = options.project;
     if (options.kind) params['kind'] = options.kind;
+    if (options.sort && options.sort !== 'relevance') params['sort'] = options.sort;
+    if (options.offset) params['offset'] = String(options.offset);
     if (options.limit) params['limit'] = String(options.limit);
     return this.unwrap(this.http.get<ApiResponse<AssetSearchResult>>(
       `${this.base}/api/projects/${encodeURIComponent(projectId)}/assets/search`, { params }));
