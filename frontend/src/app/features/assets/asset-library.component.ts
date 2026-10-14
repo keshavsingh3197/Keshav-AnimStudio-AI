@@ -1,7 +1,8 @@
 import { DecimalPipe } from '@angular/common';
-import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
+import { Component, ElementRef, computed, effect, inject, signal, untracked, viewChild } from '@angular/core';
+import { Subscription } from 'rxjs';
 
-import { Asset, StorageDetail } from '../../core/models/api.models';
+import { Asset, MediaTranscript, StorageDetail } from '../../core/models/api.models';
 import { ActivityService, formatBytes } from '../../core/services/activity.service';
 import { ApiService } from '../../core/services/api.service';
 import { ProjectStore } from '../../core/services/project-store';
@@ -57,6 +58,24 @@ export class AssetLibraryComponent {
   // Drag and drop reordering state
   readonly dragAssetIndex = signal<number | null>(null);
   readonly dragOverIndex = signal<number | null>(null);
+
+  /** The languages the server accepts as a hint; '' lets the recognizer detect it (and copes with Hinglish). */
+  readonly transcriptLanguages = [
+    { code: '', label: 'Detect automatically' },
+    { code: 'hi', label: 'Hindi' }, { code: 'en', label: 'English' }, { code: 'ur', label: 'Urdu' },
+    { code: 'pa', label: 'Punjabi' }, { code: 'bn', label: 'Bengali' }, { code: 'mr', label: 'Marathi' },
+    { code: 'gu', label: 'Gujarati' }, { code: 'ta', label: 'Tamil' }, { code: 'te', label: 'Telugu' },
+    { code: 'kn', label: 'Kannada' }, { code: 'ml', label: 'Malayalam' },
+  ] as const;
+  readonly transcriptLanguage = signal<string>('');
+  /** What is said in the inspected file, once asked for. */
+  readonly transcript = signal<MediaTranscript | null>(null);
+  readonly transcribing = signal<'idle' | 'reading' | 'saving'>('idle');
+  readonly transcriptError = signal<string | null>(null);
+  readonly transcriptCopied = signal(false);
+  private transcribeSub?: Subscription;
+  /** The inspector's player, so a transcript line can jump to where it is said. */
+  private readonly inspectorMedia = viewChild<ElementRef<HTMLMediaElement>>('inspectorMedia');
 
   // Pagination
   readonly currentPage = signal<number>(1);
@@ -441,11 +460,98 @@ export class AssetLibraryComponent {
   }
 
   openPreview(asset: Asset): void {
+    this.resetTranscript();
     this.previewAsset.set(asset);
   }
 
   closePreview(): void {
+    // Unsubscribing aborts the request, and the server stops recognizing with it.
+    this.resetTranscript();
     this.previewAsset.set(null);
+  }
+
+  /**
+   * Gets what is said in the file. Asking again with `save` is quick: the server keeps each
+   * part it has already recognized, so saving after reading does not transcribe twice.
+   */
+  transcribe(asset: Asset, save = false): void {
+    const projectId = this.store.projectId();
+    if (!projectId || this.transcribing() !== 'idle') return;
+
+    this.transcribeSub?.unsubscribe();
+    this.transcribing.set(save ? 'saving' : 'reading');
+    this.transcriptError.set(null);
+    this.transcribeSub = this.api
+      .transcribeAsset(projectId, asset.id, this.transcriptLanguage() || null, save)
+      .subscribe({
+        next: (result) => {
+          this.transcribing.set('idle');
+          if (this.previewAsset()?.id !== asset.id) return;
+          this.transcript.set(result);
+          if (result.savedAsset) {
+            this.store.refreshAssets();
+            this.status.notify([`Saved "${result.savedAsset.name}" to the library. Import it from the Import page to make a script.`]);
+          }
+        },
+        error: (err: unknown) => {
+          this.transcribing.set('idle');
+          this.transcriptError.set(err instanceof Error ? err.message : 'The speech in this file could not be turned into text.');
+        },
+      });
+  }
+
+  /** Plays the inspected file from where a transcript line is said. */
+  seekTo(seconds: number): void {
+    const media = this.inspectorMedia()?.nativeElement;
+    if (!media) return;
+    media.currentTime = seconds;
+    void media.play().catch(() => undefined);
+  }
+
+  copyTranscript(): void {
+    const text = this.transcript()?.text;
+    if (!text || typeof navigator === 'undefined' || !navigator.clipboard) return;
+    navigator.clipboard.writeText(text).then(() => {
+      this.transcriptCopied.set(true);
+      setTimeout(() => this.transcriptCopied.set(false), 2000);
+    }, () => this.transcriptError.set('The browser would not let the transcript be copied.'));
+  }
+
+  downloadTranscript(asset: Asset): void {
+    const srt = this.transcript()?.subRip;
+    if (!srt) return;
+    const url = URL.createObjectURL(new Blob([srt], { type: 'application/x-subrip' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${asset.name.replace(/\.[^.]+$/, '')} - transcript.srt`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
+  /** "hi" → "Hindi"; the code itself when the browser can't name it. */
+  languageName(code?: string | null): string {
+    if (!code) return 'Language not reported';
+    try {
+      return new Intl.DisplayNames(['en'], { type: 'language' }).of(code) ?? code;
+    } catch {
+      return code;
+    }
+  }
+
+  formatTimestamp(seconds: number): string {
+    const total = Math.max(0, Math.floor(seconds));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = (total % 60).toString().padStart(2, '0');
+    return h > 0 ? `${h}:${m.toString().padStart(2, '0')}:${s}` : `${m}:${s}`;
+  }
+
+  private resetTranscript(): void {
+    this.transcribeSub?.unsubscribe();
+    this.transcribeSub = undefined;
+    this.transcribing.set('idle');
+    this.transcript.set(null);
+    this.transcriptError.set(null);
   }
 
   copyAssetId(id: string): void {

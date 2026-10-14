@@ -1096,3 +1096,89 @@ button.upload-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ── Transcript (what's said in a video or audio file) ───────────── */
+.transcript-panel h4 {
+  margin-bottom: 8px;
+}
+.transcript-language {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #8b9bb4;
+}
+.transcript-language select {
+  background: var(--surface, #0f1117);
+  color: #e5e7eb;
+  border: 1px solid var(--border, #21293a);
+  border-radius: 6px;
+  padding: 4px 6px;
+}
+.transcript-meta {
+  color: #8b9bb4;
+  font-size: 0.75rem;
+  margin: 0 0 6px;
+}
+.transcript-note {
+  color: #fbbf24;
+  font-size: 0.75rem;
+  margin: 0 0 6px;
+}
+.transcript-lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--border, #21293a);
+  border-radius: 8px;
+  background: var(--surface, #0f1117);
+}
+.transcript-lines button {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--border, #21293a);
+  color: #e5e7eb;
+  padding: 6px 8px;
+  cursor: pointer;
+  font: inherit;
+}
+.transcript-lines li:last-child button {
+  border-bottom: 0;
+}
+.transcript-lines button:hover,
+.transcript-lines button:focus-visible {
+  background: rgba(255, 255, 255, 0.05);
+}
+.transcript-time {
+  color: #60a5fa;
+  flex: none;
+  font-size: 0.72rem;
+  padding-top: 1px;
+}
+.transcript-text {
+  overflow-wrap: anywhere;
+}
+.transcript-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+.transcript-actions .copy-mini-btn {
+  margin-left: 0;
+}
+.transcript-saved {
+  color: #34d399;
+  font-size: 0.72rem;
+}
+.transcript-error {
+  color: #f87171;
+  font-size: 0.75rem;
+  margin: 8px 0 0;
+}

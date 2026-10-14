@@ -339,3 +339,19 @@ public sealed record MyVoiceResponse(
     string Id, string Name, string BaseVoiceId, double? DurationSeconds, DateTime CreatedAtUtc, bool Tuned);
 
 public sealed record VoiceoverVoiceResponse(string Id, string Name, string? LanguageCode, string? Gender);
+
+/// <summary>
+/// What is said in an audio or video asset. <paramref name="Language"/> is what the recognizer
+/// detected, or the one asked for; null when neither is known. <paramref name="Truncated"/>: only
+/// the first two hours were transcribed. <paramref name="SavedAsset"/> is the .srt kept, when asked.
+/// </summary>
+public sealed record MediaTranscriptResponse(
+    IReadOnlyList<MediaTranscriptLineResponse> Lines,
+    string Text,
+    string SubRip,
+    string? Language,
+    string Provider,
+    bool Truncated,
+    AssetResponse? SavedAsset);
+
+public sealed record MediaTranscriptLineResponse(double StartSeconds, double EndSeconds, string Text);

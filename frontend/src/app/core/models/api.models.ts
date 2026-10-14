@@ -212,6 +212,28 @@ export interface VoiceScriptDictation {
   lines: string[];
 }
 
+/** One spoken line in an audio or video file, with where it is said. */
+export interface MediaTranscriptLine {
+  startSeconds: number;
+  endSeconds: number;
+  text: string;
+}
+
+/**
+ * What is said in an audio or video asset. `language` is what the recognizer detected, or
+ * the one asked for; `truncated` means only the first two hours were transcribed.
+ */
+export interface MediaTranscript {
+  lines: MediaTranscriptLine[];
+  text: string;
+  subRip: string;
+  language?: string | null;
+  provider: string;
+  truncated: boolean;
+  /** The .srt kept in the library, when saving was asked for. */
+  savedAsset?: Asset | null;
+}
+
 /** A script rewritten by the AI text model so it reads aloud well. */
 export interface VoiceScriptPolish {
   script: string;

@@ -775,3 +775,13 @@ public sealed record VoiceScriptPolishRequest
     [StringLength(12_000)] public string? Script { get; init; }
     public bool Fresh { get; init; }
 }
+
+/// <summary>
+/// Transcribe an audio or video asset. <see cref="Language"/> is a code such as "hi" or "en";
+/// null lets the recognizer detect it. <see cref="Save"/> also keeps the transcript as a .srt asset.
+/// </summary>
+public sealed record MediaTranscriptRequest
+{
+    [StringLength(8)] public string? Language { get; init; }
+    public bool Save { get; init; }
+}

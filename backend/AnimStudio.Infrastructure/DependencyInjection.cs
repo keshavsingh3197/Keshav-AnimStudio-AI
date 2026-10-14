@@ -20,6 +20,7 @@ using AnimStudio.Application.Rendering;
 using AnimStudio.Application.Scenes;
 using AnimStudio.Application.Scripts;
 using AnimStudio.Application.Security;
+using AnimStudio.Application.Transcripts;
 using AnimStudio.Application.Transcripts.Parsing;
 using AnimStudio.Application.Workbooks;
 using AnimStudio.Domain.Ai;
@@ -265,6 +266,8 @@ public static class DependencyInjection
         services.AddSingleton<FfmpegVideoChunker>();
         services.AddSingleton<IStudioVoiceRenderer, FfmpegStudioVoiceRenderer>();
         services.AddSingleton<INarrationCleaner, FfmpegNarrationCleaner>();
+        services.AddSingleton<ISpeechAudioExtractor, FfmpegSpeechAudioExtractor>();
+        services.AddScoped<MediaTranscriptionService>();
         services.AddSingleton<IVoiceConverter, SeedVcVoiceConverter>();
         services.AddScoped<MyVoiceTuning>();
         services.AddSingleton<FfmpegReleaseKitBuilder>();

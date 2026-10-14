@@ -7,7 +7,7 @@ import { environment } from '../../../environments/environment';
 import {
   AdminAccess, AdminAuditEntry, AdminHealth, AdminJob, AdminProviderBody, AdminProviders,
   AdminProviderTest, AdminUsage, AiCapabilities, ApiResponse, Asset, AssetSearchOptions, AssetSearchResult, BundleApplyBody,
-  VoiceoverBody, VoiceoverVoices, MyVoice, VoiceScriptDictation, VoiceScriptPolish,
+  VoiceoverBody, VoiceoverVoices, MyVoice, VoiceScriptDictation, VoiceScriptPolish, MediaTranscript,
   BundleImportResult, BundlePreview, Character, CharacterBody, ClipMergeBody, ClipOrder,
   ClipStudio, CreateProjectBody,
   CreateSceneBody, DialogueBody, IngestCapabilities, IngestResult, IngestSummary,
@@ -264,6 +264,16 @@ export class ApiService {
     if (language) form.append('language', language);
     return this.unwrap(this.http.post<ApiResponse<VoiceScriptDictation>>(
       `${this.base}/api/projects/${projectId}/voiceover/dictate`, form));
+  }
+
+  /**
+   * What is said in an audio or video asset, line by line. `language` null lets the recognizer
+   * detect it; `save` also keeps the transcript in the library as a .srt subtitle.
+   */
+  transcribeAsset(projectId: string, assetId: string, language: string | null, save: boolean): Observable<MediaTranscript> {
+    return this.unwrap(this.http.post<ApiResponse<MediaTranscript>>(
+      `${this.base}/api/projects/${projectId}/assets/${encodeURIComponent(assetId)}/transcript`,
+      { language, save }));
   }
 
   /** Cleans a narration take the user recorded (WAV) and saves it to the library as a voiceover line. */
