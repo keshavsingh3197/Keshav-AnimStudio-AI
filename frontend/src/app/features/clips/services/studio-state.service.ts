@@ -14,6 +14,7 @@ import { ActivityService, formatBytes } from '../../../core/services/activity.se
 import { ApiService } from '../../../core/services/api.service';
 import { ProjectStore } from '../../../core/services/project-store';
 import { StatusService } from '../../../core/services/status.service';
+import { MediaToolsService } from '../../../core/services/media-tools.service';
 import {
   AudioOverlapRule, AudioOverlapRuleOrInherit, AudioOverlapSource,
   ClipAudioSetting, ClipColorSetting, ClipRow, ClipTextSetting, FILTER_PRESETS,
@@ -175,12 +176,43 @@ function defaultTimelineTracks(): TrackControlState[] {
   ];
 }
 
+/** How long an image plays when nothing else says. Matches the server's default. */
+const DEFAULT_IMAGE_SECONDS = 5;
+
+/** The number a name starts with ("07_intro.png" gives 7), or Infinity when it has none. */
+function leadingNumber(name: string): number {
+  const match = /^\s*#?(\d+)/.exec(name ?? '');
+  return match ? Number(match[1]) : Number.POSITIVE_INFINITY;
+}
+
 @Injectable()
 export class StudioStateService implements OnDestroy {
   readonly api = inject(ApiService);
   readonly store = inject(ProjectStore);
   readonly status = inject(StatusService);
   private readonly activity = inject(ActivityService);
+  private readonly mediaTools = inject(MediaToolsService);
+
+  /** The studio-wide image duration (admin → Media), used until the project sets its own. */
+  private readonly globalImageDuration = signal<number>(DEFAULT_IMAGE_SECONDS);
+
+  private readonly loadImageDurationDefault = this.mediaTools.getMediaSettings().subscribe({
+    next: (settings) => {
+      if (settings.defaultImageDurationSeconds > 0) this.globalImageDuration.set(settings.defaultImageDurationSeconds);
+    },
+    // The built-in default stands; the request's own error is reported by the interceptor.
+    error: () => this.globalImageDuration.set(DEFAULT_IMAGE_SECONDS),
+  });
+
+  /**
+   * How long an image plays when it goes on the timeline: the project's own setting, else the
+   * studio-wide one. A still has no length of its own - what the probe reports for one is a
+   * single frame - so this is used instead of the file's duration.
+   */
+  readonly imageDurationSeconds = computed<number>(() => {
+    const own = this.store.project()?.defaultImageDurationSeconds;
+    return own && own > 0 ? own : this.globalImageDuration();
+  });
 
   readonly Math = Math;
   readonly trackColors = TRACK_COLORS;
@@ -3265,9 +3297,20 @@ export class StudioStateService implements OnDestroy {
     if (this.currentPage() < this.totalPages() - 1) this.currentPage.set(this.currentPage() + 1);
   }
 
-  addClipToTimeline(clipId: string): void {
+  /**
+   * Adds a library item to the timeline. Videos always go in at the insert caret; images go
+   * at the playhead, or with `placement: 'caret'` into the slot at the caret, after whatever
+   * is already there - which is how a batch keeps its order.
+   */
+  addClipToTimeline(clipId: string, placement: 'playhead' | 'caret' = 'playhead'): void {
+    const clip = this.resolveLibraryClip(clipId);
+    if (!clip) return;
+    this.addResolvedClipToTimeline(clip, placement);
+  }
+
+  /** The clip a library id names: project media, logo candidates, music, or a cut row. */
+  private resolveLibraryClip(clipId: string): Clip | null {
     const studio = this.studio();
-    // Resolve clip metadata
     let clip: Clip | null = null;
     const mediaRow = this.allMediaRows().find((r) => r.clip.id === clipId);
     if (mediaRow) {
@@ -3296,9 +3339,11 @@ export class StudioStateService implements OnDestroy {
       const row = this.rows().find((r) => r.clip.id === clipId);
       if (row) clip = row.clip;
     }
+    return clip;
+  }
 
-    if (!clip) return;
-
+  private addResolvedClipToTimeline(clip: Clip, placement: 'playhead' | 'caret'): void {
+    const clipId = clip.id;
     const assetType = this.getClipType(clip);
 
     if (assetType === 'audio') {
@@ -3310,14 +3355,25 @@ export class StudioStateService implements OnDestroy {
 
     if (assetType === 'image') {
       // Images route strictly to IMG1 Image track
-      const defaultDuration = clip.durationSeconds ?? 5.0;
-      const validStart = this.clampItemCollision('IMG1', this.currentTime(), defaultDuration);
+      const defaultDuration = this.imageDurationSeconds();
+      let validStart: number;
+      let slotIndex: number | undefined;
+      if (placement === 'caret') {
+        // Into the slot at the caret, at its far end: the layout orders a slot by start time,
+        // so this lands after what is already there and before the clip the caret is on.
+        slotIndex = this.effectiveInsertIndex();
+        const at = this.slotLayout();
+        validStart = slotIndex < at.clipStarts.length ? at.clipStarts[slotIndex] : at.end;
+      } else {
+        validStart = this.clampItemCollision('IMG1', this.currentTime(), defaultDuration);
+      }
       const newItemId = `img_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
       const newItem: TimelineItem = {
         id: newItemId,
         type: 'image',
         trackId: 'IMG1',
         startTime: validStart,
+        slotIndex,
         duration: defaultDuration,
         src: clip.id,
         name: clip.name,
@@ -3419,16 +3475,27 @@ export class StudioStateService implements OnDestroy {
     this.performAddToCut([clipId]);
   }
 
+  /**
+   * Adds a batch at the caret as one sequence. Videos and images are interleaved by the
+   * number their names start with ("01_…", "02_…"), so a numbered batch plays in that order
+   * without rearranging; unnumbered items follow in library order.
+   */
   private performAddToCut(clipIds: string[]): void {
-    const ordered = this.rows()
-      .filter((r) => clipIds.includes(r.clip.id) && !r.included)
-      .map((r) => r.clip.id);
-    const targets = ordered.length > 0 ? ordered : clipIds;
+    const wanted = new Set(clipIds);
+    const libraryOrder = this.allMediaRows().map((r) => r.clip.id).filter((id) => wanted.has(id));
+    const targets = [...new Set([...libraryOrder, ...clipIds])]
+      .map((id, index) => ({ clip: this.resolveLibraryClip(id), index }))
+      .filter((t): t is { clip: Clip; index: number } => t.clip !== null)
+      .sort((a, b) => leadingNumber(a.clip.name) - leadingNumber(b.clip.name) || a.index - b.index);
 
+    // Each add is settled before the next, so an image's slot is counted against the cut as it
+    // stands then, not translated as if it had been there before the videos added after it.
+    this.settleSlots();
     let added = 0;
-    for (const clipId of targets) {
-      if (this.isClipOnTimeline(clipId)) continue;
-      this.addClipToTimeline(clipId);
+    for (const { clip } of targets) {
+      if (this.isClipOnTimeline(clip.id)) continue;
+      this.addResolvedClipToTimeline(clip, 'caret');
+      this.settleSlots();
       added++;
     }
 
@@ -6245,7 +6312,7 @@ export class StudioStateService implements OnDestroy {
     const detected = this.getClipType(row.clip);
     let assetType: TimelineItemType = detected === 'image' ? 'image' : (detected === 'audio' ? 'audio' : 'video');
     const assetName = row.clip.name;
-    const defaultDuration = row.clip.durationSeconds ?? 5.0;
+    const defaultDuration = assetType === 'image' ? this.imageDurationSeconds() : (row.clip.durationSeconds ?? 5.0);
 
     let targetTrackId = trackId;
     if (trackId === 'TXT1') {
@@ -8483,7 +8550,7 @@ export class StudioStateService implements OnDestroy {
         if (initialImages.length > 0 && this.timelineItems().length === 0) {
           let startT = 0;
           const imgItems: TimelineItem[] = initialImages.map((img) => {
-            const dur = img.durationSeconds ?? 5.0;
+            const dur = this.imageDurationSeconds();
             const item: TimelineItem = {
               id: `img_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
               type: 'image',

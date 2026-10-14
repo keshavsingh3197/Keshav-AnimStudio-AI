@@ -12,6 +12,16 @@ public enum DistributionIntent { Personal = 0, Public = 1, Monetized = 2 }
 /// </summary>
 public enum ProjectContentType { Video = 0, Music = 1 }
 
+/// <summary>Bounds for how long an image added to the timeline plays.</summary>
+public static class ImageDurationLimits
+{
+    public const double Default = 5.0;
+    public const double Min = 0.5;
+    public const double Max = 120.0;
+
+    public static bool IsValid(double seconds) => double.IsFinite(seconds) && seconds is >= Min and <= Max;
+}
+
 public sealed class ProjectSettings
 {
     public int Width { get; set; } = 1920;
@@ -47,6 +57,12 @@ public sealed class ProjectSettings
     public bool FollowsChannelWatermark => FollowChannelWatermark ?? DefaultWatermark.Kind == WatermarkKind.None;
 
     public List<string> ClipOrderAssetIds { get; set; } = [];
+
+    /// <summary>
+    /// How long an image plays when it is added to the timeline. Null: the studio-wide
+    /// default (<see cref="Ai.AiSettings.DefaultImageDurationSeconds"/>).
+    /// </summary>
+    public double? DefaultImageDurationSeconds { get; set; }
 
     public Canvas ToCanvas() => new(Width, Height, new FrameRate(FrameRateNum, FrameRateDen));
 }

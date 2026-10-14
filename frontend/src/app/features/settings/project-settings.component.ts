@@ -9,6 +9,7 @@ import {
   OutroBody, OutroKind, ProjectContentType, aspectRatioLabel, videoFormat,
 } from '../../core/models/api.models';
 import { ApiService } from '../../core/services/api.service';
+import { MediaToolsService } from '../../core/services/media-tools.service';
 import { ProjectStore } from '../../core/services/project-store';
 import { StatusService } from '../../core/services/status.service';
 import { FileDropDirective } from '../../shared/file-drop.directive';
@@ -45,6 +46,8 @@ export class ProjectSettingsComponent {
   ];
   readonly outroTransitions: readonly string[] = ['Fade', 'Dissolve', 'None', 'WipeLeft', 'WipeRight'];
   readonly saveSuccess = signal<boolean>(false);
+  /** The studio-wide image duration, shown as what a blank project setting falls back to. */
+  readonly studioImageDuration = signal<number>(5);
   readonly isPlayingAudio = signal<boolean>(false);
   private previewAudioEl: HTMLAudioElement | null = null;
 
@@ -78,6 +81,8 @@ export class ProjectSettingsComponent {
     brandChannelId: DEFAULT_BRAND_CHANNEL as string,
     followChannelWatermark: true,
     contentType: 'video' as ProjectContentType,
+    /** Null: use the studio-wide default. */
+    imageDurationSeconds: null as number | null,
   };
 
   /**
@@ -171,11 +176,18 @@ export class ProjectSettingsComponent {
         brandChannelId: project.brandChannelId || DEFAULT_BRAND_CHANNEL,
         followChannelWatermark: project.followChannelWatermark ?? true,
         contentType: project.contentType ?? 'video',
+        imageDurationSeconds: project.defaultImageDurationSeconds ?? null,
       };
 
       this.presetIndex = this.matchPreset(project.width, project.height);
       // untracked: the channel list arriving must not re-run this and wipe unsaved edits.
       untracked(() => this.syncChannelBranding());
+    });
+
+    inject(MediaToolsService).getMediaSettings().subscribe({
+      next: (settings) => this.studioImageDuration.set(settings.defaultImageDurationSeconds || 5),
+      // The placeholder keeps the built-in 5s; the interceptor reports the failure.
+      error: () => this.studioImageDuration.set(5),
     });
 
     this.api.listBrandChannels().subscribe({
@@ -469,6 +481,12 @@ export class ProjectSettingsComponent {
     const projectId = this.store.projectId();
     if (!projectId) return;
 
+    const imageSeconds = this.form.imageDurationSeconds;
+    if (imageSeconds !== null && (!Number.isFinite(imageSeconds) || imageSeconds < 0.5 || imageSeconds > 120)) {
+      this.status.notify(['Image duration must be between 0.5 and 120 seconds, or blank for the studio default.']);
+      return;
+    }
+
     this.status.run(
       this.api.updateProject(projectId, {
         name: this.form.name,
@@ -483,6 +501,8 @@ export class ProjectSettingsComponent {
         acceptShareAlikeObligation: this.form.acceptShareAlikeObligation,
         backgroundMusicAssetId: this.form.backgroundMusicAssetId || null,
         backgroundMusicVolume: this.form.musicVolumePercent / 100,
+        // 0 tells the server to go back to the studio-wide default.
+        defaultImageDurationSeconds: imageSeconds ?? 0,
         defaultWatermark: {
           kind: this.form.defaultWatermarkKind,
           text: this.form.defaultWatermarkText.trim() || null,

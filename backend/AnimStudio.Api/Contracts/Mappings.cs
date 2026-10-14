@@ -37,7 +37,8 @@ public static class Mappings
         p.Settings.DefaultOutro.ToResponse(),
         p.Settings.BrandChannelId,
         p.Settings.FollowsChannelWatermark,
-        ProjectContentTypes.Format(p.Settings.ContentType));
+        ProjectContentTypes.Format(p.Settings.ContentType),
+        p.Settings.DefaultImageDurationSeconds);
 
     /// <summary>Every channel, the built-in default first.</summary>
     public static IReadOnlyList<BrandChannelResponse> ToChannelResponses(this AiSettings? s) =>

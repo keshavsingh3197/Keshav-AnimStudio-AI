@@ -579,5 +579,46 @@
       </button>
     </div>
   </div>
+
+  <!-- Card 4: Global image duration on the timeline -->
+  <div class="branding-card">
+    <div class="card-section-head">
+      <div>
+        <h3>🖼️ Default Image Duration</h3>
+        <p>How long an image plays when it is added to the editor timeline. A project can override this in its own settings.</p>
+      </div>
+      @if (imageDurationSaved()) {
+        <div class="save-toast-pill">
+          <span>✓</span> Image Duration Updated
+        </div>
+      }
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Quick Duration Presets</label>
+      <div class="chunk-presets-grid">
+        @for (sec of imagePresets; track sec) {
+          <button type="button" class="chunk-preset-chip"
+                  [class.active]="defaultImageDuration() === sec"
+                  (click)="defaultImageDuration.set(sec)">
+            {{ sec }} Seconds
+          </button>
+        }
+      </div>
+    </div>
+
+    <div style="margin-bottom: 1.25rem;">
+      <label class="form-label" for="default-image-sec">Exact Seconds</label>
+      <input class="form-input" id="default-image-sec" type="number" min="0.5" max="120" step="0.5"
+             style="max-width: 180px; font-weight: 700; font-family: ui-monospace, monospace;"
+             [ngModel]="defaultImageDuration()" (ngModelChange)="defaultImageDuration.set($event)" />
+    </div>
+
+    <div style="display: flex; justify-content: flex-end;">
+      <button type="button" class="btn-primary-glow" (click)="saveImageDuration()" [disabled]="status.busy()">
+        Save Default Image Duration
+      </button>
+    </div>
+  </div>
   }
 </div>

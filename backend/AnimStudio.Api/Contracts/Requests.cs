@@ -220,6 +220,9 @@ public sealed record UpdateProjectRequest
 
     /// <summary>True: use the channel's watermark live; false: DefaultWatermark is custom. Null: unchanged.</summary>
     public bool? FollowChannelWatermark { get; init; }
+
+    /// <summary>Seconds an image plays when added to the timeline. Null: unchanged; 0: use the studio-wide default.</summary>
+    [Range(0, ImageDurationLimits.Max)] public double? DefaultImageDurationSeconds { get; init; }
 }
 
 public sealed record CreateSceneRequest

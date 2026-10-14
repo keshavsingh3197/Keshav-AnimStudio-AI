@@ -94,6 +94,9 @@ export class AdminBrandingComponent {
   readonly saveOutroSuccess = signal(false);
   readonly defaultChunkDuration = signal<number>(10);
   readonly chunkDurationSaved = signal<boolean>(false);
+  readonly imagePresets: readonly number[] = [3, 5, 8, 10, 15];
+  readonly defaultImageDuration = signal<number>(5);
+  readonly imageDurationSaved = signal<boolean>(false);
 
   form = blankWatermarkForm();
   outroForm = blankOutroForm();
@@ -159,6 +162,7 @@ export class AdminBrandingComponent {
     this.mediaTools.getMediaSettings().subscribe({
       next: (settings) => {
         this.defaultChunkDuration.set(settings.defaultChunkDurationSeconds || 10);
+        this.defaultImageDuration.set(settings.defaultImageDurationSeconds || 5);
       },
       error: () => {},
     });
@@ -486,6 +490,23 @@ export class AdminBrandingComponent {
       this.defaultChunkDuration.set(val);
       this.chunkDurationSaved.set(true);
       setTimeout(() => this.chunkDurationSaved.set(false), 4000);
+    });
+  }
+
+  // --- Image Duration ---
+
+  saveImageDuration(): void {
+    const dur = Number(this.defaultImageDuration());
+    if (!Number.isFinite(dur) || dur < 0.5 || dur > 120) {
+      this.status.notify(['Image duration must be between 0.5 and 120 seconds.']);
+      return;
+    }
+
+    this.imageDurationSaved.set(false);
+    this.status.run(this.mediaTools.updateImageDuration(dur), (val) => {
+      this.defaultImageDuration.set(val);
+      this.imageDurationSaved.set(true);
+      setTimeout(() => this.imageDurationSaved.set(false), 4000);
     });
   }
 }

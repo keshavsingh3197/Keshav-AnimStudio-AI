@@ -145,6 +145,11 @@ public sealed class AiSettings
     public double DefaultChunkDurationSeconds { get; set; } = 10.0;
 
     /// <summary>
+    /// How long an image plays when it is added to the timeline, unless the project sets its own.
+    /// </summary>
+    public double DefaultImageDurationSeconds { get; set; } = Projects.ImageDurationLimits.Default;
+
+    /// <summary>
     /// The space set aside for durable media, in GB - what the storage bar fills against.
     /// Null: no quota, and the bar shows the drive's own capacity instead.
     /// </summary>

@@ -106,5 +106,7 @@ export interface MediaSystemSettings {
   allowMediaDownload: boolean;
   ytDlpAvailable: boolean;
   ffmpegAvailable: boolean;
+  /** Seconds an image plays when added to the timeline, unless the project sets its own. */
+  defaultImageDurationSeconds: number;
 }
 

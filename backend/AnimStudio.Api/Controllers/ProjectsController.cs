@@ -122,6 +122,7 @@ public sealed class ProjectsController(
             DefaultOutro = request.DefaultOutro?.ToSettings(),
             BrandChannelId = request.BrandChannelId,
             FollowChannelWatermark = request.FollowChannelWatermark,
+            DefaultImageDurationSeconds = request.DefaultImageDurationSeconds,
             ContentType = request.ContentType is null ? null : ProjectContentTypes.Parse(request.ContentType)
         }, ct);
 

@@ -6,6 +6,7 @@ using AnimStudio.Application.Abstractions.Rendering;
 using AnimStudio.Application.Abstractions.Storage;
 using AnimStudio.Application.Abstractions.Transcripts;
 using AnimStudio.Application.Options;
+using AnimStudio.Domain.Projects;
 using AnimStudio.Infrastructure.Ingest;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -240,8 +241,31 @@ public sealed class SystemController(
         var chunkSec = settings?.DefaultChunkDurationSeconds ?? 10.0;
         var allowDownload = ingestOptions.Value.AllowMediaDownload;
         var ffmpegReady = capabilities.IsAvailable;
+        var imageSec = settings?.DefaultImageDurationSeconds ?? ImageDurationLimits.Default;
         return Ok(ApiResponse<MediaSystemSettingsResponse>.Ok(new MediaSystemSettingsResponse(
-            chunkSec, allowDownload, true, ffmpegReady)));
+            chunkSec, allowDownload, true, ffmpegReady, imageSec)));
+    }
+
+    /// <summary>
+    /// Updates the global default for how long an image plays when added to the timeline.
+    /// </summary>
+    [HttpPut("image-duration")]
+    [Microsoft.AspNetCore.Authorization.Authorize(Policy = AnimStudio.Api.Security.AdminAccess.Policy)]
+    public async Task<ActionResult<ApiResponse<double>>> UpdateImageDuration(
+        [FromBody] UpdateImageDurationRequest request, CancellationToken ct)
+    {
+        if (!ImageDurationLimits.IsValid(request.DefaultImageDurationSeconds))
+        {
+            var message = $"Image duration must be between {ImageDurationLimits.Min} and {ImageDurationLimits.Max} seconds.";
+            return BadRequest(ApiResponse<double>.Fail(message, new ApiError("invalid-duration", message)));
+        }
+
+        var settings = await aiSettingsRepo.GetAsync(ct) ?? new AnimStudio.Domain.Ai.AiSettings();
+        settings.DefaultImageDurationSeconds = request.DefaultImageDurationSeconds;
+        settings.UpdatedAt = DateTime.UtcNow;
+        await aiSettingsRepo.SaveAsync(settings, ct);
+
+        return Ok(ApiResponse<double>.Ok(settings.DefaultImageDurationSeconds));
     }
 
     /// <summary>
@@ -271,7 +295,10 @@ public sealed record MediaSystemSettingsResponse(
     double DefaultChunkDurationSeconds,
     bool AllowMediaDownload,
     bool YtDlpAvailable,
-    bool FfmpegAvailable);
+    bool FfmpegAvailable,
+    double DefaultImageDurationSeconds = ImageDurationLimits.Default);
 
 public sealed record UpdateChunkDurationRequest(double DefaultChunkDurationSeconds);
+
+public sealed record UpdateImageDurationRequest(double DefaultImageDurationSeconds);
 

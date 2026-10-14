@@ -63,6 +63,14 @@ export class MediaToolsService {
     );
   }
 
+  updateImageDuration(durationSeconds: number): Observable<number> {
+    return this.unwrap(
+      this.http.put<ApiResponse<number>>(`${this.base}/api/system/image-duration`, {
+        defaultImageDurationSeconds: durationSeconds,
+      })
+    );
+  }
+
   getZipDownloadUrl(jobId: string): string {
     return `${this.base}/api/media/chunks/${jobId}/zip`;
   }

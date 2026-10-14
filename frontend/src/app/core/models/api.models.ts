@@ -40,6 +40,8 @@ export interface Project {
   followChannelWatermark?: boolean;
   /** A music project's renders publish to YouTube Music by default. */
   contentType?: ProjectContentType;
+  /** Seconds an image plays when added to the timeline; null = the studio-wide default. */
+  defaultImageDurationSeconds?: number | null;
 }
 
 /** What a project makes; 'music' sends its renders to YouTube Music (the Music category). */
@@ -94,6 +96,8 @@ export interface UpdateProjectBody extends CreateProjectBody {
   followChannelWatermark?: boolean;
   isPinned?: boolean;
   customThumbnail?: string | null;
+  /** Omitted leaves it unchanged; 0 goes back to the studio-wide default. */
+  defaultImageDurationSeconds?: number;
 }
 
 export interface AssetFolder {
