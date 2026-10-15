@@ -485,7 +485,14 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
   // Core Sync of Dual-Layer Ping-Pong Video and Overlays
   private syncMediaElements(playing: boolean): void {
     const schedule = this.state.clipSchedule();
-    if (schedule.length === 0) return;
+    if (schedule.length === 0) {
+      // No V1 clip: pictures, titles or music alone. Nothing plays on the video layers,
+      // but the soundtrack still runs under them, as it does in the export.
+      const clipSoundAudio = this.clipSoundAudioRef?.nativeElement;
+      if (clipSoundAudio && !clipSoundAudio.paused) clipSoundAudio.pause();
+      this.syncSoundtrack(this.state.getCurrentTimeExact(), playing, 1);
+      return;
+    }
 
     const time = this.state.getCurrentTimeExact();
     const playingNow = schedule.find((s) => time >= s.startSeconds && time < s.endSeconds);
@@ -529,24 +536,10 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     // Same call the export path makes, so the preview is not a separate opinion.
     const overlap = this.state.resolveOverlap(curr.clip.id);
 
-    // Check active audio sources on timeline at playhead time
-    const a1Items = this.state.timelineItems().filter((i) => (i.trackId === 'A1' || i.trackId === 'A2') && i.type === 'audio');
-    const currentTracks = this.state.musicTracks();
-
-    const activeA1Item = a1Items.find((i) => time >= i.startTime && time < (i.startTime + i.duration));
-    const isActiveTrack = (t: MusicTrackRow) => {
-      const dur = this.state.musicTrackDurationSeconds(t);
-      return time >= t.startSeconds && time < (t.startSeconds + dur);
-    };
-    // Voiceover lines get their own player so they are heard over music, as in the export.
-    // Cut effects play over the music on a player of their own, not instead of it.
-    const activeMusicTrack = currentTracks.find((t) => !isVoiceoverTrack(t) && !isCutEffectTrack(t) && isActiveTrack(t));
-    const activeEffectTrack = currentTracks.find((t) => isCutEffectTrack(t) && isActiveTrack(t));
-    const activeVoiceoverTrack = currentTracks.find((t) => isVoiceoverTrack(t) && isActiveTrack(t));
-    const hasGlobalMusic = this.state.musicAssetId() !== '' && this.state.musicVolume() > 0;
-
     // Is any music or soundtrack cue active at THIS playhead time?
-    const hasActiveMusicAtTime = Boolean(activeMusicTrack) || Boolean(activeVoiceoverTrack) || Boolean(activeA1Item) || hasGlobalMusic;
+    const active = this.activeSoundAt(time);
+    const hasActiveMusicAtTime = Boolean(active.musicTrack) || Boolean(active.voiceoverTrack)
+      || Boolean(active.a1Item) || active.hasGlobalMusic;
 
     // The clip's own level, attenuated only where music actually overlaps it.
     let effectiveClipGain = sound.volume * (hasActiveMusicAtTime ? overlap.videoGain : 1);
@@ -727,7 +720,71 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       overlayVideo.pause();
     }
 
-    // 4. Sync Background Music & Audio Track
+    // 4. Background music, voiceover lines and cut effects
+    this.syncSoundtrack(time, playing, overlap.musicGain);
+
+    // 5. Sync Replacement Clip Sound (Voiceover)
+    const clipSoundAudio = this.clipSoundAudioRef?.nativeElement;
+    if (clipSoundAudio && sound.audioAssetId && sound.audioVolume > 0 && !pastPicture && !inGap) {
+      const clipSoundUrl = this.state.assetUrl(sound.audioAssetId);
+      const clipRun = this.state.clipSoundRunOffset(curr.clip.id);
+      const targetClipSoundTime = localTime + clipRun.startOffset;
+      const isClipSoundMuted = this.state.isMonitorMuted() || this.state.isTrackMuted('V1');
+      const clipSoundVol = isClipSoundMuted ? 0 : Math.min(1, sound.audioVolume * this.state.trackV1Volume() * this.state.monitorVolume());
+
+      if (this.loadedClipSoundAssetId !== sound.audioAssetId) {
+        this.loadedClipSoundAssetId = sound.audioAssetId;
+        clipSoundAudio.src = clipSoundUrl;
+        clipSoundAudio.currentTime = Math.max(0, targetClipSoundTime);
+      } else if (!playing || Math.abs(clipSoundAudio.currentTime - targetClipSoundTime) > 0.35) {
+        clipSoundAudio.currentTime = Math.max(0, targetClipSoundTime);
+      }
+      clipSoundAudio.volume = clipSoundVol;
+      clipSoundAudio.muted = isClipSoundMuted;
+      clipSoundAudio.playbackRate = speed;
+      if (playing) {
+        if (clipSoundAudio.paused) clipSoundAudio.play().catch(() => undefined);
+      } else {
+        if (!clipSoundAudio.paused) clipSoundAudio.pause();
+      }
+    } else if (clipSoundAudio && !clipSoundAudio.paused) {
+      clipSoundAudio.pause();
+    }
+  }
+
+  /** What sound is on the timeline at `time`, by the player each kind plays on. */
+  private activeSoundAt(time: number) {
+    const a1Items = this.state.timelineItems().filter((i) => (i.trackId === 'A1' || i.trackId === 'A2') && i.type === 'audio');
+    const currentTracks = this.state.musicTracks();
+    const isActiveTrack = (t: MusicTrackRow) => {
+      const dur = this.state.musicTrackDurationSeconds(t);
+      return time >= t.startSeconds && time < (t.startSeconds + dur);
+    };
+    return {
+      a1Item: a1Items.find((i) => time >= i.startTime && time < (i.startTime + i.duration)),
+      // Voiceover lines get their own player so they are heard over music, as in the export.
+      // Cut effects play over the music on a player of their own, not instead of it.
+      musicTrack: currentTracks.find((t) => !isVoiceoverTrack(t) && !isCutEffectTrack(t) && isActiveTrack(t)),
+      effectTrack: currentTracks.find((t) => isCutEffectTrack(t) && isActiveTrack(t)),
+      voiceoverTrack: currentTracks.find((t) => isVoiceoverTrack(t) && isActiveTrack(t)),
+      hasGlobalMusic: this.state.musicAssetId() !== '' && this.state.musicVolume() > 0,
+    };
+  }
+
+  /**
+   * Music, voiceover lines and cut effects at the playhead. They run under the picture on
+   * their own clock, so they play whether or not a V1 clip is there. `musicGain` is the
+   * clip's overlap rule stepping the music back under it; 1 where no clip plays.
+   */
+  private syncSoundtrack(time: number, playing: boolean, musicGain: number): void {
+    const speed = this.state.playbackSpeed();
+    const active = this.activeSoundAt(time);
+    const activeMusicTrack = active.musicTrack;
+    const activeA1Item = active.a1Item;
+    const activeEffectTrack = active.effectTrack;
+    const activeVoiceoverTrack = active.voiceoverTrack;
+    const hasGlobalMusic = active.hasGlobalMusic;
+
     const bgAudio = this.bgMusicAudioRef?.nativeElement;
     let targetMusicAssetId: string | null = null;
     let targetMusicTime = 0;
@@ -755,7 +812,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
 
     // The resolved rule may ask the music to step back under this clip.
     // Under a voiceover line too; where both apply, the deeper duck wins, as in the export.
-    targetMusicVolume *= Math.min(overlap.musicGain, this.state.voiceDuckGainAt(time));
+    targetMusicVolume *= Math.min(musicGain, this.state.voiceDuckGainAt(time));
 
     if (bgAudio && targetMusicAssetId) {
       const musicUrl = this.state.assetUrl(targetMusicAssetId);
@@ -830,33 +887,6 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       fxAudio.pause();
     }
 
-    // 5. Sync Replacement Clip Sound (Voiceover)
-    const clipSoundAudio = this.clipSoundAudioRef?.nativeElement;
-    if (clipSoundAudio && sound.audioAssetId && sound.audioVolume > 0 && !pastPicture && !inGap) {
-      const clipSoundUrl = this.state.assetUrl(sound.audioAssetId);
-      const clipRun = this.state.clipSoundRunOffset(curr.clip.id);
-      const targetClipSoundTime = localTime + clipRun.startOffset;
-      const isClipSoundMuted = this.state.isMonitorMuted() || this.state.isTrackMuted('V1');
-      const clipSoundVol = isClipSoundMuted ? 0 : Math.min(1, sound.audioVolume * this.state.trackV1Volume() * this.state.monitorVolume());
-
-      if (this.loadedClipSoundAssetId !== sound.audioAssetId) {
-        this.loadedClipSoundAssetId = sound.audioAssetId;
-        clipSoundAudio.src = clipSoundUrl;
-        clipSoundAudio.currentTime = Math.max(0, targetClipSoundTime);
-      } else if (!playing || Math.abs(clipSoundAudio.currentTime - targetClipSoundTime) > 0.35) {
-        clipSoundAudio.currentTime = Math.max(0, targetClipSoundTime);
-      }
-      clipSoundAudio.volume = clipSoundVol;
-      clipSoundAudio.muted = isClipSoundMuted;
-      clipSoundAudio.playbackRate = speed;
-      if (playing) {
-        if (clipSoundAudio.paused) clipSoundAudio.play().catch(() => undefined);
-      } else {
-        if (!clipSoundAudio.paused) clipSoundAudio.pause();
-      }
-    } else if (clipSoundAudio && !clipSoundAudio.paused) {
-      clipSoundAudio.pause();
-    }
   }
 
   private pvClassForTransition(transition: string): string {

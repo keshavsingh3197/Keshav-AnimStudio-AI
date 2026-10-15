@@ -94,7 +94,9 @@ public sealed class ClipMergeOrchestrator(
             return;
         }
 
-        if (job.ClipMerge is not { AssetIds.Count: > 0 } spec)
+        // No clips is a cut of pictures, titles or music alone: its slot is the picture.
+        if (job.ClipMerge is not { } spec
+            || (spec.AssetIds.Count == 0 && !SlotSecondsBefore(spec.Slots, 0).Any(s => s > 0)))
         {
             await FailAsync(job, RenderErrorCode.NoScenes,
                 "This job has no clips to join.", ct).ConfigureAwait(false);

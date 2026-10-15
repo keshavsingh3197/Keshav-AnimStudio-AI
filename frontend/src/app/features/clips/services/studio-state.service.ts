@@ -179,6 +179,9 @@ function defaultTimelineTracks(): TrackControlState[] {
 /** How long an image plays when nothing else says. Matches the server's default. */
 const DEFAULT_IMAGE_SECONDS = 5;
 
+/** Longest slot the server renders (ClipMergeSpec.MaxSlotSeconds). */
+const MAX_SLOT_SECONDS = 3600;
+
 /** The number a name starts with ("07_intro.png" gives 7), or Infinity when it has none. */
 function leadingNumber(name: string): number {
   const match = /^\s*#?(\d+)/.exec(name ?? '');
@@ -1925,6 +1928,12 @@ export class StudioStateService implements OnDestroy {
     }
     return maxSec;
   });
+
+  /**
+   * Whether the cut has anything to play: V1 clips, or only pictures, titles or music on
+   * their own lanes - those play over a blank backdrop, in the preview and the export.
+   */
+  readonly hasCutContent = computed(() => this.included().length > 0 || this.contentDurationSeconds() > 0);
 
   readonly timelineSeconds = computed(() => {
     // Room for the end-card marker drawn after the cut, so the end of the video is visible.
@@ -5721,7 +5730,7 @@ export class StudioStateService implements OnDestroy {
 
   /** Frame pictures and videos on the monitor at the playhead, back to front, mid-animation. */
   readonly monitorFrameImages = computed<MonitorFrameMedia[]>(() => {
-    if (this.included().length === 0) return [];
+    if (!this.hasCutContent()) return [];
     const t = this.currentTime();
     const duration = this.contentDurationSeconds();
     const selected = this.selectedFrameLayer();
@@ -5896,7 +5905,7 @@ export class StudioStateService implements OnDestroy {
     const lines = (text: string, look: TextLook) =>
       wrapText(look.uppercase ? text.toUpperCase() : text, look.fontSize, w, h);
 
-    if (this.included().length > 0) {
+    if (this.hasCutContent()) {
       const layout = this.frameLayout();
       const t = this.currentTime();
       const duration = this.contentDurationSeconds();
@@ -8724,6 +8733,12 @@ export class StudioStateService implements OnDestroy {
 
   /** The gaps the cut opens for slotted items, as the export draws them; null when there are none. */
   slotsPayload(): ClipSlotBody[] | null {
+    // No V1 clip: the whole video is one blank slot, as long as everything on the timeline,
+    // so music that runs past the last picture is not cut off - the length the preview plays.
+    if (this.included().length === 0) {
+      const seconds = Math.min(Math.round(this.contentDurationSeconds() * 1000) / 1000, MAX_SLOT_SECONDS);
+      return seconds > 0 ? [{ beforeClipIndex: 0, seconds }] : null;
+    }
     const slots = this.slotLayout().gapBefore
       .map((seconds, beforeClipIndex) => ({ beforeClipIndex, seconds: Math.round(seconds * 1000) / 1000 }))
       .filter((s) => s.seconds > 0);
@@ -9127,8 +9142,8 @@ export class StudioStateService implements OnDestroy {
     if (!this.ownsCurrentProject(projectId) || this.blockedReason() !== null) return;
 
     const includedClips = this.included().map((r) => r.clip.id);
-    if (includedClips.length === 0) {
-      this.status.notify(['Please include at least one clip on the timeline.']);
+    if (!this.hasCutContent()) {
+      this.status.notify(['Add a clip, picture, title or music to the timeline first.']);
       return;
     }
 
@@ -9215,7 +9230,10 @@ export class StudioStateService implements OnDestroy {
       ? clipIds
       : this.included().map((r) => r.clip.id);
 
-    if (ids.length === 0) return;
+    if (ids.length === 0 && !this.hasCutContent()) {
+      this.status.notify(['Add a clip, picture, title or music to the timeline first.']);
+      return;
+    }
 
     this.saveDraft();
     this.running.set(true);

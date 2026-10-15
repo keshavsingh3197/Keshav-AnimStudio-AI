@@ -30,7 +30,7 @@
            (dragover)="onMonitorDragOver($event)"
            (dragleave)="onMonitorDragLeave($event)"
            (drop)="onMonitorDrop($event)">
-      @if (state.included().length === 0) {
+      @if (!state.hasCutContent()) {
         <div class="monitor-empty-state">
           <span style="font-size: 2.2rem">🎬</span>
           <strong>No clips in the cut yet</strong>

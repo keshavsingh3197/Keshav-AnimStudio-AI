@@ -281,10 +281,12 @@ public sealed class ClipMergeService(
 
         var clipIds = command.AssetIds ?? [];
 
-        if (clipIds.Count == 0)
+        // A cut of pictures, titles or music alone has no clip: its one slot is the picture,
+        // rendered as a blank backdrop with the lanes drawn over it.
+        if (clipIds.Count == 0 && !command.Slots.Any(s => double.IsFinite(s.Seconds) && s.Seconds > 0))
         {
             throw EditingException.Invalid("no-clips",
-                "Choose at least one clip to include.");
+                "Add a clip, picture, title or music to the timeline first.");
         }
 
         if (clipIds.Count > ClipMergeSpec.MaxClips)
@@ -408,7 +410,7 @@ public sealed class ClipMergeService(
                 $"Music volume must be between 0 and {ClipAudioSpec.MaxGain:0.#}.");
         }
 
-        if (command.Junctions is { } junctions && junctions.Count != clipIds.Count - 1)
+        if (command.Junctions is { } junctions && junctions.Count != Math.Max(0, clipIds.Count - 1))
         {
             throw EditingException.Invalid("junction-count-mismatch",
                 "There must be exactly one transition setting for every gap between clips.");

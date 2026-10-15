@@ -120,4 +120,43 @@ public class ClipSlotTests
         var endCard = Assert.Single(timeline.Entries, e => e.Kind == ExportTimelineKinds.EndCard);
         Assert.Equal((28.0, 32.0), (endCard.StartSeconds, endCard.EndSeconds));
     }
+
+    [Fact]
+    public void A_cut_with_no_clips_is_one_slot_and_its_pictures_and_end_card_follow_it()
+    {
+        // Pictures on IMG1 over a 27s slot, then a 4s end card. No V1 clip at all.
+        var spec = new ClipMergeSpec
+        {
+            AssetIds = [],
+            Slots = [new() { BeforeClipIndex = 0, Seconds = 27 }],
+            TimelineItems =
+            [
+                new TimelineItemSpec { Id = "p1", Type = "image", TrackId = "IMG1", Src = "a", StartTime = 0, Duration = 13.5 },
+                new TimelineItemSpec { Id = "p2", Type = "image", TrackId = "IMG1", Src = "b", StartTime = 13.5, Duration = 13.5 }
+            ]
+        };
+
+        Assert.Equal([27.0], ClipMergeOrchestrator.SlotSecondsBefore(spec.Slots, clipCount: 0));
+
+        var timeline = ExportTimelineBuilder.Build(
+            spec,
+            id => Assets.GetValueOrDefault(id),
+            new ExportTimelineFacts(
+                [new FrameCount(120)],
+                [FrameCount.Zero],
+                [SceneTransition.None],
+                [],
+                Rate,
+                new FrameCount(930))
+            {
+                SlotsBefore = [new FrameCount(810)]
+            });
+
+        Assert.DoesNotContain(timeline.Entries, e => e.Kind == ExportTimelineKinds.Clip);
+        Assert.Equal([(0.0, 13.5), (13.5, 27.0)],
+            timeline.Entries.Where(e => e.Kind == ExportTimelineKinds.Overlay).Select(e => (e.StartSeconds, e.EndSeconds)));
+
+        var endCard = Assert.Single(timeline.Entries, e => e.Kind == ExportTimelineKinds.EndCard);
+        Assert.Equal((27.0, 31.0), (endCard.StartSeconds, endCard.EndSeconds));
+    }
 }
