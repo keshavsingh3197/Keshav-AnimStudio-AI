@@ -359,6 +359,9 @@
           <div class="clip-card-footer">
             <span class="clip-title-text" [title]="row.clip.name">{{ row.clip.name }}</span>
             <div class="clip-footer-actions">
+              <button class="clip-action-icon-btn inspect" type="button" (click)="$event.stopPropagation(); inspect(row.clip)"
+                      [title]="state.getClipType(row.clip) === 'image' ? 'Inspect' : 'Inspect - play it and read, search and copy what is said'"
+                      aria-label="Inspect and transcript">📝</button>
               <button class="clip-action-icon-btn info" type="button" (click)="$event.stopPropagation(); usageClip.set(row.clip)" title="Details and where it is used">ⓘ</button>
               <button class="clip-action-icon-btn dup" type="button" (click)="$event.stopPropagation(); state.duplicateClip(row.clip.id)" title="Duplicate clip">⧉</button>
             </div>

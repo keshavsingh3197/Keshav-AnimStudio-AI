@@ -980,3 +980,46 @@
 .end-card-placeholder-icon {
   font-size: 2rem;
 }
+
+.transport-btn.primary.play-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Shown while the playhead waits for the media it follows to load. */
+.monitor-buffering {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(2, 6, 23, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #e2e8f0;
+  font-size: 0.72rem;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+}
+
+.monitor-buffering-ring {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: var(--brand, #6c8cff);
+  animation: monitor-buffering-spin 0.8s linear infinite;
+}
+
+@keyframes monitor-buffering-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .monitor-buffering-ring { animation-duration: 2.4s; }
+}

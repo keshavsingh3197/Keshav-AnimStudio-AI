@@ -28,6 +28,7 @@
         <div class="d-flex gap-1 align-items-center flex-wrap justify-content-end">
           <span class="track-badge-pill" style="background: #8b5cf6; color: #fff;">A1</span>
           <button type="button" class="audio-action-btn" style="font-size: 0.65rem; padding: 2px 7px;" (click)="state.seekToMusicTrack(musicTrack.key)" title="Move the playhead to this track">▶ Seek</button>
+          <button type="button" class="audio-action-btn" style="font-size: 0.65rem; padding: 2px 7px;" (click)="state.inspectMusicTrack(musicTrack.key)" title="Inspect - play it and read, search and copy what is said, with timeline times">📝 Script</button>
           <button type="button" class="audio-action-btn" style="font-size: 0.65rem; padding: 2px 7px;" (click)="state.duplicateMusicTrack(musicTrack.key)" title="Duplicate this music track">⧉ Copy</button>
           <button type="button" class="audio-action-btn text-danger" style="font-size: 0.65rem; padding: 2px 7px;" (click)="state.removeMusicTrack(musicTrack.key)" title="Delete this music track">🗑</button>
           <button type="button" class="audio-action-btn" style="font-size: 0.65rem; padding: 2px 8px;" (click)="state.clearAllSelections()" title="Deselect (Esc)">✕</button>
@@ -291,6 +292,7 @@
                 [style.background]="target.trackId === 'V1' ? '#3b82f6' : (target.trackId === 'V2' ? '#06b6d4' : '#8b5cf6')">
             {{ target.trackId }}
           </span>
+          <button type="button" class="audio-action-btn" style="font-size: 0.65rem; padding: 2px 7px;" (click)="inspect(target.clipId, target.isTimelineItem)" title="Inspect - play it and read, search and copy what is said, with timeline times">📝 Script</button>
           <button type="button" class="audio-action-btn" style="font-size: 0.65rem; padding: 2px 8px;" (click)="state.clearAllSelections()" title="Deselect (Esc)">✕ Deselect</button>
         </div>
       </div>

@@ -25,6 +25,7 @@ import { EraseRect, eraseFeatherMask, eraseOuter } from './erase-geometry';
 import { bedPieces, cutEffectStarts, deepestDuck } from './audio-enhance';
 import { TimelineFragment, TransferRange } from './timeline-transfer';
 import { ApiFailure } from '../../../core/interceptors/api-error.interceptor';
+import type { InspectTarget } from '../../../shared/transcript/media-inspector-dialog.component';
 import { DraftUsage, USAGE_ROLE_LABELS, UsageRole, draftAssetUsage, usageTotal } from './media-usage';
 import {
   DEFAULT_LAYER_MOTION, DEFAULT_TEXT_STYLE, FRAME_IMAGE_MAX_WIDTH, FRAME_IMAGE_MIN_WIDTH, FrameDesign, FrameImage, FrameLayout, NO_CROP,
@@ -1921,13 +1922,16 @@ export class StudioStateService implements OnDestroy {
       const end = item.startTime + item.duration;
       if (end > maxSec) maxSec = end;
     }
+    // The track's real length, as the lane draws it: an untrimmed song is not ten seconds long.
     for (const track of this.musicTracks()) {
-      const dur = track.trimEndSeconds ? track.trimEndSeconds - (track.trimStartSeconds ?? 0) : 10;
-      const end = track.startSeconds + dur;
+      const end = track.startSeconds + this.musicTrackDurationSeconds(track);
       if (end > maxSec) maxSec = end;
     }
     return maxSec;
   });
+
+  /** Whether there is anything to play - a clip, picture, title or sound - so Play can start. */
+  readonly canPlay = computed(() => this.previewEndSeconds() > 0);
 
   /**
    * Whether the cut has anything to play: V1 clips, or only pictures, titles or music on
@@ -3643,7 +3647,12 @@ export class StudioStateService implements OnDestroy {
 
   // Playback Methods
   play(): void {
-    if (this.currentTime() >= this.previewEndSeconds() && this.previewEndSeconds() > 0) {
+    // An empty timeline has no end, so the clock would run on forever over nothing.
+    if (!this.canPlay()) {
+      this.status.notify(['Nothing to play yet - add a clip, picture, title or sound to the timeline.']);
+      return;
+    }
+    if (this.getCurrentTimeExact() >= this.previewEndSeconds() - 0.05) {
       this.seekTo(0);
     }
     this.isPlaying.set(true);
@@ -5267,6 +5276,75 @@ export class StudioStateService implements OnDestroy {
     this.selectClip(clip.id);
     const sched = this.clipSchedule().find((s) => s.clip.id === clip.id);
     if (sched) this.seekTo(sched.startSeconds);
+  }
+
+  // ────────────────────────────────────────────────────────────────
+  // INSPECT: play a file and read, search and copy what is said in it
+  // ────────────────────────────────────────────────────────────────
+
+  /** The file open in the inspector dialog, if any. */
+  readonly inspectTarget = signal<InspectTarget | null>(null);
+
+  /** The file behind `assetId` as the inspector describes it, filled from the library when known. */
+  private inspectTargetFor(assetId: string, fallback: { name: string; kind: string; durationSeconds?: number | null },
+    timeline: InspectTarget['timeline'] = null): InspectTarget {
+    const asset = this.store.assets().find((a) => a.id === assetId);
+    return {
+      assetId,
+      name: asset?.name ?? fallback.name,
+      kind: asset?.kind ?? fallback.kind,
+      durationSeconds: asset?.durationSeconds ?? fallback.durationSeconds ?? null,
+      width: asset?.width ?? null,
+      height: asset?.height ?? null,
+      fileSizeBytes: asset?.fileSizeBytes ?? null,
+      mimeType: asset?.mimeType ?? null,
+      timeline,
+    };
+  }
+
+  private inspectKind(clip: Clip): string {
+    const type = this.getClipType(clip);
+    return type === 'audio' ? 'Audio' : type === 'image' ? 'Image' : 'Video';
+  }
+
+  /** Opens a media-bin file; when it is in the cut, its times are read on the timeline too. */
+  inspectClip(clip: Clip): void {
+    const sched = this.clipSchedule().find((s) => s.clip.id === clip.id);
+    if (sched) {
+      this.inspectScheduledClip(sched);
+      return;
+    }
+    if (this.isPlaying()) this.pause();
+    this.inspectTarget.set(this.inspectTargetFor(this.resolveAssetId(clip),
+      { name: clip.name, kind: this.inspectKind(clip), durationSeconds: clip.durationSeconds }));
+  }
+
+  /** Opens a V1 clip, with the part of the file it plays placed on the timeline. */
+  inspectScheduledClip(sched: ScheduledClip): void {
+    if (this.isPlaying()) this.pause();
+    const clip = sched.clip;
+    this.inspectTarget.set(this.inspectTargetFor(this.resolveAssetId(clip),
+      { name: clip.name, kind: this.inspectKind(clip), durationSeconds: clip.durationSeconds },
+      { startSeconds: sched.startSeconds, trimStartSeconds: clip.trimStartSeconds ?? 0, durationSeconds: sched.durationSeconds, label: 'V1' }));
+  }
+
+  /** Opens the file of a music, voiceover or effect track on an audio lane. */
+  inspectMusicTrack(key: string): void {
+    const track = this.musicTracks().find((t) => t.key === key);
+    if (!track) return;
+    if (this.isPlaying()) this.pause();
+    this.inspectTarget.set(this.inspectTargetFor(track.assetId,
+      { name: this.musicTrackName(track), kind: 'Audio', durationSeconds: this.musicTrackAsset(track)?.durationSeconds },
+      { startSeconds: track.startSeconds, trimStartSeconds: track.trimStartSeconds ?? 0, durationSeconds: this.musicTrackDurationSeconds(track), label: audioLaneOf(track) }));
+  }
+
+  /** Opens the file behind a loose audio or video item on the timeline. */
+  inspectTimelineItem(item: TimelineItem): void {
+    if (!item.src || (item.type !== 'audio' && item.type !== 'video' && item.type !== 'image')) return;
+    if (this.isPlaying()) this.pause();
+    const kind = item.type === 'audio' ? 'Audio' : item.type === 'image' ? 'Image' : 'Video';
+    this.inspectTarget.set(this.inspectTargetFor(item.src, { name: item.name ?? item.src, kind },
+      { startSeconds: item.startTime, trimStartSeconds: item.trimStartSeconds ?? 0, durationSeconds: item.duration, label: item.trackId }));
   }
 
   addTextOverlay(text?: string, startTime?: number): void {

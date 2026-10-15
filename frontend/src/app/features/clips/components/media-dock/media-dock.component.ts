@@ -82,6 +82,13 @@ export class MediaDockComponent implements OnDestroy {
     }
   }
 
+  /** Opens the file in the inspector, stopping a card preview first so the two don't play over each other. */
+  inspect(clip: Clip): void {
+    this.previewAudioEl?.pause();
+    this.previewingAudioId.set(null);
+    this.state.inspectClip(clip);
+  }
+
   togglePreviewAudio(assetId: string, event?: Event): void {
     event?.stopPropagation();
     if (this.previewingAudioId() === assetId) {

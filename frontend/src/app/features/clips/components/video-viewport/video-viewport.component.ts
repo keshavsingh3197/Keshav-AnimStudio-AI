@@ -11,6 +11,14 @@ import { ERASE_DEFAULT_STRENGTH, TimelineItemTransform } from '../../../../core/
 import { MusicTrackRow, isCutEffectTrack, isVoiceoverTrack } from '../../models/clip-studio.models';
 import { cameraTransformCentered, lookFilter } from '../../services/cinematic-image';
 
+/** Longest the playhead waits for the media it follows to load before going on without it. */
+const MAX_STALL_MS = 4000;
+
+/** Actually playing: started, not seeking, and with enough data to keep going. */
+function isRunning(el: HTMLMediaElement): boolean {
+  return !el.paused && !el.seeking && !el.ended && el.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA;
+}
+
 @Component({
   selector: 'app-video-viewport',
   standalone: true,
@@ -52,9 +60,16 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
   private animFrameId: number | null = null;
   private lastTickMs = 0;
   private lastPlayedClipIndex: number | null = null;
-  private bufferWaitStartMs: number | null = null;
   private lastPrefetchSec = -1;
   private readonly prefetchedAssetIds = new Set<string>();
+
+  /** When the media leading the clock started waiting to load, and which source that was. */
+  private stallStartMs: number | null = null;
+  private stallSource: string | null = null;
+  /** True while the playhead is held for media that is still loading, shown as a spinner. */
+  readonly buffering = signal(false);
+  /** When each player was last re-seeked during playback, so a late one is not re-seeked every frame. */
+  private readonly lastSeekMs = new WeakMap<HTMLMediaElement, number>();
 
   /** The still's camera this frame, from the exact playhead rather than the 10fps signal. */
   readonly shotCamera = signal('');
@@ -209,11 +224,19 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
   }
 
   // Playback Loop Implementation
+  //
+  // One clock drives the preview. It follows the media that is actually sounding - the V1
+  // video, or where there is none (sound only, pictures, titles) the audio track under the
+  // playhead - and holds while that media loads or seeks, so picture and sound start together.
+  // Only where nothing plays at all does it run on the wall clock. Every other player follows
+  // the clock and is re-seeked only when it has really drifted, at most once a second, because
+  // a re-seek makes it buffer again and fall further behind.
   private startPlaybackLoop(): void {
     if (this.animFrameId !== null) {
       cancelAnimationFrame(this.animFrameId);
     }
-    this.bufferWaitStartMs = null;
+    this.stallStartMs = null;
+    this.stallSource = null;
     this.lastTickMs = performance.now();
     this.scheduleNextTick();
   }
@@ -224,50 +247,53 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     this.animFrameId = requestAnimationFrame((now) => {
       if (!this.state.isPlaying()) return;
 
-      const activeEl = this.activeLayer() === 'A'
-        ? this.videoMonitorARef?.nativeElement
-        : this.videoMonitorBRef?.nativeElement;
+      const time = this.state.getCurrentTimeExact();
+      const master = this.masterClock(time);
+      const running = master !== null && master.ready && isRunning(master.el);
 
-      // Pause tick progression if video is actively seeking/buffering (with max 500ms stall timeout)
-      // Past the last clip the picture is a held frame, so nothing there is worth waiting on.
-      const sched = this.state.clipSchedule();
-      // Nor is a slot, where only the image or text in it is on screen.
-      const pastPicture = (sched.length > 0
-        && this.state.getCurrentTimeExact() >= sched[sched.length - 1].endSeconds)
-        || this.state.inSlotGap();
-      const isBuffering = !pastPicture && Boolean(
-        activeEl &&
-        !activeEl.error &&
-        (activeEl.seeking || (activeEl.readyState < 2 && !activeEl.paused))
-      );
-
-      if (isBuffering) {
-        if (this.bufferWaitStartMs === null) {
-          this.bufferWaitStartMs = now;
+      // Hold the playhead while the leading media loads - a few seconds at most, then the
+      // clock goes on without it rather than freezing on a file that never arrives.
+      if (master && !running) {
+        const source = master.el.currentSrc || master.el.src;
+        if (this.stallSource !== source) {
+          this.stallSource = source;
+          this.stallStartMs = now;
         }
-        if (now - this.bufferWaitStartMs < 500) {
+        const waited = now - (this.stallStartMs ?? now);
+        if (waited < MAX_STALL_MS) {
+          if (waited > 250 && !this.buffering()) this.buffering.set(true);
           this.lastTickMs = now;
+          if (!master.ready) {
+            // Still on the previous file: the sync switches it over.
+            this.syncMediaElements(true);
+          } else {
+            // Keep asking it to play - a player only buffers once play() has been called -
+            // and keep everything else where it is, so nothing runs ahead of the held playhead.
+            if (master.el.paused) master.el.play().catch(() => undefined);
+            this.holdOtherMedia(master.el);
+          }
           this.scheduleNextTick();
           return;
         }
+      } else {
+        this.stallSource = null;
+        this.stallStartMs = null;
       }
-      this.bufferWaitStartMs = null;
+      if (this.buffering()) this.buffering.set(false);
 
       const delta = ((now - this.lastTickMs) / 1000) * this.state.playbackSpeed();
       this.lastTickMs = now;
 
       const safeDelta = Math.min(Math.max(delta, 0), 0.25);
-      let nextTime = this.state.getCurrentTimeExact() + safeDelta;
+      let nextTime = time + safeDelta;
 
-      // Sync with active video playback timestamp (soft drift correction; never pins to 0 on start)
-      if (activeEl && !activeEl.paused && !activeEl.seeking && activeEl.readyState >= 2 && activeEl.currentTime > 0.05) {
-        const schedule = this.state.clipSchedule();
-        const curr = schedule.find((s) => this.state.getCurrentTimeExact() >= s.startSeconds && this.state.getCurrentTimeExact() < s.endSeconds);
-        if (curr) {
-          const videoTime = curr.startSeconds + activeEl.currentTime;
-          if (Math.abs(videoTime - nextTime) > 0.03 && Math.abs(videoTime - nextTime) < 0.3) {
-            nextTime += (videoTime - nextTime) * 0.25;
-          }
+      // Ease onto the leading media's own position. Small steps keep the playhead smooth; a
+      // big gap means the media is the one that is off, and the sync below re-seeks it.
+      if (running) {
+        const mediaTime = master.el.currentTime + master.offset;
+        const drift = mediaTime - nextTime;
+        if (Math.abs(drift) > 0.01 && Math.abs(drift) < 0.5) {
+          nextTime = Math.max(time, nextTime + drift * 0.2);
         }
       }
 
@@ -277,7 +303,11 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       }
 
       const total = Math.max(this.state.totalSeconds(), this.state.previewEndSeconds());
-      if (nextTime >= total && total > 0) {
+      if (total <= 0) {
+        this.state.pause();
+        return;
+      }
+      if (nextTime >= total) {
         if (this.state.isLooping()) {
           this.state.seekTo(0);
           this.scheduleNextTick();
@@ -321,7 +351,87 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       cancelAnimationFrame(this.animFrameId);
       this.animFrameId = null;
     }
+    this.buffering.set(false);
     this.pauseAllMedia();
+  }
+
+  /**
+   * The player the clock follows at `time`, and how its position maps onto the timeline
+   * (timeline = player time + offset): the V1 video while one plays, else the music, a loose
+   * audio item, a voiceover line or a cut effect under the playhead. Null where nothing plays.
+   * `ready` is false while the player still holds another file - it is being switched over.
+   */
+  private masterClock(time: number): { el: HTMLMediaElement; offset: number; ready: boolean } | null {
+    const usable = (el: HTMLMediaElement | undefined): el is HTMLMediaElement =>
+      Boolean(el && el.src && !el.error && !el.ended);
+
+    const sched = this.state.clipSchedule();
+    const now = sched.find((s) => time >= s.startSeconds && time < s.endSeconds);
+    if (now && this.state.getClipType(now.clip) !== 'image') {
+      const isA = this.activeLayer() === 'A';
+      const el = isA ? this.videoMonitorARef?.nativeElement : this.videoMonitorBRef?.nativeElement;
+      if (usable(el)) {
+        const loaded = isA ? this.loadedClipIdA : this.loadedClipIdB;
+        return {
+          el,
+          offset: now.startSeconds - (now.clip.trimStartSeconds ?? 0),
+          ready: loaded === this.state.resolveAssetId(now.clip),
+        };
+      }
+    }
+
+    const sound = this.activeSoundAt(time);
+    const bg = this.bgMusicAudioRef?.nativeElement;
+    if (sound.musicTrack && usable(bg)) {
+      const t = sound.musicTrack;
+      return { el: bg, offset: t.startSeconds - (t.trimStartSeconds ?? 0), ready: this.loadedMusicAssetId === t.assetId };
+    }
+    if (!sound.musicTrack && sound.a1Item && usable(bg)) {
+      const i = sound.a1Item;
+      return { el: bg, offset: i.startTime - (i.trimStartSeconds ?? 0), ready: this.loadedMusicAssetId === i.src };
+    }
+    const vo = this.voiceoverAudioRef?.nativeElement;
+    if (sound.voiceoverTrack && usable(vo)) {
+      const t = sound.voiceoverTrack;
+      return { el: vo, offset: t.startSeconds - (t.trimStartSeconds ?? 0), ready: this.loadedVoiceoverAssetId === t.assetId };
+    }
+    const fx = this.effectAudioRef?.nativeElement;
+    if (sound.effectTrack && usable(fx)) {
+      const t = sound.effectTrack;
+      return { el: fx, offset: t.startSeconds - (t.trimStartSeconds ?? 0), ready: this.loadedEffectAssetId === t.assetId };
+    }
+    return null;
+  }
+
+  /**
+   * Puts a player on `target` seconds. Paused, it lands exactly (scrubbing). Playing, it is
+   * only re-seeked past `tolerance` and not again within a second: each seek makes the player
+   * buffer, and seeking a late player every frame kept it from ever playing smoothly.
+   */
+  private alignMedia(el: HTMLMediaElement, target: number, playing: boolean, tolerance = 0.35): void {
+    const at = Math.max(0, target);
+    const drift = Math.abs(el.currentTime - at);
+    if (!playing) {
+      if (drift > 0.04) el.currentTime = at;
+      return;
+    }
+    if (el.seeking || drift <= tolerance) return;
+    const now = performance.now();
+    if (now - (this.lastSeekMs.get(el) ?? -Infinity) < 1000) return;
+    this.lastSeekMs.set(el, now);
+    el.currentTime = at;
+  }
+
+  /** Pauses every timeline player but `keep`; the next sync after the hold starts them again. */
+  private holdOtherMedia(keep: HTMLMediaElement): void {
+    const players = [
+      this.videoMonitorARef, this.videoMonitorBRef, this.overlayVideoRef, this.bgMusicAudioRef,
+      this.clipSoundAudioRef, this.voiceoverAudioRef, this.effectAudioRef,
+    ];
+    for (const ref of players) {
+      const el = ref?.nativeElement;
+      if (el && el !== keep && !el.paused) el.pause();
+    }
   }
 
   private pauseAllMedia(): void {
@@ -384,7 +494,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
 
   togglePlayback(): void {
     // Synchronously initiate playback on media elements within user gesture to unlock audio
-    if (!this.state.isPlaying()) {
+    if (!this.state.isPlaying() && this.state.canPlay()) {
       this.syncMediaElements(true);
       this.prefetchUpcomingMedia();
       const activeEl = this.activeLayer() === 'A'
@@ -514,6 +624,15 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       if (this.liveTransitionActive()) {
         this.liveTransitionActive.set(false);
         this.activeLayer.update((l) => (l === 'A' ? 'B' : 'A'));
+      } else {
+        // A hard cut: the standby layer already holds the next clip, preloaded. Cut to it
+        // instead of loading the file again on the layer on screen, which stalled every cut.
+        const wanted = this.state.resolveAssetId(curr.clip);
+        const onScreen = this.activeLayer() === 'A' ? this.loadedClipIdA : this.loadedClipIdB;
+        const standby = this.activeLayer() === 'A' ? this.loadedClipIdB : this.loadedClipIdA;
+        if (this.state.getClipType(curr.clip) !== 'image' && standby === wanted && onScreen !== wanted) {
+          this.activeLayer.update((l) => (l === 'A' ? 'B' : 'A'));
+        }
       }
     }
     this.lastPlayedClipIndex = curr.index;
@@ -620,10 +739,8 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
             currentActiveVideo.onloadedmetadata = null;
           };
         }
-      } else if (!playing && Math.abs(currentActiveVideo.currentTime - localTime) > 0.05 && !currentActiveVideo.seeking) {
-        currentActiveVideo.currentTime = Math.max(0.05, localTime);
-      } else if (playing && Math.abs(currentActiveVideo.currentTime - localTime) > 0.4 && !currentActiveVideo.seeking) {
-        currentActiveVideo.currentTime = Math.max(0.05, localTime);
+      } else {
+        this.alignMedia(currentActiveVideo, Math.max(0.05, localTime), playing, 0.4);
       }
       currentActiveVideo.volume = this.state.isMonitorMuted() ? 0 : Math.min(1, this.state.monitorVolume() * clipVol);
       currentActiveVideo.muted = isVideoMuted;
@@ -659,8 +776,8 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
           else this.loadedClipIdA = nextAssetId;
           currentStandbyVideo.src = this.state.assetUrl(nextAssetId);
           currentStandbyVideo.currentTime = nextLocalTime;
-        } else if (!playing || (Math.abs(currentStandbyVideo.currentTime - nextLocalTime) > 0.4 && !currentStandbyVideo.seeking)) {
-          currentStandbyVideo.currentTime = nextLocalTime;
+        } else {
+          this.alignMedia(currentStandbyVideo, nextLocalTime, playing, 0.4);
         }
 
         if (canBorrowHead) {
@@ -736,8 +853,8 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
         this.loadedClipSoundAssetId = sound.audioAssetId;
         clipSoundAudio.src = clipSoundUrl;
         clipSoundAudio.currentTime = Math.max(0, targetClipSoundTime);
-      } else if (!playing || Math.abs(clipSoundAudio.currentTime - targetClipSoundTime) > 0.35) {
-        clipSoundAudio.currentTime = Math.max(0, targetClipSoundTime);
+      } else {
+        this.alignMedia(clipSoundAudio, targetClipSoundTime, playing);
       }
       clipSoundAudio.volume = clipSoundVol;
       clipSoundAudio.muted = isClipSoundMuted;
@@ -820,8 +937,8 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
         this.loadedMusicAssetId = targetMusicAssetId;
         bgAudio.src = musicUrl;
         bgAudio.currentTime = Math.max(0, targetMusicTime);
-      } else if (!playing || Math.abs(bgAudio.currentTime - targetMusicTime) > 0.35) {
-        bgAudio.currentTime = Math.max(0, targetMusicTime);
+      } else {
+        this.alignMedia(bgAudio, targetMusicTime, playing);
       }
       bgAudio.volume = isMusicTrackMuted ? 0 : Math.min(1, this.state.monitorVolume() * targetMusicVolume);
       bgAudio.muted = isMusicTrackMuted;
@@ -845,8 +962,8 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
         this.loadedVoiceoverAssetId = activeVoiceoverTrack.assetId;
         voAudio.src = this.state.assetUrl(activeVoiceoverTrack.assetId);
         voAudio.currentTime = Math.max(0, voTime);
-      } else if (!playing || Math.abs(voAudio.currentTime - voTime) > 0.35) {
-        voAudio.currentTime = Math.max(0, voTime);
+      } else {
+        this.alignMedia(voAudio, voTime, playing);
       }
       // The voice leads: a Duck music rule lowers the music around it, never the voice itself.
       const voGain = (activeVoiceoverTrack.volume ?? 1.0) * this.state.trackA1Volume();
@@ -871,8 +988,8 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
         this.loadedEffectAssetId = activeEffectTrack.assetId;
         fxAudio.src = this.state.assetUrl(activeEffectTrack.assetId);
         fxAudio.currentTime = Math.max(0, fxTime);
-      } else if (!playing || Math.abs(fxAudio.currentTime - fxTime) > 0.35) {
-        fxAudio.currentTime = Math.max(0, fxTime);
+      } else {
+        this.alignMedia(fxAudio, fxTime, playing);
       }
       const fxGain = (activeEffectTrack.volume ?? 1.0) * this.state.audioBusGain('A2');
       fxAudio.volume = fxMuted ? 0 : Math.min(1, this.state.monitorVolume() * fxGain);

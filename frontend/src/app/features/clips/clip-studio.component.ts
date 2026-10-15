@@ -16,6 +16,7 @@ import { FrameCropDialogComponent } from './components/frame-crop-dialog/frame-c
 import { PhotoStoryComponent } from './components/photo-story/photo-story.component';
 import { clipboardFiles } from '../../shared/file-drop.directive';
 import { YouTubePublishDialogComponent } from '../../shared/youtube-publish-dialog.component';
+import { MediaInspectorDialogComponent } from '../../shared/transcript/media-inspector-dialog.component';
 import { lastApplied, loadStoredLibrary, spokenText } from './components/inspector-dock/tabs/voice-script-library';
 
 @Component({
@@ -35,6 +36,7 @@ import { lastApplied, loadStoredLibrary, spokenText } from './components/inspect
     PhotoStoryComponent,
     RouterLink,
     YouTubePublishDialogComponent,
+    MediaInspectorDialogComponent,
   ],
   templateUrl: './clip-studio.component.html',
   styleUrls: ['./clip-studio.component.css'],
@@ -316,6 +318,8 @@ export class ClipStudioComponent implements OnDestroy {
   // Global Keyboard Shortcuts Guardrail (Guardrail 5)
   @HostListener('window:keydown', ['$event'])
   handleGlobalKeydown(event: KeyboardEvent): void {
+    // The inspector has its own keys (Space plays the file in it); the timeline's wait.
+    if (this.state.inspectTarget()) return;
     const target = event.target as HTMLElement | null;
     if (
       target &&

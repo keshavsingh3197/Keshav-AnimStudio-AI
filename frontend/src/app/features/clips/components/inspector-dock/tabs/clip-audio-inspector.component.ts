@@ -31,6 +31,21 @@ export class ClipAudioInspectorComponent {
     return target ? this.state.resolveOverlap(target.clipId) : null;
   });
 
+  /** Opens the selected clip or item's file in the inspector, placed where it sits on the timeline. */
+  inspect(id: string, isTimelineItem: boolean): void {
+    if (isTimelineItem) {
+      const item = this.state.timelineItems().find((i) => i.id === id);
+      if (item) this.state.inspectTimelineItem(item);
+      return;
+    }
+    const sched = this.state.clipSchedule().find((s) => s.clip.id === id);
+    if (sched) this.state.inspectScheduledClip(sched);
+    else {
+      const clip = this.state.activeTargetClip();
+      if (clip) this.state.inspectClip(clip);
+    }
+  }
+
   /** Plain sentence naming the rule in force and the level that set it. */
   resolvedLine(): string {
     const r = this.resolved();

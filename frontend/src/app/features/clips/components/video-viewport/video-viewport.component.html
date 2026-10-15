@@ -326,6 +326,13 @@
         }
       }
 
+      @if (buffering()) {
+        <div class="monitor-buffering" role="status" aria-live="polite">
+          <span class="monitor-buffering-ring"></span>
+          <span>Loading media…</span>
+        </div>
+      }
+
       <!-- Audio elements for background soundtrack and replacement clip audio -->
       <audio #bgMusicAudio loop></audio>
       <audio #clipSoundAudio></audio>
@@ -353,7 +360,8 @@
           ❮
         </button>
         <button class="transport-btn primary play-btn" type="button" (click)="togglePlayback()"
-                [title]="state.isPlaying() ? 'Pause (Space)' : 'Play (Space)'">
+                [disabled]="!state.isPlaying() && !state.canPlay()"
+                [title]="state.isPlaying() ? 'Pause (Space)' : (state.canPlay() ? 'Play (Space)' : 'Nothing to play yet - add a clip, picture, title or sound')">
           @if (state.isPlaying()) { ⏸ } @else { ▶ }
         </button>
         <button class="transport-btn btn-sm" type="button" (click)="state.stepFrame(1)" title="Step forward 1 frame (Right Arrow)">

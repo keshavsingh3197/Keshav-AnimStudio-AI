@@ -367,6 +367,10 @@
                     @if (item.transform?.transitionOut && item.transform.transitionOut !== 'none') {
                       <span class="tl-trans-out-badge" [title]="'Out: ' + item.transform.transitionOut + ' (' + (item.transform.transitionOutDuration ?? 0.5) + 's)'">⚡ {{ item.transform.transitionOut }}</span>
                     }
+                    <button class="tl-inspect-btn" type="button"
+                            (pointerdown)="$event.stopPropagation()"
+                            (click)="$event.stopPropagation(); state.inspectTimelineItem(item)"
+                            title="Inspect - play it and read, search and copy what is said, with timeline times" aria-label="Inspect and transcript">📝</button>
                     <button class="tl-item-remove" type="button"
                             (pointerdown)="$event.stopPropagation()"
                             (click)="onRemoveItemClick($event, item.id)"
@@ -448,6 +452,10 @@
                      (dragend)="endClipDrag()"
                      [title]="sched.clip.name">
                   <button class="tl-clip-remove" type="button" (pointerdown)="$event.stopPropagation(); state.removeTimelineClipAtIndex(sched.clip.id, i)" (click)="$event.stopPropagation(); state.removeTimelineClipAtIndex(sched.clip.id, i)" title="Remove clip from timeline cut">×</button>
+                  <button class="tl-clip-inspect" type="button" draggable="false"
+                          (pointerdown)="$event.stopPropagation()" (dblclick)="$event.stopPropagation()"
+                          (click)="$event.stopPropagation(); state.inspectScheduledClip(sched)"
+                          title="Inspect - play it and read, search and copy what is said, with timeline times" aria-label="Inspect and transcript">📝</button>
                   @if (state.timelineThumbnailMode() === 'filmstrip') {
                     <div class="tl-clip-backdrop-thumb">
                       <img [src]="state.assetThumbnailUrl(sched.clip.id)" loading="lazy" class="tl-clip-thumb-media backdrop" alt="" (error)="$any($event.target).style.display='none'" />
@@ -709,6 +717,10 @@
                     <span class="tl-item-badge">{{ lane.id }}</span>
                     <span class="tl-item-name">{{ item.name || item.src }}</span>
                     <span class="tl-item-dur mono">{{ item.duration | number:'1.1-1' }}s</span>
+                    <button class="tl-inspect-btn" type="button"
+                            (pointerdown)="$event.stopPropagation()"
+                            (click)="$event.stopPropagation(); state.inspectTimelineItem(item)"
+                            title="Inspect - play it and read, search and copy what is said, with timeline times" aria-label="Inspect and transcript">📝</button>
                     <button class="tl-item-remove" type="button"
                             (pointerdown)="$event.stopPropagation()"
                             (click)="onRemoveItemClick($event, item.id)"
@@ -752,6 +764,10 @@
                         </small>
                       </span>
                     }
+                    <button class="tl-inspect-btn" type="button"
+                            (pointerdown)="$event.stopPropagation()"
+                            (click)="$event.stopPropagation(); state.inspectMusicTrack(track.key)"
+                            title="Inspect - play it and read, search and copy what is said, with timeline times" aria-label="Inspect and transcript">📝</button>
                     <button class="tl-music-remove" type="button"
                             (pointerdown)="$event.stopPropagation()"
                             (click)="onRemoveMusicClick($event, track.key)"

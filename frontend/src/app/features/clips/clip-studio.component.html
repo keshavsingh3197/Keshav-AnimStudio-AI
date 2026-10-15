@@ -1648,6 +1648,13 @@
     </div>
   }
 
+  @if (state.inspectTarget(); as inspect) {
+    <app-media-inspector-dialog
+      [target]="inspect"
+      (seekTimeline)="state.inspectTarget.set(null); state.seekTo($event)"
+      (closed)="state.inspectTarget.set(null)" />
+  }
+
   @if (publishJobId(); as publishId) {
     <app-youtube-publish-dialog
       [jobId]="publishId"
