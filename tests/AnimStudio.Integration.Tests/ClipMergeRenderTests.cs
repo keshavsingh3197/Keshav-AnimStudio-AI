@@ -553,6 +553,40 @@ public sealed class ClipMergeRenderTests : IAsyncLifetime
         Assert.True(afterIt < 40, $"the sticker stayed after its end ({afterIt:F1}).");
     }
 
+    [FfmpegTheory]
+    [InlineData("confetti", "burst")]
+    [InlineData("cannon", "burst")]
+    [InlineData("flowers", "burst")]
+    [InlineData("petals", "rain")]
+    [InlineData("hearts", "burst")]
+    [InlineData("sparkles", "rain")]
+    [InlineData("snow", "rain")]
+    [InlineData("balloons", "rain")]
+    public async Task A_celebration_draws_particles_only_while_it_lasts(string kind, string mode)
+    {
+        Directory.CreateDirectory(Path_("in"));
+        Run($"-y -f lavfi -i color=c=black:size=640x360:rate=30:duration=3 -c:v libx264 -pix_fmt yuv420p -an \"{Path_("in/black.mp4")}\"");
+        var clip = await _service.RenderClipAsync(Plan(0, "in/black.mp4", hasAudio: false), _workspace, null, Ct);
+
+        var settings = CelebrationPlanner.Normalize(kind, mode, 100, 1.5, 1, "test-item")!;
+        var merged = await BuildService().MergeScenesAsync(
+            new MergePlan
+            {
+                Canvas = TestCanvas,
+                Scenes = [new MergeSceneInput(clip.RelativePath, clip.Frames, TransitionSettings.None)],
+                Overlays = [new MergeOverlayItem("celebration", null, 0.2, 2.2, 1, 0, 0, 1) { Celebration = settings }],
+                OutputRelativePath = $"out/celebration-{kind}.mp4"
+            },
+            _workspace, null, Ct);
+
+        var path = _workspace.Resolve(merged.RelativePath);
+        // Somewhere in the frame something bright has appeared over the black.
+        var during = MaxLuma(path, at: 1.3);
+        var after = MaxLuma(path, at: 2.8);
+        Assert.True(during > 60, $"{kind}: no particles drew at 1.3s (max luma {during:F1}).");
+        Assert.True(after < 30, $"{kind}: particles stayed after the celebration ended (max luma {after:F1}).");
+    }
+
     [FfmpegFact]
     public async Task A_circle_sticker_is_cut_round_with_a_coloured_ring()
     {
@@ -1186,13 +1220,16 @@ public sealed class ClipMergeRenderTests : IAsyncLifetime
     /// Average brightness of a region of the first frame. Used to prove a watermark really
     /// drew, since a drawtext that silently did nothing still exits 0.
     /// </summary>
-    private static double MeanLuma(string path, string cropFilter, double? at = null)
+    /// <summary>Brightest pixel of the frame at <paramref name="at"/>: proves something drew anywhere.</summary>
+    private static double MaxLuma(string path, double at) => MeanLuma(path, "null", at, "YMAX");
+
+    private static double MeanLuma(string path, string cropFilter, double? at = null, string key = "YAVG")
     {
         var seek = at is { } seconds ? $"-ss {seconds.ToString(CultureInfo.InvariantCulture)} " : string.Empty;
         using var process = Process.Start(new ProcessStartInfo(FfmpegLocator.FfmpegPath)
         {
             Arguments = $"-hide_banner -v info {seek}-i \"{path}\" -vf {cropFilter},signalstats,"
-                      + "metadata=print:key=lavfi.signalstats.YAVG -frames:v 1 -f null -",
+                      + $"metadata=print:key=lavfi.signalstats.{key} -frames:v 1 -f null -",
             RedirectStandardError = true,
             RedirectStandardOutput = true,
             UseShellExecute = false
@@ -1201,9 +1238,9 @@ public sealed class ClipMergeRenderTests : IAsyncLifetime
         var output = process.StandardError.ReadToEnd() + process.StandardOutput.ReadToEnd();
         process.WaitForExit(60_000);
 
-        var marker = "lavfi.signalstats.YAVG=";
+        var marker = $"lavfi.signalstats.{key}=";
         var index = output.IndexOf(marker, StringComparison.Ordinal);
-        Assert.True(index >= 0, "signalstats produced no YAVG reading.");
+        Assert.True(index >= 0, $"signalstats produced no {key} reading.");
 
         var value = output[(index + marker.Length)..].Split('\n')[0].Trim();
         return double.Parse(value, CultureInfo.InvariantCulture);

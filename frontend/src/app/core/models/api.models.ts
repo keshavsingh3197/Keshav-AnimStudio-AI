@@ -754,7 +754,7 @@ export interface ClipAudioBody {
 /** Loudest anything may be lifted. Mirrors ClipAudioSpec.MaxGain on the server. */
 export const MAX_CLIP_GAIN = 2;
 
-export type TimelineItemType = 'video' | 'image' | 'audio' | 'text';
+export type TimelineItemType = 'video' | 'image' | 'audio' | 'text' | 'celebration';
 
 export interface TimelineItemTransform {
   scale: number;
@@ -919,6 +919,16 @@ export interface TimelineItem {
    * `startTime` is derived from it. See sequence-slots.ts.
    */
   slotIndex?: number;
+  /** Type 'celebration' on FX1: the kind is `src`; how many, how big and how fast are here. */
+  celebration?: TimelineCelebration;
+}
+
+/** Mirrors CelebrationRequest on the server; see features/clips/services/celebration.ts. */
+export interface TimelineCelebration {
+  mode?: 'burst' | 'rain';
+  density?: number;
+  size?: number;
+  speed?: number;
 }
 
 export interface TrackControlState {

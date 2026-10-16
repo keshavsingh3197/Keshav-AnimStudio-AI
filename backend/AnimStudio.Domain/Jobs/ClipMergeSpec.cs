@@ -605,4 +605,16 @@ public sealed class TimelineItemSpec
     public double? Volume { get; set; }
     public double? TrimStartSeconds { get; set; }
     public double? TrimEndSeconds { get; set; }
+
+    /// <summary>Type "celebration": the kind is <see cref="Src"/>, the rest is here.</summary>
+    public CelebrationSpec? Celebration { get; set; }
+}
+
+/// <summary>A celebration item's settings as the studio sent them; clamped by the planner.</summary>
+public sealed class CelebrationSpec
+{
+    public string? Mode { get; set; }
+    public int? Density { get; set; }
+    public double? Size { get; set; }
+    public double? Speed { get; set; }
 }

@@ -1142,6 +1142,10 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
                 currentVideoLabel = TextOverlayFilters.Append(
                     graph, currentVideoLabel, $"v_ov_{idx}", overlay, text, plan.Canvas);
             }
+            else if (overlay is { Type: "celebration", Celebration: not null })
+            {
+                currentVideoLabel = CelebrationFilters.Append(graph, currentVideoLabel, idx, overlay, plan.Canvas);
+            }
         }
 
         graph.Append($"[{currentVideoLabel}]format={plan.Encoder.PixelFormat}[vfinal];\n");

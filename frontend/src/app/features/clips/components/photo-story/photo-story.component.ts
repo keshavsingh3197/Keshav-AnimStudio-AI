@@ -2,7 +2,10 @@ import { Component, ElementRef, HostListener, OnDestroy, ViewChild, computed, in
 import { FormsModule } from '@angular/forms';
 import { DecimalPipe } from '@angular/common';
 import { ClipFit, ExportQuality, ImageCameraMotion, TRANSITIONS } from '../../../../core/models/api.models';
-import { PhotoStorySlide, StudioStateService } from '../../services/studio-state.service';
+import { PhotoStorySlide, StudioStateService, photoStoryCelebrationId } from '../../services/studio-state.service';
+import { CelebrationKind, celebrationOption } from '../../services/celebration';
+import { CelebrationCue, CelebrationLayerComponent } from '../celebration/celebration-layer.component';
+import { CelebrationTilesComponent } from '../celebration/celebration-tiles.component';
 import {
   CinematicImage, DEFAULT_CINEMATIC, IMAGE_LOOKS, IMAGE_MOTIONS, IMAGE_MOTION_MAX, IMAGE_MOTION_MIN,
   autoMotion, cameraTransform, cinemaBarPercent, lookFilter,
@@ -21,6 +24,13 @@ const FORMATS: readonly StoryFormat[] = [
 ];
 
 type StoryStep = 'photos' | 'style' | 'timing' | 'create';
+
+/** Which library pictures show: every one, those not in the story yet, or those already in it. */
+type LibraryFilter = 'all' | 'unused' | 'used';
+type LibrarySort = 'newest' | 'oldest' | 'name';
+type LibrarySize = 's' | 'm' | 'l';
+
+const LIBRARY_PREFS_KEY = 'animstudio.photoStory.library';
 
 const STEPS: readonly { id: StoryStep; label: string }[] = [
   { id: 'photos', label: 'Photos' },
@@ -47,7 +57,7 @@ let nextSlideId = 0;
 @Component({
   selector: 'app-photo-story',
   standalone: true,
-  imports: [FormsModule, DecimalPipe],
+  imports: [FormsModule, DecimalPipe, CelebrationTilesComponent, CelebrationLayerComponent],
   templateUrl: './photo-story.component.html',
   styleUrl: './photo-story.component.css',
 })
@@ -99,6 +109,49 @@ export class PhotoStoryComponent implements OnDestroy {
   readonly totalSeconds = computed(() => Math.round(this.slides().reduce((sum, s) => sum + s.seconds, 0) * 10) / 10);
   readonly barPercent = computed(() => cinemaBarPercent(this.format().width, this.format().height));
   readonly captionCount = computed(() => this.slides().filter((s) => (s.caption ?? '').trim()).length);
+  readonly celebrationCount = computed(() => this.slides().filter((s) => s.celebration).length);
+
+  // --- library ---
+
+  readonly libQuery = signal('');
+  readonly libFilter = signal<LibraryFilter>('all');
+  readonly libSort = signal<LibrarySort>('newest');
+  readonly libSize = signal<LibrarySize>('m');
+  /** How many times each picture is in the story, for the badge on its tile. */
+  readonly useCounts = computed(() => {
+    const counts = new Map<string, number>();
+    for (const s of this.slides()) counts.set(s.assetId, (counts.get(s.assetId) ?? 0) + 1);
+    return counts;
+  });
+  readonly unusedCount = computed(() => this.state.frameImageCandidates().filter((c) => !this.useCounts().has(c.id)).length);
+  /** The library as the filter, search and sort show it. */
+  readonly libraryItems = computed(() => {
+    const words = this.libQuery().trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const filter = this.libFilter();
+    const used = this.useCounts();
+    const added = new Map<string, number>();
+    for (const c of this.state.studio()?.clips ?? []) {
+      const t = c.createdAt ? Date.parse(c.createdAt) : NaN;
+      if (Number.isFinite(t)) added.set(c.id, t);
+    }
+    const list = this.state.frameImageCandidates().filter((c) => {
+      if (filter === 'unused' && used.has(c.id)) return false;
+      if (filter === 'used' && !used.has(c.id)) return false;
+      const name = c.name.toLowerCase();
+      return words.every((w) => name.includes(w));
+    });
+    const sort = this.libSort();
+    if (sort === 'name') return [...list].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    // Library order is upload order; pictures with a known date sort by it.
+    const withIndex = list.map((c, i) => ({ c, t: added.get(c.id) ?? i }));
+    withIndex.sort((a, b) => (sort === 'newest' ? b.t - a.t : a.t - b.t));
+    return withIndex.map((x) => x.c);
+  });
+  /** Pictures the library shows that are not in the story yet. */
+  readonly shownUnused = computed(() => this.libraryItems().filter((c) => !this.useCounts().has(c.id)).length);
+  readonly maxSlides = MAX_SLIDES;
+  /** Ctrl/Shift-picked library pictures, to add together in the order picked. */
+  readonly libPicked = signal<string[]>([]);
 
   // --- music & timing ---
 
@@ -154,6 +207,7 @@ export class PhotoStoryComponent implements OnDestroy {
   });
 
   constructor() {
+    this.readLibraryPrefs();
     // Start from the pictures already on the timeline, else every picture in the project.
     const onTimeline = this.state.timelineItems()
       .filter((it) => it.type === 'image')
@@ -210,6 +264,7 @@ export class PhotoStoryComponent implements OnDestroy {
       cinematic: shot ? { ...shot } : { ...DEFAULT_CINEMATIC, motion: autoMotion(index) },
       transition: 'Fade',
       caption: '',
+      celebration: null,
     };
   }
 
@@ -248,9 +303,13 @@ export class PhotoStoryComponent implements OnDestroy {
     return true;
   }
 
-  /** Every library picture not yet in the story, in library order. */
+  useCount(assetId: string): number {
+    return this.useCounts().get(assetId) ?? 0;
+  }
+
+  /** Every picture the library shows that is not yet in the story, in the order shown. */
   addAllUnused(): void {
-    const unused = this.state.frameImageCandidates().filter((c) => !this.isInStory(c.id));
+    const unused = this.libraryItems().filter((c) => !this.isInStory(c.id));
     const room = MAX_SLIDES - this.slides().length;
     if (unused.length === 0 || room <= 0) return;
     this.remember();
@@ -358,6 +417,105 @@ export class PhotoStoryComponent implements OnDestroy {
     this.playStart = performance.now();
   }
 
+  // --- library ---
+
+  /** Plain click adds; Ctrl/Cmd (or Shift) click picks several to add together. */
+  onLibraryClick(event: MouseEvent, id: string, name: string): void {
+    if (event.ctrlKey || event.metaKey || event.shiftKey) {
+      this.libPicked.update((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+      return;
+    }
+    this.addPicture(id, name);
+  }
+
+  isPicked(id: string): boolean {
+    return this.libPicked().includes(id);
+  }
+
+  addPicked(): void {
+    const byId = new Map(this.state.frameImageCandidates().map((c) => [c.id, c] as const));
+    const picked = this.libPicked().map((id) => byId.get(id)).filter((c) => c !== undefined);
+    const room = MAX_SLIDES - this.slides().length;
+    if (picked.length === 0) return;
+    if (room <= 0) {
+      this.state.status.notify([`A photo story holds up to ${MAX_SLIDES} pictures.`]);
+      return;
+    }
+    this.remember();
+    const base = this.slides().length;
+    const added = picked.slice(0, room).map((c, k) => this.newSlide(c.id, c.name, this.selected()?.seconds ?? 5, base + k));
+    this.slides.update((list) => [...list, ...added]);
+    this.selectedId.set(added[0].id);
+    this.libPicked.set([]);
+    this.say(`Added ${added.length} picture(s).`);
+  }
+
+  setLibSort(sort: LibrarySort): void {
+    this.libSort.set(sort);
+    this.saveLibraryPrefs();
+  }
+
+  setLibSize(size: LibrarySize): void {
+    this.libSize.set(size);
+    this.saveLibraryPrefs();
+  }
+
+  private readLibraryPrefs(): void {
+    try {
+      const p = JSON.parse(localStorage.getItem(LIBRARY_PREFS_KEY) ?? '{}') as { sort?: LibrarySort; size?: LibrarySize };
+      if (p.sort === 'newest' || p.sort === 'oldest' || p.sort === 'name') this.libSort.set(p.sort);
+      if (p.size === 's' || p.size === 'm' || p.size === 'l') this.libSize.set(p.size);
+    } catch {
+      // Storage blocked or unreadable: the defaults do.
+    }
+  }
+
+  private saveLibraryPrefs(): void {
+    try {
+      localStorage.setItem(LIBRARY_PREFS_KEY, JSON.stringify({ sort: this.libSort(), size: this.libSize() }));
+    } catch {
+      // Storage blocked: the choice lasts for this visit only.
+    }
+  }
+
+  // --- celebrations ---
+
+  setCelebration(id: string, kind: CelebrationKind | null): void {
+    this.slides.update((list) => list.map((s) => (s.id === id ? { ...s, celebration: kind } : s)));
+    this.presetId.set(null);
+    this.playStart = performance.now();
+  }
+
+  /** The selected shot's celebration (or none) on the target shots. */
+  celebrationToAll(): void {
+    const from = this.selected();
+    if (!from) return;
+    this.remember();
+    this.slides.update((list) => list.map((s) => (this.isTarget(s) ? { ...s, celebration: from.celebration ?? null } : s)));
+    this.presetId.set(null);
+    this.say(from.celebration ? `${this.celebrationLabel(from.celebration)} on ${this.bulkLabel()}.` : `Celebrations removed from ${this.bulkLabel()}.`);
+  }
+
+  celebrationIcon(kind: string | null | undefined): string {
+    return celebrationOption(kind ?? undefined)?.icon ?? '';
+  }
+
+  celebrationLabel(kind: string | null | undefined): string {
+    return celebrationOption(kind ?? undefined)?.label ?? 'None';
+  }
+
+  /** The previewed shot's celebration, timed to the shot as the export times it. */
+  readonly previewCues = computed<CelebrationCue[]>(() => {
+    const slide = this.previewSlide();
+    if (!slide?.celebration) return [];
+    const index = this.slides().indexOf(slide);
+    return [{ id: photoStoryCelebrationId(index), kind: slide.celebration, start: 0, duration: slide.seconds,
+      settings: { density: 55, size: 1, speed: 1 } }];
+  });
+  /** Seconds into the previewed shot, for the celebration layer. */
+  private shotClock = 0;
+  readonly previewClockFn = (): number => this.shotClock;
+
   // --- bulk order ---
 
   shuffle(): void {
@@ -402,6 +560,7 @@ export class PhotoStoryComponent implements OnDestroy {
     if (!from) return;
     this.remember();
     const { look, vignette, grain, cinemaBars, intensity, easing } = from.cinematic;
+    // A celebration marks a moment, so it is chosen per shot and not copied with the look.
     this.slides.update((list) => list.map((s) => (!this.isTarget(s) ? s : {
       ...s, seconds: from.seconds, transition: from.transition,
       cinematic: { ...s.cinematic, look, vignette, grain, cinemaBars, intensity, easing },
@@ -436,6 +595,7 @@ export class PhotoStoryComponent implements OnDestroy {
       ...s,
       seconds: p.seconds,
       transition: p.transition,
+      celebration: p.celebrationAt ? p.celebrationAt(k, list.length) : s.celebration,
       cinematic: {
         ...s.cinematic,
         motion: p.motionAt(k),
@@ -740,6 +900,7 @@ export class PhotoStoryComponent implements OnDestroy {
     const shot = trying ? { ...slide.cinematic, motion: trying } : slide.cinematic;
     this.previewProgress.set(p);
     this.previewTransform.set(cameraTransform(shot, p, t));
+    this.shotClock = t;
     if (this.playing()) {
       const before = this.slides().slice(0, this.previewIndex()).reduce((sum, s) => sum + s.seconds, 0);
       this.previewClock.set(before + t);

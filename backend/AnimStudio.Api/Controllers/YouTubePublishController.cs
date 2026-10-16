@@ -3,6 +3,7 @@ using AnimStudio.Api.Common;
 using AnimStudio.Api.Security;
 using AnimStudio.Application.Abstractions.Ai;
 using AnimStudio.Application.Abstractions.Persistence;
+using AnimStudio.Application.Abstractions.Storage;
 using AnimStudio.Application.Admin;
 using AnimStudio.Application.Ai;
 using AnimStudio.Application.Clips;
@@ -50,6 +51,8 @@ public sealed partial class YouTubePublishController(
     BrandChannelSyncService brandSync,
     ReleaseKitStore releaseKits,
     IAuthorizationService authorization,
+    IObjectStore store,
+    YouTubeThumbnailService thumbnails,
     ILogger<YouTubePublishController> logger) : ControllerBase
 {
     /// <summary>Brand channels are studio-wide settings, so only an admin's connections change them.</summary>
@@ -357,7 +360,7 @@ public sealed partial class YouTubePublishController(
     {
         var job = await LoadOwnedJobAsync(jobId, ct);
 
-        return await QueueUploadAsync(request, Facts(job), "render", (connection, metadata, related, firstComment) => new YouTubeUploadRequest(
+        return await QueueUploadAsync(request, Facts(job), token => RenderPreviewFile.EnsureAsync(store, job, token), "render", (connection, metadata, related, firstComment) => new YouTubeUploadRequest(
             currentUser.UserId,
             job.Id,
             job.OutputStorageKey!,
@@ -378,6 +381,7 @@ public sealed partial class YouTubePublishController(
     private async Task<ActionResult<ApiResponse<YouTubeUploadStatus>>> QueueUploadAsync(
         YouTubePublishRequest? request,
         YouTubeVideoFacts facts,
+        Func<CancellationToken, Task<string>> videoPath,
         string sourceKind,
         Func<YouTubeChannelConnection, NormalizedYouTubeMetadata, IReadOnlyList<string>, string?, YouTubeUploadRequest> buildUpload,
         CancellationToken ct)
@@ -429,9 +433,32 @@ public sealed partial class YouTubePublishController(
                     "This channel was connected before AnimStudio could post comments. Reconnect it, or leave the first comment empty.",
                     Field: "firstComment")));
 
+        // The thumbnail is made now, so a picture that can't be used is reported before the upload, not after.
+        var (thumbSource, frameAt, thumbImage, thumbError) = YouTubeThumbnailRules.Check(request.Thumbnail, facts.DurationSeconds);
+        if (thumbError is not null)
+            return BadRequest(ApiResponse<YouTubeUploadStatus>.Fail(thumbError.Message,
+                new ApiError(thumbError.Code, thumbError.Message, Field: thumbError.Field)));
+
+        byte[]? thumbnail = null;
         try
         {
-            var upload = buildUpload(connection, validation.Normalized!, [.. related.Select(r => r.VideoId)], firstComment);
+            thumbnail = thumbSource switch
+            {
+                YouTubeThumbnailSource.Frame => await thumbnails.FrameAsync(await videoPath(ct), frameAt, YouTubeThumbnailRules.TargetWidth, ct),
+                YouTubeThumbnailSource.Image => await thumbnails.NormalizeAsync(thumbImage!, ct),
+                _ => null
+            };
+        }
+        catch (YouTubePublishException ex)
+        {
+            return BadRequest(ApiResponse<YouTubeUploadStatus>.Fail(ex.Message,
+                new ApiError(ex.Code, ex.Message, Field: YouTubeThumbnailRules.Field)));
+        }
+
+        try
+        {
+            var upload = buildUpload(connection, validation.Normalized!, [.. related.Select(r => r.VideoId)], firstComment)
+                with { ThumbnailJpeg = thumbnail };
             var status = uploads.Start(upload);
 
             logger.LogInformation("User {UserId} queued {Source} {JobId} for YouTube channel {ChannelId} ({Privacy}, category {CategoryId})",
@@ -441,6 +468,35 @@ public sealed partial class YouTubePublishController(
         catch (YouTubePublishException ex)
         {
             return Failure<YouTubeUploadStatus>(ex);
+        }
+    }
+
+    /// <summary>
+    /// One frame of the render as a JPEG, for the publish dialog's thumbnail picker. The frame
+    /// picked is grabbed again at full size when publishing, so this one can be small.
+    /// </summary>
+    [HttpGet("render-jobs/{jobId}/frame")]
+    public async Task<IActionResult> Frame(string jobId, [FromQuery] double at, [FromQuery] int? width, CancellationToken ct)
+    {
+        var job = await LoadOwnedJobAsync(jobId, ct);
+        if (job.OutputStorageKey is null) throw new KeyNotFoundException();
+        return await FrameResultAsync(await RenderPreviewFile.EnsureAsync(store, job, ct), at, Facts(job).DurationSeconds, width, ct);
+    }
+
+    private async Task<IActionResult> FrameResultAsync(string videoPath, double at, double? duration, int? width, CancellationToken ct)
+    {
+        if (!double.IsFinite(at) || at < 0)
+            return BadRequest(ApiResponse<string>.Fail("Pick a time inside the video.", new ApiError("thumbnail-frame-invalid", "Pick a time inside the video.", Field: "at")));
+        try
+        {
+            var jpeg = await thumbnails.FrameAsync(videoPath, YouTubeThumbnailRules.ClampFrame(at, duration),
+                Math.Clamp(width ?? 480, 160, YouTubeThumbnailRules.TargetWidth), ct);
+            Response.Headers.CacheControl = "private, max-age=600";
+            return File(jpeg, "image/jpeg");
+        }
+        catch (YouTubePublishException ex)
+        {
+            return Failure<string>(ex).Result!;
         }
     }
 
@@ -600,7 +656,9 @@ public sealed record YouTubeConnectCompleteResponse(YouTubeConnectionStatus Conn
 
 public sealed record YouTubePublishRequest(string? ChannelId, YouTubeVideoMetadata? Metadata, IReadOnlyList<string>? RelatedVideoIds = null,
     /// <summary>Posted as a comment once the video is on YouTube; empty posts nothing.</summary>
-    string? FirstComment = null);
+    string? FirstComment = null,
+    /// <summary>A frame or an uploaded picture for the custom thumbnail; null leaves YouTube's own.</summary>
+    YouTubeThumbnailChoice? Thumbnail = null);
 public sealed record YouTubeVideosRefreshRequest(string? ProjectId, bool Force);
 
 public sealed record YouTubeSuggestRequest(string? Language, bool Fresh, string? Tone = null, string? Brief = null, string? ProviderId = null);

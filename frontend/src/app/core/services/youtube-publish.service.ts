@@ -6,7 +6,7 @@ import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../models/api.models';
 import {
   YouTubeChannel, YouTubeDashboard, YouTubeDraft, YouTubeLiveBroadcast, YouTubeLiveSetup, YouTubeLiveSuggestParams, YouTubePublication, YouTubePublishSource, YouTubePublishStatus,
-  YouTubeSuggestion, YouTubeSuggestOptions, YouTubeSuggestParams, YouTubeUpload, YouTubeVideoMetadata,
+  YouTubeSuggestion, YouTubeSuggestOptions, YouTubeSuggestParams, YouTubeThumbnailChoice, YouTubeUpload, YouTubeVideoMetadata,
 } from '../models/youtube.models';
 
 @Injectable({ providedIn: 'root' })
@@ -67,11 +67,18 @@ export class YouTubePublishService {
 
   /** `firstComment` is posted on the video once it is up; empty posts nothing. */
   publish(id: string, channelId: string, metadata: YouTubeVideoMetadata, relatedVideoIds: string[] = [],
-          firstComment = '', source: YouTubePublishSource = 'render'): Observable<YouTubeUpload> {
+          firstComment = '', source: YouTubePublishSource = 'render',
+          thumbnail: YouTubeThumbnailChoice | null = null): Observable<YouTubeUpload> {
     return this.http
       .post<ApiResponse<YouTubeUpload>>(`${this.sourceUrl(id, source)}/publish`,
-        { channelId, metadata, relatedVideoIds, firstComment: firstComment || null })
+        { channelId, metadata, relatedVideoIds, firstComment: firstComment || null, thumbnail })
       .pipe(map((r) => r.data as YouTubeUpload));
+  }
+
+  /** One frame of the video as a small JPEG, for the thumbnail picker. */
+  frame(id: string, atSeconds: number, source: YouTubePublishSource = 'render', width = 480): Observable<Blob> {
+    const at = Math.max(0, Math.round(atSeconds * 1000) / 1000);
+    return this.http.get(`${this.sourceUrl(id, source)}/frame?at=${at}&width=${width}`, { responseType: 'blob' });
   }
 
   private sourceUrl(id: string, source: YouTubePublishSource): string {

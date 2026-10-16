@@ -2397,3 +2397,12 @@
   background: rgba(250, 204, 21, 0.85);
   transform: scale(1.1);
 }
+
+/* FX1: celebrations (confetti, flower shower, hearts…) */
+.tl-badge-fx { background: rgba(236, 72, 153, 0.2) !important; color: #f9a8d4 !important; border: 1px solid rgba(236, 72, 153, 0.4) !important; }
+.tl-row-fx,
+.tl-lane-fx { min-height: 40px !important; height: 40px !important; background: rgba(236, 72, 153, 0.03) !important; }
+.tl-lane-fx:hover { background: rgba(236, 72, 153, 0.07) !important; }
+.tl-item-fx { background: linear-gradient(135deg, rgba(236, 72, 153, 0.28) 0%, rgba(245, 158, 11, 0.32) 100%); border-color: rgba(236, 72, 153, 0.55);
+  flex-direction: row !important; align-items: center !important; justify-content: flex-start !important; }
+.tl-item-fx .tl-item-badge { font-size: 0.85rem; background: transparent; }

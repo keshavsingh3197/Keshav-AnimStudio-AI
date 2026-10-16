@@ -124,7 +124,7 @@
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 236px minmax(0, 1fr) 330px;
+  grid-template-columns: 284px minmax(0, 1fr) 330px;
 }
 
 .ps-col {
@@ -180,43 +180,153 @@
 
 /* --- library --- */
 
-.ps-library {
+.ps-lib-tools { display: grid; gap: 6px; }
+
+.ps-lib-search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 9px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.25);
+  color: inherit;
+  font-size: 0.78rem;
+}
+.ps-lib-search:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25); }
+
+.ps-lib-filter {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+}
+.ps-lib-filter button {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  opacity: 0.7;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 4px 2px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ps-lib-filter button:hover { opacity: 1; }
+.ps-lib-filter button.on { background: rgba(99, 102, 241, 0.3); opacity: 1; }
+.ps-lib-n { padding: 0 5px; border-radius: 999px; background: rgba(255, 255, 255, 0.12); font-size: 0.64rem; }
+
+.ps-lib-row { display: flex; gap: 6px; align-items: center; }
+.ps-lib-sort {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.25);
+  color: inherit;
+  font-size: 0.72rem;
+}
+.ps-lib-size { display: inline-flex; gap: 2px; }
+.ps-lib-size button {
+  width: 26px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0.6;
+}
+.ps-lib-size button.on { opacity: 1; border-color: #6366f1; background: rgba(99, 102, 241, 0.2); }
+.ps-size-ico { display: block; border-radius: 2px; background: currentColor; color: var(--text); }
+.ps-size-ico[data-z='s'] { width: 6px; height: 6px; }
+.ps-size-ico[data-z='m'] { width: 9px; height: 9px; }
+.ps-size-ico[data-z='l'] { width: 13px; height: 13px; }
+
+/* The tiles size by aspect ratio; rows MUST be max-content, or a long library squeezes every
+   row (overflow: hidden tiles have no minimum height) into thin slivers. */
+.ps-library {
+  --tile: 84px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--tile), 1fr));
+  grid-auto-rows: max-content;
   gap: 6px;
   align-content: start;
-  flex: 1 1 auto;
+  flex: 1 1 0;
+  min-height: 0;
   overflow: auto;
+  padding: 2px;
+  scrollbar-gutter: stable;
 }
+.ps-library[data-size='s'] { --tile: 60px; }
+.ps-library[data-size='l'] { --tile: 124px; }
 
 .ps-pick {
   position: relative;
   aspect-ratio: 1;
   padding: 0;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   overflow: hidden;
-  background: #000;
+  background: #0b1020;
   cursor: grab;
+  transition: transform 0.12s, box-shadow 0.12s, border-color 0.12s;
 }
-
-.ps-pick img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.2s; }
+.ps-library[data-size='l'] .ps-pick { aspect-ratio: 4 / 3; }
+.ps-pick:hover { transform: translateY(-1px); border-color: rgba(99, 102, 241, 0.7); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45); }
+.ps-pick img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform 0.25s; }
 .ps-pick:hover img { transform: scale(1.06); }
+
+.ps-pick-name {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: 14px 5px 3px;
+  font-size: 0.62rem;
+  line-height: 1.2;
+  text-align: left;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.ps-pick:hover .ps-pick-name,
+.ps-pick:focus-visible .ps-pick-name,
+.ps-library[data-size='l'] .ps-pick-name { opacity: 1; }
+
 .ps-pick-add,
 .ps-pick-used {
   position: absolute;
-  bottom: 3px;
-  width: 18px;
+  top: 4px;
+  min-width: 18px;
   height: 18px;
-  border-radius: 50%;
+  padding: 0 4px;
+  border-radius: 999px;
   color: #fff;
   font-weight: 700;
-  font-size: 0.75rem;
+  font-size: 0.68rem;
   line-height: 18px;
+  box-sizing: border-box;
 }
-.ps-pick-add { right: 3px; background: #6366f1; }
-.ps-pick-used { left: 3px; background: #10b981; }
-.ps-pick.used { outline: 2px solid #10b981; outline-offset: -2px; }
+.ps-pick-add { right: 4px; background: #6366f1; opacity: 0; transform: scale(0.8); transition: opacity 0.15s, transform 0.15s; }
+.ps-pick:hover .ps-pick-add,
+.ps-pick.picked .ps-pick-add { opacity: 1; transform: none; }
+.ps-pick-used { left: 4px; background: #10b981; }
+.ps-pick.used { border-color: rgba(16, 185, 129, 0.75); }
+.ps-pick.used img { opacity: 0.82; }
+.ps-pick.picked { border-color: #6366f1; box-shadow: 0 0 0 2px #6366f1 inset; }
+
+.ps-lib-none { padding: 14px 6px; text-align: center; grid-column: 1 / -1; }
+.ps-linkish { background: none; border: 0; color: #a5b4fc; cursor: pointer; text-decoration: underline; font-size: inherit; }
+.ps-lib-foot { display: flex; gap: 6px; align-items: center; }
+.ps-grow { flex: 1; }
+.ps-mini.primary { background: #6366f1; border-color: #6366f1; color: #fff; font-weight: 600; }
 
 .ps-drop {
   display: flex;
@@ -484,6 +594,7 @@
 }
 .ps-num { left: 3px; }
 .ps-cap-flag { right: 26px; background: rgba(99, 102, 241, 0.85); }
+.ps-cel-flag { position: absolute; left: 3px; bottom: 3px; font-size: 0.8rem; line-height: 1; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.8)); }
 
 .ps-shot-chips { display: flex; gap: 3px; min-width: 0; }
 
@@ -701,7 +812,7 @@
 }
 
 @media (max-width: 1180px) {
-  .ps-body { grid-template-columns: 200px minmax(0, 1fr) 300px; }
+  .ps-body { grid-template-columns: 240px minmax(0, 1fr) 300px; }
   .ps-step-sum { display: none; }
 }
 
@@ -709,7 +820,7 @@
   .ps-body { grid-template-columns: 1fr; overflow: auto; }
   .ps-col { overflow: visible; }
   .ps-library-col { border-right: none; border-bottom: 1px solid var(--border); }
-  .ps-library { max-height: 180px; }
+  .ps-library { max-height: 240px; flex: none; }
   .ps-centre { overflow: visible; }
   .ps-stage { container-type: inline-size; }
   .ps-frame { width: 100% !important; }

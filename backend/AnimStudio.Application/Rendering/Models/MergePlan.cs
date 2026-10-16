@@ -50,6 +50,9 @@ public sealed record MergeOverlayItem(
     /// placed overlay. Null keeps the overlay path.
     /// </summary>
     public MergeImageShot? Shot { get; init; }
+
+    /// <summary>A celebration on the effects lane: confetti, flowers, hearts… Null for every other overlay.</summary>
+    public CelebrationSettings? Celebration { get; init; }
 }
 
 /// <summary>How a lane picture fills the canvas as a shot.</summary>

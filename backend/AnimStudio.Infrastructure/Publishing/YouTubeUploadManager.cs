@@ -42,7 +42,9 @@ public sealed record YouTubeUploadStatus(
     /// <summary>The first comment's thread id, once it is posted.</summary>
     string? CommentId = null,
     /// <summary>The same video on music.youtube.com, for an upload in the Music category.</summary>
-    string? MusicUrl = null);
+    string? MusicUrl = null,
+    /// <summary>A custom thumbnail was sent with this upload and YouTube accepted it.</summary>
+    bool ThumbnailSet = false);
 
 /// <summary>What the controller has already checked and resolved before an upload is queued.</summary>
 public sealed record YouTubeUploadRequest(
@@ -61,7 +63,12 @@ public sealed record YouTubeUploadRequest(
     /// A server-resolved file on local disk (a release kit's visualizer) to send instead of
     /// <see cref="StorageKey"/>. Never a path from the client.
     /// </summary>
-    string? LocalFilePath = null);
+    string? LocalFilePath = null,
+    /// <summary>
+    /// The custom thumbnail, already re-encoded by <see cref="YouTubeThumbnailService"/>; null
+    /// lets YouTube pick one of its own frames.
+    /// </summary>
+    byte[]? ThumbnailJpeg = null);
 
 /// <summary>
 /// Runs uploads in the background so the publish button returns at once and the dialog can
@@ -116,8 +123,12 @@ public sealed class YouTubeUploadManager : IHostedService, IDisposable
             if (active >= Math.Max(1, _options.CurrentValue.MaxUploadsPerUser))
                 throw new YouTubePublishException("youtube-too-many-uploads", "Wait for one of your uploads to finish before starting another.");
 
-            entry = new Entry(Guid.NewGuid().ToString("N"), request, _clock.GetUtcNow().UtcDateTime,
-                CancellationTokenSource.CreateLinkedTokenSource(_stopping.Token));
+            // The picture is held by the entry only until it is sent, not for as long as the entry is listed.
+            entry = new Entry(Guid.NewGuid().ToString("N"), request with { ThumbnailJpeg = null }, _clock.GetUtcNow().UtcDateTime,
+                CancellationTokenSource.CreateLinkedTokenSource(_stopping.Token))
+            {
+                Thumbnail = request.ThumbnailJpeg
+            };
             _uploads[entry.Id] = entry;
         }
 
@@ -193,6 +204,7 @@ public sealed class YouTubeUploadManager : IHostedService, IDisposable
             await RecordPublicationAsync(scope.ServiceProvider, entry, video.VideoId).ConfigureAwait(false);
             // Before Completed too, so the dialog's last poll already says whether it went up.
             await PostFirstCommentAsync(connections, entry, video.VideoId).ConfigureAwait(false);
+            await SetThumbnailAsync(connections, entry, video.VideoId).ConfigureAwait(false);
             entry.State = YouTubeUploadState.Completed;
 
             try
@@ -229,6 +241,7 @@ public sealed class YouTubeUploadManager : IHostedService, IDisposable
         {
             entry.CompletedAt = _clock.GetUtcNow().UtcDateTime;
             if (slotTaken) _slots.Release();
+            entry.Thumbnail = null;
             entry.Cancellation.Dispose();
         }
     }
@@ -340,6 +353,48 @@ public sealed class YouTubeUploadManager : IHostedService, IDisposable
         }
     }
 
+    /// <summary>
+    /// Sets the custom thumbnail, best effort like the first comment: the video is already up,
+    /// so a refusal (most often an unverified channel) becomes a warning saying how to finish.
+    /// </summary>
+    private async Task SetThumbnailAsync(YouTubeConnectionStore connections, Entry entry, string videoId)
+    {
+        if (entry.Thumbnail is not { Length: > 0 } jpeg) return;
+        var request = entry.Request;
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_stopping.Token);
+        timeout.CancelAfter(TimeSpan.FromMinutes(1));
+        try
+        {
+            var refused = await _uploader.SetThumbnailAsync(
+                videoId, jpeg,
+                (_, token) => connections.GetAccessTokenAsync(request.UserId, request.ChannelId, token),
+                timeout.Token).ConfigureAwait(false);
+            if (refused is null)
+            {
+                entry.ThumbnailSet = true;
+                _logger.LogInformation("Set the custom thumbnail on YouTube video {VideoId} for render {JobId}", videoId, request.JobId);
+            }
+            else
+            {
+                AddWarning(entry, YouTubeThumbnailRules.RefusedMessage(refused));
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            AddWarning(entry, "The custom thumbnail took too long to send. Add it in YouTube Studio.");
+        }
+        catch (YouTubePublishException ex)
+        {
+            AddWarning(entry, ex.Message);
+        }
+        catch (Exception ex)
+        {
+            AddWarning(entry, YouTubeThumbnailRules.RefusedMessage(null));
+            _logger.LogError(ex, "Setting the thumbnail on YouTube video {VideoId} failed unexpectedly", videoId);
+        }
+    }
+
     private static void AddWarning(Entry entry, string message) =>
         entry.Warning = entry.Warning is null ? message : $"{entry.Warning} {message}";
 
@@ -392,6 +447,8 @@ public sealed class YouTubeUploadManager : IHostedService, IDisposable
         public string? PublicationId { get; set; }
         public string? Warning { get; set; }
         public string? CommentId { get; set; }
+        public byte[]? Thumbnail { get; set; }
+        public bool ThumbnailSet { get; set; }
 
         public bool IsFinished => State is YouTubeUploadState.Completed or YouTubeUploadState.Failed or YouTubeUploadState.Cancelled;
 
@@ -410,7 +467,8 @@ public sealed class YouTubeUploadManager : IHostedService, IDisposable
                 videoId is null ? null : $"https://youtu.be/{videoId}",
                 videoId is null ? null : $"https://studio.youtube.com/video/{videoId}/edit",
                 ErrorCode, Error, StartedAt, CompletedAt, PublicationId, Warning, CommentId,
-                videoId is null ? null : YouTubeRelatedVideos.MusicUrlFor(videoId, Request.Metadata.CategoryId));
+                videoId is null ? null : YouTubeRelatedVideos.MusicUrlFor(videoId, Request.Metadata.CategoryId),
+                ThumbnailSet);
         }
     }
 }

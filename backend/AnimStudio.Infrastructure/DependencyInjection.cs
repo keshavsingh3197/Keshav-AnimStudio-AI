@@ -313,6 +313,8 @@ public static class DependencyInjection
         services.AddSingleton(sp => new YouTubeAvatarDownloader(
             sp.GetRequiredService<ILogger<YouTubeAvatarDownloader>>()));
         services.AddSingleton<YouTubeUploadManager>();
+        // Custom thumbnails: frames grabbed from the video or uploaded pictures, re-encoded by ffmpeg.
+        services.AddSingleton<YouTubeThumbnailService>();
         services.AddHostedService(sp => sp.GetRequiredService<YouTubeUploadManager>());
 
         // Finished uploads are recorded durably and re-checked on YouTube for problems.

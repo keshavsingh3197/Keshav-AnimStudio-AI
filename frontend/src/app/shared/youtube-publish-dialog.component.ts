@@ -1,18 +1,46 @@
 import { DecimalPipe } from '@angular/common';
-import { Component, DestroyRef, OnInit, computed, inject, input, output, signal } from '@angular/core';
+import { Component, DestroyRef, ElementRef, OnInit, computed, inject, input, output, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { catchError, forkJoin, of } from 'rxjs';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Subject, catchError, debounceTime, distinctUntilChanged, forkJoin, map, of, switchMap, tap } from 'rxjs';
 
 import {
-  MAX_RELATED_VIDEOS, YOUTUBE_MUSIC_CATEGORY_ID, YouTubeCheck, YouTubeDestination, YouTubeDraft, YouTubePrivacy, YouTubePublication, YouTubePublishSource,
+  MAX_RELATED_VIDEOS, MAX_THUMBNAIL_UPLOAD_BYTES, YOUTUBE_MUSIC_CATEGORY_ID, YouTubeCheck, YouTubeThumbnailChoice, YouTubeDestination, YouTubeDraft, YouTubePrivacy, YouTubePublication, YouTubePublishSource,
   YouTubePublishStatus, YouTubeSuggestEngine, YouTubeUpload,
   isUploadFinished, parseYouTubeTags, relatedVideosBlock, youTubeTagsLength,
 } from '../core/models/youtube.models';
 import { ActivityService } from '../core/services/activity.service';
+import { ApiService } from '../core/services/api.service';
+import { ProjectStore } from '../core/services/project-store';
 import { YouTubePublishService } from '../core/services/youtube-publish.service';
 
 /** Remembered per browser so the next publish starts where the last one left off. */
 const PREFS_KEY = 'animstudio.youtube.publish';
+
+type ThumbMode = 'auto' | 'frame' | 'library' | 'upload';
+
+const THUMB_MODES: readonly { id: ThumbMode; label: string; hint: string }[] = [
+  { id: 'auto', label: 'Auto', hint: 'Let YouTube pick a frame' },
+  { id: 'frame', label: 'From video', hint: 'Pick a frame of this video' },
+  { id: 'library', label: '♻️ Library', hint: "Use a picture from this project's media, or from your other projects" },
+  { id: 'upload', label: 'Upload', hint: 'Use a JPG or PNG of your own' },
+];
+
+/** Where the library picker looks: this project's images, or every other project's. */
+type LibScope = 'project' | 'other';
+
+interface LibItem { id: string; name: string; from?: string; width?: number; height?: number }
+
+/** Typing pauses this long before the other-projects search runs. */
+const LIB_SEARCH_DEBOUNCE_MS = 250;
+const LIB_SEARCH_LIMIT = 60;
+/** A library picture that YouTube can't take as-is (WebP, too big) is re-encoded to fit this box. */
+const LIB_MAX_EDGE = 1920;
+
+/** Where the frame picker samples the video, as fractions of its length; "Other moments" shifts them. */
+const FRAME_SPOTS = [0.1, 0.26, 0.42, 0.58, 0.74, 0.9];
+
+interface FrameOption { at: number; url: string | null; failed: boolean }
 
 interface PublishPrefs {
   channelId?: string;
@@ -63,6 +91,9 @@ interface PublishPrefs {
                 <div><dt>Visibility</dt><dd>{{ privacyLabel() }}{{ notify() && privacy() === 'public' ? ' · subscribers notified' : '' }}</dd></div>
                 <div><dt>Audience</dt><dd>{{ madeForKids() ? 'Made for kids' : 'Not made for kids' }}</dd></div>
                 <div><dt>Category</dt><dd>{{ categoryName() }}</dd></div>
+                <div><dt>Thumbnail</dt><dd>
+                  @if (thumbPreview(); as src) { <img class="yt-review-thumb" [src]="src" alt="Chosen thumbnail" /> } @else { YouTube picks automatically }
+                </dd></div>
                 <div><dt>Title</dt><dd><strong>{{ title().trim() }}</strong></dd></div>
                 <div><dt>Tags ({{ tags().length }})</dt><dd>{{ tags().join(', ') || '—' }}</dd></div>
                 <div><dt>Description</dt><dd><pre>{{ finalDescription() || '—' }}</pre></dd></div>
@@ -105,7 +136,7 @@ interface PublishPrefs {
               <!-- Left: what is being published, where, and how. -->
               <aside class="yt-side">
                 <div class="yt-stage" [class.vertical]="draft()?.video?.isVertical">
-                  <video [src]="previewSrc()" controls playsinline preload="metadata"></video>
+                  <video #player [src]="previewSrc()" controls playsinline preload="metadata"></video>
                 </div>
                 @if (draft(); as d) {
                   <dl class="yt-facts">
@@ -115,6 +146,97 @@ interface PublishPrefs {
                     <div><dt>Type</dt><dd>{{ d.video.isVertical && (d.video.durationSeconds ?? 0) <= 180 ? 'Short' : 'Video' }}</dd></div>
                   </dl>
                 }
+                <!-- Thumbnail: YouTube's own pick, a frame of this video, or a picture of the user's. -->
+                <section class="yt-card yt-thumb" aria-labelledby="yt-thumb-label">
+                  <div class="yt-thumb-head">
+                    <span class="yt-label" id="yt-thumb-label">Thumbnail</span>
+                    <div class="yt-seg" role="radiogroup" aria-label="Thumbnail source">
+                      @for (m of thumbModes; track m.id) {
+                        <button type="button" role="radio" [class.on]="thumbMode() === m.id" [attr.aria-checked]="thumbMode() === m.id"
+                                [disabled]="uploading()" (click)="setThumbMode(m.id)" [title]="m.hint">{{ m.label }}</button>
+                      }
+                    </div>
+                  </div>
+                  <div class="yt-thumb-preview" [class.empty]="!thumbPreview()"
+                       [class.vertical]="draft()?.video?.isVertical && (thumbMode() === 'auto' || thumbMode() === 'frame')"
+                       (dragover)="onThumbDragOver($event)" (dragleave)="thumbDragOver.set(false)" (drop)="onThumbDrop($event)"
+                       [class.over]="thumbDragOver()">
+                    @if (thumbPreview(); as src) {
+                      <img [src]="src" alt="Chosen thumbnail" />
+                      @if (thumbMode() === 'frame' && thumbFrameAt() !== null) { <span class="yt-thumb-badge">Frame at {{ clock(thumbFrameAt()!) }}</span> }
+                      @if (thumbMode() === 'upload') { <span class="yt-thumb-badge">Your picture</span> }
+                      @if (thumbMode() === 'library' && libPicked(); as p) { <span class="yt-thumb-badge" [title]="p.name">♻️ {{ p.name }}</span> }
+                    } @else if (thumbMode() === 'auto') {
+                      <span>YouTube picks a frame on its own.<br />Drop a picture here to use your own instead.</span>
+                    } @else if (thumbMode() === 'frame') {
+                      <span>{{ grabbing() ? 'Taking frames…' : 'Pick a frame below, or pause the video and use that frame.' }}</span>
+                    } @else if (thumbMode() === 'library') {
+                      <span>{{ libPicking() ? 'Loading picture…' : 'Pick a picture below - from this project or another one.' }}</span>
+                    } @else {
+                      <span>Drop a JPG or PNG here, or choose one below.</span>
+                    }
+                  </div>
+                  @if (thumbMode() === 'frame') {
+                    <div class="yt-frames" [class.vertical]="draft()?.video?.isVertical" role="listbox" aria-label="Frames from the video">
+                      @for (f of frames(); track f.at) {
+                        <button type="button" role="option" class="yt-frame" [class.on]="thumbFrameAt() === f.at" [attr.aria-selected]="thumbFrameAt() === f.at"
+                                [disabled]="uploading() || !f.url" (click)="pickFrame(f.at)" [attr.aria-label]="'Frame at ' + clock(f.at)">
+                          @if (f.url) { <img [src]="f.url" alt="" /> } @else { <span class="yt-frame-wait" [class.failed]="f.failed">{{ f.failed ? '✕' : '' }}</span> }
+                          <span class="yt-frame-time">{{ clock(f.at) }}</span>
+                        </button>
+                      }
+                    </div>
+                    <div class="yt-links">
+                      <button type="button" class="link" (click)="useCurrentFrame()" [disabled]="uploading() || grabbing()"
+                              title="Pause the video where you like it, then use that exact frame">📸 Use the paused frame</button>
+                      <button type="button" class="link" (click)="loadFrames(true)" [disabled]="uploading() || grabbing()" title="Show other moments">🔄 Other moments</button>
+                    </div>
+                  } @else if (thumbMode() === 'library') {
+                    <div class="yt-lib">
+                      <div class="yt-lib-tools">
+                        <div class="yt-seg yt-seg-sm" role="radiogroup" aria-label="Where to look">
+                          <button type="button" role="radio" [class.on]="libScope() === 'project'" [attr.aria-checked]="libScope() === 'project'"
+                                  (click)="setLibScope('project')" [disabled]="uploading()">This project</button>
+                          <button type="button" role="radio" [class.on]="libScope() === 'other'" [attr.aria-checked]="libScope() === 'other'"
+                                  (click)="setLibScope('other')" [disabled]="uploading()">♻️ Other projects</button>
+                        </div>
+                        <input type="search" class="yt-lib-search" [ngModel]="libQuery()" (ngModelChange)="setLibQuery($event)"
+                               maxlength="80" placeholder="Search pictures…" aria-label="Search pictures" />
+                      </div>
+                      <div class="yt-lib-grid" role="listbox" aria-label="Pictures">
+                        @for (a of libItems(); track a.id) {
+                          <button type="button" role="option" class="yt-lib-item" [class.on]="libPicked()?.id === a.id"
+                                  [attr.aria-selected]="libPicked()?.id === a.id" [disabled]="uploading() || libPicking() === a.id"
+                                  (click)="pickLibrary(a)" [title]="a.name + (a.from ? ' · ' + a.from : '')">
+                            <img [src]="libThumb(a.id)" alt="" loading="lazy" />
+                            @if (libPicking() === a.id) { <span class="yt-frame-wait"></span> }
+                            <span class="yt-lib-name">{{ a.name }}@if (a.from) {<small>{{ a.from }}</small>}</span>
+                          </button>
+                        } @empty {
+                          <p class="yt-muted yt-lib-none">
+                            @if (libLoading()) { Looking… }
+                            @else if (!libProjectId()) { The library isn't available here. Use Upload instead. }
+                            @else if (libQuery()) { No picture matches “{{ libQuery() }}”. }
+                            @else if (libScope() === 'project') { This project has no pictures yet. Try Other projects. }
+                            @else { No pictures in your other projects. }
+                          </p>
+                        }
+                      </div>
+                    </div>
+                  } @else if (thumbMode() === 'upload') {
+                    <input #thumbFile type="file" class="yt-sr" accept="image/jpeg,image/png" tabindex="-1" aria-hidden="true"
+                           (change)="onThumbFile(thumbFile)" />
+                    <button type="button" class="secondary yt-thumb-choose" (click)="thumbFile.click()" [disabled]="uploading()">
+                      {{ thumbImage() ? '🔁 Replace picture' : '⬆ Choose a picture' }}</button>
+                    <p class="yt-muted">JPG or PNG. 1280×720 (16:9) looks best; bigger photos are shrunk for you.</p>
+                  }
+                  @if (thumbError()) { <p class="yt-err">{{ thumbError() }}</p> }
+                  @if (thumbMode() !== 'auto') {
+                    <p class="yt-muted">Custom thumbnails need a verified YouTube channel.
+                      @if (draft()?.video?.isVertical) { Shorts show it on the channel page and in search, not in the Shorts feed. }</p>
+                  }
+                </section>
+
                 <ul class="yt-checks">
                   @for (c of problems(); track c.code + c.field) { <li class="err">✕ {{ c.message }}</li> }
                   @for (c of warnings(); track c.code) { <li class="warn">⚠ {{ c.message }}</li> }
@@ -182,7 +304,7 @@ interface PublishPrefs {
                   <label class="inline"><input type="checkbox" [ngModel]="notify()" (ngModelChange)="notify.set($event)" [disabled]="uploading()" /> Notify subscribers</label>
                   @if (privacy() === 'private') {
                     <p class="yt-muted">Private works as a draft: only you can see it until you change its visibility in YouTube Studio,
-                      where you can also add a thumbnail, end screen and playlists.</p>
+                      where you can also add an end screen and playlists.</p>
                   }
                 </section>
               </aside>
@@ -220,6 +342,9 @@ interface PublishPrefs {
                 </section>
                 }
 
+                <!-- Two columns on very wide screens; one column (display: contents) everywhere else. -->
+                <div class="yt-form-cols">
+                <div class="yt-col">
                 <section class="yt-field">
                   <div class="yt-field-head">
                     <label for="yt-title">Title</label>
@@ -294,6 +419,8 @@ interface PublishPrefs {
                   }
                 </section>
 
+                </div>
+                <div class="yt-col">
                 <!-- First comment: posted on the video as soon as the upload finishes. -->
                 <section class="yt-field">
                   <div class="yt-field-head">
@@ -315,36 +442,62 @@ interface PublishPrefs {
 
                 <!-- Related videos: the user's own uploads from AnimStudio, linked at the end of the description. -->
                 <section class="yt-field yt-related">
-                  <span class="yt-label">Related videos <span class="yt-muted">(linked at the end of the description)</span></span>
+                  <div class="yt-field-head">
+                    <span class="yt-label">Related videos <span class="yt-muted">(linked at the end of the description, in this order)</span></span>
+                    <span class="yt-count">{{ relatedSelected().length }} / {{ maxRelated }}</span>
+                  </div>
                   @if (relatedSelected().length) {
-                    <div class="yt-chips" aria-label="Selected related videos">
-                      @for (v of relatedSelected(); track v.videoId) {
-                        <span class="chip">
-                          {{ v.title }}
-                          <button type="button" [disabled]="uploading()" (click)="removeRelated(v.videoId)" [attr.aria-label]="'Remove ' + v.title">✕</button>
-                        </span>
+                    <ol class="yt-rel-chosen" aria-label="Chosen related videos">
+                      @for (v of relatedSelected(); track v.videoId; let i = $index, first = $first, last = $last) {
+                        <li class="yt-rel-row chosen">
+                          <span class="yt-rel-num" aria-hidden="true">{{ i + 1 }}</span>
+                          <img class="yt-rel-thumb" [src]="videoThumb(v)" alt="" loading="lazy" referrerpolicy="no-referrer" />
+                          <span class="yt-rel-text"><strong [title]="v.title">{{ v.title }}</strong>
+                            <small>{{ v.channelTitle }} · {{ ago(v.publishedAt) }}</small></span>
+                          <span class="yt-rel-actions">
+                            <button type="button" class="yt-icon" [disabled]="uploading() || first" (click)="moveRelated(v.videoId, -1)" [attr.aria-label]="'Move up: ' + v.title" title="Move up">↑</button>
+                            <button type="button" class="yt-icon" [disabled]="uploading() || last" (click)="moveRelated(v.videoId, 1)" [attr.aria-label]="'Move down: ' + v.title" title="Move down">↓</button>
+                            <button type="button" class="yt-icon danger" [disabled]="uploading()" (click)="removeRelated(v.videoId)" [attr.aria-label]="'Remove: ' + v.title" title="Remove">✕</button>
+                          </span>
+                        </li>
                       }
-                    </div>
+                    </ol>
                   }
                   @if (videosAvailable().length === 0) {
                     <p class="yt-muted">Videos you publish from AnimStudio will appear here to link.</p>
-                  } @else if (relatedSelected().length < maxRelated) {
-                    <div class="yt-related-pick">
-                      @if (videosAvailable().length > 8) {
-                        <input type="search" [ngModel]="relatedQuery()" (ngModelChange)="relatedQuery.set($event)" [disabled]="uploading()"
-                               placeholder="Filter your videos…" aria-label="Filter related videos" />
-                      }
-                      <select #relatedPick (change)="addRelated(relatedPick.value); relatedPick.value = ''" [disabled]="uploading()" aria-label="Add a related video">
-                        <option value="">＋ Add a related video ({{ relatedOptions().length }})…</option>
-                        @for (v of relatedOptions(); track v.videoId) {
-                          <option [value]="v.videoId">{{ v.title }} — {{ v.channelTitle }}{{ v.health === 'Issue' ? ' (has an issue)' : '' }}</option>
-                        }
-                      </select>
-                    </div>
                   } @else {
-                    <p class="yt-muted">Up to {{ maxRelated }} related videos.</p>
+                    <div class="yt-rel-picker">
+                      <div class="yt-rel-tools">
+                        <input type="search" [ngModel]="relatedQuery()" (ngModelChange)="relatedQuery.set($event)" [disabled]="uploading()"
+                               [placeholder]="'Search your ' + videosAvailable().length + ' videos…'" aria-label="Search your videos" />
+                        @if (selectedChannel(); as ch) {
+                          <label class="inline yt-rel-only" [title]="'Only show videos on ' + ch.channelTitle">
+                            <input type="checkbox" [ngModel]="relatedSameChannel()" (ngModelChange)="relatedSameChannel.set($event)" [disabled]="uploading()" />
+                            This channel only</label>
+                        }
+                      </div>
+                      @let full = relatedSelected().length >= maxRelated;
+                      @if (full) { <p class="yt-muted">That's the most YouTube descriptions take nicely ({{ maxRelated }}). Remove one to add another.</p> }
+                      <ul class="yt-rel-list" aria-label="Your videos">
+                        @for (v of relatedOptions(); track v.videoId) {
+                          <li>
+                            <button type="button" class="yt-rel-row" [disabled]="uploading() || full" (click)="addRelated(v.videoId)"
+                                    [attr.aria-label]="'Link: ' + v.title">
+                              <img class="yt-rel-thumb" [src]="videoThumb(v)" alt="" loading="lazy" referrerpolicy="no-referrer" />
+                              <span class="yt-rel-text"><strong [title]="v.title">{{ v.title }}</strong>
+                                <small>{{ v.channelTitle }} · {{ ago(v.publishedAt) }}{{ v.health === 'Issue' ? ' · ⚠ has an issue' : '' }}</small></span>
+                              <span class="yt-rel-add" aria-hidden="true">＋</span>
+                            </button>
+                          </li>
+                        } @empty {
+                          <li class="yt-muted yt-rel-none">{{ relatedQuery().trim() ? 'No video matches "' + relatedQuery().trim() + '".' : 'Every video here is already linked.' }}</li>
+                        }
+                      </ul>
+                    </div>
                   }
                 </section>
+                </div>
+                </div>
               </div>
             </div>
           }
@@ -370,6 +523,7 @@ interface PublishPrefs {
                     <p class="yt-muted">YouTube may still be processing HD versions for a few minutes.
                       @if (u.privacy === 'private') { Finish the details and publish it from YouTube Studio. }</p>
                     @if (u.commentId) { <p class="yt-muted">💬 First comment posted. Pin it from YouTube Studio if you want it on top.</p> }
+                    @if (u.thumbnailSet) { <p class="yt-muted">🖼 Custom thumbnail set.</p> }
                     @if (u.warning) { <p class="yt-warn">⚠ {{ u.warning }}</p> }
                   }
                   @case ('Failed') { <p class="yt-err">{{ u.error }}</p> }
@@ -516,8 +670,91 @@ interface PublishPrefs {
       background: rgba(108, 140, 255, .18); }
     .chip.off { opacity: .45; text-decoration: line-through; }
     .chip button { background: transparent; border: 0; color: inherit; cursor: pointer; padding: 0 .25rem; font-size: .75rem; }
-    .yt-related-pick { display: grid; gap: .35rem; }
-    .yt-related-pick input, .yt-related-pick select { width: 100%; box-sizing: border-box; }
+    /* Thumbnail picker */
+    .yt-thumb-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; flex-wrap: wrap; }
+    .yt-seg { display: inline-flex; padding: 2px; border-radius: 999px; background: rgba(148, 163, 184, .1); border: 1px solid rgba(148, 163, 184, .18); }
+    .yt-seg button { border: 0; background: transparent; color: var(--muted, #94a3b8); padding: .22rem .65rem; border-radius: 999px;
+      font-size: .78rem; font-weight: 600; cursor: pointer; }
+    .yt-seg button:hover:not(:disabled) { color: var(--text, #e2e8f0); box-shadow: none; }
+    .yt-seg button.on { background: #ff3d3d; color: #fff; }
+    .yt-thumb-preview { position: relative; aspect-ratio: 16 / 9; border-radius: 8px; overflow: hidden; background: #000;
+      display: grid; place-items: center; border: 1px solid rgba(148, 163, 184, .18); transition: border-color .15s, box-shadow .15s; }
+    .yt-thumb-preview img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    /* A Short's frame keeps its own shape; YouTube shows it upright on the channel page. */
+    .yt-thumb-preview.vertical { aspect-ratio: 9 / 16; max-height: 300px; justify-self: center; width: auto; height: 300px; }
+    .yt-frames.vertical { grid-template-columns: repeat(6, 1fr); }
+    .yt-frames.vertical .yt-frame { aspect-ratio: 9 / 16; }
+    .yt-thumb-preview.empty { background: repeating-linear-gradient(45deg, rgba(148, 163, 184, .06) 0 10px, transparent 10px 20px), #0b1220; }
+    .yt-thumb-preview.empty span { padding: 0 1rem; text-align: center; font-size: .8rem; color: var(--muted, #94a3b8); line-height: 1.45; }
+    .yt-thumb-preview.over { border-color: #ff3d3d; box-shadow: 0 0 0 3px rgba(255, 61, 61, .25); }
+    .yt-thumb-badge { position: absolute; left: 6px; bottom: 6px; padding: .1rem .45rem; border-radius: 4px; font-size: .7rem;
+      background: rgba(0, 0, 0, .72); color: #fff; }
+    .yt-frames { display: grid; grid-template-columns: repeat(3, 1fr); gap: .35rem; }
+    .yt-frame { position: relative; padding: 0; aspect-ratio: 16 / 9; border-radius: 6px; overflow: hidden; cursor: pointer;
+      border: 2px solid transparent; background: #0b1220; }
+    .yt-frame:hover:not(:disabled) { border-color: rgba(255, 61, 61, .55); box-shadow: none; }
+    .yt-frame.on { border-color: #ff3d3d; }
+    .yt-frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .yt-frame-wait { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted, #94a3b8);
+      background: linear-gradient(90deg, #0b1220 25%, #1e293b 50%, #0b1220 75%); background-size: 200% 100%; animation: yt-shimmer 1.2s infinite; }
+    .yt-frame-wait.failed { animation: none; background: #0b1220; }
+    .yt-frame-time { position: absolute; right: 3px; bottom: 3px; padding: 0 .3rem; border-radius: 3px; font-size: .64rem;
+      background: rgba(0, 0, 0, .7); color: #fff; font-variant-numeric: tabular-nums; }
+    @keyframes yt-shimmer { to { background-position: -200% 0; } }
+    .yt-thumb-choose { justify-self: start; }
+    .yt-lib { display: grid; gap: .45rem; }
+    .yt-lib-tools { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+    .yt-seg-sm button { padding: .18rem .55rem; font-size: .74rem; }
+    .yt-lib-search { flex: 1 1 120px; min-width: 0; box-sizing: border-box; padding: .3rem .55rem; border-radius: 7px; font: inherit; font-size: .8rem;
+      border: 1px solid rgba(148, 163, 184, .25); background: rgba(2, 6, 23, .55); color: inherit; }
+    .yt-lib-search:focus { outline: none; border-color: #ff3d3d; box-shadow: 0 0 0 2px rgba(255, 61, 61, .2); }
+    .yt-lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: .35rem;
+      max-height: 232px; overflow: auto; padding: 2px; }
+    .yt-lib-item { position: relative; padding: 0; aspect-ratio: 16 / 10; border-radius: 6px; overflow: hidden; cursor: pointer;
+      border: 2px solid transparent; background: #0b1220; }
+    .yt-lib-item:hover:not(:disabled) { border-color: rgba(255, 61, 61, .55); box-shadow: none; }
+    .yt-lib-item.on { border-color: #ff3d3d; }
+    .yt-lib-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .yt-lib-name { position: absolute; inset: auto 0 0 0; display: grid; padding: .5rem .3rem .15rem; text-align: left;
+      font-size: .64rem; line-height: 1.2; color: #fff; background: linear-gradient(transparent, rgba(0, 0, 0, .85));
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .yt-lib-name small { font-size: .6rem; opacity: .7; overflow: hidden; text-overflow: ellipsis; }
+    .yt-lib-none { grid-column: 1 / -1; padding: .8rem .4rem; text-align: center; }
+    .yt-thumb-badge { max-width: calc(100% - 12px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; box-sizing: border-box; }
+    .yt-review-thumb { width: 220px; max-width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 6px; display: block; }
+    .yt-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+    /* Related videos */
+    .yt-rel-chosen { list-style: none; margin: 0; padding: 0; display: grid; gap: .3rem; }
+    .yt-rel-picker { display: grid; gap: .4rem; border: 1px solid rgba(148, 163, 184, .15); border-radius: 10px; padding: .5rem; background: rgba(148, 163, 184, .04); }
+    .yt-rel-tools { display: flex; gap: .6rem; align-items: center; }
+    .yt-rel-tools input[type=search] { flex: 1; min-width: 0; box-sizing: border-box; padding: .45rem .7rem; border-radius: 8px;
+      border: 1px solid rgba(148, 163, 184, .25); background: rgba(2, 6, 23, .55); color: inherit; font: inherit; font-size: .85rem; }
+    .yt-rel-tools input[type=search]:focus { outline: none; border-color: #6c8cff; box-shadow: 0 0 0 2px rgba(108, 140, 255, .25); }
+    .yt-rel-only { display: flex; align-items: center; gap: .3rem; font-size: .8rem; white-space: nowrap; color: var(--muted, #94a3b8); }
+    .yt-rel-list { list-style: none; margin: 0; padding: 0; display: grid; gap: .2rem; max-height: 300px; overflow: auto; }
+    .yt-rel-row { display: flex; align-items: center; gap: .6rem; width: 100%; padding: .3rem .45rem; border-radius: 8px; text-align: left;
+      border: 1px solid transparent; background: transparent; color: inherit; cursor: pointer; font-weight: 400; }
+    button.yt-rel-row:hover:not(:disabled) { background: rgba(108, 140, 255, .1); border-color: rgba(108, 140, 255, .3); box-shadow: none; }
+    button.yt-rel-row:disabled { cursor: default; opacity: .5; }
+    .yt-rel-row.chosen { background: rgba(108, 140, 255, .12); border-color: rgba(108, 140, 255, .28); cursor: default; }
+    .yt-rel-num { flex: none; width: 1.3rem; text-align: center; font-size: .75rem; font-weight: 700; color: var(--muted, #94a3b8); }
+    .yt-rel-thumb { flex: none; width: 96px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 5px; background: #0b1220; }
+    .yt-rel-text { min-width: 0; flex: 1; display: grid; gap: .1rem; }
+    .yt-rel-text strong { font-size: .84rem; font-weight: 600; line-height: 1.3; overflow: hidden;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+    .yt-rel-text small { font-size: .74rem; color: var(--muted, #94a3b8); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .yt-rel-add { flex: none; width: 1.7rem; height: 1.7rem; border-radius: 50%; display: grid; place-items: center;
+      background: rgba(108, 140, 255, .2); color: #c7d2fe; font-weight: 700; }
+    .yt-rel-actions { flex: none; display: flex; gap: .15rem; }
+    .yt-icon { width: 1.75rem; height: 1.75rem; padding: 0; border-radius: 6px; border: 1px solid rgba(148, 163, 184, .2);
+      background: transparent; color: inherit; cursor: pointer; font-size: .8rem; }
+    .yt-icon:hover:not(:disabled) { background: rgba(148, 163, 184, .15); box-shadow: none; }
+    .yt-icon:disabled { opacity: .35; cursor: default; }
+    .yt-icon.danger:hover:not(:disabled) { background: rgba(239, 68, 68, .2); border-color: rgba(239, 68, 68, .45); }
+    .yt-rel-none { padding: .6rem; text-align: center; }
+    @media (max-width: 560px) { .yt-rel-thumb { width: 72px; } }
+    @media (prefers-reduced-motion: reduce) { .yt-frame-wait { animation: none; } }
 
     .link { background: transparent; border: 0; color: var(--brand, #6c8cff); cursor: pointer; padding: .2rem .3rem; font-size: .84rem; }
     .link:hover:not(:disabled) { box-shadow: none; text-decoration: underline; }
@@ -538,6 +775,31 @@ interface PublishPrefs {
     .yt-review dd { margin: 0; overflow-wrap: anywhere; }
     .yt-review pre { margin: 0; white-space: pre-wrap; font: inherit; max-height: 40vh; overflow: auto;
       background: rgba(148, 163, 184, .08); padding: .5rem .6rem; border-radius: 6px; }
+
+    /* Single column by default: the wrappers vanish and the sections sit in .yt-form's own grid. */
+    .yt-form-cols, .yt-col { display: contents; }
+
+    /* Wide and ultra-wide screens: use the room - a bigger dialog, a roomier left column, and the
+       words split in two (title / description / tags | first comment / related videos). */
+    @media (min-width: 1600px) {
+      .yt-dialog { width: min(1560px, 100%); max-height: 1100px; }
+      .yt-grid { grid-template-columns: minmax(340px, 420px) minmax(0, 1fr); gap: 1.75rem; }
+      .yt-stage video { max-height: 38vh; }
+    }
+    @media (min-width: 2000px) {
+      .yt-dialog { width: min(2240px, calc(100vw - 96px)); max-height: 1240px; }
+      .yt-body { padding: 1.25rem 1.75rem; }
+      .yt-grid { grid-template-columns: minmax(380px, 480px) minmax(0, 1fr); }
+      .yt-form-cols { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+      .yt-col { display: grid; gap: 1rem; align-content: start; min-width: 0; }
+      .yt-field textarea { min-height: 300px; }
+      .yt-rel-list { max-height: 460px; }
+      .yt-lib-grid { max-height: 320px; }
+    }
+    @media (min-width: 2000px) and (min-height: 1200px) {
+      .yt-dialog { max-height: 1400px; }
+      .yt-field textarea { min-height: 380px; }
+    }
 
     @media (max-width: 640px) {
       .yt-backdrop { padding: 0; }
@@ -577,6 +839,73 @@ export class YouTubePublishDialogComponent implements OnInit {
   readonly videos = signal<YouTubePublication[]>([]);
   readonly relatedIds = signal<string[]>([]);
   readonly relatedQuery = signal('');
+  /** Narrow the picker to videos on the channel this one is going to. */
+  readonly relatedSameChannel = signal(false);
+
+  // --- thumbnail ---
+
+  readonly thumbModes = THUMB_MODES;
+  readonly thumbMode = signal<ThumbMode>('auto');
+  /** The picked frame's time; sent so the server grabs it again at full size. */
+  readonly thumbFrameAt = signal<number | null>(null);
+  /** The uploaded picture, as a data URL. */
+  readonly thumbImage = signal<string | null>(null);
+  readonly thumbError = signal<string | null>(null);
+  readonly thumbDragOver = signal(false);
+  readonly frames = signal<FrameOption[]>([]);
+  readonly grabbing = signal(false);
+  /** Object URLs of every frame fetched, keyed by time, revoked when the dialog closes. */
+  private readonly frameUrls = new Map<number, string>();
+  private frameRound = 0;
+  private framesPending = 0;
+  private readonly player = viewChild<ElementRef<HTMLVideoElement>>('player');
+
+  // --- thumbnail from the library ---
+
+  private readonly assets = inject(ApiService);
+  /** Present inside a project (the editor provides it); the library needs a project to search from. */
+  private readonly store = inject(ProjectStore, { optional: true });
+  /** The project the library looks in; defaults to the open project. */
+  readonly projectId = input<string | null>(null);
+  readonly libProjectId = computed(() => this.projectId() ?? this.store?.project()?.id ?? null);
+  readonly libScope = signal<LibScope>('project');
+  readonly libQuery = signal('');
+  /** This project's pictures, fetched once when the store isn't there to supply them. */
+  private readonly ownImages = signal<LibItem[] | null>(null);
+  private readonly otherImages = signal<LibItem[]>([]);
+  readonly libLoading = signal(false);
+  /** The id of the picture being fetched, so its tile shows it's working. */
+  readonly libPicking = signal<string | null>(null);
+  /** The chosen library picture: its data URL is what goes to YouTube. */
+  readonly libPicked = signal<(LibItem & { dataUrl: string }) | null>(null);
+  private readonly libSearch$ = new Subject<string>();
+
+  readonly libItems = computed<LibItem[]>(() => {
+    if (this.libScope() === 'other') return this.otherImages();
+    const fromStore = this.store?.project()?.id === this.libProjectId()
+      ? this.store?.imagesOnly().map((a) => ({ id: a.id, name: a.name, width: a.width, height: a.height }))
+      : null;
+    const list = fromStore ?? this.ownImages() ?? [];
+    const q = this.libQuery().trim().toLowerCase();
+    return q ? list.filter((a) => a.name.toLowerCase().includes(q)) : list;
+  });
+
+  readonly thumbPreview = computed(() => {
+    const mode = this.thumbMode();
+    if (mode === 'upload') return this.thumbImage();
+    if (mode === 'library') return this.libPicked()?.dataUrl ?? null;
+    const at = this.thumbFrameAt();
+    if (mode !== 'frame' || at === null) return null;
+    return this.frames().find((f) => f.at === at)?.url ?? this.frameUrls.get(at) ?? null;
+  });
+  /** What the publish request carries; null leaves YouTube to pick. */
+  readonly thumbnailChoice = computed<YouTubeThumbnailChoice | null>(() => {
+    const mode = this.thumbMode();
+    if (mode === 'frame' && this.thumbFrameAt() !== null) return { frameAtSeconds: this.thumbFrameAt() };
+    if (mode === 'upload' && this.thumbImage()) return { imageBase64: this.thumbImage() };
+    if (mode === 'library' && this.libPicked()) return { imageBase64: this.libPicked()!.dataUrl };
+    return null;
+  });
 
   readonly loading = signal(true);
   readonly busy = signal(false);
@@ -660,9 +989,14 @@ export class YouTubePublishDialogComponent implements OnInit {
   });
   readonly relatedOptions = computed(() => {
     const chosen = new Set(this.relatedIds());
-    const q = this.relatedQuery().trim().toLowerCase();
-    return this.videosAvailable().filter((v) => !chosen.has(v.videoId)
-      && (!q || v.title.toLowerCase().includes(q) || v.channelTitle.toLowerCase().includes(q)));
+    // Every word must appear somewhere, so "shiv bhajan" finds "Shiv Shiv Shankara … Bhajan".
+    const words = this.relatedQuery().trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const channel = this.relatedSameChannel() ? this.channelId() : null;
+    return this.videosAvailable().filter((v) => {
+      if (chosen.has(v.videoId) || (channel && v.channelId !== channel)) return false;
+      const hay = `${v.title} ${v.channelTitle}`.toLowerCase();
+      return words.every((w) => hay.includes(w));
+    });
   });
   readonly relatedTitles = computed(() => this.relatedSelected().map((v) => v.title).join(', '));
   /** Exactly what YouTube receives: the typed description plus the related-videos block. */
@@ -706,7 +1040,31 @@ export class YouTubePublishDialogComponent implements OnInit {
   private pollHandle: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
-    inject(DestroyRef).onDestroy(() => this.stopPolling());
+    inject(DestroyRef).onDestroy(() => {
+      this.stopPolling();
+      for (const url of this.frameUrls.values()) URL.revokeObjectURL(url);
+    });
+    // Other projects are searched on the server; a newer query cancels the one in flight.
+    this.libSearch$.pipe(
+      debounceTime(LIB_SEARCH_DEBOUNCE_MS),
+      distinctUntilChanged(),
+      tap(() => this.libLoading.set(true)),
+      switchMap((q) => {
+        const projectId = this.libProjectId();
+        if (!projectId) return of([] as LibItem[]);
+        return this.assets.searchReusableAssets(projectId, { q: q || undefined, scope: 'all', kind: 'image', sort: q ? 'relevance' : 'newest', limit: LIB_SEARCH_LIMIT }).pipe(
+          map((r) => r.items.map((h) => ({ id: h.asset.id, name: h.asset.name, from: h.projectName, width: h.asset.width, height: h.asset.height }))),
+          catchError(() => {
+            this.thumbError.set("Your other projects couldn't be searched just now. Try again.");
+            return of([] as LibItem[]);
+          }),
+        );
+      }),
+      takeUntilDestroyed(),
+    ).subscribe((items) => {
+      this.otherImages.set(items);
+      this.libLoading.set(false);
+    });
   }
 
   ngOnInit(): void {
@@ -872,6 +1230,217 @@ export class YouTubePublishDialogComponent implements OnInit {
     this.relatedIds.update((ids) => ids.filter((id) => id !== videoId));
   }
 
+  /** The description lists related videos in this order, so it can be changed. */
+  moveRelated(videoId: string, by: -1 | 1): void {
+    this.relatedIds.update((ids) => {
+      const at = ids.indexOf(videoId);
+      const to = at + by;
+      if (at < 0 || to < 0 || to >= ids.length) return ids;
+      const next = [...ids];
+      [next[at], next[to]] = [next[to], next[at]];
+      return next;
+    });
+  }
+
+  /** YouTube's own still for a video; the stored one when the status check saved it. */
+  videoThumb(v: YouTubePublication): string {
+    return v.thumbnailUrl || `https://i.ytimg.com/vi/${encodeURIComponent(v.videoId)}/mqdefault.jpg`;
+  }
+
+  /** "3 days ago", for telling apart videos with similar titles. */
+  ago(iso: string): string {
+    const t = Date.parse(iso);
+    if (!Number.isFinite(t)) return '';
+    const days = Math.floor((Date.now() - t) / 86_400_000);
+    if (days < 1) return 'today';
+    if (days < 2) return 'yesterday';
+    if (days < 30) return `${days} days ago`;
+    if (days < 365) return `${Math.floor(days / 30)} mo ago`;
+    return `${Math.floor(days / 365)} yr ago`;
+  }
+
+  // --- thumbnail ---
+
+  setThumbMode(mode: ThumbMode): void {
+    if (this.uploading()) return;
+    this.thumbMode.set(mode);
+    this.thumbError.set(null);
+    if (mode === 'frame' && this.frames().length === 0) this.loadFrames(false);
+    if (mode === 'library') this.setLibScope(this.libScope());
+  }
+
+  setLibScope(scope: LibScope): void {
+    this.libScope.set(scope);
+    const projectId = this.libProjectId();
+    if (!projectId) return;
+    if (scope === 'other') {
+      this.libSearch$.next(this.libQuery().trim());
+    } else if (this.store?.project()?.id !== projectId && this.ownImages() === null) {
+      this.libLoading.set(true);
+      this.assets.listAssets(projectId).subscribe({
+        next: (list) => {
+          this.ownImages.set(list.filter((a) => a.kind === 'Image').map((a) => ({ id: a.id, name: a.name, width: a.width, height: a.height })));
+          this.libLoading.set(false);
+        },
+        error: () => {
+          this.ownImages.set([]);
+          this.libLoading.set(false);
+          this.thumbError.set("This project's pictures couldn't be loaded. Try again.");
+        },
+      });
+    }
+  }
+
+  setLibQuery(value: string | null): void {
+    const q = (value ?? '').slice(0, 80);
+    this.libQuery.set(q);
+    if (this.libScope() === 'other') this.libSearch$.next(q.trim());
+  }
+
+  libThumb(assetId: string): string {
+    return this.assets.assetThumbnailUrl(assetId);
+  }
+
+  /** Fetches the picture's full bytes; nothing is copied into this project. */
+  pickLibrary(item: LibItem): void {
+    if (this.uploading() || this.libPicking()) return;
+    this.thumbError.set(null);
+    this.libPicking.set(item.id);
+    this.assets.assetContent(item.id).subscribe({
+      next: async (blob) => {
+        try {
+          const dataUrl = await this.libraryDataUrl(blob);
+          if (this.libPicking() === item.id) this.libPicked.set({ ...item, dataUrl });
+        } catch {
+          this.thumbError.set("That picture couldn't be used as a thumbnail. Pick another.");
+        } finally {
+          if (this.libPicking() === item.id) this.libPicking.set(null);
+        }
+      },
+      error: () => {
+        this.thumbError.set("That picture couldn't be loaded. Pick another.");
+        this.libPicking.set(null);
+      },
+    });
+  }
+
+  /**
+   * A JPG or PNG within YouTube's limit goes as-is; anything else (WebP, GIF, a huge photo)
+   * is redrawn as a JPG no bigger than {@link LIB_MAX_EDGE}. The server re-checks either way.
+   */
+  private async libraryDataUrl(blob: Blob): Promise<string> {
+    if (/^image\/(jpeg|png)$/.test(blob.type) && blob.size <= MAX_THUMBNAIL_UPLOAD_BYTES) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => (typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('unreadable')));
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
+      });
+    }
+    const bitmap = await createImageBitmap(blob);
+    try {
+      const scale = Math.min(1, LIB_MAX_EDGE / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('no canvas');
+      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL('image/jpeg', 0.9);
+    } finally {
+      bitmap.close();
+    }
+  }
+
+  /** A row of frames spread over the video; `another` moves them to other moments. */
+  loadFrames(another: boolean): void {
+    const length = this.draft()?.video.durationSeconds ?? 0;
+    if (length <= 0) {
+      this.thumbError.set("The video's length isn't known, so frames can't be offered. Pause the video and use that frame.");
+      return;
+    }
+    if (another) this.frameRound++;
+    const shift = (this.frameRound * 0.07) % 0.14;
+    const spots = FRAME_SPOTS.map((p) => Math.round(Math.min(length - 0.1, Math.max(0, (p + shift) * length)) * 10) / 10);
+    const unique = [...new Set(spots)];
+    this.frames.set(unique.map((at) => ({ at, url: this.frameUrls.get(at) ?? null, failed: false })));
+    for (const at of unique) if (!this.frameUrls.has(at)) this.fetchFrame(at);
+  }
+
+  pickFrame(at: number): void {
+    this.thumbFrameAt.set(at);
+    this.thumbError.set(null);
+  }
+
+  /** The exact frame the player is paused on. */
+  useCurrentFrame(): void {
+    const video = this.player()?.nativeElement;
+    if (!video) return;
+    video.pause();
+    const at = Math.round(video.currentTime * 10) / 10;
+    if (!this.frames().some((f) => f.at === at)) {
+      this.frames.update((list) => [{ at, url: this.frameUrls.get(at) ?? null, failed: false }, ...list].slice(0, 6));
+    }
+    this.thumbFrameAt.set(at);
+    if (!this.frameUrls.has(at)) this.fetchFrame(at);
+  }
+
+  private fetchFrame(at: number): void {
+    this.grabbing.set(++this.framesPending > 0);
+    this.api.frame(this.jobId(), at, this.source()).subscribe({
+      next: (blob) => {
+        const url = URL.createObjectURL(blob);
+        this.frameUrls.set(at, url);
+        this.frames.update((list) => list.map((f) => (f.at === at ? { ...f, url } : f)));
+        this.grabbing.set(--this.framesPending > 0);
+      },
+      error: () => {
+        this.frames.update((list) => list.map((f) => (f.at === at ? { ...f, failed: true } : f)));
+        if (this.thumbFrameAt() === at) this.thumbError.set("That frame couldn't be taken from the video. Pick another.");
+        this.grabbing.set(--this.framesPending > 0);
+      },
+    });
+  }
+
+  onThumbFile(input: HTMLInputElement): void {
+    const file = input.files?.[0];
+    input.value = '';
+    if (file) this.readThumb(file);
+  }
+
+  onThumbDragOver(event: DragEvent): void {
+    if (this.uploading() || !Array.from(event.dataTransfer?.types ?? []).includes('Files')) return;
+    event.preventDefault();
+    this.thumbDragOver.set(true);
+  }
+
+  onThumbDrop(event: DragEvent): void {
+    event.preventDefault();
+    this.thumbDragOver.set(false);
+    const file = event.dataTransfer?.files?.[0];
+    if (file && !this.uploading()) this.readThumb(file);
+  }
+
+  /** The server checks the bytes and re-encodes anyway; this only catches the obvious early. */
+  private readThumb(file: File): void {
+    this.thumbError.set(null);
+    if (!/^image\/(jpeg|png)$/.test(file.type)) {
+      this.thumbError.set('A thumbnail must be a JPG or PNG picture.');
+      return;
+    }
+    if (file.size > MAX_THUMBNAIL_UPLOAD_BYTES) {
+      this.thumbError.set(`That picture is over ${MAX_THUMBNAIL_UPLOAD_BYTES / 1048576} MB. Use a smaller one.`);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      this.thumbImage.set(typeof reader.result === 'string' ? reader.result : null);
+      this.thumbMode.set('upload');
+    };
+    reader.onerror = () => this.thumbError.set("That picture couldn't be read. Choose another.");
+    reader.readAsDataURL(file);
+  }
+
   /** The main suggestion, then the short and detailed versions the prompt asks for. */
   descriptionLabel(index: number): string {
     return ['✨ Suggested', '⚡ Short', '📖 Detailed'][index] ?? `Version ${index + 1}`;
@@ -931,7 +1500,7 @@ export class YouTubePublishDialogComponent implements OnInit {
       privacy: this.privacy(),
       madeForKids: this.madeForKids(),
       notifySubscribers: this.notify(),
-    }, this.relatedSelected().map((v) => v.videoId), this.firstComment().trim(), this.source()).subscribe({
+    }, this.relatedSelected().map((v) => v.videoId), this.firstComment().trim(), this.source(), this.thumbnailChoice()).subscribe({
       next: (upload) => {
         this.upload.set(upload);
         // The dialog can be closed mid-upload; the activity panel keeps following it.

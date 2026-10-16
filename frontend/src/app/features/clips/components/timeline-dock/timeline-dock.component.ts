@@ -5,6 +5,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { StudioStateService } from '../../services/studio-state.service';
+import { celebrationOption } from '../../services/celebration';
 import { TimelineItem } from '../../../../core/models/api.models';
 import { ClipRow, JunctionView, MusicTrackRow, ScheduledClip } from '../../models/clip-studio.models';
 
@@ -17,6 +18,10 @@ import { ClipRow, JunctionView, MusicTrackRow, ScheduledClip } from '../../model
 })
 export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
   readonly state = inject(StudioStateService);
+
+  celebrationIcon(kind: string): string {
+    return celebrationOption(kind)?.icon ?? '🎉';
+  }
 
   /**
    * Where to draw the insert caret, in seconds. It sits on the START of the clip the caret

@@ -40,6 +40,9 @@ import {
 } from './cinematic-image';
 import { SlotLayout, isSlotItem, layoutSlots, normalizeSlots, remapSlots } from './sequence-slots';
 import {
+  CELEBRATION_DEFAULT_SECONDS, CelebrationKind, CelebrationSettings, celebrationOption, defaultCelebrationMode, isCelebrationKind,
+} from './celebration';
+import {
   LayerMotion, MAX_BORDER_WIDTH, MAX_MOTION_SECONDS, measureMediaAspect, mediaMotion, shapeRadius, textMotion, textReveal,
 } from './frame-media';
 
@@ -53,7 +56,12 @@ export interface PhotoStorySlide {
   transition: string;
   /** Optional words over this slide in the export, as a TXT1 text item. */
   caption?: string;
+  /** Confetti, a flower shower… over this slide, as an FX1 celebration item. */
+  celebration?: CelebrationKind | null;
 }
+
+/** A Photo Story slide's celebration item id; it seeds the particles, so the preview uses it too. */
+export const photoStoryCelebrationId = (index: number) => `story_fx_${index}`;
 
 /** Image lanes whose pictures play full frame in their slot, and so can carry a shot. */
 const SHOT_LANES: ReadonlySet<string> = new Set(['IMG1', 'IMG', 'IMAGE', 'V3']);
@@ -168,6 +176,7 @@ const DRAFT_KEY_PREFIX = 'animstudio_studio_draft_';
 /** The lanes every cut opens with; a new copy each time so no cut shares another's mute/lock state. */
 function defaultTimelineTracks(): TrackControlState[] {
   return [
+    { id: 'FX1', name: 'Celebrations', label: 'FX1', kind: 'image', muted: false, locked: false, visible: true, color: '#f59e0b' },
     { id: 'TXT1', name: 'Text', label: 'TXT1', kind: 'text', muted: false, locked: false, visible: true, color: '#10b981' },
     { id: 'IMG1', name: 'Image', label: 'IMG1', kind: 'image', muted: false, locked: false, visible: true, color: '#10b981' },
     { id: 'V2', name: 'Video Overlay', label: 'V2', kind: 'video', muted: false, locked: false, visible: true, color: '#06b6d4' },
@@ -2240,6 +2249,24 @@ export class StudioStateService implements OnDestroy {
     return this.timelineItems().find((item) => item.trackId === 'TXT1' && t >= item.startTime && t < (item.startTime + item.duration)) ?? null;
   });
 
+  /** Every celebration playing at the playhead; several can overlap on the one lane. */
+  readonly activeCelebrations = computed<TimelineItem[]>(() => {
+    if (!this.isTrackVisible('FX1')) return [];
+    const t = this.currentTime();
+    return this.itemsForTrack('FX1').filter((it) => it.type === 'celebration' && t >= it.startTime && t < it.startTime + it.duration);
+  });
+
+  /** The export's canvas, for sizing the monitor's celebration particles like the file will. */
+  readonly exportCanvas = computed<{ width: number; height: number }>(() => {
+    switch (this.exportResolution()) {
+      case 'short_9_16': return { width: 1080, height: 1920 };
+      case 'square_1_1': return { width: 1080, height: 1080 };
+      case '720p': return { width: 1280, height: 720 };
+      case '4k': return { width: 3840, height: 2160 };
+      default: return { width: 1920, height: 1080 };
+    }
+  });
+
   readonly activeMonitorLowerThird = computed<{ enabled: boolean; title: string; subtitle: string } | null>(() => {
     let text: ClipTextSetting;
     if (this.isPlaying()) {
@@ -2498,6 +2525,9 @@ export class StudioStateService implements OnDestroy {
     if (sel && this.getClipType(sel) === 'image') return true;
     return false;
   });
+
+  readonly showFxTrack = computed(() =>
+    this.itemsForTrack('FX1').length > 0 || this.explicitlyShownTracks().has('FX1'));
 
   readonly showA1Track = computed(() => this.showAudioLane('A1'));
   readonly showA2Track = computed(() => this.showAudioLane('A2'));
@@ -5387,6 +5417,71 @@ export class StudioStateService implements OnDestroy {
     this.status.notify(['Added text to TXT1.']);
   }
 
+  /**
+   * A celebration on FX1 at the playhead: confetti, a flower shower, hearts… It plays over
+   * everything, takes no slot of its own, and several can overlap.
+   */
+  addCelebration(kind: CelebrationKind, startTime?: number): void {
+    if (!isCelebrationKind(kind)) return;
+    if (!this.timelineTracks().some((t) => t.id === 'FX1')) {
+      // Cuts saved before celebrations existed have no FX1 row to lock or hide.
+      this.timelineTracks.update((tracks) => [defaultTimelineTracks()[0], ...tracks]);
+    }
+    if (this.isTrackLocked('FX1')) {
+      this.status.notify(['The Celebrations track is locked.']);
+      return;
+    }
+    this.explicitlyShownTracks.update((set) => new Set(set).add('FX1'));
+    const start = Math.max(0, startTime ?? this.currentTime());
+    const total = this.timelineSeconds();
+    const duration = total > start + 1 ? Math.min(CELEBRATION_DEFAULT_SECONDS, total - start) : CELEBRATION_DEFAULT_SECONDS;
+    const option = celebrationOption(kind);
+    const item: TimelineItem = {
+      id: `fx_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+      type: 'celebration',
+      trackId: 'FX1',
+      startTime: Math.round(start * 100) / 100,
+      duration: Math.round(duration * 100) / 100,
+      src: kind,
+      name: option?.label ?? 'Celebration',
+      celebration: { mode: defaultCelebrationMode(kind), density: 55, size: 1, speed: 1 },
+    };
+    this.timelineItems.update((items) => [...items, item]);
+    this.selectedTimelineItemId.set(item.id);
+    this.selectedTimelineItemIds.set(new Set([item.id]));
+    this.selectedClipId.set(null);
+    this.selectedTimelineClipIndex.set(null);
+    this.activeInspectorTab.set('effects');
+    this.seekTo(item.startTime);
+    this.markDirty();
+    this.status.notify([`Added ${option?.label ?? 'a celebration'} at ${item.startTime.toFixed(1)}s on FX1.`]);
+  }
+
+  /** Changes a celebration's kind or settings; the item's name follows a kind change. */
+  updateCelebration(itemId: string, patch: { kind?: CelebrationKind } & Partial<CelebrationSettings>): void {
+    const { kind, ...settings } = patch;
+    this.timelineItems.update((items) => items.map((it) => {
+      if (it.id !== itemId || it.type !== 'celebration') return it;
+      const next: TimelineItem = { ...it, celebration: { ...it.celebration, ...settings } };
+      if (kind && isCelebrationKind(kind) && kind !== it.src) {
+        next.src = kind;
+        next.name = celebrationOption(kind)?.label ?? it.name;
+        next.celebration = { ...next.celebration, mode: defaultCelebrationMode(kind) };
+      }
+      return next;
+    }));
+    this.markDirty();
+  }
+
+  /** A celebration's length, held inside the timeline. */
+  setCelebrationDuration(itemId: string, seconds: number): void {
+    const s = Number(seconds);
+    if (!Number.isFinite(s)) return;
+    this.timelineItems.update((items) => items.map((it) =>
+      (it.id === itemId && it.type === 'celebration' ? { ...it, duration: Math.round(Math.min(60, Math.max(1, s)) * 10) / 10 } : it)));
+    this.markDirty();
+  }
+
   onTextToolbarClicked(): void {
     this.showTrackManually('TXT1');
     this.activeInspectorTab.set('text');
@@ -6118,6 +6213,8 @@ export class StudioStateService implements OnDestroy {
         this.setAudioInspectorView('clip');
       } else if (item && item.type === 'text') {
         this.setInspectorTab('text');
+      } else if (item && item.type === 'celebration') {
+        this.setInspectorTab('effects');
       } else if (item && item.type === 'image') {
         this.setInspectorTab('clip');
       }
@@ -8881,9 +8978,11 @@ export class StudioStateService implements OnDestroy {
       trackId: item.trackId,
       startTime: item.startTime,
       duration: item.duration,
-      src: this.resolveAssetId(item.src) || item.src,
+      // A celebration's src is its kind, not an asset.
+      src: item.type === 'celebration' ? item.src : this.resolveAssetId(item.src) || item.src,
       name: item.name,
       transform: item.transform,
+      celebration: item.type === 'celebration' ? item.celebration : undefined,
       textStyle: item.type === 'text' ? this.exportTextStyle(item.textStyle) : item.textStyle,
       volume: item.type === 'audio' && (item.trackId === 'A1' || item.trackId === 'A2')
         ? (item.volume ?? 1.0) * this.audioBusGain(item.trackId)
@@ -9496,6 +9595,23 @@ export class StudioStateService implements OnDestroy {
       });
     });
 
+    // A celebration covers its whole slide; it plays over the transitions too, like the preview.
+    const celebrationItems: TimelineItem[] = [];
+    timelineItems.forEach((it, k) => {
+      const kind = slides[k].celebration;
+      if (!kind || !isCelebrationKind(kind)) return;
+      celebrationItems.push({
+        id: photoStoryCelebrationId(k),
+        type: 'celebration',
+        trackId: 'FX1',
+        startTime: it.startTime,
+        duration: it.duration,
+        src: kind,
+        name: celebrationOption(kind)?.label ?? 'Celebration',
+        celebration: { mode: defaultCelebrationMode(kind), density: 55, size: 1, speed: 1 },
+      });
+    });
+
     const wm: WatermarkBody = this.effectiveWatermark();
     this.status.run(
       this.api.mergeClips(projectId, {
@@ -9513,7 +9629,7 @@ export class StudioStateService implements OnDestroy {
         backgroundMusicAssetId: options.includeMusic ? this.musicAssetId() || null : null,
         backgroundMusicVolume: Math.max(0, Math.min(2.0, Number(this.musicVolume()) || 0)),
         musicTracks: options.includeMusic ? this.musicTracksPayload() : [],
-        timelineItems: [...timelineItems, ...captionItems],
+        timelineItems: [...timelineItems, ...captionItems, ...celebrationItems],
         watermark: options.watermark ? wm : { ...wm, kind: 'None' as WatermarkKind },
         includeOutro: options.outro,
         youTubeLoudness: options.includeMusic,

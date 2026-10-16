@@ -38,34 +38,81 @@
            [class.file-over]="fileOver()" (dragover)="onFileDragOver($event)" (dragleave)="onStripDragLeave($event)" (drop)="onFileDrop($event)">
       <div class="ps-col-head">
         <span>Library <span class="ps-count">{{ state.frameImageCandidates().length }}</span></span>
-        <span class="ps-head-actions">
-          <button type="button" class="ps-mini" (click)="addAllUnused()" title="Add every picture that is not in the story yet">+ Add all</button>
-          <button type="button" class="ps-mini" (click)="chooseFiles()" [disabled]="state.photoStoryUploading() > 0">⬆ Upload</button>
-        </span>
+        <button type="button" class="ps-mini primary" (click)="chooseFiles()" [disabled]="state.photoStoryUploading() > 0">⬆ Upload</button>
       </div>
       <input #fileInput type="file" class="ps-sr" accept="image/png,image/jpeg,image/webp,image/gif" multiple
              tabindex="-1" aria-hidden="true" (change)="onFilesChosen(fileInput)" />
+
+      @if (state.frameImageCandidates().length > 0) {
+        <div class="ps-lib-tools">
+          <input type="search" class="ps-lib-search" placeholder="Search pictures…" aria-label="Search pictures by name"
+                 [ngModel]="libQuery()" (ngModelChange)="libQuery.set($event)" />
+          <div class="ps-lib-filter" role="radiogroup" aria-label="Show">
+            <button type="button" role="radio" [class.on]="libFilter() === 'all'" [attr.aria-checked]="libFilter() === 'all'"
+                    (click)="libFilter.set('all')">All</button>
+            <button type="button" role="radio" [class.on]="libFilter() === 'unused'" [attr.aria-checked]="libFilter() === 'unused'"
+                    (click)="libFilter.set('unused')" title="Pictures not in the story yet">New <span class="ps-lib-n">{{ unusedCount() }}</span></button>
+            <button type="button" role="radio" [class.on]="libFilter() === 'used'" [attr.aria-checked]="libFilter() === 'used'"
+                    (click)="libFilter.set('used')" title="Pictures already in the story">In story</button>
+          </div>
+          <div class="ps-lib-row">
+            <select class="ps-lib-sort" aria-label="Sort pictures" [ngModel]="libSort()" (ngModelChange)="setLibSort($event)">
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="name">Name A→Z</option>
+            </select>
+            <div class="ps-lib-size" role="radiogroup" aria-label="Thumbnail size">
+              @for (z of ['s', 'm', 'l']; track z) {
+                <button type="button" role="radio" [class.on]="libSize() === z" [attr.aria-checked]="libSize() === z"
+                        (click)="setLibSize($any(z))" [attr.aria-label]="z === 's' ? 'Small' : z === 'm' ? 'Medium' : 'Large'"
+                        [title]="z === 's' ? 'Small tiles' : z === 'm' ? 'Medium tiles' : 'Large tiles'">
+                  <span class="ps-size-ico" [attr.data-z]="z"></span></button>
+              }
+            </div>
+          </div>
+        </div>
+      }
+
       @if (state.photoStoryUploading() > 0) {
         <p class="ps-muted ps-pad" role="status">Uploading {{ state.photoStoryUploading() }} picture(s)…</p>
       }
-      <div class="ps-library">
-        @for (c of state.frameImageCandidates(); track c.id) {
-          <button type="button" class="ps-pick" [class.used]="isInStory(c.id)" (click)="addPicture(c.id, c.name)"
+      <div class="ps-library" [attr.data-size]="libSize()">
+        @for (c of libraryItems(); track c.id) {
+          @let uses = useCount(c.id);
+          <button type="button" class="ps-pick" [class.used]="uses > 0" [class.picked]="isPicked(c.id)"
+                  (click)="onLibraryClick($event, c.id, c.name)"
                   draggable="true" (dragstart)="onLibraryDragStart($event, c.id, c.name)" (dragend)="onDragEnd()"
-                  [title]="(isInStory(c.id) ? 'Already in the story - add again: ' : 'Add: ') + c.name"
-                  [attr.aria-label]="(isInStory(c.id) ? 'Add again: ' : 'Add: ') + c.name">
-            <img [src]="state.assetUrl(c.id)" alt="" loading="lazy" draggable="false" />
-            <span class="ps-pick-add" aria-hidden="true">+</span>
-            @if (isInStory(c.id)) { <span class="ps-pick-used" aria-hidden="true">✓</span> }
+                  [title]="c.name + (uses > 0 ? ' - in the story ' + (uses === 1 ? 'once' : uses + ' times') : '') + '. Click to add, Ctrl+click to pick several.'"
+                  [attr.aria-label]="(uses > 0 ? 'Add again: ' : 'Add: ') + c.name" [attr.aria-pressed]="isPicked(c.id)">
+            <img [src]="state.assetUrl(c.id)" alt="" loading="lazy" decoding="async" draggable="false" />
+            <span class="ps-pick-name" aria-hidden="true">{{ c.name }}</span>
+            <span class="ps-pick-add" aria-hidden="true">{{ isPicked(c.id) ? libPicked().indexOf(c.id) + 1 : '+' }}</span>
+            @if (uses > 0) { <span class="ps-pick-used" aria-hidden="true">{{ uses > 1 ? '×' + uses : '✓' }}</span> }
           </button>
         } @empty {
-          <button type="button" class="ps-drop ps-drop-small" (click)="chooseFiles()">
-            <span class="ps-drop-icon" aria-hidden="true">🖼</span>
-            No pictures in this project yet.<br />Drop images here or click to upload.
-          </button>
+          @if (state.frameImageCandidates().length === 0) {
+            <button type="button" class="ps-drop ps-drop-small" (click)="chooseFiles()">
+              <span class="ps-drop-icon" aria-hidden="true">🖼</span>
+              No pictures in this project yet.<br />Drop images here or click to upload.
+            </button>
+          } @else {
+            <p class="ps-muted ps-lib-none">
+              {{ libQuery().trim() ? 'No picture matches "' + libQuery().trim() + '".' : libFilter() === 'unused' ? 'Every picture is in the story.' : 'No pictures in the story yet.' }}
+              <button type="button" class="ps-linkish" (click)="libQuery.set(''); libFilter.set('all')">Show all</button>
+            </p>
+          }
         }
       </div>
-      <p class="ps-hint">Click to add at the end, or drag a picture onto the filmstrip to place it. Drop files from your computer anywhere here.</p>
+      <div class="ps-lib-foot">
+        @if (libPicked().length > 0) {
+          <button type="button" class="ps-btn primary ps-grow" (click)="addPicked()">+ Add {{ libPicked().length }} picked</button>
+          <button type="button" class="ps-mini" (click)="libPicked.set([])">Clear</button>
+        } @else {
+          <button type="button" class="ps-btn ps-grow" (click)="addAllUnused()" [disabled]="slides().length >= maxSlides || shownUnused() === 0"
+                  title="Add every picture shown here that is not in the story yet">+ Add {{ shownUnused() }} new{{ libQuery().trim() ? ' shown' : '' }}</button>
+        }
+      </div>
+      <p class="ps-hint">Click to add · Ctrl+click to pick several · drag onto the filmstrip to place · drop files here to upload.</p>
     </aside>
 
     <!-- Centre: preview on top, the story's filmstrip below -->
@@ -87,6 +134,10 @@
             @if (shown.cinematic.cinemaBars) {
               <div class="ps-bar top" [style.height.%]="barPercent()"></div>
               <div class="ps-bar bottom" [style.height.%]="barPercent()"></div>
+            }
+            @if (shown.celebration) {
+              <app-celebration-layer [cues]="previewCues()" [clock]="previewClockFn"
+                                     [exportWidth]="format().width" [exportHeight]="format().height" />
             }
             @if (shown.caption?.trim()) {
               <div class="ps-caption"><span>{{ shown.caption }}</span></div>
@@ -149,12 +200,13 @@
                     [class.playing]="playing() && previewIndex() === i"
                     [attr.tabindex]="(current?.id ?? slides()[0]?.id) === s.id ? 0 : -1"
                     [attr.aria-current]="current?.id === s.id ? 'true' : null"
-                    [attr.aria-label]="'Shot ' + (i + 1) + ' of ' + slides().length + ': ' + s.name + ', ' + mv.label + ', ' + s.seconds + ' seconds' + (s.caption?.trim() ? ', has caption' : '')"
+                    [attr.aria-label]="'Shot ' + (i + 1) + ' of ' + slides().length + ': ' + s.name + ', ' + mv.label + ', ' + s.seconds + ' seconds' + (s.caption?.trim() ? ', has caption' : '') + (s.celebration ? ', ' + celebrationLabel(s.celebration) : '')"
                     (click)="onShotClick($event, s.id)">
               <span class="ps-shot-thumb">
                 <img [src]="state.assetUrl(s.assetId)" alt="" [style.filter]="filterOf(s)" draggable="false" />
                 <span class="ps-num" aria-hidden="true">{{ i + 1 }}</span>
                 @if (s.caption?.trim()) { <span class="ps-cap-flag" aria-hidden="true" title="Has a caption">T</span> }
+                @if (s.celebration) { <span class="ps-cel-flag" aria-hidden="true" [title]="celebrationLabel(s.celebration)">{{ celebrationIcon(s.celebration) }}</span> }
               </span>
               <span class="ps-shot-chips" aria-hidden="true">
                 <span class="ps-tag" [title]="mv.label">{{ mv.icon }} {{ mv.label }}</span>
@@ -276,6 +328,17 @@
                 <button type="button" (click)="applyMoveToAll()" [title]="'Use this move, strength and easing on ' + bulkLabel()">⧉ Move to {{ bulkLabel() }}</button>
                 <button type="button" (click)="autoCinematic()" title="Give every shot a different camera move">🎲 Auto moves</button>
               </div>
+            </div>
+
+            <div class="ps-card">
+              <div class="ps-label">🎉 Celebration <span class="ps-muted">- shot {{ selectedIndex() + 1 }}</span></div>
+              <app-celebration-tiles [allowNone]="true" [selected]="current.celebration ?? null" label="Celebration on this shot"
+                                     (picked)="setCelebration(current.id, $event)" />
+              <p class="ps-hint">Falls (or rises) over this picture for as long as it is on screen. Hover a tile to see it move.</p>
+              <button type="button" class="ps-btn" (click)="celebrationToAll()"
+                      [title]="'Use ' + celebrationLabel(current.celebration) + ' on ' + bulkLabel()">
+                ⧉ {{ current.celebration ? celebrationLabel(current.celebration) : 'No celebration' }} on {{ bulkLabel() }}
+              </button>
             </div>
 
             <div class="ps-card">
@@ -424,11 +487,13 @@
               <dt>Length</dt><dd class="mono">{{ runTime(totalSeconds()) }}{{ outro() ? ' + end card' : '' }}</dd>
               <dt>Style</dt><dd>{{ presetLabel() ?? 'Custom' }}</dd>
               <dt>Captions</dt><dd>{{ captionCount() }}</dd>
+              <dt>Celebrations</dt><dd>{{ celebrationCount() }}</dd>
               <dt>Music</dt><dd>{{ includeMusic() ? (music !== null ? runTime(music) : 'Studio tracks') : 'Off' }}</dd>
               <dt>Output</dt><dd class="mono">{{ format().width }}×{{ format().height }}</dd>
             </dl>
-            @if (captionCount() > 0) {
-              <p class="ps-hint">Captions are drawn in the rendered video. "Apply to timeline" carries the camera and look only.</p>
+            @if (captionCount() > 0 || celebrationCount() > 0) {
+              <p class="ps-hint">{{ captionCount() > 0 && celebrationCount() > 0 ? 'Captions and celebrations are' : captionCount() > 0 ? 'Captions are' : 'Celebrations are' }}
+                drawn in the rendered video. "Apply to timeline" carries the camera and look only.</p>
             }
             <button type="button" class="ps-btn primary" [disabled]="slides().length === 0 || state.running()" (click)="build()">
               🚀 Render video

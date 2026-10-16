@@ -325,31 +325,7 @@ public sealed class RenderController(
     {
         var job = await LoadOwnedJobAsync(jobId, ct);
 
-        if (job.OutputStorageKey is null)
-            throw new KeyNotFoundException();
-
-        var cacheDirectory = Path.Combine(Path.GetTempPath(), "animstudio-preview");
-        Directory.CreateDirectory(cacheDirectory);
-
-        var cached = Path.Combine(cacheDirectory, $"{jobId}.mp4");
-
-        if (!System.IO.File.Exists(cached)
-            || new FileInfo(cached).Length != (job.OutputSizeBytes ?? -1))
-        {
-            await using var source = await store.OpenAsync(job.OutputStorageKey, ct)
-                ?? throw new KeyNotFoundException();
-
-            // Written to a temp name first so a concurrent request never reads a half file.
-            var staging = cached + ".partial";
-            await using (var file = new FileStream(staging, FileMode.Create, FileAccess.Write,
-                FileShare.None, 1 << 20, useAsync: true))
-            {
-                await source.CopyToAsync(file, 1 << 20, ct);
-            }
-
-            System.IO.File.Move(staging, cached, overwrite: true);
-        }
-
+        var cached = await RenderPreviewFile.EnsureAsync(store, job, ct);
         return PhysicalFile(cached, "video/mp4", enableRangeProcessing: true);
     }
 

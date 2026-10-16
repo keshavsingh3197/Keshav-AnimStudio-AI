@@ -10,6 +10,7 @@ import { watermarkMarkStyle } from '../../../../shared/watermark-preview.compone
 import { ERASE_DEFAULT_STRENGTH, TimelineItemTransform } from '../../../../core/models/api.models';
 import { MusicTrackRow, isCutEffectTrack, isVoiceoverTrack } from '../../models/clip-studio.models';
 import { cameraTransformCentered, lookFilter } from '../../services/cinematic-image';
+import { CelebrationCue, CelebrationLayerComponent } from '../celebration/celebration-layer.component';
 
 /** Longest the playhead waits for the media it follows to load before going on without it. */
 const MAX_STALL_MS = 4000;
@@ -22,12 +23,20 @@ function isRunning(el: HTMLMediaElement): boolean {
 @Component({
   selector: 'app-video-viewport',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, CelebrationLayerComponent],
   templateUrl: './video-viewport.component.html',
   styleUrls: ['./video-viewport.component.css'],
 })
 export class VideoViewportComponent implements OnInit, OnDestroy {
   readonly state = inject(StudioStateService);
+
+  /** Every celebration on a visible FX1; the layer works out which are playing each frame. */
+  readonly celebrationCues = computed<CelebrationCue[]>(() => !this.state.isTrackVisible('FX1') ? [] : this.state.itemsForTrack('FX1')
+    .filter((it) => it.type === 'celebration')
+    .map((it) => ({ id: it.id, kind: it.src, settings: it.celebration, start: it.startTime, duration: it.duration })));
+
+  /** The playhead signal is throttled during playback; particles read the exact time. */
+  readonly monitorClock = (): number => (this.state.isPlaying() ? this.state.getCurrentTimeExact() : this.state.currentTime());
 
   // Guardrail 1: DOM References Isolated strictly in Viewport
   @ViewChild('videoMonitorA') videoMonitorARef?: ElementRef<HTMLVideoElement>;

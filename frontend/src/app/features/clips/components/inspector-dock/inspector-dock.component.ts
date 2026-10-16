@@ -10,11 +10,13 @@ import { TextInspectorComponent } from './tabs/text-inspector.component';
 import { FrameLayoutInspectorComponent } from './tabs/frame-layout-inspector.component';
 import { VoiceoverPanelComponent } from './tabs/voiceover-panel.component';
 import { ImageShotInspectorComponent } from './tabs/image-shot-inspector.component';
+import { CelebrationInspectorComponent } from './tabs/celebration-inspector.component';
 
 @Component({
   selector: 'app-inspector-dock',
   standalone: true,
   imports: [
+    CelebrationInspectorComponent,
     ImageShotInspectorComponent,
     TransformInspectorComponent,
     ClipAudioInspectorComponent,

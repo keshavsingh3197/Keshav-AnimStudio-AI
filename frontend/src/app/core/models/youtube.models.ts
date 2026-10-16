@@ -151,7 +151,21 @@ export interface YouTubeUpload {
   commentId?: string;
   /** The same video on music.youtube.com; set for a Music-category upload. */
   musicUrl?: string;
+  /** A custom thumbnail went up with the video and YouTube accepted it. */
+  thumbnailSet?: boolean;
 }
+
+/**
+ * The custom thumbnail sent with an upload: a frame of the video, or a JPG/PNG picture as a
+ * data URL. Neither leaves YouTube to pick one of its own frames.
+ */
+export interface YouTubeThumbnailChoice {
+  frameAtSeconds?: number | null;
+  imageBase64?: string | null;
+}
+
+/** YouTube's limit is 2 MB, but the server re-encodes, so a larger photo is fine to pick. */
+export const MAX_THUMBNAIL_UPLOAD_BYTES = 8 * 1024 * 1024;
 
 export type YouTubeVideoHealth = 'Unknown' | 'Processing' | 'Ok' | 'Issue' | 'Removed';
 

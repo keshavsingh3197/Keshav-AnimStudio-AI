@@ -110,6 +110,10 @@
         <button class="tool-btn icon-only" type="button" [class.active]="state.activeInspectorTab() === 'effects'" (click)="state.activeInspectorTab.set('effects')" title="Visual Effects">
           <span class="tool-btn-icon">✨</span><span class="tool-btn-label">Effects</span>
         </button>
+        <button class="tool-btn icon-only tool-btn-subtle" type="button" (click)="state.addCelebration('flowers')"
+                title="Add a celebration at the playhead (flower shower, confetti, hearts…) on FX1 - change the kind under Effects">
+          <span class="tool-btn-icon">🎉</span><span class="tool-btn-label">Celebrate</span>
+        </button>
         <button class="tool-btn icon-only" type="button" [class.active]="state.activeInspectorTab() === 'transitions'" (click)="state.openTransitionsTab()" title="Transitions & Cuts">
           <span class="tool-btn-icon">⚡</span><span class="tool-btn-label">Transitions</span>
         </button>
@@ -192,6 +196,54 @@
               }
             </div>
           </div>
+
+          <!-- FX1 Swimlane Row: celebrations play over everything and take no slot. -->
+          @if (state.showFxTrack()) {
+            <div class="tl-row tl-track-row tl-row-fx">
+              <div class="tl-header-col tl-header-fx">
+                <div class="tl-h-top">
+                  <span class="tl-badge tl-badge-fx">FX1</span>
+                  <span class="tl-h-label">Celebrate</span>
+                  @if (state.itemsForTrack('FX1').length === 0) {
+                    <button class="tl-h-close-btn" type="button" (click)="state.hideTrack('FX1')" title="Hide empty Celebrations track">×</button>
+                  }
+                </div>
+                <div class="tl-h-actions">
+                  <button class="tl-h-btn" type="button" (click)="state.toggleTrackLock('FX1')" [title]="state.isTrackLocked('FX1') ? 'Unlock FX1' : 'Lock FX1'">
+                    {{ state.isTrackLocked('FX1') ? '🔒' : '🔓' }}
+                  </button>
+                  <button class="tl-h-btn" type="button" (click)="state.toggleTrackVisibility('FX1')" [title]="state.isTrackVisible('FX1') ? 'Hide FX1' : 'Show FX1'">
+                    {{ state.isTrackVisible('FX1') ? '👁' : '🚫' }}
+                  </button>
+                </div>
+              </div>
+              <div class="tl-lane tl-lane-fx" [style.width.px]="state.secondsToPx(state.timelineSeconds())">
+                @for (item of state.itemsForTrack('FX1'); track item.id) {
+                  <div class="tl-clip tl-item-fx"
+                       [class.selected]="state.selectedTimelineItemId() === item.id"
+                       [style.left.px]="state.secondsToPx(item.startTime)"
+                       [style.width.px]="state.secondsToPx(item.duration)"
+                       (pointerdown)="onItemPointerDown(item, $event)"
+                       (click)="$event.stopPropagation(); state.selectTimelineItem(item.id, $event)">
+                    <span class="tl-trim-handle left" (pointerdown)="onItemTrimPointerDown(item, 'left', $event)" title="Drag to trim start"></span>
+                    <span class="tl-item-badge">{{ celebrationIcon(item.src) }}</span>
+                    <span class="tl-item-name">{{ item.name || 'Celebration' }}</span>
+                    <span class="tl-item-dur mono">{{ item.duration | number:'1.1-1' }}s</span>
+                    <button class="tl-item-remove" type="button"
+                            (pointerdown)="$event.stopPropagation()"
+                            (click)="onRemoveItemClick($event, item.id)"
+                            title="Remove celebration" aria-label="Remove">×</button>
+                    <span class="tl-trim-handle right" (pointerdown)="onItemTrimPointerDown(item, 'right', $event)" title="Drag to trim end"></span>
+                  </div>
+                }
+                @if (state.itemsForTrack('FX1').length === 0) {
+                  <div class="tl-lane-placeholder" (click)="$event.stopPropagation(); state.addCelebration('flowers')">
+                    Click to add a flower shower here, or pick a celebration under ✨ Effects
+                  </div>
+                }
+              </div>
+            </div>
+          }
 
           <!-- TXT1 Swimlane Row -->
           @if (state.showTxtTrack()) {

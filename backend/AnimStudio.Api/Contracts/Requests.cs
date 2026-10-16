@@ -743,6 +743,16 @@ public sealed record TimelineItemRequest
     public double? Volume { get; init; }
     public double? TrimStartSeconds { get; init; }
     public double? TrimEndSeconds { get; init; }
+    public CelebrationRequest? Celebration { get; init; }
+}
+
+/// <summary>Type "celebration" on the FX1 lane; the kind travels as the item's Src.</summary>
+public sealed record CelebrationRequest
+{
+    [StringLength(16)] public string? Mode { get; init; }
+    [Range(1, 100)] public int? Density { get; init; }
+    [Range(0.5, 2.0)] public double? Size { get; init; }
+    [Range(0.5, 2.0)] public double? Speed { get; init; }
 }
 
 /// <summary>Null clears the quota; the bar then shows the drive's capacity.</summary>

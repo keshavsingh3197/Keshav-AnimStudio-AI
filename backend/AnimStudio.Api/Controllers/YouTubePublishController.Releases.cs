@@ -61,7 +61,7 @@ public sealed partial class YouTubePublishController
         var (kit, path) = LoadOwnedVisualizer(kitId);
         var facts = VisualizerFacts(kit, path);
 
-        return await QueueUploadAsync(request, facts, "release kit", (connection, metadata, related, firstComment) => new YouTubeUploadRequest(
+        return await QueueUploadAsync(request, facts, _ => Task.FromResult(path), "release kit", (connection, metadata, related, firstComment) => new YouTubeUploadRequest(
             currentUser.UserId,
             kitId,
             StorageKey: string.Empty,
@@ -73,6 +73,14 @@ public sealed partial class YouTubePublishController
             related,
             firstComment,
             LocalFilePath: path), ct);
+    }
+
+    /// <summary>One frame of a release kit's visualizer, for the thumbnail picker.</summary>
+    [HttpGet("release-kits/{kitId}/frame")]
+    public async Task<IActionResult> ReleaseFrame(string kitId, [FromQuery] double at, [FromQuery] int? width, CancellationToken ct)
+    {
+        var (kit, path) = LoadOwnedVisualizer(kitId);
+        return await FrameResultAsync(path, at, kit.Result?.DurationSeconds, width, ct);
     }
 
     /// <summary>

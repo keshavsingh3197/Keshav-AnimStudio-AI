@@ -574,6 +574,7 @@ public sealed class ClipMergeOrchestrator(
 
             var overlays = new List<MergeOverlayItem>();
             var textOverlays = 0;
+            var celebrations = 0;
             for (var itemIndex = 0; itemIndex < spec.TimelineItems.Count; itemIndex++)
             {
                 var item = spec.TimelineItems[itemIndex];
@@ -581,7 +582,22 @@ public sealed class ClipMergeOrchestrator(
                 {
                     string? relPath = null;
                     MergeTextOverlay? text = null;
-                    if (item.Type is "image" or "video")
+                    CelebrationSettings? celebration = null;
+                    if (item.Type == "celebration")
+                    {
+                        // Each is a few dozen small overlays; a handful per export is plenty.
+                        if (++celebrations > CelebrationPlanner.MaxCelebrations)
+                        {
+                            warnings.Add("CELEBRATIONS_TRUNCATED");
+                            continue;
+                        }
+
+                        var c = item.Celebration;
+                        celebration = CelebrationPlanner.Normalize(item.Src, c?.Mode, c?.Density, c?.Size, c?.Speed,
+                            string.IsNullOrEmpty(item.Id) ? $"celebration-{itemIndex}" : item.Id);
+                        if (celebration is null || !(item.Duration > 0) || !double.IsFinite(item.Duration)) continue;
+                    }
+                    else if (item.Type is "image" or "video")
                     {
                         materialized.TryGetValue(item.Src, out relPath);
                     }
@@ -620,7 +636,8 @@ public sealed class ClipMergeOrchestrator(
                             ? Math.Clamp(width, 1, 100)
                             : null,
                         Media = item.Type is "image" or "video" ? MediaOverlayOf(item) : null,
-                        Shot = ShotOf(item, spec, settings)
+                        Shot = ShotOf(item, spec, settings),
+                        Celebration = celebration
                     });
                 }
                 else if (item.TrackId is "A1" or "A2" && item.Type == "audio")
@@ -1114,7 +1131,7 @@ public sealed class ClipMergeOrchestrator(
     /// to re-encode, so this decides both the overlay list and the stream-copy prediction.
     /// </summary>
     internal static bool IsOverlayTrack(string? trackId) =>
-        trackId is "IMG1" or "IMG" or "IMAGE" or "V2" or "V3" or "TXT1" or "SUB1";
+        trackId is "IMG1" or "IMG" or "IMAGE" or "V2" or "V3" or "TXT1" or "SUB1" or "FX1";
 
     /// <summary>
     /// An image or video overlay's crop, shape, ring and trim, checked here because every

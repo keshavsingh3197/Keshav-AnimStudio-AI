@@ -252,7 +252,14 @@ public sealed class ClipsController(
                     },
                     Volume = t.Volume,
                     TrimStartSeconds = t.TrimStartSeconds,
-                    TrimEndSeconds = t.TrimEndSeconds
+                    TrimEndSeconds = t.TrimEndSeconds,
+                    Celebration = t.Celebration is null ? null : new CelebrationSpec
+                    {
+                        Mode = t.Celebration.Mode,
+                        Density = t.Celebration.Density,
+                        Size = t.Celebration.Size,
+                        Speed = t.Celebration.Speed
+                    }
                 })
                 .ToList()
         };

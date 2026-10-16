@@ -1,5 +1,6 @@
 import { ImageCameraMotion, ImageLook } from '../../../../core/models/api.models';
 import { IMAGE_MOTION_DEFAULT, autoMotion } from '../../services/cinematic-image';
+import { CelebrationKind } from '../../services/celebration';
 
 /**
  * Pure helpers behind Photo Story's bulk tools: ordering, timing and style presets. Kept
@@ -144,6 +145,11 @@ export interface StoryPreset {
   vignette?: boolean;
   grain?: boolean;
   cinemaBars?: boolean;
+  /**
+   * A celebration for shot k of n, or null for none. Absent leaves every shot's celebration
+   * as it is; present, the preset decides them all.
+   */
+  celebrationAt?: (k: number, n: number) => CelebrationKind | null;
 }
 
 const cycle = (moves: readonly ImageCameraMotion[]) => (k: number) => moves[k % moves.length];
@@ -168,6 +174,18 @@ export const STORY_PRESETS: readonly StoryPreset[] = [
     id: 'cinematic', label: 'Cinematic', icon: '🎬', hint: 'Drifts and pans with a film grade and cinema bars',
     seconds: 5, transition: 'Dissolve', transitionSeconds: 1, intensity: IMAGE_MOTION_DEFAULT, easing: 'ease',
     motionAt: cycle(['drift', 'pan-right', 'zoom-in', 'pan-left']), look: 'cinematic', vignette: true, cinemaBars: true,
+  },
+  {
+    id: 'festive', label: 'Festive', icon: '🎉', hint: 'Bright, lively moves with a flower shower to open and confetti to close - for festivals and birthdays',
+    seconds: 4, transition: 'Dissolve', transitionSeconds: 0.8, intensity: 0.18, easing: 'ease',
+    motionAt: cycle(['zoom-in', 'pan-right', 'breathe', 'pan-left']), look: 'vivid', vignette: true,
+    celebrationAt: (k, n) => (k === 0 ? 'flowers' : k === n - 1 ? 'cannon' : null),
+  },
+  {
+    id: 'devotional', label: 'Devotional', icon: '🙏', hint: 'Slow, reverent push-ins, warm light and petals drifting down over every picture',
+    seconds: 6, transition: 'Fade', transitionSeconds: 1.4, intensity: 0.1, easing: 'ease',
+    motionAt: cycle(['zoom-in', 'breathe', 'drift']), look: 'warm', vignette: true,
+    celebrationAt: (k) => (k % 2 === 0 ? 'flowers' : 'petals'),
   },
   {
     id: 'slideshow', label: 'Slideshow', icon: '🖼', hint: 'Still pictures with simple fades - nothing moves',
