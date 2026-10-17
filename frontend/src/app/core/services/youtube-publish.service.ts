@@ -6,6 +6,7 @@ import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../models/api.models';
 import {
   GoogleDriveStatus, PhoneHandoff, PhoneHandoffCheck,
+  YouTubeCheckup, YouTubeCheckupSaved, YouTubeVideoDetailsSave,
   YouTubeChannel, YouTubeDashboard, YouTubeDraft, YouTubeLiveBroadcast, YouTubeLiveSetup, YouTubeLiveSuggestParams, YouTubePublication, YouTubePublishSource, YouTubePublishStatus,
   YouTubeSuggestion, YouTubeSuggestOptions, YouTubeSuggestParams, YouTubeThumbnailChoice, YouTubeUpload, YouTubeVideoMetadata,
 } from '../models/youtube.models';
@@ -64,6 +65,29 @@ export class YouTubePublishService {
     return this.http
       .post<ApiResponse<YouTubeSuggestion>>(`${this.base}/render-jobs/${encodeURIComponent(jobId)}/suggest`, params)
       .pipe(map((r) => r.data as YouTubeSuggestion));
+  }
+
+  /** Every video on a connected channel (up to `max`) with what its details are missing. */
+  checkup(channelId: string, max = 100): Observable<YouTubeCheckup> {
+    return this.http
+      .get<ApiResponse<YouTubeCheckup>>(`${this.base}/channels/${encodeURIComponent(channelId)}/checkup`, { params: { max } })
+      .pipe(map((r) => r.data as YouTubeCheckup));
+  }
+
+  /** AI-written details for a video already on the channel. Saves nothing. */
+  suggestForVideo(channelId: string, videoId: string, params: YouTubeSuggestParams): Observable<YouTubeSuggestion> {
+    return this.http
+      .post<ApiResponse<YouTubeSuggestion>>(
+        `${this.base}/channels/${encodeURIComponent(channelId)}/videos/${encodeURIComponent(videoId)}/suggest`, params)
+      .pipe(map((r) => r.data as YouTubeSuggestion));
+  }
+
+  /** Writes reviewed details onto a video on the channel and adds it to playlists. */
+  saveVideoDetails(channelId: string, videoId: string, body: YouTubeVideoDetailsSave): Observable<YouTubeCheckupSaved> {
+    return this.http
+      .put<ApiResponse<YouTubeCheckupSaved>>(
+        `${this.base}/channels/${encodeURIComponent(channelId)}/videos/${encodeURIComponent(videoId)}`, body)
+      .pipe(map((r) => r.data as YouTubeCheckupSaved));
   }
 
   /** `firstComment` is posted on the video once it is up; empty posts nothing. */

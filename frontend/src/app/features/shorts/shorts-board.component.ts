@@ -322,6 +322,28 @@ export class ShortsBoardComponent {
     );
   }
 
+  readonly checkingDrive = signal(false);
+
+  /**
+   * Checks every "On Drive" copy against Drive itself and files older copies into
+   * project / day / batch folders, so what the page says matches what Drive shows.
+   */
+  checkDrive(): void {
+    if (this.checkingDrive()) return;
+    this.checkingDrive.set(true);
+    this.status.run(
+      this.shorts.checkDrive(true).pipe(finalize(() => this.checkingDrive.set(false))),
+      (res) => {
+        const parts = [`Checked ${res.checked} Drive copies: ${res.present} there`];
+        if (res.moved) parts.push(`${res.moved} filed into project folders`);
+        if (res.missing) parts.push(`${res.missing} gone from Drive - shown under Not on Drive to save again`);
+        if (res.failed) parts.push(`${res.failed} couldn't be checked${res.error ? ` (${res.error})` : ''}`);
+        this.status.notify([parts.join(' · ')]);
+        this.load();
+      },
+    );
+  }
+
   /** One download per ready short, a moment apart so the browser doesn't fold them into one. */
   download(): void {
     this.selectedReady().forEach((r, k) => setTimeout(() => {
@@ -365,6 +387,7 @@ export class ShortsBoardComponent {
       case 'Sending': return { label: 'Copying…', tone: 'busy', url: null, title: `Copying to ${d.folderName}` };
       case 'WaitingForRender': return { label: 'After render', tone: 'busy', url: null, title: `Copies to ${d.folderName} when the render finishes` };
       case 'Failed': return { label: 'Failed', tone: 'err', url: null, title: d.error || 'Copy failed' };
+      case 'Missing': return { label: 'Gone from Drive', tone: 'err', url: null, title: d.error || 'Deleted on Drive since' };
       default: return { label: 'On Drive', tone: 'ok', url: d.driveUrl, title: `In ${d.folderName}` };
     }
   }
@@ -407,7 +430,7 @@ export class ShortsBoardComponent {
       case 'needs-youtube': return isReady(r) && !isOnYouTube(r);
       case 'needs-drive': return isReady(r) && !isOnDrive(r);
       case 'on-youtube': return isOnYouTube(r);
-      case 'failed': return r.job.status === 'Failed' || r.drive?.state === 'Failed' || r.youtube?.state === 'Failed';
+      case 'failed': return r.job.status === 'Failed' || r.drive?.state === 'Failed' || r.drive?.state === 'Missing' || r.youtube?.state === 'Failed';
       default: return true;
     }
   }

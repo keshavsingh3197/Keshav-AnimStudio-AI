@@ -306,11 +306,12 @@ public sealed class ClipsController(
 
         if (target is not null)
         {
+            var projectName = (await projects.GetAsync(projectId, ct))?.Name;
             foreach (var job in queued.Jobs)
             {
                 var title = string.IsNullOrWhiteSpace(job.Name) ? "Auto short" : job.Name.Trim();
                 await handoffs.UpsertAsync(DriveCopies.SaveOnly(
-                    currentUser.UserId, job.ProjectId, job.Id, request.DriveChannelId, title, target, PhoneHandoffState.WaitingForRender), ct);
+                    currentUser.UserId, job, projectName, request.DriveChannelId, title, target, PhoneHandoffState.WaitingForRender), ct);
             }
         }
 

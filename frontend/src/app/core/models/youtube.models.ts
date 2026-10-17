@@ -391,3 +391,61 @@ export interface YouTubeLiveSuggestParams {
   providerId?: string;
   fresh: boolean;
 }
+
+// --- Details checkup: videos on a channel and what their details are missing ---
+
+export interface YouTubeDetailsIssue {
+  /** description-missing, description-short, tags-missing, hashtags-missing, playlist-missing, audience-unset, title-default. */
+  code: string;
+  severity: 'high' | 'low';
+  message: string;
+}
+
+export interface YouTubeCheckupPlaylist {
+  id: string;
+  title: string;
+  itemCount: number;
+}
+
+export interface YouTubeCheckupVideo {
+  videoId: string;
+  title: string;
+  description: string;
+  tags: string[];
+  categoryId: string | null;
+  privacy: string | null;
+  /** Null when the audience was never declared. */
+  madeForKids: boolean | null;
+  publishedAt: string | null;
+  durationSeconds: number | null;
+  thumbnailUrl: string | null;
+  isShort: boolean;
+  playlistIds: string[];
+  issues: YouTubeDetailsIssue[];
+  videoUrl: string;
+  studioUrl: string;
+  /** The AnimStudio project it was published from, if any. */
+  projectId: string | null;
+}
+
+export interface YouTubeCheckup {
+  channelId: string;
+  channelTitle: string;
+  playlists: YouTubeCheckupPlaylist[];
+  videos: YouTubeCheckupVideo[];
+  /** Set when playlists couldn't be read; membership is then not judged. */
+  playlistError: string | null;
+  checkedAt: string;
+}
+
+export interface YouTubeVideoDetailsSave {
+  metadata: YouTubeVideoMetadata;
+  addToPlaylistIds: string[];
+  currentPlaylistIds: string[];
+  playlistsKnown: boolean;
+}
+
+export interface YouTubeCheckupSaved {
+  video: YouTubeCheckupVideo;
+  warnings: string[];
+}

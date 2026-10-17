@@ -111,7 +111,7 @@ public sealed partial class PhoneHandoffManager(
         };
         return new PhoneHandoffStatus(
             h.Id, h.JobId, h.ProjectId, h.ChannelId, h.ChannelTitle, h.Title, h.State.ToString(), percent, sent, h.TotalBytes,
-            h.DriveFolderName, h.DriveFileName,
+            DrivePath(h), h.DriveFileName,
             h.DriveFileId is null ? null : $"https://drive.google.com/file/d/{Uri.EscapeDataString(h.DriveFileId)}/view",
             h.Muted, h.ErrorCode, h.Error, h.Warning, h.CreatedAt, h.SentAt, h.LastCheckedAt,
             h.State == PhoneHandoffState.WaitingForPhone && h.SentAt is { } at ? at.AddDays(ExpireDays) : null,
@@ -484,7 +484,7 @@ public sealed partial class PhoneHandoffManager(
 
                 var target = new DriveTarget(handoff.UserId, handoff.DriveChannelId, handoff.DriveFolderName);
                 var token = await driveConnections.GetAccessTokenAsync(target, ct).ConfigureAwait(false);
-                var folderId = await driveConnections.EnsureFolderAsync(target, token, ct).ConfigureAwait(false);
+                var folderId = await driveConnections.EnsureFolderPathAsync(target, handoff.DriveSubfolders, token, ct).ConfigureAwait(false);
 
                 var fileId = await drive.UploadAsync(content, length, handoff.DriveFileName!, folderId,
                     handoff.SaveOnly
@@ -649,6 +649,10 @@ public sealed partial class PhoneHandoffManager(
             logger.LogDebug(ex, "Handoff work folder {Folder} was not removed", folder);
         }
     }
+
+    /// <summary>Where the copy sits on Drive, for showing: "OMKR Shorts / KATHU SHYAM / 2026-10-17 Single exports".</summary>
+    public static string DrivePath(PhoneHandoff h) =>
+        string.Join(" / ", new[] { h.DriveFolderName }.Concat(h.DriveSubfolders).Where(f => !string.IsNullOrEmpty(f)));
 
     /// <summary>A Drive file name from the title: no path or reserved characters, at most 80 characters, always .mp4.</summary>
     public static string FileNameFor(string title)

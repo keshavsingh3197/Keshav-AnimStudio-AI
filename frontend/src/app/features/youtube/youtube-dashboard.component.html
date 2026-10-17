@@ -11,6 +11,9 @@
       </p>
     </div>
     <div class="row">
+      @if (channels().length > 0) {
+        <a routerLink="/youtube/checkup" class="yt-btn" title="Find videos missing a description, tags, hashtags, playlist or audience - and fix them with AI">🩺 Details checkup</a>
+      }
       <button type="button" class="secondary" (click)="load(true)" [disabled]="refreshing() || loading()">
         {{ refreshing() ? 'Refreshing…' : '↻ Refresh numbers' }}
       </button>
@@ -216,6 +219,7 @@
               }
               <div class="yt-video-actions">
                 <a [href]="r.video.videoUrl" target="_blank" rel="noopener noreferrer">Watch ↗</a>
+                <a routerLink="/youtube/checkup">Fix details</a>
                 <a [href]="r.video.studioUrl" target="_blank" rel="noopener noreferrer">Edit in Studio ↗</a>
                 <button type="button" class="link" (click)="copy(r.video)">{{ copiedId() === r.video.id ? 'Copied ✓' : 'Copy link' }}</button>
                 <a [routerLink]="['/projects', r.video.projectId, 'render']">Open project</a>

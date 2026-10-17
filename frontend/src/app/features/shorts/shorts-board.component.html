@@ -88,6 +88,10 @@
       <input type="checkbox" [ngModel]="scope() === 'all'" (ngModelChange)="scope.set($event ? 'all' : 'shorts')" /> All renders
     </label>
     <button type="button" class="sb-link" (click)="load()" [disabled]="loading()">↻ Refresh</button>
+    <button type="button" class="sb-link" (click)="checkDrive()" [disabled]="checkingDrive()"
+            title="Ask Google Drive whether every copy is still there, and file older copies into Project / date + batch folders">
+      {{ checkingDrive() ? 'Checking Drive…' : '☁ Check and tidy Drive' }}
+    </button>
   </div>
 
   <!-- Bulk actions -->

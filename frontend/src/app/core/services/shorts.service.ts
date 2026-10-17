@@ -5,7 +5,7 @@ import { Observable, map } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../models/api.models';
 import {
-  ShortsActive, ShortsBulkResponse, ShortsOverview, YouTubeBulkPublishBody,
+  ShortsActive, ShortsBulkResponse, ShortsDriveCheck, ShortsOverview, YouTubeBulkPublishBody,
 } from '../models/shorts.models';
 
 /** The Shorts page's calls: every short across projects, and the bulk actions on them. */
@@ -42,6 +42,15 @@ export class ShortsService {
       folderName: body.folderName?.trim() || null,
       again: !!body.again,
     }).pipe(map((r) => r.data as ShortsBulkResponse));
+  }
+
+  /**
+   * Asks Drive whether every copy is still there (deleted ones stop counting as on Drive);
+   * with organize, also files older copies into project / day / batch folders.
+   */
+  checkDrive(organize: boolean): Observable<ShortsDriveCheck> {
+    return this.http.post<ApiResponse<ShortsDriveCheck>>(`${this.base}/drive/check`, { organize })
+      .pipe(map((r) => r.data as ShortsDriveCheck));
   }
 
   /** Puts failed or cancelled renders back in the queue. */

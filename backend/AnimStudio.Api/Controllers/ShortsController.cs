@@ -2,6 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using AnimStudio.Api.Common;
 using AnimStudio.Api.Contracts;
 using AnimStudio.Application.Abstractions.Persistence;
+using AnimStudio.Application.Publishing;
 using AnimStudio.Application.Security;
 using AnimStudio.Application.Shorts;
 using AnimStudio.Domain.Jobs;
@@ -88,8 +89,8 @@ public sealed class ShortsController(
                 rows.Add(new ShortRowResponse(job.ToResponse(), project.Name, driveState, youtube));
                 states.Add(new ShortState(job,
                     youtube?.State == "Published",
-                    copy?.State is PhoneHandoffState.Saved or PhoneHandoffState.WaitingForPhone or PhoneHandoffState.Applied or PhoneHandoffState.Expired,
-                    copy?.State == PhoneHandoffState.Failed));
+                    copy is { DriveMissing: false, State: PhoneHandoffState.Saved or PhoneHandoffState.WaitingForPhone or PhoneHandoffState.Applied or PhoneHandoffState.Expired },
+                    copy?.State == PhoneHandoffState.Failed || copy?.DriveMissing == true));
             }
 
             // Stock is only worth reading for a project that makes auto shorts (or the one asked about).
@@ -185,7 +186,7 @@ public sealed class ShortsController(
             if (!request.Again)
             {
                 var existing = (await handoffs.ListByUserAsync(currentUser.UserId, job.Id, 10, ct))
-                    .FirstOrDefault(h => h.State is not (PhoneHandoffState.Failed or PhoneHandoffState.Cancelled));
+                    .FirstOrDefault(h => !h.DriveMissing && h.State is not (PhoneHandoffState.Failed or PhoneHandoffState.Cancelled));
                 if (existing is not null)
                 {
                     results.Add(ShortsBulkResult.Skip(jobId, "already-on-drive", "Already on Google Drive, or on its way."));
@@ -195,7 +196,8 @@ public sealed class ShortsController(
 
             var title = string.IsNullOrWhiteSpace(job.Name) ? "AnimStudio video" : job.Name.Trim();
             var ready = ShortsOverview.IsReady(job);
-            var handoff = DriveCopies.SaveOnly(currentUser.UserId, job.ProjectId, job.Id, request.ChannelId, title, target,
+            var projectName = await ProjectNameAsync(job.ProjectId, ct);
+            var handoff = DriveCopies.SaveOnly(currentUser.UserId, job, projectName, request.ChannelId, title, target,
                 ready ? PhoneHandoffState.Sending : PhoneHandoffState.WaitingForRender);
             handoff.TotalBytes = job.OutputSizeBytes ?? 0;
             await handoffs.UpsertAsync(handoff, ct);
@@ -205,6 +207,119 @@ public sealed class ShortsController(
 
         logger.LogInformation("User {UserId} sent {Count} renders to Google Drive", currentUser.UserId, results.Count(r => r.Ok && !r.Skipped));
         return Accepted(ApiResponse<ShortsBulkResponse>.Ok(ShortsBulkResponse.From(results)));
+    }
+
+    /// <summary>Most copies one check looks at; each costs a Drive call or four.</summary>
+    private const int MaxDriveChecked = 300;
+
+    /// <summary>A check walks Drive file by file, so only a couple run at once.</summary>
+    private static readonly SemaphoreSlim DriveCheckSlots = new(2, 2);
+
+    /// <summary>
+    /// Asks Drive about every copy the page counts as "On Drive": one deleted or trashed there
+    /// is marked missing (so it counts as not on Drive and can be saved again). With
+    /// <see cref="ShortsDriveCheckRequest.Organize"/>, copies made before the project / day /
+    /// batch folders existed are moved into them and renamed with their number.
+    /// </summary>
+    [HttpPost("drive/check")]
+    public async Task<ActionResult<ApiResponse<ShortsDriveCheckResponse>>> CheckDrive(
+        [FromBody] ShortsDriveCheckRequest? request, [FromServices] GoogleDriveClient driveClient, CancellationToken ct)
+    {
+        if (!await DriveCheckSlots.WaitAsync(TimeSpan.FromSeconds(5), ct))
+            return StatusCode(StatusCodes.Status429TooManyRequests, ApiResponse<ShortsDriveCheckResponse>.Fail(
+                "A Drive check is already running. Try again in a minute.", new ApiError("drive-busy", "A Drive check is already running. Try again in a minute.")));
+        try
+        {
+            var userId = currentUser.UserId;
+            var organize = request?.Organize == true;
+            var copies = (await handoffs.ListByUserAsync(userId, null, MaxRecords, ct))
+                .Where(h => h.DriveFileId is not null
+                            && h.State is PhoneHandoffState.Saved or PhoneHandoffState.WaitingForPhone or PhoneHandoffState.Applied or PhoneHandoffState.Expired)
+                .Take(MaxDriveChecked)
+                .ToList();
+
+            // One token per Drive; null once that Drive has refused, so the rest of its copies are skipped.
+            var tokens = new Dictionary<string, string?>(StringComparer.Ordinal);
+            int present = 0, missing = 0, moved = 0, failed = 0;
+            string? firstError = null;
+
+            foreach (var h in copies)
+            {
+                var target = new DriveTarget(userId, h.DriveChannelId, h.DriveFolderName);
+                var key = h.DriveChannelId ?? string.Empty;
+                try
+                {
+                    if (!tokens.TryGetValue(key, out var token))
+                    {
+                        try
+                        {
+                            token = await drive.GetAccessTokenAsync(target, ct);
+                        }
+                        finally
+                        {
+                            tokens[key] = token;
+                        }
+                    }
+                    if (token is null) { failed++; continue; }
+
+                    var file = await driveClient.GetFileAsync(token, h.DriveFileId!, ct);
+                    var gone = file is null || file.Trashed;
+                    var changed = gone != h.DriveMissing;
+                    h.DriveMissing = gone;
+
+                    if (gone)
+                    {
+                        missing++;
+                    }
+                    else
+                    {
+                        present++;
+                        if (organize && h.DriveSubfolders.Count == 0 && await LoadOwnedJobOrNullAsync(h.JobId, ct) is { } job)
+                        {
+                            var folders = DriveLayout.FoldersFor(await ProjectNameAsync(job.ProjectId, ct), job);
+                            var folderId = await drive.EnsureFolderPathAsync(target, folders, token, ct);
+                            var name = PhoneHandoffManager.FileNameFor(DriveLayout.FileTitleFor(h.Title, job));
+                            await driveClient.MoveFileAsync(token, file!, folderId, name, ct);
+                            h.DriveSubfolders = [.. folders];
+                            h.DriveFileName = name;
+                            moved++;
+                            changed = true;
+                        }
+                    }
+
+                    if (changed) await handoffs.UpsertAsync(h, ct);
+                }
+                catch (YouTubePublishException ex)
+                {
+                    failed++;
+                    firstError ??= ex.Message;
+                    logger.LogWarning("Checking Drive copy {HandoffId} failed: {Code}", h.Id, ex.Code);
+                }
+            }
+
+            logger.LogInformation("User {UserId} checked {Count} Drive copies: {Missing} missing, {Moved} moved, {Failed} failed",
+                userId, copies.Count, missing, moved, failed);
+            return Ok(ApiResponse<ShortsDriveCheckResponse>.Ok(new ShortsDriveCheckResponse(copies.Count, present, missing, moved, failed, firstError)));
+        }
+        finally
+        {
+            DriveCheckSlots.Release();
+        }
+    }
+
+    private readonly Dictionary<string, string?> _projectNames = new(StringComparer.Ordinal);
+
+    /// <summary>The project's name for Drive folders; read once per request.</summary>
+    private async Task<string?> ProjectNameAsync(string projectId, CancellationToken ct)
+    {
+        if (!_projectNames.TryGetValue(projectId, out var name))
+        {
+            var project = await projects.GetAsync(projectId, ct);
+            // Only the caller's own project names a folder on the caller's Drive.
+            name = project is not null && string.Equals(project.UserId, currentUser.UserId, StringComparison.Ordinal) ? project.Name : null;
+            _projectNames[projectId] = name;
+        }
+        return name;
     }
 
     /// <summary>Puts failed or cancelled renders back in the queue.</summary>
@@ -237,10 +352,10 @@ public sealed class ShortsController(
 
     private static ShortDriveResponse DriveState(PhoneHandoff h) => new(
         h.Id,
-        h.State.ToString(),
-        h.DriveFolderName,
+        h.DriveMissing ? "Missing" : h.State.ToString(),
+        PhoneHandoffManager.DrivePath(h),
         h.DriveFileId is null ? null : $"https://drive.google.com/file/d/{Uri.EscapeDataString(h.DriveFileId)}/view",
-        h.State == PhoneHandoffState.Failed ? h.Error : null);
+        h.DriveMissing ? "Not on Google Drive any more (deleted or in the trash). Save it again." : h.State == PhoneHandoffState.Failed ? h.Error : null);
 
     private static ShortYouTubeResponse? YouTubeState(
         string jobId,
@@ -313,6 +428,14 @@ public sealed record ShortsDriveRequest
     /// <summary>Copy even renders already on Drive.</summary>
     public bool Again { get; init; }
 }
+
+public sealed record ShortsDriveCheckRequest
+{
+    /// <summary>Also move copies made before project / day / batch folders into them.</summary>
+    public bool Organize { get; init; }
+}
+
+public sealed record ShortsDriveCheckResponse(int Checked, int Present, int Missing, int Moved, int Failed, string? Error);
 
 public sealed record ShortDriveResponse(string HandoffId, string State, string FolderName, string? DriveUrl, string? Error);
 

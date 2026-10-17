@@ -10,6 +10,9 @@ namespace AnimStudio.Infrastructure.Publishing;
 
 public sealed record GoogleDriveAccount(string? Name, string? Email);
 
+/// <summary>A file as Drive describes it: enough to tell whether it is still there, and where.</summary>
+public sealed record GoogleDriveFileInfo(string Id, string Name, bool Trashed, IReadOnlyList<string> Parents);
+
 /// <summary>
 /// The few Drive v3 calls "send to phone" needs: which account this is, a folder to put the
 /// video in, and a resumable upload of the file. With the <c>drive.file</c> scope every call
@@ -101,6 +104,71 @@ public sealed partial class GoogleDriveClient : IDisposable
         return ReadString(created.RootElement, "id") is { } newId && IsFileId(newId)
             ? newId
             : throw new YouTubePublishException("drive-failed", "Google Drive didn't create the folder. Try again.");
+    }
+
+    /// <summary>
+    /// The id of an app-made folder called <paramref name="name"/> directly inside
+    /// <paramref name="parentId"/>: found by name, else made.
+    /// </summary>
+    /// <param name="name">Checked by <see cref="IsValidFolderName"/>, so it can't break out of the query's quotes.</param>
+    public async Task<string> EnsureChildFolderAsync(string accessToken, string parentId, string name, CancellationToken ct)
+    {
+        if (!IsValidFolderName(name)) throw new YouTubePublishException("drive-folder-invalid", FolderNameRule);
+        if (!IsFileId(parentId)) throw new YouTubePublishException("drive-failed", "Google Drive returned a folder AnimStudio can't use.");
+
+        var query = $"mimeType='{FolderMimeType}' and name='{name}' and trashed=false and '{parentId}' in parents";
+        using (var found = await SendJsonAsync(HttpMethod.Get,
+                   $"{Api}files?q={Uri.EscapeDataString(query)}&fields=files(id)&pageSize=1&spaces=drive", null, accessToken, "files.list", ct)
+                   .ConfigureAwait(false))
+        {
+            if (found.RootElement.TryGetProperty("files", out var files) && files.ValueKind == JsonValueKind.Array
+                && files.GetArrayLength() > 0 && ReadString(files[0], "id") is { } id && IsFileId(id))
+                return id;
+        }
+
+        using var created = await SendJsonAsync(HttpMethod.Post, Api + "files?fields=id",
+            new { name, mimeType = FolderMimeType, parents = new[] { parentId } }, accessToken, "files.create", ct).ConfigureAwait(false);
+        return ReadString(created.RootElement, "id") is { } newId && IsFileId(newId)
+            ? newId
+            : throw new YouTubePublishException("drive-failed", "Google Drive didn't create the folder. Try again.");
+    }
+
+    /// <summary>A file the app made, or null when Drive no longer has it (deleted for good, or never the app's).</summary>
+    public async Task<GoogleDriveFileInfo?> GetFileAsync(string accessToken, string fileId, CancellationToken ct)
+    {
+        if (!IsFileId(fileId)) return null;
+        try
+        {
+            using var doc = await SendJsonAsync(HttpMethod.Get, $"{Api}files/{Uri.EscapeDataString(fileId)}?fields=id,name,trashed,parents",
+                null, accessToken, "files.get", ct).ConfigureAwait(false);
+            var root = doc.RootElement;
+            var parents = new List<string>();
+            if (root.TryGetProperty("parents", out var p) && p.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var parent in p.EnumerateArray())
+                {
+                    if (parent.ValueKind == JsonValueKind.String && parent.GetString() is { } id && IsFileId(id)) parents.Add(id);
+                }
+            }
+            return new GoogleDriveFileInfo(fileId, Shorten(ReadString(root, "name"), 300) ?? string.Empty,
+                root.TryGetProperty("trashed", out var trashed) && trashed.ValueKind == JsonValueKind.True, parents);
+        }
+        catch (YouTubePublishException ex) when (ex.Code == "drive-not-found")
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Moves an app-made file into <paramref name="folderId"/> (out of every other folder) and renames it.</summary>
+    public async Task MoveFileAsync(string accessToken, GoogleDriveFileInfo file, string folderId, string newName, CancellationToken ct)
+    {
+        if (!IsFileId(file.Id) || !IsFileId(folderId)) throw new YouTubePublishException("drive-failed", "Google Drive returned a file AnimStudio can't use.");
+        var remove = string.Join(',', file.Parents.Where(p => p != folderId));
+        var url = $"{Api}files/{Uri.EscapeDataString(file.Id)}?fields=id&addParents={Uri.EscapeDataString(folderId)}"
+            + (remove.Length > 0 ? "&removeParents=" + Uri.EscapeDataString(remove) : string.Empty);
+        using (await SendJsonAsync(HttpMethod.Patch, url, new { name = newName }, accessToken, "files.update", ct).ConfigureAwait(false))
+        {
+        }
     }
 
     /// <summary>

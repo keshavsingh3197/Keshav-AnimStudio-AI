@@ -134,6 +134,14 @@ export const routes: Routes = [
   },
 
   {
+    path: 'youtube/checkup',
+    title: 'Video details checkup - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/youtube/youtube-checkup.component')
+        .then((m) => m.YouTubeCheckupComponent),
+  },
+
+  {
     path: 'youtube/callback',
     title: 'Connecting YouTube - AnimStudio AI',
     loadComponent: () =>

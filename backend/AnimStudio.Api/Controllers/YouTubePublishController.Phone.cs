@@ -157,7 +157,8 @@ public sealed partial class YouTubePublishController
         }
 
         var title = string.IsNullOrWhiteSpace(job.Name) ? "AnimStudio video" : job.Name.Trim();
-        var handoff = DriveCopies.SaveOnly(currentUser.UserId, job.ProjectId, job.Id, request?.ChannelId, title, target, PhoneHandoffState.Sending);
+        var project = await projects.GetAsync(job.ProjectId, ct);
+        var handoff = DriveCopies.SaveOnly(currentUser.UserId, job, project?.Name, request?.ChannelId, title, target, PhoneHandoffState.Sending);
         handoff.TotalBytes = job.OutputSizeBytes ?? 0;
         await repository.UpsertAsync(handoff, ct);
         handoffs.StartSending(handoff, job.OutputStorageKey!, job.OutputSizeBytes ?? 0);
@@ -228,6 +229,7 @@ public sealed partial class YouTubePublishController
         }
 
         var details = validation.Normalized!;
+        var project = await projects.GetAsync(job.ProjectId, ct);
         var handoff = new PhoneHandoff
         {
             Id = Guid.NewGuid().ToString("N"),
@@ -248,6 +250,7 @@ public sealed partial class YouTubePublishController
             Muted = request.MuteAudio,
             DriveChannelId = target.DriveChannelId,
             DriveFolderName = target.FolderName,
+            DriveSubfolders = [.. DriveLayout.FoldersFor(project?.Name, job)],
             DriveFileName = PhoneHandoffManager.FileNameFor(details.Title),
             TotalBytes = job.OutputSizeBytes ?? 0,
             State = PhoneHandoffState.Sending,
@@ -380,19 +383,24 @@ public sealed record SaveToDriveRequest(string? ChannelId = null, string? Folder
 /// <summary>Plain copies to Drive - a saved render, or one of an auto-shorts batch.</summary>
 public static class DriveCopies
 {
+    /// <summary>
+    /// A plain copy, filed under the project and the day's batch (see <see cref="DriveLayout"/>)
+    /// so a channel folder never turns into one long list of look-alike files.
+    /// </summary>
     public static PhoneHandoff SaveOnly(
-        string userId, string projectId, string jobId, string? channelId, string title, DriveTarget target, PhoneHandoffState state) => new()
+        string userId, RenderJob job, string? projectName, string? channelId, string title, DriveTarget target, PhoneHandoffState state) => new()
     {
         Id = Guid.NewGuid().ToString("N"),
         UserId = userId,
-        ProjectId = projectId,
-        JobId = jobId,
+        ProjectId = job.ProjectId,
+        JobId = job.Id,
         ChannelId = channelId ?? string.Empty,
         Title = title,
         SaveOnly = true,
         DriveChannelId = target.DriveChannelId,
         DriveFolderName = target.FolderName,
-        DriveFileName = PhoneHandoffManager.FileNameFor(title),
+        DriveSubfolders = [.. DriveLayout.FoldersFor(projectName, job)],
+        DriveFileName = PhoneHandoffManager.FileNameFor(DriveLayout.FileTitleFor(title, job)),
         State = state,
         CreatedAt = DateTime.UtcNow
     };

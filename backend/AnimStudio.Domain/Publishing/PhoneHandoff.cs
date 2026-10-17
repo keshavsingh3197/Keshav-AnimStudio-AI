@@ -76,7 +76,21 @@ public sealed class PhoneHandoff
     public string? DriveChannelId { get; set; }
 
     public string DriveFolderName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Folders below <see cref="DriveFolderName"/>, outermost first - project, then day and
+    /// batch (see <c>DriveLayout</c>). Empty for copies made before they existed, which sit
+    /// directly in the folder until the Shorts page tidies them.
+    /// </summary>
+    public List<string> DriveSubfolders { get; set; } = [];
+
     public string? DriveFileId { get; set; }
+
+    /// <summary>
+    /// The last Drive check found the file gone (deleted or in the trash). The record is kept -
+    /// it may also be what links a phone upload - but the render no longer counts as on Drive.
+    /// </summary>
+    public bool DriveMissing { get; set; }
     public string? DriveFileName { get; set; }
     public long BytesSent { get; set; }
     public long TotalBytes { get; set; }

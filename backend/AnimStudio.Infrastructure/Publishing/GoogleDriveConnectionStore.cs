@@ -296,6 +296,37 @@ public sealed partial class GoogleDriveConnectionStore(
     }
 
     /// <summary>
+    /// One lock per Drive, so two copies starting together (a batch finishing) don't each
+    /// make their own "KATHU SHYAM" folder - Drive allows two folders with one name.
+    /// </summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> FolderLocks = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The id of the folder <paramref name="subfolders"/> names below the target's folder,
+    /// each level found or made in turn. No subfolders is the target's folder itself.
+    /// </summary>
+    public async Task<string> EnsureFolderPathAsync(DriveTarget target, IReadOnlyList<string> subfolders, string accessToken, CancellationToken ct)
+    {
+        var gate = FolderLocks.GetOrAdd(GoogleDriveConnection.KeyFor(target.UserId, target.DriveChannelId), _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var id = await EnsureFolderAsync(target, accessToken, ct).ConfigureAwait(false);
+            foreach (var name in subfolders)
+            {
+                if (!GoogleDriveClient.IsValidFolderName(name))
+                    throw new YouTubePublishException("drive-folder-invalid", GoogleDriveClient.FolderNameRule);
+                id = await drive.EnsureChildFolderAsync(accessToken, id, name, ct).ConfigureAwait(false);
+            }
+            return id;
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    /// <summary>
     /// The folder a channel's videos go to when nobody chose one: the channel's name plus
     /// "Shorts", cut down to what a folder name may hold. The default folder without one.
     /// </summary>

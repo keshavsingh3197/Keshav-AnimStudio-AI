@@ -243,6 +243,29 @@ public sealed partial class YouTubePublishController(
             return SuggestFailure(StatusCodes.Status400BadRequest, "suggest-nothing-to-go-on",
                 "This render has no project name, description or script to write from. Describe the video in the notes box, or fill in the details by hand.");
 
+        var style = job.ClipMerge is not null ? "an edited short video made from clips" : "animated";
+        var brandSettings = await settingsRepo.GetAsync(ct);
+        var footer = brandSettings?.PublishingFor(project?.Settings.BrandChannelId)?.DescriptionFooter;
+        var renderDetails = job.Timeline is { } t ? ExportTimelineFormatter.ToPublishingDetails(t) : null;
+
+        return await WriteSuggestionAsync(summary, style, request, job.ProjectId,
+            // Each description carries the render's chapters, credits and the footer, so picking one is complete.
+            d => YouTubeMetadataSuggester.ComposeDescription(d, renderDetails, footer), "render " + job.Id, ct);
+    }
+
+    /// <summary>
+    /// Runs the <c>video-metadata</c> prompt over <paramref name="summary"/> with the request's
+    /// engine, tone, language and notes. Shared by renders and videos already on the channel.
+    /// The answer is untrusted: it only fills fields the user reviews, and saving validates again.
+    /// </summary>
+    /// <param name="composeDescription">Adds what the caller knows below each suggested description.</param>
+    /// <param name="subject">What was described, for the log only.</param>
+    private async Task<ActionResult<ApiResponse<YouTubeSuggestResponse>>> WriteSuggestionAsync(
+        string summary, string style, YouTubeSuggestRequest? request, string? projectId,
+        Func<string, string> composeDescription, string subject, CancellationToken ct)
+    {
+        var brief = YouTubeMetadataSuggester.CleanBrief(request?.Brief);
+
         // An engine the client names must be one that can answer now; anything else is refused
         // rather than silently falling back to a different (possibly paid) engine.
         string? engine = null;
@@ -256,7 +279,6 @@ public sealed partial class YouTubePublishController(
                     "That AI engine isn't turned on or isn't ready. Pick another, or choose Auto.");
         }
         var toneText = YouTubeMetadataSuggester.ToneText(request?.Tone);
-        var style = job.ClipMerge is not null ? "an edited short video made from clips" : "animated";
 
         var language = request?.Language is { } lang && YouTubeMetadataSuggester.Languages.Contains(lang) ? lang : "en";
 
@@ -305,7 +327,7 @@ public sealed partial class YouTubePublishController(
                 Temperature = 0.6,
                 BypassCache = request?.Fresh == true,
                 ProviderId = engine
-            }, new AiCallContext(job.ProjectId, currentUser.UserId), ct);
+            }, new AiCallContext(projectId, currentUser.UserId), ct);
         }
         finally
         {
@@ -328,20 +350,15 @@ public sealed partial class YouTubePublishController(
             return SuggestFailure(StatusCodes.Status502BadGateway, "suggest-empty",
                 "The AI model's answer wasn't usable. Try again.");
 
-        var brandSettings = await settingsRepo.GetAsync(ct);
-        var footer = brandSettings?.PublishingFor(project?.Settings.BrandChannelId)?.DescriptionFooter;
-        var renderDetails = job.Timeline is { } t ? ExportTimelineFormatter.ToPublishingDetails(t) : null;
-
-        logger.LogInformation("Suggested YouTube details for render {JobId} with {Provider}.",
-            job.Id, outcome.Value.Provenance.ProviderId);
+        logger.LogInformation("Suggested YouTube details for {Subject} with {Provider}.",
+            subject, outcome.Value.Provenance.ProviderId);
         return Ok(ApiResponse<YouTubeSuggestResponse>.Ok(new YouTubeSuggestResponse(
             suggestion.Title,
-            YouTubeMetadataSuggester.ComposeDescription(suggestion.Description, renderDetails, footer),
+            composeDescription(suggestion.Description),
             suggestion.Tags,
             outcome.Value.Provenance.ProviderId,
             suggestion.TitleOptions,
-            // Each option carries the same chapters, credits and footer, so picking one is complete.
-            [.. suggestion.DescriptionOptions.Select(d => YouTubeMetadataSuggester.ComposeDescription(d, renderDetails, footer))],
+            [.. suggestion.DescriptionOptions.Select(composeDescription)],
             suggestion.TagIdeas)));
     }
 

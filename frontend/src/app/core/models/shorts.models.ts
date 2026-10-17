@@ -4,8 +4,9 @@ import { PhoneHandoff } from './youtube.models';
 /** The latest copy of a short to Google Drive. */
 export interface ShortDrive {
   handoffId: string;
-  /** Sending, WaitingForRender, Saved, Failed, WaitingForPhone, Applied, Expired. */
+  /** Sending, WaitingForRender, Saved, Failed, WaitingForPhone, Applied, Expired, or Missing (deleted on Drive since). */
   state: string;
+  /** The folder path on Drive, e.g. "OMKR Shorts / KATHU SHYAM / 2026-10-17 Single exports". */
   folderName: string;
   driveUrl: string | null;
   error: string | null;
@@ -19,6 +20,16 @@ export interface ShortYouTube {
   channelTitle: string | null;
   privacy: string | null;
   percent: number;
+  error: string | null;
+}
+
+/** What a Drive check found: copies still there, gone, moved into project folders, or not checkable. */
+export interface ShortsDriveCheck {
+  checked: number;
+  present: number;
+  missing: number;
+  moved: number;
+  failed: number;
   error: string | null;
 }
 
