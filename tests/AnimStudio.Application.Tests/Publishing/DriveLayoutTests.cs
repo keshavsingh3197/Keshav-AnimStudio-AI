@@ -40,6 +40,25 @@ public class DriveLayoutTests
         Assert.Equal("Main video", DriveLayout.FileTitleFor(" Main video ", new RenderJob()));
     }
 
+    [Fact]
+    public void A_render_keeps_its_own_name_then_the_typed_export_name()
+    {
+        Assert.Equal("Main video", DriveLayout.TitleFor(new RenderJob { Id = "abc", Name = " Main video " }, "KATHU SHYAM"));
+        Assert.Equal("Aarti", DriveLayout.TitleFor(new RenderJob { Id = "abc", ClipMerge = new ClipMergeSpec { ExportName = "Aarti" } }, "KATHU SHYAM"));
+    }
+
+    [Fact]
+    public void Unnamed_exports_of_one_project_get_different_titles()
+    {
+        var first = DriveLayout.TitleFor(new RenderJob { Id = "6711a0c2f1e4b2a1c3d4e5f1", TargetFormat = "Video", ClipMerge = new ClipMergeSpec() }, "KATHU SHYAM");
+        var second = DriveLayout.TitleFor(new RenderJob { Id = "6711a0c2f1e4b2a1c3d4e5f2", TargetFormat = "Video", ClipMerge = new ClipMergeSpec() }, "KATHU SHYAM");
+
+        Assert.Equal("KATHU SHYAM video d4e5f1", first);
+        Assert.NotEqual(first, second);
+        Assert.NotEqual(DriveLayout.PlaceholderFileName, PhoneHandoffManager.FileNameFor(first));
+        Assert.Equal("AnimStudio short", DriveLayout.TitleFor(new RenderJob { TargetFormat = "Short" }, null));
+    }
+
     [Theory]
     [InlineData("NAV DURGA - MAA KATYAYANI", "NAV DURGA - MAA KATYAYANI")]
     [InlineData("Shyam's \"best\" / 2026!", "Shyam s best 2026")]

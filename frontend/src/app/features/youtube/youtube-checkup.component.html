@@ -43,14 +43,20 @@
     }
 
     @if (loading()) {
-      <p class="muted">Reading the channel's videos and playlists from YouTube…</p>
+      <div class="card ck-loading" role="status">
+        <strong>Checking {{ ch.channelTitle }} - {{ loadingSeconds() }}s</strong>
+        <p class="muted ck-small">
+          Reading the newest {{ max() }} videos from YouTube (50 per request), then each playlist to see which videos are in one.
+          A big channel with many playlists can take up to a minute; nothing is changed on YouTube.
+        </p>
+      </div>
     } @else if (checkup(); as c) {
       <!-- Summary -->
       <div class="ck-tiles" role="group" aria-label="Summary">
-        <button type="button" class="ck-tile" [class.on]="filter() === 'all'" (click)="filter.set('all')">
+        <button type="button" class="ck-tile" [class.on]="filter() === 'all'" (click)="setFilter('all')">
           <span class="ck-tile-n">{{ counts().all }}</span><span class="ck-tile-l">Videos checked</span>
         </button>
-        <button type="button" class="ck-tile" [class.on]="filter() === 'needs'" (click)="filter.set('needs')">
+        <button type="button" class="ck-tile" [class.on]="filter() === 'needs'" (click)="setFilter('needs')">
           <span class="ck-tile-n" [class.ck-warn]="counts().needs > 0">{{ counts().needs }}</span><span class="ck-tile-l">Need details</span>
         </button>
         <div class="ck-tile ck-tile-static">
@@ -61,13 +67,19 @@
       <div class="ck-chips" role="group" aria-label="Filter by what's missing">
         @for (i of issueLabels; track i.code) {
           @if (counts().byIssue[i.code]) {
-            <button type="button" class="ck-chip" [class.on]="filter() === i.code" (click)="filter.set(i.code)">
+            <button type="button" class="ck-chip" [class.on]="filter() === i.code" (click)="setFilter(i.code)">
               {{ i.label }} <span class="ck-chip-n">{{ counts().byIssue[i.code] }}</span>
             </button>
           }
         }
         <input type="search" class="ck-search" placeholder="Search title, description, tags…" maxlength="100"
-               [ngModel]="query()" (ngModelChange)="query.set($event)" aria-label="Search videos" />
+               [ngModel]="query()" (ngModelChange)="setQuery($event)" aria-label="Search videos" />
+        <select class="ck-select" [ngModel]="sort()" (ngModelChange)="setSort($event)" aria-label="Sort videos">
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+          <option value="most-missing">Most missing first</option>
+          <option value="title">Title A-Z</option>
+        </select>
       </div>
       @if (c.playlistError) { <p class="muted ck-small">{{ c.playlistError }}</p> }
 
@@ -102,11 +114,15 @@
       <!-- Bulk -->
       <div class="ck-bulk" role="toolbar" aria-label="Selected videos">
         @if (selected().size === 0) {
-          <button type="button" class="link" (click)="selectShown()" [disabled]="rows().length === 0">Select all {{ rows().length }} shown</button>
-          <span class="muted">to write drafts, set the audience or add a playlist in one go.</span>
+          <button type="button" class="link" (click)="selectShown()" [disabled]="rows().length === 0">Select all {{ rows().length }} matching</button>
+          <span class="muted">to write drafts, copy a prompt for your own AI tool, set the audience or add a playlist in one go.</span>
         } @else {
           <strong>{{ selected().size }} selected</strong>
           <button type="button" (click)="draftAllSelected()" [disabled]="!!bulkRunning()">✨ Write {{ selected().size }} drafts with AI</button>
+          <button type="button" class="secondary" (click)="copyPrompt()" [disabled]="!!bulkRunning()"
+                  title="Copies instructions for ChatGPT, Gemini or any AI tool with these videos filled in. Paste its answer back here.">
+            {{ promptCopied() === 'selected' ? '✓ Copied' : '📋 Copy prompt for my AI (' + (selected().size > maxPromptVideos ? maxPromptVideos : selected().size) + ')' }}
+          </button>
           <button type="button" class="secondary" (click)="setAudienceForSelected(false)" [disabled]="!!bulkRunning()">Audience: not made for kids</button>
           <button type="button" class="secondary" (click)="setAudienceForSelected(true)" [disabled]="!!bulkRunning()">Made for kids</button>
           @if (playlists().length > 0) {
@@ -119,18 +135,40 @@
           <button type="button" class="link" (click)="clearSelection()">Clear</button>
         }
         @if (bulkRunning(); as b) { <span class="ck-busy">{{ b }}</span> }
+        <button type="button" class="link ck-paste-toggle" (click)="pasteOpen.set(!pasteOpen())" [attr.aria-expanded]="pasteOpen()">
+          {{ pasteOpen() ? 'Hide' : '📥 Paste answer from my AI' }}
+        </button>
       </div>
+
+      @if (pasteOpen()) {
+        <div class="card ck-paste">
+          <label class="ck-field">
+            <span>Answer from ChatGPT, Gemini or any AI tool <em class="muted">- the JSON it replied with; nothing is saved until you press Save</em></span>
+            <textarea rows="6" [attr.maxlength]="maxAnswerChars" placeholder='[{"videoId": "…", "title": "…", "description": "…", "tags": ["…"]}]'
+                      [ngModel]="pasteText()" (ngModelChange)="pasteText.set($event)"></textarea>
+          </label>
+          <div class="row">
+            <button type="button" (click)="applyPasted()" [disabled]="!pasteText().trim()">Fill drafts</button>
+            <span class="muted ck-small">Copy a prompt first: select videos above, or use "Prompt for my AI" inside one video.</span>
+          </div>
+          @if (pasteReport(); as r) {
+            <ul class="ck-paste-report" [class.ck-error]="!r.ok">
+              @for (line of r.lines; track $index) { <li>{{ line }}</li> }
+            </ul>
+          }
+        </div>
+      }
 
       <!-- Videos -->
       @if (rows().length === 0) {
         <div class="empty">
           @if (filter() === 'needs' && counts().all > 0) { 🎉 Every checked video has its details. }
-          @else { No videos match. <button type="button" class="link" (click)="filter.set('all'); query.set('')">Show all</button> }
+          @else { No videos match. <button type="button" class="link" (click)="setFilter('all'); setQuery('')">Show all</button> }
         </div>
       }
 
       <ul class="ck-list">
-        @for (v of rows(); track v.videoId) {
+        @for (v of pageRows(); track v.videoId) {
           @let st = state(v.videoId);
           <li class="ck-video" [class.ck-open]="open() === v.videoId">
             <div class="ck-video-row">
@@ -172,6 +210,10 @@
               <div class="ck-editor">
                 <div class="ck-editor-bar">
                   <button type="button" (click)="suggest(v)" [disabled]="!!st.busy">✨ {{ st.busy === 'suggest' ? 'Writing…' : 'Write with AI' }}</button>
+                  <button type="button" class="secondary" (click)="copyPrompt(v)" [disabled]="!!st.busy"
+                          title="Copies instructions for ChatGPT, Gemini or any AI tool with this video filled in. Paste its answer under 'Paste answer from my AI'.">
+                    {{ promptCopied() === v.videoId ? '✓ Copied' : '📋 Prompt for my AI' }}
+                  </button>
                   <span class="muted ck-small">Keeps a real title and description; fills what's missing and adds hashtags and tags.</span>
                 </div>
 
@@ -263,6 +305,14 @@
           </li>
         }
       </ul>
+
+      @if (pageCount() > 1) {
+        <nav class="ck-pager" aria-label="Pages">
+          <button type="button" class="secondary" (click)="goToPage(pageIndex() - 1)" [disabled]="pageIndex() === 0">‹ Previous</button>
+          <span>{{ pageFrom() }}-{{ pageTo() }} of {{ rows().length }} · page {{ pageIndex() + 1 }}/{{ pageCount() }}</span>
+          <button type="button" class="secondary" (click)="goToPage(pageIndex() + 1)" [disabled]="pageIndex() >= pageCount() - 1">Next ›</button>
+        </nav>
+      }
     }
   }
 </section>

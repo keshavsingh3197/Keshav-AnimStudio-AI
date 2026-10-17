@@ -194,9 +194,9 @@ public sealed class ShortsController(
                 }
             }
 
-            var title = string.IsNullOrWhiteSpace(job.Name) ? "AnimStudio video" : job.Name.Trim();
             var ready = ShortsOverview.IsReady(job);
             var projectName = await ProjectNameAsync(job.ProjectId, ct);
+            var title = DriveLayout.TitleFor(job, projectName);
             var handoff = DriveCopies.SaveOnly(currentUser.UserId, job, projectName, request.ChannelId, title, target,
                 ready ? PhoneHandoffState.Sending : PhoneHandoffState.WaitingForRender);
             handoff.TotalBytes = job.OutputSizeBytes ?? 0;
@@ -274,10 +274,14 @@ public sealed class ShortsController(
                     else
                     {
                         present++;
-                        if (organize && h.DriveSubfolders.Count == 0 && await LoadOwnedJobOrNullAsync(h.JobId, ct) is { } job)
+                        // Copies filed before the folders existed, or still under the old shared placeholder name.
+                        var placeholder = string.Equals(h.DriveFileName, DriveLayout.PlaceholderFileName, StringComparison.OrdinalIgnoreCase);
+                        if (organize && (h.DriveSubfolders.Count == 0 || placeholder) && await LoadOwnedJobOrNullAsync(h.JobId, ct) is { } job)
                         {
-                            var folders = DriveLayout.FoldersFor(await ProjectNameAsync(job.ProjectId, ct), job);
+                            var projectName = await ProjectNameAsync(job.ProjectId, ct);
+                            var folders = DriveLayout.FoldersFor(projectName, job);
                             var folderId = await drive.EnsureFolderPathAsync(target, folders, token, ct);
+                            if (placeholder) h.Title = DriveLayout.TitleFor(job, projectName);
                             var name = PhoneHandoffManager.FileNameFor(DriveLayout.FileTitleFor(h.Title, job));
                             await driveClient.MoveFileAsync(token, file!, folderId, name, ct);
                             h.DriveSubfolders = [.. folders];

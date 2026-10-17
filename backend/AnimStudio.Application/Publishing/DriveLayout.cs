@@ -38,6 +38,25 @@ public static partial class DriveLayout
         return [project, CleanFolderName($"{day} {group}", day)];
     }
 
+    /// <summary>What copies were called before renders without a name got one of their own.</summary>
+    public const string PlaceholderFileName = "AnimStudio video.mp4";
+
+    /// <summary>
+    /// The title a render is copied and filed under: its own name, else the export name typed
+    /// for a clip merge, else one made from the project, the format and a piece of the job's
+    /// id - so ten unnamed exports of one project don't all land as the same file name.
+    /// </summary>
+    public static string TitleFor(RenderJob job, string? projectName)
+    {
+        if (!string.IsNullOrWhiteSpace(job.Name)) return job.Name.Trim();
+        if (job.ClipMerge?.ExportName is { } exportName && !string.IsNullOrWhiteSpace(exportName)) return exportName.Trim();
+
+        var project = string.IsNullOrWhiteSpace(projectName) ? "AnimStudio" : projectName.Trim();
+        var format = string.IsNullOrWhiteSpace(job.TargetFormat) ? "video" : job.TargetFormat.Trim().ToLowerInvariant();
+        var id = job.Id.Trim();
+        return id.Length == 0 ? $"{project} {format}" : $"{project} {format} {id[^Math.Min(6, id.Length)..]}";
+    }
+
     /// <summary>
     /// The file's title before it is made a safe file name: a batch's shorts are numbered so
     /// Drive's name sort keeps them in the order they were made.

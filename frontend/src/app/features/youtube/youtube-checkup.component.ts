@@ -1,5 +1,5 @@
 import { DatePipe } from '@angular/common';
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { Observable, catchError, of } from 'rxjs';
@@ -10,6 +10,7 @@ import {
   YouTubeSuggestion,
 } from '../../core/models/youtube.models';
 import { YouTubePublishService } from '../../core/services/youtube-publish.service';
+import { MAX_ANSWER_CHARS, MAX_PROMPT_VIDEOS, buildHandoffPrompt, parseHandoffAnswer } from './checkup-ai-handoff';
 
 /** The issues the page counts and filters by, in the order they're shown. */
 const ISSUE_LABELS: readonly { code: string; label: string }[] = [
@@ -29,6 +30,11 @@ const TAGS_BUDGET = 450;
 const PARALLEL = 2;
 
 type Filter = 'needs' | 'all' | string;
+
+type Sort = 'newest' | 'oldest' | 'most-missing' | 'title';
+
+/** Rows per page: enough to scan, few enough that 500 videos don't make one endless list. */
+const PAGE_SIZE = 25;
 
 interface Draft {
   title: string;
@@ -69,6 +75,8 @@ export class YouTubeCheckupComponent implements OnInit {
   private readonly api = inject(YouTubePublishService);
 
   readonly issueLabels = ISSUE_LABELS;
+  readonly maxPromptVideos = MAX_PROMPT_VIDEOS;
+  readonly maxAnswerChars = MAX_ANSWER_CHARS;
 
   readonly channels = signal<YouTubeChannel[]>([]);
   readonly categories = signal<YouTubeCategory[]>([]);
@@ -80,10 +88,14 @@ export class YouTubeCheckupComponent implements OnInit {
   readonly max = signal(100);
   readonly checkup = signal<YouTubeCheckup | null>(null);
   readonly loading = signal(false);
+  /** Seconds the current check has been running, so a slow channel doesn't look stuck. */
+  readonly loadingSeconds = signal(0);
   readonly error = signal<string | null>(null);
 
   readonly filter = signal<Filter>('needs');
   readonly query = signal('');
+  readonly sort = signal<Sort>('newest');
+  readonly page = signal(0);
 
   // AI settings shared by every draft.
   readonly tone = signal('auto');
@@ -96,6 +108,14 @@ export class YouTubeCheckupComponent implements OnInit {
   readonly selected = signal<ReadonlySet<string>>(new Set());
   readonly bulkRunning = signal<string | null>(null);
   readonly notice = signal<string | null>(null);
+
+  // Hand-off to the creator's own AI tool.
+  readonly pasteOpen = signal(false);
+  readonly pasteText = signal('');
+  readonly pasteReport = signal<{ ok: boolean; lines: string[] } | null>(null);
+  readonly promptCopied = signal<string | null>(null);
+
+  private loadingTimer: ReturnType<typeof setInterval> | null = null;
 
   readonly channel = computed(() => this.channels().find((c) => c.channelId === this.channelId()) ?? null);
   readonly videos = computed(() => this.checkup()?.videos ?? []);
@@ -114,16 +134,28 @@ export class YouTubeCheckupComponent implements OnInit {
   readonly rows = computed(() => {
     const f = this.filter();
     const words = this.query().trim().toLowerCase().split(/\s+/).filter(Boolean);
-    return this.videos().filter((v) => {
+    const shown = this.videos().filter((v) => {
       if (f === 'needs' && v.issues.length === 0) return false;
       if (f !== 'needs' && f !== 'all' && !v.issues.some((i) => i.code === f)) return false;
       const text = `${v.title} ${v.description} ${v.tags.join(' ')}`.toLowerCase();
       return words.every((w) => text.includes(w));
     });
+    return sortVideos(shown, this.sort());
   });
+
+  readonly pageCount = computed(() => Math.max(1, Math.ceil(this.rows().length / PAGE_SIZE)));
+  /** The page actually shown; clamped so a narrower filter never leaves an empty page. */
+  readonly pageIndex = computed(() => Math.min(this.page(), this.pageCount() - 1));
+  readonly pageRows = computed(() => this.rows().slice(this.pageIndex() * PAGE_SIZE, (this.pageIndex() + 1) * PAGE_SIZE));
+  readonly pageFrom = computed(() => (this.rows().length === 0 ? 0 : this.pageIndex() * PAGE_SIZE + 1));
+  readonly pageTo = computed(() => Math.min(this.rows().length, (this.pageIndex() + 1) * PAGE_SIZE));
 
   readonly selectedVideos = computed(() => this.videos().filter((v) => this.selected().has(v.videoId)));
   readonly draftsToSave = computed(() => this.selectedVideos().filter((v) => this.states()[v.videoId]?.draft && !this.states()[v.videoId]?.saved));
+
+  constructor() {
+    inject(DestroyRef).onDestroy(() => this.stopTimer());
+  }
 
   ngOnInit(): void {
     this.api.status().pipe(catchError((e: unknown) => { this.error.set(message(e)); return of(null); })).subscribe((s) => {
@@ -156,10 +188,32 @@ export class YouTubeCheckupComponent implements OnInit {
 
     this.loading.set(true);
     this.error.set(null);
+    this.page.set(0);
+    this.startTimer();
     this.api.checkup(channel.channelId, this.max()).subscribe({
-      next: (c) => { this.checkup.set(c); this.loading.set(false); },
-      error: (e: unknown) => { this.error.set(message(e)); this.loading.set(false); },
+      next: (c) => { this.checkup.set(c); this.loading.set(false); this.stopTimer(); },
+      error: (e: unknown) => { this.error.set(message(e)); this.loading.set(false); this.stopTimer(); },
     });
+  }
+
+  setFilter(filter: Filter): void {
+    this.filter.set(filter);
+    this.page.set(0);
+  }
+
+  setQuery(query: string): void {
+    this.query.set(query);
+    this.page.set(0);
+  }
+
+  setSort(sort: Sort): void {
+    this.sort.set(sort);
+    this.page.set(0);
+  }
+
+  goToPage(index: number): void {
+    this.page.set(Math.max(0, Math.min(index, this.pageCount() - 1)));
+    this.open.set(null);
   }
 
   reconnect(): void {
@@ -278,7 +332,81 @@ export class YouTubeCheckupComponent implements OnInit {
     this.runQueue(this.draftsToSave(), 'Saving to YouTube', (v) => this.runSave(v));
   }
 
+  // --- hand-off to the creator's own AI tool
+
+  /** Copies a prompt for the selected videos (or just `v`) to paste into ChatGPT, Gemini or any AI tool. */
+  async copyPrompt(v?: YouTubeCheckupVideo): Promise<void> {
+    const list = v ? [v] : this.selectedVideos();
+    if (list.length === 0) return;
+    const prompt = buildHandoffPrompt(list, {
+      channelTitle: this.channel()?.channelTitle ?? this.checkup()?.channelTitle ?? '',
+      tone: this.tone(),
+      language: this.language(),
+      brief: this.brief(),
+    });
+    try {
+      await navigator.clipboard.writeText(prompt);
+      this.promptCopied.set(v?.videoId ?? 'selected');
+      this.pasteOpen.set(true);
+      setTimeout(() => this.promptCopied.set(null), 2500);
+      if (!v && list.length > MAX_PROMPT_VIDEOS) {
+        this.notice.set(`The prompt has the first ${MAX_PROMPT_VIDEOS} of ${list.length} selected videos - paste the answer, then copy again for the rest.`);
+      }
+    } catch {
+      this.error.set('The browser did not allow copying. Allow clipboard access for this site and try again.');
+    }
+  }
+
+  /** Fills drafts from a pasted answer. Saves nothing - each draft is reviewed and saved as usual. */
+  applyPasted(): void {
+    const byId = new Map(this.videos().map((v) => [v.videoId, v]));
+    const result = parseHandoffAnswer(this.pasteText(), new Set(byId.keys()));
+    if (result.error) {
+      this.pasteReport.set({ ok: false, lines: [result.error] });
+      return;
+    }
+
+    const filled: string[] = [];
+    for (const a of result.answers) {
+      const v = byId.get(a.videoId)!;
+      const draft = this.state(v.videoId).draft ?? this.draftFrom(v);
+      this.patch(v.videoId, {
+        draft: this.merge(v, draft, {
+          title: a.title || draft.title,
+          description: a.description || draft.description,
+          tags: a.tags,
+          providerId: 'pasted',
+        }),
+        saved: false,
+        error: null,
+      });
+      filled.push(v.videoId);
+    }
+
+    // Select what was filled so "Save N to YouTube" picks those drafts up.
+    this.selected.set(new Set([...this.selected(), ...filled]));
+    this.pasteReport.set({
+      ok: filled.length > 0,
+      lines: [
+        `Filled ${filled.length} draft${filled.length === 1 ? '' : 's'}. Review them (Edit), choose the audience if it's missing, then Save.`,
+        ...result.skipped,
+      ],
+    });
+    if (filled.length > 0) this.pasteText.set('');
+  }
+
   // --- internals
+
+  private startTimer(): void {
+    this.stopTimer();
+    this.loadingSeconds.set(0);
+    this.loadingTimer = setInterval(() => this.loadingSeconds.update((s) => s + 1), 1000);
+  }
+
+  private stopTimer(): void {
+    if (this.loadingTimer !== null) clearInterval(this.loadingTimer);
+    this.loadingTimer = null;
+  }
 
   private runQueue(list: YouTubeCheckupVideo[], label: string, work: (v: YouTubeCheckupVideo) => Observable<boolean>): void {
     if (list.length === 0 || this.bulkRunning()) return;
@@ -423,6 +551,18 @@ export class YouTubeCheckupComponent implements OnInit {
       descriptionOptions: offered.filter((o) => o && o !== description),
       tagIdeas: (s.tagIdeas ?? []).filter((t) => !splitTags(d.tagsText).includes(t)),
     };
+  }
+}
+
+function sortVideos(list: YouTubeCheckupVideo[], sort: Sort): YouTubeCheckupVideo[] {
+  const time = (v: YouTubeCheckupVideo) => (v.publishedAt ? Date.parse(v.publishedAt) || 0 : 0);
+  const weight = (v: YouTubeCheckupVideo) => v.issues.reduce((n, i) => n + (i.severity === 'high' ? 10 : 1), 0);
+  const sorted = [...list];
+  switch (sort) {
+    case 'oldest': return sorted.sort((a, b) => time(a) - time(b));
+    case 'most-missing': return sorted.sort((a, b) => weight(b) - weight(a) || time(b) - time(a));
+    case 'title': return sorted.sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: 'base' }));
+    default: return sorted.sort((a, b) => time(b) - time(a));
   }
 }
 

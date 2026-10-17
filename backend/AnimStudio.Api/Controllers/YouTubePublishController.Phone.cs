@@ -156,8 +156,8 @@ public sealed partial class YouTubePublishController
             return HandoffBadRequest(ex.Code, ex.Message, ex.Code == "drive-folder-invalid" ? "folderName" : "drive");
         }
 
-        var title = string.IsNullOrWhiteSpace(job.Name) ? "AnimStudio video" : job.Name.Trim();
         var project = await projects.GetAsync(job.ProjectId, ct);
+        var title = DriveLayout.TitleFor(job, project?.Name);
         var handoff = DriveCopies.SaveOnly(currentUser.UserId, job, project?.Name, request?.ChannelId, title, target, PhoneHandoffState.Sending);
         handoff.TotalBytes = job.OutputSizeBytes ?? 0;
         await repository.UpsertAsync(handoff, ct);
