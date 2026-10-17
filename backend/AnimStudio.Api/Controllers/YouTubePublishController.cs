@@ -183,15 +183,7 @@ public sealed partial class YouTubePublishController(
         var title = (project?.Name ?? string.Empty).Trim();
         if (title.Length > YouTubePublishValidator.MaxTitleLength) title = title[..YouTubePublishValidator.MaxTitleLength].TrimEnd();
 
-        // The project's own description, then what a clip export knows: chapters and credits.
-        var details = job.Timeline is { } timeline ? ExportTimelineFormatter.ToPublishingDetails(timeline) : string.Empty;
-        // Licensed music asks for credit; a CC BY track without it would breach its licence.
-        var musicIds = MusicCredits.AssetIdsUsedBy(job, project);
-        var musicCredits = musicIds.Count == 0
-            ? string.Empty
-            : MusicCredits.Compose((await assets.GetManyAsync(musicIds, ct)).Where(a => a.ProjectId == job.ProjectId));
-        var description = string.Join("\n\n",
-            new[] { project?.Description?.Trim(), details.Trim(), musicCredits }.Where(p => !string.IsNullOrEmpty(p)));
+        var description = await DefaultDescriptionAsync(job, project, ct);
 
         var facts = Facts(job);
         var errors = YouTubePublishValidator.CheckVideo(facts, out var warnings);
@@ -608,6 +600,22 @@ public sealed partial class YouTubePublishController(
             throw new UnauthorizedAccessException();
 
         return job;
+    }
+
+    /// <summary>
+    /// What a render's description starts as, before the channel footer: the project's own
+    /// description, then what a clip export knows - chapters and music credits.
+    /// </summary>
+    private async Task<string> DefaultDescriptionAsync(RenderJob job, Project? project, CancellationToken ct)
+    {
+        var details = job.Timeline is { } timeline ? ExportTimelineFormatter.ToPublishingDetails(timeline) : string.Empty;
+        // Licensed music asks for credit; a CC BY track without it would breach its licence.
+        var musicIds = MusicCredits.AssetIdsUsedBy(job, project);
+        var musicCredits = musicIds.Count == 0
+            ? string.Empty
+            : MusicCredits.Compose((await assets.GetManyAsync(musicIds, ct)).Where(a => a.ProjectId == job.ProjectId));
+        return string.Join("\n\n",
+            new[] { project?.Description?.Trim(), details.Trim(), musicCredits }.Where(p => !string.IsNullOrEmpty(p)));
     }
 
     private static YouTubeVideoFacts Facts(RenderJob job) => new(

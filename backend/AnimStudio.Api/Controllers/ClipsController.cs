@@ -276,11 +276,12 @@ public sealed class ClipsController(
 
     /// <summary>
     /// Cuts several different shorts from the chosen clips, pictures and lines in one go,
-    /// each landing on the asked length with motion, transitions and text applied. Every
-    /// short is its own job, so they render, download and publish independently.
+    /// with motion, transitions and text applied. Every short is its own job, so they render,
+    /// download and publish independently; they share a batch id, so the batch can be found
+    /// again from the Shorts page after the dialog that started it is closed.
     /// </summary>
     [HttpPost("api/projects/{projectId}/clips/auto-shorts")]
-    public async Task<ActionResult<ApiResponse<List<RenderJobResponse>>>> AutoShorts(
+    public async Task<ActionResult<ApiResponse<AutoShortsResponse>>> AutoShorts(
         string projectId, [FromBody] AutoShortsRequest request,
         [FromServices] GoogleDriveConnectionStore drive, [FromServices] IPhoneHandoffRepository handoffs,
         CancellationToken ct)
@@ -297,35 +298,15 @@ public sealed class ClipsController(
             }
             catch (YouTubePublishException ex)
             {
-                return BadRequest(ApiResponse<List<RenderJobResponse>>.Fail(ex.Message, new ApiError(ex.Code, ex.Message, Field: "drive")));
+                return BadRequest(ApiResponse<AutoShortsResponse>.Fail(ex.Message, new ApiError(ex.Code, ex.Message, Field: "drive")));
             }
         }
 
-        var jobs = await clips.QueueAutoShortsAsync(projectId, new AutoShortsCommand
-        {
-            SourceAssetIds = request.SourceAssetIds,
-            Lines = request.Lines,
-            MusicAssetIds = request.MusicAssetIds,
-            Count = request.Count,
-            TargetSeconds = request.TargetSeconds,
-            Style = request.Style,
-            TextMode = request.TextMode,
-            Transitions = request.Transitions,
-            Motion = request.Motion,
-            KeepClipAudio = request.KeepClipAudio,
-            ExportName = request.ExportName,
-            Width = request.Width,
-            Height = request.Height,
-            Fit = request.Fit,
-            Quality = request.Quality,
-            Watermark = request.Watermark.ToSettings(),
-            IncludeOutro = request.IncludeOutro,
-            Seed = request.Seed,
-        }, ct);
+        var queued = await clips.QueueAutoShortsAsync(projectId, ToCommand(request), ct);
 
         if (target is not null)
         {
-            foreach (var job in jobs)
+            foreach (var job in queued.Jobs)
             {
                 var title = string.IsNullOrWhiteSpace(job.Name) ? "Auto short" : job.Name.Trim();
                 await handoffs.UpsertAsync(DriveCopies.SaveOnly(
@@ -333,8 +314,56 @@ public sealed class ClipsController(
             }
         }
 
-        return Accepted(ApiResponse<List<RenderJobResponse>>.Ok([.. jobs.Select(j => j.ToResponse())]));
+        return Accepted(ApiResponse<AutoShortsResponse>.Ok(new AutoShortsResponse(
+            queued.BatchId, queued.BatchName, [.. queued.Jobs.Select(j => j.ToResponse())], queued.UnusedAssetIds)));
     }
+
+    /// <summary>
+    /// What a batch with these settings would come out as - how many shorts, how long, and
+    /// which picks would be left over - checked like the real thing, with nothing queued.
+    /// </summary>
+    [HttpPost("api/projects/{projectId}/clips/auto-shorts/preview")]
+    public async Task<ActionResult<ApiResponse<AutoShortsPreviewResponse>>> PreviewAutoShorts(
+        string projectId, [FromBody] AutoShortsRequest request, CancellationToken ct)
+    {
+        var plan = await clips.PreviewAutoShortsAsync(projectId, ToCommand(request), ct);
+        var shorts = plan.Shorts.Select(s =>
+        {
+            var shots = (s.TimelineItems ?? []).Where(i => i.TrackId == "V1").ToList();
+            return new AutoShortPreviewItem(
+                s.ExportName ?? "Short",
+                Math.Round(shots.Sum(i => i.Duration), 1),
+                shots.Count(i => i.Type == "video"),
+                shots.Count(i => i.Type == "image"),
+                [.. shots.Select(i => i.Src).Distinct(StringComparer.Ordinal)]);
+        }).ToList();
+        return Ok(ApiResponse<AutoShortsPreviewResponse>.Ok(new AutoShortsPreviewResponse(shorts, plan.UnusedAssetIds)));
+    }
+
+    private static AutoShortsCommand ToCommand(AutoShortsRequest request) => new()
+    {
+        SourceAssetIds = request.SourceAssetIds,
+        Lines = request.Lines,
+        MusicAssetIds = request.MusicAssetIds,
+        Count = request.Count,
+        TargetSeconds = request.TargetSeconds,
+        Layout = request.Layout,
+        ImageSeconds = request.ImageSeconds,
+        MaxClipSeconds = request.MaxClipSeconds,
+        Style = request.Style,
+        TextMode = request.TextMode,
+        Transitions = request.Transitions,
+        Motion = request.Motion,
+        KeepClipAudio = request.KeepClipAudio,
+        ExportName = request.ExportName,
+        Width = request.Width,
+        Height = request.Height,
+        Fit = request.Fit,
+        Quality = request.Quality,
+        Watermark = request.Watermark.ToSettings(),
+        IncludeOutro = request.IncludeOutro,
+        Seed = request.Seed,
+    };
 
     /// <summary>
     /// Deletes several clips in one call.

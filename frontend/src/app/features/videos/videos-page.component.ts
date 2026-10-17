@@ -1,10 +1,11 @@
 import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ApiService } from '../../core/services/api.service';
 import { ProjectStore } from '../../core/services/project-store';
 import { StatusService } from '../../core/services/status.service';
 import { RangePickerComponent } from './range-picker/range-picker.component';
+import { ShortsBoardComponent } from '../shorts/shorts-board.component';
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
 import {
   CreateEditBody, CreateEditMode, EDIT_CATEGORY_SUGGESTIONS, EDIT_FORMATS, EditFormat, ProjectEdit, SHORTS_MAX_SECONDS,
@@ -37,7 +38,7 @@ interface EditForm {
 @Component({
   selector: 'app-videos-page',
   standalone: true,
-  imports: [RangePickerComponent],
+  imports: [RangePickerComponent, RouterLink, ShortsBoardComponent],
   templateUrl: './videos-page.component.html',
   styleUrl: './videos-page.component.css',
 })

@@ -3,11 +3,12 @@ import { Observable, defer, tap } from 'rxjs';
 
 import { ApiFailure } from '../interceptors/api-error.interceptor';
 import { RenderJob, isTerminal } from '../models/api.models';
-import { YouTubeUpload, isUploadFinished } from '../models/youtube.models';
+import { PhoneHandoff, YouTubeUpload, isUploadFinished } from '../models/youtube.models';
 import { ApiService } from './api.service';
+import { ShortsService } from './shorts.service';
 import { YouTubePublishService } from './youtube-publish.service';
 
-export type ActivityKind = 'export' | 'render' | 'youtube' | 'upload' | 'download';
+export type ActivityKind = 'export' | 'render' | 'youtube' | 'upload' | 'download' | 'drive';
 export type ActivityState = 'running' | 'done' | 'warning' | 'failed' | 'cancelled';
 
 export interface ActivityItem {
@@ -50,13 +51,15 @@ const MAX_FINISHED = 20;
  *
  * Features hand work over here when they start it. Server-side jobs are then polled from
  * here rather than by the page, so a render keeps reporting after the user navigates away
- * from the editor that started it. Items live for the visit; on load, YouTube uploads still
- * running on the server are picked back up.
+ * from the editor that started it. Items live for the visit; on load, renders, Drive copies
+ * and YouTube uploads still running on the server are picked back up, so a refresh in the
+ * middle of a batch loses nothing.
  */
 @Injectable({ providedIn: 'root' })
 export class ActivityService {
   private readonly api = inject(ApiService);
   private readonly youtube = inject(YouTubePublishService);
+  private readonly shorts = inject(ShortsService);
 
   private readonly itemList = signal<ActivityItem[]>([]);
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -69,6 +72,40 @@ export class ActivityService {
 
   constructor() {
     this.resumeYouTubeUploads();
+    this.resumeServerWork();
+  }
+
+  /** The row following a render job, if any - e.g. for a dialog to show its live status. */
+  jobItem(jobId: string): ActivityItem | undefined {
+    return this.itemList().find((i) => i.id === `job:${jobId}`);
+  }
+
+  /**
+   * Picks up renders and Drive copies running on the server that this visit isn't
+   * following yet - after a refresh, or after a batch queued Drive copies of its own.
+   */
+  resumeServerWork(): void {
+    // Quiet on failure, like the YouTube resume: an empty panel is better than a banner.
+    this.shorts.active().subscribe({
+      next: ({ jobs, driveCopies }) => {
+        for (const job of jobs) {
+          if (this.find(`job:${job.jobId}`)) continue;
+          this.trackRenderJob(job, job.name || 'Render',
+            job.batchId ? ['/shorts'] : ['/projects', job.projectId, 'render']);
+        }
+        for (const copy of driveCopies) {
+          if (!this.find(`drive:${copy.id}`)) this.trackDriveCopy(copy);
+        }
+      },
+      error: () => undefined,
+    });
+  }
+
+  /** Follows a copy to Google Drive until it lands (or fails). */
+  trackDriveCopy(copy: PhoneHandoff, link: unknown[] | null = ['/shorts']): void {
+    const id = `drive:${copy.id}`;
+    this.upsert(id, { kind: 'drive', title: copy.title || 'Copy to Drive', link, ...this.fromHandoff(copy) });
+    if (this.find(id)?.state === 'running') this.pollHandoff(id, copy.id);
   }
 
   /**
@@ -137,7 +174,8 @@ export class ActivityService {
     this.itemList.update((list) => list.filter((i) => i.state === 'running'));
   }
 
-  private resumeYouTubeUploads(): void {
+  /** Follows YouTube uploads running on the server that this visit isn't following yet. */
+  resumeYouTubeUploads(): void {
     // Not knowing about an upload is not worth an error banner (YouTube may simply not be
     // set up on this server), so failures here are deliberately quiet.
     this.youtube.uploads().subscribe({
@@ -156,6 +194,40 @@ export class ActivityService {
       // A blip while polling isn't the job failing; try again a little later.
       error: () => this.pollJob(id, jobId),
     }));
+  }
+
+  private pollHandoff(id: string, handoffId: string): void {
+    this.schedule(id, () => this.youtube.handoff(handoffId).subscribe({
+      next: (copy) => {
+        if (!this.find(id)) return;
+        const fields = this.fromHandoff(copy);
+        this.patch(id, fields);
+        if (fields.state === 'running') this.pollHandoff(id, handoffId);
+      },
+      error: () => this.pollHandoff(id, handoffId),
+    }));
+  }
+
+  private fromHandoff(copy: PhoneHandoff): Partial<ActivityItem> {
+    const state: ActivityState =
+      copy.state === 'Sending' || copy.state === 'WaitingForRender' ? 'running'
+        : copy.state === 'Failed' ? 'failed'
+          : copy.state === 'Cancelled' ? 'cancelled'
+            : copy.state === 'Expired' ? 'warning'
+              : 'done';
+    return {
+      state,
+      percent: copy.state === 'Sending' ? Math.round(copy.percent ?? 0) : state === 'running' ? null : 100,
+      detail: state === 'failed'
+        ? copy.error || 'Copy to Drive failed.'
+        : copy.state === 'WaitingForRender'
+          ? 'Copies to Drive when the render finishes'
+          : copy.state === 'Sending'
+            ? `Copying to Drive · ${copy.folderName}`
+            : `On Google Drive · ${copy.folderName}`,
+      externalUrl: copy.driveUrl ?? null,
+      finishedAt: state === 'running' ? null : new Date(copy.sentAt ?? Date.now()),
+    };
   }
 
   private pollUpload(id: string, uploadId: string): void {

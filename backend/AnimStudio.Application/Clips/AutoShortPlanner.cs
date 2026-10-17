@@ -30,6 +30,28 @@ public enum AutoShortStyle
     Calm = 3
 }
 
+/// <summary>How the picks are shared out between the shorts of a batch.</summary>
+public enum AutoShortLayout
+{
+    /// <summary>
+    /// Every short is cut to exactly the asked length from quick shots dealt from the whole
+    /// pool, so each short shows a bit of everything. Zero so requests from before layouts
+    /// existed keep their behaviour.
+    /// </summary>
+    FitLength = 0,
+
+    /// <summary>
+    /// The picks are shared out: each one lands in one short only, playing for its own
+    /// length (a picture for <see cref="AutoShortBatch.ImageSeconds"/>, footage in full or
+    /// up to <see cref="AutoShortBatch.MaxClipSeconds"/>), and no short runs past the
+    /// length cap. Shorts in a batch do not repeat each other.
+    /// </summary>
+    Spread = 1,
+
+    /// <summary>Every short uses every pick, each in its own order with its own moves.</summary>
+    AllInEach = 2
+}
+
 /// <summary>One library file the planner may cut from.</summary>
 public sealed record AutoShortSource(string AssetId, AssetKind Kind, double? DurationSeconds);
 
@@ -40,8 +62,20 @@ public sealed record AutoShortBatch
     public IReadOnlyList<string> Lines { get; init; } = [];
     public IReadOnlyList<string> MusicAssetIds { get; init; } = [];
 
+    /// <summary>How many shorts. With <see cref="AutoShortLayout.Spread"/>, 0 makes as many as it takes to use every pick once.</summary>
     public int Count { get; init; } = 3;
+
+    /// <summary>The exact length with <see cref="AutoShortLayout.FitLength"/>; the most a short may run otherwise.</summary>
     public double TargetSeconds { get; init; } = 30;
+
+    public AutoShortLayout Layout { get; init; } = AutoShortLayout.FitLength;
+
+    /// <summary>How long a picture stays on screen, outside <see cref="AutoShortLayout.FitLength"/>.</summary>
+    public double ImageSeconds { get; init; } = AutoShortPlanner.DefaultImageSeconds;
+
+    /// <summary>Longest stretch of one video, outside <see cref="AutoShortLayout.FitLength"/>. Null plays every video in full.</summary>
+    public double? MaxClipSeconds { get; init; }
+
     public AutoShortStyle Style { get; init; } = AutoShortStyle.Mixed;
     public AutoShortTextMode TextMode { get; init; } = AutoShortTextMode.Hook;
 
@@ -65,6 +99,9 @@ public sealed record AutoShortBatch
     /// <summary>Same seed, same batch - so a result can be reproduced. Null draws a fresh one.</summary>
     public int? Seed { get; init; }
 }
+
+/// <summary>A planned batch: the shorts, and the picks none of them uses.</summary>
+public sealed record AutoShortPlan(IReadOnlyList<ClipMergeCommand> Shorts, IReadOnlyList<string> UnusedAssetIds);
 
 /// <summary>
 /// Cuts several different shorts out of one pool of clips, pictures and lines, each one
@@ -92,6 +129,11 @@ public static class AutoShortPlanner
     public const int MaxLines = 100;
     public const int MaxLineLength = 140;
     public const int MaxMusic = 20;
+
+    /// <summary>How long a picture holds when the batch does not say.</summary>
+    public const double DefaultImageSeconds = 5;
+    public const double MinImageSeconds = 1;
+    public const double MaxImageSeconds = 30;
 
     /// <summary>Shortest shot. Under a second a cut reads as a glitch, not an edit.</summary>
     public const double MinShotSeconds = 1.0;
@@ -138,22 +180,25 @@ public static class AutoShortPlanner
     /// Plans the batch. Throws <see cref="ArgumentException"/> when there is nothing usable
     /// to cut from - the caller turns that into a refusal before anything is queued.
     /// </summary>
-    public static IReadOnlyList<ClipMergeCommand> Plan(AutoShortBatch batch)
+    public static IReadOnlyList<ClipMergeCommand> Plan(AutoShortBatch batch) => PlanBatch(batch).Shorts;
+
+    /// <summary>As <see cref="Plan"/>, also saying which picks were left out of every short.</summary>
+    public static AutoShortPlan PlanBatch(AutoShortBatch batch)
     {
         ArgumentNullException.ThrowIfNull(batch);
 
         var usable = batch.Sources
             .Where(s => s.Kind == AssetKind.Image
                         || (s.Kind == AssetKind.Video && s.DurationSeconds is >= MinUsableClipSeconds))
+            .GroupBy(s => s.AssetId, StringComparer.Ordinal)
+            .Select(g => g.First())
             .ToList();
         if (usable.Count == 0)
             throw new ArgumentException("None of the chosen files can be cut into a short.", nameof(batch));
 
-        var count = Math.Clamp(batch.Count, 1, MaxCount);
         var target = Math.Clamp(double.IsFinite(batch.TargetSeconds) ? batch.TargetSeconds : 30, MinTargetSeconds, MaxTargetSeconds);
         var random = batch.Seed is { } seed ? new Random(seed) : new Random();
 
-        var sourceDeck = new Deck<AutoShortSource>(usable, random);
         var lines = batch.Lines.Select(CleanLine).Where(l => l.Length > 0).Distinct(StringComparer.Ordinal).ToList();
         var lineDeck = lines.Count > 0 ? new Deck<string>(lines, random) : null;
         var musicDeck = batch.MusicAssetIds.Count > 0 ? new Deck<string>(batch.MusicAssetIds, random) : null;
@@ -161,57 +206,196 @@ public static class AutoShortPlanner
         var name = string.IsNullOrWhiteSpace(batch.ExportName) ? "Auto short" : batch.ExportName.Trim();
         if (name.Length > 180) name = name[..180];
 
-        return
-        [
-            .. Enumerable.Range(0, count).Select(k => PlanOne(
-                batch, PaceFor(batch.Style, random), target, random, sourceDeck, lineDeck, musicDeck,
-                count == 1 ? name : $"{name} #{k + 1}"))
-        ];
+        // One pace per short, drawn as it is first needed, so its shot lengths and its
+        // transitions come from the same style.
+        var paces = new List<Pace>();
+        Pace PaceAt(int k)
+        {
+            while (paces.Count <= k) paces.Add(PaceFor(batch.Style, random));
+            return paces[k];
+        }
+
+        List<List<Shot>> cuts = batch.Layout switch
+        {
+            AutoShortLayout.Spread => SpreadShots(batch, usable, target, random),
+            AutoShortLayout.AllInEach => AllInEachShots(batch, usable, target, random),
+            _ => FitLengthShots(batch, usable, target, random, PaceAt),
+        };
+
+        var shorts = cuts
+            .Select((shots, k) => BuildShort(
+                batch, PaceAt(k), shots, random, lineDeck, musicDeck,
+                cuts.Count == 1 ? name : $"{name} #{k + 1}"))
+            .ToList();
+
+        var used = cuts.SelectMany(c => c).Select(s => s.Source.AssetId).ToHashSet(StringComparer.Ordinal);
+        return new AutoShortPlan(shorts, [.. usable.Select(s => s.AssetId).Where(id => !used.Contains(id))]);
     }
 
-    private static ClipMergeCommand PlanOne(
-        AutoShortBatch batch, Pace pace, double target, Random random,
-        Deck<AutoShortSource> sources, Deck<string>? lines, Deck<string>? music, string exportName)
+    /// <summary>One shot: which file, for how long, and from where in it (footage only).</summary>
+    private sealed record Shot(AutoShortSource Source, double Length, double TrimStart);
+
+    /// <summary>A pick's own length outside FitLength: a picture's hold, or the footage up to the clip cap.</summary>
+    private static double NaturalLength(AutoShortBatch batch, AutoShortSource source, double cap)
     {
-        var lengths = new Queue<double>(ShotLengths(target, pace.ShotMin, pace.ShotMax, random));
-        var shots = new List<AutoShortSource>();
+        var len = source.Kind == AssetKind.Image
+            ? Math.Clamp(double.IsFinite(batch.ImageSeconds) ? batch.ImageSeconds : DefaultImageSeconds, MinImageSeconds, MaxImageSeconds)
+            : Math.Min(source.DurationSeconds!.Value,
+                batch.MaxClipSeconds is { } most && double.IsFinite(most) && most >= MinShotSeconds ? most : double.MaxValue);
+        return Round(Math.Min(len, cap));
+    }
+
+    /// <summary>
+    /// The picks shared out between the shorts, each used once. Longest first into whichever
+    /// short is shortest so far and still has room, so a batch comes out evenly filled; a
+    /// pick that fits nowhere is left for the next batch. With no count asked for, as few
+    /// shorts as it takes to fit every pick.
+    /// </summary>
+    private static List<List<Shot>> SpreadShots(AutoShortBatch batch, List<AutoShortSource> usable, double cap, Random random)
+    {
+        var picks = Shuffled(usable, random)
+            .Select(s => (Source: s, Length: NaturalLength(batch, s, cap)))
+            // Stable, so equal lengths keep their shuffled order.
+            .OrderByDescending(p => p.Length)
+            .ToList();
+
+        var most = Math.Min(MaxCount, picks.Count);
+        var auto = batch.Count <= 0;
+        var count = auto
+            ? Math.Clamp((int)Math.Ceiling(picks.Sum(p => p.Length) / cap - 0.001), 1, most)
+            : Math.Clamp(batch.Count, 1, most);
+
+        while (true)
+        {
+            var bins = Enumerable.Range(0, count).Select(_ => new List<Shot>()).ToList();
+            var loads = new double[count];
+            var leftOver = 0;
+            foreach (var (source, length) in picks)
+            {
+                var best = -1;
+                for (var b = 0; b < count; b++)
+                {
+                    if (loads[b] + length > cap + 0.001) continue;
+                    if (best < 0 || loads[b] < loads[best]) best = b;
+                }
+                if (best < 0) { leftOver++; continue; }
+
+                bins[best].Add(new Shot(source, length, 0));
+                loads[best] += length;
+            }
+
+            if (auto && leftOver > 0 && count < most) { count++; continue; }
+            return [.. bins.Where(b => b.Count > 0).Select(b => Shuffled(b, random))];
+        }
+    }
+
+    /// <summary>
+    /// Every pick in every short, each short in its own order. A short that would run past
+    /// the cap stops at the last pick that fits; a trimmed video shows a different stretch
+    /// in each short.
+    /// </summary>
+    private static List<List<Shot>> AllInEachShots(AutoShortBatch batch, List<AutoShortSource> usable, double cap, Random random)
+    {
+        var count = Math.Clamp(batch.Count <= 0 ? 3 : batch.Count, 1, MaxCount);
+        var cuts = new List<List<Shot>>(count);
+        for (var k = 0; k < count; k++)
+        {
+            var shots = new List<Shot>();
+            var at = 0.0;
+            foreach (var source in Shuffled(usable, random))
+            {
+                var length = NaturalLength(batch, source, cap);
+                if (at + length > cap + 0.001)
+                {
+                    // The first pick always plays, cut down to the cap if it has to be.
+                    if (shots.Count > 0) continue;
+                    length = cap;
+                }
+                shots.Add(new Shot(source, length, RandomStart(source, length, random)));
+                at += length;
+            }
+            cuts.Add(shots);
+        }
+        return cuts;
+    }
+
+    /// <summary>
+    /// The original cut: quick shots dealt from the whole pool until the short lands exactly
+    /// on its length. The pool is dealt across the batch rather than per short, so twenty
+    /// clips are all used before any repeats, and a clip used twice shows two moments.
+    /// </summary>
+    private static List<List<Shot>> FitLengthShots(AutoShortBatch batch, List<AutoShortSource> usable, double target, Random random, Func<int, Pace> paceAt)
+    {
+        var count = Math.Clamp(batch.Count <= 0 ? 3 : batch.Count, 1, MaxCount);
+        var deck = new Deck<AutoShortSource>(usable, random);
+        var cuts = new List<List<Shot>>(count);
+
+        for (var k = 0; k < count; k++)
+        {
+            var pace = paceAt(k);
+            var lengths = new Queue<double>(ShotLengths(target, pace.ShotMin, pace.ShotMax, random));
+            var shots = new List<Shot>();
+
+            // A clip shorter than its shot plays whole and hands the rest on; whatever is still
+            // owed after the planned shots becomes extra shots, so the short lands on its length.
+            var owed = 0.0;
+            var guard = 0;
+            while ((lengths.Count > 0 || owed >= 0.05) && guard++ < 400 && shots.Count < ClipMergeSpec.MaxClips)
+            {
+                var len = lengths.Count > 0 ? lengths.Dequeue() + owed : Math.Max(MinShotSeconds, owed);
+                owed = 0;
+                var source = deck.Next();
+
+                if (source.Kind == AssetKind.Video)
+                {
+                    var window = Math.Min(len, source.DurationSeconds!.Value);
+                    shots.Add(new Shot(source, Round(window), RandomStart(source, window, random)));
+                    owed = Math.Max(0, len - window);
+                }
+                else
+                {
+                    shots.Add(new Shot(source, Round(len), 0));
+                }
+            }
+            cuts.Add(shots);
+        }
+        return cuts;
+    }
+
+    /// <summary>Where a window of <paramref name="length"/> starts in a clip: anywhere it fits, so reuse shows new moments.</summary>
+    private static double RandomStart(AutoShortSource source, double length, Random random)
+    {
+        if (source.Kind != AssetKind.Video) return 0;
+        var spare = source.DurationSeconds!.Value - length;
+        return spare > 0.05 ? Round(random.NextDouble() * spare) : 0;
+    }
+
+    private static ClipMergeCommand BuildShort(
+        AutoShortBatch batch, Pace pace, List<Shot> shots, Random random,
+        Deck<string>? lines, Deck<string>? music, string exportName)
+    {
         var items = new List<TimelineItemSpec>();
         var junctions = new List<ClipJunctionOverride>();
         var look = batch.Motion ? Pick(random, pace.Looks) : null;
 
-        // A clip shorter than its shot plays whole and hands the rest on; whatever is still
-        // owed after the planned shots becomes extra shots, so the short lands on its length.
         var at = 0.0;
-        var owed = 0.0;
-        var guard = 0;
-        while ((lengths.Count > 0 || owed >= 0.05) && guard++ < 400 && shots.Count < ClipMergeSpec.MaxClips)
+        foreach (var shot in shots)
         {
-            var len = lengths.Count > 0 ? lengths.Dequeue() + owed : Math.Max(MinShotSeconds, owed);
-            owed = 0;
-            var shot = sources.Next();
-            var k = items.Count;
-
             var item = new TimelineItemSpec
             {
-                Id = $"auto_{k}",
+                Id = $"auto_{items.Count}",
                 TrackId = "V1",
                 StartTime = Round(at),
-                Duration = Round(len),
-                Src = shot.AssetId,
+                Duration = Round(shot.Length),
+                Src = shot.Source.AssetId,
             };
 
-            if (shot.Kind == AssetKind.Video)
+            if (shot.Source.Kind == AssetKind.Video)
             {
-                // A window of the clip, placed at random, so a clip used twice shows two
-                // different moments.
-                var clipLen = shot.DurationSeconds!.Value;
-                var window = Math.Min(len, clipLen);
-                var start = clipLen - window > 0.05 ? random.NextDouble() * (clipLen - window) : 0;
+                var clipLen = shot.Source.DurationSeconds!.Value;
                 item.Type = "video";
-                item.Duration = Round(window);
-                item.TrimStartSeconds = Round(start);
-                item.TrimEndSeconds = Round(Math.Min(clipLen, start + window));
-                owed = Math.Max(0, len - window);
+                item.TrimStartSeconds = Round(shot.TrimStart);
+                item.TrimEndSeconds = Round(Math.Min(clipLen, shot.TrimStart + shot.Length));
             }
             else
             {
@@ -228,12 +412,11 @@ public static class AutoShortPlanner
                 };
             }
 
-            shots.Add(shot);
             items.Add(item);
             at += item.Duration;
         }
 
-        for (var k = 0; k + 1 < shots.Count; k++)
+        for (var k = 0; k + 1 < items.Count; k++)
         {
             if (!batch.Transitions)
             {
@@ -259,7 +442,7 @@ public static class AutoShortPlanner
         return new ClipMergeCommand
         {
             ExportName = exportName,
-            AssetIds = [.. shots.Select(s => s.AssetId)],
+            AssetIds = [.. shots.Select(s => s.Source.AssetId)],
             Fit = batch.Fit,
             OutputWidth = batch.Width,
             OutputHeight = batch.Height,
@@ -276,6 +459,17 @@ public static class AutoShortPlanner
             YouTubeLoudness = true,
             TimelineItems = items,
         };
+    }
+
+    private static List<T> Shuffled<T>(IEnumerable<T> items, Random random)
+    {
+        var list = items.ToList();
+        for (var i = list.Count - 1; i > 0; i--)
+        {
+            var j = random.Next(i + 1);
+            (list[i], list[j]) = (list[j], list[i]);
+        }
+        return list;
     }
 
     /// <summary>

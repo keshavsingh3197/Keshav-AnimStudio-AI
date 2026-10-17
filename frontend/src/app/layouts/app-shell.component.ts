@@ -6,7 +6,11 @@ import { ActivityPanelComponent } from './activity-panel.component';
 import { ProjectHubModalComponent } from './project-hub-modal.component';
 import { ActivityService } from '../core/services/activity.service';
 import { ApiService } from '../core/services/api.service';
+import { ShortsService } from '../core/services/shorts.service';
 import { StatusService } from '../core/services/status.service';
+
+/** How often the Shorts badge is re-read; alerts change on the scale of renders and days, not seconds. */
+const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
 
 /**
  * The frame every screen sits in: the brand bar, the one place errors and warnings are
@@ -29,6 +33,13 @@ import { StatusService } from '../core/services/status.service';
         <nav class="topbar-nav">
           <a routerLink="/projects" routerLinkActive="active" class="topbar-navlink">
             <span class="topbar-navlink-icon">🎬</span> Projects
+          </a>
+          <a routerLink="/shorts" routerLinkActive="active" class="topbar-navlink"
+             [title]="shortsAttention() ? shortsAttention() + ' thing(s) on the Shorts page want attention' : 'Every short across your projects'">
+            <span class="topbar-navlink-icon">📱</span> Shorts
+            @if (shortsAttention() > 0) {
+              <span class="topbar-badge">{{ shortsAttention() }}</span>
+            }
           </a>
           <a (click)="openVideoModal()" class="topbar-navlink" style="cursor: pointer;">
             <span class="topbar-navlink-icon">🎞️</span> Video Editor
@@ -129,6 +140,7 @@ import { StatusService } from '../core/services/status.service';
 
         <nav class="app-footer-links" aria-label="Footer">
           <a routerLink="/projects">Projects</a>
+          <a routerLink="/shorts">Shorts</a>
           <a routerLink="/tools">Media Studio</a>
           <a routerLink="/release">Music Release</a>
           <a routerLink="/youtube">YouTube</a>
@@ -331,14 +343,28 @@ export class AppShellComponent {
   readonly activityPanel = viewChild(ActivityPanelComponent);
 
   readonly showVideoModal = signal(false);
+  /** Warnings and errors on the Shorts page - failed renders or copies, used-up stock, a missed weekly goal. */
+  readonly shortsAttention = signal(0);
+  private readonly shorts = inject(ShortsService);
   readonly year = new Date().getFullYear();
   private readonly banner = viewChild<ElementRef<HTMLElement>>('banner');
+
+  private refreshShortsAttention(): void {
+    // A badge is a nicety: if the overview can't be read, there is simply no badge.
+    this.shorts.overview().subscribe({
+      next: (o) => this.shortsAttention.set(o.alerts.filter((a) => a.severity !== 'info').length),
+      error: () => undefined,
+    });
+  }
 
   openVideoModal() {
     this.showVideoModal.set(true);
   }
 
   constructor() {
+    this.refreshShortsAttention();
+    setInterval(() => this.refreshShortsAttention(), SHORTS_ATTENTION_MS);
+
     /**
      * Brings a new banner into view.
      *

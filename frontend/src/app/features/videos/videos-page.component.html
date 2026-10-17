@@ -150,6 +150,18 @@
       }
     </div>
   }
+
+  <!-- Auto Shorts batches and upright exports of this project: what was made, and where it went. -->
+  @if (projectId(); as pid) {
+    <div class="vp-shorts">
+      <div class="vp-shorts-head">
+        <h3>Shorts made from this project</h3>
+        <a routerLink="/shorts" class="vp-shorts-all">All projects ↗</a>
+      </div>
+      <p class="muted">Every Auto Shorts batch is kept here as a folder, with where each short has gone. Select several to save them to Google Drive or publish them to YouTube in one go.</p>
+      <app-shorts-board [projectId]="pid" [compact]="true" />
+    </div>
+  }
 </section>
 
 <!-- Create / details dialog -->

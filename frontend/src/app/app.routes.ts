@@ -103,6 +103,13 @@ export const routes: Routes = [
   },
 
   {
+    path: 'shorts',
+    title: 'Shorts - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/shorts/shorts-page.component').then((m) => m.ShortsPageComponent),
+  },
+
+  {
     path: 'tools',
     title: 'Media Tools & Chunker - AnimStudio AI',
     loadComponent: () =>

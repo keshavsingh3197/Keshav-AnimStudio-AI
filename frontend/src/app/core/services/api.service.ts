@@ -8,7 +8,7 @@ import {
   AdminAccess, AdminAuditEntry, AdminHealth, AdminJob, AdminProviderBody, AdminProviders,
   AdminProviderTest, AdminUsage, AiCapabilities, ApiResponse, Asset, AssetSearchOptions, AssetSearchResult, BundleApplyBody,
   VoiceoverBody, VoiceoverVoices, MyVoice, VoiceScriptDictation, VoiceScriptPolish, MediaTranscript,
-  BundleImportResult, BundlePreview, Character, CharacterBody, AutoShortsBody, ClipMergeBody, ClipOrder,
+  BundleImportResult, BundlePreview, Character, CharacterBody, AutoShortsBody, AutoShortsPreview, AutoShortsResult, ClipMergeBody, ClipOrder,
   ClipStudio, CreateProjectBody,
   CreateSceneBody, DialogueBody, IngestCapabilities, IngestResult, IngestSummary,
   PlacementBody, Project, RenderJob, ExportTimelineFormat, RendererStatus, Scene, SceneAudioBody, SceneDetail,
@@ -606,10 +606,16 @@ export class ApiService {
   }
 
   /** Bulk delete, because a bulk import is routinely followed by a bulk mistake. */
-  /** Plans and queues a batch of shorts; one render job per short. */
-  autoShorts(projectId: string, body: AutoShortsBody): Observable<RenderJob[]> {
-    return this.unwrap(this.http.post<ApiResponse<RenderJob[]>>(
+  /** Plans and queues a batch of shorts; one render job per short, all sharing a batch id. */
+  autoShorts(projectId: string, body: AutoShortsBody): Observable<AutoShortsResult> {
+    return this.unwrap(this.http.post<ApiResponse<AutoShortsResult>>(
       `${this.base}/api/projects/${projectId}/clips/auto-shorts`, body));
+  }
+
+  /** What a batch with these settings would come out as; nothing is queued. */
+  autoShortsPreview(projectId: string, body: AutoShortsBody): Observable<AutoShortsPreview> {
+    return this.unwrap(this.http.post<ApiResponse<AutoShortsPreview>>(
+      `${this.base}/api/projects/${projectId}/clips/auto-shorts/preview`, body));
   }
 
   deleteClips(projectId: string, assetIds: string[]): Observable<number> {

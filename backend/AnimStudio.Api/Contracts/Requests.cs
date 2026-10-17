@@ -634,10 +634,23 @@ public sealed record AutoShortsRequest
     [MaxLength(AutoShortPlanner.MaxMusic)]
     public List<string> MusicAssetIds { get; init; } = [];
 
-    [Range(1, AutoShortPlanner.MaxCount)] public int Count { get; init; } = 3;
+    /// <summary>How many shorts; 0 with the Spread layout makes as many as it takes to use every pick once.</summary>
+    [Range(0, AutoShortPlanner.MaxCount)] public int Count { get; init; } = 3;
 
+    /// <summary>The exact length with FitLength; the most any short may run with the other layouts.</summary>
     [Range(AutoShortPlanner.MinTargetSeconds, AutoShortPlanner.MaxTargetSeconds)]
     public double TargetSeconds { get; init; } = 30;
+
+    /// <summary>How the picks are shared out between the shorts.</summary>
+    [EnumDataType(typeof(AutoShortLayout))] public AutoShortLayout Layout { get; init; } = AutoShortLayout.FitLength;
+
+    /// <summary>How long each picture stays on screen (Spread and AllInEach).</summary>
+    [Range(AutoShortPlanner.MinImageSeconds, AutoShortPlanner.MaxImageSeconds)]
+    public double ImageSeconds { get; init; } = AutoShortPlanner.DefaultImageSeconds;
+
+    /// <summary>Longest stretch of one video (Spread and AllInEach); null plays each in full.</summary>
+    [Range(AutoShortPlanner.MinShotSeconds, AutoShortPlanner.MaxTargetSeconds)]
+    public double? MaxClipSeconds { get; init; }
 
     [EnumDataType(typeof(AutoShortStyle))] public AutoShortStyle Style { get; init; } = AutoShortStyle.Mixed;
     [EnumDataType(typeof(AutoShortTextMode))] public AutoShortTextMode TextMode { get; init; } = AutoShortTextMode.Hook;

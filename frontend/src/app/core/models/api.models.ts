@@ -529,6 +529,11 @@ export interface RenderJob {
   hasTimeline?: boolean;
   /** Shown on screen and used as the download filename; renamed once the render has finished. */
   name?: string;
+  /** Set on every short of one Auto Shorts batch, so the batch can be found again later. */
+  batchId?: string | null;
+  batchName?: string | null;
+  /** 0-based place in the batch. */
+  batchIndex?: number | null;
 }
 
 /** Downloadable forms of an export's timeline: a YouTube description draft, CSV or JSON. */
@@ -967,13 +972,28 @@ export type AutoShortStyle = (typeof AUTO_SHORT_STYLES)[number];
 export const AUTO_SHORT_TEXT_MODES = ['None', 'Hook', 'PerShot', 'HookAndPerShot'] as const;
 export type AutoShortTextMode = (typeof AUTO_SHORT_TEXT_MODES)[number];
 
+/**
+ * How the picks are shared out between a batch's shorts.
+ * Spread: each pick in one short only, playing its own length. AllInEach: every pick in
+ * every short, each in its own order. FitLength: quick shots cut to an exact length.
+ */
+export const AUTO_SHORT_LAYOUTS = ['Spread', 'AllInEach', 'FitLength'] as const;
+export type AutoShortLayout = (typeof AUTO_SHORT_LAYOUTS)[number];
+
 /** Several different shorts cut automatically from the chosen clips, pictures and lines. */
 export interface AutoShortsBody {
   sourceAssetIds: string[];
   lines: string[];
   musicAssetIds: string[];
+  /** 0 with Spread makes as many shorts as it takes to use every pick once. */
   count: number;
+  /** Exact length with FitLength; the most a short may run otherwise. */
   targetSeconds: number;
+  layout: AutoShortLayout;
+  /** How long each picture holds (Spread and AllInEach). */
+  imageSeconds: number;
+  /** Longest stretch of one video (Spread and AllInEach); null plays each in full. */
+  maxClipSeconds: number | null;
   style: AutoShortStyle;
   textMode: AutoShortTextMode;
   transitions: boolean;
@@ -993,6 +1013,29 @@ export interface AutoShortsBody {
   driveChannelId?: string | null;
   /** A folder for this batch; empty uses the channel's (or the Drive's) default. */
   driveFolderName?: string | null;
+}
+
+/** A queued Auto Shorts batch. */
+export interface AutoShortsResult {
+  batchId: string;
+  batchName: string;
+  jobs: RenderJob[];
+  /** Picks no short used - left for the next batch. */
+  unusedAssetIds: string[];
+}
+
+/** One short as a batch with the current settings would cut it. */
+export interface AutoShortPreviewItem {
+  name: string;
+  seconds: number;
+  videos: number;
+  images: number;
+  assetIds: string[];
+}
+
+export interface AutoShortsPreview {
+  shorts: AutoShortPreviewItem[];
+  unusedAssetIds: string[];
 }
 
 export interface ClipMergeBody {

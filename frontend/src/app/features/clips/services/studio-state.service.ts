@@ -1,7 +1,8 @@
 import { Injectable, computed, effect, inject, signal, untracked, OnDestroy } from '@angular/core';
-import { catchError, concatMap, finalize, forkJoin, from, map, mergeMap, of, toArray } from 'rxjs';
+import { Observable, catchError, concatMap, finalize, forkJoin, from, map, mergeMap, of, toArray } from 'rxjs';
 
 import {
+  AutoShortsPreview, AutoShortsResult,
   AutoShortsBody, Clip, ClipAudioBody, ClipFit, ClipOrder, ClipSlotBody, ClipStudio, ExportQuality, MAX_CLIP_GAIN, RenderJob, ExportTimelineFormat,
   SHORTS_MAX_SECONDS, TRANSITIONS, WATERMARK_POSITIONS, WatermarkBody, WatermarkKind, WatermarkPosition,
   aspectRatioLabel, isTerminal, videoFormat, OutroBody,
@@ -9733,7 +9734,7 @@ export class StudioStateService implements OnDestroy {
    */
   queueAutoShorts(
     body: Omit<AutoShortsBody, 'watermark'> & { watermark: boolean },
-    done: (jobs: RenderJob[]) => void,
+    done: (result: AutoShortsResult) => void,
     settled: () => void,
   ): void {
     const projectId = this.loadedProjectId;
@@ -9743,12 +9744,23 @@ export class StudioStateService implements OnDestroy {
     this.status.run(
       this.api.autoShorts(projectId, { ...body, watermark: body.watermark ? wm : { ...wm, kind: 'None' as WatermarkKind } })
         .pipe(finalize(settled)),
-      (jobs: RenderJob[]) => {
-        for (const job of jobs) this.trackExport(job);
-        this.status.notify([`Rendering ${jobs.length} short${jobs.length === 1 ? '' : 's'} - follow them in the activity panel or on the Render page.`]);
-        done(jobs);
+      (result: AutoShortsResult) => {
+        for (const job of result.jobs) this.activity.trackRenderJob(job, job.name || result.batchName, ['/shorts']);
+        // The server queued a Drive copy per short; follow those too.
+        if (body.saveToDrive) this.activity.resumeServerWork();
+        const n = result.jobs.length;
+        this.status.notify([`Rendering ${n} short${n === 1 ? '' : 's'} - follow them in the activity panel or on the Shorts page.`]);
+        done(result);
       },
     );
+  }
+
+  /** What a batch with these settings would come out as, checked like the real thing; nothing is queued. */
+  previewAutoShorts(body: Omit<AutoShortsBody, 'watermark'> & { watermark: boolean }): Observable<AutoShortsPreview> | null {
+    const projectId = this.loadedProjectId;
+    if (!this.ownsCurrentProject(projectId)) return null;
+    const wm: WatermarkBody = this.effectiveWatermark();
+    return this.api.autoShortsPreview(projectId, { ...body, watermark: body.watermark ? wm : { ...wm, kind: 'None' as WatermarkKind } });
   }
 
   /**

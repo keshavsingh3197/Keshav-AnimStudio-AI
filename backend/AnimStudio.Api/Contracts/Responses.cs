@@ -161,7 +161,19 @@ public sealed record RenderJobResponse(
     int? Width = null, int? Height = null, string? TargetFormat = null,
     RenderDiagnosticsResponse? Diagnostics = null,
     bool HasTimeline = false,
-    string? Name = null);
+    string? Name = null,
+    string? BatchId = null,
+    string? BatchName = null,
+    int? BatchIndex = null);
+
+/// <summary>A queued Auto Shorts batch: one render per short, and the picks none of them used.</summary>
+public sealed record AutoShortsResponse(
+    string BatchId, string BatchName, IReadOnlyList<RenderJobResponse> Jobs, IReadOnlyList<string> UnusedAssetIds);
+
+/// <summary>One short as a batch would cut it.</summary>
+public sealed record AutoShortPreviewItem(string Name, double Seconds, int Videos, int Images, IReadOnlyList<string> AssetIds);
+
+public sealed record AutoShortsPreviewResponse(IReadOnlyList<AutoShortPreviewItem> Shorts, IReadOnlyList<string> UnusedAssetIds);
 
 public sealed record RendererStatusResponse(
     bool Available, string? Version, string? UnavailableReason,

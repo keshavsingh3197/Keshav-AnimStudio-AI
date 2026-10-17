@@ -157,6 +157,19 @@ h4 {
 .as-tile-dur { top: 4px; right: 4px; }
 .as-tile-check { bottom: 22px; right: 4px; background: var(--brand); color: var(--brand-ink); display: none; font-weight: 700; }
 .as-tile.on .as-tile-check { display: block; }
+.as-tile-use {
+  position: absolute;
+  bottom: 22px;
+  left: 4px;
+  font-size: 0.65rem;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+}
+.as-tile-new { background: var(--ok); }
+/* Picked, but the plan leaves it out of every short. */
+.as-tile.on.leftover { border-style: dashed; opacity: 0.55; }
 .as-tile-name {
   position: absolute;
   left: 0;
@@ -209,6 +222,35 @@ h4 {
 .as-style-icon { grid-row: span 2; font-size: 1.3rem; align-self: center; }
 .as-style-name { font-weight: 600; font-size: 0.85rem; }
 .as-style-hint { font-size: 0.72rem; color: var(--muted); }
+.as-layouts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.as-layouts .as-style { grid-template-columns: auto 1fr; align-items: center; }
+.as-layouts .as-style-icon { grid-row: auto; font-size: 1.1rem; }
+
+.as-plan {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  align-items: baseline;
+  margin: 10px 0 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  font-size: 0.8rem;
+}
+.as-plan-bars { display: flex; gap: 3px; width: 100%; margin-top: 6px; }
+.as-plan-bar {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 2px 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--brand) 28%, transparent);
+  font-size: 0.65rem;
+  text-align: center;
+}
 
 .as-toggles { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 0; font-size: 0.82rem; }
 .as-toggles label { display: flex; gap: 8px; align-items: center; cursor: pointer; }
@@ -268,15 +310,20 @@ h4 {
 .as-done p { margin: 0; max-width: 560px; color: var(--muted); font-size: 0.85rem; }
 .as-job-list { list-style: none; padding: 0; margin: 8px 0; width: min(520px, 100%); text-align: left; }
 .as-job-list li {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
   padding: 6px 10px;
   border-bottom: 1px solid var(--border);
   font-size: 0.85rem;
 }
 .as-job-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.as-job-status { color: var(--muted); flex: none; }
+.as-job-status { color: var(--muted); flex: none; font-size: 0.78rem; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.as-job-done { color: var(--ok); }
+.as-job-warning { color: var(--warn); }
+.as-job-failed { color: var(--err); }
+.as-job-bar { grid-column: 1 / -1; height: 3px; border-radius: 2px; background: var(--border); overflow: hidden; }
+.as-job-bar > span { display: block; height: 100%; background: var(--brand); transition: width 0.4s; }
 .as-done-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
 
 /* Ultra-wide: more room for thumbnails, options keep a readable width. */
@@ -299,6 +346,7 @@ h4 {
     border: none;
   }
   .as-body { display: block; overflow-y: auto; }
+  .as-layouts { grid-template-columns: 1fr; }
   .as-sources, .as-options { overflow: visible; }
   .as-sources { border-right: none; border-bottom: 1px solid var(--border); }
   .as-grid { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }

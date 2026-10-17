@@ -41,6 +41,13 @@ public sealed class RenderJob
     /// </summary>
     public ClipMergeSpec? ClipMerge { get; set; }
 
+    /// <summary>
+    /// The batch a render was queued in - every short of one Auto Shorts run shares it - so
+    /// the batch can be found again after the dialog that started it is gone. Null on
+    /// renders queued one at a time.
+    /// </summary>
+    public RenderJobBatch? Batch { get; set; }
+
     public RenderJobStatus Status { get; set; } = RenderJobStatus.Pending;
     public int Progress { get; set; }
     public string? Message { get; set; }
@@ -91,6 +98,30 @@ public sealed class RenderJob
         or RenderJobStatus.Failed
         or RenderJobStatus.Cancelled
         or RenderJobStatus.CompletedWithWarnings;
+}
+
+/// <summary>Where a render sits in the batch it was queued with.</summary>
+public sealed class RenderJobBatch
+{
+    /// <summary>App-assigned GUID ("N" format), shared by every render of the batch.</summary>
+    public string Id { get; set; } = string.Empty;
+
+    /// <summary>What the batch is called on screen; the shorts' own names number from it.</summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>0-based position of this render in the batch.</summary>
+    public int Index { get; set; }
+
+    /// <summary>How many renders the batch queued.</summary>
+    public int Count { get; set; }
+
+    public DateTime CreatedAt { get; set; }
+
+    /// <summary>How the picks were shared out ("Spread", "AllInEach", "FitLength").</summary>
+    public string? Layout { get; set; }
+
+    /// <summary>The library files the batch was cut from, so "used" can be told from "picked but left over".</summary>
+    public List<string> SourceAssetIds { get; set; } = [];
 }
 
 public sealed class RenderDiagnostics

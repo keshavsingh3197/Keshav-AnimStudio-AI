@@ -67,6 +67,7 @@ public static class DependencyInjection
         services.Configure<FfmpegOptions>(configuration.GetSection(FfmpegOptions.Section));
         services.Configure<RenderOptions>(configuration.GetSection(RenderOptions.Section));
         services.Configure<IngestOptions>(configuration.GetSection(IngestOptions.Section));
+        services.Configure<AnimStudio.Application.Shorts.ShortsOptions>(configuration.GetSection(AnimStudio.Application.Shorts.ShortsOptions.Section));
         services.Configure<LiveStreamOptions>(configuration.GetSection(LiveStreamOptions.Section));
         services.Configure<SegmentationOptions>(configuration.GetSection("Segmentation"));
         services.Configure<ParsingOptions>(configuration.GetSection("Parsing"));

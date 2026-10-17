@@ -1,11 +1,15 @@
-import { Component, HostListener, computed, inject, signal } from '@angular/core';
-import { catchError, of } from 'rxjs';
+import { Component, DestroyRef, HostListener, computed, effect, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Subject, catchError, debounceTime, of, switchMap } from 'rxjs';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import {
-  AUTO_SHORT_STYLES, AutoShortStyle, AutoShortTextMode, Clip, ClipFit, ExportQuality, RenderJob,
+  AUTO_SHORT_STYLES, AutoShortLayout, AutoShortStyle, AutoShortTextMode, AutoShortsBody, AutoShortsPreview,
+  AutoShortsResult, Clip, ClipFit, ExportQuality,
 } from '../../../../core/models/api.models';
 import { GoogleDriveStatus, isValidDriveFolderName } from '../../../../core/models/youtube.models';
+import { ActivityService } from '../../../../core/services/activity.service';
+import { ShortsService } from '../../../../core/services/shorts.service';
 import { YouTubePublishService } from '../../../../core/services/youtube-publish.service';
 import { StudioStateService } from '../../services/studio-state.service';
 import { formatRunTime } from '../photo-story/photo-story-logic';
@@ -20,9 +24,9 @@ const FORMATS: readonly ShortFormat[] = [
 
 const STYLE_HINTS: Record<AutoShortStyle, { icon: string; hint: string }> = {
   Mixed: { icon: '🎲', hint: 'Every short picks its own pace and look' },
-  Energetic: { icon: '⚡', hint: '2-3s cuts, slides and wipes, strong moves' },
-  Cinematic: { icon: '🎬', hint: '3-5s shots, dissolves, film grade' },
-  Calm: { icon: '🌿', hint: '4-6s shots, soft fades, gentle zooms' },
+  Energetic: { icon: '⚡', hint: 'Slides and wipes, strong moves' },
+  Cinematic: { icon: '🎬', hint: 'Dissolves, film grade' },
+  Calm: { icon: '🌿', hint: 'Soft fades, gentle zooms' },
 };
 
 const TEXT_MODES: readonly { id: AutoShortTextMode; label: string }[] = [
@@ -32,17 +36,27 @@ const TEXT_MODES: readonly { id: AutoShortTextMode; label: string }[] = [
   { id: 'None', label: 'No text' },
 ];
 
-type SourceFilter = 'all' | 'video' | 'image';
+const LAYOUTS: readonly { id: AutoShortLayout; icon: string; label: string; hint: string }[] = [
+  { id: 'Spread', icon: '🧩', label: 'Share out', hint: 'Each pick goes into one short only, so no two shorts repeat. Pictures hold for the time you set; videos play in full (or up to your limit).' },
+  { id: 'AllInEach', icon: '🔁', label: 'All in every short', hint: 'Every short uses all your picks, each in its own order with its own moves.' },
+  { id: 'FitLength', icon: '✂️', label: 'Quick cuts, exact length', hint: 'Fast 2-6s shots from all your picks until each short hits the length exactly.' },
+];
+
+type SourceFilter = 'all' | 'video' | 'image' | 'unused';
+type AutoShortsRequest = Omit<AutoShortsBody, 'watermark'> & { watermark: boolean };
 
 export const AUTO_SHORT_MAX_COUNT = 20;
 export const AUTO_SHORT_MIN_SECONDS = 5;
 export const AUTO_SHORT_MAX_SECONDS = 180;
+export const AUTO_SHORT_MIN_IMAGE_SECONDS = 1;
+export const AUTO_SHORT_MAX_IMAGE_SECONDS = 30;
 const MAX_LINES = 100;
 
 /**
- * Auto Shorts: pick the clips, pictures and lines once, say how many shorts and how long,
- * and the server cuts that many different ones - shuffled, trimmed to length, with camera
- * moves, transitions and text applied. Each short renders as its own job.
+ * Auto Shorts: pick the clips, pictures and lines once, say how they are shared out and how
+ * long each picture holds, and the server cuts that many different shorts - with camera
+ * moves, transitions and text applied. Each short renders as its own job; together they are
+ * one batch, which the Shorts page keeps after this dialog is closed.
  */
 @Component({
   selector: 'app-auto-shorts',
@@ -53,17 +67,25 @@ const MAX_LINES = 100;
 })
 export class AutoShortsComponent {
   readonly state = inject(StudioStateService);
+  readonly activity = inject(ActivityService);
   private readonly youtube = inject(YouTubePublishService);
+  private readonly shorts = inject(ShortsService);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly formats = FORMATS;
   readonly styles = AUTO_SHORT_STYLES;
   readonly styleHints = STYLE_HINTS;
   readonly textModes = TEXT_MODES;
-  readonly durations = [15, 30, 45, 60, 90] as const;
+  readonly layouts = LAYOUTS;
+  readonly durations = [15, 30, 45, 60, 90, 180] as const;
   readonly counts = [3, 5, 10] as const;
+  readonly imageChoices = [3, 5, 7, 10] as const;
+  readonly clipChoices = [5, 10, 15, 30] as const;
   readonly maxCount = AUTO_SHORT_MAX_COUNT;
   readonly minSeconds = AUTO_SHORT_MIN_SECONDS;
   readonly maxSeconds = AUTO_SHORT_MAX_SECONDS;
+  readonly minImageSeconds = AUTO_SHORT_MIN_IMAGE_SECONDS;
+  readonly maxImageSeconds = AUTO_SHORT_MAX_IMAGE_SECONDS;
   readonly runTime = formatRunTime;
 
   // --- sources ---
@@ -71,13 +93,15 @@ export class AutoShortsComponent {
   readonly query = signal('');
   readonly picked = signal<ReadonlySet<string>>(this.initialPick());
 
+  /** How many renders each file is already in; null until loaded (or when it couldn't be). */
+  readonly usage = signal<Record<string, number> | null>(null);
+
   readonly sources = computed(() => this.state.autoShortSources());
   readonly visible = computed(() => {
     const f = this.filter();
     const words = this.query().trim().toLowerCase().split(/\s+/).filter(Boolean);
     return this.sources().filter((c) => {
-      const kind = this.kindOf(c);
-      if (f !== 'all' && kind !== f) return false;
+      if (f === 'unused' ? this.uses(c) > 0 : f !== 'all' && this.kindOf(c) !== f) return false;
       const name = c.name.toLowerCase();
       return words.every((w) => name.includes(w));
     });
@@ -85,10 +109,18 @@ export class AutoShortsComponent {
   readonly pickedClips = computed(() => this.sources().filter((c) => this.picked().has(this.idOf(c))));
   readonly pickedVideos = computed(() => this.pickedClips().filter((c) => this.kindOf(c) === 'video').length);
   readonly pickedImages = computed(() => this.pickedClips().filter((c) => this.kindOf(c) === 'image').length);
+  readonly unusedCount = computed(() => this.sources().filter((c) => this.uses(c) === 0).length);
 
   // --- options ---
-  readonly count = signal(3);
-  readonly seconds = signal(30);
+  readonly layout = signal<AutoShortLayout>('Spread');
+  readonly layoutHint = computed(() => LAYOUTS.find((l) => l.id === this.layout())?.hint ?? '');
+  /** 0 with Share out: as many shorts as it takes to use every pick once. */
+  readonly count = signal(0);
+  /** The exact length with quick cuts; the most a short may run otherwise. */
+  readonly seconds = signal(60);
+  readonly imageSeconds = signal(5);
+  /** null plays every video in full. */
+  readonly maxClipSeconds = signal<number | null>(null);
   readonly formatId = signal('9:16');
   readonly format = computed(() => FORMATS.find((f) => f.id === this.formatId()) ?? FORMATS[0]);
   readonly style = signal<AutoShortStyle>('Mixed');
@@ -128,7 +160,50 @@ export class AutoShortsComponent {
       : null;
   });
 
-  readonly totalSeconds = computed(() => this.count() * this.seconds());
+  /** The request as the settings stand; drives both the preview and the real thing. */
+  readonly body = computed<AutoShortsRequest>(() => {
+    const f = this.format();
+    const known = new Set(this.sources().map((c) => this.idOf(c)));
+    return {
+      sourceAssetIds: [...this.picked()].filter((id) => known.has(id)),
+      lines: this.lines(),
+      musicAssetIds: [...this.musicIds()],
+      count: this.count(),
+      targetSeconds: this.seconds(),
+      layout: this.layout(),
+      imageSeconds: this.imageSeconds(),
+      maxClipSeconds: this.maxClipSeconds(),
+      style: this.style(),
+      textMode: this.lines().length > 0 ? this.textMode() : 'None',
+      transitions: this.transitions(),
+      motion: this.motion(),
+      keepClipAudio: this.keepClipAudio(),
+      exportName: this.name().trim() || null,
+      width: f.width,
+      height: f.height,
+      fit: this.fit(),
+      quality: this.quality(),
+      watermark: this.watermark(),
+      includeOutro: this.outro(),
+      saveToDrive: this.driveOn(),
+      driveChannelId: this.driveOn() ? this.driveChannelId() || null : null,
+      driveFolderName: this.driveOn() ? this.driveFolder().trim() || null : null,
+    };
+  });
+
+  /** The plan the server would make with the settings as they are; null while it's being worked out. */
+  readonly preview = signal<AutoShortsPreview | null>(null);
+  readonly previewError = signal<string | null>(null);
+  readonly plannedRange = computed(() => {
+    const p = this.preview();
+    if (!p || p.shorts.length === 0) return null;
+    const lengths = p.shorts.map((s) => s.seconds);
+    return { min: Math.min(...lengths), max: Math.max(...lengths), total: lengths.reduce((a, b) => a + b, 0) };
+  });
+  /** How many shorts the button promises: the plan's count once known. */
+  readonly planned = computed(() => this.preview()?.shorts.length ?? (this.count() || null));
+  private readonly previewRequests = new Subject<AutoShortsRequest>();
+
   readonly blocked = computed<string | null>(() => {
     if (this.state.blockedReason()) return this.state.blockedReason();
     if (this.pickedClips().length === 0) return 'Pick at least one clip or picture.';
@@ -141,7 +216,44 @@ export class AutoShortsComponent {
     return null;
   });
 
+  readonly submitting = signal(false);
+  readonly queued = signal<AutoShortsResult | null>(null);
+  /** Live state of each queued short, from the activity panel's polling. */
+  readonly queuedRows = computed(() => (this.queued()?.jobs ?? []).map((job) => {
+    const live = this.activity.jobItem(job.jobId);
+    return {
+      job,
+      state: live?.state ?? 'running',
+      percent: live?.percent ?? 0,
+      detail: live?.detail ?? job.status,
+    };
+  }));
+  readonly queuedDone = computed(() => this.queuedRows().filter((r) => r.state !== 'running').length);
+
   constructor() {
+    this.loadUsage();
+
+    // Re-plan on the server (nothing queued) whenever a setting that shapes the batch changes.
+    this.previewRequests.pipe(
+      debounceTime(350),
+      switchMap((body) => {
+        const call = this.state.previewAutoShorts(body);
+        if (!call) return of(null);
+        return call.pipe(catchError((err: unknown) => {
+          this.previewError.set((err as { message?: string } | null)?.message || 'Could not work out the plan.');
+          return of(null);
+        }));
+      }),
+      takeUntilDestroyed(this.destroyRef),
+    ).subscribe((p) => this.preview.set(p));
+
+    effect(() => {
+      const body = this.body();
+      this.preview.set(null);
+      this.previewError.set(null);
+      if (body.sourceAssetIds.length > 0) this.previewRequests.next(body);
+    });
+
     // Optional: without it the batch still renders, just without the Drive copies.
     this.youtube.driveConnections().pipe(catchError(() => of([] as GoogleDriveStatus[]))).subscribe((list) => {
       this.drives.set(list);
@@ -159,9 +271,6 @@ export class AutoShortsComponent {
     this.youtube.driveFolders(channelId || null).pipe(catchError(() => of([] as string[])))
       .subscribe((f) => { if (this.driveChannelId() === channelId) this.driveFolders.set(f); });
   }
-
-  readonly submitting = signal(false);
-  readonly queued = signal<RenderJob[] | null>(null);
 
   @HostListener('document:keydown.escape')
   onEscape(): void {
@@ -188,6 +297,16 @@ export class AutoShortsComponent {
     return this.picked().has(this.idOf(c));
   }
 
+  /** How many renders the file is already in (0 when unknown). */
+  uses(c: Clip): number {
+    return this.usage()?.[this.idOf(c)] ?? 0;
+  }
+
+  /** Picked, but the plan leaves it out of every short. */
+  isLeftOver(c: Clip): boolean {
+    return this.preview()?.unusedAssetIds.includes(this.idOf(c)) ?? false;
+  }
+
   toggle(c: Clip): void {
     const id = this.idOf(c);
     this.picked.update((s) => {
@@ -206,6 +325,11 @@ export class AutoShortsComponent {
     });
   }
 
+  /** Only what no short has used yet - for a batch that is all new. */
+  pickUnused(): void {
+    this.picked.set(new Set(this.sources().filter((c) => this.uses(c) === 0).map((c) => this.idOf(c))));
+  }
+
   toggleMusic(id: string): void {
     this.musicIds.update((s) => {
       const next = new Set(s);
@@ -214,12 +338,29 @@ export class AutoShortsComponent {
     });
   }
 
+  setLayout(l: AutoShortLayout): void {
+    this.layout.set(l);
+    // "Auto" only means something when picks are shared out.
+    if (l !== 'Spread' && this.count() === 0) this.count.set(3);
+    if (l === 'FitLength' && this.seconds() > 90) this.seconds.set(30);
+  }
+
   setCount(v: number): void {
-    this.count.set(Math.min(AUTO_SHORT_MAX_COUNT, Math.max(1, Math.round(Number(v) || 1))));
+    const min = this.layout() === 'Spread' ? 0 : 1;
+    this.count.set(Math.min(AUTO_SHORT_MAX_COUNT, Math.max(min, Math.round(Number(v) || min))));
   }
 
   setSeconds(v: number): void {
     this.seconds.set(Math.min(AUTO_SHORT_MAX_SECONDS, Math.max(AUTO_SHORT_MIN_SECONDS, Math.round(Number(v) || 30))));
+  }
+
+  setImageSeconds(v: number): void {
+    this.imageSeconds.set(Math.min(AUTO_SHORT_MAX_IMAGE_SECONDS, Math.max(AUTO_SHORT_MIN_IMAGE_SECONDS, Math.round(Number(v) || 5))));
+  }
+
+  setMaxClipSeconds(v: number | null): void {
+    const n = Math.round(Number(v));
+    this.maxClipSeconds.set(v === null || !n ? null : Math.min(AUTO_SHORT_MAX_SECONDS, Math.max(1, n)));
   }
 
   formatDuration(c: Clip): string {
@@ -228,34 +369,22 @@ export class AutoShortsComponent {
 
   create(): void {
     if (this.blocked() || this.submitting()) return;
-    const f = this.format();
     this.submitting.set(true);
     this.state.queueAutoShorts(
-      {
-        sourceAssetIds: [...this.picked()].filter((id) => this.sources().some((c) => this.idOf(c) === id)),
-        lines: this.lines(),
-        musicAssetIds: [...this.musicIds()],
-        count: this.count(),
-        targetSeconds: this.seconds(),
-        style: this.style(),
-        textMode: this.lines().length > 0 ? this.textMode() : 'None',
-        transitions: this.transitions(),
-        motion: this.motion(),
-        keepClipAudio: this.keepClipAudio(),
-        exportName: this.name().trim() || null,
-        width: f.width,
-        height: f.height,
-        fit: this.fit(),
-        quality: this.quality(),
-        watermark: this.watermark(),
-        includeOutro: this.outro(),
-        saveToDrive: this.driveOn(),
-        driveChannelId: this.driveOn() ? this.driveChannelId() || null : null,
-        driveFolderName: this.driveOn() ? this.driveFolder().trim() || null : null,
+      this.body(),
+      (result) => {
+        this.queued.set(result);
+        // What this batch used is no longer new.
+        this.loadUsage();
       },
-      (jobs) => this.queued.set(jobs),
       () => this.submitting.set(false),
     );
+  }
+
+  private loadUsage(): void {
+    const projectId = this.state.store.project()?.id;
+    if (!projectId) return;
+    this.shorts.usage(projectId).pipe(catchError(() => of(null))).subscribe((u) => { if (u) this.usage.set(u); });
   }
 
   private initialPick(): ReadonlySet<string> {

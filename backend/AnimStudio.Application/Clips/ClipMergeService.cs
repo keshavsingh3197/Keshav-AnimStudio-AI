@@ -113,6 +113,9 @@ public sealed record ClipMergeCommand
     /// their own slot. Empty means the clips play back to back.
     /// </summary>
     public IReadOnlyList<ClipSlot> Slots { get; init; } = [];
+
+    /// <summary>The batch this export belongs to; set by Auto Shorts, null otherwise.</summary>
+    public RenderJobBatch? Batch { get; init; }
 }
 
 /// <summary>A batch of auto shorts as asked for; see <see cref="AutoShortPlanner"/>.</summary>
@@ -123,6 +126,9 @@ public sealed record AutoShortsCommand
     public IReadOnlyList<string> MusicAssetIds { get; init; } = [];
     public int Count { get; init; } = 3;
     public double TargetSeconds { get; init; } = 30;
+    public AutoShortLayout Layout { get; init; } = AutoShortLayout.FitLength;
+    public double ImageSeconds { get; init; } = AutoShortPlanner.DefaultImageSeconds;
+    public double? MaxClipSeconds { get; init; }
     public AutoShortStyle Style { get; init; } = AutoShortStyle.Mixed;
     public AutoShortTextMode TextMode { get; init; } = AutoShortTextMode.Hook;
     public bool Transitions { get; init; } = true;
@@ -137,6 +143,10 @@ public sealed record AutoShortsCommand
     public bool IncludeOutro { get; init; }
     public int? Seed { get; init; }
 }
+
+/// <summary>A queued Auto Shorts batch: its id and name, one render per short, and the picks no short used.</summary>
+public sealed record AutoShortsQueued(
+    string BatchId, string BatchName, IReadOnlyList<RenderJob> Jobs, IReadOnlyList<string> UnusedAssetIds);
 
 /// <summary>
 /// The clip stitch's front door: reads the library, resolves a running order, and queues
@@ -607,6 +617,7 @@ public sealed class ClipMergeService(
             Height = jobHeight,
             TargetFormat = targetFormat,
             CreatedAt = clock.GetUtcNow().UtcDateTime,
+            Batch = command.Batch,
             ClipMerge = new ClipMergeSpec
             {
                 ExportName = command.ExportName,
@@ -752,7 +763,50 @@ public sealed class ClipMergeService(
     /// is trusted with timing, never with access.
     /// </para>
     /// </summary>
-    public async Task<IReadOnlyList<RenderJob>> QueueAutoShortsAsync(
+    public async Task<AutoShortsQueued> QueueAutoShortsAsync(
+        string projectId, AutoShortsCommand command, CancellationToken ct)
+    {
+        var plan = await PlanAutoShortsAsync(projectId, command, ct).ConfigureAwait(false);
+
+        var batch = new RenderJobBatch
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Name = AutoShortBatchName(command.ExportName),
+            Count = plan.Shorts.Count,
+            CreatedAt = clock.GetUtcNow().UtcDateTime,
+            Layout = command.Layout.ToString(),
+            SourceAssetIds = [.. command.SourceAssetIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal)],
+        };
+
+        var queued = new List<RenderJob>(plan.Shorts.Count);
+        for (var k = 0; k < plan.Shorts.Count; k++)
+        {
+            var place = new RenderJobBatch
+            {
+                Id = batch.Id, Name = batch.Name, Index = k, Count = batch.Count,
+                CreatedAt = batch.CreatedAt, Layout = batch.Layout, SourceAssetIds = batch.SourceAssetIds,
+            };
+            queued.Add(await QueueAsync(projectId, plan.Shorts[k] with { Batch = place }, ct).ConfigureAwait(false));
+        }
+        return new AutoShortsQueued(batch.Id, batch.Name, queued, plan.UnusedAssetIds);
+    }
+
+    /// <summary>
+    /// What a batch would come out as - how many shorts, how long, from which picks - with
+    /// every check a real batch gets, but nothing queued. The plan is random, so this is a
+    /// faithful shape rather than the exact cut (unless a seed is given).
+    /// </summary>
+    public async Task<AutoShortPlan> PreviewAutoShortsAsync(
+        string projectId, AutoShortsCommand command, CancellationToken ct) =>
+        await PlanAutoShortsAsync(projectId, command, ct).ConfigureAwait(false);
+
+    private static string AutoShortBatchName(string? exportName)
+    {
+        var name = string.IsNullOrWhiteSpace(exportName) ? "Auto shorts" : exportName.Trim();
+        return name.Length > 180 ? name[..180] : name;
+    }
+
+    private async Task<AutoShortPlan> PlanAutoShortsAsync(
         string projectId, AutoShortsCommand command, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(command);
@@ -788,16 +842,18 @@ public sealed class ClipMergeService(
                 throw EditingException.Invalid("not-audio", $"'{asset.Name}' has no sound in it.");
         }
 
-        IReadOnlyList<ClipMergeCommand> plans;
         try
         {
-            plans = AutoShortPlanner.Plan(new AutoShortBatch
+            return AutoShortPlanner.PlanBatch(new AutoShortBatch
             {
                 Sources = sources,
                 Lines = command.Lines,
                 MusicAssetIds = musicIds,
                 Count = command.Count,
                 TargetSeconds = command.TargetSeconds,
+                Layout = command.Layout,
+                ImageSeconds = command.ImageSeconds,
+                MaxClipSeconds = command.MaxClipSeconds,
                 Style = command.Style,
                 TextMode = command.TextMode,
                 // A renderer without xfade cuts hard rather than refusing the batch.
@@ -819,11 +875,6 @@ public sealed class ClipMergeService(
         {
             throw EditingException.Invalid("nothing-usable", ex.Message);
         }
-
-        var queued = new List<RenderJob>(plans.Count);
-        foreach (var plan in plans)
-            queued.Add(await QueueAsync(projectId, plan, ct).ConfigureAwait(false));
-        return queued;
     }
 
     private static Asset Require(

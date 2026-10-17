@@ -9,6 +9,7 @@ const KIND_ICON: Record<ActivityKind, string> = {
   youtube: '▶️',
   upload: '⬆️',
   download: '⬇️',
+  drive: '☁️',
 };
 
 /**

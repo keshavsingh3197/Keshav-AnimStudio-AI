@@ -1,5 +1,6 @@
 using AnimStudio.Application.Clips;
 using AnimStudio.Domain.Assets;
+using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Rendering;
 
 namespace AnimStudio.Application.Tests.Clips;
@@ -77,7 +78,7 @@ public class AutoShortPlannerTests
             Assert.Equal(plan.AssetIds.Count - 1, plan.Junctions!.Count);
             Assert.Equal(0, v1[0].StartTime);
             for (var k = 1; k < v1.Count; k++)
-                Assert.Equal(v1[k - 1].StartTime + v1[k - 1].Duration, v1[k].StartTime, 1);
+                Assert.Equal(v1[k - 1].StartTime + v1[k - 1].Duration, v1[k].StartTime, 0.02);
         }
     }
 
@@ -202,5 +203,113 @@ public class AutoShortPlannerTests
             Assert.Equal(target, lengths.Sum(), 1);
             Assert.All(lengths, l => Assert.True(l >= AutoShortPlanner.MinShotSeconds - 0.001));
         }
+    }
+
+    // --- Spread and AllInEach: picks play for their own length ---
+
+    private static readonly AutoShortSource[] Pool12 =
+    [
+        .. Enumerable.Range(0, 8).Select(k => new AutoShortSource($"img_{k}", AssetKind.Image, null)),
+        new("vid_10", AssetKind.Video, 10),
+        new("vid_15", AssetKind.Video, 15),
+        new("vid_5", AssetKind.Video, 5),
+        new("vid_40", AssetKind.Video, 40),
+    ];
+
+    private static List<TimelineItemSpec> Shots(ClipMergeCommand c) => [.. c.TimelineItems!.Where(i => i.TrackId == "V1")];
+
+    [Fact]
+    public void Spread_uses_each_pick_in_one_short_only()
+    {
+        var plan = AutoShortPlanner.PlanBatch(Batch(Pool12, count: 3, seconds: 60) with { Layout = AutoShortLayout.Spread });
+
+        var used = plan.Shorts.SelectMany(s => Shots(s).Select(i => i.Src)).ToList();
+        Assert.Equal(used.Count, used.Distinct().Count());
+        Assert.Empty(plan.UnusedAssetIds);
+        Assert.Equal(Pool12.Length, used.Count);
+        Assert.Equal(3, plan.Shorts.Count);
+    }
+
+    [Fact]
+    public void Spread_holds_pictures_for_the_asked_time_and_plays_videos_in_full()
+    {
+        var plan = AutoShortPlanner.PlanBatch(Batch(Pool12, count: 0, seconds: 90) with { Layout = AutoShortLayout.Spread, ImageSeconds = 7 });
+
+        foreach (var shot in plan.Shorts.SelectMany(Shots))
+        {
+            var source = Pool12.Single(s => s.AssetId == shot.Src);
+            Assert.Equal(source.Kind == AssetKind.Image ? 7 : source.DurationSeconds!.Value, shot.Duration, 2);
+            if (shot.Type == "video") Assert.Equal(0, shot.TrimStartSeconds!.Value, 2);
+        }
+    }
+
+    [Fact]
+    public void Spread_never_runs_past_the_cap_and_caps_long_videos()
+    {
+        var plan = AutoShortPlanner.PlanBatch(Batch(Pool12, count: 0, seconds: 30) with { Layout = AutoShortLayout.Spread, MaxClipSeconds = 8 });
+
+        Assert.All(plan.Shorts, s => Assert.True(V1Length(s) <= 30.01, $"{V1Length(s)}s"));
+        Assert.All(plan.Shorts.SelectMany(Shots).Where(i => i.Type == "video"), i => Assert.True(i.Duration <= 8.01));
+        // Auto count makes enough shorts for every pick.
+        Assert.Empty(plan.UnusedAssetIds);
+    }
+
+    [Fact]
+    public void Spread_with_too_few_shorts_reports_what_did_not_fit()
+    {
+        // 8 pictures x 5s + 70s of video into one 20s short: most picks are left for next time.
+        var plan = AutoShortPlanner.PlanBatch(Batch(Pool12, count: 1, seconds: 20) with { Layout = AutoShortLayout.Spread });
+
+        Assert.Single(plan.Shorts);
+        Assert.True(V1Length(plan.Shorts[0]) <= 20.01);
+        var used = Shots(plan.Shorts[0]).Select(i => i.Src).ToHashSet();
+        Assert.Equal(Pool12.Length, used.Count + plan.UnusedAssetIds.Count);
+        Assert.DoesNotContain(plan.UnusedAssetIds, used.Contains);
+    }
+
+    [Fact]
+    public void Spread_balances_the_shorts()
+    {
+        var pics = Enumerable.Range(0, 12).Select(k => new AutoShortSource($"p{k}", AssetKind.Image, null)).ToArray();
+        var plan = AutoShortPlanner.PlanBatch(Batch(pics, count: 4, seconds: 60) with { Layout = AutoShortLayout.Spread });
+
+        Assert.All(plan.Shorts, s => Assert.Equal(3, Shots(s).Count));
+    }
+
+    [Fact]
+    public void Spread_makes_no_more_shorts_than_picks()
+    {
+        var plan = AutoShortPlanner.PlanBatch(Batch(Mixed, count: 10, seconds: 60) with { Layout = AutoShortLayout.Spread });
+
+        Assert.Equal(Mixed.Length, plan.Shorts.Count);
+        Assert.All(plan.Shorts, s => Assert.Single(Shots(s)));
+    }
+
+    [Fact]
+    public void All_in_each_puts_every_pick_in_every_short_in_its_own_order()
+    {
+        var pics = Enumerable.Range(0, 6).Select(k => new AutoShortSource($"p{k}", AssetKind.Image, null)).ToArray();
+        var plan = AutoShortPlanner.PlanBatch(Batch(pics, count: 4, seconds: 60) with { Layout = AutoShortLayout.AllInEach, ImageSeconds = 4 });
+
+        Assert.Equal(4, plan.Shorts.Count);
+        Assert.All(plan.Shorts, s => Assert.Equal(pics.Select(p => p.AssetId).Order(), Shots(s).Select(i => i.Src).Order()));
+        Assert.All(plan.Shorts, s => Assert.Equal(24, V1Length(s), 2));
+        Assert.True(plan.Shorts.Select(s => string.Join(',', Shots(s).Select(i => i.Src))).Distinct().Count() > 1);
+    }
+
+    [Fact]
+    public void All_in_each_stops_at_the_cap()
+    {
+        var plan = AutoShortPlanner.PlanBatch(Batch(Pool12, count: 2, seconds: 25) with { Layout = AutoShortLayout.AllInEach });
+
+        Assert.All(plan.Shorts, s => Assert.True(V1Length(s) <= 25.01));
+        Assert.All(plan.Shorts, s => Assert.NotEmpty(Shots(s)));
+    }
+
+    [Fact]
+    public void Fit_length_is_still_the_default_layout()
+    {
+        Assert.Equal(AutoShortLayout.FitLength, new AutoShortBatch { Sources = Mixed }.Layout);
+        Assert.All(AutoShortPlanner.Plan(Batch(seconds: 30)), p => Assert.Equal(30, V1Length(p), 1));
     }
 }

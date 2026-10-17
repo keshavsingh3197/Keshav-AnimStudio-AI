@@ -352,6 +352,9 @@ public sealed partial class GoogleDriveClient : IDisposable
         {
             (401, _) or (403, "insufficientPermissions" or "authError") => new("drive-reconnect",
                 "Google Drive refused AnimStudio's access. Connect Drive again."),
+            // The Drive API is switched off in the Google Cloud project the app's OAuth client belongs to.
+            (403, "accessNotConfigured" or "SERVICE_DISABLED") => new("drive-api-disabled",
+                "The Google Drive API isn't enabled for this app's Google Cloud project. An admin needs to enable it (Google Cloud console > APIs & Services > Library > Google Drive API), then send again."),
             (403, "storageQuotaExceeded") => new("drive-full", "Your Google Drive is full. Free up space, then send again."),
             (403, "userRateLimitExceeded" or "rateLimitExceeded" or "dailyLimitExceeded") or (429, _) => new("drive-busy",
                 "Google Drive is limiting requests right now. Try again in a few minutes."),

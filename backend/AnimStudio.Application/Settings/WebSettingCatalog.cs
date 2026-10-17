@@ -93,6 +93,11 @@ public static class WebSettingCatalog
         new("LiveStream:Camera:MaxConcurrent", "Live streaming", "Camera streams at once", "How many Camera Studio streams can run together.", WebSettingType.Integer, false, 1, 10),
         new("LiveStream:Camera:Preset", "Live streaming", "Camera encoder preset", "x264 preset for the real-time camera encode.", WebSettingType.Choice, false, Choices: ["ultrafast", "superfast", "veryfast", "faster"]),
 
+        // --- Shorts page: read per request, so live.
+        new("Shorts:WeeklyGoal", "Shorts", "Shorts a week", "How many shorts you mean to make each week. The Shorts page reminds you when you're behind. 0 turns the reminder off.", WebSettingType.Integer, true, 0, 500),
+        new("Shorts:LowStockThreshold", "Shorts", "Low stock warning", "Warn when a project that makes auto shorts has fewer unused clips and pictures than this.", WebSettingType.Integer, true, 1, 200),
+        new("Shorts:UnpublishedReminderDays", "Shorts", "Unpublished reminder (days)", "Remind about finished shorts that haven't gone to YouTube after this many days.", WebSettingType.Integer, true, 0, 60),
+
         // --- YouTube: read through IOptionsMonitor, so live.
         new("YouTube:CacheSeconds", "YouTube", "Audience numbers cache (s)", "How long subscriber and viewer counts are reused.", WebSettingType.Integer, true, 5, 600),
         new("YouTube:Publish:ClientId", "YouTube", "OAuth client ID", "The Google OAuth client used to connect channels. The client secret stays in user-secrets or Key Vault.", WebSettingType.Text, true, MaxLength: 200),
