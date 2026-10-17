@@ -624,6 +624,10 @@
 }
 
 .tl-item-txt { background: linear-gradient(135deg, rgba(245, 158, 11, 0.25) 0%, rgba(217, 119, 6, 0.35) 100%); border-color: rgba(245, 158, 11, 0.5); }
+/* A text in its own slot shows its card colour down the left edge. */
+.tl-item-txt:not(.tl-item-txt-over) { box-shadow: inset 4px 0 0 var(--card, rgba(245, 158, 11, 0.8)); }
+/* Over the picture: see-through and dashed, so it reads as lying on top of the clips. */
+.tl-item-txt-over { background: rgba(245, 158, 11, 0.12); border-style: dashed; }
 .tl-item-img,
 .tl-item-v3  { background: linear-gradient(135deg, rgba(16, 185, 129, 0.25) 0%, rgba(5, 150, 105, 0.35) 100%); border-color: rgba(16, 185, 129, 0.5); }
 .tl-item-v2  { background: linear-gradient(135deg, rgba(6, 182, 212, 0.25) 0%, rgba(8, 145, 178, 0.35) 100%); border-color: rgba(6, 182, 212, 0.5); }
@@ -2328,6 +2332,81 @@
   font-size: 0.68rem;
   font-weight: 600;
   pointer-events: auto;
-  cursor: help;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+  z-index: 3;
 }
+.tl-end-card-marker:hover { border-style: solid; background: rgba(108, 140, 255, 0.22); }
+.tl-end-card-marker.is-off { opacity: 0.5; border-color: rgba(148, 163, 184, 0.6); color: #94a3b8; background: rgba(148, 163, 184, 0.06); }
+.tl-end-card-marker.is-missing { opacity: 0.7; border-color: rgba(148, 163, 184, 0.5); color: #94a3b8; background: transparent; }
 .tl-end-card-marker-text { white-space: nowrap; padding: 0 4px; }
+
+/* ── Inspect (transcript) buttons ─────────────────────────────── */
+/* V1 clips: sits left of the remove button and shows on hover, like it. */
+.tl-clip-inspect {
+  position: absolute;
+  top: 5px;
+  right: 28px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(15, 23, 42, 0.85);
+  font-size: 9px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 12;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, background 0.12s ease, transform 0.12s ease;
+}
+.tl-clip:hover .tl-clip-inspect,
+.tl-clip.selected .tl-clip-inspect,
+.tl-clip-inspect:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.tl-clip-inspect:hover {
+  background: rgba(250, 204, 21, 0.85);
+  border-color: rgba(250, 204, 21, 0.9);
+  transform: scale(1.1);
+}
+
+/* Audio and overlay items: inline before their remove button. */
+.tl-inspect-btn {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-right: 4px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(0, 0, 0, 0.5);
+  font-size: 8px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  position: relative;
+  z-index: 25;
+  transition: background 0.12s ease, transform 0.12s ease;
+}
+.tl-inspect-btn:hover {
+  background: rgba(250, 204, 21, 0.85);
+  transform: scale(1.1);
+}
+
+/* FX1: celebrations (confetti, flower shower, hearts…) */
+.tl-badge-fx { background: rgba(236, 72, 153, 0.2) !important; color: #f9a8d4 !important; border: 1px solid rgba(236, 72, 153, 0.4) !important; }
+.tl-row-fx,
+.tl-lane-fx { min-height: 40px !important; height: 40px !important; background: rgba(236, 72, 153, 0.03) !important; }
+.tl-lane-fx:hover { background: rgba(236, 72, 153, 0.07) !important; }
+.tl-item-fx { background: linear-gradient(135deg, rgba(236, 72, 153, 0.28) 0%, rgba(245, 158, 11, 0.32) 100%); border-color: rgba(236, 72, 153, 0.55);
+  flex-direction: row !important; align-items: center !important; justify-content: flex-start !important; }
+.tl-item-fx .tl-item-badge { font-size: 0.85rem; background: transparent; }

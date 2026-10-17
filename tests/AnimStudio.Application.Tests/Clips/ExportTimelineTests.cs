@@ -118,6 +118,47 @@ public class ExportTimelineTests
         Assert.DoesNotContain("Chapters", ExportTimelineFormatter.ToYouTubeDescription(timeline, null));
     }
 
+    [Theory]
+    [InlineData("59_CLIP_059_Rama_Drawing_Golden_Bowstring_Cosmic_Arrow_1080p_20260922195933.mp4", "Rama Drawing Golden Bowstring Cosmic Arrow")]
+    [InlineData("VID_20250101_123456_Sunset_4k_60fps", "Sunset")]
+    [InlineData("Scene 1.5", "Scene 1.5")]
+    [InlineData("Part 2 of the chase", "Part 2 of the chase")]
+    [InlineData("IMG_0042", "IMG 0042")]
+    public void File_style_clip_names_read_as_words(string label, string expected)
+    {
+        var timeline = new ExportTimeline
+        {
+            DurationSeconds = 10,
+            Entries = [new ExportTimelineEntry { Label = label, StartSeconds = 0, EndSeconds = 10 }]
+        };
+
+        Assert.Equal([expected], ExportTimelineFormatter.ClipLabels(timeline));
+    }
+
+    [Fact]
+    public void Publishing_details_keep_chapters_and_credits_but_not_uncredited_footage()
+    {
+        var spec = new ClipMergeSpec { AssetIds = ["a", "b", "c"], BackgroundMusicAssetId = "bed" };
+
+        var text = ExportTimelineFormatter.ToPublishingDetails(ThreeClips(spec));
+
+        Assert.StartsWith("Chapters\n0:00 Intro\n0:14 The chase\n0:24 Finale\n", text);
+        Assert.Contains("Ambient by Jane Doe", text);
+        Assert.DoesNotContain("Footage", text);
+    }
+
+    [Fact]
+    public void Publishing_details_are_empty_when_there_is_nothing_for_viewers()
+    {
+        var timeline = new ExportTimeline
+        {
+            DurationSeconds = 20,
+            Entries = [new ExportTimelineEntry { Label = "clip_01", StartSeconds = 0, EndSeconds = 20 }]
+        };
+
+        Assert.Equal(string.Empty, ExportTimelineFormatter.ToPublishingDetails(timeline));
+    }
+
     [Fact]
     public void Csv_neutralises_labels_a_spreadsheet_would_run_as_formulas()
     {

@@ -157,6 +157,55 @@ BEGIN
     CREATE INDEX IX_YouTubeConnections_UserId ON YouTubeConnections (UserId);
 END;
 
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'YouTubePublications')
+BEGIN
+    CREATE TABLE YouTubePublications (
+        Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+        UserId NVARCHAR(200) NOT NULL,
+        ProjectId NVARCHAR(64) NOT NULL,
+        VideoId NVARCHAR(32) NOT NULL,
+        PublishedAt DATETIME2 NOT NULL,
+        LastCheckedAt DATETIME2 NULL,
+        Health INT NOT NULL DEFAULT 0,
+        DataJson NVARCHAR(MAX) NOT NULL
+    );
+    CREATE INDEX IX_YouTubePublications_User ON YouTubePublications (UserId, ProjectId, PublishedAt DESC);
+    CREATE INDEX IX_YouTubePublications_Video ON YouTubePublications (UserId, VideoId);
+    CREATE INDEX IX_YouTubePublications_Check ON YouTubePublications (LastCheckedAt, PublishedAt);
+END;
+
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'GoogleDriveConnections')
+BEGIN
+    CREATE TABLE GoogleDriveConnections (
+        Id NVARCHAR(200) NOT NULL PRIMARY KEY,
+        DataJson NVARCHAR(MAX) NOT NULL
+    );
+END;
+
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'PhoneHandoffs')
+BEGIN
+    CREATE TABLE PhoneHandoffs (
+        Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+        UserId NVARCHAR(200) NOT NULL,
+        JobId NVARCHAR(64) NOT NULL,
+        State INT NOT NULL,
+        CreatedAt DATETIME2 NOT NULL,
+        DataJson NVARCHAR(MAX) NOT NULL
+    );
+    CREATE INDEX IX_PhoneHandoffs_User ON PhoneHandoffs (UserId, JobId, CreatedAt DESC);
+    CREATE INDEX IX_PhoneHandoffs_State ON PhoneHandoffs (State, CreatedAt);
+END;
+
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'VoiceProfiles')
+BEGIN
+    CREATE TABLE VoiceProfiles (
+        Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+        UserId NVARCHAR(200) NOT NULL,
+        DataJson NVARCHAR(MAX) NOT NULL
+    );
+    CREATE INDEX IX_VoiceProfiles_UserId ON VoiceProfiles (UserId);
+END;
+
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'WebSettings')
 BEGIN
     CREATE TABLE WebSettings (

@@ -61,10 +61,14 @@ export interface PlaylistEntry {
   thumbnailUrl?: string;
 }
 
-/** Where the key comes from: a channel's saved key, or one pasted for this stream. Exactly one. */
+/**
+ * Where the key comes from: a channel's saved key, one pasted for this stream, or a broadcast
+ * created on a connected YouTube channel (its key is looked up on the server). Exactly one.
+ */
 export interface LiveStreamGoLive {
   channelId?: string;
   streamKey?: string;
+  youTube?: { channelId: string; broadcastId: string };
 }
 
 export interface LiveStreamDestination {

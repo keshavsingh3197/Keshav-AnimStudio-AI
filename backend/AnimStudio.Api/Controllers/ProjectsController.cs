@@ -77,6 +77,7 @@ public sealed class ProjectsController(
                 FrameRateNum = request.Fps,
                 FrameRateDen = 1,
                 DistributionIntent = request.DistributionIntent,
+                ContentType = ProjectContentTypes.Parse(request.ContentType),
                 DefaultWatermark = defaultWatermark ?? new WatermarkSettings(),
                 BrandChannelId = channelId,
                 // Follows the channel live; the copy above is the starting point if it goes custom.
@@ -120,7 +121,9 @@ public sealed class ProjectsController(
             DefaultWatermark = request.DefaultWatermark?.ToSettings(),
             DefaultOutro = request.DefaultOutro?.ToSettings(),
             BrandChannelId = request.BrandChannelId,
-            FollowChannelWatermark = request.FollowChannelWatermark
+            FollowChannelWatermark = request.FollowChannelWatermark,
+            DefaultImageDurationSeconds = request.DefaultImageDurationSeconds,
+            ContentType = request.ContentType is null ? null : ProjectContentTypes.Parse(request.ContentType)
         }, ct);
 
         return Ok(ApiResponse<ProjectResponse>.Ok(project.ToResponse()));

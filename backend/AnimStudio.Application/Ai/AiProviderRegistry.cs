@@ -38,6 +38,14 @@ public sealed class AiProviderRegistry : IAiProviderRegistry
     }
 
     public IReadOnlyList<ITextAiProvider> TextChain() => Chain<ITextAiProvider>(AiCapability.Text);
+
+    public IReadOnlyList<ITextAiProvider> UsableTextProviders()
+    {
+        var options = _options.CurrentValue;
+        return [.. _providers
+            .OfType<ITextAiProvider>()
+            .Where(p => p.Capability == AiCapability.Text && Unavailability(p, options) == AiUnavailableReason.None)];
+    }
     public IReadOnlyList<IImageAiProvider> ImageChain() => Chain<IImageAiProvider>(AiCapability.Image);
     public IReadOnlyList<ISpeechAiProvider> SpeechChain() => Chain<ISpeechAiProvider>(AiCapability.Speech);
 

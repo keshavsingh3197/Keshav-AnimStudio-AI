@@ -91,6 +91,7 @@ public static partial class MediaSourceValidator
             "dms.licdn.com", "media.licdn.com",   // LinkedIn
             "video.twimg.com",                    // X / Twitter
             "vod-progressive.akamaized.net",      // Vimeo progressive
+            "cdn1.suno.ai",                       // Suno
         ],
         "https://dms.licdn.com/playlist/vid/v2/…",
         "The video file itself, from DevTools - Network (filter \"Media\"). Use this when the post is members-only. These links are signed and expire after a few hours.",
@@ -105,6 +106,19 @@ public static partial class MediaSourceValidator
         IsVideoUri: IsDirectMediaFile,
         KeepAllQuery: true,
         NotAVideoHint: "That CDN link doesn't look like a media file. Pick the request whose type is \"media\" (or whose name ends in .mp4 or .m3u8) and use Copy - Copy URL.");
+
+    /// <summary>
+    /// Suno songs. yt-dlp refuses suno.com outright, so the downloader resolves the song page to
+    /// the file on Suno's own CDN first (see <c>SunoSongResolver</c>) and hands yt-dlp that.
+    /// </summary>
+    public static readonly MediaPlatform Suno = new(
+        "suno", "Suno",
+        ["suno.com", "www.suno.com"],
+        "https://suno.com/s/…",
+        "Single songs - Share → Copy link, or the /song/ page. Saved as the song's MP3 when the creator allows downloads, otherwise as the song video Suno publishes.",
+        LoginOftenRequired: false,
+        IsVideoPath: s => s.Length >= 2 && s[0] is "s" or "song",
+        NotAVideoHint: "That Suno link is a profile or playlist, not a song. Open the song and use Share → Copy link.");
 
     public static readonly IReadOnlyList<MediaPlatform> Platforms =
     [
@@ -168,8 +182,37 @@ public static partial class MediaSourceValidator
             "https://clips.twitch.tv/…",
             "Clips and past broadcasts (VODs). Live streams are not downloaded.",
             LoginOftenRequired: false),
+        Suno,
         DirectMedia,
     ];
+
+    /// <summary>
+    /// The library folder a link from this site is filed under when imports are sorted by
+    /// website: "YouTube", "Instagram", "LinkedIn"… A direct CDN link is filed under the site
+    /// that CDN serves, so a LinkedIn post and its raw media file land in the same folder.
+    /// </summary>
+    public static string FolderNameFor(MediaPlatform platform, string canonicalUrl)
+    {
+        if (platform.Id == "x") return "X";
+        if (platform.Id != DirectMedia.Id) return platform.Name;
+
+        var host = Uri.TryCreate(canonicalUrl, UriKind.Absolute, out var uri) ? uri.Host : string.Empty;
+        return host switch
+        {
+            _ when host.EndsWith("licdn.com", StringComparison.Ordinal) => "LinkedIn",
+            _ when host.EndsWith("twimg.com", StringComparison.Ordinal) => "X",
+            _ when host.EndsWith(".cdninstagram.com", StringComparison.Ordinal) => "Instagram",
+            _ when host.EndsWith(".fbcdn.net", StringComparison.Ordinal) => "Facebook",
+            _ when host.Contains("tiktokcdn", StringComparison.Ordinal) => "TikTok",
+            _ when host.EndsWith(".vimeocdn.com", StringComparison.Ordinal)
+                   || host == "vod-progressive.akamaized.net" => "Vimeo",
+            _ when host.EndsWith(".ttvnw.net", StringComparison.Ordinal) => "Twitch",
+            _ when host.EndsWith(".dmcdn.net", StringComparison.Ordinal) => "Dailymotion",
+            _ when host.EndsWith(".redd.it", StringComparison.Ordinal) => "Reddit",
+            _ when host.EndsWith(".suno.ai", StringComparison.Ordinal) => "Suno",
+            _ => "Direct links",
+        };
+    }
 
     public static MediaSourceValidationResult Validate(string? input, bool allowHttp = false)
     {

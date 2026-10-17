@@ -56,7 +56,7 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
   {
     id: 'providers', group: 'AI', label: 'AI providers', icon: '🤖', route: 'providers',
     description: 'Which AI services write, draw, speak and transcribe, and in what order.',
-    keywords: ['gemini', 'groq', 'openrouter', 'ollama', 'lm studio', 'key', 'api key', 'model', 'order', 'chain', 'image', 'speech', 'tts', 'whisper'],
+    keywords: ['groq', 'openrouter', 'ollama', 'lm studio', 'key', 'api key', 'model', 'order', 'chain', 'image', 'speech', 'tts', 'whisper'],
   },
   {
     id: 'usage', group: 'AI', label: 'AI usage', icon: '📊', route: 'usage',

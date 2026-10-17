@@ -1,0 +1,140 @@
+<section class="ml" [class.ml-studio]="inStudio()">
+  @if (!inStudio()) {
+  <header class="ml-head">
+    <div>
+      <h2>🎵 Music for your videos</h2>
+      <p class="muted">Royalty-free Creative Commons music, checked against this project's licence settings.
+        Add a track to use it as the background bed or drop it on the timeline in the video editor.
+        Credits go into the YouTube description automatically.</p>
+    </div>
+    @if (store.project(); as p) {
+      <a class="ml-settings-link" [routerLink]="['/projects', p.id, 'settings']">Licence &amp; music settings →</a>
+    }
+  </header>
+  }
+
+  @if (options(); as opt) {
+    @if (!opt.configured) {
+      <div class="card ml-setup">
+        <strong>Music search isn't set up on this server yet.</strong>
+        <p class="muted">An admin needs a free client id from <a href="https://devportal.jamendo.com" target="_blank" rel="noopener noreferrer">devportal.jamendo.com</a>,
+          set with <code>dotnet user-secrets set "Music:JamendoClientId" "…"</code> (or the <code>Music__JamendoClientId</code> environment variable).</p>
+      </div>
+    } @else {
+      <nav class="ml-tabs" aria-label="Charts">
+        @for (tab of sortTabs; track tab.id) {
+          <button type="button" [class.active]="!searching() && sort() === tab.id" [title]="tab.hint" (click)="setSort(tab.id)">{{ tab.label }}</button>
+        }
+      </nav>
+
+      <div class="ml-filters">
+        <input type="search" class="ml-search" placeholder="Search songs, artists, styles…" maxlength="100"
+               [ngModel]="query()" (ngModelChange)="onQueryChange($event)" aria-label="Search music" />
+        <select class="form-select" [ngModel]="genre()" (ngModelChange)="genre.set($event); onFilterChange()" aria-label="Genre">
+          <option value="">Any genre</option>
+          @for (o of opt.genres; track o.id) { <option [value]="o.id">{{ o.label }}</option> }
+        </select>
+        <select class="form-select" [ngModel]="mood()" (ngModelChange)="mood.set($event); onFilterChange()" aria-label="Mood">
+          <option value="">Any mood</option>
+          @for (o of opt.moods; track o.id) { <option [value]="o.id">{{ o.label }}</option> }
+        </select>
+        <select class="form-select" [ngModel]="tempo()" (ngModelChange)="tempo.set($event); onFilterChange()" aria-label="Tempo">
+          <option value="">Any tempo</option>
+          @for (o of opt.tempos; track o.id) { <option [value]="o.id">{{ o.label }}</option> }
+        </select>
+        <select class="form-select" [ngModel]="length()" (ngModelChange)="length.set($event); onFilterChange()" aria-label="Length">
+          <option value="">Any length</option>
+          @for (o of opt.lengths; track o.id) { <option [value]="o.id">{{ o.label }}</option> }
+        </select>
+        <label class="ml-check"><input type="checkbox" [ngModel]="instrumental()" (ngModelChange)="instrumental.set($event); onFilterChange()" /> Instrumental only</label>
+        <label class="ml-check"><input type="checkbox" [ngModel]="usableOnly()" (ngModelChange)="usableOnly.set($event)" /> Only what this project can use</label>
+        @if (filtersActive()) {
+          <button type="button" class="link" (click)="clearFilters()">Clear filters</button>
+        }
+      </div>
+
+      @if (error()) {
+        <p class="ml-error">{{ error() }}</p>
+      }
+
+      @if (visible().length === 0 && !loading()) {
+        <div class="empty">
+          @if (hiddenCount() > 0) {
+            {{ hiddenCount() }} track(s) found, but their licences don't fit this project's settings.
+            <button type="button" class="link" (click)="usableOnly.set(false)">Show them anyway</button>
+          } @else {
+            No tracks match. Try fewer filters or another search.
+          }
+        </div>
+      }
+
+      <ul class="ml-grid">
+        @for (t of visible(); track t.id) {
+          <li class="ml-card" [class.blocked]="!t.usable" [class.playing]="playingId() === t.id">
+            <button type="button" class="ml-cover" (click)="togglePreview(t)" [disabled]="!t.previewUrl"
+                    [attr.aria-label]="(playingId() === t.id ? 'Stop ' : 'Preview ') + t.title">
+              @if (t.imageUrl) { <img [src]="t.imageUrl" alt="" loading="lazy" referrerpolicy="no-referrer" /> }
+              <span class="ml-play">{{ playingId() === t.id ? '⏸' : '▶' }}</span>
+            </button>
+
+            <div class="ml-body">
+              <div class="ml-title" [title]="t.title">{{ t.title }}</div>
+              <div class="ml-artist muted">
+                @if (t.pageUrl) {
+                  <a [href]="t.pageUrl" target="_blank" rel="noopener noreferrer">{{ t.artist }}</a>
+                } @else { {{ t.artist }} }
+                · {{ duration(t.durationSeconds) }}
+              </div>
+              <div class="ml-tags">
+                <span class="pill {{ licenseTone(t) }}" [title]="t.blockedReason ?? ('Licence: ' + t.licenseCode)">
+                  @if (t.licenseUrl) {
+                    <a [href]="t.licenseUrl" target="_blank" rel="noopener noreferrer">{{ t.licenseCode }}</a>
+                  } @else { {{ t.licenseCode || 'Unknown licence' }} }
+                </span>
+                @if (t.instrumental) { <span class="pill">Instrumental</span> }
+                @for (g of t.genres.slice(0, 2); track g) { <span class="pill">{{ g }}</span> }
+                @for (m of t.moods.slice(0, 2); track m) { <span class="pill">{{ m }}</span> }
+              </div>
+
+              @if (!t.usable) {
+                <p class="ml-blocked">{{ t.blockedReason }}</p>
+              } @else {
+                <div class="ml-actions">
+                  @if (inStudio()) {
+                    <button type="button" (click)="add(t, 'timeline')" [disabled]="importingId() !== null"
+                            title="Put it on the music lane (A2) at the playhead">
+                      {{ importingId() === t.id ? 'Adding…' : '＋ Add to timeline' }}</button>
+                  } @else if (isBackground(t)) {
+                    <span class="pill ok">✓ Background music</span>
+                  } @else {
+                    <button type="button" (click)="add(t, 'background')" [disabled]="importingId() !== null">
+                      {{ importingId() === t.id ? 'Adding…' : 'Use as background' }}</button>
+                  }
+                  @if (t.assetId) {
+                    <span class="pill ok">✓ In assets</span>
+                  } @else {
+                    <button type="button" class="secondary" (click)="add(t, 'assets')" [disabled]="importingId() !== null">＋ Add to assets</button>
+                  }
+                </div>
+              }
+            </div>
+          </li>
+        }
+      </ul>
+
+      @if (loading()) {
+        <p class="muted ml-loading">Loading music…</p>
+      } @else if (hasMore()) {
+        <div class="ml-more"><button type="button" class="secondary" (click)="loadMore()">Load more</button></div>
+      }
+
+      <p class="muted small ml-foot">Music from <a href="https://www.jamendo.com" target="_blank" rel="noopener noreferrer">Jamendo</a> under Creative Commons.
+        Chart hits from YouTube or Spotify aren't listed: they're copyrighted, and using them gets videos claimed or muted.
+        Non-commercial tracks are hidden for Monetized projects; share-alike tracks need share-alike accepted in Settings.</p>
+    }
+  } @else if (error()) {
+    <p class="ml-error">{{ error() }}</p>
+  } @else {
+    <p class="muted">Loading…</p>
+  }
+</section>

@@ -39,6 +39,10 @@ public sealed class MediaToolsController(
     private static readonly ConcurrentDictionary<string, MediaTicket> Tickets = new();
     private static readonly ConcurrentDictionary<string, string> ChunkWorkspaces = new();
 
+    // Batch imports download two links at once; without this, two links from the same site
+    // could each find no "YouTube" folder and create one apiece.
+    private static readonly SemaphoreSlim FolderCreateLock = new(1, 1);
+
     /// <summary>
     /// Which sites links can be downloaded from, and whether the downloader is ready.
     /// </summary>
@@ -127,6 +131,11 @@ public sealed class MediaToolsController(
                             Field: "folderName")));
                 }
             }
+            else if (request.FolderBySource)
+            {
+                // Server-side and from the validated platform, never from the raw link text.
+                newFolderName = MediaSourceValidator.FolderNameFor(validation.Platform!, validation.CanonicalUrl!);
+            }
         }
 
         var workDir = Path.Combine(dataPaths.Downloads, Guid.NewGuid().ToString("n"));
@@ -144,6 +153,7 @@ public sealed class MediaToolsController(
         }
 
         string? assetId = null;
+        string? savedAssetName = null;
         AssetFolder? folder = existingFolder;
 
         if (targetProject is not null)
@@ -181,6 +191,7 @@ public sealed class MediaToolsController(
 
             await assets.InsertAsync(asset, ct);
             assetId = asset.Id;
+            savedAssetName = asset.Name;
 
             // Video assets also join the clip order so they show up in Clip Studio immediately.
             if (assetKind == AssetKind.Video && request.AddToClipOrder)
@@ -204,7 +215,8 @@ public sealed class MediaToolsController(
             StreamUrl: $"/api/media/stream/{ticketId}",
             ProjectId: targetProject?.Id,
             FolderId: folder?.Id,
-            FolderName: folder?.Name)));
+            FolderName: folder?.Name,
+            AssetName: savedAssetName)));
     }
 
     /// <summary>
@@ -461,19 +473,27 @@ public sealed class MediaToolsController(
 
     private async Task<AssetFolder> GetOrCreateFolderAsync(string projectId, string name, CancellationToken ct)
     {
-        var existing = (await folders.ListByProjectAsync(projectId, ct))
-            .FirstOrDefault(f => f.ParentId is null && string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase));
-        if (existing is not null) return existing;
-
-        var folder = new AssetFolder
+        await FolderCreateLock.WaitAsync(ct);
+        try
         {
-            Id = Guid.NewGuid().ToString("N"),
-            ProjectId = projectId,
-            Name = name,
-            CreatedAt = DateTime.UtcNow
-        };
-        await folders.InsertAsync(folder, ct);
-        return folder;
+            var existing = (await folders.ListByProjectAsync(projectId, ct))
+                .FirstOrDefault(f => f.ParentId is null && string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (existing is not null) return existing;
+
+            var folder = new AssetFolder
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                ProjectId = projectId,
+                Name = name,
+                CreatedAt = DateTime.UtcNow
+            };
+            await folders.InsertAsync(folder, ct);
+            return folder;
+        }
+        finally
+        {
+            FolderCreateLock.Release();
+        }
     }
 
     private static bool IsSharedLibrary(string projectId) =>

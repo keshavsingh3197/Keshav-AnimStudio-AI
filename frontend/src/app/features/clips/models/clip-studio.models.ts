@@ -16,6 +16,8 @@ export interface JunctionView {
   right: Clip;
   transition: string;
   seconds: number;
+  /** An image, overlay video or text sits in a slot here, so the clips never meet: always a cut. */
+  slotted?: boolean;
 }
 
 export type SideUploadTarget =
@@ -64,6 +66,8 @@ export interface ClipAudioSetting {
    * when the resolved rule is DuckMusic or DuckVideo.
    */
   duckLevelOverride?: number | null;
+  /** Use this clip for its sound only: the picture is blanked (overlays still show on top). */
+  hideVideo?: boolean;
   /** @deprecated Superseded by overlapRule; read once on load to migrate old drafts. */
   duckMode?: 'Normal' | 'Ducked' | 'MuteOnAudio' | 'LeadVoice';
   /** @deprecated Superseded by overlapRule + duckLevelOverride. */
@@ -84,6 +88,25 @@ export interface MusicTrackRow {
   overlapRule?: AudioOverlapRuleOrInherit;
   /** @deprecated Superseded by overlapRule; read once on load to migrate old drafts. */
   clipAudioMode?: 'MuteUnderMusic' | 'KeepAudio' | 'Ducked' | 'Default';
+}
+
+/** Lines placed by the Voiceover panel (or dropped on A1). They preview on their own player. */
+export function isVoiceoverTrack(track: MusicTrackRow): boolean {
+  return track.key.startsWith('vo_');
+}
+
+/** Key prefixes of the A2 rows auto-enhance lays ("music_" keeps them on A2), so a re-run replaces them. */
+export const AUTO_BED_PREFIX = 'music_bed_';
+export const AUTO_CUT_PREFIX = 'music_cut_';
+
+/** A sound effect auto-enhance placed on a cut. It plays over the music bed rather than instead of it. */
+export function isCutEffectTrack(track: MusicTrackRow): boolean {
+  return track.key.startsWith(AUTO_CUT_PREFIX);
+}
+
+/** Voice sits on A1 and music on A2, so a music bed never covers the spoken lines. */
+export function audioLaneOf(track: MusicTrackRow): 'A1' | 'A2' {
+  return isVoiceoverTrack(track) ? 'A1' : 'A2';
 }
 
 export interface ScheduledClip {

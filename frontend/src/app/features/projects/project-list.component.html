@@ -221,6 +221,12 @@
         <option value="16:9 Video">16:9 Video</option>
       </select>
 
+      <select class="toolbar-select" [(ngModel)]="contentFilter" (change)="currentPage.set(1)" aria-label="Filter by what the project makes">
+        <option value="All">Video &amp; Music</option>
+        <option value="video">🎬 Videos</option>
+        <option value="music">♪ Music</option>
+      </select>
+
       @if (channels().length > 1) {
         <select class="toolbar-select" [(ngModel)]="channelFilter" (change)="currentPage.set(1)" aria-label="Filter by channel">
           <option value="All">All Channels</option>
@@ -355,6 +361,9 @@
                 <span class="format-badge" [class.short]="format(project.width, project.height) === 'Short'">
                   {{ format(project.width, project.height) === 'Short' ? '9:16 Short' : '16:9 Video' }}
                 </span>
+                @if (project.contentType === 'music') {
+                  <span class="format-badge music" title="Publishes to YouTube Music">♪ Music</span>
+                }
                 <span class="status-badge" [class.rendered]="project.status === 'Rendered' || project.status === 'completed'">
                   {{ project.status === 'Rendered' || project.status === 'completed' ? '● Rendered' : '○ Draft' }}
                 </span>

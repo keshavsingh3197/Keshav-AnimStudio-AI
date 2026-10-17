@@ -173,7 +173,10 @@ public sealed record LiveStreamItemRequest
     public bool UseVisualizer { get; init; }
 }
 
-/// <summary>Where the stream key comes from when a stream goes live: a channel's saved key, or one pasted for this stream.</summary>
+/// <summary>
+/// Where the stream key comes from when a stream goes live: a channel's saved key, one pasted
+/// for this stream, or a broadcast created on a connected YouTube channel. Exactly one.
+/// </summary>
 public sealed record LiveStreamGoLiveRequest
 {
     /// <summary>A brand channel whose saved key for the stream's destination is used.</summary>
@@ -181,7 +184,14 @@ public sealed record LiveStreamGoLiveRequest
 
     /// <summary>A key used for this one stream and never stored.</summary>
     public string? StreamKey { get; init; }
+
+    /// <summary>A broadcast on one of the caller's connected channels; its key is looked up on YouTube at go-live.</summary>
+    public LiveStreamYouTubeBroadcast? YouTube { get; init; }
 }
+
+/// <param name="ChannelId">The connected YouTube channel (<c>UC…</c>) the broadcast belongs to.</param>
+/// <param name="BroadcastId">The broadcast's id, which is also its video id.</param>
+public sealed record LiveStreamYouTubeBroadcast(string? ChannelId, string? BroadcastId);
 
 public sealed record LiveStreamDestination(string Id, string Name, string? KeyHelpUrl);
 

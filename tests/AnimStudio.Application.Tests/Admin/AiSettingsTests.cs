@@ -159,9 +159,9 @@ public class AiChainValidationTests
     public void A_fallback_order_of_real_text_providers_is_accepted()
     {
         var chain = AiSettingsValidator.ValidateChain(
-            AiCapability.Text, ["groq", "gemini", "ollama"], Empty);
+            AiCapability.Text, ["groq", "openrouter", "ollama"], Empty);
 
-        Assert.Equal(["groq", "gemini", "ollama"], chain);
+        Assert.Equal(["groq", "openrouter", "ollama"], chain);
     }
 
     [Fact]
@@ -219,7 +219,7 @@ public class AiSettingsOverlayTests
 {
     private static AiOptions Configured() => new()
     {
-        Chains = new(StringComparer.OrdinalIgnoreCase) { ["Text"] = ["groq", "gemini"] },
+        Chains = new(StringComparer.OrdinalIgnoreCase) { ["Text"] = ["groq", "openrouter"] },
         Providers = new(StringComparer.OrdinalIgnoreCase)
         {
             ["groq"] = new AiProviderOptions
@@ -320,7 +320,7 @@ public class AiSettingsOverlayTests
             Chains = new(StringComparer.OrdinalIgnoreCase) { ["Text"] = [] }
         });
 
-        Assert.Equal(["groq", "gemini"], options.ChainFor(AiCapability.Text));
+        Assert.Equal(["groq", "openrouter"], options.ChainFor(AiCapability.Text));
     }
 
     [Fact]

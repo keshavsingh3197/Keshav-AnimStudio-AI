@@ -100,6 +100,52 @@ public static class ExportTimelineFormatter
     }
 
     /// <summary>
+    /// What a YouTube description needs from the render, for viewers rather than editors:
+    /// the chapter list (when YouTube would accept it), the music, and sound and footage
+    /// credits. Sound and footage without a credit or source are left out - their file
+    /// names and timestamps mean nothing to a viewer. Empty when there is nothing to say.
+    /// </summary>
+    public static string ToPublishingDetails(ExportTimeline timeline)
+    {
+        ArgumentNullException.ThrowIfNull(timeline);
+
+        var useHours = timeline.DurationSeconds >= 3600;
+        var sb = new StringBuilder();
+
+        var chapters = Chapters(timeline);
+        if (chapters.Count >= MinChapters)
+        {
+            sb.Append("Chapters\n");
+            foreach (var (start, label) in chapters)
+                sb.Append(Stamp(start, useHours)).Append(' ').Append(label).Append('\n');
+            sb.Append('\n');
+        }
+
+        AppendCredits(sb, "Music", timeline.Entries
+            .Where(e => e.Kind is ExportTimelineKinds.MusicBed or ExportTimelineKinds.Music), useHours);
+
+        AppendCredits(sb, "Sound", timeline.Entries
+            .Where(e => e.Kind is ExportTimelineKinds.Audio or ExportTimelineKinds.ClipSound), useHours, creditsOnly: true);
+
+        AppendCredits(sb, "Footage", timeline.Entries
+            .Where(e => e.Kind is ExportTimelineKinds.Clip or ExportTimelineKinds.Image or ExportTimelineKinds.Overlay), useHours, creditsOnly: true);
+
+        var text = sb.ToString().TrimEnd();
+        return text.Length == 0 ? string.Empty : text + "\n";
+    }
+
+    /// <summary>The readable names of the clips and pictures, in order, each once - what the video shows.</summary>
+    public static List<string> ClipLabels(ExportTimeline timeline) =>
+    [
+        .. timeline.Entries
+            .Where(e => e.Kind is ExportTimelineKinds.Clip or ExportTimelineKinds.Image)
+            .OrderBy(e => e.StartSeconds)
+            .Select(e => Clean(e.Label))
+            .Where(l => l.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+    ];
+
+    /// <summary>
     /// One chapter per clip. A clip gets its own chapter only when it is itself at least
     /// ten seconds long AND starts ten seconds after the previous chapter; otherwise it is
     /// folded into the chapter before it, so a chapter never carries the name of a short
@@ -171,9 +217,11 @@ public static class ExportTimelineFormatter
     }
 
     private static void AppendCredits(
-        StringBuilder sb, string heading, IEnumerable<ExportTimelineEntry> entries, bool useHours)
+        StringBuilder sb, string heading, IEnumerable<ExportTimelineEntry> entries, bool useHours, bool creditsOnly = false)
     {
-        var list = entries.ToList();
+        var list = entries
+            .Where(e => !creditsOnly || !string.IsNullOrWhiteSpace(e.Credit) || !string.IsNullOrWhiteSpace(e.SourceUrl))
+            .ToList();
         if (list.Count == 0) return;
 
         sb.Append(heading).Append('\n');
@@ -196,13 +244,56 @@ public static class ExportTimelineFormatter
     /// <summary>
     /// A label on one line, without the file extension an uploaded name usually carries.
     /// YouTube's description box keeps angle brackets out, so they are dropped too.
+    /// A file-style name is made readable: "59_CLIP_059_Golden_Arrow_1080p_20260922195933"
+    /// reads "Golden Arrow". A label that is already prose, like "Scene 1.5", is kept.
     /// </summary>
     private static string Clean(string label)
     {
         var oneLine = string.Join(' ', label.Split(['\r', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries)).Trim();
         var ext = Path.GetExtension(oneLine);
         if (MediaExtensions.Contains(ext)) oneLine = oneLine[..^ext.Length];
-        return oneLine.Replace("<", "").Replace(">", "");
+        oneLine = oneLine.Replace("<", "").Replace(">", "");
+        return LooksLikeFileName(oneLine) ? Humanize(oneLine) : oneLine;
+    }
+
+    /// <summary>Underscores between words and no spaces: a name a camera or a generator made up.</summary>
+    private static bool LooksLikeFileName(string label) =>
+        label.Contains('_') && !label.Contains(' ');
+
+    private static string Humanize(string label)
+    {
+        var words = label.Replace('_', ' ').Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+
+        // Leading numbering and generic prefixes: "59", "CLIP", "059", "IMG", "VID_0012"...
+        while (words.Count > 0 && IsNumberingWord(words[0])) words.RemoveAt(0);
+
+        // Technical tags anywhere: resolutions, frame rates, long date/time stamps.
+        words.RemoveAll(IsTechnicalWord);
+
+        var readable = string.Join(' ', words).Trim();
+        return readable.Length > 0 ? readable : label.Replace('_', ' ').Trim();
+    }
+
+    private static readonly HashSet<string> NumberingPrefixes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "clip", "img", "image", "vid", "video", "mov", "dsc", "pxl", "scene", "shot", "part", "take"
+    };
+
+    private static bool IsNumberingWord(string word)
+    {
+        if (word.All(char.IsAsciiDigit)) return true;
+        var letters = word.TrimEnd("0123456789".ToCharArray()).TrimEnd('-');
+        return NumberingPrefixes.Contains(letters);
+    }
+
+    private static bool IsTechnicalWord(string word)
+    {
+        var w = word.ToLowerInvariant();
+        if (w.Length >= 6 && w.All(char.IsAsciiDigit)) return true;                  // 20260922195933
+        if (w is "4k" or "8k" or "hd" or "fhd" or "uhd" or "hdr" or "final") return true;
+        if (w.Length is >= 4 and <= 5 && w[^1] == 'p' && w[..^1].All(char.IsAsciiDigit)) return true;   // 1080p
+        if (w.EndsWith("fps", StringComparison.Ordinal) && w[..^3].All(char.IsAsciiDigit) && w.Length > 3) return true;
+        return false;
     }
 
     /// <summary>m:ss, or h:mm:ss on a video an hour or longer - the forms YouTube links.</summary>

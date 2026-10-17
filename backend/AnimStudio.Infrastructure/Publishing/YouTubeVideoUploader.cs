@@ -142,6 +142,62 @@ public sealed class YouTubeVideoUploader : IDisposable
         }
     }
 
+    private const string ThumbnailUrl = "https://www.googleapis.com/upload/youtube/v3/thumbnails/set?uploadType=media&videoId=";
+
+    /// <summary>
+    /// Sets a just-uploaded video's custom thumbnail (<c>thumbnails.set</c>). Returns null when
+    /// it was set, else Google's refusal reason (or a short code of our own) for the warning:
+    /// the video is already up, so a thumbnail that can't be set never fails the upload.
+    /// </summary>
+    public async Task<string?> SetThumbnailAsync(
+        string videoId, byte[] jpeg, Func<bool, CancellationToken, Task<string>> accessToken, CancellationToken ct)
+    {
+        var token = await accessToken(false, ct).ConfigureAwait(false);
+        for (var attempt = 1; ; attempt++)
+        {
+            HttpResponseMessage response;
+            try
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Post, ThumbnailUrl + Uri.EscapeDataString(videoId))
+                {
+                    Content = new ByteArrayContent(jpeg)
+                };
+                request.Content.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
+            {
+                if (attempt >= 3) return "unreachable";
+                await Task.Delay(Backoff(attempt), ct).ConfigureAwait(false);
+                continue;
+            }
+
+            using (response)
+            {
+                if (response.IsSuccessStatusCode) return null;
+
+                if (response.StatusCode == HttpStatusCode.Unauthorized && attempt == 1)
+                {
+                    token = await accessToken(true, ct).ConfigureAwait(false);
+                    continue;
+                }
+
+                var reason = await GoogleErrors.ReadReasonAsync(response, ct).ConfigureAwait(false);
+                // A video accepted seconds ago can still read as not found; give YouTube a moment.
+                if (((int)response.StatusCode >= 500 || reason == "videoNotFound") && attempt < 3)
+                {
+                    await Task.Delay(Backoff(attempt + 1), ct).ConfigureAwait(false);
+                    continue;
+                }
+
+                _logger.LogWarning("YouTube refused the thumbnail for video {VideoId}: {Status} ({Reason})",
+                    videoId, (int)response.StatusCode, reason ?? "unknown");
+                return reason ?? $"http{(int)response.StatusCode}";
+            }
+        }
+    }
+
     private async Task<(Uri Url, string Token)> OpenSessionAsync(
         long length, NormalizedYouTubeMetadata metadata, string token,
         Func<bool, CancellationToken, Task<string>> accessToken, CancellationToken ct)

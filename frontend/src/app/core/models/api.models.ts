@@ -1,3 +1,5 @@
+import { CharacterVoice } from '../../shared/voice/character-voice';
+
 /** Mirrors the backend's single response envelope. */
 export interface ApiResponse<T> {
   success: boolean;
@@ -36,7 +38,14 @@ export interface Project {
   brandChannelId?: string | null;
   /** True: the watermark is the channel's, live. False: defaultWatermark is this project's own. */
   followChannelWatermark?: boolean;
+  /** A music project's renders publish to YouTube Music by default. */
+  contentType?: ProjectContentType;
+  /** Seconds an image plays when added to the timeline; null = the studio-wide default. */
+  defaultImageDurationSeconds?: number | null;
 }
+
+/** What a project makes; 'music' sends its renders to YouTube Music (the Music category). */
+export type ProjectContentType = 'video' | 'music';
 
 export interface CreateProjectBody {
   name: string;
@@ -47,6 +56,7 @@ export interface CreateProjectBody {
   distributionIntent: string;
   /** Channel to publish under; its watermark is copied into the new project. */
   brandChannelId?: string | null;
+  contentType?: ProjectContentType;
 }
 
 /** The id of the built-in brand channel (the studio's original single branding). */
@@ -62,6 +72,18 @@ export interface BrandChannel {
   /** The YouTube channel this brand publishes to, from Settings → YouTube publishing. */
   youTubeChannelId?: string | null;
   youTubeChannelTitle?: string | null;
+  /** As YouTube last reported them; a linked brand's name follows the YouTube channel's title. */
+  youTubeChannelHandle?: string | null;
+  youTubeThumbnailUrl?: string | null;
+}
+
+/** What "Sync from YouTube" did, and the channel list after it. */
+export interface BrandChannelSyncResult {
+  channels: BrandChannel[];
+  youTubeChannels: number;
+  created: string[];
+  renamed: { brandChannelId: string; before: string; after: string }[];
+  failed: { channelId: string; channelTitle: string; reason: string }[];
 }
 
 export interface UpdateProjectBody extends CreateProjectBody {
@@ -74,6 +96,8 @@ export interface UpdateProjectBody extends CreateProjectBody {
   followChannelWatermark?: boolean;
   isPinned?: boolean;
   customThumbnail?: string | null;
+  /** Omitted leaves it unchanged; 0 goes back to the studio-wide default. */
+  defaultImageDurationSeconds?: number;
 }
 
 export interface AssetFolder {
@@ -99,6 +123,153 @@ export interface Asset {
   folderId?: string | null;
 }
 
+/** Where a reuse search looks: this project's channel only, or every project. */
+export type AssetSearchScope = 'channel' | 'all';
+
+/** A file in another of the user's projects that could be brought into this one. */
+export interface AssetSearchHit {
+  asset: Asset;
+  projectId: string;
+  projectName: string;
+  channelId: string;
+  sameChannel: boolean;
+  /** A cut exported from Clip Studio rather than an upload. */
+  isExport: boolean;
+  /** This project already has a copy of it. */
+  alreadyAdded: boolean;
+  createdAt: string;
+}
+
+/** How reuse search results are ordered. */
+export type AssetSearchSort = 'relevance' | 'newest' | 'oldest' | 'name' | 'largest';
+
+/** A project the reuse search looked in that has matching files. */
+export interface AssetSearchProject {
+  id: string;
+  name: string;
+  channelId: string;
+  sameChannel: boolean;
+  /** Matching files, ignoring the project filter. */
+  matches: number;
+}
+
+export interface AssetSearchResult {
+  /** One page of the matches. */
+  items: AssetSearchHit[];
+  /** Matches across every page. */
+  total: number;
+  projectsSearched: number;
+  /** More matches follow this page. */
+  truncated: boolean;
+  /** Matches per lower-case kind ('video', 'image', …), ignoring the type filter. */
+  kindCounts: Record<string, number>;
+  projects: AssetSearchProject[];
+}
+
+export interface AssetSearchOptions {
+  q?: string;
+  scope?: AssetSearchScope;
+  /** One brand channel; overrides `scope`. */
+  channel?: string;
+  /** One source project. */
+  project?: string;
+  kind?: string;
+  sort?: AssetSearchSort;
+  offset?: number;
+  limit?: number;
+}
+
+/** One voice the server's speech engine can speak a voiceover in. */
+export interface VoiceoverVoice {
+  id: string;
+  name: string;
+  languageCode?: string | null;
+  gender?: string | null;
+}
+
+/** GET /api/voiceover/voices: whether a voiceover can be made right now, and in which voices. */
+export interface VoiceoverVoices {
+  available: boolean;
+  providerId?: string | null;
+  reason: string;
+  voices: VoiceoverVoice[];
+  /** Voices the user added from their own samples. */
+  myVoices?: MyVoice[];
+  /** False when neither Kokoro voice tuning nor the AI voice converter can make "my voice" lines. */
+  myVoicesAvailable?: boolean;
+  /** Speech engines that are on, in the configured order. */
+  engines?: VoiceoverEngine[];
+}
+
+/** A speech engine the voiceover panel can pick; `models` is empty when there is nothing to choose. */
+export interface VoiceoverEngine {
+  id: string;
+  name: string;
+  runsLocally: boolean;
+  /** The model it uses unless another is picked. */
+  model?: string | null;
+  models: { id: string; label: string }[];
+}
+
+/** What was heard in a dictated script, one line per spoken phrase. */
+export interface VoiceScriptDictation {
+  lines: string[];
+}
+
+/** One spoken line in an audio or video file, with where it is said. */
+export interface MediaTranscriptLine {
+  startSeconds: number;
+  endSeconds: number;
+  text: string;
+}
+
+/**
+ * What is said in an audio or video asset. `language` is what the recognizer detected, or
+ * the one asked for; `truncated` means only the first two hours were transcribed.
+ */
+export interface MediaTranscript {
+  lines: MediaTranscriptLine[];
+  text: string;
+  subRip: string;
+  language?: string | null;
+  provider: string;
+  truncated: boolean;
+  /** The .srt kept in the library, when saving was asked for. */
+  savedAsset?: Asset | null;
+}
+
+/** A script rewritten by the AI text model so it reads aloud well. */
+export interface VoiceScriptPolish {
+  script: string;
+  providerId?: string | null;
+}
+
+/** A voice the user added from their own consented sample. */
+export interface MyVoice {
+  id: string;
+  name: string;
+  /** The built-in voice that speaks the words before they are re-voiced. */
+  baseVoiceId: string;
+  durationSeconds?: number | null;
+  createdAtUtc: string;
+  /** Kokoro has a voice tuned from the sample, which speaks lines in any of its languages directly instead of re-voicing them. */
+  tuned?: boolean;
+}
+
+/** One script line for POST /api/projects/{id}/voiceover. Rate is 0.5-2.0. */
+export interface VoiceoverBody {
+  text: string;
+  voiceId: string;
+  rate?: number;
+  name?: string;
+  /** One of the user's own voices: voiceId speaks the line, then it is re-voiced into this one. */
+  myVoiceId?: string;
+  /** The speech engine to use instead of the configured order (not with myVoiceId). */
+  engine?: string;
+  /** One of the engine's offered models. */
+  model?: string;
+}
+
 export interface CharacterAppearance {
   age?: number;
   gender?: string;
@@ -117,6 +288,8 @@ export interface Character {
   isNarrator: boolean;
   subtitleColorHex?: string;
   appearance: CharacterAppearance;
+  /** Absent: the performer's own voice. */
+  voice?: CharacterVoice | null;
 }
 
 export interface CharacterBody {
@@ -128,6 +301,8 @@ export interface CharacterBody {
   openMouthAssetId?: string | null;
   subtitleColorHex?: string | null;
   appearance?: CharacterAppearance;
+  /** Omitted leaves the voice as it is; `enabled: false` clears it. */
+  voice?: (CharacterVoice & { enabled: true }) | { enabled: false };
 }
 
 export interface IngestResult {
@@ -352,6 +527,13 @@ export interface RenderJob {
   diagnostics?: RenderDiagnostics;
   /** True when the export recorded where each clip, sound and overlay landed. */
   hasTimeline?: boolean;
+  /** Shown on screen and used as the download filename; renamed once the render has finished. */
+  name?: string;
+  /** Set on every short of one Auto Shorts batch, so the batch can be found again later. */
+  batchId?: string | null;
+  batchName?: string | null;
+  /** 0-based place in the batch. */
+  batchIndex?: number | null;
 }
 
 /** Downloadable forms of an export's timeline: a YouTube description draft, CSV or JSON. */
@@ -422,6 +604,8 @@ export interface Clip {
   hasAudio: boolean;
   /** A finished render saved back to the project; the media panel hides these. */
   isExport?: boolean;
+  /** When the file was added to the library (UTC ISO string); absent on client-made splits. */
+  createdAt?: string;
 }
 
 /**
@@ -507,7 +691,12 @@ export interface OutroBody {
   subtextSecondary?: string | null;
   backgroundHex?: string | null;
   textHex?: string | null;
+  /** Card only: 'Rise' brings the headline, code and small text in one after another. */
+  animation?: EndCardAnimation | null;
 }
+
+export const END_CARD_ANIMATIONS = ['Rise', 'None'] as const;
+export type EndCardAnimation = (typeof END_CARD_ANIMATIONS)[number];
 
 export const CLIP_FITS = ['Contain', 'Cover', 'BlurredBackdrop'] as const;
 
@@ -545,6 +734,8 @@ export interface TimedMusicClipBody {
   volume: number;
   trimStartSeconds?: number | null;
   trimEndSeconds?: number | null;
+  /** A voiceover line on A1: music ducks under it, and it never ducks itself. */
+  isVoiceover?: boolean;
 }
 
 /**
@@ -561,15 +752,19 @@ export interface ClipAudioBody {
   keepOriginalAudio: boolean;
   trimStartSeconds?: number | null;
   trimEndSeconds?: number | null;
+  /** Sound only: the export blanks this clip's picture to the backdrop colour. */
+  hideVideo?: boolean;
 }
 
 /** Loudest anything may be lifted. Mirrors ClipAudioSpec.MaxGain on the server. */
 export const MAX_CLIP_GAIN = 2;
 
-export type TimelineItemType = 'video' | 'image' | 'audio' | 'text';
+export type TimelineItemType = 'video' | 'image' | 'audio' | 'text' | 'celebration';
 
 export interface TimelineItemTransform {
   scale: number;
+  /** Image/video overlays: width in percent of the canvas width; replaces scale when set. */
+  widthPercent?: number;
   x: number;
   y: number;
   opacity: number;
@@ -587,18 +782,56 @@ export interface TimelineItemTransform {
   /** Existing marks in the source footage to wipe before our own watermark is drawn */
   eraseRegions?: EraseRegion[];
   /** Transition In style for image overlay */
-  transitionIn?: 'none' | 'fade' | 'slide-left' | 'slide-right' | 'slide-up' | 'slide-down' | 'zoom' | 'zoom-in' | 'zoom-out';
+  transitionIn?: OverlayMotion;
   transitionInDuration?: number;
   /** Transition Out style for image overlay */
-  transitionOut?: 'none' | 'fade' | 'slide-left' | 'slide-right' | 'slide-up' | 'slide-down' | 'zoom' | 'zoom-in' | 'zoom-out';
+  transitionOut?: OverlayMotion;
   transitionOutDuration?: number;
+  /** Image/video overlays: the outline it is cut to. */
+  shape?: OverlayShape;
+  /** Ring inside the overlay's edge, in 360-reference pixels like text sizes. */
+  borderWidth?: number;
+  /** #rrggbb */
+  borderColor?: string;
+  /** Width / height after the crop, so the export sizes a shaped overlay exactly. */
+  aspectRatio?: number;
+  /** Image clips on V1: the camera move over the still. Absent holds it still. */
+  motion?: ImageCameraMotion;
+  /** Zoom amount or pan travel as a fraction of the frame, 0.02-0.5. */
+  motionIntensity?: number;
+  motionEasing?: 'ease' | 'linear';
+  /** Where a zoom heads, in percent of the image across and down. */
+  focusX?: number;
+  focusY?: number;
+  /** Image clips: colour grade. */
+  look?: ImageLook;
+  vignette?: boolean;
+  grain?: boolean;
+  cinemaBars?: boolean;
 }
+
+/** Camera moves over a still. Mirrors ImageMotion on the server (CinematicImage.cs). */
+export type ImageCameraMotion =
+  | 'none' | 'zoom-in' | 'zoom-out' | 'pan-left' | 'pan-right' | 'pan-up' | 'pan-down'
+  | 'drift' | 'handheld' | 'breathe';
+
+/** Colour grades for a still. Mirrors ImageLook on the server. */
+export type ImageLook = 'none' | 'cinematic' | 'warm' | 'cool' | 'vintage' | 'noir' | 'vivid' | 'matte';
+
+/** How an overlay arrives or leaves. 'pop' is an entrance only; as an exit it shrinks like 'zoom'. */
+export type OverlayMotion =
+  | 'none' | 'fade' | 'slide-left' | 'slide-right' | 'slide-up' | 'slide-down'
+  | 'zoom' | 'zoom-in' | 'zoom-out' | 'pop'
+  /** Text only: typed out a character at a time, or wiped on left to right. */
+  | 'typewriter' | 'wipe';
+
+export type OverlayShape = 'rect' | 'rounded' | 'circle';
 
 /**
  * Blur smears the mark; Patch covers it with the footage beside it; Fill paints a box;
  * Brand patches it and draws the project's own watermark in its place.
  */
-export type EraseStyle = 'Blur' | 'Fill' | 'Patch' | 'Brand';
+export type EraseStyle = 'Blur' | 'Fill' | 'Patch' | 'Brand' | 'Clean';
 
 /** Which neighbouring footage a Patch / Brand box copies from. */
 export type EraseSource = 'Auto' | 'Above' | 'Below' | 'Left' | 'Right';
@@ -635,16 +868,48 @@ export const ERASE_DEFAULT_FEATHER = 30;
 export const MAX_ERASE_REGIONS = 8;
 export const MIN_ERASE_SIZE = 1;
 
+export type TextBoxStyle = 'none' | 'box' | 'band';
+
+/** What a text card does while its words show. Mirrors TextCardEffect on the server. */
+export type TextCardEffect = 'none' | 'fade' | 'vignette';
+
 export interface TimelineItemTextStyle {
+  /** Pixels on a frame whose short side is 360 (the monitor); the export scales it to the canvas. */
   fontSize: number;
+  /** #rrggbb */
   color: string;
+  /** Legacy CSS plate colour; superseded by boxStyle/boxColor/boxOpacity when those are set. */
   backgroundColor: string;
-  position: 'top' | 'center' | 'bottom';
+  /** 'custom' places the centre of the text at x/y. */
+  position: 'top' | 'center' | 'bottom' | 'custom';
+  /** Centre of the text block, percent of the frame (custom position only). */
+  x?: number;
+  y?: number;
+  /** none, a plate behind each line, or a full-width strip. */
+  boxStyle?: TextBoxStyle;
+  /** #rrggbb */
+  boxColor?: string;
+  /** 0-1 */
+  boxOpacity?: number;
+  /** #rrggbb; drawn only while outlineWidth > 0 */
+  outlineColor?: string;
+  /** Same units as fontSize */
+  outlineWidth?: number;
+  shadow?: boolean;
+  uppercase?: boolean;
+  /**
+   * #rrggbb filling the whole frame behind the words while they show - the card a title in
+   * its own slot sits on. Absent: no card, the words lie over whatever is underneath.
+   */
+  cardColor?: string;
+  /** 0-1; absent is fully opaque. */
+  cardOpacity?: number;
+  cardEffect?: TextCardEffect;
   /** Transition In animation for text overlay */
-  transitionIn?: 'none' | 'fade' | 'slide-up' | 'slide-down' | 'zoom' | 'zoom-in' | 'zoom-out';
+  transitionIn?: 'none' | 'fade' | 'slide-up' | 'slide-down' | 'slide-left' | 'slide-right' | 'zoom' | 'zoom-in' | 'zoom-out' | 'typewriter' | 'wipe';
   transitionInDuration?: number;
   /** Transition Out animation for text overlay */
-  transitionOut?: 'none' | 'fade' | 'slide-down' | 'slide-up' | 'zoom' | 'zoom-in' | 'zoom-out';
+  transitionOut?: 'none' | 'fade' | 'slide-down' | 'slide-up' | 'slide-left' | 'slide-right' | 'zoom' | 'zoom-in' | 'zoom-out';
   transitionOutDuration?: number;
 }
 
@@ -664,6 +929,28 @@ export interface TimelineItem {
   trimEndSeconds?: number;
   duckMode?: 'Normal' | 'Ducked' | 'MuteOnAudio' | 'LeadVoice';
   musicVolumeOverride?: number | null;
+  /**
+   * Image, overlay-video and text lanes only: how many V1 clips play before this item. The
+   * item takes its own slot in the sequence there instead of playing over a clip, and
+   * `startTime` is derived from it. See sequence-slots.ts.
+   */
+  slotIndex?: number;
+  /** Type 'celebration' on FX1: the kind is `src`; how many, how big and how fast are here. */
+  celebration?: TimelineCelebration;
+  /**
+   * Text only. Off (the default): the text takes its own slot in the sequence, on its card.
+   * On: it plays over whatever image or video is under it, for its own start and length,
+   * and takes no slot - nothing moves to make room.
+   */
+  overlay?: boolean;
+}
+
+/** Mirrors CelebrationRequest on the server; see features/clips/services/celebration.ts. */
+export interface TimelineCelebration {
+  mode?: 'burst' | 'rain';
+  density?: number;
+  size?: number;
+  speed?: number;
 }
 
 export interface TrackControlState {
@@ -677,10 +964,86 @@ export interface TrackControlState {
   color: string;
 }
 
+/** Pace and finish of a batch of auto shorts; Mixed lets each short pick its own. */
+export const AUTO_SHORT_STYLES = ['Mixed', 'Energetic', 'Cinematic', 'Calm'] as const;
+export type AutoShortStyle = (typeof AUTO_SHORT_STYLES)[number];
+
+/** How the batch's lines go on screen. */
+export const AUTO_SHORT_TEXT_MODES = ['None', 'Hook', 'PerShot', 'HookAndPerShot'] as const;
+export type AutoShortTextMode = (typeof AUTO_SHORT_TEXT_MODES)[number];
+
+/**
+ * How the picks are shared out between a batch's shorts.
+ * Spread: each pick in one short only, playing its own length. AllInEach: every pick in
+ * every short, each in its own order. FitLength: quick shots cut to an exact length.
+ */
+export const AUTO_SHORT_LAYOUTS = ['Spread', 'AllInEach', 'FitLength'] as const;
+export type AutoShortLayout = (typeof AUTO_SHORT_LAYOUTS)[number];
+
+/** Several different shorts cut automatically from the chosen clips, pictures and lines. */
+export interface AutoShortsBody {
+  sourceAssetIds: string[];
+  lines: string[];
+  musicAssetIds: string[];
+  /** 0 with Spread makes as many shorts as it takes to use every pick once. */
+  count: number;
+  /** Exact length with FitLength; the most a short may run otherwise. */
+  targetSeconds: number;
+  layout: AutoShortLayout;
+  /** How long each picture holds (Spread and AllInEach). */
+  imageSeconds: number;
+  /** Longest stretch of one video (Spread and AllInEach); null plays each in full. */
+  maxClipSeconds: number | null;
+  style: AutoShortStyle;
+  textMode: AutoShortTextMode;
+  transitions: boolean;
+  motion: boolean;
+  keepClipAudio: boolean;
+  exportName?: string | null;
+  width: number;
+  height: number;
+  fit: ClipFit;
+  quality: ExportQuality;
+  watermark: WatermarkBody;
+  includeOutro: boolean;
+  seed?: number | null;
+  /** Copy each short to Google Drive as soon as it has rendered - on the server. */
+  saveToDrive?: boolean;
+  /** Whose Drive and folder; null is the personal Drive. */
+  driveChannelId?: string | null;
+  /** A folder for this batch; empty uses the channel's (or the Drive's) default. */
+  driveFolderName?: string | null;
+}
+
+/** A queued Auto Shorts batch. */
+export interface AutoShortsResult {
+  batchId: string;
+  batchName: string;
+  jobs: RenderJob[];
+  /** Picks no short used - left for the next batch. */
+  unusedAssetIds: string[];
+}
+
+/** One short as a batch with the current settings would cut it. */
+export interface AutoShortPreviewItem {
+  name: string;
+  seconds: number;
+  videos: number;
+  images: number;
+  assetIds: string[];
+}
+
+export interface AutoShortsPreview {
+  shorts: AutoShortPreviewItem[];
+  unusedAssetIds: string[];
+}
+
 export interface ClipMergeBody {
   exportName?: string;
   assetIds: string[];
   fit: ClipFit;
+  /** #rrggbb fill for the Contain bars; omitted is black. */
+  backgroundColor?: string | null;
   outputWidth?: number;
   outputHeight?: number;
   quality?: ExportQuality;
@@ -697,12 +1060,27 @@ export interface ClipMergeBody {
   watermark: WatermarkBody;
   /** End with the saved outro or QR end card (Admin &gt; Branding, or the project's own). */
   includeOutro?: boolean;
+  /** Seconds to hold the last frame before the end card, so it starts after music/text that runs on. */
+  outroHoldSeconds?: number;
+  /** Level the finished mix to YouTube's -14 LUFS. */
+  youTubeLoudness?: boolean;
   timelineItems?: TimelineItem[] | null;
   /**
    * Stretches where the music must drop under the clips above it. Ducking the music cannot be
    * folded into a clip's own volume, so the server builds a gain envelope from these.
    */
   musicDuckWindows?: MusicDuckWindowBody[] | null;
+  /**
+   * Blank stretches the cut opens for images, overlay videos and text that take their own
+   * slot, which the export then draws into. Omitted means the clips play back to back.
+   */
+  slots?: ClipSlotBody[] | null;
+}
+
+/** A blank stretch in the cut, played before clip `beforeClipIndex` (the clip count = after the last). */
+export interface ClipSlotBody {
+  beforeClipIndex: number;
+  seconds: number;
 }
 
 /** One stretch of the finished timeline over which the music plays at a reduced level. */
@@ -1109,8 +1487,82 @@ export interface ProjectEdit {
   pendingRangeEnd: number | null;
   createdAt: string;
   updatedAt: string;
+  /** Its place in the project, in the order videos were made (#1, #2...); never reused. */
+  number: number;
+  /** Library videos the timeline starts with, until the editor first saves it. */
+  initialAssetIds: string[];
+  /** Exported or not, on YouTube or not. */
+  publish: EditPublishInfo;
   /** Only on a single-cut fetch. */
   draftJson?: string | null;
+}
+
+export type EditExportState = 'NotExported' | 'Exporting' | 'Exported' | 'Failed';
+/** Uploaded = from the app (found through an export); MarkedUploaded = the user said so. */
+export type EditYouTubeState = 'NotUploaded' | 'Uploaded' | 'MarkedUploaded';
+
+export interface EditPublishInfo {
+  exportState: EditExportState;
+  lastExportedAt: string | null;
+  youTubeState: EditYouTubeState;
+  youTubeVideoId: string | null;
+  youTubeUrl: string | null;
+  youTubeHealth: string | null;
+  uploadedAt: string | null;
+}
+
+export interface EditStatusBadge {
+  /** CSS modifier: yt | yt-marked | exported | exporting | failed | none */
+  kind: 'yt' | 'yt-marked' | 'exported' | 'exporting' | 'failed' | 'none';
+  label: string;
+  title: string;
+}
+
+/** One badge saying how far a video got: on YouTube, exported, or not yet. */
+export function editStatusBadge(e: ProjectEdit): EditStatusBadge {
+  const p = e.publish;
+  if (!p) return { kind: 'none', label: 'Not exported', title: 'Not exported yet' };
+  if (p.youTubeState === 'Uploaded') {
+    const issue = p.youTubeHealth && p.youTubeHealth !== 'Ok' && p.youTubeHealth !== 'Processing' ? ` (${p.youTubeHealth})` : '';
+    return { kind: 'yt', label: `On YouTube${issue}`, title: 'Uploaded to YouTube from AnimStudio' };
+  }
+  if (p.youTubeState === 'MarkedUploaded') {
+    return { kind: 'yt-marked', label: 'On YouTube', title: 'You marked this as uploaded to YouTube' };
+  }
+  switch (p.exportState) {
+    case 'Exported': return { kind: 'exported', label: 'Exported', title: 'Exported, not on YouTube yet' };
+    case 'Exporting': return { kind: 'exporting', label: 'Exporting…', title: 'An export is running' };
+    case 'Failed': return { kind: 'failed', label: 'Export failed', title: 'The last export failed' };
+    default: return { kind: 'none', label: 'Not exported', title: 'Not exported or uploaded yet' };
+  }
+}
+
+/**
+ * The next "Short 7" / "Video 3" style number: one past the highest already used, so a
+ * deleted "Short 5" never comes back as a second "Short 5" next to a newer one.
+ */
+export function nextEditNumber(format: EditFormat, taken: { name: string }[]): number {
+  const prefix = editNamePrefix(format).toLowerCase();
+  let max = 0;
+  for (const e of taken) {
+    const m = /^(\S+)\s+(\d+)\b/.exec(e.name.trim().toLowerCase());
+    if (m && m[1] === prefix) max = Math.max(max, Number(m[2]));
+  }
+  return max + 1;
+}
+
+export function editNamePrefix(format: EditFormat): string {
+  return format === 'Short' ? 'Short' : format === 'Square' ? 'Square' : 'Video';
+}
+
+export function nextEditName(format: EditFormat, taken: { name: string }[]): string {
+  return `${editNamePrefix(format)} ${nextEditNumber(format, taken)}`;
+}
+
+/** Whether another video of the project already uses this name (trimmed, case ignored). */
+export function editNameTaken(name: string, edits: { id: string; name: string }[], exceptId?: string): boolean {
+  const key = name.trim().toLowerCase();
+  return !!key && edits.some((e) => e.id !== exceptId && e.name.trim().toLowerCase() === key);
 }
 
 export type CreateEditMode = 'Blank' | 'Copy' | 'Range';
@@ -1124,6 +1576,8 @@ export interface CreateEditBody {
   sourceEditId?: string | null;
   rangeStart?: number | null;
   rangeEnd?: number | null;
+  /** Blank only: library videos the timeline starts with, in this order. */
+  initialAssetIds?: string[];
 }
 
 export interface UpdateEditBody {

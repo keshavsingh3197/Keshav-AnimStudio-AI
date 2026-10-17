@@ -71,6 +71,15 @@ public static partial class MediaDownloadFailureClassifier
         // members-only post (a group post, a private audience) serves a sign-in wall instead, so
         // the scrape finds no <video> at all - indistinguishable from a layout change, hence the
         // hint covering both. Must stay ahead of "downloader-outdated", which matches the same line.
+        // Facebook's own form of the same thing: a reel or video it only shows signed-in
+        // viewers comes back as a page with no video data in it, which yt-dlp reports as
+        // "Cannot parse data" - on the latest build as much as an old one, so updating is
+        // not the fix; cookies are.
+        ("page-not-readable", ["cannot parse data"],
+            "{0} didn't return this video to a signed-out visitor.",
+            "Facebook now shows many reels and videos only to signed-in viewers. " + CookiesHint +
+            " If it still fails, the post is not public: " + DirectLinkHint),
+
         ("page-not-readable", ["unable to extract video", "unable to extract post", "unable to extract media"],
             "{0} didn't return a playable video for that post.",
             "Most often the post is only visible to signed-in members - a group post, or a private audience - and those cannot be fetched by link. " +

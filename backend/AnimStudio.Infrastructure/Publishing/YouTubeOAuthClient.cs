@@ -34,9 +34,26 @@ public sealed class YouTubeOAuthClient : IDisposable
 
     /// <summary>
     /// Upload is the scope that matters; readonly is only so <c>channels.list?mine=true</c>
-    /// can say which channel the user picked. Nothing here can edit or delete videos.
+    /// can say which channel the user picked; force-ssl is what <c>commentThreads.insert</c>
+    /// needs to post the first comment, and what the Live Streaming API needs to create a
+    /// broadcast and its stream key (<see cref="YouTubeLiveClient"/>). The app never deletes
+    /// videos with it; it only edits the snippet of a broadcast it just created. A channel
+    /// connected without it still uploads - only comments and live setup are unavailable.
     /// </summary>
-    public const string Scopes = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly";
+    public const string Scopes = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly " + CommentScope;
+
+    public const string CommentScope = "https://www.googleapis.com/auth/youtube.force-ssl";
+
+    /// <summary>
+    /// Send to phone (<see cref="GoogleDriveConnectionStore"/>): only files and folders the app
+    /// creates itself - never the rest of the Drive. Asked for on its own sign-in, separate
+    /// from the channel's, since a brand-account channel has no Drive.
+    /// </summary>
+    public const string DriveScopes = "https://www.googleapis.com/auth/drive.file";
+
+    /// <summary>Whether a connection's granted scopes let it post comments.</summary>
+    public static bool AllowsComments(string? grantedScopes) =>
+        (grantedScopes ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains(CommentScope, StringComparer.Ordinal);
 
     private readonly IOptionsMonitor<YouTubePublishOptions> _options;
     private readonly ILogger<YouTubeOAuthClient> _logger;
@@ -66,7 +83,8 @@ public sealed class YouTubeOAuthClient : IDisposable
 
     public bool IsConfigured => _options.CurrentValue.IsConfigured;
 
-    public string BuildAuthorizationUrl(string state, string codeChallenge)
+    /// <param name="scopes"><see cref="Scopes"/> for a channel, <see cref="DriveScopes"/> for a Drive.</param>
+    public string BuildAuthorizationUrl(string state, string codeChallenge, string scopes = Scopes)
     {
         var options = RequireConfigured();
         var query = new Dictionary<string, string>
@@ -74,7 +92,7 @@ public sealed class YouTubeOAuthClient : IDisposable
             ["client_id"] = options.ClientId!.Trim(),
             ["redirect_uri"] = options.RedirectUri,
             ["response_type"] = "code",
-            ["scope"] = Scopes,
+            ["scope"] = scopes,
             // offline + consent: a refresh token every time, even for a channel connected before.
             ["access_type"] = "offline",
             ["prompt"] = "consent select_account",
@@ -168,7 +186,8 @@ public sealed class YouTubeOAuthClient : IDisposable
         if (snippet.ValueKind == JsonValueKind.Object && snippet.TryGetProperty("thumbnails", out var thumbs)
             && thumbs.ValueKind == JsonValueKind.Object)
         {
-            foreach (var size in new[] { "default", "medium", "high" })
+            // Largest first: the picture can also become a watermark logo, where 88px would be blurry.
+            foreach (var size in new[] { "high", "medium", "default" })
             {
                 if (thumbs.TryGetProperty(size, out var t) && t.TryGetProperty("url", out var url)
                     && Uri.TryCreate(url.GetString(), UriKind.Absolute, out var parsed) && parsed.Scheme == Uri.UriSchemeHttps)

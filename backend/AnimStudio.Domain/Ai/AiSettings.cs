@@ -126,9 +126,28 @@ public sealed class AiSettings
         BrandChannel.IsDefault(channelId) ? DefaultPublishing : FindChannel(channelId)?.Publishing;
 
     /// <summary>
+    /// Makes <paramref name="channel"/> the default by swapping places: its name, look and
+    /// publishing move into the default slots, and the old default's move into its entry,
+    /// which keeps its id. Whatever is keyed by those ids (projects, stream keys) has to be
+    /// swapped the same way by the caller, or it would follow the wrong channel.
+    /// </summary>
+    public void SwapWithDefault(BrandChannel channel)
+    {
+        (DefaultChannelName, channel.Name) = (channel.Name, DefaultChannelName);
+        (DefaultWatermark, channel.Watermark) = (channel.Watermark, DefaultWatermark ?? new WatermarkSettings());
+        (DefaultOutro, channel.Outro) = (channel.Outro, DefaultOutro ?? new OutroSettings());
+        (DefaultPublishing, channel.Publishing) = (channel.Publishing, DefaultPublishing);
+    }
+
+    /// <summary>
     /// Global default duration in seconds when chunking or splitting videos (default: 10.0s).
     /// </summary>
     public double DefaultChunkDurationSeconds { get; set; } = 10.0;
+
+    /// <summary>
+    /// How long an image plays when it is added to the timeline, unless the project sets its own.
+    /// </summary>
+    public double DefaultImageDurationSeconds { get; set; } = Projects.ImageDurationLimits.Default;
 
     /// <summary>
     /// The space set aside for durable media, in GB - what the storage bar fills against.

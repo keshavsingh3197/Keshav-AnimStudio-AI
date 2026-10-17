@@ -15,6 +15,25 @@ public sealed record CharacterAppearanceCommand
     public string? AdditionalDetails { get; init; }
 }
 
+public sealed record CharacterVoiceCommand
+{
+    /// <summary>False clears the voice: the character speaks in the performer's own voice.</summary>
+    public bool Enabled { get; init; }
+    public string? Preset { get; init; }
+    public double PitchSemitones { get; init; }
+    public double SizeSemitones { get; init; }
+    public double BassDecibels { get; init; }
+    public double TrebleDecibels { get; init; }
+    public double Drive { get; init; }
+    public double Robot { get; init; }
+    public double RobotHertz { get; init; } = 60;
+    public bool Radio { get; init; }
+    public double Echo { get; init; }
+    public double Reverb { get; init; }
+    public string? AiSampleAssetId { get; init; }
+    public bool AiSampleConsent { get; init; }
+}
+
 public sealed record UpsertCharacterCommand
 {
     /// <summary>Null when creating; the character being edited otherwise.</summary>
@@ -33,6 +52,9 @@ public sealed record UpsertCharacterCommand
 
     /// <summary>Null leaves the recorded appearance untouched.</summary>
     public CharacterAppearanceCommand? Appearance { get; init; }
+
+    /// <summary>Null leaves the recorded voice untouched.</summary>
+    public CharacterVoiceCommand? Voice { get; init; }
 }
 
 /// <summary>
@@ -62,6 +84,9 @@ public sealed class CharacterEditingService(
                 "A subtitle colour must look like #RRGGBB.");
         }
 
+        var voice = command.Voice is { } voiceCommand ? CharacterVoiceRules.ToVoice(voiceCommand) : null;
+
+        await EnsureVoiceSampleAsync(voice?.AiSampleAssetId, project.Id, ct).ConfigureAwait(false);
         await EnsureSpriteAsync(command.ClosedMouthAssetId, project.Id, ct).ConfigureAwait(false);
         await EnsureSpriteAsync(command.OpenMouthAssetId, project.Id, ct).ConfigureAwait(false);
 
@@ -105,6 +130,9 @@ public sealed class CharacterEditingService(
                 AdditionalDetails = Blank(appearance.AdditionalDetails)
             };
         }
+
+        if (command.Voice is not null)
+            character.Voice = voice;
 
         character.UpdatedAt = now;
 
@@ -187,6 +215,20 @@ public sealed class CharacterEditingService(
 
         if (asset.Kind != AssetKind.Image)
             throw EditingException.Invalid("asset-wrong-kind", $"'{asset.Name}' is not an image.");
+    }
+
+    /// <summary>A voice sample is a recording in this project: audio, or a video whose sound is used.</summary>
+    private async Task EnsureVoiceSampleAsync(string? assetId, string projectId, CancellationToken ct)
+    {
+        if (assetId is null) return;
+
+        var asset = await assets.GetAsync(assetId, ct).ConfigureAwait(false);
+
+        if (asset is null || !string.Equals(asset.ProjectId, projectId, StringComparison.Ordinal))
+            throw EditingException.Invalid("asset-not-found", "That voice sample is not in this project.");
+
+        if (asset.Kind is not (AssetKind.Audio or AssetKind.Video))
+            throw EditingException.Invalid("asset-wrong-kind", $"'{asset.Name}' has no sound to use as a voice sample.");
     }
 
     private async Task<Project> LoadProjectAsync(string projectId, string userId, CancellationToken ct)

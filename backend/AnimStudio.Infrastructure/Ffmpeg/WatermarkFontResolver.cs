@@ -1,3 +1,4 @@
+using AnimStudio.Application.Rendering.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -140,6 +141,13 @@ public sealed class WatermarkFontResolver
             ? FontFilePath
             : _byScript.GetOrAdd(script, s => ScriptFonts.Find(s));
     }
+
+    /// <summary>
+    /// <paramref name="line"/> cut into runs per face, so emoji and symbols that
+    /// <paramref name="primaryFont"/> lacks draw from a face that has them. Null when the
+    /// whole line draws in <paramref name="primaryFont"/>. See <see cref="FontRunSplitter"/>.
+    /// </summary>
+    public FontRunLine? RunsFor(string line, string primaryFont) => FontRunSplitter.Split(line, primaryFont);
 
     /// <summary>
     /// The first font file this machine actually has. Public and static so the render

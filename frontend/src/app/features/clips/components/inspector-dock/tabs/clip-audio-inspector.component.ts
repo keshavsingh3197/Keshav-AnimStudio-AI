@@ -31,6 +31,21 @@ export class ClipAudioInspectorComponent {
     return target ? this.state.resolveOverlap(target.clipId) : null;
   });
 
+  /** Opens the selected clip or item's file in the inspector, placed where it sits on the timeline. */
+  inspect(id: string, isTimelineItem: boolean): void {
+    if (isTimelineItem) {
+      const item = this.state.timelineItems().find((i) => i.id === id);
+      if (item) this.state.inspectTimelineItem(item);
+      return;
+    }
+    const sched = this.state.clipSchedule().find((s) => s.clip.id === id);
+    if (sched) this.state.inspectScheduledClip(sched);
+    else {
+      const clip = this.state.activeTargetClip();
+      if (clip) this.state.inspectClip(clip);
+    }
+  }
+
   /** Plain sentence naming the rule in force and the level that set it. */
   resolvedLine(): string {
     const r = this.resolved();
@@ -66,6 +81,26 @@ export class ClipAudioInspectorComponent {
     if (ids.length === 0) return null;
     const first = this.state.clipOverlapRule(ids[0]);
     return ids.every((id) => this.state.clipOverlapRule(id) === first) ? first : null;
+  }
+
+  useLabel(volume: number, hideVideo: boolean): string {
+    if (hideVideo) return volume > 0 ? 'Sound only' : 'Nothing (muted + hidden)';
+    return volume > 0 ? 'Video + sound' : 'Video only';
+  }
+
+  useBoth(clipId: string, volume: number): void {
+    this.state.setClipHideVideo(clipId, false);
+    if (volume === 0) this.state.setClipVolume(clipId, 1);
+  }
+
+  useVideoOnly(clipId: string): void {
+    this.state.setClipHideVideo(clipId, false);
+    this.state.setClipVolume(clipId, 0);
+  }
+
+  useSoundOnly(clipId: string, volume: number): void {
+    this.state.setClipHideVideo(clipId, true);
+    if (volume === 0) this.state.setClipVolume(clipId, 1);
   }
 
   scopeLabel(): string {

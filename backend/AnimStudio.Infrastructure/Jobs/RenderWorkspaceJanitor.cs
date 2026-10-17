@@ -1,5 +1,6 @@
 using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Infrastructure.Ffmpeg;
+using AnimStudio.Infrastructure.Storage;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -83,6 +84,9 @@ public sealed class RenderWorkspaceJanitor(
 
             // A live job's workspace is in use; never touch it.
             if (activeIds.Contains(jobId)) continue;
+
+            // Nor one this process still has open: voice conversions and studio takes have no job.
+            if (LocalRenderWorkspace.IsOpen(directory)) continue;
 
             // A retained failure diagnosis is kept until it ages out.
             var isRetainedFailure = File.Exists(Path.Combine(directory, ".failed"));

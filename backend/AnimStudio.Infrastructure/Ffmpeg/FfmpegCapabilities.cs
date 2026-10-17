@@ -24,6 +24,11 @@ public sealed class FfmpegCapabilities : IRenderCapabilities
     public bool HasLibx264 { get; init; }
     public bool HasAac { get; init; }
 
+    /// <summary>Studio voice: formant-aware pitch shifting, the hall, and WebM audio.</summary>
+    public bool HasRubberband { get; init; }
+    public bool HasAfir { get; init; }
+    public bool HasLibopus { get; init; }
+
     // --- Hardware encoder availability (probed via test-encode at startup) ---
 
     /// <summary>NVIDIA NVENC h264 encoder (requires CUDA-capable GPU + driver).</summary>

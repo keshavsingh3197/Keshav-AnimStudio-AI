@@ -263,7 +263,11 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         var rate = canvas.FrameRate;
         var warnings = new List<string>();
         var inputArgsList = new List<string>();
-        if (plan.SourceIsImage)
+        if (plan.SourceIsBlank)
+        {
+            inputArgsList.AddRange(["-f", "lavfi"]);
+        }
+        else if (plan.SourceIsImage)
         {
             inputArgsList.AddRange(["-loop", "1", "-t", FilterExpr.N(plan.ImageDurationSeconds)]);
         }
@@ -291,7 +295,17 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
                 inputArgsList.AddRange(["-t", FilterExpr.N(durationToExtract.Value)]);
             }
         }
-        var inputs = new List<FfmpegInputSpec> { new(inputArgsList, plan.SourceRelativePath) };
+        // A slot is drawn from a colour source the size of the canvas, so the fit below is a
+        // no-op on it and the watermark lands exactly where it does on every other clip.
+        var inputs = new List<FfmpegInputSpec>
+        {
+            plan.SourceIsBlank
+                ? new(inputArgsList,
+                    $"color=c={PadColor(plan.PadColorRgb)}:s={canvas.Width}x{canvas.Height}"
+                    + $":r={rate.ToFfmpegRate()}:d={FilterExpr.N(plan.ImageDurationSeconds)}")
+                { IsLavfi = true }
+                : new(inputArgsList, plan.SourceRelativePath)
+        };
         var graph = new StringBuilder();
 
         var fit = plan.Fit;
@@ -343,10 +357,50 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
             drawsText = false;
         }
 
-        graph.Append(FitChain(fit, canvas, rate, plan.Encoder.PixelFormat, plan, source));
+        var cinematic = plan.SourceIsImage ? plan.Cinematic : null;
+        if (cinematic is { Moves: true } && !capabilities.Supports(RenderFeature.KenBurns))
+        {
+            // The grade still applies; only the move is lost.
+            warnings.Add("IMAGE_MOTION_UNAVAILABLE");
+            cinematic = cinematic with { Motion = ImageMotion.None };
+        }
 
         var current = "base";
         var stage = 0;
+
+        if (cinematic is { Moves: true })
+        {
+            // Fitted at a multiple of the canvas, then moved and scaled back down by zoompan.
+            var k = Math.Max(plan.MotionSupersample, 1);
+            graph.Append(FitChain(fit, canvas with { Width = canvas.Width * k, Height = canvas.Height * k },
+                rate, plan.Encoder.PixelFormat, plan, source));
+
+            var frames = FrameCount.FromSeconds(plan.ImageDurationSeconds, rate).Value;
+            var next = $"m{++stage}";
+            graph.Append($"[{current}]{CinematicImageFilters.Motion(cinematic, canvas, frames)}")
+                 .Append($",setsar=1,format={plan.Encoder.PixelFormat}[{next}];\n");
+            current = next;
+        }
+        else
+        {
+            graph.Append(FitChain(fit, canvas, rate, plan.Encoder.PixelFormat, plan, source));
+        }
+
+        if (cinematic is not null && CinematicImageFilters.Finish(cinematic, canvas) is { Length: > 0 } finish)
+        {
+            var next = $"g{++stage}";
+            graph.Append($"[{current}]{finish},format={plan.Encoder.PixelFormat}[{next}];\n");
+            current = next;
+        }
+
+        // Audio-only clip: the frame is painted over with the backdrop, after the fit so the
+        // size and timing are the normal clip's, and before the watermark so the mark stays.
+        if (plan.HideVideo)
+        {
+            var next = $"h{++stage}";
+            graph.Append($"[{current}]drawbox=x=0:y=0:w=iw:h=ih:color={PadColor(plan.PadColorRgb)}:t=fill[{next}];\n");
+            current = next;
+        }
 
         if (drawsLogo)
         {
@@ -435,6 +489,8 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
             { IsLavfi = true }
         };
 
+        if (card.Animate) return BuildAnimatedEndCard(plan, card, inputs, warnings);
+
         var graph = new StringBuilder();
         graph.Append("[0:v]setsar=1");
         if (card.BoxSize > 0)
@@ -498,6 +554,114 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
     }
 
     /// <summary>
+    /// The same card with its pieces arriving one after another: the lines above the code
+    /// drop in from above, the code and the lines below it rise into place, each easing in
+    /// and fading up. drawbox cannot move, so the white square is a colour source carrying
+    /// the code, laid over the background like any other moving overlay.
+    /// <para>
+    /// The cascade is squeezed into the first 60% of a short card, so every piece has
+    /// settled well before the card ends however brief it is.
+    /// </para>
+    /// </summary>
+    private FilterGraphPlan BuildAnimatedEndCard(
+        ClipRenderPlan plan, EndCardPlan card, List<FfmpegInputSpec> inputs, List<string> warnings)
+    {
+        var canvas = plan.Canvas;
+        var rate = canvas.FrameRate;
+        var seconds = plan.ImageDurationSeconds;
+        var duration = FilterExpr.N(seconds);
+
+        // Pieces in reading order: lines above the code, the code, lines below it.
+        var aboveCount = card.BoxSize > 0 ? card.Lines.Count(l => l.Y < card.BoxY) : card.Lines.Count;
+        var pieces = card.Lines.Count + (card.BoxSize > 0 ? 1 : 0);
+        const double lead = 0.15, step = 0.18, ease = 0.6;
+        var squeeze = Math.Min(1, seconds * 0.6 / (lead + step * Math.Max(0, pieces - 1) + ease));
+        var travel = (int)Math.Round(canvas.Height * 0.06);
+
+        string Delay(int order) => FilterExpr.N(Math.Round((lead + step * order) * squeeze, 3));
+        string Ease(int order) =>
+            $"(1-pow(1-clip((t-{Delay(order)})/{FilterExpr.N(Math.Round(ease * squeeze, 3))},0,1),3))";
+
+        var graph = new StringBuilder();
+        graph.Append("[0:v]setsar=1[bg];\n");
+        var current = "bg";
+
+        var canDrawText = capabilities.Supports(RenderFeature.DrawText);
+        if (card.Lines.Count > 0 && !canDrawText) warnings.Add("ENDCARD_TEXT_UNAVAILABLE");
+
+        void DrawLine(int index, int order, bool fromAbove)
+        {
+            var line = card.Lines[index];
+            var label = $"ct{index}";
+            var e = Ease(order);
+            var y = fromAbove ? $"{line.Y}-{travel}*(1-{e})" : $"{line.Y}+{travel}*(1-{e})";
+
+            graph.Append($"[{current}]drawtext=")
+                 .Append($"textfile={FilterExpr.Quote(FilterExpr.Path(line.TextRelativePath))}")
+                 .Append($":fontfile={FilterExpr.Quote(FilterExpr.Path(line.FontFilePath))}")
+                 .Append($":reload=0:fontsize={line.FontPixels}")
+                 .Append($":fontcolor=0x{card.TextRgb}@{FilterExpr.N(line.Opacity)}")
+                 .Append($":alpha={FilterExpr.Quote(e)}")
+                 .Append($":x=(w-text_w)/2:y={FilterExpr.Quote(y)}[{label}];\n");
+            current = label;
+        }
+
+        var order = 0;
+        if (canDrawText)
+        {
+            for (var i = 0; i < aboveCount; i++) DrawLine(i, order++, fromAbove: true);
+        }
+        else
+        {
+            order += aboveCount;
+        }
+
+        if (card.BoxSize > 0)
+        {
+            graph.Append($"color=c=white:s={card.BoxSize}x{card.BoxSize}:r={rate.ToFfmpegRate()}:d={duration},format=rgba[box];\n");
+            var box = "box";
+
+            if (card.QrRelativePath is { Length: > 0 } qr)
+            {
+                var qrInput = inputs.Count;
+                inputs.Add(new FfmpegInputSpec([], qr));
+                graph.Append($"[{qrInput}:v]scale={card.QrSize}:{card.QrSize}")
+                     .Append(":force_original_aspect_ratio=decrease:flags=neighbor,format=rgba[qr];\n")
+                     .Append("[box][qr]overlay=x=(W-w)/2:y=(H-h)/2:eof_action=repeat:format=auto[boxq];\n");
+                box = "boxq";
+            }
+
+            var e = Ease(order);
+            graph.Append($"[{box}]fade=t=in:st={Delay(order)}:d={FilterExpr.N(Math.Round(ease * squeeze, 3))}:alpha=1[boxf];\n")
+                 .Append($"[{current}][boxf]overlay=x={card.BoxX}")
+                 .Append($":y={FilterExpr.Quote($"{card.BoxY}+{travel}*(1-{e})")}:format=auto[cq];\n");
+            current = "cq";
+            order++;
+        }
+
+        if (canDrawText)
+        {
+            for (var i = aboveCount; i < card.Lines.Count; i++) DrawLine(i, order++, fromAbove: false);
+        }
+
+        var fadeIn = card.FadeInSeconds > 0
+            ? $"fade=t=in:st=0:d={FilterExpr.N(card.FadeInSeconds)},"
+            : string.Empty;
+        graph.Append($"[{current}]{fadeIn}format={plan.Encoder.PixelFormat}[vout];\n");
+        graph.Append(ClipAudio(plan, inputs));
+
+        return new FilterGraphPlan
+        {
+            Inputs = inputs,
+            FilterComplex = graph.ToString(),
+            OutputArguments = ClipOutputArguments(plan),
+            OutputRelativePath = plan.OutputRelativePath,
+            ExpectedFrames = plan.ExpectedFrames,
+            Warnings = warnings
+        };
+    }
+
+    /// <summary>
     /// One clip's audio, ending at <c>[aout]</c> - which every clip MUST produce, even a
     /// silent one, or the concat demuxer writes a file that plays the first clip and stalls.
     /// <para>
@@ -518,7 +682,8 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         var format = AudioFilters.Format(plan.Encoder);
 
         var ownVolume = Math.Clamp(plan.AudioVolume, 0, ClipAudioSpec.MaxGain);
-        var usesOwn = plan.SourceHasAudio && !plan.MuteAudio && ownVolume > 0;
+        // A slot is a colour source: it has no sound of its own, whatever the plan says.
+        var usesOwn = plan.SourceHasAudio && !plan.SourceIsBlank && !plan.MuteAudio && ownVolume > 0;
 
         var extraVolume = Math.Clamp(plan.ExtraAudioVolume, 0, ClipAudioSpec.MaxGain);
         var hasExtra = plan.ExtraAudioRelativePath is { Length: > 0 } && extraVolume > 0;
@@ -636,13 +801,24 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
                 + "[bgblur][fgfit]overlay=format=auto:x=(main_w-overlay_w)/2"
                 + $":y=(main_h-overlay_h)/2,fps={rate.ToFfmpegRate()}[base];\n",
 
-            // Letterbox on black. Loses nothing.
+            // Letterbox on the chosen colour, black unless told otherwise. Loses nothing.
             _ => matchesExactCanvas
                 ? $"[{source}]{conform}[base];\n"
                 : $"[{source}]{cropPrefix}scale={size}:force_original_aspect_ratio=decrease:flags=bicubic,"
-                  + $"pad={size}:(ow-iw)/2:(oh-ih)/2:color=black,{conform}[base];\n"
+                  + $"pad={size}:(ow-iw)/2:(oh-ih)/2:color={PadColor(plan.PadColorRgb)},{conform}[base];\n"
         };
     }
+
+    /// <summary>
+    /// <c>black</c> for the default, so every graph built before bar colours existed is the
+    /// graph it always was; otherwise the colour as ffmpeg spells it.
+    /// </summary>
+    /// <summary>A pixel width yuv420p can carry: rounded to even, never below two.</summary>
+    private static string EvenAtLeastTwo(double pixels) =>
+        Math.Max(2, (int)Math.Round(pixels / 2) * 2).ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    private static string PadColor(string rgb) =>
+        rgb is "000000" || rgb.Length != 6 || !rgb.All(char.IsAsciiHexDigit) ? "black" : $"0x{rgb}";
 
     /// <summary>
     /// Builds an inline crop= filter fragment (no leading '[0:v]', no trailing '[out]').
@@ -856,13 +1032,14 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
                  .Append(AudioFilters.TimedTrack(
                      track.Volume, track.StartSeconds, track.TrimStartSeconds,
                      track.TrimEndSeconds, plan.Encoder))
-                 .Append(duckSuffix)
+                 .Append(track.IsVoiceover ? string.Empty : duckSuffix)
                  .Append($"[{label}];\n");
             mixLabels.Add(label);
         }
 
         graph.Append('[').Append(string.Join("][", mixLabels)).Append(']')
              .Append(AudioFilters.Mix(mixLabels.Count, capabilities.Supports(RenderFeature.AudioLimiter)))
+             .Append(plan.YouTubeLoudness ? "," + AudioFilters.YouTubeLoudness(plan.Encoder) : string.Empty)
              .Append("[afinal]");
 
         var outputArguments = new List<string>
@@ -933,9 +1110,19 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
             var name = transition.ToXfadeName() ?? "fade";
             var next = $"vx{k}";
 
-            graph.Append($"[{videoLabel}][v{k + 1}]xfade=transition={name}")
-                 .Append($":duration={FilterExpr.Sec(durations[k], rate)}")
-                 .Append($":offset={FilterExpr.Sec(offsets[k], rate)}[{next}];\n");
+            if (durations[k].Value == 0)
+            {
+                // A hard cut is a concat, never a zero-length xfade: xfade with duration=0
+                // ends at its offset and silently drops the whole second input - which is
+                // how an export with any overlay lost its end card.
+                graph.Append($"[{videoLabel}][v{k + 1}]concat=n=2:v=1:a=0[{next}];\n");
+            }
+            else
+            {
+                graph.Append($"[{videoLabel}][v{k + 1}]xfade=transition={name}")
+                     .Append($":duration={FilterExpr.Sec(durations[k], rate)}")
+                     .Append($":offset={FilterExpr.Sec(offsets[k], rate)}[{next}];\n");
+            }
             videoLabel = next;
         }
 
@@ -943,76 +1130,21 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
         for (var idx = 0; idx < plan.Overlays.Count; idx++)
         {
             var overlay = plan.Overlays[idx];
-            var nextVideoLabel = $"v_ov_{idx}";
-            var startSec = FilterExpr.N(overlay.StartSeconds);
-            var endSec = FilterExpr.N(overlay.StartSeconds + overlay.DurationSeconds);
 
             if (overlay.Type is "image" or "video" && overlay.RelativePath is { Length: > 0 })
             {
-                var ovInput = inputs.Count;
-                inputs.Add(new FfmpegInputSpec([], overlay.RelativePath));
-
-                var ovScaledLabel = $"ov_s_{idx}";
-                var scaleStr = overlay.Scale != 1.0 ? $",scale=iw*{FilterExpr.N(overlay.Scale)}:-1" : "";
-                var opacityStr = overlay.Opacity < 1.0 ? $",colorchannelmixer=aa={FilterExpr.N(overlay.Opacity)}" : "";
-
-                graph.Append($"[{ovInput}:v]format=rgba{scaleStr}{opacityStr}[{ovScaledLabel}];\n");
-                var fadeStr = "";
-                if (overlay.TransitionIn == "fade" && overlay.TransitionInDuration > 0)
-                {
-                    fadeStr += $",fade=t=in:st=0:d={FilterExpr.N(overlay.TransitionInDuration)}:alpha=1";
-                }
-                if (overlay.TransitionOut == "fade" && overlay.TransitionOutDuration > 0)
-                {
-                    var outStart = Math.Max(0, overlay.DurationSeconds - overlay.TransitionOutDuration);
-                    fadeStr += $",fade=t=out:st={FilterExpr.N(outStart)}:d={FilterExpr.N(overlay.TransitionOutDuration)}:alpha=1";
-                }
-
-                graph.Append($"[{ovInput}:v]format=rgba{scaleStr}{opacityStr}{fadeStr}[{ovScaledLabel}];\n");
-
-                var xPos = overlay.X != 0 ? $"(W-w)/2+W*{FilterExpr.N(overlay.X / 100.0)}" : "(W-w)/2";
-                var yPos = overlay.Y != 0 ? $"(H-h)/2+H*{FilterExpr.N(overlay.Y / 100.0)}" : "(H-h)/2";
-
-                graph.Append($"[{currentVideoLabel}][{ovScaledLabel}]overlay=x={xPos}:y={yPos}:enable='between(t,{startSec},{endSec})'[{nextVideoLabel}];\n");
-                currentVideoLabel = nextVideoLabel;
+                currentVideoLabel = MediaOverlayFilters.Append(
+                    graph, inputs, currentVideoLabel, idx, overlay, plan.Canvas,
+                    capabilities.Supports(RenderFeature.KenBurns));
             }
-            else if (overlay.Type == "text" && !string.IsNullOrWhiteSpace(overlay.Text))
+            else if (overlay is { Type: "text", Text: { } text })
             {
-                var fontSize = FilterExpr.N(overlay.FontSize > 0 ? overlay.FontSize : 36);
-                var fontColor = !string.IsNullOrEmpty(overlay.Color) ? overlay.Color : "#ffffff";
-                var bgColor = !string.IsNullOrEmpty(overlay.BackgroundColor) ? overlay.BackgroundColor : "black@0.6";
-
-                string yPos = overlay.Position?.ToLowerInvariant() switch
-                {
-                    "top" => "h*0.1",
-                    "center" => "(h-text_h)/2",
-                    _ => "h*0.85-text_h"
-                };
-
-                var safeText = overlay.Text
-                    .Replace(@"\", @"\\")
-                    .Replace("'", @"\'")
-                    .Replace(":", @"\:");
-
-                graph.Append($"[{currentVideoLabel}]drawtext=text='{safeText}':fontsize={fontSize}:fontcolor={fontColor}:box=1:boxcolor={bgColor}:boxborderw=10:x=(w-text_w)/2:y={yPos}:enable='between(t,{startSec},{endSec})'[{nextVideoLabel}];\n");
-                var alphaExpr = "";
-                var inDur = FilterExpr.N(overlay.TransitionInDuration > 0 ? overlay.TransitionInDuration : 0.5);
-                var outDur = FilterExpr.N(overlay.TransitionOutDuration > 0 ? overlay.TransitionOutDuration : 0.5);
-                if (overlay.TransitionIn == "fade" && overlay.TransitionOut == "fade")
-                {
-                    alphaExpr = $":alpha='if(lt(t,{startSec}+{inDur}),(t-{startSec})/{inDur},if(gt(t,{endSec}-{outDur}),({endSec}-t)/{outDur},1))'";
-                }
-                else if (overlay.TransitionIn == "fade")
-                {
-                    alphaExpr = $":alpha='if(lt(t,{startSec}+{inDur}),(t-{startSec})/{inDur},1)'";
-                }
-                else if (overlay.TransitionOut == "fade")
-                {
-                    alphaExpr = $":alpha='if(gt(t,{endSec}-{outDur}),({endSec}-t)/{outDur},1)'";
-                }
-
-                graph.Append($"[{currentVideoLabel}]drawtext=text='{safeText}':fontsize={fontSize}:fontcolor={fontColor}:box=1:boxcolor={bgColor}:boxborderw=10:x=(w-text_w)/2:y={yPos}{alphaExpr}:enable='between(t,{startSec},{endSec})'[{nextVideoLabel}];\n");
-                currentVideoLabel = nextVideoLabel;
+                currentVideoLabel = TextOverlayFilters.Append(
+                    graph, currentVideoLabel, $"v_ov_{idx}", overlay, text, plan.Canvas);
+            }
+            else if (overlay is { Type: "celebration", Celebration: not null })
+            {
+                currentVideoLabel = CelebrationFilters.Append(graph, currentVideoLabel, idx, overlay, plan.Canvas);
             }
         }
 
@@ -1034,12 +1166,14 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
 
         var audioLabel = "a0";
         var useAudioCrossfade = capabilities.Supports(RenderFeature.AudioCrossFade);
-        if (!useAudioCrossfade && durations.Count > 0) warnings.Add("AUDIO_CROSSFADE_UNAVAILABLE");
+        if (!useAudioCrossfade && durations.Any(d => d.Value > 0)) warnings.Add("AUDIO_CROSSFADE_UNAVAILABLE");
 
         for (var k = 0; k < durations.Count; k++)
         {
             var next = $"ax{k}";
-            if (useAudioCrossfade)
+            // A hard cut concatenates: acrossfade with d=0 is not a no-op - it loses audio
+            // at the join, which would drift everything after it out of sync.
+            if (useAudioCrossfade && durations[k].Value > 0)
             {
                 // Filter options attach with '=', not ':': "acrossfade:d=0.5" is a parse error.
                 graph.Append($"[{audioLabel}][a{k + 1}]acrossfade")
@@ -1086,18 +1220,21 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
                      .Append(AudioFilters.TimedTrack(
                          track.Volume, track.StartSeconds, track.TrimStartSeconds,
                          track.TrimEndSeconds, plan.Encoder))
-                     .Append(duckSuffix)
+                     .Append(track.IsVoiceover ? string.Empty : duckSuffix)
                      .Append($"[{label}];\n");
                 mixLabels.Add(label);
             }
 
             graph.Append('[').Append(string.Join("][", mixLabels)).Append(']')
                  .Append(AudioFilters.Mix(mixLabels.Count, capabilities.Supports(RenderFeature.AudioLimiter)))
+                 .Append(plan.YouTubeLoudness ? "," + AudioFilters.YouTubeLoudness(plan.Encoder) : string.Empty)
                  .Append("[afinal]");
         }
         else
         {
-            graph.Append($"[{audioLabel}]anull[afinal]");
+            graph.Append($"[{audioLabel}]")
+                 .Append(plan.YouTubeLoudness ? AudioFilters.YouTubeLoudness(plan.Encoder) : "anull")
+                 .Append("[afinal]");
         }
 
         var rateArguments = new List<string>

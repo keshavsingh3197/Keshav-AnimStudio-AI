@@ -20,6 +20,9 @@ public class MediaSourceValidatorTests
     [InlineData("https://dms.licdn.com/playlist/vid/v2/D4D05AQ/mp4-720p-30fp-crf28/0/1699", "direct")]
     [InlineData("https://scontent-lhr8-1.cdninstagram.com/o1/v/t16/f1/m86/clip.mp4", "direct")]
     [InlineData("https://video.twimg.com/ext_tw_video/123/pu/vid/720x1280/abc.mp4", "direct")]
+    [InlineData("https://suno.com/s/EJNkIKevMH881izF", "suno")]
+    [InlineData("https://suno.com/song/dd960128-3027-4ed2-a87c-09ead3696137?sh=EJNkIKevMH881izF", "suno")]
+    [InlineData("https://cdn1.suno.ai/dd960128-3027-4ed2-a87c-09ead3696137.mp4", "direct")]
     public void Detects_the_platform_of_supported_video_links(string url, string platformId)
     {
         var result = MediaSourceValidator.Validate(url);
@@ -67,6 +70,25 @@ public class MediaSourceValidatorTests
 
         Assert.True(result.IsValid, result.ErrorMessage);
         Assert.Equal(url, result.CanonicalUrl);
+    }
+
+    [Fact]
+    public void Drops_the_share_code_from_a_suno_song_link()
+    {
+        var result = MediaSourceValidator.Validate(
+            "https://suno.com/song/dd960128-3027-4ed2-a87c-09ead3696137?sh=EJNkIKevMH881izF");
+
+        Assert.True(result.IsValid, result.ErrorMessage);
+        Assert.Equal("https://suno.com/song/dd960128-3027-4ed2-a87c-09ead3696137", result.CanonicalUrl);
+    }
+
+    [Fact]
+    public void Rejects_a_suno_profile_page()
+    {
+        var result = MediaSourceValidator.Validate("https://suno.com/@keshavsingh4522");
+
+        Assert.False(result.IsValid);
+        Assert.Equal("url-not-a-video", result.ErrorCode);
     }
 
     [Fact]
@@ -164,6 +186,7 @@ public class MediaDownloadFailureClassifierTests
     [InlineData("ERROR: [generic] Unsupported URL: https://example.com/", "unsupported-url")]
     [InlineData("ERROR: Unable to download webpage: <urlopen error [Errno 11001] getaddrinfo failed>", "network")]
     [InlineData("ERROR: [LinkedIn] 123: Unable to extract video; please report this issue on https://github.com/yt-dlp/yt-dlp/issues", "page-not-readable")]
+    [InlineData("ERROR: [facebook] 4415354785343966: Cannot parse data; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest version using  yt-dlp -U", "page-not-readable")]
     [InlineData("ERROR: [LinkedIn] 123: Unable to extract uploader id; please report this issue on https://github.com/yt-dlp/yt-dlp/issues", "downloader-outdated")]
     [InlineData("ERROR: ffmpeg not found. Please install or provide the path using --ffmpeg-location", "ffmpeg-missing")]
     [InlineData("something entirely unexpected", "download-failed")]
@@ -182,5 +205,21 @@ public class MediaDownloadFailureClassifierTests
             "[info] something\nERROR: unable to open for writing: D:\\AI_STUDIO\\downloads\\abc\\x.mp4; please report this issue on https://github.com/yt-dlp/yt-dlp");
 
         Assert.Equal("ERROR: unable to open for writing: <path>", detail);
+    }
+
+    [Theory]
+    [InlineData("https://www.youtube.com/shorts/dQw4w9WgXcQ", "YouTube")]
+    [InlineData("https://www.linkedin.com/posts/someone_video-ugcPost-7509870755388755968-cpYB/", "LinkedIn")]
+    [InlineData("https://x.com/someone/status/1790000000000000000", "X")]
+    [InlineData("https://www.instagram.com/reel/C1a2b3c4d5e/", "Instagram")]
+    [InlineData("https://dms.licdn.com/playlist/vid/v2/D4D05AQ/mp4-720p-30fp-crf28/0/1699", "LinkedIn")]
+    [InlineData("https://scontent-lhr8-1.cdninstagram.com/o1/v/t16/f1/m86/clip.mp4", "Instagram")]
+    [InlineData("https://video.twimg.com/ext_tw_video/123/pu/vid/720x1280/abc.mp4", "X")]
+    public void Files_each_link_under_the_website_it_came_from(string url, string folder)
+    {
+        var result = MediaSourceValidator.Validate(url);
+
+        Assert.True(result.IsValid, result.ErrorMessage);
+        Assert.Equal(folder, MediaSourceValidator.FolderNameFor(result.Platform!, result.CanonicalUrl!));
     }
 }

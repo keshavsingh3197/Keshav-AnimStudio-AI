@@ -46,19 +46,24 @@ echo [INFO] Launching frontend: npm start
 
 set "BACKEND_PS1=%ROOT%scripts\run-backend.ps1"
 set "FRONTEND_PS1=%ROOT%scripts\run-frontend.ps1"
+REM Kokoro (voiceover speech) runs in the foreground of its own tab, so closing the
+REM window stops it along with the backend and frontend.
+set "VOICE_PS1=%ROOT%scripts\setup-voiceover.ps1"
 
 where wt.exe >nul 2>nul
 if %ERRORLEVEL% EQU 0 (
-    wt -w 0 new-tab --title "AnimStudio Backend" powershell -NoExit -NoProfile -File "%BACKEND_PS1%" -ProjectDir "%API_PROJECT%" -LogFile "%BACKEND_LOG%" ^
+    wt -w 0 new-tab --title "AnimStudio Voice" powershell -NoExit -NoProfile -ExecutionPolicy Bypass -File "%VOICE_PS1%" -Foreground ^
+        ; new-tab --title "AnimStudio Backend" powershell -NoExit -NoProfile -File "%BACKEND_PS1%" -ProjectDir "%API_PROJECT%" -LogFile "%BACKEND_LOG%" ^
         ; new-tab --title "AnimStudio Frontend" powershell -NoExit -NoProfile -File "%FRONTEND_PS1%" -ProjectDir "%FRONTEND_DIR%" -LogFile "%FRONTEND_LOG%"
 ) else (
     echo [WARN] wt.exe not found, falling back to separate windows.
+    start "AnimStudio Voice (Kokoro)" powershell -NoExit -NoProfile -ExecutionPolicy Bypass -File "%VOICE_PS1%" -Foreground
     start "AnimStudio Backend (dotnet run)" powershell -NoExit -NoProfile -File "%BACKEND_PS1%" -ProjectDir "%API_PROJECT%" -LogFile "%BACKEND_LOG%"
     start "AnimStudio Frontend (npm start)" powershell -NoExit -NoProfile -File "%FRONTEND_PS1%" -ProjectDir "%FRONTEND_DIR%" -LogFile "%FRONTEND_LOG%"
 )
 
 echo.
-echo [INFO] Backend and frontend launched (as Windows Terminal tabs if wt.exe is available).
+echo [INFO] Voice engine, backend and frontend launched (as Windows Terminal tabs if wt.exe is available).
 echo [INFO] Close the tabs/windows (or Ctrl+C inside them) to stop the app.
 echo [INFO] Logs are being written live to:
 echo         %BACKEND_LOG%

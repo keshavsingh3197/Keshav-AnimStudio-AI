@@ -22,6 +22,16 @@ public sealed class AiProviderOptions
     public string? ExecutablePath { get; set; }
 
     /// <summary>
+    /// Fixed arguments for a local command-line text tool (Claude Code, GitHub Copilot CLI).
+    /// An element that is exactly <c>{prompt}</c> is replaced by the prompt; with no such
+    /// element the prompt is written to standard input instead, which is the safer default.
+    /// </summary>
+    public List<string> Arguments { get; set; } = [];
+
+    /// <summary>The flag that names a model for a command-line tool, e.g. <c>--model</c>. Sent only when <c>Model</c> is set.</summary>
+    public string? ModelArgument { get; set; }
+
+    /// <summary>
     /// The directory holding a local synthesizer's voice models - Piper's <c>.onnx</c>
     /// files. A voice id names a file inside it and may never escape it.
     /// </summary>

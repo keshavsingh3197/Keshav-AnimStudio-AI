@@ -35,6 +35,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Written next to each AI voice job and run with Seed-VC's own Python. -->
+    <EmbeddedResource Include="Voices\seedvc_convert.py" LogicalName="AnimStudio.Voices.seedvc_convert.py" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\AnimStudio.Application\AnimStudio.Application.csproj" />
   </ItemGroup>
 

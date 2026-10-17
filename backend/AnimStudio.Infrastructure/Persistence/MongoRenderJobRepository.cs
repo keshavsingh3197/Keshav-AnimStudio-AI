@@ -19,7 +19,7 @@ public sealed class MongoRenderJobRepository(MongoDbService mongo, TimeProvider 
         string projectId, CancellationToken ct) =>
         await Collection.Find(j => j.ProjectId == projectId)
             .SortByDescending(j => j.CreatedAt)
-            .Limit(50)
+            .Limit(200)
             .ToListAsync(ct).ConfigureAwait(false);
 
     public Task InsertAsync(RenderJob job, CancellationToken ct) =>
@@ -180,5 +180,22 @@ public sealed class MongoRenderJobRepository(MongoDbService mongo, TimeProvider 
             .ConfigureAwait(false);
 
         return result.ModifiedCount > 0;
+    }
+
+    public async Task<bool> RenameAsync(string jobId, string name, CancellationToken ct)
+    {
+        var builder = Builders<RenderJob>.Filter;
+        var finished = builder.And(
+            builder.Eq(j => j.Id, jobId),
+            builder.In(j => j.Status, new[]
+            {
+                RenderJobStatus.Completed, RenderJobStatus.CompletedWithWarnings,
+                RenderJobStatus.Failed, RenderJobStatus.Cancelled
+            }));
+
+        var result = await Collection.UpdateOneAsync(finished, Builders<RenderJob>.Update.Set(j => j.Name, name),
+            cancellationToken: ct).ConfigureAwait(false);
+
+        return result.MatchedCount > 0;
     }
 }

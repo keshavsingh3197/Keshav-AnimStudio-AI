@@ -97,7 +97,7 @@ Craft viral Shorts, Reels, YouTube videos, animated stories, and narrated slides
 
 ### 🤖 AI Video Generation & Script Ingestion
 - **Script Ingestion**: Paste raw script text, upload `.srt` / `.vtt` subtitles, or ingest YouTube video captions directly via `yt-dlp`.
-- **Pluggable AI Providers**: Modular provider architecture supporting **Groq**, **Google Gemini**, **OpenRouter**, **Ollama**, **Cloudflare AI**, **Hugging Face**, and **ComfyUI**.
+- **Pluggable AI Providers**: Modular provider architecture supporting **Groq**, **OpenRouter**, **Ollama**, **Cloudflare AI**, **Hugging Face**, and **ComfyUI**.
 - **Speech Synthesis (TTS)**: Support for local **Kokoro** and **Piper** voice synthesis models.
 - **Automated Caption Segmentation**: Intelligent sentence boundary detection, word-level timestamps, and subtitle formatting.
 
@@ -214,7 +214,6 @@ dotnet user-secrets set "SqlServer:ConnectionString" "Server=localhost;Database=
 AI keys can be added via User Secrets or through the built-in Admin Settings UI:
 ```bash
 dotnet user-secrets set "Ai:Secrets:groq" "gsk_your_groq_api_key"
-dotnet user-secrets set "Ai:Secrets:gemini" "your_gemini_api_key"
 ```
 
 ---

@@ -75,6 +75,9 @@ public sealed partial class FfmpegCapabilityProbe(
                 HasGblur = HasFilter(filters.StdOut, "gblur"),
                 HasLibx264 = HasEncoder(encoders.StdOut, "libx264"),
                 HasAac = HasEncoder(encoders.StdOut, "aac"),
+                HasRubberband = HasFilter(filters.StdOut, "rubberband"),
+                HasAfir = HasFilter(filters.StdOut, "afir"),
+                HasLibopus = HasEncoder(encoders.StdOut, "libopus"),
                 HasNvenc = nvenc,
                 HasQsv = qsv,
                 HasVideoToolbox = videotoolbox

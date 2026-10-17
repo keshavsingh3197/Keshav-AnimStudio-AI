@@ -1,16 +1,25 @@
 using System.Collections.Concurrent;
+using AnimStudio.Application.Releases;
 using AnimStudio.Infrastructure.Storage;
 using Microsoft.Extensions.Logging;
 
 namespace AnimStudio.Infrastructure.Releases;
 
-public sealed record ReleaseKitTicket(string OwnerUserId, string WorkDirectory, IReadOnlySet<string> Files, DateTime CreatedAt);
+public sealed record ReleaseKitTicket(
+    string OwnerUserId,
+    string WorkDirectory,
+    IReadOnlySet<string> Files,
+    DateTime CreatedAt,
+    /// <summary>The normalized release details, so the kit's visualizer can be published without asking again.</summary>
+    ReleaseMetadata? Metadata = null,
+    /// <summary>What the build returned, so the page can show the kit again after leaving for Google sign-in.</summary>
+    ReleaseKitResult? Result = null);
 
 /// <summary>
 /// Finished release kits, by id, for 24 hours. In memory on purpose: a kit is scratch output
 /// to download, and after a restart its folder is swept like any other expired one.
 /// Shared so another feature (Go Live) can use a kit's files without the browser uploading
-/// them again - always through <see cref="TryGetOwned"/>, which only returns the caller's own kit.
+/// them again (Go Live, Publish to YouTube) - always through <see cref="TryGetOwned"/>, which only returns the caller's own kit.
 /// </summary>
 public sealed class ReleaseKitStore(AppDataPaths dataPaths, TimeProvider clock, ILogger<ReleaseKitStore> logger)
 {

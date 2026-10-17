@@ -27,9 +27,10 @@ import { StatusService } from '../../core/services/status.service';
 import { environment } from '../../../environments/environment';
 import { FileDropDirective } from '../../shared/file-drop.directive';
 import { MediaPreview, MediaPreviewDialogComponent } from '../../shared/media-preview-dialog.component';
+import { SelectedYouTubeBroadcast, YouTubeLiveSetupComponent } from '../../shared/youtube-live-setup.component';
 
 type AddMode = 'upload' | 'renders' | 'assets' | 'links';
-type KeyMode = 'channel' | 'paste';
+type KeyMode = 'channel' | 'paste' | 'youtube';
 
 interface StreamError {
   message: string;
@@ -65,7 +66,7 @@ const MAX_LINKS_PER_PASTE = 50;
 
 @Component({
   selector: 'app-live-stream',
-  imports: [FormsModule, DatePipe, DecimalPipe, RouterLink, FileDropDirective, MediaPreviewDialogComponent],
+  imports: [FormsModule, DatePipe, DecimalPipe, RouterLink, FileDropDirective, MediaPreviewDialogComponent, YouTubeLiveSetupComponent],
   templateUrl: './live-stream.component.html',
   styleUrls: ['./live-stream.component.css'],
 })
@@ -108,6 +109,9 @@ export class LiveStreamComponent {
 
   /** Held only in this component's memory: never in storage, never sent anywhere but go-live. */
   streamKey = '';
+
+  /** A broadcast created (or picked) on a connected YouTube channel; its key stays on the server. */
+  readonly youTubeBroadcast = signal<SelectedYouTubeBroadcast | null>(null);
 
   form = {
     destination: '',
@@ -371,18 +375,24 @@ export class LiveStreamComponent {
   }
 
   keyChoiceMissing(): string | null {
+    if (this.form.keyMode === 'youtube') return this.youTubeBroadcast() ? null : 'a YouTube broadcast';
     if (this.form.keyMode === 'paste') return this.streamKey.trim() ? null : 'the stream key';
     if (!this.form.channelId) return 'a channel';
     return this.channelKeyNeedsSetup() ? 'a saved key for the channel' : null;
   }
 
   goLiveTarget(): LiveStreamGoLive {
+    const broadcast = this.youTubeBroadcast();
+    if (this.form.keyMode === 'youtube' && broadcast) {
+      return { youTube: { channelId: broadcast.channelId, broadcastId: broadcast.broadcast.broadcastId } };
+    }
     return this.form.keyMode === 'channel'
       ? { channelId: this.form.channelId }
       : { streamKey: this.streamKey.trim() };
   }
 
   keyChoiceLabel(): string {
+    if (this.form.keyMode === 'youtube') return `the YouTube broadcast "${this.youTubeBroadcast()?.broadcast.title ?? ''}"`;
     if (this.form.keyMode === 'paste') return 'the pasted key';
     return `${this.selectedChannel()?.name ?? 'the channel'}'s saved key`;
   }
@@ -812,7 +822,7 @@ export class LiveStreamComponent {
       if (!setup.channels.some((c) => c.id === this.form.channelId)) {
         this.form.channelId = setup.channels[0]?.id ?? '';
       }
-      if (!setup.canUseSavedKeys) this.form.keyMode = 'paste';
+      if (!setup.canUseSavedKeys && this.form.keyMode === 'channel') this.form.keyMode = 'paste';
     } catch (err: unknown) {
       this.error.set(this.describe(err, 'Could not load the stream settings.'));
     }
@@ -878,7 +888,7 @@ export class LiveStreamComponent {
       if (saved.destination) this.form.destination = saved.destination;
       if (saved.quality === 'Hd720' || saved.quality === 'Hd1080') this.form.quality = saved.quality;
       if (saved.orientation === 'Landscape' || saved.orientation === 'Portrait') this.form.orientation = saved.orientation;
-      if (saved.keyMode === 'channel' || saved.keyMode === 'paste') this.form.keyMode = saved.keyMode;
+      if (saved.keyMode === 'channel' || saved.keyMode === 'paste' || saved.keyMode === 'youtube') this.form.keyMode = saved.keyMode;
       if (typeof saved.channelId === 'string') this.form.channelId = saved.channelId;
       if (typeof saved.autoReconnect === 'boolean') this.form.autoReconnect = saved.autoReconnect;
     } catch {

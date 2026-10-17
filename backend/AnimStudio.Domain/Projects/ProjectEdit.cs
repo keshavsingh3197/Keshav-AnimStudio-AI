@@ -68,6 +68,41 @@ public sealed class ProjectEdit
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
+    /// <summary>
+    /// The cut's place in the project, in the order cuts were made: #1, #2... Never reused
+    /// after a delete, so "#7" keeps meaning the same video. 0 on cuts from before numbering;
+    /// those are numbered by creation time the next time the list is read.
+    /// </summary>
+    public int Number { get; set; }
+
+    /// <summary>
+    /// Library files a new cut starts with, in timeline order - e.g. one Short per imported
+    /// link. The editor builds the first timeline from them; any saved draft supersedes it.
+    /// </summary>
+    public List<string> InitialAssetIds { get; set; } = [];
+
+    /// <summary>Render jobs exported from this cut, newest first, capped at <see cref="MaxExportJobs"/>.</summary>
+    public List<string> ExportJobIds { get; set; } = [];
+
+    public const int MaxExportJobs = 20;
+
+    // --- uploaded outside the app: the user says so, because nothing else can know ---------
+    public bool MarkedUploaded { get; set; }
+    public string? MarkedYouTubeVideoId { get; set; }
+    public DateTime? MarkedUploadedAt { get; set; }
+
+    /// <summary>Remembers an export, newest first, keeping the list short.</summary>
+    public void RecordExport(string jobId)
+    {
+        ExportJobIds.Remove(jobId);
+        ExportJobIds.Insert(0, jobId);
+        if (ExportJobIds.Count > MaxExportJobs) ExportJobIds.RemoveRange(MaxExportJobs, ExportJobIds.Count - MaxExportJobs);
+    }
+
+    /// <summary>Names compare the way people read them: trimmed, case ignored.</summary>
+    public static bool SameName(string? a, string? b) =>
+        string.Equals(a?.Trim(), b?.Trim(), StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Trims, dedupes and caps the free-text fields on the way in.</summary>
     public void NormalizeLabels()
     {

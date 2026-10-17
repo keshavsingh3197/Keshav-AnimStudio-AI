@@ -1,0 +1,222 @@
+<div class="mi-backdrop" (click)="closed.emit()">
+  <div class="mi-dialog" role="dialog" aria-modal="true" aria-labelledby="mi-title" (click)="$event.stopPropagation()">
+
+    <!-- Header -->
+    <header class="mi-head">
+      <div class="mi-head-main">
+        <span class="mi-kind" [attr.data-kind]="kind()">{{ kind() }}</span>
+        <h3 id="mi-title" class="mi-title" [title]="target().name">{{ target().name }}</h3>
+      </div>
+      <div class="mi-head-facts">
+        @if (duration(); as d) { <span class="mi-chip mono">⏱ {{ clock(d) }}</span> }
+        @if (measuredSize() ?? (target().width && target().height ? target().width + ' × ' + target().height : null); as size) {
+          <span class="mi-chip mono">{{ size }}</span>
+        }
+        @if (target().fileSizeBytes) { <span class="mi-chip mono">{{ formatSize(target().fileSizeBytes) }}</span> }
+        @if (target().timeline; as tl) {
+          <span class="mi-chip mi-chip-tl" [title]="'On the timeline from ' + clock(tl.startSeconds)">
+            🎬 {{ tl.label }} · {{ clock(tl.startSeconds) }}–{{ clock(tl.startSeconds + tl.durationSeconds) }}
+          </span>
+        }
+      </div>
+      <button type="button" class="mi-x" aria-label="Close (Esc)" title="Close (Esc)" (click)="closed.emit()">✕</button>
+    </header>
+
+    <div class="mi-body" [class.mi-body-single]="isImage()">
+
+      <!-- ── Left: the media itself ─────────────────────────────── -->
+      <section class="mi-media">
+        <div class="mi-stage" [class.mi-stage-audio]="isAudio()" [class.mi-stage-doc]="isSubtitle()">
+          @if (isVideo()) {
+            <video #player [src]="url()" playsinline preload="auto" (click)="togglePlay()"
+                   [title]="playing() ? 'Pause' : 'Play'"
+                   (loadedmetadata)="onMetadata($event)" (play)="onPlayState(true)" (pause)="onPlayState(false)"
+                   (ended)="onPlayState(false)" (seeked)="syncTime()" (timeupdate)="syncTime()"
+                   (error)="mediaFailed.set(true)"></video>
+          } @else if (isAudio()) {
+            <audio #player [src]="url()" preload="auto"
+                   (loadedmetadata)="onMetadata($event)" (play)="onPlayState(true)" (pause)="onPlayState(false)"
+                   (ended)="onPlayState(false)" (seeked)="syncTime()" (timeupdate)="syncTime()"
+                   (error)="mediaFailed.set(true)"></audio>
+            <div class="mi-now-line" aria-live="polite">
+              @if (activeIndex() >= 0 && cues(); as list) {
+                <p class="mi-now-text">“{{ list[activeIndex()].text }}”</p>
+              } @else {
+                <span class="mi-audio-icon" [class.mi-pulse]="playing()">🎵</span>
+              }
+            </div>
+          } @else if (isImage()) {
+            <img [src]="url()" [alt]="target().name" />
+          } @else {
+            <div class="mi-doc-icon">
+              <span>📝</span>
+              <strong>{{ cues() ? cues()!.length + ' timed lines' : (rawText() !== null ? 'Text document' : 'Subtitle document') }}</strong>
+            </div>
+          }
+          @if (mediaFailed()) {
+            <p class="mi-err mi-stage-err">This file can't be played in the browser.</p>
+          }
+        </div>
+
+        @if (isPlayable()) {
+          <!-- Waveform scrubber with the transcript's lines marked under it -->
+          <div class="mi-wave-wrap">
+            <canvas #wave class="mi-wave" role="slider" tabindex="0"
+                    aria-label="Seek" [attr.aria-valuemin]="0" [attr.aria-valuemax]="duration() ?? 0" [attr.aria-valuenow]="currentTime()"
+                    (pointerdown)="onWavePointer($event, true)"
+                    (pointermove)="onWavePointer($event, false); $event.buttons === 1 && onWavePointer($event, true)"
+                    (pointerleave)="hoverRatio.set(null)"
+                    (keydown.arrowleft)="$event.preventDefault(); skip(-5)"
+                    (keydown.arrowright)="$event.preventDefault(); skip(5)"></canvas>
+            @if (waveState() === 'loading') { <span class="mi-wave-note">Drawing waveform…</span> }
+            @if (hoverTime(); as h) { <span class="mi-wave-hover mono" [style.left.%]="(hoverRatio() ?? 0) * 100">{{ clock(h) }}</span> }
+          </div>
+
+          <div class="mi-transport">
+            <button type="button" class="mi-btn mi-icon-btn" (click)="skip(-5)" title="Back 5 seconds" aria-label="Back 5 seconds">↺5</button>
+            <button type="button" class="mi-btn mi-play" (click)="togglePlay()" [attr.aria-label]="playing() ? 'Pause' : 'Play'"
+                    [title]="playing() ? 'Pause (Space)' : 'Play (Space)'">{{ playing() ? '⏸' : '▶' }}</button>
+            <button type="button" class="mi-btn mi-icon-btn" (click)="skip(5)" title="Forward 5 seconds" aria-label="Forward 5 seconds">5↻</button>
+            <span class="mi-time mono">
+              {{ clock(currentTime()) }} <span class="mi-dim">/ {{ duration() ? clock(duration()!) : '--:--' }}</span>
+              @if (target().timeline) {
+                <span class="mi-dim" title="The same moment on the timeline"> · 🎬 {{ clock(currentTime() + timelineOffset()) }}</span>
+              }
+            </span>
+            <select class="mi-select mi-rate" [ngModel]="rate()" (ngModelChange)="setRate($event)" title="Playback speed" aria-label="Playback speed">
+              @for (r of [0.5, 0.75, 1, 1.25, 1.5, 2]; track r) { <option [ngValue]="r">{{ r }}×</option> }
+            </select>
+          </div>
+        }
+
+        <div class="mi-media-actions">
+          <ng-content select="[inspectorActions]" />
+        </div>
+      </section>
+
+      <!-- ── Right: what is said ─────────────────────────────────── -->
+      @if (!isImage()) {
+        <section class="mi-script" aria-label="Transcript">
+          <div class="mi-script-head">
+            <h4>🗣 {{ isSubtitle() ? 'Subtitle lines' : "What's said" }}</h4>
+            @if (cues(); as list) {
+              <span class="mi-stats">
+                {{ list.length }} line{{ list.length === 1 ? '' : 's' }} · {{ wordCount() | number }} words
+                @if (languageLabel()) { · {{ languageLabel() }} }
+                @if (cueSource() === 'library') { · <span title="Read from the transcript saved in the library">from library</span> }
+              </span>
+            }
+          </div>
+
+          @if (cues(); as list) {
+            <div class="mi-tools">
+              <label class="mi-search">
+                <span aria-hidden="true">🔎</span>
+                <input #searchBox type="search" placeholder="Search the script  (Ctrl+F)" [ngModel]="query()" (ngModelChange)="query.set($event)" />
+                @if (query()) { <span class="mi-dim mono">{{ rows().length }}</span> }
+              </label>
+              @if (target().timeline) {
+                <div class="mi-seg" role="group" aria-label="Times shown">
+                  <button type="button" [class.on]="timeBase() === 'timeline'" (click)="timeBase.set('timeline')"
+                          title="Times where each line falls on the timeline">🎬 Timeline</button>
+                  <button type="button" [class.on]="timeBase() === 'file'" (click)="timeBase.set('file')"
+                          title="Times inside the file itself">📄 File</button>
+                </div>
+              }
+              @if (isPlayable()) {
+                <label class="mi-follow" title="Keep the line being spoken in view">
+                  <input type="checkbox" [ngModel]="follow()" (ngModelChange)="follow.set($event)" /> Follow
+                </label>
+              }
+            </div>
+
+            @if (transcript()?.truncated) {
+              <p class="mi-note">Only the first two hours were transcribed.</p>
+            }
+
+            <ol #cueList class="mi-cues">
+              @for (row of rows(); track row.index) {
+                <li [attr.data-cue]="row.index"
+                    [class.active]="row.index === activeIndex() && isPlayable()"
+                    [class.past]="isPlayable() && row.index < activeIndex()"
+                    [class.unused]="timeBase() === 'timeline' && !row.used">
+                  <button type="button" class="mi-cue" (click)="playCue(row)"
+                          [title]="isPlayable() ? 'Play from here' : ''" [disabled]="!isPlayable()">
+                    <span class="mi-cue-time mono">{{ clock(row.at) }}</span>
+                    <span class="mi-cue-text">
+                      @for (p of row.parts; track $index) {
+                        @if (p.hit) { <mark>{{ p.text }}</mark> } @else { {{ p.text }} }
+                      }
+                    </span>
+                  </button>
+                  <span class="mi-cue-actions">
+                    @if (timeBase() === 'timeline' && !row.used) {
+                      <span class="mi-tag" title="This part of the file is trimmed off the timeline">trimmed</span>
+                    } @else if (target().timeline) {
+                      <button type="button" class="mi-mini" (click)="goToOnTimeline(row, $event)" title="Move the timeline playhead here">🎬</button>
+                    }
+                    <button type="button" class="mi-mini" (click)="copyLine(row, $event)" [title]="isCopied('line', row.index) ? 'Copied' : 'Copy this line'">
+                      {{ isCopied('line', row.index) ? '✓' : '⧉' }}
+                    </button>
+                  </span>
+                </li>
+              } @empty {
+                <li class="mi-empty">No line says “{{ query() }}”.</li>
+              }
+            </ol>
+
+            <footer class="mi-script-actions">
+              <button type="button" class="mi-btn" (click)="copyText()">{{ isCopied('text') ? '✓ Copied' : '⧉ Copy text' }}</button>
+              <button type="button" class="mi-btn" (click)="copyTimed()"
+                      [title]="timeBase() === 'timeline' ? 'Each line with its time on the timeline' : 'Each line with its time in the file'">
+                {{ isCopied('timed') ? '✓ Copied' : '⏱ Copy with times' }}
+              </button>
+              <button type="button" class="mi-btn" (click)="downloadSrt()">⬇ .srt</button>
+              <button type="button" class="mi-btn" (click)="downloadTxt()">⬇ .txt</button>
+              @if (cueSource() === 'recognized') {
+                @if (transcript()?.savedAsset) {
+                  <span class="mi-ok">✓ Saved to library</span>
+                } @else {
+                  <button type="button" class="mi-btn" (click)="transcribe(true)" [disabled]="transcribing() !== 'idle'">
+                    {{ transcribing() === 'saving' ? 'Saving…' : '💾 Save to library' }}
+                  </button>
+                }
+              } @else if (isPlayable()) {
+                <button type="button" class="mi-btn mi-btn-quiet" (click)="transcribe()" [disabled]="transcribing() !== 'idle'"
+                        title="Recognize the speech again instead of using the saved transcript">
+                  {{ transcribing() === 'reading' ? 'Listening…' : '↻ Re-transcribe' }}
+                </button>
+              }
+            </footer>
+          } @else if (rawText() !== null) {
+            <pre class="mi-raw">{{ rawText() }}</pre>
+            <footer class="mi-script-actions">
+              <button type="button" class="mi-btn" (click)="copyRaw()">{{ isCopied('text') ? '✓ Copied' : '⧉ Copy text' }}</button>
+            </footer>
+          } @else if (loadingText() || transcribing() === 'reading') {
+            <div class="mi-loading" role="status">
+              <span class="mi-ring"></span>
+              <p>{{ transcribing() === 'reading' ? 'Listening… long files take a few minutes.' : 'Opening the transcript…' }}</p>
+              <div class="mi-skeleton"><i></i><i></i><i></i><i></i></div>
+            </div>
+          } @else if (isPlayable()) {
+            <div class="mi-start">
+              <p>Turn the speech in this file into text with timings, in whatever language it's spoken. Every line can then be played, searched and copied{{ target().timeline ? ' with its time on the timeline' : '' }}.</p>
+              <label class="mi-lang">
+                Spoken language
+                <select class="mi-select" [ngModel]="language()" (ngModelChange)="language.set($event)">
+                  @for (l of languages; track l.code) { <option [value]="l.code">{{ l.label }}</option> }
+                </select>
+              </label>
+              <button type="button" class="mi-btn mi-btn-primary" (click)="transcribe()">🗣 Get transcript</button>
+            </div>
+          }
+
+          @if (error(); as message) {
+            <p class="mi-err" role="alert">{{ message }}</p>
+          }
+        </section>
+      }
+    </div>
+  </div>
+</div>

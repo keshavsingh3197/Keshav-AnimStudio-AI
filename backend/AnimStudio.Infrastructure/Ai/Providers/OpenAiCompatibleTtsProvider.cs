@@ -1,4 +1,6 @@
+using System.Net.Http.Headers;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using AnimStudio.Application.Abstractions.Ai;
 using AnimStudio.Application.Ai;
 using AnimStudio.Application.Options;
@@ -32,10 +34,22 @@ public sealed class OpenAiCompatibleTtsProvider(
     IAiSecretResolver secrets,
     IOptionsMonitor<AiOptions> options,
     ILogger<OpenAiCompatibleTtsProvider> logger)
-    : HttpAiProviderBase(id, AiCapability.Speech, clients, secrets, options, logger), ISpeechAiProvider
+    : HttpAiProviderBase(id, AiCapability.Speech, clients, secrets, options, logger), IVoiceTuningSpeechProvider
 {
     private const int MaxAudioBytes = 64 * 1024 * 1024;
     private const int MaxTextLength = 8_000;
+
+    /// <summary>Kokoro's own cap on a reference recording.</summary>
+    private const int MaxReferenceBytes = 10 * 1024 * 1024;
+
+    /// <summary>What Kokoro's <c>save_voice</c> accepts; it appends <see cref="TunedSuffix"/>.</summary>
+    private static readonly Regex TuneName =
+        new(@"^[ab][a-z]?_[a-z0-9]+(_[a-z0-9]+)*$", RegexOptions.CultureInvariant);
+
+    private const string TunedSuffix = "_tuned";
+
+    /// <summary>Kokoro's one-letter language codes; anything else is not sent, so a hosted service never sees the field.</summary>
+    private static readonly Regex KokoroLanguage = new(@"^[abefhijpz]$", RegexOptions.CultureInvariant);
 
     /// <summary>
     /// What OpenAI's own service offers. Used only when an endpoint has no voice-listing
@@ -58,8 +72,10 @@ public sealed class OpenAiCompatibleTtsProvider(
                 return [.. names.Select(name => new AiVoice(name, name, null, null))];
             }
         }
-        catch (AiProviderException ex)
+        catch (AiProviderException ex) when (ex.Code is not ("transport-failed" or "timeout"))
         {
+            // A server that is not running is not "a server without the route": offering
+            // OpenAI's names for it would make a dead engine look ready.
             // A service without the route is the normal case, not a fault worth surfacing:
             // OpenAI itself has no voice-listing endpoint.
             Logger.LogDebug(
@@ -99,6 +115,10 @@ public sealed class OpenAiCompatibleTtsProvider(
         // unset model is legitimate rather than a misconfiguration.
         if (!string.IsNullOrWhiteSpace(Model)) body["model"] = Model;
 
+        // Kokoro reads a line in the language its voice's first letter names; a tuned voice
+        // is named as English whatever it speaks, so its line's language is given instead.
+        if (request.LanguageCode is { } language && KokoroLanguage.IsMatch(language)) body["lang_code"] = language;
+
         using var httpRequest = JsonRequest(HttpMethod.Post, "audio/speech", body);
 
         var bytes = await SendForBytesAsync(httpRequest, MaxAudioBytes, ct).ConfigureAwait(false);
@@ -126,6 +146,67 @@ public sealed class OpenAiCompatibleTtsProvider(
             Model = Model ?? request.VoiceId,
             GeneratedAtUtc = DateTime.UtcNow
         });
+    }
+
+    public bool CanTuneVoices => ProviderOptions?.IsLocal == true;
+
+    /// <remarks>
+    /// <c>/dev/tune</c> sits beside <c>/v1</c>, not under it, hence the <c>../</c>. Kokoro
+    /// answers 409 for a name it already keeps; the name is ours and deterministic, so that
+    /// is an earlier tune whose answer was lost, and its voice is the one wanted.
+    /// </remarks>
+    public async Task<string> TuneVoiceAsync(byte[] referenceWav, string name, CancellationToken ct)
+    {
+        if (!CanTuneVoices)
+            throw new AiProviderException("tuning-unavailable", $"'{Id.Value}' is not on this machine, so it is not sent voice recordings.");
+        if (!TuneName.IsMatch(name) || name.EndsWith(TunedSuffix, StringComparison.Ordinal))
+            throw new ArgumentException("Not a name the speech engine keeps a voice under.", nameof(name));
+        if (referenceWav.Length == 0 || referenceWav.Length > MaxReferenceBytes)
+            throw new AiProviderException("request-too-large", $"A reference recording must be 1 byte to {MaxReferenceBytes >> 20} MB.");
+
+        var expected = name + TunedSuffix;
+
+        using var form = new MultipartFormDataContent();
+        var audio = new ByteArrayContent(referenceWav);
+        audio.Headers.ContentType = new MediaTypeHeaderValue(AiAudioValidator.Wav);
+        form.Add(audio, "audio", "reference.wav");
+        form.Add(new StringContent(name), "save_voice");
+
+        string? voice;
+        try
+        {
+            using var response = await SendForJsonAsync(
+                new HttpRequestMessage(HttpMethod.Post, "../dev/tune") { Content = form }, ct).ConfigureAwait(false);
+            voice = response.RootElement.ValueKind == JsonValueKind.Object
+                    && response.RootElement.TryGetProperty("voice", out var value)
+                    && value.ValueKind == JsonValueKind.String
+                ? value.GetString()
+                : null;
+        }
+        catch (AiProviderException ex) when (ex.Code == "http-409")
+        {
+            voice = expected;
+        }
+
+        if (!string.Equals(voice, expected, StringComparison.Ordinal))
+            throw new AiProviderException("malformed-response", $"'{Id.Value}' kept the voice under a name it was not given.");
+        return expected;
+    }
+
+    public async Task DeleteTunedVoiceAsync(string voiceId, CancellationToken ct)
+    {
+        if (!TuneName.IsMatch(voiceId) || !voiceId.EndsWith(TunedSuffix, StringComparison.Ordinal))
+            throw new ArgumentException("Not a voice the speech engine tuned.", nameof(voiceId));
+
+        try
+        {
+            using var _ = await SendAsync(new HttpRequestMessage(HttpMethod.Delete, $"../dev/tune/{voiceId}"), ct)
+                .ConfigureAwait(false);
+        }
+        catch (AiProviderException ex) when (ex.Code == "endpoint-or-model-not-found")
+        {
+            // Already gone - deleted by hand, or the engine was reinstalled.
+        }
     }
 
     /// <summary>

@@ -1,0 +1,59 @@
+.ml { display: flex; flex-direction: column; gap: 1rem; }
+
+.ml-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
+.ml-head h2 { margin: 0 0 .25rem; }
+.ml-head p { margin: 0; max-width: 70ch; }
+.ml-settings-link { white-space: nowrap; font-size: .9rem; }
+
+.ml-setup p { margin: .5rem 0 0; }
+
+.ml-tabs { display: flex; gap: .4rem; flex-wrap: wrap; }
+.ml-tabs button {
+  background: transparent; border: 1px solid var(--border); color: var(--muted);
+  border-radius: 999px; padding: .35rem .9rem; font-size: .88rem;
+}
+.ml-tabs button.active { color: var(--text); border-color: var(--accent, #3b82f6); background: color-mix(in oklab, var(--accent, #3b82f6) 18%, transparent); }
+
+.ml-filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.ml-filters .form-select { width: auto; min-width: 9rem; }
+.ml-search { flex: 1 1 16rem; min-width: 12rem; }
+.ml-check { display: inline-flex; align-items: center; gap: .35rem; font-size: .88rem; color: var(--muted); white-space: nowrap; }
+
+.ml-error { color: var(--err); margin: 0; }
+
+.ml-grid {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; gap: .75rem; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+}
+
+.ml-card {
+  display: flex; gap: .75rem; padding: .75rem;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--panel, #0d1117);
+}
+.ml-card.playing { border-color: var(--accent, #3b82f6); }
+.ml-card.blocked { opacity: .65; }
+
+.ml-cover {
+  position: relative; flex: 0 0 88px; width: 88px; height: 88px; padding: 0; overflow: hidden;
+  border: 0; border-radius: 8px; background: color-mix(in oklab, var(--muted) 20%, transparent); cursor: pointer;
+}
+.ml-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ml-play {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-size: 1.6rem; color: #fff; background: rgb(0 0 0 / 35%); opacity: .85;
+}
+.ml-cover:hover .ml-play, .ml-card.playing .ml-play { opacity: 1; background: rgb(0 0 0 / 50%); }
+
+.ml-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .3rem; }
+.ml-title { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ml-artist { font-size: .85rem; }
+.ml-tags { display: flex; flex-wrap: wrap; gap: .3rem; }
+.ml-tags .pill { font-size: .72rem; }
+.ml-tags .pill a { color: inherit; text-decoration: none; }
+
+.ml-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: auto; }
+.ml-actions button { font-size: .82rem; padding: .3rem .7rem; }
+.ml-blocked { margin: auto 0 0; font-size: .8rem; color: var(--warn); }
+
+.ml-loading, .ml-more { text-align: center; }
+.ml-foot { margin: .5rem 0 0; }

@@ -3,19 +3,40 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { MonitorEraseRegion, StudioStateService } from '../../services/studio-state.service';
+import { MonitorEraseRegion, MonitorFrameMedia, MonitorTextBlock, StudioStateService } from '../../services/studio-state.service';
+import { FrameImage, TEXT_REFERENCE_SHORT_SIDE, hexToRgba } from '../../services/text-overlay-layout';
 import { erasePatchOrigin } from '../../services/erase-geometry';
+import { watermarkMarkStyle } from '../../../../shared/watermark-preview.component';
 import { ERASE_DEFAULT_STRENGTH, TimelineItemTransform } from '../../../../core/models/api.models';
+import { MusicTrackRow, isCutEffectTrack, isVoiceoverTrack } from '../../models/clip-studio.models';
+import { cameraTransformCentered, lookFilter } from '../../services/cinematic-image';
+import { CelebrationCue, CelebrationLayerComponent } from '../celebration/celebration-layer.component';
+
+/** Longest the playhead waits for the media it follows to load before going on without it. */
+const MAX_STALL_MS = 4000;
+
+/** Actually playing: started, not seeking, and with enough data to keep going. */
+function isRunning(el: HTMLMediaElement): boolean {
+  return !el.paused && !el.seeking && !el.ended && el.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA;
+}
 
 @Component({
   selector: 'app-video-viewport',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, CelebrationLayerComponent],
   templateUrl: './video-viewport.component.html',
   styleUrls: ['./video-viewport.component.css'],
 })
 export class VideoViewportComponent implements OnInit, OnDestroy {
   readonly state = inject(StudioStateService);
+
+  /** Every celebration on a visible FX1; the layer works out which are playing each frame. */
+  readonly celebrationCues = computed<CelebrationCue[]>(() => !this.state.isTrackVisible('FX1') ? [] : this.state.itemsForTrack('FX1')
+    .filter((it) => it.type === 'celebration')
+    .map((it) => ({ id: it.id, kind: it.src, settings: it.celebration, start: it.startTime, duration: it.duration })));
+
+  /** The playhead signal is throttled during playback; particles read the exact time. */
+  readonly monitorClock = (): number => (this.state.isPlaying() ? this.state.getCurrentTimeExact() : this.state.currentTime());
 
   // Guardrail 1: DOM References Isolated strictly in Viewport
   @ViewChild('videoMonitorA') videoMonitorARef?: ElementRef<HTMLVideoElement>;
@@ -23,7 +44,14 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
   @ViewChild('overlayVideoMonitor') overlayVideoRef?: ElementRef<HTMLVideoElement>;
   @ViewChild('bgMusicAudio') bgMusicAudioRef?: ElementRef<HTMLAudioElement>;
   @ViewChild('clipSoundAudio') clipSoundAudioRef?: ElementRef<HTMLAudioElement>;
+  @ViewChild('voiceoverAudio') voiceoverAudioRef?: ElementRef<HTMLAudioElement>;
+  @ViewChild('effectAudio') effectAudioRef?: ElementRef<HTMLAudioElement>;
   @ViewChild('monitorContainer') monitorContainerRef?: ElementRef<HTMLElement>;
+  @ViewChild('endCardVideo') endCardVideoRef?: ElementRef<HTMLVideoElement>;
+
+  /** Playback has run past the last thing on the timeline into the end card. */
+  readonly endCardActive = computed(() =>
+    this.state.endCardPlaysInPreview() && this.state.currentTime() >= this.state.endCardStartSeconds() - 1e-3);
 
   // Dual-layer ping-pong state
   readonly activeLayer = signal<'A' | 'B'>('A');
@@ -35,15 +63,37 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
   private loadedClipIdA: string | null = null;
   private loadedClipIdB: string | null = null;
   private loadedMusicAssetId: string | null = null;
+  private loadedVoiceoverAssetId: string | null = null;
+  private loadedEffectAssetId: string | null = null;
   private loadedClipSoundAssetId: string | null = null;
   private animFrameId: number | null = null;
   private lastTickMs = 0;
   private lastPlayedClipIndex: number | null = null;
-  private bufferWaitStartMs: number | null = null;
   private lastPrefetchSec = -1;
   private readonly prefetchedAssetIds = new Set<string>();
 
+  /** When the media leading the clock started waiting to load, and which source that was. */
+  private stallStartMs: number | null = null;
+  private stallSource: string | null = null;
+  /** True while the playhead is held for media that is still loading, shown as a spinner. */
+  readonly buffering = signal(false);
+  /** When each player was last re-seeked during playback, so a late one is not re-seeked every frame. */
+  private readonly lastSeekMs = new WeakMap<HTMLMediaElement, number>();
+
+  /** The still's camera this frame, from the exact playhead rather than the 10fps signal. */
+  readonly shotCamera = signal('');
+  private shotFrameId: number | null = null;
+
   constructor() {
+    // A still with a camera move: follow the exact playhead every frame while it is on screen.
+    effect(() => {
+      const shot = this.state.monitorShot();
+      untracked(() => {
+        if (shot?.shot.motion && shot.shot.motion !== 'none') this.startShotLoop();
+        else this.stopShotLoop();
+      });
+    });
+
     // React to Seek Requests
     effect(() => {
       const req = this.state.seekRequest();
@@ -64,6 +114,14 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       });
     });
 
+    // The end card's own player follows play/pause, seeks and its arrival on screen.
+    effect(() => {
+      this.endCardActive();
+      this.state.isPlaying();
+      this.state.endCardMedia();
+      untracked(() => setTimeout(() => this.syncEndCard(this.state.getCurrentTimeExact(), true)));
+    });
+
     // React to Playback Speed
     effect(() => {
       const speed = this.state.playbackSpeed();
@@ -76,8 +134,10 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       this.state.isMonitorMuted();
       this.state.trackV1Volume();
       this.state.trackA1Volume();
+      this.state.trackA2Volume();
       this.state.isTrackMuted('V1');
       this.state.isTrackMuted('A1');
+      this.state.isTrackMuted('A2');
       this.state.clipSounds();
       this.state.musicTracks();
       this.state.projectOverlapRule();
@@ -88,12 +148,20 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       });
     });
 
-    // Patch / Brand erase boxes are painted from the footage; start painting once their
+    // Patch / Brand / Clean erase boxes are painted from the footage; start painting once their
     // canvases are in the DOM. The loop stops by itself when the last one goes.
     effect(() => {
       const patched = this.state.monitorEraseRegions()
-        .some((m) => m.region.style === 'Patch' || m.region.style === 'Brand');
+        .some((m) => m.region.style === 'Patch' || m.region.style === 'Brand' || m.region.style === 'Clean');
       if (patched) untracked(() => setTimeout(() => this.schedulePatchPaint()));
+    });
+
+    // Frame video layers follow the playhead: played along while playing, parked on the
+    // exact frame while paused. Checked after the DOM has the new data-at values.
+    effect(() => {
+      const hasVideo = this.state.monitorFrameImages().some((l) => l.kind === 'video');
+      const playing = this.state.isPlaying();
+      if (hasVideo) untracked(() => requestAnimationFrame(() => this.syncFrameVideos(playing)));
     });
 
     // React to Schedule or Clip Layout changes while paused to render current frame
@@ -106,6 +174,44 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     });
   }
 
+  private startShotLoop(): void {
+    if (this.shotFrameId !== null) return;
+    const tick = () => {
+      const shot = this.state.monitorShot();
+      if (!shot || shot.shot.motion === 'none') {
+        this.shotFrameId = null;
+        this.shotCamera.set('');
+        return;
+      }
+      const t = Math.max(0, this.state.getCurrentTimeExact() - shot.start);
+      const p = shot.duration > 0 ? t / shot.duration : 0;
+      const camera = cameraTransformCentered(shot.shot, p, t);
+      if (camera !== this.shotCamera()) this.shotCamera.set(camera);
+      this.shotFrameId = requestAnimationFrame(tick);
+    };
+    this.shotFrameId = requestAnimationFrame(tick);
+  }
+
+  private stopShotLoop(): void {
+    if (this.shotFrameId !== null) cancelAnimationFrame(this.shotFrameId);
+    this.shotFrameId = null;
+    this.shotCamera.set('');
+  }
+
+  /** A V1 picture clip's transform with its camera move applied inside the clip's own framing. */
+  shotTransform(base: string): string {
+    const camera = this.state.monitorShot() ? this.shotCamera() : '';
+    if (!camera) return base;
+    return base === 'none' || !base ? camera : `${base} ${camera}`;
+  }
+
+  /** The monitor's colour filter followed by the still's grade. */
+  shotFilter(base: string): string {
+    const look = lookFilter(this.state.monitorShot()?.shot.look ?? 'none');
+    if (look === 'none') return base;
+    return base === 'none' || !base ? look : `${base} ${look}`;
+  }
+
   ngOnInit(): void {
     // Initial sync
     setTimeout(() => {
@@ -114,6 +220,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.stopShotLoop();
     if (this.animFrameId !== null) {
       cancelAnimationFrame(this.animFrameId);
       this.animFrameId = null;
@@ -126,11 +233,19 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
   }
 
   // Playback Loop Implementation
+  //
+  // One clock drives the preview. It follows the media that is actually sounding - the V1
+  // video, or where there is none (sound only, pictures, titles) the audio track under the
+  // playhead - and holds while that media loads or seeks, so picture and sound start together.
+  // Only where nothing plays at all does it run on the wall clock. Every other player follows
+  // the clock and is re-seeked only when it has really drifted, at most once a second, because
+  // a re-seek makes it buffer again and fall further behind.
   private startPlaybackLoop(): void {
     if (this.animFrameId !== null) {
       cancelAnimationFrame(this.animFrameId);
     }
-    this.bufferWaitStartMs = null;
+    this.stallStartMs = null;
+    this.stallSource = null;
     this.lastTickMs = performance.now();
     this.scheduleNextTick();
   }
@@ -141,49 +256,67 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     this.animFrameId = requestAnimationFrame((now) => {
       if (!this.state.isPlaying()) return;
 
-      const activeEl = this.activeLayer() === 'A'
-        ? this.videoMonitorARef?.nativeElement
-        : this.videoMonitorBRef?.nativeElement;
+      const time = this.state.getCurrentTimeExact();
+      const master = this.masterClock(time);
+      const running = master !== null && master.ready && isRunning(master.el);
 
-      // Pause tick progression if video is actively seeking/buffering (with max 500ms stall timeout)
-      const isBuffering = Boolean(
-        activeEl &&
-        !activeEl.error &&
-        (activeEl.seeking || (activeEl.readyState < 2 && !activeEl.paused))
-      );
-
-      if (isBuffering) {
-        if (this.bufferWaitStartMs === null) {
-          this.bufferWaitStartMs = now;
+      // Hold the playhead while the leading media loads - a few seconds at most, then the
+      // clock goes on without it rather than freezing on a file that never arrives.
+      if (master && !running) {
+        const source = master.el.currentSrc || master.el.src;
+        if (this.stallSource !== source) {
+          this.stallSource = source;
+          this.stallStartMs = now;
         }
-        if (now - this.bufferWaitStartMs < 500) {
+        const waited = now - (this.stallStartMs ?? now);
+        if (waited < MAX_STALL_MS) {
+          if (waited > 250 && !this.buffering()) this.buffering.set(true);
           this.lastTickMs = now;
+          if (!master.ready) {
+            // Still on the previous file: the sync switches it over.
+            this.syncMediaElements(true);
+          } else {
+            // Keep asking it to play - a player only buffers once play() has been called -
+            // and keep everything else where it is, so nothing runs ahead of the held playhead.
+            if (master.el.paused) master.el.play().catch(() => undefined);
+            this.holdOtherMedia(master.el);
+          }
           this.scheduleNextTick();
           return;
         }
+      } else {
+        this.stallSource = null;
+        this.stallStartMs = null;
       }
-      this.bufferWaitStartMs = null;
+      if (this.buffering()) this.buffering.set(false);
 
       const delta = ((now - this.lastTickMs) / 1000) * this.state.playbackSpeed();
       this.lastTickMs = now;
 
       const safeDelta = Math.min(Math.max(delta, 0), 0.25);
-      let nextTime = this.state.getCurrentTimeExact() + safeDelta;
+      let nextTime = time + safeDelta;
 
-      // Sync with active video playback timestamp (soft drift correction; never pins to 0 on start)
-      if (activeEl && !activeEl.paused && !activeEl.seeking && activeEl.readyState >= 2 && activeEl.currentTime > 0.05) {
-        const schedule = this.state.clipSchedule();
-        const curr = schedule.find((s) => this.state.getCurrentTimeExact() >= s.startSeconds && this.state.getCurrentTimeExact() < s.endSeconds);
-        if (curr) {
-          const videoTime = curr.startSeconds + activeEl.currentTime;
-          if (Math.abs(videoTime - nextTime) > 0.03 && Math.abs(videoTime - nextTime) < 0.3) {
-            nextTime += (videoTime - nextTime) * 0.25;
-          }
+      // Ease onto the leading media's own position. Small steps keep the playhead smooth; a
+      // big gap means the media is the one that is off, and the sync below re-seeks it.
+      if (running) {
+        const mediaTime = master.el.currentTime + master.offset;
+        const drift = mediaTime - nextTime;
+        if (Math.abs(drift) > 0.01 && Math.abs(drift) < 0.5) {
+          nextTime = Math.max(time, nextTime + drift * 0.2);
         }
       }
 
-      const total = Math.max(this.state.totalSeconds(), this.state.contentDurationSeconds());
-      if (nextTime >= total && total > 0) {
+      // The end card is rendered on the server; ask for it a little before it is needed.
+      if (this.state.endCardPlaysInPreview() && nextTime > this.state.endCardStartSeconds() - 5) {
+        this.state.renderEndCardPreview();
+      }
+
+      const total = Math.max(this.state.totalSeconds(), this.state.previewEndSeconds());
+      if (total <= 0) {
+        this.state.pause();
+        return;
+      }
+      if (nextTime >= total) {
         if (this.state.isLooping()) {
           this.state.seekTo(0);
           this.scheduleNextTick();
@@ -197,6 +330,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       // Guardrail 2: Report exact continuous time, throttles reactive signal to 10fps
       this.state.reportPlaybackTime(nextTime);
       this.syncMediaElements(true);
+      this.syncEndCard(nextTime, false);
       if (Math.abs(nextTime - this.lastPrefetchSec) > 1.5) {
         this.lastPrefetchSec = nextTime;
         this.prefetchUpcomingMedia();
@@ -205,12 +339,108 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     });
   }
 
+  /** Keeps the end-card player on the timeline's clock; `hard` also re-seeks it. */
+  private syncEndCard(time: number, hard: boolean): void {
+    const el = this.endCardVideoRef?.nativeElement;
+    if (!el) return;
+    const local = Math.max(0, time - this.state.endCardStartSeconds());
+    el.playbackRate = this.state.playbackSpeed();
+    if (hard || Math.abs(el.currentTime - local) > 0.3) {
+      if (el.readyState >= 1) el.currentTime = Math.min(local, Math.max(0, (el.duration || local) - 0.05));
+    }
+    if (this.state.isPlaying() && this.endCardActive()) {
+      if (el.paused) el.play().catch(() => {});
+    } else if (!el.paused) {
+      el.pause();
+    }
+  }
+
   private pausePlayback(): void {
     if (this.animFrameId !== null) {
       cancelAnimationFrame(this.animFrameId);
       this.animFrameId = null;
     }
+    this.buffering.set(false);
     this.pauseAllMedia();
+  }
+
+  /**
+   * The player the clock follows at `time`, and how its position maps onto the timeline
+   * (timeline = player time + offset): the V1 video while one plays, else the music, a loose
+   * audio item, a voiceover line or a cut effect under the playhead. Null where nothing plays.
+   * `ready` is false while the player still holds another file - it is being switched over.
+   */
+  private masterClock(time: number): { el: HTMLMediaElement; offset: number; ready: boolean } | null {
+    const usable = (el: HTMLMediaElement | undefined): el is HTMLMediaElement =>
+      Boolean(el && el.src && !el.error && !el.ended);
+
+    const sched = this.state.clipSchedule();
+    const now = sched.find((s) => time >= s.startSeconds && time < s.endSeconds);
+    if (now && this.state.getClipType(now.clip) !== 'image') {
+      const isA = this.activeLayer() === 'A';
+      const el = isA ? this.videoMonitorARef?.nativeElement : this.videoMonitorBRef?.nativeElement;
+      if (usable(el)) {
+        const loaded = isA ? this.loadedClipIdA : this.loadedClipIdB;
+        return {
+          el,
+          offset: now.startSeconds - (now.clip.trimStartSeconds ?? 0),
+          ready: loaded === this.state.resolveAssetId(now.clip),
+        };
+      }
+    }
+
+    const sound = this.activeSoundAt(time);
+    const bg = this.bgMusicAudioRef?.nativeElement;
+    if (sound.musicTrack && usable(bg)) {
+      const t = sound.musicTrack;
+      return { el: bg, offset: t.startSeconds - (t.trimStartSeconds ?? 0), ready: this.loadedMusicAssetId === t.assetId };
+    }
+    if (!sound.musicTrack && sound.a1Item && usable(bg)) {
+      const i = sound.a1Item;
+      return { el: bg, offset: i.startTime - (i.trimStartSeconds ?? 0), ready: this.loadedMusicAssetId === i.src };
+    }
+    const vo = this.voiceoverAudioRef?.nativeElement;
+    if (sound.voiceoverTrack && usable(vo)) {
+      const t = sound.voiceoverTrack;
+      return { el: vo, offset: t.startSeconds - (t.trimStartSeconds ?? 0), ready: this.loadedVoiceoverAssetId === t.assetId };
+    }
+    const fx = this.effectAudioRef?.nativeElement;
+    if (sound.effectTrack && usable(fx)) {
+      const t = sound.effectTrack;
+      return { el: fx, offset: t.startSeconds - (t.trimStartSeconds ?? 0), ready: this.loadedEffectAssetId === t.assetId };
+    }
+    return null;
+  }
+
+  /**
+   * Puts a player on `target` seconds. Paused, it lands exactly (scrubbing). Playing, it is
+   * only re-seeked past `tolerance` and not again within a second: each seek makes the player
+   * buffer, and seeking a late player every frame kept it from ever playing smoothly.
+   */
+  private alignMedia(el: HTMLMediaElement, target: number, playing: boolean, tolerance = 0.35): void {
+    const at = Math.max(0, target);
+    const drift = Math.abs(el.currentTime - at);
+    if (!playing) {
+      if (drift > 0.04) el.currentTime = at;
+      return;
+    }
+    if (el.seeking || drift <= tolerance) return;
+    const now = performance.now();
+    if (now - (this.lastSeekMs.get(el) ?? -Infinity) < 1000) return;
+    this.lastSeekMs.set(el, now);
+    el.currentTime = at;
+  }
+
+  /** Pauses every timeline player but `keep`; the next sync after the hold starts them again. */
+  private holdOtherMedia(keep: HTMLMediaElement): void {
+    const players = [
+      this.videoMonitorARef, this.videoMonitorBRef, this.overlayVideoRef, this.bgMusicAudioRef,
+      this.clipSoundAudioRef, this.voiceoverAudioRef, this.effectAudioRef,
+    ];
+    for (const ref of players) {
+      const el = ref?.nativeElement;
+      if (el && el !== keep && !el.paused) el.pause();
+    }
   }
 
   private pauseAllMedia(): void {
@@ -219,11 +449,15 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     if (this.overlayVideoRef?.nativeElement && !this.overlayVideoRef.nativeElement.paused) {
       this.overlayVideoRef.nativeElement.pause();
     }
+    this.endCardVideoRef?.nativeElement.pause();
     this.bgMusicAudioRef?.nativeElement.pause();
     this.clipSoundAudioRef?.nativeElement.pause();
+    this.voiceoverAudioRef?.nativeElement.pause();
+    this.effectAudioRef?.nativeElement.pause();
   }
 
   private syncSeek(time: number): void {
+    this.syncEndCard(time, true);
     const activeEl = this.activeLayer() === 'A'
       ? this.videoMonitorARef?.nativeElement
       : this.videoMonitorBRef?.nativeElement;
@@ -241,6 +475,7 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     const bg = this.bgMusicAudioRef?.nativeElement;
     if (bg) {
       const activeMusic = this.state.musicTracks().find((t) => {
+        if (isVoiceoverTrack(t) || isCutEffectTrack(t)) return false;
         const d = this.state.musicTrackDurationSeconds(t);
         return time >= t.startSeconds && time < (t.startSeconds + d);
       });
@@ -260,13 +495,15 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     if (this.overlayVideoRef?.nativeElement) this.overlayVideoRef.nativeElement.playbackRate = speed;
     if (this.bgMusicAudioRef?.nativeElement) this.bgMusicAudioRef.nativeElement.playbackRate = speed;
     if (this.clipSoundAudioRef?.nativeElement) this.clipSoundAudioRef.nativeElement.playbackRate = speed;
+    if (this.voiceoverAudioRef?.nativeElement) this.voiceoverAudioRef.nativeElement.playbackRate = speed;
+    if (this.effectAudioRef?.nativeElement) this.effectAudioRef.nativeElement.playbackRate = speed;
   }
 
 
 
   togglePlayback(): void {
     // Synchronously initiate playback on media elements within user gesture to unlock audio
-    if (!this.state.isPlaying()) {
+    if (!this.state.isPlaying() && this.state.canPlay()) {
       this.syncMediaElements(true);
       this.prefetchUpcomingMedia();
       const activeEl = this.activeLayer() === 'A'
@@ -367,19 +604,44 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
   // Core Sync of Dual-Layer Ping-Pong Video and Overlays
   private syncMediaElements(playing: boolean): void {
     const schedule = this.state.clipSchedule();
-    if (schedule.length === 0) return;
+    if (schedule.length === 0) {
+      // No V1 clip: pictures, titles or music alone. Nothing plays on the video layers,
+      // but the soundtrack still runs under them, as it does in the export.
+      const clipSoundAudio = this.clipSoundAudioRef?.nativeElement;
+      if (clipSoundAudio && !clipSoundAudio.paused) clipSoundAudio.pause();
+      this.syncSoundtrack(this.state.getCurrentTimeExact(), playing, 1);
+      return;
+    }
 
     const time = this.state.getCurrentTimeExact();
-    const curr = schedule.find((s) => time >= s.startSeconds && time < s.endSeconds)
+    const playingNow = schedule.find((s) => time >= s.startSeconds && time < s.endSeconds);
+    // In a slot no clip plays: the next one waits, paused, so it starts clean after the gap.
+    const curr = playingNow
+      ?? schedule.find((s) => s.startSeconds > time)
       ?? schedule[schedule.length - 1];
 
     if (!curr) return;
+    const inGap = !playingNow && time < curr.startSeconds;
+
+    // Past the last clip only audio is left (a voiceover line that runs on): hold the final
+    // frame. Seeking the video beyond its end kept it "seeking" on every tick, which stalled
+    // the playhead there.
+    const pastPicture = time >= schedule[schedule.length - 1].endSeconds;
 
     // Ping-pong layer switch when transitioning to next clip
     if (this.lastPlayedClipIndex !== null && curr.index !== this.lastPlayedClipIndex) {
       if (this.liveTransitionActive()) {
         this.liveTransitionActive.set(false);
         this.activeLayer.update((l) => (l === 'A' ? 'B' : 'A'));
+      } else {
+        // A hard cut: the standby layer already holds the next clip, preloaded. Cut to it
+        // instead of loading the file again on the layer on screen, which stalled every cut.
+        const wanted = this.state.resolveAssetId(curr.clip);
+        const onScreen = this.activeLayer() === 'A' ? this.loadedClipIdA : this.loadedClipIdB;
+        const standby = this.activeLayer() === 'A' ? this.loadedClipIdB : this.loadedClipIdA;
+        if (this.state.getClipType(curr.clip) !== 'image' && standby === wanted && onScreen !== wanted) {
+          this.activeLayer.update((l) => (l === 'A' ? 'B' : 'A'));
+        }
       }
     }
     this.lastPlayedClipIndex = curr.index;
@@ -402,19 +664,10 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     // Same call the export path makes, so the preview is not a separate opinion.
     const overlap = this.state.resolveOverlap(curr.clip.id);
 
-    // Check active audio sources on timeline at playhead time
-    const a1Items = this.state.timelineItems().filter((i) => (i.trackId === 'A1' || i.trackId === 'A2') && i.type === 'audio');
-    const currentTracks = this.state.musicTracks();
-
-    const activeA1Item = a1Items.find((i) => time >= i.startTime && time < (i.startTime + i.duration));
-    const activeMusicTrack = currentTracks.find((t) => {
-      const dur = this.state.musicTrackDurationSeconds(t);
-      return time >= t.startSeconds && time < (t.startSeconds + dur);
-    });
-    const hasGlobalMusic = this.state.musicAssetId() !== '' && this.state.musicVolume() > 0;
-
     // Is any music or soundtrack cue active at THIS playhead time?
-    const hasActiveMusicAtTime = Boolean(activeMusicTrack) || Boolean(activeA1Item) || hasGlobalMusic;
+    const active = this.activeSoundAt(time);
+    const hasActiveMusicAtTime = Boolean(active.musicTrack) || Boolean(active.voiceoverTrack)
+      || Boolean(active.a1Item) || active.hasGlobalMusic;
 
     // The clip's own level, attenuated only where music actually overlaps it.
     let effectiveClipGain = sound.volume * (hasActiveMusicAtTime ? overlap.videoGain : 1);
@@ -469,6 +722,16 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       if (currentActiveVideo && !currentActiveVideo.paused) {
         currentActiveVideo.pause();
       }
+    } else if (inGap && currentActiveVideo) {
+      if (!currentActiveVideo.paused) currentActiveVideo.pause();
+      currentActiveVideo.muted = true;
+    } else if (pastPicture && currentActiveVideo) {
+      if (!currentActiveVideo.paused) currentActiveVideo.pause();
+      currentActiveVideo.muted = true;
+      const lastFrame = Math.max(0.05, clipTrimStart + curr.durationSeconds - 0.05);
+      if (!currentActiveVideo.seeking && Math.abs(currentActiveVideo.currentTime - lastFrame) > 0.15) {
+        currentActiveVideo.currentTime = lastFrame;
+      }
     } else if (currentActiveVideo) {
       const currAssetId = this.state.resolveAssetId(curr.clip);
       const activeLoadedId = currentActiveIsA ? this.loadedClipIdA : this.loadedClipIdB;
@@ -485,10 +748,8 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
             currentActiveVideo.onloadedmetadata = null;
           };
         }
-      } else if (!playing && Math.abs(currentActiveVideo.currentTime - localTime) > 0.05 && !currentActiveVideo.seeking) {
-        currentActiveVideo.currentTime = Math.max(0.05, localTime);
-      } else if (playing && Math.abs(currentActiveVideo.currentTime - localTime) > 0.4 && !currentActiveVideo.seeking) {
-        currentActiveVideo.currentTime = Math.max(0.05, localTime);
+      } else {
+        this.alignMedia(currentActiveVideo, Math.max(0.05, localTime), playing, 0.4);
       }
       currentActiveVideo.volume = this.state.isMonitorMuted() ? 0 : Math.min(1, this.state.monitorVolume() * clipVol);
       currentActiveVideo.muted = isVideoMuted;
@@ -524,8 +785,8 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
           else this.loadedClipIdA = nextAssetId;
           currentStandbyVideo.src = this.state.assetUrl(nextAssetId);
           currentStandbyVideo.currentTime = nextLocalTime;
-        } else if (!playing || (Math.abs(currentStandbyVideo.currentTime - nextLocalTime) > 0.4 && !currentStandbyVideo.seeking)) {
-          currentStandbyVideo.currentTime = nextLocalTime;
+        } else {
+          this.alignMedia(currentStandbyVideo, nextLocalTime, playing, 0.4);
         }
 
         if (canBorrowHead) {
@@ -585,31 +846,99 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       overlayVideo.pause();
     }
 
-    // 4. Sync Background Music & Audio Track
+    // 4. Background music, voiceover lines and cut effects
+    this.syncSoundtrack(time, playing, overlap.musicGain);
+
+    // 5. Sync Replacement Clip Sound (Voiceover)
+    const clipSoundAudio = this.clipSoundAudioRef?.nativeElement;
+    if (clipSoundAudio && sound.audioAssetId && sound.audioVolume > 0 && !pastPicture && !inGap) {
+      const clipSoundUrl = this.state.assetUrl(sound.audioAssetId);
+      const clipRun = this.state.clipSoundRunOffset(curr.clip.id);
+      const targetClipSoundTime = localTime + clipRun.startOffset;
+      const isClipSoundMuted = this.state.isMonitorMuted() || this.state.isTrackMuted('V1');
+      const clipSoundVol = isClipSoundMuted ? 0 : Math.min(1, sound.audioVolume * this.state.trackV1Volume() * this.state.monitorVolume());
+
+      if (this.loadedClipSoundAssetId !== sound.audioAssetId) {
+        this.loadedClipSoundAssetId = sound.audioAssetId;
+        clipSoundAudio.src = clipSoundUrl;
+        clipSoundAudio.currentTime = Math.max(0, targetClipSoundTime);
+      } else {
+        this.alignMedia(clipSoundAudio, targetClipSoundTime, playing);
+      }
+      clipSoundAudio.volume = clipSoundVol;
+      clipSoundAudio.muted = isClipSoundMuted;
+      clipSoundAudio.playbackRate = speed;
+      if (playing) {
+        if (clipSoundAudio.paused) clipSoundAudio.play().catch(() => undefined);
+      } else {
+        if (!clipSoundAudio.paused) clipSoundAudio.pause();
+      }
+    } else if (clipSoundAudio && !clipSoundAudio.paused) {
+      clipSoundAudio.pause();
+    }
+  }
+
+  /** What sound is on the timeline at `time`, by the player each kind plays on. */
+  private activeSoundAt(time: number) {
+    const a1Items = this.state.timelineItems().filter((i) => (i.trackId === 'A1' || i.trackId === 'A2') && i.type === 'audio');
+    const currentTracks = this.state.musicTracks();
+    const isActiveTrack = (t: MusicTrackRow) => {
+      const dur = this.state.musicTrackDurationSeconds(t);
+      return time >= t.startSeconds && time < (t.startSeconds + dur);
+    };
+    return {
+      a1Item: a1Items.find((i) => time >= i.startTime && time < (i.startTime + i.duration)),
+      // Voiceover lines get their own player so they are heard over music, as in the export.
+      // Cut effects play over the music on a player of their own, not instead of it.
+      musicTrack: currentTracks.find((t) => !isVoiceoverTrack(t) && !isCutEffectTrack(t) && isActiveTrack(t)),
+      effectTrack: currentTracks.find((t) => isCutEffectTrack(t) && isActiveTrack(t)),
+      voiceoverTrack: currentTracks.find((t) => isVoiceoverTrack(t) && isActiveTrack(t)),
+      hasGlobalMusic: this.state.musicAssetId() !== '' && this.state.musicVolume() > 0,
+    };
+  }
+
+  /**
+   * Music, voiceover lines and cut effects at the playhead. They run under the picture on
+   * their own clock, so they play whether or not a V1 clip is there. `musicGain` is the
+   * clip's overlap rule stepping the music back under it; 1 where no clip plays.
+   */
+  private syncSoundtrack(time: number, playing: boolean, musicGain: number): void {
+    const speed = this.state.playbackSpeed();
+    const active = this.activeSoundAt(time);
+    const activeMusicTrack = active.musicTrack;
+    const activeA1Item = active.a1Item;
+    const activeEffectTrack = active.effectTrack;
+    const activeVoiceoverTrack = active.voiceoverTrack;
+    const hasGlobalMusic = active.hasGlobalMusic;
+
     const bgAudio = this.bgMusicAudioRef?.nativeElement;
     let targetMusicAssetId: string | null = null;
     let targetMusicTime = 0;
     let targetMusicVolume = 1.0;
-    let isMusicTrackMuted = this.state.isMonitorMuted() || this.state.isTrackMuted('A1');
+    // Music rides the A2 bus; a loose audio item follows the lane it sits on.
+    let musicBus: 'A1' | 'A2' = 'A2';
 
     if (activeMusicTrack) {
       targetMusicAssetId = activeMusicTrack.assetId;
       targetMusicTime = (time - activeMusicTrack.startSeconds) + (activeMusicTrack.trimStartSeconds ?? 0);
-      targetMusicVolume = (activeMusicTrack.volume ?? 1.0) * this.state.trackA1Volume();
-      if (activeMusicTrack.muted) isMusicTrackMuted = true;
+      targetMusicVolume = activeMusicTrack.volume ?? 1.0;
     } else if (activeA1Item) {
+      musicBus = activeA1Item.trackId === 'A1' ? 'A1' : 'A2';
       targetMusicAssetId = activeA1Item.src;
       targetMusicTime = (time - activeA1Item.startTime) + (activeA1Item.trimStartSeconds ?? 0);
-      targetMusicVolume = (activeA1Item.volume ?? 1.0) * this.state.trackA1Volume();
-      if (activeA1Item.muted) isMusicTrackMuted = true;
+      targetMusicVolume = activeA1Item.volume ?? 1.0;
     } else if (hasGlobalMusic) {
       targetMusicAssetId = this.state.musicAssetId();
       targetMusicTime = time;
-      targetMusicVolume = this.state.musicVolume() * this.state.trackA1Volume();
+      targetMusicVolume = this.state.musicVolume();
     }
+    targetMusicVolume *= this.state.audioBusGain(musicBus);
+    const isMusicTrackMuted = this.state.isMonitorMuted() || this.state.isTrackMuted(musicBus)
+      || Boolean(activeMusicTrack?.muted) || (!activeMusicTrack && Boolean(activeA1Item?.muted));
 
     // The resolved rule may ask the music to step back under this clip.
-    targetMusicVolume *= overlap.musicGain;
+    // Under a voiceover line too; where both apply, the deeper duck wins, as in the export.
+    targetMusicVolume *= Math.min(musicGain, this.state.voiceDuckGainAt(time));
 
     if (bgAudio && targetMusicAssetId) {
       const musicUrl = this.state.assetUrl(targetMusicAssetId);
@@ -617,8 +946,8 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
         this.loadedMusicAssetId = targetMusicAssetId;
         bgAudio.src = musicUrl;
         bgAudio.currentTime = Math.max(0, targetMusicTime);
-      } else if (!playing || Math.abs(bgAudio.currentTime - targetMusicTime) > 0.35) {
-        bgAudio.currentTime = Math.max(0, targetMusicTime);
+      } else {
+        this.alignMedia(bgAudio, targetMusicTime, playing);
       }
       bgAudio.volume = isMusicTrackMuted ? 0 : Math.min(1, this.state.monitorVolume() * targetMusicVolume);
       bgAudio.muted = isMusicTrackMuted;
@@ -632,33 +961,58 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
       bgAudio.pause();
     }
 
-    // 5. Sync Replacement Clip Sound (Voiceover)
-    const clipSoundAudio = this.clipSoundAudioRef?.nativeElement;
-    if (clipSoundAudio && sound.audioAssetId && sound.audioVolume > 0) {
-      const clipSoundUrl = this.state.assetUrl(sound.audioAssetId);
-      const clipRun = this.state.clipSoundRunOffset(curr.clip.id);
-      const targetClipSoundTime = localTime + clipRun.startOffset;
-      const isClipSoundMuted = this.state.isMonitorMuted() || this.state.isTrackMuted('V1');
-      const clipSoundVol = isClipSoundMuted ? 0 : Math.min(1, sound.audioVolume * this.state.trackV1Volume() * this.state.monitorVolume());
-
-      if (this.loadedClipSoundAssetId !== sound.audioAssetId) {
-        this.loadedClipSoundAssetId = sound.audioAssetId;
-        clipSoundAudio.src = clipSoundUrl;
-        clipSoundAudio.currentTime = Math.max(0, targetClipSoundTime);
-      } else if (!playing || Math.abs(clipSoundAudio.currentTime - targetClipSoundTime) > 0.35) {
-        clipSoundAudio.currentTime = Math.max(0, targetClipSoundTime);
-      }
-      clipSoundAudio.volume = clipSoundVol;
-      clipSoundAudio.muted = isClipSoundMuted;
-      clipSoundAudio.playbackRate = speed;
-      if (playing) {
-        if (clipSoundAudio.paused) clipSoundAudio.play().catch(() => undefined);
+    // 4b. Sync Voiceover lines on A1
+    const voAudio = this.voiceoverAudioRef?.nativeElement;
+    if (voAudio && activeVoiceoverTrack) {
+      const voTime = (time - activeVoiceoverTrack.startSeconds) + (activeVoiceoverTrack.trimStartSeconds ?? 0);
+      const voMuted = this.state.isMonitorMuted() || this.state.isTrackMuted('A1') || Boolean(activeVoiceoverTrack.muted)
+        || this.state.auditioningVoiceover();
+      if (this.loadedVoiceoverAssetId !== activeVoiceoverTrack.assetId) {
+        this.loadedVoiceoverAssetId = activeVoiceoverTrack.assetId;
+        voAudio.src = this.state.assetUrl(activeVoiceoverTrack.assetId);
+        voAudio.currentTime = Math.max(0, voTime);
       } else {
-        if (!clipSoundAudio.paused) clipSoundAudio.pause();
+        this.alignMedia(voAudio, voTime, playing);
       }
-    } else if (clipSoundAudio && !clipSoundAudio.paused) {
-      clipSoundAudio.pause();
+      // The voice leads: a Duck music rule lowers the music around it, never the voice itself.
+      const voGain = (activeVoiceoverTrack.volume ?? 1.0) * this.state.trackA1Volume();
+      voAudio.volume = voMuted ? 0 : Math.min(1, this.state.monitorVolume() * voGain);
+      voAudio.muted = voMuted;
+      voAudio.playbackRate = speed;
+      if (playing) {
+        if (voAudio.paused) voAudio.play().catch(() => undefined);
+      } else if (!voAudio.paused) {
+        voAudio.pause();
+      }
+    } else if (voAudio && !voAudio.paused) {
+      voAudio.pause();
     }
+
+    // 4c. Sound effects on cuts, heard over the music bed rather than swapping it out
+    const fxAudio = this.effectAudioRef?.nativeElement;
+    if (fxAudio && activeEffectTrack) {
+      const fxTime = (time - activeEffectTrack.startSeconds) + (activeEffectTrack.trimStartSeconds ?? 0);
+      const fxMuted = this.state.isMonitorMuted() || this.state.isTrackMuted('A2') || Boolean(activeEffectTrack.muted);
+      if (this.loadedEffectAssetId !== activeEffectTrack.assetId) {
+        this.loadedEffectAssetId = activeEffectTrack.assetId;
+        fxAudio.src = this.state.assetUrl(activeEffectTrack.assetId);
+        fxAudio.currentTime = Math.max(0, fxTime);
+      } else {
+        this.alignMedia(fxAudio, fxTime, playing);
+      }
+      const fxGain = (activeEffectTrack.volume ?? 1.0) * this.state.audioBusGain('A2');
+      fxAudio.volume = fxMuted ? 0 : Math.min(1, this.state.monitorVolume() * fxGain);
+      fxAudio.muted = fxMuted;
+      fxAudio.playbackRate = speed;
+      if (playing) {
+        if (fxAudio.paused) fxAudio.play().catch(() => undefined);
+      } else if (!fxAudio.paused) {
+        fxAudio.pause();
+      }
+    } else if (fxAudio && !fxAudio.paused) {
+      fxAudio.pause();
+    }
+
   }
 
   private pvClassForTransition(transition: string): string {
@@ -761,6 +1115,12 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     return `color-mix(in srgb, ${m.region.fillColor ?? '#000000'} ${m.region.opacity ?? 100}%, transparent)`;
   }
 
+  /** The corner watermark, placed and sized exactly as ClipPlanFactory.CreateWatermark does. */
+  readonly monitorWatermarkStyle = computed(() => {
+    const c = this.state.monitorCanvasPixels();
+    return watermarkMarkStyle(this.state.effectiveWatermark(), c.width, c.height);
+  });
+
   /** Text mark size: fills the box's height, unless the line would overflow its width. */
   brandFontSize(): string {
     const len = Math.max(1, (this.state.effectiveWatermark().text || 'yoursite.example').length);
@@ -795,6 +1155,10 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     for (const canvas of canvases) {
       const m = regions.find((x) => x.index === Number(canvas.dataset['erase']));
       if (!m) continue;
+      if (m.region.style === 'Clean') {
+        this.paintClean(canvas, source, sw, sh, m);
+        continue;
+      }
       const origin = erasePatchOrigin(m.region);
       const w = (m.outer.width / 100) * sw;
       const h = (m.outer.height / 100) * sh;
@@ -814,6 +1178,68 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
         // A frame that is not decodable yet; the next tick paints it.
       }
     }
+  }
+
+  private cleanScratch?: HTMLCanvasElement;
+
+  /**
+   * A Clean box, rebuilt as EraseFilters.AppendClean does: the edge rows above and below
+   * blended by height, the edge columns either side blended by width, mixed by which edge
+   * is nearer. A side against the frame edge has nothing to read and is left out.
+   */
+  private paintClean(canvas: HTMLCanvasElement, source: CanvasImageSource, sw: number, sh: number, m: MonitorEraseRegion): void {
+    const r = m.region;
+    const top = r.y > 0.5, bottom = r.y + r.height < 99.5, left = r.x > 0.5, right = r.x + r.width < 99.5;
+    const w = (r.width / 100) * sw, h = (r.height / 100) * sh;
+    const scale = Math.min(1, 480 / Math.max(w, h));
+    const cw = Math.max(2, Math.round(w * scale)), ch = Math.max(2, Math.round(h * scale));
+    if (canvas.width !== cw) canvas.width = cw;
+    if (canvas.height !== ch) canvas.height = ch;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // The box plus one ring of footage around it, two source pixels out like the export.
+    const scratch = this.cleanScratch ??= document.createElement('canvas');
+    const W = cw + 2, H = ch + 2;
+    scratch.width = W;
+    scratch.height = H;
+    const sctx = scratch.getContext('2d', { willReadFrequently: true });
+    if (!sctx) return;
+    const px = 2 / scale;
+    try {
+      sctx.drawImage(source, (r.x / 100) * sw - px, (r.y / 100) * sh - px, w + 2 * px, h + 2 * px, 0, 0, W, H);
+    } catch {
+      return; // Not decodable yet; the next tick paints it.
+    }
+
+    let data: ImageData;
+    try {
+      data = sctx.getImageData(0, 0, W, H);
+    } catch {
+      return; // Footage from another origin cannot be read back; the box stays as it is.
+    }
+    const src = data.data;
+    const out = ctx.createImageData(cw, ch);
+    const o = out.data;
+    const at = (x: number, y: number) => (y * W + x) * 4;
+    for (let y = 1; y <= ch; y++) {
+      const ty = y / (H - 1);
+      for (let x = 1; x <= cw; x++) {
+        const tx = x / (W - 1);
+        const dy = top && bottom ? Math.min(y, H - 1 - y) : top ? y : H - 1 - y;
+        const dx = left && right ? Math.min(x, W - 1 - x) : left ? x : W - 1 - x;
+        const d = ((y - 1) * cw + (x - 1)) * 4;
+        for (let c = 0; c < 3; c++) {
+          const v = top && bottom ? src[at(x, 0) + c] * (1 - ty) + src[at(x, H - 1) + c] * ty
+            : top ? src[at(x, 0) + c] : bottom ? src[at(x, H - 1) + c] : NaN;
+          const hz = left && right ? src[at(0, y) + c] * (1 - tx) + src[at(W - 1, y) + c] * tx
+            : left ? src[at(0, y) + c] : right ? src[at(W - 1, y) + c] : NaN;
+          o[d + c] = isNaN(v) ? (isNaN(hz) ? 0 : hz) : isNaN(hz) ? v : (v * dx + hz * dy) / Math.max(0.001, dx + dy);
+        }
+        o[d + 3] = 255;
+      }
+    }
+    ctx.putImageData(out, 0, 0);
   }
 
   /** Moves or resizes one erase box by dragging it on the paused monitor. */
@@ -853,6 +1279,203 @@ export class VideoViewportComponent implements OnInit, OnDestroy {
     target.addEventListener('pointermove', onMove);
     target.addEventListener('pointerup', onUp);
     target.addEventListener('pointercancel', onUp);
+  }
+
+  /**
+   * Press on a block of text to select it, drag to place it. Moving only starts past a few
+   * pixels, so a plain click selects without turning a named position into a custom one.
+   * Near the middle it snaps to centre, the place a caption almost always belongs.
+   */
+  startTextDrag(event: PointerEvent, block: MonitorTextBlock): void {
+    if (event.button !== 0) return;
+    if (block.target.kind === 'item') this.state.selectTimelineItem(block.target.id);
+    else this.state.selectFrameLayer(block.target.kind === 'frame' ? block.target.id : 'subtitles');
+    if (this.state.isPlaying()) return;
+    const frame = this.monitorContainerRef?.nativeElement;
+    if (!frame) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    const handle = event.currentTarget as HTMLElement;
+    handle.setPointerCapture(event.pointerId);
+
+    const rect = frame.getBoundingClientRect();
+    const x0 = event.clientX, y0 = event.clientY;
+    const startX = block.look.x, startY = block.look.y;
+    let moving = false;
+
+    const onMove = (e: PointerEvent) => {
+      if (!moving && Math.hypot(e.clientX - x0, e.clientY - y0) < 4) return;
+      moving = true;
+      // A band is always full width; only its height means anything.
+      let x = block.look.box === 'band' ? 50 : startX + ((e.clientX - x0) / rect.width) * 100;
+      if (Math.abs(x - 50) < 3) x = 50;
+      const y = startY + ((e.clientY - y0) / rect.height) * 100;
+      this.state.moveTextBlock(block.target, x, y);
+    };
+    const onUp = (e: PointerEvent) => {
+      handle.releasePointerCapture(e.pointerId);
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
+      handle.removeEventListener('pointercancel', onUp);
+    };
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onUp);
+    handle.addEventListener('pointercancel', onUp);
+  }
+
+  /**
+   * Press on a frame image to select it; drag it to move, or drag its corner to resize.
+   * The image is centred on its point, so the corner moving by d widens it by 2d.
+   */
+  startFrameImageDrag(event: PointerEvent, image: FrameImage, mode: 'move' | 'resize'): void {
+    if (event.button !== 0) return;
+    this.state.selectFrameLayer(image.id);
+    if (this.state.isPlaying()) return;
+    const frame = this.monitorContainerRef?.nativeElement;
+    if (!frame) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    const handle = event.currentTarget as HTMLElement;
+    handle.setPointerCapture(event.pointerId);
+
+    const rect = frame.getBoundingClientRect();
+    const x0 = event.clientX, y0 = event.clientY;
+    let moving = false;
+
+    const onMove = (e: PointerEvent) => {
+      if (!moving && Math.hypot(e.clientX - x0, e.clientY - y0) < 3) return;
+      moving = true;
+      const dx = ((e.clientX - x0) / rect.width) * 100;
+      const dy = ((e.clientY - y0) / rect.height) * 100;
+      if (mode === 'resize') {
+        this.state.updateFrameImage(image.id, { width: image.width + dx * 2 });
+        return;
+      }
+      let x = image.x + dx;
+      if (Math.abs(x - 50) < 2) x = 50;
+      this.state.updateFrameImage(image.id, { x, y: image.y + dy });
+    };
+    const onUp = (e: PointerEvent) => {
+      handle.releasePointerCapture(e.pointerId);
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
+      handle.removeEventListener('pointercancel', onUp);
+    };
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onUp);
+    handle.addEventListener('pointercancel', onUp);
+  }
+
+  // --- frame pictures & videos -------------------------------------------------------
+
+  /** A picture or video from the media library (or an image file) is being dragged over the frame. */
+  readonly dropHover = signal(false);
+
+  onMonitorDragOver(event: DragEvent): void {
+    const fromLibrary = this.state.draggingAsset() !== null;
+    const fromDesktop = Array.from(event.dataTransfer?.items ?? []).some((i) => i.kind === 'file' && i.type.startsWith('image/'));
+    if (!fromLibrary && !fromDesktop) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+    this.dropHover.set(true);
+  }
+
+  onMonitorDragLeave(event: DragEvent): void {
+    const into = event.relatedTarget as Node | null;
+    if (into && (event.currentTarget as HTMLElement).contains(into)) return;
+    this.dropHover.set(false);
+  }
+
+  onMonitorDrop(event: DragEvent): void {
+    this.dropHover.set(false);
+    const frame = this.monitorContainerRef?.nativeElement;
+    if (!frame) return;
+    const rect = frame.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / rect.width) * 100;
+    const y = ((event.clientY - rect.top) / rect.height) * 100;
+    if (this.state.dropOnMonitor(x, y, event.dataTransfer?.files ?? null)) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  }
+
+  /** Centred on its point, then moved and scaled by its entrance or exit. */
+  frameMediaTransform(im: MonitorFrameMedia): string {
+    const m = im.motion;
+    const x = m.dx !== 0 ? `calc(-50% + ${m.dx * 100}cqw)` : '-50%';
+    const y = m.dy !== 0 ? `calc(-50% + ${m.dy * 100}cqh)` : '-50%';
+    return `translate(${x}, ${y})${m.scale !== 1 ? ` scale(${m.scale})` : ''}`;
+  }
+
+  /**
+   * The source sized and shifted inside its box so only the cropped part shows. Until the
+   * source has been measured the box has no shape of its own, and the picture shows whole.
+   */
+  cropStyle(im: MonitorFrameMedia): Record<string, string> {
+    if (im.aspect === null) return {};
+    const keepW = 100 - im.crop.left - im.crop.right;
+    const keepH = 100 - im.crop.top - im.crop.bottom;
+    return {
+      width: `${(100 * 100) / keepW}%`,
+      height: `${(100 * 100) / keepH}%`,
+      left: `${(-im.crop.left * 100) / keepW}%`,
+      top: `${(-im.crop.top * 100) / keepH}%`,
+    };
+  }
+
+  private syncFrameVideos(playing: boolean): void {
+    const root = this.monitorContainerRef?.nativeElement;
+    if (!root) return;
+    const speed = this.state.playbackSpeed();
+    root.querySelectorAll<HTMLVideoElement>('video.frame-video').forEach((v) => {
+      const at = Number(v.dataset['at']);
+      if (!Number.isFinite(at)) return;
+      const drift = Math.abs(v.currentTime - at);
+      if (!playing) {
+        if (!v.paused) v.pause();
+        if (drift > 0.04 && !v.seeking) v.currentTime = at;
+        return;
+      }
+      v.playbackRate = speed;
+      if (drift > 0.3 && !v.seeking) v.currentTime = at;
+      if (v.paused) v.play().catch(() => undefined);
+    });
+  }
+
+  /** Centred on its point; the entrance/exit offset is in 360-reference pixels like the export's. */
+  textBlockTransform(b: MonitorTextBlock): string {
+    const dy = b.offsetY !== 0 ? ` + ${b.offsetY} * 100cqmin / ${TEXT_REFERENCE_SHORT_SIDE}` : '';
+    const scale = b.scale !== 1 ? ` scale(${b.scale})` : '';
+    return b.look.box === 'band'
+      ? `translateY(calc(-50%${dy}))${scale}`
+      : `translate(-50%, calc(-50%${dy}))${scale}`;
+  }
+
+  textBandBackground(b: MonitorTextBlock): string | null {
+    return b.look.box === 'band' && b.look.boxOpacity > 0 ? hexToRgba(b.look.boxColor, b.look.boxOpacity) : null;
+  }
+
+  /** One line's plate, stroke and shadow - drawtext's box, borderw and shadow. */
+  textLineStyle(b: MonitorTextBlock): Record<string, string> {
+    const l = b.look;
+    return {
+      background: l.box === 'box' && l.boxOpacity > 0 ? hexToRgba(l.boxColor, l.boxOpacity) : 'transparent',
+      // The stroke is centred on the outline and painted under the fill, so twice the
+      // width shows exactly drawtext's outward border.
+      '-webkit-text-stroke': l.outlineWidth > 0
+        ? `calc(${l.outlineWidth * 2} * 100cqmin / ${TEXT_REFERENCE_SHORT_SIDE}) ${l.outlineColor}`
+        : '0',
+      'text-shadow': l.shadow ? '0.0625em 0.0625em 0 rgba(0,0,0,0.7)' : 'none',
+    };
+  }
+
+  /** Hides the part of a line not typed yet; generous top and bottom so shadows survive. */
+  revealClip(shown: number | undefined): string | null {
+    if (shown === undefined || shown >= 1) return null;
+    return `inset(-50% ${((1 - shown) * 100).toFixed(2)}% -50% -10%)`;
   }
 
   toggleFullscreen(): void {

@@ -4,7 +4,7 @@
       <div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px;">
         <div class="d-flex justify-content-between align-items-center mb-2">
           <div style="font-size: 0.82rem; font-weight: 700; color: var(--text);">
-            <span style="color: #10b981; margin-right: 4px;">T</span> Timeline Text Overlay (TXT1)
+            <span style="color: #10b981; margin-right: 4px;">T</span> Timeline Text (TXT1)
           </div>
           <div class="d-flex gap-1">
             <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.7rem;"
@@ -16,6 +16,60 @@
               🗑 Remove
             </button>
           </div>
+        </div>
+
+        <!-- Placement: its own slot on a card, or over the picture -->
+        <div class="mb-2 p-2" style="background: rgba(0,0,0,0.25); border-radius: 6px; border: 1px solid rgba(255,255,255,0.06);">
+          <div style="font-size: 0.72rem; font-weight: 700; color: #10b981; margin-bottom: 6px;">▣ Placement</div>
+          <div class="btn-group w-100 mb-1" role="group" aria-label="Text placement">
+            <button type="button" class="btn btn-sm py-1" style="font-size: 0.7rem;"
+                    [class.btn-primary]="!txtItem.overlay" [class.btn-outline-secondary]="!!txtItem.overlay"
+                    [attr.aria-pressed]="!txtItem.overlay"
+                    (click)="state.setTextPlacement(txtItem.id, false)">
+              Own slot (card)
+            </button>
+            <button type="button" class="btn btn-sm py-1" style="font-size: 0.7rem;"
+                    [class.btn-primary]="!!txtItem.overlay" [class.btn-outline-secondary]="!txtItem.overlay"
+                    [attr.aria-pressed]="!!txtItem.overlay"
+                    (click)="state.setTextPlacement(txtItem.id, true)">
+              Over the picture
+            </button>
+          </div>
+          <div style="font-size: 0.68rem; color: var(--text-muted);">
+            @if (txtItem.overlay) {
+              Shows on top of whatever image or video is under it, for its own time. Nothing moves to make room.
+            } @else {
+              Plays between clips on its own card; everything after it moves along.
+            }
+          </div>
+
+          @if (!txtItem.overlay) {
+            <div class="d-flex gap-2 align-items-center mt-2">
+              <label for="txtCardColor" style="font-size: 0.72rem; color: var(--text-muted); width: 60px;">Card</label>
+              <input id="txtCardColor" type="color" class="form-control form-control-color form-control-sm p-0"
+                     style="width: 34px; height: 26px;"
+                     [ngModel]="txtItem.textStyle?.cardColor ?? '#111827'"
+                     (ngModelChange)="state.updateTextItemStyle(txtItem.id, { cardColor: $event })"
+                     title="Card colour" />
+              <input type="range" class="form-range flex-fill" min="0" max="1" step="0.05"
+                     aria-label="Card opacity"
+                     [ngModel]="cardOpacity(txtItem)"
+                     (ngModelChange)="state.updateTextItemStyle(txtItem.id, { cardColor: txtItem.textStyle?.cardColor ?? '#111827', cardOpacity: $event })"
+                     title="Card opacity (0 shows the project backdrop)" />
+              <span class="mono" style="font-size: 0.68rem; color: var(--text-muted); width: 32px;">{{ cardOpacity(txtItem) * 100 | number:'1.0-0' }}%</span>
+            </div>
+            <div class="d-flex gap-2 align-items-center mt-1">
+              <label for="txtCardEffect" style="font-size: 0.72rem; color: var(--text-muted); width: 60px;">Effect</label>
+              <select id="txtCardEffect" class="form-select form-select-sm bg-dark text-light border-secondary border-opacity-50 py-0 flex-fill"
+                      style="font-size: 0.72rem; height: 26px;"
+                      [ngModel]="txtItem.textStyle?.cardEffect ?? 'none'"
+                      (ngModelChange)="state.updateTextItemStyle(txtItem.id, { cardColor: txtItem.textStyle?.cardColor ?? '#111827', cardEffect: $event })">
+                @for (e of cardEffects; track e.id) {
+                  <option [value]="e.id">{{ e.label }}</option>
+                }
+              </select>
+            </div>
+          }
         </div>
 
         <!-- Timing & Auto-Fit Section -->
@@ -70,71 +124,9 @@
                     placeholder="Enter overlay text / subtitles..."></textarea>
         </div>
 
-        <!-- Position Selector -->
-        <div class="mb-2">
-          <label style="font-size: 0.74rem; color: var(--text-muted); margin-bottom: 3px; display: block;">Position on Screen</label>
-          <div class="d-flex gap-1">
-            <button type="button" class="btn btn-sm flex-fill"
-                    [class.btn-primary]="txtItem.textStyle?.position === 'top'"
-                    [class.btn-outline-secondary]="txtItem.textStyle?.position !== 'top'"
-                    style="font-size: 0.72rem; padding: 2px 4px;"
-                    (click)="state.updateTextItemStyle(txtItem.id, { position: 'top' })">
-              ⬆ Top
-            </button>
-            <button type="button" class="btn btn-sm flex-fill"
-                    [class.btn-primary]="txtItem.textStyle?.position === 'center'"
-                    [class.btn-outline-secondary]="txtItem.textStyle?.position !== 'center'"
-                    style="font-size: 0.72rem; padding: 2px 4px;"
-                    (click)="state.updateTextItemStyle(txtItem.id, { position: 'center' })">
-              ⏺ Center
-            </button>
-            <button type="button" class="btn btn-sm flex-fill"
-                    [class.btn-primary]="!txtItem.textStyle?.position || txtItem.textStyle.position === 'bottom'"
-                    [class.btn-outline-secondary]="txtItem.textStyle?.position && txtItem.textStyle.position !== 'bottom'"
-                    style="font-size: 0.72rem; padding: 2px 4px;"
-                    (click)="state.updateTextItemStyle(txtItem.id, { position: 'bottom' })">
-              ⬇ Bottom
-            </button>
-          </div>
-        </div>
-
-        <!-- Font Size & Colors -->
-        <div class="d-flex gap-2 mb-2">
-          <div class="flex-fill">
-            <div class="d-flex justify-content-between" style="font-size: 0.74rem; color: var(--text-muted); margin-bottom: 2px;">
-              <span>Font Size</span>
-              <span class="mono">{{ txtItem.textStyle?.fontSize ?? 28 }}px</span>
-            </div>
-            <input type="range" class="form-range" min="14" max="72" step="2"
-                   [ngModel]="txtItem.textStyle?.fontSize ?? 28"
-                   (ngModelChange)="state.updateTextItemStyle(txtItem.id, { fontSize: $event })" />
-          </div>
-        </div>
-
-        <!-- Color Presets -->
-        <div class="d-flex gap-2">
-          <div class="flex-fill">
-            <label style="font-size: 0.72rem; color: var(--text-muted); margin-bottom: 2px; display: block;">Text Color</label>
-            <div class="d-flex gap-1">
-              @for (c of ['#ffffff', '#fbbf24', '#38bdf8', '#4ade80']; track c) {
-                <button type="button" style="width: 22px; height: 22px; border-radius: 4px; border: 1px solid var(--border);"
-                        [style.background]="c"
-                        (click)="state.updateTextItemStyle(txtItem.id, { color: c })"></button>
-              }
-            </div>
-          </div>
-          <div class="flex-fill">
-            <label style="font-size: 0.72rem; color: var(--text-muted); margin-bottom: 2px; display: block;">Background</label>
-            <div class="d-flex gap-1">
-              <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1" style="font-size: 0.68rem;"
-                      (click)="state.updateTextItemStyle(txtItem.id, { backgroundColor: 'transparent' })">None</button>
-              <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1" style="font-size: 0.68rem;"
-                      (click)="state.updateTextItemStyle(txtItem.id, { backgroundColor: 'rgba(0,0,0,0.6)' })">Dark</button>
-              <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-1" style="font-size: 0.68rem;"
-                      (click)="state.updateTextItemStyle(txtItem.id, { backgroundColor: '#000000' })">Black</button>
-            </div>
-          </div>
-        </div>
+        <!-- Look: design, position, size, colours, plate, outline -->
+        <app-text-style-editor [textStyle]="txtItem.textStyle"
+                               (styleChange)="state.updateTextItemStyle(txtItem.id, $event)" />
 
         <!-- In / Out Transition Animations -->
         <div class="mt-3 pt-2" style="border-top: 1px solid var(--border);">
@@ -153,9 +145,13 @@
               <option value="fade">Fade In</option>
               <option value="slide-up">Slide Up</option>
               <option value="slide-down">Slide Down</option>
-              <option value="zoom-in">Zoom In</option>
+              <option value="zoom-in">Zoom In (fades in export)</option>
+              <option value="slide-left">From right ←</option>
+              <option value="slide-right">From left →</option>
+              <option value="typewriter">⌨ Typewriter</option>
+              <option value="wipe">Write on →</option>
             </select>
-            <input type="range" class="form-range" style="width: 80px;" min="0.1" max="2.0" step="0.1"
+            <input type="range" class="form-range" style="width: 80px;" min="0.1" max="3.0" step="0.1"
                    [ngModel]="txtItem.textStyle?.transitionInDuration ?? 0.5"
                    (ngModelChange)="state.updateTextItemStyle(txtItem.id, { transitionInDuration: $event })"
                    title="In duration (s)" />
@@ -173,9 +169,11 @@
               <option value="fade">Fade Out</option>
               <option value="slide-down">Slide Down</option>
               <option value="slide-up">Slide Up</option>
-              <option value="zoom-out">Zoom Out</option>
+              <option value="zoom-out">Zoom Out (fades in export)</option>
+              <option value="slide-left">Exit left ←</option>
+              <option value="slide-right">Exit right →</option>
             </select>
-            <input type="range" class="form-range" style="width: 80px;" min="0.1" max="2.0" step="0.1"
+            <input type="range" class="form-range" style="width: 80px;" min="0.1" max="3.0" step="0.1"
                    [ngModel]="txtItem.textStyle?.transitionOutDuration ?? 0.5"
                    (ngModelChange)="state.updateTextItemStyle(txtItem.id, { transitionOutDuration: $event })"
                    title="Out duration (s)" />
@@ -195,6 +193,11 @@
     <button type="button" class="btn btn-primary btn-sm" (click)="state.addTextOverlay()">
       + Add Text Overlay on TXT1
     </button>
+    <div style="font-size: 0.72rem; margin-top: 10px;">
+      A headline or caption for the whole Short?
+      <button type="button" class="btn btn-link btn-sm p-0 align-baseline" style="font-size: 0.72rem;"
+              (click)="state.setInspectorTab('layout')">Use Frame &amp; Titles</button>
+    </div>
   </div>
 } @else if (state.getTargetClipIds().length > 0 || state.targetScope() !== 'selected') {
   <div style="display: flex; flex-direction: column; gap: 8px;">

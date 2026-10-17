@@ -44,7 +44,20 @@ public sealed record ClipRenderSettings(
     /// A font that can draw the given text - per script, so Hindi gets a Devanagari face -
     /// or null when the host has none. Absent, <c>WatermarkFontFile</c> is used for all text.
     /// </summary>
-    Func<string, string?>? FontForText = null)
+    Func<string, string?>? FontForText = null,
+    /// <summary>
+    /// A line cut into runs per face (line, the line's own font), so emoji and symbols that
+    /// font lacks still draw; returns null when the line draws whole. Absent, every line
+    /// draws whole in its one font.
+    /// </summary>
+    Func<string, string, FontRunLine?>? FontRunsForText = null,
+    /// <summary>Multiple of the canvas an image clip is moved at; see <see cref="ClipRenderPlan.MotionSupersample"/>.</summary>
+    int KenBurnsSupersample = 2,
+    /// <summary>
+    /// How many renders the worker runs side by side. The cores are shared out between them,
+    /// so two stitches at once don't each start a conform per core and thrash.
+    /// </summary>
+    int ParallelJobs = 1)
 {
     /// <summary>The font for <paramref name="text"/>, honouring the fallback.</summary>
     public string? FontFor(string text) => FontForText is not null ? FontForText(text) : WatermarkFontFile;
@@ -86,7 +99,9 @@ public sealed class ClipMergeOrchestrator(
             return;
         }
 
-        if (job.ClipMerge is not { AssetIds.Count: > 0 } spec)
+        // No clips is a cut of pictures, titles or music alone: its slot is the picture.
+        if (job.ClipMerge is not { } spec
+            || (spec.AssetIds.Count == 0 && !SlotSecondsBefore(spec.Slots, 0).Any(s => s > 0)))
         {
             await FailAsync(job, RenderErrorCode.NoScenes,
                 "This job has no clips to join.", ct).ConfigureAwait(false);
@@ -236,8 +251,9 @@ public sealed class ClipMergeOrchestrator(
             // workspace directory and the progress reporter - which is already lock-guarded.
             // Concurrency scales with cores, and each clip's encoder threads are budgeted so
             // processes don't thrash cores.
-            var concurrency = Math.Clamp(Environment.ProcessorCount / 2, 2, 8);
-            var perClipThreads = Math.Max(1, Environment.ProcessorCount / concurrency);
+            var cores = Math.Max(1, Environment.ProcessorCount / Math.Max(1, settings.ParallelJobs));
+            var concurrency = Math.Clamp(cores / 2, settings.ParallelJobs > 1 ? 1 : 2, 8);
+            var perClipThreads = Math.Max(1, cores / concurrency);
 
             var prepared = new SceneRenderResult[spec.AssetIds.Count];
             // Frozen first-frame seconds per clip, for the export timeline: a clip's added
@@ -249,6 +265,11 @@ public sealed class ClipMergeOrchestrator(
             // otherwise every gap falls back to the single Transition/TransitionFrames
             // pair, which is the entire behaviour this had before junctions existed.
             var hasJunctionOverrides = spec.Junctions.Count > 0 && spec.Junctions.Count == spec.AssetIds.Count - 1;
+
+            // Seconds of blank opened before each clip for a slotted image or title; the
+            // last entry is after the last clip. Two clips with a slot between them never
+            // meet, so nothing is borrowed or blended across it.
+            var slotBefore = SlotSecondsBefore(spec.Slots, spec.AssetIds.Count);
 
             using var throttle = new SemaphoreSlim(concurrency);
 
@@ -295,12 +316,21 @@ public sealed class ClipMergeOrchestrator(
                         ? spec.TransitionFrames / canvas.FrameRate.AsDouble
                         : 0.0;
 
-                    var requestedLeadIn = prevJunction != null
+                    var requestedLeadIn = slotBefore[index] > 0 ? 0.0
+                        : prevJunction != null
                         ? prevJunction.LeadInSeconds
                         : (index > 0 ? uniformJunctionSecs / 2.0 : 0.0);
-                    var requestedTailOut = nextJunction != null
+                    var requestedTailOut = slotBefore[index + 1] > 0 ? 0.0
+                        : nextJunction != null
                         ? nextJunction.TailOutSeconds
                         : (index < spec.AssetIds.Count - 1 ? uniformJunctionSecs / 2.0 : 0.0);
+
+                    // The hold before the end card: the last clip's final frame, frozen. After
+                    // a trailing slot the blank is held instead - see RenderSlotsAsync.
+                    var holdBeforeOutro = index == spec.AssetIds.Count - 1 && spec.Outro is { IsEnabled: true }
+                        && slotBefore[^1] == 0
+                        ? Math.Max(0, spec.OutroHoldSeconds) : 0.0;
+                    requestedTailOut += holdBeforeOutro;
 
                     var origTrimStart = v1Item?.TrimStartSeconds;
                     var origTrimEnd = v1Item?.TrimEndSeconds;
@@ -321,7 +351,8 @@ public sealed class ClipMergeOrchestrator(
                         }
                     }
 
-                    if (!isImage && requestedTailOut > 0)
+                    // A hold is a still frame by request, never more footage from the file.
+                    if (!isImage && requestedTailOut > 0 && holdBeforeOutro == 0)
                     {
                         // Preferred: borrow from spare media after trimEnd if available.
                         var fileDuration = asset.Probe.DurationSeconds;
@@ -349,8 +380,13 @@ public sealed class ClipMergeOrchestrator(
                         OutputRelativePath = $"clips/clip_{index + 1:D3}.mp4",
                         ExpectedFrames = expectedFrames,
                         Fit = spec.Fit,
+                        PadColorRgb = EraseRegionSpec.IsHexColor(spec.BackgroundColor)
+                            ? spec.BackgroundColor![1..].ToLowerInvariant()
+                            : "000000",
                         SourceIsImage = isImage,
                         ImageDurationSeconds = imageDur,
+                        Cinematic = isImage ? CinematicOf(v1Transform) : null,
+                        MotionSupersample = Math.Clamp(settings.KenBurnsSupersample, 1, 4),
                         TrimStartSeconds = finalTrimStart,
                         TrimEndSeconds = finalTrimEnd,
                         DurationSeconds = origDuration,
@@ -368,6 +404,7 @@ public sealed class ClipMergeOrchestrator(
                         ExtraAudioTrimEndSeconds = audio?.TrimEndSeconds,
                         ExtraAudioVolume = audio?.AudioVolume ?? 1.0,
                         KeepOwnAudio = audio?.KeepOriginalAudio ?? false,
+                        HideVideo = audio?.HideVideo ?? false,
                         Watermark = watermark,
                         Encoder = clipEncoder,
                         EncoderThreads = perClipThreads,
@@ -404,6 +441,10 @@ public sealed class ClipMergeOrchestrator(
 
             await Task.WhenAll(clipTasks).ConfigureAwait(false);
 
+            var slots = await RenderSlotsAsync(
+                spec, slotBefore, canvas, clipEncoder, watermark, perClipThreads, workspace, token)
+                .ConfigureAwait(false);
+
             // --- the outro: conformed with the same encoder as the clips, so it joins them
             // by stream copy. No progress report - the aggregator's slots are the clips.
             var outro = await RenderOutroAsync(
@@ -424,17 +465,17 @@ public sealed class ClipMergeOrchestrator(
             // pair, which is the entire behaviour this had before junctions existed.
             hasJunctionOverrides = spec.Junctions.Count > 0 && spec.Junctions.Count == lengths.Count - 1;
 
-            var requestedFrames = hasJunctionOverrides
+            var requestedFrames = (hasJunctionOverrides
                 ? spec.Junctions.Select(j => new FrameCount(j.TransitionFrames)).ToList()
-                : Enumerable.Repeat(new FrameCount(spec.TransitionFrames), Math.Max(lengths.Count - 1, 0)).ToList();
+                : Enumerable.Repeat(new FrameCount(spec.TransitionFrames), Math.Max(lengths.Count - 1, 0)).ToList())
+                .Select((f, k) => slotBefore[k + 1] > 0 ? FrameCount.Zero : f)
+                .ToList();
 
             var transitions = lengths.Count < 2
                 ? []
                 : ClipPlanFactory.ClampTransitions(lengths, requestedFrames);
 
-            var requestedByJunction = hasJunctionOverrides
-                ? spec.Junctions.Select(j => j.TransitionFrames).ToList()
-                : requestedFrames.Select(f => f.Value).ToList();
+            var requestedByJunction = requestedFrames.Select(f => f.Value).ToList();
 
             if (transitions.Select((t, k) => (t, k))
                     .Any(pair => requestedByJunction[pair.k] > 0 && pair.t.Value < requestedByJunction[pair.k]))
@@ -442,9 +483,26 @@ public sealed class ClipMergeOrchestrator(
                 warnings.Add("TRANSITION_SHORTENED");
             }
 
-            var joined = new List<MergeSceneInput>(prepared.Length);
+            // Every input of the join in playing order - clips, the slots between them and the
+            // outro - with the length of each and the transition after it. A slot meets its
+            // neighbours with a cut, so the clip-level transitions above are untouched by it.
+            var joined = new List<MergeSceneInput>(prepared.Length + slots.Count + 1);
+            var sceneLengths = new List<FrameCount>(joined.Capacity);
+            var sceneTransitions = new List<FrameCount>(joined.Capacity);
+            var transitionKinds = new List<SceneTransition>(prepared.Length);
+
+            void Join(string path, FrameCount length, TransitionSettings toNext)
+            {
+                if (joined.Count > 0) sceneTransitions.Add(joined[^1].TransitionToNext.Duration);
+                joined.Add(new MergeSceneInput(path, length, toNext));
+                sceneLengths.Add(length);
+            }
+
             for (var index = 0; index < prepared.Length; index++)
             {
+                if (slots.TryGetValue(index, out var before))
+                    Join(before.RelativePath, before.Frames, TransitionSettings.None);
+
                 var kind = hasJunctionOverrides && index < spec.Junctions.Count
                     ? spec.Junctions[index].Transition
                     : spec.Transition;
@@ -453,40 +511,52 @@ public sealed class ClipMergeOrchestrator(
                     ? new TransitionSettings(kind, transitions[index])
                     : TransitionSettings.None;
 
-                joined.Add(new MergeSceneInput(prepared[index].RelativePath, lengths[index], toNext));
+                if (index < transitions.Count) transitionKinds.Add(toNext.Kind);
+                Join(prepared[index].RelativePath, lengths[index], toNext);
             }
 
-            // The outro joins after the last clip, clamped by the same half-the-shorter-
-            // neighbour rule as every other junction. Only the outro's own setting decides
-            // its transition, never the clips' uniform one.
+            var slotFrames = Enumerable.Range(0, prepared.Length + 1)
+                .Select(k => slots.TryGetValue(k, out var s) ? s.Frames : FrameCount.Zero)
+                .ToList();
+            if (slots.TryGetValue(prepared.Length, out var trailing))
+                Join(trailing.RelativePath, trailing.Frames, TransitionSettings.None);
+
+            // The outro joins after the last clip - or the slot after it - clamped by the same
+            // half-the-shorter-neighbour rule as every other junction. Only the outro's own
+            // setting decides its transition, never the clips' uniform one.
             if (outro is not null)
             {
                 var requested = new FrameCount(OutroPlanFactory.Crossfades(spec.Outro) ? spec.Outro.TransitionDurationFrames : 0);
-                var intoOutro = ClipPlanFactory.ClampTransitions([lengths[^1], outro.Frames], requested)[0];
+                var intoOutro = ClipPlanFactory.ClampTransitions([sceneLengths[^1], outro.Frames], requested)[0];
 
+                var outroKind = SceneTransition.None;
                 if (intoOutro.Value > 0)
                 {
                     joined[^1] = joined[^1] with
                     {
                         TransitionToNext = new TransitionSettings(spec.Outro.Transition, intoOutro)
                     };
+                    outroKind = spec.Outro.Transition;
                 }
 
                 transitions = [.. transitions, intoOutro];
+                transitionKinds.Add(outroKind);
                 lengths.Add(outro.Frames);
-                joined.Add(new MergeSceneInput(outro.RelativePath, outro.Frames, TransitionSettings.None));
+                Join(outro.RelativePath, outro.Frames, TransitionSettings.None);
             }
 
-            var total = RenderTimeline.TotalLength(lengths, transitions);
+            var total = RenderTimeline.TotalLength(sceneLengths, sceneTransitions);
 
             var timeline = ExportTimelineBuilder.Build(
                 spec,
                 id => assetMap.TryGetValue(id, out var a) ? a
                     : assetMap.GetValueOrDefault(ClipMergeService.CleanClipId(id)),
                 new ExportTimelineFacts(
-                    lengths, transitions,
-                    [.. joined.Take(transitions.Count).Select(j => j.TransitionToNext.Kind)],
-                    leadIns, canvas.FrameRate, total));
+                    lengths, transitions, transitionKinds,
+                    leadIns, canvas.FrameRate, total)
+                {
+                    SlotsBefore = slotFrames
+                });
 
             reporter.Report(new RenderProgress(
                 RenderStage.Merging, prepared.Length, prepared.Length, FrameCount.Zero, total,
@@ -505,18 +575,51 @@ public sealed class ClipMergeOrchestrator(
                 .Where(t => materialized.ContainsKey(t.AssetId))
                 .Select(t => new MergeMusicTrack(
                     materialized[t.AssetId], t.StartSeconds, t.Volume,
-                    t.TrimStartSeconds, t.TrimEndSeconds))
+                    t.TrimStartSeconds, t.TrimEndSeconds, t.IsVoiceover))
                 .ToList();
 
             var overlays = new List<MergeOverlayItem>();
-            foreach (var item in spec.TimelineItems)
+            var textOverlays = 0;
+            var celebrations = 0;
+            for (var itemIndex = 0; itemIndex < spec.TimelineItems.Count; itemIndex++)
             {
+                var item = spec.TimelineItems[itemIndex];
                 if (IsOverlayTrack(item.TrackId))
                 {
                     string? relPath = null;
-                    if (item.Type is "image" or "video")
+                    MergeTextOverlay? text = null;
+                    CelebrationSettings? celebration = null;
+                    if (item.Type == "celebration")
+                    {
+                        // Each is a few dozen small overlays; a handful per export is plenty.
+                        if (++celebrations > CelebrationPlanner.MaxCelebrations)
+                        {
+                            warnings.Add("CELEBRATIONS_TRUNCATED");
+                            continue;
+                        }
+
+                        var c = item.Celebration;
+                        celebration = CelebrationPlanner.Normalize(item.Src, c?.Mode, c?.Density, c?.Size, c?.Speed,
+                            string.IsNullOrEmpty(item.Id) ? $"celebration-{itemIndex}" : item.Id);
+                        if (celebration is null || !(item.Duration > 0) || !double.IsFinite(item.Duration)) continue;
+                    }
+                    else if (item.Type is "image" or "video")
                     {
                         materialized.TryGetValue(item.Src, out relPath);
+                    }
+                    else if (item.Type == "text")
+                    {
+                        // Subtitles make text overlays by the hundred; each is a few drawtext
+                        // passes over every frame, so past the ceiling the rest are dropped.
+                        if (++textOverlays > TextOverlayLayout.MaxOverlays)
+                        {
+                            warnings.Add("TEXT_OVERLAYS_TRUNCATED");
+                            continue;
+                        }
+
+                        text = await BuildTextOverlayAsync(
+                            item, itemIndex, canvas, workspace, settings, warnings, token).ConfigureAwait(false);
+                        if (text is null) continue;
                     }
                     var tr = item.Transform;
                     var txt = item.TextStyle;
@@ -529,15 +632,19 @@ public sealed class ClipMergeOrchestrator(
                         tr?.X ?? 0.0,
                         tr?.Y ?? 0.0,
                         tr?.Opacity ?? 1.0,
-                        item.Src,
-                        txt?.FontSize ?? 36.0,
-                        txt?.Color ?? "#ffffff",
-                        txt?.BackgroundColor ?? "rgba(0,0,0,0.6)",
-                        txt?.Position ?? "bottom",
                         tr?.TransitionIn ?? txt?.TransitionIn ?? "fade",
-                        tr?.TransitionInDuration ?? txt?.TransitionInDuration ?? 0.5,
+                        MotionSeconds(tr?.TransitionInDuration ?? txt?.TransitionInDuration),
                         tr?.TransitionOut ?? txt?.TransitionOut ?? "fade",
-                        tr?.TransitionOutDuration ?? txt?.TransitionOutDuration ?? 0.5));
+                        MotionSeconds(tr?.TransitionOutDuration ?? txt?.TransitionOutDuration))
+                    {
+                        Text = text,
+                        WidthPercent = tr?.WidthPercent is { } width && double.IsFinite(width)
+                            ? Math.Clamp(width, 1, 100)
+                            : null,
+                        Media = item.Type is "image" or "video" ? MediaOverlayOf(item) : null,
+                        Shot = ShotOf(item, spec, settings),
+                        Celebration = celebration
+                    });
                 }
                 else if (item.TrackId is "A1" or "A2" && item.Type == "audio")
                 {
@@ -545,7 +652,7 @@ public sealed class ClipMergeOrchestrator(
                     {
                         timedTracks.Add(new MergeMusicTrack(
                             audioPath, item.StartTime, item.Volume ?? 1.0,
-                            item.TrimStartSeconds, item.TrimEndSeconds));
+                            item.TrimStartSeconds, item.TrimEndSeconds, item.TrackId == "A1"));
                     }
                 }
             }
@@ -557,10 +664,13 @@ public sealed class ClipMergeOrchestrator(
                 BackgroundMusicRelativePath = musicPath,
                 BackgroundMusicVolume = spec.BackgroundMusicVolume,
                 MusicTracks = timedTracks,
+                YouTubeLoudness = spec.YouTubeLoudness,
                 MusicDuckWindows = spec.MusicDuckWindows
                     .Select(w => new MergeDuckWindow(w.StartSeconds, w.EndSeconds, w.Level))
                     .ToList(),
-                Overlays = overlays,
+                // A text card fills the frame, so it goes down first: an overlay that
+                // shares its moment is drawn on top of it, never hidden under it.
+                Overlays = [.. overlays.OrderBy(o => o.Text?.Look.Card is null ? 1 : 0)],
                 OutputRelativePath = "out/final.mp4",
                 // Always the delivery profile: whether this re-encodes or stream-copies,
                 // its output is what the viewer downloads.
@@ -858,6 +968,71 @@ public sealed class ClipMergeOrchestrator(
     }
 
     /// <summary>
+    /// Wraps a text overlay into the lines the preview showed and writes each to its own
+    /// file. Null - with a warning - when there is nothing to draw it with: no drawtext, or
+    /// no font file that can draw this script. A caption is not worth the render, and a
+    /// drawtext without a font file is the one input that crashes ffmpeg rather than
+    /// failing it (see <see cref="BuildWatermarkAsync"/>).
+    /// </summary>
+    private async Task<MergeTextOverlay?> BuildTextOverlayAsync(
+        TimelineItemSpec item, int itemIndex, Canvas canvas, IRenderWorkspace workspace,
+        ClipRenderSettings settings, ISet<string> warnings, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(item.Src) || item.Duration <= 0) return null;
+
+        var look = TextOverlayLayout.Resolve(item.TextStyle);
+        var source = look.Uppercase ? item.Src.ToUpperInvariant() : item.Src;
+        var lines = TextOverlayLayout.Wrap(source, look.FontSize, canvas.Width, canvas.Height);
+        if (lines.All(l => l.Length == 0)) return null;
+
+        var fontFile = capabilities.Supports(RenderFeature.DrawText)
+                       && settings.FontFor(source) is { Length: > 0 } candidate
+                       && File.Exists(candidate)
+            ? candidate
+            : null;
+        if (fontFile is null)
+        {
+            warnings.Add("TEXT_OVERLAY_UNAVAILABLE");
+            return null;
+        }
+
+        var paths = new List<string?>(lines.Count);
+        var runs = new List<MergeTextLineRuns?>(lines.Count);
+        for (var i = 0; i < lines.Count; i++)
+        {
+            // Generated names only: the item id is client-supplied and never reaches the disk.
+            paths.Add(lines[i].Length == 0
+                ? null
+                : await workspace
+                    .WriteTextAsync($"txt/overlay_{itemIndex:D3}_{i}.txt", lines[i], ct)
+                    .ConfigureAwait(false));
+
+            runs.Add(lines[i].Length > 0 && settings.FontRunsForText?.Invoke(lines[i], fontFile) is { } split
+                ? await WriteRunsAsync(split, $"txt/overlay_{itemIndex:D3}_{i}", workspace, ct).ConfigureAwait(false)
+                : null);
+        }
+
+        return new MergeTextOverlay(paths, fontFile, look,
+            [.. lines.Select(l => new System.Globalization.StringInfo(l).LengthInTextElements)],
+            runs.Any(r => r is not null) ? runs : null);
+    }
+
+    private static async Task<MergeTextLineRuns> WriteRunsAsync(
+        FontRunLine line, string stem, IRenderWorkspace workspace, CancellationToken ct)
+    {
+        var runs = new List<MergeTextRun>(line.Runs.Count);
+        var offset = 0.0;
+        for (var k = 0; k < line.Runs.Count; k++)
+        {
+            var run = line.Runs[k];
+            var path = await workspace.WriteTextAsync($"{stem}_r{k}.txt", run.Text, ct).ConfigureAwait(false);
+            runs.Add(new MergeTextRun(path, run.FontFilePath, offset));
+            offset += run.AdvanceEm;
+        }
+        return new MergeTextLineRuns(runs, offset, line.AscentEm, line.DescentEm);
+    }
+
+    /// <summary>
     /// Conforms the outro - a bumper video, an end-card image, or a composed QR card - to
     /// the export's canvas and encoder. Null when there is none, or when its asset was
     /// deleted after queueing: a missing outro costs a warning, not the export.
@@ -886,11 +1061,133 @@ public sealed class ClipMergeOrchestrator(
     }
 
     /// <summary>
+    /// Seconds of slot before each clip, the last entry after the last clip. A position the
+    /// clip list does not have is dropped rather than moved somewhere it was never put.
+    /// </summary>
+    public static double[] SlotSecondsBefore(IReadOnlyList<ClipSlotSpec> slots, int clipCount)
+    {
+        var before = new double[clipCount + 1];
+        foreach (var slot in slots)
+        {
+            if (slot.BeforeClipIndex < 0 || slot.BeforeClipIndex > clipCount) continue;
+            if (!double.IsFinite(slot.Seconds) || slot.Seconds <= 0) continue;
+            before[slot.BeforeClipIndex] = Math.Min(
+                before[slot.BeforeClipIndex] + slot.Seconds, ClipMergeSpec.MaxSlotSeconds);
+        }
+        return before;
+    }
+
+    /// <summary>
+    /// Renders each slot as a blank clip of the canvas - the backdrop colour, the watermark
+    /// and silence - with the clips' own encoder, so the join can still stream-copy it.
+    /// Keyed by the clip index it plays before. A trailing slot also carries the hold before
+    /// the end card, which would otherwise freeze the last clip AHEAD of it and push every
+    /// slotted item after it late.
+    /// </summary>
+    private async Task<Dictionary<int, SceneRenderResult>> RenderSlotsAsync(
+        ClipMergeSpec spec, double[] slotBefore, Canvas canvas, EncoderProfile encoder,
+        WatermarkPlan? watermark, int threads, IRenderWorkspace workspace, CancellationToken ct)
+    {
+        var clipCount = spec.AssetIds.Count;
+        var result = new Dictionary<int, SceneRenderResult>();
+        for (var k = 0; k <= clipCount; k++)
+        {
+            var seconds = slotBefore[k];
+            if (k == clipCount && seconds > 0 && spec.Outro is { IsEnabled: true })
+                seconds += Math.Max(0, spec.OutroHoldSeconds);
+
+            var frames = FrameCount.FromSeconds(seconds, canvas.FrameRate);
+            if (frames.Value <= 0) continue;
+
+            var plan = new ClipRenderPlan
+            {
+                // Past the clips and the outro, so graph scripts and logs never share a name.
+                ClipIndex = clipCount + 1 + k,
+                SourceRelativePath = string.Empty,
+                Canvas = canvas,
+                OutputRelativePath = $"clips/slot_{k:D3}.mp4",
+                ExpectedFrames = frames,
+                PadColorRgb = EraseRegionSpec.IsHexColor(spec.BackgroundColor)
+                    ? spec.BackgroundColor![1..].ToLowerInvariant()
+                    : "000000",
+                SourceIsImage = true,
+                SourceIsBlank = true,
+                SourceHasAudio = false,
+                ImageDurationSeconds = frames.ToSeconds(canvas.FrameRate),
+                Watermark = watermark,
+                Encoder = encoder,
+                EncoderThreads = threads,
+            };
+
+            result[k] = await renderer.RenderClipAsync(plan, workspace, null, ct).ConfigureAwait(false);
+        }
+        return result;
+    }
+
+    /// <summary>Longest entrance or exit, in seconds - long enough to type out a title.</summary>
+    internal const double MaxMotionSeconds = 8;
+
+    /// <summary>
+    /// An overlay's entrance or exit length, held to a sane range: it ends up inside ffmpeg
+    /// expressions, and the request is the only thing that set it.
+    /// </summary>
+    internal static double MotionSeconds(double? seconds) =>
+        seconds is { } s && double.IsFinite(s) ? Math.Clamp(s, 0, MaxMotionSeconds) : 0.5;
+
+    /// <summary>
     /// Tracks composited over the main video in the join. Any item on one forces the join
     /// to re-encode, so this decides both the overlay list and the stream-copy prediction.
     /// </summary>
     internal static bool IsOverlayTrack(string? trackId) =>
-        trackId is "IMG1" or "IMG" or "IMAGE" or "V2" or "V3" or "TXT1";
+        trackId is "IMG1" or "IMG" or "IMAGE" or "V2" or "V3" or "TXT1" or "SUB1" or "FX1";
+
+    /// <summary>
+    /// An image or video overlay's crop, shape, ring and trim, checked here because every
+    /// value ends up inside an ffmpeg expression. Null when there is nothing to do but draw
+    /// the whole source as a rectangle - which keeps older jobs on exactly the graph they had.
+    /// </summary>
+    internal static MergeMediaOverlay? MediaOverlayOf(TimelineItemSpec item)
+    {
+        var tr = item.Transform;
+        var trim = item.Type == "video" && item.TrimStartSeconds is { } ts && double.IsFinite(ts) ? Math.Max(0, ts) : 0;
+        if (tr is null) return trim > 0 ? new MergeMediaOverlay(0, 0, 0, 0, OverlayShape.Rect, 0, "FFFFFF", null, trim) : null;
+
+        var media = new MergeMediaOverlay(
+            MediaOverlayShape.ClampCrop(tr.CropLeft), MediaOverlayShape.ClampCrop(tr.CropTop),
+            MediaOverlayShape.ClampCrop(tr.CropRight), MediaOverlayShape.ClampCrop(tr.CropBottom),
+            MediaOverlayShape.Parse(tr.Shape),
+            MediaOverlayShape.ClampBorder(tr.BorderWidth),
+            EraseRegionSpec.IsHexColor(tr.BorderColor) ? tr.BorderColor![1..].ToUpperInvariant() : "FFFFFF",
+            MediaOverlayShape.ClampAspect(tr.AspectRatio),
+            trim);
+
+        return media is { HasCrop: false, Shape: OverlayShape.Rect, BorderWidth: 0, TrimStartSeconds: 0 } ? null : media;
+    }
+
+    /// <summary>
+    /// An image clip's camera move, grade and lens finish, checked here because every value
+    /// ends up inside an ffmpeg expression. Null keeps the still on its static graph.
+    /// </summary>
+    internal static CinematicImageSettings? CinematicOf(TimelineItemTransformSpec? tr) =>
+        tr is null
+            ? null
+            : CinematicImageSettings.From(
+                tr.Motion, tr.MotionIntensity, tr.FocusX, tr.FocusY, tr.MotionEasing,
+                tr.Look, tr.Vignette, tr.Grain, tr.CinemaBars);
+
+    /// <summary>
+    /// A lane picture's camera move and look, when it asks for one. Only image lanes - frame
+    /// logos and stickers ride IMG1 too, but carry no shot, so they keep the overlay path.
+    /// </summary>
+    internal static MergeImageShot? ShotOf(TimelineItemSpec item, ClipMergeSpec spec, ClipRenderSettings settings) =>
+        item.Type == "image" && item.TrackId is "IMG1" or "IMG" or "IMAGE" or "V3"
+            && CinematicOf(item.Transform) is { } shot
+            ? new MergeImageShot(
+                shot,
+                spec.Fit,
+                EraseRegionSpec.IsHexColor(spec.BackgroundColor) ? spec.BackgroundColor![1..].ToLowerInvariant() : "000000",
+                Math.Clamp(settings.KenBurnsSupersample, 1, 4))
+            : null;
 
     /// <summary>Zero transitions, for the pre-flight total used to weight progress.</summary>
     private static IReadOnlyList<FrameCount> ZerosFor(IReadOnlyList<FrameCount> lengths) =>

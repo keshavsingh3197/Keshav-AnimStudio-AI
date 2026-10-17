@@ -134,6 +134,14 @@
         <label for="upload" class="upload-btn" title="Upload video, audio, image or subtitle files">
           <span class="btn-icon">⬆</span> Upload Media
         </label>
+        <button type="button" class="upload-btn" (click)="urlImportOpen.set(true)" [disabled]="!store.project()"
+                title="Paste many links (YouTube, Instagram, direct .mp4 …) and download them all into this library">
+          <span class="btn-icon">🔗</span> From links
+        </button>
+        <button type="button" class="upload-btn" (click)="reuseOpen.set(true)" [disabled]="!store.project()"
+                title="Search your other projects - this channel first - and add their files here">
+          <span class="btn-icon">♻️</span> From other projects
+        </button>
         <span class="file-drop-hint">or drop / Ctrl+V anywhere</span>
         <input id="upload" type="file" multiple style="display: none"
                accept="image/png,image/jpeg,image/webp,audio/wav,audio/mpeg,audio/mp4,video/mp4,.srt,.vtt"
@@ -387,86 +395,30 @@
   </main>
 </div>
 
-<!-- ── Asset Inspector / Lightbox Modal ────────────────────────────── -->
+<!-- ── Asset Inspector: play, waveform, and what is said (shared with the studio) ── -->
 @if (previewAsset(); as pa) {
-  <div class="modal-backdrop" (click)="closePreview()">
-    <div class="asset-inspector-dialog" (click)="$event.stopPropagation()">
-      <div class="inspector-header">
-        <div class="d-flex align-items-center gap-2">
-          <span class="kind-badge" [attr.data-kind]="pa.kind">{{ pa.kind }}</span>
-          <h3 class="inspector-title" [title]="pa.name">{{ pa.name }}</h3>
-        </div>
-        <button type="button" class="close-btn" (click)="closePreview()" title="Close">&times;</button>
-      </div>
-
-      <div class="inspector-body">
-        <div class="inspector-media-stage">
-          @if (isImage(pa)) {
-            <div class="lightbox-img-wrap">
-              <img [src]="assetUrl(pa.id)" [alt]="pa.name" />
-            </div>
-          } @else if (isVideo(pa)) {
-            <div class="lightbox-video-wrap">
-              <video [src]="assetUrl(pa.id)" controls autoplay playsinline></video>
-            </div>
-            <a class="collab-link" routerLink="/collab" [queryParams]="{ project: store.projectId(), asset: pa.id }">🤝 Collab with this video</a>
-          } @else if (isAudio(pa)) {
-            <div class="lightbox-audio-wrap">
-              <div class="audio-avatar">🎵</div>
-              <h4>{{ pa.name }}</h4>
-              <audio [src]="assetUrl(pa.id)" controls autoplay class="w-100 mt-3"></audio>
-            </div>
-          } @else {
-            <div class="lightbox-generic-wrap">
-              <span class="generic-icon">📝</span>
-              <h4>Subtitle Document</h4>
-              <p class="muted small">{{ pa.name }}</p>
-            </div>
-          }
-        </div>
-
-        <div class="inspector-meta-sidebar">
-          <h4>Asset Information</h4>
-          <dl class="meta-dl">
-            <dt>Filename</dt>
-            <dd class="mono text-break">{{ pa.name }}</dd>
-
-            <dt>Asset ID</dt>
-            <dd class="mono text-break">
-              {{ pa.id }}
-              <button type="button" class="copy-mini-btn" (click)="copyAssetId(pa.id)">Copy</button>
-            </dd>
-
-            <dt>Media Type</dt>
-            <dd>{{ pa.kind }}</dd>
-
-            @if (pa.width && pa.height) {
-              <dt>Resolution</dt>
-              <dd class="mono">{{ pa.width }} &times; {{ pa.height }}</dd>
-            }
-
-            @if (pa.durationSeconds) {
-              <dt>Duration</dt>
-              <dd class="mono">{{ formatDuration(pa.durationSeconds) }} ({{ pa.durationSeconds | number:'1.2-2' }}s)</dd>
-            }
-
-            <dt>File Size</dt>
-            <dd class="mono">{{ formatFileSize(pa.fileSizeBytes) }} ({{ pa.fileSizeBytes | number:'1.0-0' }} bytes)</dd>
-
-            <dt>MIME Type</dt>
-            <dd class="mono">{{ pa.mimeType }}</dd>
-          </dl>
-
-          <div class="inspector-actions mt-3">
-            <a [href]="assetUrl(pa.id)" [download]="pa.name" class="btn btn-outline-secondary w-100 btn-sm mb-2" target="_blank">
-              💾 Download Asset
-            </a>
-            <button type="button" class="btn btn-outline-danger w-100 btn-sm" (click)="remove(pa.id); closePreview()">
-              🗑 Delete Asset
-            </button>
-          </div>
-        </div>
-      </div>
+  <app-media-inspector-dialog [target]="inspected()!" (closed)="closePreview()">
+    <div inspectorActions class="inspector-extra-actions">
+      <button type="button" class="btn btn-outline-secondary btn-sm" (click)="copyAssetId(pa.id)" title="Copy the asset id">
+        {{ copiedAssetId() === pa.id ? '✓ Id copied' : '# Copy id' }}
+      </button>
+      @if (isVideo(pa)) {
+        <a class="btn btn-outline-secondary btn-sm" routerLink="/collab" [queryParams]="{ project: store.projectId(), asset: pa.id }">🤝 Collab</a>
+      }
+      <a [href]="assetUrl(pa.id)" [download]="pa.name" class="btn btn-outline-secondary btn-sm" target="_blank" rel="noopener">💾 Download</a>
+      <button type="button" class="btn btn-outline-danger btn-sm" (click)="remove(pa.id); closePreview()">🗑 Delete</button>
     </div>
-  </div>
+  </app-media-inspector-dialog>
+}
+
+@if (urlImportOpen() && store.project(); as project) {
+  <app-url-import-dialog [projectId]="project.id" [folders]="store.folders()"
+                         [initialFolderId]="selectedFolderId()"
+                         (imported)="store.refreshAssets(); store.refreshFolders()" (closed)="urlImportOpen.set(false)" />
+}
+
+@if (reuseOpen() && store.project(); as project) {
+  <app-asset-reuse-dialog [projectId]="project.id" [channelId]="project.brandChannelId"
+                          [folderId]="realSelectedFolderId()"
+                          (added)="store.refreshAssets()" (closed)="reuseOpen.set(false)" />
 }

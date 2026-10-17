@@ -29,6 +29,12 @@ public sealed record AiTextRequest
 
     /// <summary>Set for "regenerate this one" - skips the result cache for this call only.</summary>
     public bool BypassCache { get; init; }
+
+    /// <summary>
+    /// The one text engine to use instead of walking the chain - "write this with my local
+    /// Claude session". It must be enabled and configured (the chain is not required); no fallback.
+    /// </summary>
+    public string? ProviderId { get; init; }
 }
 
 public sealed record AiTextResult(
@@ -64,6 +70,15 @@ public sealed record AiSpeechRequest
     public double Pitch { get; init; }
     public string? LanguageCode { get; init; }
     public bool BypassCache { get; init; }
+
+    /// <summary>
+    /// The one engine to speak with, instead of walking the chain. No fallback: voice ids
+    /// belong to one engine, so another would only fail on the same voice.
+    /// </summary>
+    public string? ProviderId { get; init; }
+
+    /// <summary>A model the caller checked against the engine's offered models; null for the configured one.</summary>
+    public string? Model { get; init; }
 }
 
 public sealed record AiSpeechResult(

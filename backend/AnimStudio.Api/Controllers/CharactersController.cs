@@ -81,7 +81,8 @@ public sealed class CharactersController(
                 Hair = request.Appearance.Hair,
                 Clothes = request.Appearance.Clothes,
                 AdditionalDetails = request.Appearance.AdditionalDetails
-            }
+            },
+            Voice = request.Voice?.ToCommand()
         };
 
     private async Task EnsureOwnedAsync(string projectId, CancellationToken ct)

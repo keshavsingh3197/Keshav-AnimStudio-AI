@@ -6,7 +6,9 @@ using AnimStudio.Application.Clips;
 using AnimStudio.Application.Security;
 using AnimStudio.Domain.Assets;
 using AnimStudio.Domain.Jobs;
+using AnimStudio.Domain.Publishing;
 using AnimStudio.Infrastructure.Ffmpeg;
+using AnimStudio.Infrastructure.Publishing;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
@@ -146,6 +148,7 @@ public sealed class ClipsController(
             ExportName = request.ExportName,
             AssetIds = request.AssetIds,
             Fit = request.Fit,
+            BackgroundColor = request.BackgroundColor,
             OutputWidth = request.OutputWidth,
             OutputHeight = request.OutputHeight,
             Quality = request.Quality,
@@ -160,17 +163,22 @@ public sealed class ClipsController(
             BackgroundMusicVolume = request.BackgroundMusicVolume,
             MusicTracks = request.MusicTracks
                 .Select(t => new TimedMusicClip(
-                    t.AssetId, t.StartSeconds, t.Volume, t.TrimStartSeconds, t.TrimEndSeconds))
+                    t.AssetId, t.StartSeconds, t.Volume, t.TrimStartSeconds, t.TrimEndSeconds, t.IsVoiceover))
                 .ToList(),
             MusicDuckWindows = request.MusicDuckWindows
                 .Select(w => new MusicDuckWindow(w.StartSeconds, w.EndSeconds, w.Level))
                 .ToList(),
             ClipAudio = request.ClipAudio?
                 .Select(c => new ClipAudioTrack(
-                    c.Volume, c.AudioAssetId, c.AudioVolume, c.KeepOriginalAudio, c.TrimStartSeconds, c.TrimEndSeconds))
+                    c.Volume, c.AudioAssetId, c.AudioVolume, c.KeepOriginalAudio, c.TrimStartSeconds, c.TrimEndSeconds, c.HideVideo))
                 .ToList(),
             Watermark = request.Watermark.ToSettings(),
             IncludeOutro = request.IncludeOutro,
+            OutroHoldSeconds = request.OutroHoldSeconds,
+            YouTubeLoudness = request.YouTubeLoudness,
+            Slots = request.Slots?
+                .Select(s => new ClipSlot(s.BeforeClipIndex, s.Seconds))
+                .ToList() ?? [],
             TimelineItems = request.TimelineItems?
                 .Select(t => new TimelineItemSpec
                 {
@@ -184,6 +192,7 @@ public sealed class ClipsController(
                     Transform = t.Transform is null ? null : new TimelineItemTransformSpec
                     {
                         Scale = t.Transform.Scale,
+                        WidthPercent = t.Transform.WidthPercent,
                         X = t.Transform.X,
                         Y = t.Transform.Y,
                         Opacity = t.Transform.Opacity,
@@ -193,6 +202,19 @@ public sealed class ClipsController(
                         CropTop = t.Transform.CropTop,
                         CropBottom = t.Transform.CropBottom,
                         Stabilization = t.Transform.Stabilization,
+                        Shape = t.Transform.Shape,
+                        BorderWidth = t.Transform.BorderWidth,
+                        BorderColor = t.Transform.BorderColor,
+                        AspectRatio = t.Transform.AspectRatio,
+                        Motion = t.Transform.Motion,
+                        MotionIntensity = t.Transform.MotionIntensity,
+                        MotionEasing = t.Transform.MotionEasing,
+                        FocusX = t.Transform.FocusX,
+                        FocusY = t.Transform.FocusY,
+                        Look = t.Transform.Look,
+                        Vignette = t.Transform.Vignette,
+                        Grain = t.Transform.Grain,
+                        CinemaBars = t.Transform.CinemaBars,
                         EraseRegions = (t.Transform.EraseRegions ?? [])
                             .Select(r => new EraseRegionSpec
                             {
@@ -216,6 +238,18 @@ public sealed class ClipsController(
                         Color = t.TextStyle.Color,
                         BackgroundColor = t.TextStyle.BackgroundColor,
                         Position = t.TextStyle.Position,
+                        X = t.TextStyle.X,
+                        Y = t.TextStyle.Y,
+                        BoxStyle = t.TextStyle.BoxStyle,
+                        BoxColor = t.TextStyle.BoxColor,
+                        BoxOpacity = t.TextStyle.BoxOpacity,
+                        OutlineColor = t.TextStyle.OutlineColor,
+                        OutlineWidth = t.TextStyle.OutlineWidth,
+                        Shadow = t.TextStyle.Shadow,
+                        Uppercase = t.TextStyle.Uppercase,
+                        CardColor = t.TextStyle.CardColor,
+                        CardOpacity = t.TextStyle.CardOpacity,
+                        CardEffect = t.TextStyle.CardEffect,
                         TransitionIn = t.TextStyle.TransitionIn,
                         TransitionInDuration = t.TextStyle.TransitionInDuration,
                         TransitionOut = t.TextStyle.TransitionOut,
@@ -223,7 +257,14 @@ public sealed class ClipsController(
                     },
                     Volume = t.Volume,
                     TrimStartSeconds = t.TrimStartSeconds,
-                    TrimEndSeconds = t.TrimEndSeconds
+                    TrimEndSeconds = t.TrimEndSeconds,
+                    Celebration = t.Celebration is null ? null : new CelebrationSpec
+                    {
+                        Mode = t.Celebration.Mode,
+                        Density = t.Celebration.Density,
+                        Size = t.Celebration.Size,
+                        Speed = t.Celebration.Speed
+                    }
                 })
                 .ToList()
         };
@@ -232,6 +273,98 @@ public sealed class ClipsController(
 
         return Accepted(ApiResponse<RenderJobResponse>.Ok(job.ToResponse()));
     }
+
+    /// <summary>
+    /// Cuts several different shorts from the chosen clips, pictures and lines in one go,
+    /// with motion, transitions and text applied. Every short is its own job, so they render,
+    /// download and publish independently; they share a batch id, so the batch can be found
+    /// again from the Shorts page after the dialog that started it is closed.
+    /// </summary>
+    [HttpPost("api/projects/{projectId}/clips/auto-shorts")]
+    public async Task<ActionResult<ApiResponse<AutoShortsResponse>>> AutoShorts(
+        string projectId, [FromBody] AutoShortsRequest request,
+        [FromServices] GoogleDriveConnectionStore drive, [FromServices] IPhoneHandoffRepository handoffs,
+        CancellationToken ct)
+    {
+        // The Drive is checked before anything renders, so a batch never finishes with
+        // nowhere to go. The copies themselves start as each short finishes, on the server -
+        // closing the studio doesn't stop them.
+        DriveTarget? target = null;
+        if (request.SaveToDrive)
+        {
+            try
+            {
+                target = await drive.ResolveAsync(currentUser.UserId, request.DriveChannelId, request.DriveFolderName, ct);
+            }
+            catch (YouTubePublishException ex)
+            {
+                return BadRequest(ApiResponse<AutoShortsResponse>.Fail(ex.Message, new ApiError(ex.Code, ex.Message, Field: "drive")));
+            }
+        }
+
+        var queued = await clips.QueueAutoShortsAsync(projectId, ToCommand(request), ct);
+
+        if (target is not null)
+        {
+            var projectName = (await projects.GetAsync(projectId, ct))?.Name;
+            foreach (var job in queued.Jobs)
+            {
+                var title = string.IsNullOrWhiteSpace(job.Name) ? "Auto short" : job.Name.Trim();
+                await handoffs.UpsertAsync(DriveCopies.SaveOnly(
+                    currentUser.UserId, job, projectName, request.DriveChannelId, title, target, PhoneHandoffState.WaitingForRender), ct);
+            }
+        }
+
+        return Accepted(ApiResponse<AutoShortsResponse>.Ok(new AutoShortsResponse(
+            queued.BatchId, queued.BatchName, [.. queued.Jobs.Select(j => j.ToResponse())], queued.UnusedAssetIds)));
+    }
+
+    /// <summary>
+    /// What a batch with these settings would come out as - how many shorts, how long, and
+    /// which picks would be left over - checked like the real thing, with nothing queued.
+    /// </summary>
+    [HttpPost("api/projects/{projectId}/clips/auto-shorts/preview")]
+    public async Task<ActionResult<ApiResponse<AutoShortsPreviewResponse>>> PreviewAutoShorts(
+        string projectId, [FromBody] AutoShortsRequest request, CancellationToken ct)
+    {
+        var plan = await clips.PreviewAutoShortsAsync(projectId, ToCommand(request), ct);
+        var shorts = plan.Shorts.Select(s =>
+        {
+            var shots = (s.TimelineItems ?? []).Where(i => i.TrackId == "V1").ToList();
+            return new AutoShortPreviewItem(
+                s.ExportName ?? "Short",
+                Math.Round(shots.Sum(i => i.Duration), 1),
+                shots.Count(i => i.Type == "video"),
+                shots.Count(i => i.Type == "image"),
+                [.. shots.Select(i => i.Src).Distinct(StringComparer.Ordinal)]);
+        }).ToList();
+        return Ok(ApiResponse<AutoShortsPreviewResponse>.Ok(new AutoShortsPreviewResponse(shorts, plan.UnusedAssetIds)));
+    }
+
+    private static AutoShortsCommand ToCommand(AutoShortsRequest request) => new()
+    {
+        SourceAssetIds = request.SourceAssetIds,
+        Lines = request.Lines,
+        MusicAssetIds = request.MusicAssetIds,
+        Count = request.Count,
+        TargetSeconds = request.TargetSeconds,
+        Layout = request.Layout,
+        ImageSeconds = request.ImageSeconds,
+        MaxClipSeconds = request.MaxClipSeconds,
+        Style = request.Style,
+        TextMode = request.TextMode,
+        Transitions = request.Transitions,
+        Motion = request.Motion,
+        KeepClipAudio = request.KeepClipAudio,
+        ExportName = request.ExportName,
+        Width = request.Width,
+        Height = request.Height,
+        Fit = request.Fit,
+        Quality = request.Quality,
+        Watermark = request.Watermark.ToSettings(),
+        IncludeOutro = request.IncludeOutro,
+        Seed = request.Seed,
+    };
 
     /// <summary>
     /// Deletes several clips in one call.

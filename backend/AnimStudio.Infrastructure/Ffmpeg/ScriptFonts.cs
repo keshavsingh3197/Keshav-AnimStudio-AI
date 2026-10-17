@@ -62,6 +62,27 @@ internal static class ScriptFonts
     public static string? Find(string script) =>
         Candidates.TryGetValue(script, out var paths) ? Array.Find(paths, File.Exists) : null;
 
+    /// <summary>
+    /// Faces tried, in order, for a character the line's own face has no glyph for -
+    /// emoji first, then symbols. drawtext draws an outline face's emoji in the text's own
+    /// colour; a colour-bitmap face (Noto Color Emoji, Apple Color Emoji) is deliberately
+    /// absent, because freetype cannot scale its fixed-size bitmaps to the line.
+    /// </summary>
+    private static readonly string[] FallbackCandidates =
+    [
+        @"C:\Windows\Fonts\seguiemj.ttf", @"C:\Windows\Fonts\seguisym.ttf",
+        "/usr/share/fonts/truetype/noto/NotoEmoji-Regular.ttf", "/usr/share/fonts/noto/NotoEmoji-Regular.ttf",
+        "/usr/share/fonts/google-noto-emoji/NotoEmoji-Regular.ttf",
+        "/usr/share/fonts/truetype/ancient-scripts/Symbola_hint.ttf", "/usr/share/fonts/TTF/Symbola.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf", @"C:\Windows\Fonts\arialbd.ttf"
+    ];
+
+    private static readonly Lazy<string[]> ExistingFallbacks = new(() => Array.FindAll(FallbackCandidates, File.Exists));
+
+    /// <summary>The fallback faces this machine has, in the order they are tried.</summary>
+    public static IReadOnlyList<string> Fallbacks => ExistingFallbacks.Value;
+
     private static string[] Nirmala() =>
         [@"C:\Windows\Fonts\NirmalaB.ttf", @"C:\Windows\Fonts\Nirmala.ttc", @"C:\Windows\Fonts\Nirmala.ttf"];
 

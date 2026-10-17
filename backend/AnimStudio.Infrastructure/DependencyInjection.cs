@@ -1,3 +1,5 @@
+using AnimStudio.Infrastructure.Voices;
+using AnimStudio.Application.Voices;
 using AnimStudio.Application.Abstractions.Ai;
 using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Abstractions.Rendering;
@@ -5,6 +7,7 @@ using AnimStudio.Application.Abstractions.Storage;
 using AnimStudio.Application.Abstractions.Diagnostics;
 using AnimStudio.Application.Abstractions.Transcripts;
 using AnimStudio.Application.Abstractions.Workbooks;
+using AnimStudio.Application.Abstractions.Music;
 using AnimStudio.Application.Admin;
 using AnimStudio.Application.Ai;
 using AnimStudio.Application.Assets;
@@ -17,6 +20,7 @@ using AnimStudio.Application.Rendering;
 using AnimStudio.Application.Scenes;
 using AnimStudio.Application.Scripts;
 using AnimStudio.Application.Security;
+using AnimStudio.Application.Transcripts;
 using AnimStudio.Application.Transcripts.Parsing;
 using AnimStudio.Application.Workbooks;
 using AnimStudio.Domain.Ai;
@@ -38,6 +42,7 @@ using AnimStudio.Infrastructure.Storage;
 using AnimStudio.Infrastructure.Subtitles;
 using AnimStudio.Infrastructure.Diagnostics;
 using AnimStudio.Infrastructure.Media;
+using AnimStudio.Infrastructure.Music;
 using AnimStudio.Infrastructure.Workbooks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -62,10 +67,12 @@ public static class DependencyInjection
         services.Configure<FfmpegOptions>(configuration.GetSection(FfmpegOptions.Section));
         services.Configure<RenderOptions>(configuration.GetSection(RenderOptions.Section));
         services.Configure<IngestOptions>(configuration.GetSection(IngestOptions.Section));
+        services.Configure<AnimStudio.Application.Shorts.ShortsOptions>(configuration.GetSection(AnimStudio.Application.Shorts.ShortsOptions.Section));
         services.Configure<LiveStreamOptions>(configuration.GetSection(LiveStreamOptions.Section));
         services.Configure<SegmentationOptions>(configuration.GetSection("Segmentation"));
         services.Configure<ParsingOptions>(configuration.GetSection("Parsing"));
         services.Configure<AiOptions>(configuration.GetSection(AiOptions.Section));
+        services.Configure<VoiceConversionOptions>(configuration.GetSection(VoiceConversionOptions.Section));
 
         // Settings changed from the admin console (the WebSettings table) reach these options
         // without a restart: IOptions<T> answers with the monitor's current value. Program.cs
@@ -124,6 +131,10 @@ public static class DependencyInjection
             services.AddScoped<IAiCredentialRepository, SqlAiCredentialRepository>();
             services.AddScoped<ILiveStreamKeyRepository, SqlLiveStreamKeyRepository>();
             services.AddScoped<IYouTubeConnectionRepository, SqlYouTubeConnectionRepository>();
+            services.AddScoped<IYouTubePublicationRepository, SqlYouTubePublicationRepository>();
+            services.AddScoped<IGoogleDriveConnectionRepository, SqlGoogleDriveConnectionRepository>();
+            services.AddScoped<IPhoneHandoffRepository, SqlPhoneHandoffRepository>();
+            services.AddScoped<IVoiceProfileRepository, SqlVoiceProfileRepository>();
             services.AddScoped<IWebSettingRepository, SqlWebSettingRepository>();
             services.AddScoped<IPromptTemplateRepository, SqlPromptTemplateRepository>();
             services.AddScoped<IAiSettingsRepository, SqlAiSettingsRepository>();
@@ -157,6 +168,10 @@ public static class DependencyInjection
             services.AddScoped<IAiCredentialRepository, MongoAiCredentialRepository>();
             services.AddScoped<ILiveStreamKeyRepository, MongoLiveStreamKeyRepository>();
             services.AddScoped<IYouTubeConnectionRepository, MongoYouTubeConnectionRepository>();
+            services.AddScoped<IYouTubePublicationRepository, MongoYouTubePublicationRepository>();
+            services.AddScoped<IGoogleDriveConnectionRepository, MongoGoogleDriveConnectionRepository>();
+            services.AddScoped<IPhoneHandoffRepository, MongoPhoneHandoffRepository>();
+            services.AddScoped<IVoiceProfileRepository, MongoVoiceProfileRepository>();
             services.AddScoped<IWebSettingRepository, MongoWebSettingRepository>();
             services.AddScoped<IPromptTemplateRepository, MongoPromptTemplateRepository>();
             services.AddScoped<IAiSettingsRepository, MongoAiSettingsRepository>();
@@ -190,6 +205,7 @@ public static class DependencyInjection
         services.AddScoped<CharacterEditingService>();
         services.AddScoped<SceneEditingService>();
         services.AddScoped<AssetLibraryService>();
+        services.AddScoped<AssetSearchService>();
 
         // --- ai
         // Singleton because the registry owns the per-provider circuit state, which has to
@@ -250,8 +266,15 @@ public static class DependencyInjection
         services.AddScoped<IVideoRenderingService, FfmpegVideoRenderingService>();
         services.AddScoped<IOutroPreviewRenderer, OutroPreviewRenderer>();
         services.AddScoped<IMediaProbeService, FfprobeMediaProbeService>();
+        services.AddSingleton<SunoSongResolver>();
         services.AddSingleton<YtDlpMediaDownloader>();
         services.AddSingleton<FfmpegVideoChunker>();
+        services.AddSingleton<IStudioVoiceRenderer, FfmpegStudioVoiceRenderer>();
+        services.AddSingleton<INarrationCleaner, FfmpegNarrationCleaner>();
+        services.AddSingleton<ISpeechAudioExtractor, FfmpegSpeechAudioExtractor>();
+        services.AddScoped<MediaTranscriptionService>();
+        services.AddSingleton<IVoiceConverter, SeedVcVoiceConverter>();
+        services.AddScoped<MyVoiceTuning>();
         services.AddSingleton<FfmpegReleaseKitBuilder>();
         services.AddSingleton<ReleaseKitStore>();
 
@@ -283,10 +306,50 @@ public static class DependencyInjection
         services.AddSingleton(sp => new YouTubeVideoUploader(
             sp.GetRequiredService<IOptionsMonitor<YouTubePublishOptions>>(),
             sp.GetRequiredService<ILogger<YouTubeVideoUploader>>()));
+        services.AddSingleton(sp => new YouTubeCommentClient(
+            sp.GetRequiredService<ILogger<YouTubeCommentClient>>()));
+        // Go Live can create the YouTube broadcast and its stream key itself.
+        services.AddSingleton(sp => new YouTubeLiveClient(
+            sp.GetRequiredService<ILogger<YouTubeLiveClient>>()));
         services.AddSingleton<YouTubeOAuthStateCache>();
         services.AddScoped<YouTubeConnectionStore>();
+        // Brand channels take their name and picture from the YouTube channel they publish to.
+        services.AddScoped<BrandChannelSyncService>();
+        services.AddSingleton(sp => new YouTubeAvatarDownloader(
+            sp.GetRequiredService<ILogger<YouTubeAvatarDownloader>>()));
         services.AddSingleton<YouTubeUploadManager>();
+        // Custom thumbnails: frames grabbed from the video or uploaded pictures, re-encoded by ffmpeg.
+        services.AddSingleton<YouTubeThumbnailService>();
         services.AddHostedService(sp => sp.GetRequiredService<YouTubeUploadManager>());
+
+        // Finished uploads are recorded durably and re-checked on YouTube for problems.
+        services.AddSingleton(sp => new YouTubeVideoStatusClient(
+            sp.GetRequiredService<ILogger<YouTubeVideoStatusClient>>()));
+        services.AddScoped<YouTubePublicationService>();
+        services.AddHostedService<YouTubeHealthMonitor>();
+
+        // Send to phone: the render goes to the user's Google Drive, they upload it from the
+        // YouTube app (adding a licensed Shorts sound), and the prepared details are put on it.
+        services.AddSingleton(sp => new GoogleDriveClient(
+            sp.GetRequiredService<ILogger<GoogleDriveClient>>()));
+        services.AddSingleton(sp => new YouTubeChannelVideosClient(
+            sp.GetRequiredService<ILogger<YouTubeChannelVideosClient>>()));
+        services.AddScoped<GoogleDriveConnectionStore>();
+        services.AddSingleton<PhoneHandoffManager>();
+        services.AddHostedService(sp => sp.GetRequiredService<PhoneHandoffManager>());
+
+        // The YouTube page: subscriber/view counts per channel and per video, cached briefly.
+        services.AddSingleton(sp => new YouTubeStatsClient(
+            sp.GetRequiredService<ILogger<YouTubeStatsClient>>()));
+        services.AddSingleton<YouTubeDashboardCache>();
+        services.AddScoped<YouTubeDashboardService>();
+
+        // The music picker: royalty-free, licence-checked tracks imported as audio assets.
+        services.Configure<MusicLibraryOptions>(configuration.GetSection(MusicLibraryOptions.Section));
+        services.AddSingleton<IMusicCatalog>(sp => new JamendoMusicCatalog(
+            sp.GetRequiredService<IOptionsMonitor<MusicLibraryOptions>>(),
+            sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<ILogger<JamendoMusicCatalog>>()));
 
         services.AddScoped<ProjectRenderOrchestrator>();
 
@@ -369,15 +432,6 @@ public static class DependencyInjection
                         sp.GetRequiredService<ILogger<OpenAiCompatibleTextProvider>>()));
                     break;
 
-                case AiProviderFamily.GeminiText:
-                    services.AddSingleton<IAiProvider>(sp => new GeminiTextProvider(
-                        providerId,
-                        sp.GetRequiredService<IAiHttpClientFactory>(),
-                        sp.GetRequiredService<IAiSecretResolver>(),
-                        sp.GetRequiredService<IOptionsMonitor<AiOptions>>(),
-                        sp.GetRequiredService<ILogger<GeminiTextProvider>>()));
-                    break;
-
                 case AiProviderFamily.PollinationsImage:
                     services.AddSingleton<IAiProvider>(sp => new PollinationsImageProvider(
                         providerId,
@@ -403,6 +457,13 @@ public static class DependencyInjection
                         sp.GetRequiredService<IAiSecretResolver>(),
                         sp.GetRequiredService<IOptionsMonitor<AiOptions>>(),
                         sp.GetRequiredService<ILogger<HuggingFaceImageProvider>>()));
+                    break;
+
+                case AiProviderFamily.LocalCliText:
+                    services.AddSingleton<IAiProvider>(sp => new LocalCliTextProvider(
+                        providerId,
+                        sp.GetRequiredService<IOptionsMonitor<AiOptions>>(),
+                        sp.GetRequiredService<ILogger<LocalCliTextProvider>>()));
                     break;
 
                 case AiProviderFamily.PiperSpeech:

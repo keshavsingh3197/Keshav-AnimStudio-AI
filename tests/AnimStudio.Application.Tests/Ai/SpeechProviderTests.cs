@@ -272,6 +272,34 @@ public class OpenAiCompatibleTtsProviderTests
     }
 
     [Fact]
+    public async Task A_server_that_is_not_running_is_not_offered_the_fallback_voices()
+    {
+        // Falling back here would make a stopped Kokoro look ready, and every line would
+        // then fail with a generic error.
+        var options = new AiOptions
+        {
+            Providers = { ["kokoro"] = new AiProviderOptions { BaseUrl = BaseUrl, Model = "kokoro", IsLocal = true } }
+        };
+        var provider = new OpenAiCompatibleTtsProvider(
+            AiProviderId.Parse("kokoro"),
+            new StubHttpClientFactory(new RefusingHandler(), BaseUrl),
+            new StubSecretResolver(null),
+            new StaticOptionsMonitor<AiOptions>(options),
+            NullLogger<OpenAiCompatibleTtsProvider>.Instance);
+
+        var error = await Assert.ThrowsAsync<AiProviderException>(() =>
+            provider.ListVoicesAsync(CancellationToken.None));
+
+        Assert.Equal("transport-failed", error.Code);
+    }
+
+    private sealed class RefusingHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
+            throw new HttpRequestException("No connection could be made.");
+    }
+
+    [Fact]
     public async Task A_voice_name_that_is_not_a_name_is_dropped_from_the_list()
     {
         // A voice id travels straight back into a request body.

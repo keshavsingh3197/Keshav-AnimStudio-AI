@@ -98,6 +98,33 @@ public class ClipGraphBuilderTests
     }
 
     [Fact]
+    public void An_audio_only_clip_paints_the_picture_with_the_backdrop_and_keeps_the_sound()
+    {
+        var graph = NewBuilder().BuildClip(Plan() with { HideVideo = true, PadColorRgb = "ff0055" }).FilterComplex;
+
+        Assert.Contains("drawbox=x=0:y=0:w=iw:h=ih:color=0xff0055:t=fill", graph);
+        Assert.Contains("[0:a]", graph);
+    }
+
+    [Fact]
+    public void A_normal_clip_is_not_blanked()
+    {
+        var graph = NewBuilder().BuildClip(Plan()).FilterComplex;
+
+        Assert.DoesNotContain("drawbox=x=0:y=0:w=iw:h=ih", graph);
+    }
+
+    [Fact]
+    public void Fills_the_letterbox_bars_with_the_chosen_colour()
+    {
+        // The bars of a wide clip in a Short are where its headline goes; a brand colour
+        // there is the whole reason the setting exists.
+        var graph = NewBuilder().BuildClip(Plan() with { PadColorRgb = "ff0055" }).FilterComplex;
+
+        Assert.Contains("pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=0xff0055", graph);
+    }
+
+    [Fact]
     public void Cover_fills_the_canvas_and_crops_the_overflow()
     {
         var graph = NewBuilder().BuildClip(Plan(ClipFit.Cover)).FilterComplex;

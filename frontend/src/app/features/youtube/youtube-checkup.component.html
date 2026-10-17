@@ -1,0 +1,268 @@
+<section class="ck">
+  <header class="ck-head">
+    <div>
+      <p class="ck-eyebrow"><a routerLink="/youtube">YouTube</a> › Details checkup</p>
+      <h1>Video details checkup</h1>
+      <p class="muted">
+        Every video on the channel - uploaded from AnimStudio, the phone or Studio - with what its details are missing.
+        Let AI write drafts, review them here, then save them to YouTube. Nothing changes on YouTube until you save.
+      </p>
+    </div>
+    <div class="row">
+      @if (channels().length > 1) {
+        <select class="ck-select" [ngModel]="channelId()" (ngModelChange)="pickChannel($event)" aria-label="Channel">
+          @for (c of channels(); track c.channelId) { <option [value]="c.channelId">{{ c.channelTitle }}</option> }
+        </select>
+      }
+      <select class="ck-select" [ngModel]="max()" (ngModelChange)="max.set(+$event); load()" aria-label="How many videos">
+        <option [value]="50">Newest 50</option>
+        <option [value]="100">Newest 100</option>
+        <option [value]="250">Newest 250</option>
+        <option [value]="500">Newest 500</option>
+      </select>
+      <button type="button" class="secondary" (click)="load()" [disabled]="loading() || !channel()">{{ loading() ? 'Checking…' : '↻ Check again' }}</button>
+    </div>
+  </header>
+
+  @if (error(); as e) { <div class="notice error">{{ e }}</div> }
+  @if (notice(); as n) { <div class="notice ck-notice">{{ n }} <button type="button" class="link" (click)="notice.set(null)">Dismiss</button></div> }
+
+  @if (!configured()) {
+    <div class="empty"><h3>Publishing to YouTube isn't set up on this server</h3><p>An admin needs to configure the YouTube client first.</p></div>
+  } @else if (channels().length === 0) {
+    <div class="empty">
+      <h3>No channel connected</h3>
+      <p>Connect your YouTube channel on the <a routerLink="/youtube">YouTube page</a> first.</p>
+    </div>
+  } @else if (channel(); as ch) {
+    @if (ch.needsReconnect || !ch.canComment) {
+      <div class="notice error">
+        {{ ch.needsReconnect ? 'YouTube access for ' + ch.channelTitle + ' expired.' : ch.channelTitle + ' was connected before AnimStudio could edit videos.' }}
+        <button type="button" class="link" (click)="reconnect()">Reconnect the channel</button>
+      </div>
+    }
+
+    @if (loading()) {
+      <p class="muted">Reading the channel's videos and playlists from YouTube…</p>
+    } @else if (checkup(); as c) {
+      <!-- Summary -->
+      <div class="ck-tiles" role="group" aria-label="Summary">
+        <button type="button" class="ck-tile" [class.on]="filter() === 'all'" (click)="filter.set('all')">
+          <span class="ck-tile-n">{{ counts().all }}</span><span class="ck-tile-l">Videos checked</span>
+        </button>
+        <button type="button" class="ck-tile" [class.on]="filter() === 'needs'" (click)="filter.set('needs')">
+          <span class="ck-tile-n" [class.ck-warn]="counts().needs > 0">{{ counts().needs }}</span><span class="ck-tile-l">Need details</span>
+        </button>
+        <div class="ck-tile ck-tile-static">
+          <span class="ck-tile-n ck-ok">{{ counts().complete }}</span><span class="ck-tile-l">Complete</span>
+        </div>
+      </div>
+
+      <div class="ck-chips" role="group" aria-label="Filter by what's missing">
+        @for (i of issueLabels; track i.code) {
+          @if (counts().byIssue[i.code]) {
+            <button type="button" class="ck-chip" [class.on]="filter() === i.code" (click)="filter.set(i.code)">
+              {{ i.label }} <span class="ck-chip-n">{{ counts().byIssue[i.code] }}</span>
+            </button>
+          }
+        }
+        <input type="search" class="ck-search" placeholder="Search title, description, tags…" maxlength="100"
+               [ngModel]="query()" (ngModelChange)="query.set($event)" aria-label="Search videos" />
+      </div>
+      @if (c.playlistError) { <p class="muted ck-small">{{ c.playlistError }}</p> }
+
+      <!-- AI settings -->
+      <details class="card ck-ai">
+        <summary>✨ AI writing settings <span class="muted">- tone {{ tone() }}, {{ language() === 'hi' ? 'Hindi' : 'English' }}{{ brief() ? ', with notes' : '' }}</span></summary>
+        <div class="ck-ai-grid">
+          <label>Tone
+            <select [ngModel]="tone()" (ngModelChange)="tone.set($event)">
+              @for (t of tones(); track t) { <option [value]="t">{{ t }}</option> }
+            </select>
+          </label>
+          <label>Language
+            <select [ngModel]="language()" (ngModelChange)="language.set($event)">
+              <option value="en">English</option>
+              <option value="hi">Hindi</option>
+            </select>
+          </label>
+          <label>AI engine
+            <select [ngModel]="engine()" (ngModelChange)="engine.set($event)">
+              <option value="">Auto</option>
+              @for (e of engines(); track e.id) { <option [value]="e.id">{{ e.name }}{{ e.runsLocally ? ' (local)' : '' }}</option> }
+            </select>
+          </label>
+          <label class="ck-ai-notes">Notes for every draft (optional)
+            <textarea rows="2" maxlength="1000" placeholder="e.g. Devotional bhajan shorts of Khatu Shyam ji; mention the OMKR channel"
+                      [ngModel]="brief()" (ngModelChange)="brief.set($event)"></textarea>
+          </label>
+        </div>
+      </details>
+
+      <!-- Bulk -->
+      <div class="ck-bulk" role="toolbar" aria-label="Selected videos">
+        @if (selected().size === 0) {
+          <button type="button" class="link" (click)="selectShown()" [disabled]="rows().length === 0">Select all {{ rows().length }} shown</button>
+          <span class="muted">to write drafts, set the audience or add a playlist in one go.</span>
+        } @else {
+          <strong>{{ selected().size }} selected</strong>
+          <button type="button" (click)="draftAllSelected()" [disabled]="!!bulkRunning()">✨ Write {{ selected().size }} drafts with AI</button>
+          <button type="button" class="secondary" (click)="setAudienceForSelected(false)" [disabled]="!!bulkRunning()">Audience: not made for kids</button>
+          <button type="button" class="secondary" (click)="setAudienceForSelected(true)" [disabled]="!!bulkRunning()">Made for kids</button>
+          @if (playlists().length > 0) {
+            <select class="ck-select" #pl (change)="addPlaylistForSelected(pl.value); pl.value = ''" [disabled]="!!bulkRunning()" aria-label="Add to playlist">
+              <option value="">+ Add to playlist…</option>
+              @for (p of playlists(); track p.id) { <option [value]="p.id">{{ p.title }}</option> }
+            </select>
+          }
+          <button type="button" (click)="saveAllSelected()" [disabled]="!!bulkRunning() || draftsToSave().length === 0">💾 Save {{ draftsToSave().length }} to YouTube</button>
+          <button type="button" class="link" (click)="clearSelection()">Clear</button>
+        }
+        @if (bulkRunning(); as b) { <span class="ck-busy">{{ b }}</span> }
+      </div>
+
+      <!-- Videos -->
+      @if (rows().length === 0) {
+        <div class="empty">
+          @if (filter() === 'needs' && counts().all > 0) { 🎉 Every checked video has its details. }
+          @else { No videos match. <button type="button" class="link" (click)="filter.set('all'); query.set('')">Show all</button> }
+        </div>
+      }
+
+      <ul class="ck-list">
+        @for (v of rows(); track v.videoId) {
+          @let st = state(v.videoId);
+          <li class="ck-video" [class.ck-open]="open() === v.videoId">
+            <div class="ck-video-row">
+              <input type="checkbox" [checked]="isSelected(v)" (change)="toggleSelected(v)" [attr.aria-label]="'Select ' + v.title" />
+              <a class="ck-thumb" [href]="v.videoUrl" target="_blank" rel="noopener noreferrer" [attr.aria-label]="'Watch ' + v.title">
+                @if (v.thumbnailUrl) { <img [src]="v.thumbnailUrl" alt="" loading="lazy" referrerpolicy="no-referrer" /> }
+                @if (v.durationSeconds) { <span class="ck-dur">{{ runTime(v.durationSeconds) }}</span> }
+              </a>
+              <div class="ck-main">
+                <button type="button" class="ck-title" (click)="toggleOpen(v)">{{ v.title || '(no title)' }}</button>
+                <div class="ck-meta">
+                  @if (v.publishedAt) { <span>{{ v.publishedAt | date: 'mediumDate' }}</span> }
+                  <span class="pill">{{ v.privacy || 'unknown' }}</span>
+                  @if (v.isShort) { <span class="pill">Short</span> }
+                  @if (v.projectId) { <a [routerLink]="['/projects', v.projectId, 'render']">AnimStudio project</a> }
+                  @for (p of v.playlistIds; track p) { <span class="pill ok">▤ {{ playlistTitle(p) }}</span> }
+                </div>
+                <div class="ck-issues">
+                  @for (i of v.issues; track i.code) {
+                    <span class="pill" [class.err]="i.severity === 'high'" [class.warn]="i.severity === 'low'" [title]="i.message">{{ i.message }}</span>
+                  } @empty {
+                    <span class="pill ok">✓ Details complete</span>
+                  }
+                </div>
+                @if (st.error) { <p class="ck-error">{{ st.error }}</p> }
+                @for (w of st.warnings; track w) { <p class="ck-warn-text">{{ w }}</p> }
+              </div>
+              <div class="ck-actions">
+                @if (st.busy === 'suggest') { <span class="ck-busy">Writing…</span> }
+                @else if (st.busy === 'save') { <span class="ck-busy">Saving…</span> }
+                @else if (st.saved) { <span class="pill ok">Saved ✓</span> }
+                @else if (st.draft && open() !== v.videoId) { <span class="pill warn">Draft ready</span> }
+                <button type="button" class="secondary" (click)="toggleOpen(v)">{{ open() === v.videoId ? 'Close' : 'Edit' }}</button>
+                <a [href]="v.studioUrl" target="_blank" rel="noopener noreferrer" class="ck-small">Studio ↗</a>
+              </div>
+            </div>
+
+            @if (open() === v.videoId && st.draft; as d) {
+              <div class="ck-editor">
+                <div class="ck-editor-bar">
+                  <button type="button" (click)="suggest(v)" [disabled]="!!st.busy">✨ {{ st.busy === 'suggest' ? 'Writing…' : 'Write with AI' }}</button>
+                  <span class="muted ck-small">Keeps a real title and description; fills what's missing and adds hashtags and tags.</span>
+                </div>
+
+                <label class="ck-field">
+                  <span>Title <em class="muted">{{ d.title.length }}/100</em></span>
+                  <input type="text" maxlength="100" [ngModel]="d.title" (ngModelChange)="setDraft(v.videoId, { title: $event })" />
+                </label>
+                @if (d.titleOptions.length) {
+                  <div class="ck-options">
+                    <span class="muted ck-small">AI titles:</span>
+                    @for (t of d.titleOptions; track t) {
+                      <button type="button" class="ck-option" (click)="setDraft(v.videoId, { title: t })">{{ t }}</button>
+                    }
+                  </div>
+                }
+
+                <label class="ck-field">
+                  <span>Description <em class="muted" [class.ck-error]="descriptionBytes(d.description) > 5000">{{ descriptionBytes(d.description) }}/5000 bytes</em></span>
+                  <textarea rows="7" [ngModel]="d.description" (ngModelChange)="setDraft(v.videoId, { description: $event })"></textarea>
+                </label>
+                @if (d.descriptionOptions.length) {
+                  <div class="ck-options">
+                    <span class="muted ck-small">Other AI descriptions:</span>
+                    @for (o of d.descriptionOptions; track $index) {
+                      <button type="button" class="ck-option" [title]="o" (click)="setDraft(v.videoId, { description: o })">Use option {{ $index + 1 }}</button>
+                    }
+                  </div>
+                }
+
+                <label class="ck-field">
+                  <span>Tags, comma separated <em class="muted" [class.ck-error]="tagsLength(d.tagsText) > 500">{{ tagsLength(d.tagsText) }}/500</em></span>
+                  <input type="text" [ngModel]="d.tagsText" (ngModelChange)="setDraft(v.videoId, { tagsText: $event })" />
+                </label>
+                @if (d.tagIdeas.length) {
+                  <div class="ck-options">
+                    <span class="muted ck-small">More tag ideas:</span>
+                    @for (t of d.tagIdeas; track t) { <button type="button" class="ck-option" (click)="addTag(v.videoId, t)">+ {{ t }}</button> }
+                  </div>
+                }
+
+                <div class="ck-grid">
+                  <label class="ck-field">
+                    <span>Category</span>
+                    <select [ngModel]="d.categoryId" (ngModelChange)="setDraft(v.videoId, { categoryId: $event })">
+                      @for (cat of categories(); track cat.id) { <option [value]="cat.id">{{ cat.name }}</option> }
+                    </select>
+                  </label>
+                  <label class="ck-field">
+                    <span>Visibility</span>
+                    <select [ngModel]="d.privacy" (ngModelChange)="setDraft(v.videoId, { privacy: $event })">
+                      <option value="public">Public</option>
+                      <option value="unlisted">Unlisted</option>
+                      <option value="private">Private</option>
+                    </select>
+                  </label>
+                  <fieldset class="ck-field ck-radios">
+                    <legend>Audience <em class="muted">(required by YouTube)</em></legend>
+                    <label><input type="radio" [name]="'kids-' + v.videoId" [checked]="d.madeForKids === false" (change)="setDraft(v.videoId, { madeForKids: false })" /> Not made for kids</label>
+                    <label><input type="radio" [name]="'kids-' + v.videoId" [checked]="d.madeForKids === true" (change)="setDraft(v.videoId, { madeForKids: true })" /> Made for kids</label>
+                  </fieldset>
+                </div>
+
+                @if (playlists().length > 0) {
+                  <fieldset class="ck-field">
+                    <legend>Playlists</legend>
+                    <div class="ck-playlists">
+                      @for (p of playlists(); track p.id) {
+                        @if (v.playlistIds.includes(p.id)) {
+                          <label class="ck-pl ck-pl-in"><input type="checkbox" checked disabled /> {{ p.title }} <em class="muted">(already in)</em></label>
+                        } @else {
+                          <label class="ck-pl"><input type="checkbox" [checked]="d.addPlaylistIds.includes(p.id)" (change)="togglePlaylist(v.videoId, p.id)" /> {{ p.title }}</label>
+                        }
+                      }
+                    </div>
+                  </fieldset>
+                } @else if (!c.playlistError) {
+                  <p class="muted ck-small">The channel has no playlists yet - create one in YouTube Studio to group these videos.</p>
+                }
+
+                <div class="row ck-editor-foot">
+                  <button type="button" (click)="save(v)" [disabled]="!!st.busy || d.madeForKids === null">
+                    {{ st.busy === 'save' ? 'Saving…' : '💾 Save to YouTube' }}
+                  </button>
+                  @if (d.madeForKids === null) { <span class="ck-warn-text">Choose the audience first.</span> }
+                  <button type="button" class="link" (click)="reset(v)" [disabled]="!!st.busy">Undo my changes</button>
+                </div>
+              </div>
+            }
+          </li>
+        }
+      </ul>
+    }
+  }
+</section>

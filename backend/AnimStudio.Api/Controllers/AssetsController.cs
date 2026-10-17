@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using AnimStudio.Api.Common;
 using AnimStudio.Api.Contracts;
 using AnimStudio.Application.Abstractions.Persistence;
@@ -23,6 +24,7 @@ public sealed class AssetsController(
     IObjectStore store,
     IMediaProbeService probe,
     AssetLibraryService library,
+    AssetSearchService search,
     IOptions<IngestOptions> ingestOptions,
     ICurrentUser currentUser,
     AppDataPaths dataPaths,
@@ -434,6 +436,109 @@ public sealed class AssetsController(
     {
         await library.DeleteAsync(id, currentUser.UserId, ct);
         return Ok(ApiResponse<EmptyPayload>.Ok(EmptyPayload.Value));
+    }
+
+    public sealed record CopyAssetsRequest
+    {
+        [Required, MaxLength(64)] public string SourceProjectId { get; init; } = string.Empty;
+        [Required, MaxLength(AssetLibraryService.MaxCopyPerRequest)] public List<string> AssetIds { get; init; } = [];
+    }
+
+    /// <summary>Source asset id to the id of the same file in this project.</summary>
+    public sealed record CopyAssetsResponse(IReadOnlyDictionary<string, string> Mapping);
+
+    /// <summary>
+    /// Copies files from another of the user's projects into this one, for a timeline being
+    /// brought over from that project. Both projects must be the caller's.
+    /// </summary>
+    [HttpPost("api/projects/{projectId}/assets/copy")]
+    public async Task<ActionResult<ApiResponse<CopyAssetsResponse>>> CopyFromProject(
+        string projectId, [FromBody] CopyAssetsRequest request, CancellationToken ct)
+    {
+        if (!IsSafeId(projectId) || !IsSafeId(request.SourceProjectId))
+            return NotFound();
+
+        // An id becomes part of no path here, but anything not shaped like one is not one.
+        var ids = request.AssetIds.Where(IsSafeId).ToList();
+        var mapping = await library.CopyIntoProjectAsync(
+            request.SourceProjectId, projectId, ids, currentUser.UserId, clock.GetUtcNow().UtcDateTime, ct);
+
+        return Ok(ApiResponse<CopyAssetsResponse>.Ok(new CopyAssetsResponse(mapping)));
+    }
+
+    /// <summary>
+    /// Searches the caller's other projects for files to reuse here: by default those on the
+    /// same brand channel, or with <c>scope=all</c> every project (same channel still first).
+    /// Bring a hit over with <see cref="CopyFromProject"/>.
+    /// </summary>
+    [HttpGet("api/projects/{projectId}/assets/search")]
+    public async Task<ActionResult<ApiResponse<AssetSearchResponse>>> Search(
+        string projectId,
+        [FromQuery] string? q,
+        [FromQuery] string? scope,
+        [FromQuery] string? kind,
+        [FromQuery] int? limit,
+        [FromQuery] string? channel,
+        [FromQuery] string? project,
+        [FromQuery] string? sort,
+        [FromQuery] int? offset,
+        CancellationToken ct)
+    {
+        if (!IsSafeId(projectId)) return NotFound();
+
+        AssetSearchSort? parsedSort = sort?.ToLowerInvariant() switch
+        {
+            null or "" or "relevance" => AssetSearchSort.Relevance,
+            "newest" => AssetSearchSort.Newest,
+            "oldest" => AssetSearchSort.Oldest,
+            "name" => AssetSearchSort.Name,
+            "largest" => AssetSearchSort.Largest,
+            _ => null
+        };
+
+        // Both only narrow the caller's own projects, so a wrong id just finds nothing.
+        var badFilter = (!string.IsNullOrEmpty(channel) && !IsSafeId(channel))
+                        || (!string.IsNullOrEmpty(project) && !IsSafeId(project))
+                        || offset is < 0 or > AssetSearchService.MaxOffset;
+
+        AssetSearchScope? parsedScope = scope?.ToLowerInvariant() switch
+        {
+            null or "" or "channel" => AssetSearchScope.Channel,
+            "all" => AssetSearchScope.All,
+            _ => null
+        };
+
+        // Spelled out rather than Enum.TryParse, which would also take "0" or "Unknown".
+        (bool Ok, AssetKind? Value) parsedKind = kind?.ToLowerInvariant() switch
+        {
+            null or "" or "any" => (true, null),
+            "image" => (true, AssetKind.Image),
+            "video" => (true, AssetKind.Video),
+            "audio" => (true, AssetKind.Audio),
+            "subtitle" => (true, AssetKind.Subtitle),
+            _ => (false, null)
+        };
+
+        if (parsedScope is null || !parsedKind.Ok || parsedSort is null || badFilter
+            || q?.Length > AssetSearchService.MaxQueryLength)
+            return BadRequest(ApiResponse<AssetSearchResponse>.Fail("Unsupported search options.",
+                new ApiError("invalid-search", "Unsupported search options.")));
+
+        var result = await search.SearchAsync(new AssetSearchQuery
+        {
+            TargetProjectId = projectId,
+            UserId = currentUser.UserId,
+            Text = q,
+            Scope = parsedScope.Value,
+            ChannelId = string.IsNullOrEmpty(channel) ? null : channel,
+            SourceProjectId = string.IsNullOrEmpty(project) ? null : project,
+            Kind = parsedKind.Value,
+            Sort = parsedSort.Value,
+            Offset = offset ?? 0,
+            Limit = limit ?? AssetSearchService.DefaultLimit
+        }, ct);
+
+        return Ok(ApiResponse<AssetSearchResponse>.Ok(result.ToResponse()));
     }
 
     private async Task EnsureOwnedAsync(string projectId, CancellationToken ct)

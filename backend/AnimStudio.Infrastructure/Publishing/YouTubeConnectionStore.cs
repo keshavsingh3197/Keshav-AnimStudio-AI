@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using AnimStudio.Application.Abstractions.Persistence;
+using AnimStudio.Application.Publishing;
 using AnimStudio.Domain.Publishing;
 using KeshavSingh.Security;
 using Microsoft.Extensions.Logging;
@@ -17,7 +18,15 @@ public sealed record YouTubeConnectionStatus(
     string? ThumbnailUrl,
     DateTime ConnectedAt,
     DateTime? LastUploadAt,
-    bool NeedsReconnect);
+    bool NeedsReconnect,
+    /// <summary>False for a channel connected before comment permission was asked for; reconnecting fixes it.</summary>
+    bool CanComment = false);
+
+/// <summary>A connected channel whose details couldn't be re-read from YouTube, and why (safe to show).</summary>
+public sealed record YouTubeRefreshFailure(string ChannelId, string ChannelTitle, string Reason);
+
+/// <summary>Every connected channel after a refresh, and the ones YouTube couldn't answer for.</summary>
+public sealed record YouTubeRefreshResult(IReadOnlyList<YouTubeConnectionStatus> Channels, IReadOnlyList<YouTubeRefreshFailure> Failed);
 
 /// <summary>
 /// Sign-ins that have been started but not finished: the random <c>state</c> sent to Google,
@@ -31,26 +40,42 @@ public sealed class YouTubeOAuthStateCache(TimeProvider clock)
 
     private readonly ConcurrentDictionary<string, Pending> _pending = new(StringComparer.Ordinal);
 
-    public sealed record Pending(string UserId, string CodeVerifier, string ReturnPath, DateTime ExpiresAt);
+    /// <param name="Target">What the sign-in is for beyond its kind - for a Drive, the channel it belongs to. Set
+    /// on the server when the sign-in starts, never read back from the browser.</param>
+    public sealed record Pending(string UserId, string CodeVerifier, string ReturnPath, DateTime ExpiresAt, string Kind = ChannelKind, string? Target = null);
 
-    public (string State, string CodeChallenge) Create(string userId, string returnPath)
+    /// <summary>A sign-in that connects a YouTube channel.</summary>
+    public const string ChannelKind = "youtube";
+
+    /// <summary>
+    /// A sign-in that connects a Google Drive. Its state starts with <see cref="DriveStatePrefix"/>,
+    /// so the one callback page Google returns to knows which API to hand the code to.
+    /// </summary>
+    public const string DriveKind = "drive";
+
+    public const string DriveStatePrefix = "drive.";
+
+    public (string State, string CodeChallenge) Create(string userId, string returnPath, string kind = ChannelKind, string? target = null)
     {
         Prune();
         if (_pending.Count >= MaxPending)
             throw new YouTubePublishException("youtube-busy", "Too many sign-ins are in progress. Try again in a few minutes.");
 
-        var state = Base64Url(RandomNumberGenerator.GetBytes(32));
+        var state = (kind == DriveKind ? DriveStatePrefix : string.Empty) + Base64Url(RandomNumberGenerator.GetBytes(32));
         var verifier = Base64Url(RandomNumberGenerator.GetBytes(48));
-        _pending[state] = new Pending(userId, verifier, returnPath, clock.GetUtcNow().UtcDateTime + Lifetime);
+        _pending[state] = new Pending(userId, verifier, returnPath, clock.GetUtcNow().UtcDateTime + Lifetime, kind, target);
 
         return (state, Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(verifier))));
     }
 
-    /// <summary>The pending sign-in for this state, removed so it can't be used twice - or null if unknown, expired or someone else's.</summary>
-    public Pending? Take(string state, string userId)
+    /// <summary>
+    /// The pending sign-in for this state, removed so it can't be used twice - or null if
+    /// unknown, expired, someone else's, or started for the other kind of connection.
+    /// </summary>
+    public Pending? Take(string state, string userId, string kind = ChannelKind)
     {
         if (!_pending.TryRemove(state, out var pending)) return null;
-        if (pending.ExpiresAt < clock.GetUtcNow().UtcDateTime) return null;
+        if (pending.ExpiresAt < clock.GetUtcNow().UtcDateTime || pending.Kind != kind) return null;
         return CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(pending.UserId), Encoding.UTF8.GetBytes(userId))
             ? pending
             : null;
@@ -115,7 +140,7 @@ public sealed partial class YouTubeConnectionStore(
         string userId, string? code, string? state, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(state) || state.Length > 128
-            || pending.Take(state, userId) is not { } started)
+            || pending.Take(state, userId, YouTubeOAuthStateCache.ChannelKind) is not { } started)
         {
             throw new YouTubePublishException("youtube-state-invalid",
                 "This sign-in link has expired or was already used. Start connecting the channel again.");
@@ -203,6 +228,57 @@ public sealed partial class YouTubeConnectionStore(
         }
     }
 
+    /// <summary>
+    /// Re-reads every connected channel's name, handle and picture from YouTube, so a channel
+    /// renamed (or re-pictured) on YouTube shows up here without reconnecting. A channel
+    /// that can't be read is reported, not dropped: its last known identity stays.
+    /// </summary>
+    public async Task<YouTubeRefreshResult> RefreshAsync(string userId, CancellationToken ct)
+    {
+        var failed = new List<YouTubeRefreshFailure>();
+        foreach (var stored in await repository.ListByUserAsync(userId, ct).ConfigureAwait(false))
+        {
+            if (stored.RevokedAt is not null)
+            {
+                failed.Add(new(stored.ChannelId, stored.ChannelTitle, "YouTube access has expired or was removed. Connect the channel again."));
+                continue;
+            }
+
+            try
+            {
+                var accessToken = await GetAccessTokenAsync(userId, stored.ChannelId, ct).ConfigureAwait(false);
+                var channel = await oauth.GetMyChannelAsync(accessToken, ct).ConfigureAwait(false);
+                if (!string.Equals(channel.Id, stored.ChannelId, StringComparison.Ordinal))
+                {
+                    // The token answers for a different channel than it was saved for; trust neither.
+                    logger.LogWarning("YouTube connection {ChannelId} for user {UserId} now reports channel {OtherChannelId}",
+                        stored.ChannelId, userId, channel.Id);
+                    failed.Add(new(stored.ChannelId, stored.ChannelTitle, "YouTube answered for a different channel. Connect the channel again."));
+                    continue;
+                }
+
+                var title = Truncate(channel.Title, 200);
+                var handle = channel.Handle is null ? null : Truncate(channel.Handle, 100);
+                if (stored.ChannelTitle == title && stored.ChannelHandle == handle && stored.ThumbnailUrl == channel.ThumbnailUrl) continue;
+
+                stored.ChannelTitle = title;
+                stored.ChannelHandle = handle;
+                stored.ThumbnailUrl = channel.ThumbnailUrl;
+                await repository.UpsertAsync(stored, ct).ConfigureAwait(false);
+                logger.LogInformation("YouTube channel {ChannelId} details refreshed for user {UserId}", stored.ChannelId, userId);
+            }
+            catch (YouTubePublishException ex)
+            {
+                failed.Add(new(stored.ChannelId, stored.ChannelTitle, ex.Message));
+            }
+        }
+
+        return new YouTubeRefreshResult(await ListAsync(userId, ct).ConfigureAwait(false), failed);
+    }
+
+    public static YouTubeChannelIdentity ToIdentity(YouTubeConnectionStatus c) =>
+        new(c.ChannelId, c.ChannelTitle, c.ChannelHandle, c.ThumbnailUrl);
+
     public async Task MarkUploadedAsync(string userId, string channelId, CancellationToken ct)
     {
         var stored = await GetAsync(userId, channelId, ct).ConfigureAwait(false);
@@ -236,7 +312,8 @@ public sealed partial class YouTubeConnectionStore(
     }
 
     private static YouTubeConnectionStatus Describe(YouTubeChannelConnection c) =>
-        new(c.ChannelId, c.ChannelTitle, c.ChannelHandle, c.ThumbnailUrl, c.ConnectedAt, c.LastUploadAt, c.RevokedAt is not null);
+        new(c.ChannelId, c.ChannelTitle, c.ChannelHandle, c.ThumbnailUrl, c.ConnectedAt, c.LastUploadAt, c.RevokedAt is not null,
+        YouTubeOAuthClient.AllowsComments(c.Scopes));
 
     private static string Truncate(string value, int max) => value.Length <= max ? value : value[..max];
 
