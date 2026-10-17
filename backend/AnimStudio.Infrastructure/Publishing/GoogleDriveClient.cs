@@ -104,6 +104,29 @@ public sealed partial class GoogleDriveClient : IDisposable
     }
 
     /// <summary>
+    /// The folders in the Drive's root that this app made - with <c>drive.file</c>, the only
+    /// ones it can see - most recently changed first.
+    /// </summary>
+    public async Task<IReadOnlyList<(string Id, string Name)>> ListFoldersAsync(string accessToken, CancellationToken ct)
+    {
+        var query = $"mimeType='{FolderMimeType}' and trashed=false and 'root' in parents";
+        using var found = await SendJsonAsync(HttpMethod.Get,
+            $"{Api}files?q={Uri.EscapeDataString(query)}&fields=files(id,name)&pageSize=100&orderBy=modifiedTime%20desc&spaces=drive",
+            null, accessToken, "files.list", ct).ConfigureAwait(false);
+
+        var list = new List<(string, string)>();
+        if (found.RootElement.TryGetProperty("files", out var files) && files.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var f in files.EnumerateArray())
+            {
+                if (ReadString(f, "id") is { } id && IsFileId(id) && ReadString(f, "name") is { } name)
+                    list.Add((id, Shorten(name, 200)!));
+            }
+        }
+        return list;
+    }
+
+    /// <summary>
     /// Sends <paramref name="content"/> into <paramref name="folderId"/> with Drive's resumable
     /// protocol, one chunk in memory at a time; a dropped connection costs a chunk, not the file.
     /// </summary>

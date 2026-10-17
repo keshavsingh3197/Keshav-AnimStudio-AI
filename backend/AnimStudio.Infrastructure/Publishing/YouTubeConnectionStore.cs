@@ -40,7 +40,9 @@ public sealed class YouTubeOAuthStateCache(TimeProvider clock)
 
     private readonly ConcurrentDictionary<string, Pending> _pending = new(StringComparer.Ordinal);
 
-    public sealed record Pending(string UserId, string CodeVerifier, string ReturnPath, DateTime ExpiresAt, string Kind = ChannelKind);
+    /// <param name="Target">What the sign-in is for beyond its kind - for a Drive, the channel it belongs to. Set
+    /// on the server when the sign-in starts, never read back from the browser.</param>
+    public sealed record Pending(string UserId, string CodeVerifier, string ReturnPath, DateTime ExpiresAt, string Kind = ChannelKind, string? Target = null);
 
     /// <summary>A sign-in that connects a YouTube channel.</summary>
     public const string ChannelKind = "youtube";
@@ -53,7 +55,7 @@ public sealed class YouTubeOAuthStateCache(TimeProvider clock)
 
     public const string DriveStatePrefix = "drive.";
 
-    public (string State, string CodeChallenge) Create(string userId, string returnPath, string kind = ChannelKind)
+    public (string State, string CodeChallenge) Create(string userId, string returnPath, string kind = ChannelKind, string? target = null)
     {
         Prune();
         if (_pending.Count >= MaxPending)
@@ -61,7 +63,7 @@ public sealed class YouTubeOAuthStateCache(TimeProvider clock)
 
         var state = (kind == DriveKind ? DriveStatePrefix : string.Empty) + Base64Url(RandomNumberGenerator.GetBytes(32));
         var verifier = Base64Url(RandomNumberGenerator.GetBytes(48));
-        _pending[state] = new Pending(userId, verifier, returnPath, clock.GetUtcNow().UtcDateTime + Lifetime, kind);
+        _pending[state] = new Pending(userId, verifier, returnPath, clock.GetUtcNow().UtcDateTime + Lifetime, kind, target);
 
         return (state, Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(verifier))));
     }

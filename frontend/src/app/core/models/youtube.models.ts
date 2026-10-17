@@ -216,7 +216,11 @@ export function isUploadFinished(upload: YouTubeUpload): boolean {
 /** How the video reaches YouTube: uploaded from here, or sent to Drive for the YouTube app (Shorts sounds). */
 export type YouTubeUploadRoute = 'direct' | 'phone';
 
-/** The Google Drive connected for "send to phone". Never the token. */
+/**
+ * A Google Drive for saving renders and "send to phone". Never the token. Asked for a
+ * channel, it is what that channel uses: its own Drive (`ownDrive`), or else the personal
+ * Drive - in a folder of the channel's own either way.
+ */
 export interface GoogleDriveStatus {
   connected: boolean;
   accountName: string | null;
@@ -224,9 +228,18 @@ export interface GoogleDriveStatus {
   folderName: string;
   connectedAt: string | null;
   needsReconnect: boolean;
+  /** Null for the personal Drive. */
+  channelId?: string | null;
+  channelTitle?: string | null;
+  ownDrive?: boolean;
 }
 
-export type PhoneHandoffState = 'Sending' | 'WaitingForPhone' | 'Applied' | 'Failed' | 'Cancelled' | 'Expired';
+export type PhoneHandoffState =
+  | 'Sending' | 'WaitingForPhone' | 'Applied' | 'Failed' | 'Cancelled' | 'Expired'
+  /** A plain save to Drive that has finished. */
+  | 'Saved'
+  /** Queued with its render; the copy starts when the render finishes. */
+  | 'WaitingForRender';
 
 /** A video sent to Drive, waiting for its upload from the YouTube app to get the prepared details. */
 export interface PhoneHandoff {
@@ -256,6 +269,8 @@ export interface PhoneHandoff {
   studioUrl: string | null;
   appliedAt: string | null;
   commentPosted: boolean;
+  /** A plain copy to Drive, with nothing to apply on YouTube. */
+  saveOnly?: boolean;
 }
 
 /** One of the channel's new uploads, offered as the phone upload; `likely` when its length matches. */
@@ -276,7 +291,7 @@ export interface PhoneHandoffCheck {
 
 /** Still moving: being copied, or waiting for the phone upload to turn up. */
 export function isHandoffActive(h: PhoneHandoff): boolean {
-  return h.state === 'Sending' || h.state === 'WaitingForPhone';
+  return h.state === 'Sending' || h.state === 'WaitingForPhone' || h.state === 'WaitingForRender';
 }
 
 /** Same rule as the server: letters (any script), digits, spaces and - _ . ( ) &. */

@@ -1,4 +1,4 @@
-import { OverlayMotion, OverlayShape, TextBoxStyle, TimelineItemTextStyle } from '../../../core/models/api.models';
+import { OverlayMotion, OverlayShape, TextBoxStyle, TextCardEffect, TimelineItemTextStyle } from '../../../core/models/api.models';
 import { MAX_MOTION_SECONDS } from './frame-media';
 
 /*
@@ -39,6 +39,49 @@ export const DEFAULT_TEXT_STYLE: TimelineItemTextStyle = {
   transitionOut: 'fade',
   transitionOutDuration: 0.5,
 };
+
+/** The card a new text in its own slot sits on: a deep slate, fully there, still. */
+export const DEFAULT_TEXT_CARD: Required<Pick<TimelineItemTextStyle, 'cardColor' | 'cardOpacity' | 'cardEffect'>> = {
+  cardColor: '#111827',
+  cardOpacity: 1,
+  cardEffect: 'none',
+};
+
+export const TEXT_CARD_EFFECTS: readonly { id: TextCardEffect; label: string }[] = [
+  { id: 'none', label: 'Still' },
+  { id: 'fade', label: 'Fade in & out' },
+  { id: 'vignette', label: 'Vignette' },
+];
+
+export interface TextCard {
+  color: string;
+  opacity: number;
+  effect: TextCardEffect;
+}
+
+/** The card behind a text, or null - the same rules as TextOverlayLayout.ResolveCard. */
+export function resolveTextCard(style: TimelineItemTextStyle | null | undefined): TextCard | null {
+  if (!style || !isHexColor(style.cardColor)) return null;
+  const opacity = clamp(style.cardOpacity ?? 1, 0, 1, 1);
+  if (opacity <= 0) return null;
+  const effect: TextCardEffect = style.cardEffect === 'fade' || style.cardEffect === 'vignette' ? style.cardEffect : 'none';
+  return { color: style.cardColor.toLowerCase(), opacity, effect };
+}
+
+/**
+ * How much of a card shows at `t`: a fading card ramps linearly over the text's entrance
+ * and exit lengths (each at most half its time on screen), as ffmpeg's fade does.
+ */
+export function textCardOpacity(card: TextCard, t: number, start: number, end: number,
+  inSeconds: number | undefined, outSeconds: number | undefined): number {
+  if (t < start || t >= end) return 0;
+  if (card.effect !== 'fade') return card.opacity;
+  const span = Math.max(0.01, end - start);
+  const fadeIn = Math.min(inSeconds && inSeconds > 0 ? inSeconds : 0.5, span / 2);
+  const fadeOut = Math.min(outSeconds && outSeconds > 0 ? outSeconds : 0.5, span / 2);
+  const ramp = Math.min(1, (t - start) / fadeIn, (end - t) / fadeOut);
+  return card.opacity * Math.max(0, ramp);
+}
 
 export interface TextLook {
   fontSize: number;

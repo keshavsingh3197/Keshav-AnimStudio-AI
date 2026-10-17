@@ -434,6 +434,19 @@
   z-index: 5;
 }
 
+/* A text's full-frame card: over the picture and its lens finish, under everything drawn
+   on top of it. The vignette is the CSS stand-in for ffmpeg's (angle PI/4). */
+.text-card {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  pointer-events: none;
+}
+
+.text-card.vignette {
+  background-image: radial-gradient(ellipse at center, transparent 40%, rgba(0, 0, 0, 0.55) 100%);
+}
+
 /* A still's lens finish - the CSS stand-ins Photo Story previews with. Above the picture,
    below frame layers and text. */
 .shot-still { will-change: transform; }

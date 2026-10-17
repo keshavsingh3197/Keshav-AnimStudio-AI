@@ -321,6 +321,19 @@ public sealed class TimelineItemTextStyleSpec
     public bool Shadow { get; set; }
     public bool Uppercase { get; set; }
 
+    /// <summary>
+    /// <c>#rrggbb</c> filling the whole frame behind the text while it shows - the card a
+    /// title in its own slot sits on. Null draws no card, so the text lies over whatever is
+    /// underneath (the slot's backdrop, or the clip it overlays).
+    /// </summary>
+    public string? CardColor { get; set; }
+
+    /// <summary>0-1; null is fully opaque.</summary>
+    public double? CardOpacity { get; set; }
+
+    /// <summary>none (still), fade (in and out with the text) or vignette (darkened edges).</summary>
+    public string? CardEffect { get; set; }
+
     public string? TransitionIn { get; set; } = "fade";
     public double TransitionInDuration { get; set; } = 0.5;
     public string? TransitionOut { get; set; } = "fade";

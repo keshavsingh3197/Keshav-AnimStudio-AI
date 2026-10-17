@@ -15,7 +15,15 @@ public enum PhoneHandoffState
     Cancelled,
 
     /// <summary>No matching upload turned up in time; the details can still be applied by hand.</summary>
-    Expired
+    Expired,
+
+    // Appended, never inserted: SQL Server stores the state as its number.
+
+    /// <summary>A plain save to Drive (<see cref="PhoneHandoff.SaveOnly"/>) that has finished.</summary>
+    Saved,
+
+    /// <summary>Queued with its render; the copy starts when the render finishes.</summary>
+    WaitingForRender
 }
 
 /// <summary>
@@ -55,6 +63,18 @@ public sealed class PhoneHandoff
     /// <summary>The video's own sound was removed before sending, for a Shorts sound to replace it.</summary>
     public bool Muted { get; set; }
 
+    /// <summary>
+    /// Just a copy to Drive, with nothing to apply on YouTube afterwards - a render saved to
+    /// Drive, or one of an auto-shorts batch. It ends <see cref="PhoneHandoffState.Saved"/>.
+    /// </summary>
+    public bool SaveOnly { get; set; }
+
+    /// <summary>
+    /// Which of the user's Drives it goes to: a channel's own, or null for the personal one.
+    /// Decided when it is queued; see <c>GoogleDriveConnectionStore.ResolveAsync</c>.
+    /// </summary>
+    public string? DriveChannelId { get; set; }
+
     public string DriveFolderName { get; set; } = string.Empty;
     public string? DriveFileId { get; set; }
     public string? DriveFileName { get; set; }
@@ -77,5 +97,6 @@ public sealed class PhoneHandoff
     public DateTime? AppliedAt { get; set; }
     public string? CommentId { get; set; }
 
-    public bool IsFinished => State is PhoneHandoffState.Applied or PhoneHandoffState.Failed or PhoneHandoffState.Cancelled;
+    public bool IsFinished => State is PhoneHandoffState.Applied or PhoneHandoffState.Failed or PhoneHandoffState.Cancelled
+        or PhoneHandoffState.Saved;
 }

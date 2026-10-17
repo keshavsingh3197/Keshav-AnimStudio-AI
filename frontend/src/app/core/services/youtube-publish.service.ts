@@ -132,16 +132,27 @@ export class YouTubePublishService {
 
   // ------------------------------------------------------------------ send to phone
 
-  driveStatus(): Observable<GoogleDriveStatus> {
+  /** The Drive a channel's videos go to (its own, or the personal one); no channel is the personal Drive. */
+  driveStatus(channelId?: string | null): Observable<GoogleDriveStatus> {
     return this.http
-      .get<ApiResponse<GoogleDriveStatus>>(`${this.base}/drive`)
+      .get<ApiResponse<GoogleDriveStatus>>(`${this.base}/drive`, { params: channelParams(channelId) })
       .pipe(map((r) => r.data as GoogleDriveStatus));
   }
 
-  /** Where to send the browser to approve Drive access; Google returns to /youtube/callback too. */
-  startDriveConnect(returnPath: string): Observable<string> {
+  /** The personal Drive, then what every connected channel uses. */
+  driveConnections(): Observable<GoogleDriveStatus[]> {
     return this.http
-      .post<ApiResponse<{ authorizationUrl: string }>>(`${this.base}/drive/oauth/start`, { returnPath })
+      .get<ApiResponse<GoogleDriveStatus[]>>(`${this.base}/drive/connections`)
+      .pipe(map((r) => r.data ?? []));
+  }
+
+  /**
+   * Where to send the browser to approve Drive access - for one channel, or (no channel) the
+   * personal Drive. Google returns to /youtube/callback too.
+   */
+  startDriveConnect(returnPath: string, channelId?: string | null): Observable<string> {
+    return this.http
+      .post<ApiResponse<{ authorizationUrl: string }>>(`${this.base}/drive/oauth/start`, { returnPath, channelId: channelId || null })
       .pipe(map((r) => r.data!.authorizationUrl));
   }
 
@@ -151,14 +162,33 @@ export class YouTubePublishService {
       .pipe(map((r) => r.data!));
   }
 
-  setDriveFolder(folderName: string): Observable<GoogleDriveStatus> {
+  /** The default folder for a channel (on whichever Drive it uses), or the personal Drive's own. */
+  setDriveFolder(folderName: string, channelId?: string | null): Observable<GoogleDriveStatus> {
     return this.http
-      .put<ApiResponse<GoogleDriveStatus>>(`${this.base}/drive/folder`, { folderName })
+      .put<ApiResponse<GoogleDriveStatus>>(`${this.base}/drive/folder`, { folderName, channelId: channelId || null })
       .pipe(map((r) => r.data as GoogleDriveStatus));
   }
 
-  disconnectDrive(): Observable<unknown> {
-    return this.http.delete(`${this.base}/drive`);
+  /** Folders AnimStudio made on the Drive a channel uses, its default first. */
+  driveFolders(channelId?: string | null): Observable<string[]> {
+    return this.http
+      .get<ApiResponse<string[]>>(`${this.base}/drive/folders`, { params: channelParams(channelId) })
+      .pipe(map((r) => r.data ?? []));
+  }
+
+  /** Disconnects a channel's own Drive, or the personal one. */
+  disconnectDrive(channelId?: string | null): Observable<unknown> {
+    return this.http.delete(`${this.base}/drive`, { params: channelParams(channelId) });
+  }
+
+  /** Copies a finished render to the Drive (and folder) a channel uses; nothing goes to YouTube. */
+  saveToDrive(jobId: string, body: { channelId?: string | null; folderName?: string | null }): Observable<PhoneHandoff> {
+    return this.http
+      .post<ApiResponse<PhoneHandoff>>(`${this.base}/render-jobs/${encodeURIComponent(jobId)}/save-to-drive`, {
+        channelId: body.channelId || null,
+        folderName: body.folderName || null,
+      })
+      .pipe(map((r) => r.data as PhoneHandoff));
   }
 
   /** Copies the render to Drive; its details are put on the YouTube-app upload once it appears. */
@@ -225,4 +255,9 @@ export class YouTubePublishService {
       .post<ApiResponse<YouTubeLiveBroadcast>>(`${this.base}/live/broadcasts`, { channelId, metadata, scheduledStartTime, enableDvr })
       .pipe(map((r) => r.data as YouTubeLiveBroadcast));
   }
+}
+
+/** `?channelId=` only when there is one: none means the personal Drive. */
+function channelParams(channelId?: string | null): Record<string, string> {
+  return channelId ? { channelId } : {};
 }

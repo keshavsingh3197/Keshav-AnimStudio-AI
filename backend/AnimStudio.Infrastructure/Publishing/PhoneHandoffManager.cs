@@ -40,7 +40,9 @@ public sealed record PhoneHandoffStatus(
     string? VideoUrl,
     string? StudioUrl,
     DateTime? AppliedAt,
-    bool CommentPosted);
+    bool CommentPosted,
+    /// <summary>A plain copy to Drive, with nothing to apply on YouTube.</summary>
+    bool SaveOnly = false);
 
 /// <summary>
 /// "Send to phone": copies a render to the user's Google Drive in the background, then
@@ -104,7 +106,7 @@ public sealed partial class PhoneHandoffManager(
         var percent = h.State switch
         {
             PhoneHandoffState.Sending => (int)Math.Clamp(sent * 100 / Math.Max(1, h.TotalBytes), 0, 99),
-            PhoneHandoffState.Failed or PhoneHandoffState.Cancelled => 0,
+            PhoneHandoffState.Failed or PhoneHandoffState.Cancelled or PhoneHandoffState.WaitingForRender => 0,
             _ => 100
         };
         return new PhoneHandoffStatus(
@@ -116,7 +118,7 @@ public sealed partial class PhoneHandoffManager(
             h.VideoId,
             h.VideoId is null ? null : $"https://youtube.com/shorts/{h.VideoId}",
             h.VideoId is null ? null : $"https://studio.youtube.com/video/{h.VideoId}/edit",
-            h.AppliedAt, h.CommentId is not null);
+            h.AppliedAt, h.CommentId is not null, h.SaveOnly);
     }
 
     /// <summary>The channel's new uploads that could be this handoff's, likely ones first.</summary>
@@ -205,6 +207,10 @@ public sealed partial class PhoneHandoffManager(
 
         await FailInterruptedSendsAsync(stoppingToken).ConfigureAwait(false);
 
+        // Copies waiting on their render are started from their own, quicker loop: the
+        // channel sweep below can be minutes apart, and waits on YouTube being configured.
+        var renders = WaitForRendersAsync(stoppingToken);
+
         while (!stoppingToken.IsCancellationRequested)
         {
             var current = options.CurrentValue;
@@ -232,8 +238,77 @@ public sealed partial class PhoneHandoffManager(
             }
             catch (OperationCanceledException)
             {
+                break;
+            }
+        }
+
+        await renders.ConfigureAwait(false);
+    }
+
+    /// <summary>How often copies queued with a render look for it to have finished.</summary>
+    private static readonly TimeSpan RenderPollInterval = TimeSpan.FromSeconds(10);
+
+    private async Task WaitForRendersAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                await StartFinishedRendersAsync(ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
                 return;
             }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Starting Drive copies for finished renders failed");
+            }
+
+            try
+            {
+                await Task.Delay(RenderPollInterval, clock, ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Starts the copy of every queued handoff whose render has finished, and fails the ones
+    /// whose render didn't. The state is saved as Sending before the copy starts, so a second
+    /// pass never starts it twice.
+    /// </summary>
+    private async Task StartFinishedRendersAsync(CancellationToken ct)
+    {
+        await using var scope = scopes.CreateAsyncScope();
+        var repository = scope.ServiceProvider.GetRequiredService<IPhoneHandoffRepository>();
+        var waiting = await repository.ListByStateAsync(PhoneHandoffState.WaitingForRender, MaxPerSweep, ct).ConfigureAwait(false);
+        if (waiting.Count == 0) return;
+
+        var jobs = scope.ServiceProvider.GetRequiredService<IRenderJobRepository>();
+        foreach (var handoff in waiting)
+        {
+            var job = await jobs.GetAsync(handoff.JobId, ct).ConfigureAwait(false);
+            // Ids are only ever trusted together with their owner: a job that isn't this
+            // handoff's user's is treated as gone.
+            if (job is not null && !string.Equals(job.UserId, handoff.UserId, StringComparison.Ordinal)) job = null;
+            if (job is null || !job.IsTerminal || job.OutputStorageKey is null)
+            {
+                if (job is not null && !job.IsTerminal) continue;
+                handoff.State = PhoneHandoffState.Failed;
+                handoff.ErrorCode = "render-failed";
+                handoff.Error = "The render didn't finish, so nothing was saved to Google Drive.";
+                await repository.UpsertAsync(handoff, ct).ConfigureAwait(false);
+                continue;
+            }
+
+            handoff.State = PhoneHandoffState.Sending;
+            handoff.TotalBytes = job.OutputSizeBytes ?? 0;
+            await repository.UpsertAsync(handoff, ct).ConfigureAwait(false);
+            StartSending(handoff, job.OutputStorageKey, job.OutputSizeBytes ?? 0);
         }
     }
 
@@ -407,20 +482,23 @@ public sealed partial class PhoneHandoffManager(
                     throw new YouTubePublishException("video-empty", "The rendered file is empty or its size is unknown. Render it again.");
                 handoff.TotalBytes = length;
 
-                var token = await driveConnections.GetAccessTokenAsync(handoff.UserId, ct).ConfigureAwait(false);
-                var folderId = await driveConnections.EnsureFolderAsync(handoff.UserId, handoff.DriveFolderName, token, ct).ConfigureAwait(false);
+                var target = new DriveTarget(handoff.UserId, handoff.DriveChannelId, handoff.DriveFolderName);
+                var token = await driveConnections.GetAccessTokenAsync(target, ct).ConfigureAwait(false);
+                var folderId = await driveConnections.EnsureFolderAsync(target, token, ct).ConfigureAwait(false);
 
                 var fileId = await drive.UploadAsync(content, length, handoff.DriveFileName!, folderId,
-                    "Upload this from the YouTube app (Create > Short > pick this video > Add sound). AnimStudio then fills in the title, description and settings for: "
-                        + handoff.Title,
-                    async (fresh, token2) => fresh ? await driveConnections.GetAccessTokenAsync(handoff.UserId, token2).ConfigureAwait(false) : token,
+                    handoff.SaveOnly
+                        ? "Made with AnimStudio: " + handoff.Title
+                        : "Upload this from the YouTube app (Create > Short > pick this video > Add sound). AnimStudio then fills in the title, description and settings for: "
+                            + handoff.Title,
+                    async (fresh, token2) => fresh ? await driveConnections.GetAccessTokenAsync(target, token2).ConfigureAwait(false) : token,
                     new Progress<long>(value => _progress[handoff.Id] = value),
                     ct).ConfigureAwait(false);
 
                 handoff.DriveFileId = fileId;
                 handoff.BytesSent = length;
                 handoff.SentAt = clock.GetUtcNow().UtcDateTime;
-                handoff.State = PhoneHandoffState.WaitingForPhone;
+                handoff.State = handoff.SaveOnly ? PhoneHandoffState.Saved : PhoneHandoffState.WaitingForPhone;
                 logger.LogInformation("Phone handoff {HandoffId} for render {JobId} is in Google Drive", handoff.Id, handoff.JobId);
             }
         }
@@ -447,7 +525,8 @@ public sealed partial class PhoneHandoffManager(
         finally
         {
             if (slotTaken) _sendSlots.Release();
-            if (_progress.TryGetValue(handoff.Id, out var last) && handoff.State != PhoneHandoffState.WaitingForPhone) handoff.BytesSent = last;
+            if (_progress.TryGetValue(handoff.Id, out var last) && handoff.State is not (PhoneHandoffState.WaitingForPhone or PhoneHandoffState.Saved))
+                handoff.BytesSent = last;
             try
             {
                 await repository.UpsertAsync(handoff, CancellationToken.None).ConfigureAwait(false);

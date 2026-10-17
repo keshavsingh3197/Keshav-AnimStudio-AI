@@ -52,7 +52,12 @@ public sealed record ClipRenderSettings(
     /// </summary>
     Func<string, string, FontRunLine?>? FontRunsForText = null,
     /// <summary>Multiple of the canvas an image clip is moved at; see <see cref="ClipRenderPlan.MotionSupersample"/>.</summary>
-    int KenBurnsSupersample = 2)
+    int KenBurnsSupersample = 2,
+    /// <summary>
+    /// How many renders the worker runs side by side. The cores are shared out between them,
+    /// so two stitches at once don't each start a conform per core and thrash.
+    /// </summary>
+    int ParallelJobs = 1)
 {
     /// <summary>The font for <paramref name="text"/>, honouring the fallback.</summary>
     public string? FontFor(string text) => FontForText is not null ? FontForText(text) : WatermarkFontFile;
@@ -246,8 +251,9 @@ public sealed class ClipMergeOrchestrator(
             // workspace directory and the progress reporter - which is already lock-guarded.
             // Concurrency scales with cores, and each clip's encoder threads are budgeted so
             // processes don't thrash cores.
-            var concurrency = Math.Clamp(Environment.ProcessorCount / 2, 2, 8);
-            var perClipThreads = Math.Max(1, Environment.ProcessorCount / concurrency);
+            var cores = Math.Max(1, Environment.ProcessorCount / Math.Max(1, settings.ParallelJobs));
+            var concurrency = Math.Clamp(cores / 2, settings.ParallelJobs > 1 ? 1 : 2, 8);
+            var perClipThreads = Math.Max(1, cores / concurrency);
 
             var prepared = new SceneRenderResult[spec.AssetIds.Count];
             // Frozen first-frame seconds per clip, for the export timeline: a clip's added
@@ -662,7 +668,9 @@ public sealed class ClipMergeOrchestrator(
                 MusicDuckWindows = spec.MusicDuckWindows
                     .Select(w => new MergeDuckWindow(w.StartSeconds, w.EndSeconds, w.Level))
                     .ToList(),
-                Overlays = overlays,
+                // A text card fills the frame, so it goes down first: an overlay that
+                // shares its moment is drawn on top of it, never hidden under it.
+                Overlays = [.. overlays.OrderBy(o => o.Text?.Look.Card is null ? 1 : 0)],
                 OutputRelativePath = "out/final.mp4",
                 // Always the delivery profile: whether this re-encodes or stream-copies,
                 // its output is what the viewer downloads.

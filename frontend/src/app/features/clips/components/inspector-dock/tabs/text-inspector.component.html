@@ -4,7 +4,7 @@
       <div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px;">
         <div class="d-flex justify-content-between align-items-center mb-2">
           <div style="font-size: 0.82rem; font-weight: 700; color: var(--text);">
-            <span style="color: #10b981; margin-right: 4px;">T</span> Timeline Text Overlay (TXT1)
+            <span style="color: #10b981; margin-right: 4px;">T</span> Timeline Text (TXT1)
           </div>
           <div class="d-flex gap-1">
             <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.7rem;"
@@ -16,6 +16,60 @@
               🗑 Remove
             </button>
           </div>
+        </div>
+
+        <!-- Placement: its own slot on a card, or over the picture -->
+        <div class="mb-2 p-2" style="background: rgba(0,0,0,0.25); border-radius: 6px; border: 1px solid rgba(255,255,255,0.06);">
+          <div style="font-size: 0.72rem; font-weight: 700; color: #10b981; margin-bottom: 6px;">▣ Placement</div>
+          <div class="btn-group w-100 mb-1" role="group" aria-label="Text placement">
+            <button type="button" class="btn btn-sm py-1" style="font-size: 0.7rem;"
+                    [class.btn-primary]="!txtItem.overlay" [class.btn-outline-secondary]="!!txtItem.overlay"
+                    [attr.aria-pressed]="!txtItem.overlay"
+                    (click)="state.setTextPlacement(txtItem.id, false)">
+              Own slot (card)
+            </button>
+            <button type="button" class="btn btn-sm py-1" style="font-size: 0.7rem;"
+                    [class.btn-primary]="!!txtItem.overlay" [class.btn-outline-secondary]="!txtItem.overlay"
+                    [attr.aria-pressed]="!!txtItem.overlay"
+                    (click)="state.setTextPlacement(txtItem.id, true)">
+              Over the picture
+            </button>
+          </div>
+          <div style="font-size: 0.68rem; color: var(--text-muted);">
+            @if (txtItem.overlay) {
+              Shows on top of whatever image or video is under it, for its own time. Nothing moves to make room.
+            } @else {
+              Plays between clips on its own card; everything after it moves along.
+            }
+          </div>
+
+          @if (!txtItem.overlay) {
+            <div class="d-flex gap-2 align-items-center mt-2">
+              <label for="txtCardColor" style="font-size: 0.72rem; color: var(--text-muted); width: 60px;">Card</label>
+              <input id="txtCardColor" type="color" class="form-control form-control-color form-control-sm p-0"
+                     style="width: 34px; height: 26px;"
+                     [ngModel]="txtItem.textStyle?.cardColor ?? '#111827'"
+                     (ngModelChange)="state.updateTextItemStyle(txtItem.id, { cardColor: $event })"
+                     title="Card colour" />
+              <input type="range" class="form-range flex-fill" min="0" max="1" step="0.05"
+                     aria-label="Card opacity"
+                     [ngModel]="cardOpacity(txtItem)"
+                     (ngModelChange)="state.updateTextItemStyle(txtItem.id, { cardColor: txtItem.textStyle?.cardColor ?? '#111827', cardOpacity: $event })"
+                     title="Card opacity (0 shows the project backdrop)" />
+              <span class="mono" style="font-size: 0.68rem; color: var(--text-muted); width: 32px;">{{ cardOpacity(txtItem) * 100 | number:'1.0-0' }}%</span>
+            </div>
+            <div class="d-flex gap-2 align-items-center mt-1">
+              <label for="txtCardEffect" style="font-size: 0.72rem; color: var(--text-muted); width: 60px;">Effect</label>
+              <select id="txtCardEffect" class="form-select form-select-sm bg-dark text-light border-secondary border-opacity-50 py-0 flex-fill"
+                      style="font-size: 0.72rem; height: 26px;"
+                      [ngModel]="txtItem.textStyle?.cardEffect ?? 'none'"
+                      (ngModelChange)="state.updateTextItemStyle(txtItem.id, { cardColor: txtItem.textStyle?.cardColor ?? '#111827', cardEffect: $event })">
+                @for (e of cardEffects; track e.id) {
+                  <option [value]="e.id">{{ e.label }}</option>
+                }
+              </select>
+            </div>
+          }
         </div>
 
         <!-- Timing & Auto-Fit Section -->

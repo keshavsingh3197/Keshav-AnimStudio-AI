@@ -272,6 +272,8 @@
                    (click)="onTextTrackClick($event)">
                 @for (item of state.itemsForTrack('TXT1'); track item.id) {
                   <div class="tl-clip tl-item-txt"
+                       [class.tl-item-txt-over]="item.overlay"
+                       [style.--card]="!item.overlay ? item.textStyle?.cardColor ?? null : null"
                        [class.selected]="state.selectedTimelineItemId() === item.id"
                        [style.left.px]="state.secondsToPx(item.startTime)"
                        [style.width.px]="state.secondsToPx(item.duration)"
@@ -281,8 +283,8 @@
                     @if (item.textStyle?.transitionIn && item.textStyle.transitionIn !== 'none') {
                       <span class="tl-trans-in-badge" [title]="'In: ' + item.textStyle.transitionIn + ' (' + (item.textStyle.transitionInDuration ?? 0.5) + 's)'">⚡ {{ item.textStyle.transitionIn }}</span>
                     }
-                    <span class="tl-item-badge">TXT</span>
-                    <span class="tl-item-name">{{ item.name || item.src || 'Text Overlay' }}</span>
+                    <span class="tl-item-badge" [title]="item.overlay ? 'Plays over the picture' : 'Its own slot, on a card'">{{ item.overlay ? 'OVER' : 'CARD' }}</span>
+                    <span class="tl-item-name">{{ item.src || item.name || 'Text' }}</span>
                     <span class="tl-item-dur mono">{{ item.duration | number:'1.1-1' }}s</span>
                     @if (item.textStyle?.transitionOut && item.textStyle.transitionOut !== 'none') {
                       <span class="tl-trans-out-badge" [title]="'Out: ' + item.textStyle.transitionOut + ' (' + (item.textStyle.transitionOutDuration ?? 0.5) + 's)'">⚡ {{ item.textStyle.transitionOut }}</span>

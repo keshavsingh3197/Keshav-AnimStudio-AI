@@ -220,6 +220,13 @@
           }
         }
 
+        <!-- A text's own card: fills the frame behind its words while they show - under
+             celebrations, frame layers and every word, as the export draws it first. -->
+        @for (card of state.monitorTextCards(); track card.key) {
+          <div class="text-card" [class.vignette]="card.vignette"
+               [style.background-color]="card.color" [style.opacity]="card.opacity"></div>
+        }
+
         <!-- Celebrations on FX1, drawn with the export's own particle plan. -->
         @if (celebrationCues().length > 0) {
           <app-celebration-layer [cues]="celebrationCues()" [clock]="monitorClock"

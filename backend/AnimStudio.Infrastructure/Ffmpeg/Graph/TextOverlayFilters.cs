@@ -65,6 +65,11 @@ internal static class TextOverlayFilters
 
         var moving = alpha is not null || slide.Length > 0 || slideX.Length > 0;
 
+        if (look.Card is { } card)
+        {
+            current = AppendCard(graph, current, $"{labelPrefix}_{step++}", card, overlay, start, end, enable, canvas);
+        }
+
         if (look.Box == TextBoxStyle.Band && look.BoxOpacity > 0)
         {
             current = AppendRect(graph, current, $"{labelPrefix}_{step++}", look, overlay, start, end, enable,
@@ -243,6 +248,38 @@ internal static class TextOverlayFilters
         var ox = slideX.Length > 0 ? FilterExpr.Quote(FilterExpr.N(rx) + slideX.Replace("{W}", "W")) : FilterExpr.N(rx);
         var oy = slide.Length > 0 ? FilterExpr.Quote(FilterExpr.N(ry) + slide) : FilterExpr.N(ry);
         graph.Append($"[{current}][{source}]overlay=x={ox}:y={oy}:enable={enable}[{next}];\n");
+        return next;
+    }
+
+    /// <summary>
+    /// The full-frame card behind the text. Still, it is one drawbox (with a vignette over it
+    /// for that effect); fading, it is a colour source the size of the frame, faded over the
+    /// text's own entrance and exit lengths whatever motion the text itself has.
+    /// </summary>
+    private static string AppendCard(
+        StringBuilder graph, string current, string next, TextCard card, MergeOverlayItem overlay,
+        double start, double end, string enable, Canvas canvas)
+    {
+        var color = $"0x{card.Rgb}@{FilterExpr.N(card.Opacity)}";
+
+        if (card.Effect != TextCardEffect.Fade)
+        {
+            var filled = card.Effect == TextCardEffect.Vignette ? $"{next}_fill" : next;
+            graph.Append($"[{current}]drawbox=x=0:y=0:w=iw:h=ih:color={color}:t=fill:enable={enable}[{filled}];\n");
+            if (card.Effect == TextCardEffect.Vignette)
+                graph.Append($"[{filled}]vignette=angle=PI/4:enable={enable}[{next}];\n");
+            return next;
+        }
+
+        var span = Math.Max(0.01, end - start);
+        var fadeIn = Math.Min(overlay.TransitionInDuration > 0 ? overlay.TransitionInDuration : 0.5, span / 2);
+        var fadeOut = Math.Min(overlay.TransitionOutDuration > 0 ? overlay.TransitionOutDuration : 0.5, span / 2);
+
+        var source = $"{next}_card";
+        graph.Append($"color=c={color}:s={canvas.Width}x{canvas.Height}:r={canvas.FrameRate.ToFfmpegRate()}:d={FilterExpr.N(end)}")
+             .Append($",format=rgba,fade=t=in:st={FilterExpr.N(start)}:d={FilterExpr.N(fadeIn)}:alpha=1")
+             .Append($",fade=t=out:st={FilterExpr.N(end - fadeOut)}:d={FilterExpr.N(fadeOut)}:alpha=1[{source}];\n");
+        graph.Append($"[{current}][{source}]overlay=x=0:y=0:enable={enable}[{next}];\n");
         return next;
     }
 

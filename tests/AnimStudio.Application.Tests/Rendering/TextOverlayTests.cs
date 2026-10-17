@@ -308,4 +308,66 @@ public class TextOverlayTests
 
         Assert.Contains(@"enable='between(t\,1\,5)'", graph);
     }
+
+    // --- card ---------------------------------------------------------------
+
+    [Fact]
+    public void A_card_needs_a_hex_colour_and_some_opacity()
+    {
+        Assert.Null(TextOverlayLayout.ResolveCard(new TimelineItemTextStyleSpec()));
+        Assert.Null(TextOverlayLayout.ResolveCard(new TimelineItemTextStyleSpec { CardColor = "red" }));
+        Assert.Null(TextOverlayLayout.ResolveCard(new TimelineItemTextStyleSpec { CardColor = "#112233", CardOpacity = 0 }));
+
+        var card = TextOverlayLayout.ResolveCard(new TimelineItemTextStyleSpec { CardColor = "#A1B2C3", CardEffect = "Vignette" });
+        Assert.Equal(new TextCard("a1b2c3", 1, TextCardEffect.Vignette), card);
+    }
+
+    [Fact]
+    public void An_unknown_card_effect_is_a_still_card()
+    {
+        var card = TextOverlayLayout.ResolveCard(new TimelineItemTextStyleSpec { CardColor = "#000000", CardEffect = "spin:0" });
+        Assert.Equal(TextCardEffect.None, card!.Effect);
+    }
+
+    [Fact]
+    public void A_still_card_fills_the_frame_only_while_its_text_shows()
+    {
+        var graph = NewBuilder().BuildMerge(Plan(Text(new TimelineItemTextStyleSpec { CardColor = "#123456", CardOpacity = 0.8 })))
+            .FilterComplex;
+
+        Assert.Contains(@"drawbox=x=0:y=0:w=iw:h=ih:color=0x123456@0.8:t=fill:enable='between(t\,1\,5)'", graph);
+        // Under the words: the card comes before the first line is drawn.
+        Assert.True(graph.IndexOf("color=0x123456", StringComparison.Ordinal) < graph.IndexOf("drawtext=", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_fading_card_fades_over_the_text_entrance_and_exit()
+    {
+        var graph = NewBuilder().BuildMerge(Plan(Text(new TimelineItemTextStyleSpec { CardColor = "#123456", CardEffect = "fade" },
+            transitionIn: "none", transitionOut: "none"))).FilterComplex;
+
+        Assert.Contains("color=c=0x123456@1:s=1080x1920", graph);
+        Assert.Contains("fade=t=in:st=1:d=0.5:alpha=1", graph);
+        Assert.Contains("fade=t=out:st=4.5:d=0.5:alpha=1", graph);
+    }
+
+    [Fact]
+    public void A_vignette_card_darkens_its_edges_in_the_same_window()
+    {
+        var graph = NewBuilder().BuildMerge(Plan(Text(new TimelineItemTextStyleSpec { CardColor = "#123456", CardEffect = "vignette" })))
+            .FilterComplex;
+
+        Assert.Contains(@"vignette=angle=PI/4:enable='between(t\,1\,5)'", graph);
+    }
+
+    [Fact]
+    public void Card_labels_stay_unique_beside_other_overlays()
+    {
+        var graph = NewBuilder().BuildMerge(Plan(
+            Text(new TimelineItemTextStyleSpec { CardColor = "#000000", CardEffect = "vignette", BoxStyle = "band" }),
+            Text(new TimelineItemTextStyleSpec { CardColor = "#ffffff", CardEffect = "fade" }))).FilterComplex;
+
+        var outputs = Regex.Matches(graph, @"\[([A-Za-z0-9_]+)\];").Select(m => m.Groups[1].Value).ToList();
+        Assert.Equal(outputs.Count, outputs.Distinct().Count());
+    }
 }

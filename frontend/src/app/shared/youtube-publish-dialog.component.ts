@@ -1,5 +1,5 @@
 import { DecimalPipe } from '@angular/common';
-import { Component, DestroyRef, ElementRef, OnInit, computed, inject, input, output, signal, viewChild } from '@angular/core';
+import { Component, DestroyRef, ElementRef, OnInit, computed, effect, inject, input, output, signal, untracked, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subject, catchError, debounceTime, distinctUntilChanged, forkJoin, map, of, switchMap, tap } from 'rxjs';
@@ -208,25 +208,60 @@ interface PublishPrefs {
                     @if (!dr.connected) {
                       <div class="yt-phone-row">
                         <span>Google Drive isn't connected. AnimStudio only gets access to the files it adds, not the rest of your Drive.</span>
-                        <button type="button" (click)="connectDrive()" [disabled]="busy()">Connect Google Drive</button>
+                        <span class="yt-phone-actions">
+                          <button type="button" (click)="connectDrive(false)" [disabled]="busy()">Connect my Google Drive</button>
+                          @if (selectedChannel(); as ch) {
+                            <button type="button" class="link" (click)="connectDrive(true)" [disabled]="busy()">or a Drive just for {{ ch.channelTitle }}</button>
+                          }
+                        </span>
                       </div>
                     } @else {
                       <div class="yt-phone-row">
                         <span>☁ <strong>{{ dr.accountName || 'Google Drive' }}</strong>{{ dr.accountEmail ? ' · ' + dr.accountEmail : '' }}
+                          @if (dr.channelId) {
+                            <small class="yt-muted"> - {{ dr.ownDrive ? 'the Drive just for ' + dr.channelTitle : 'your Drive, in the folder for ' + dr.channelTitle }}</small>
+                          }
                           @if (dr.needsReconnect) { <span class="yt-err-inline"> - access expired</span> }</span>
-                        @if (dr.needsReconnect) {
-                          <button type="button" (click)="connectDrive()" [disabled]="busy()">Reconnect</button>
-                        } @else {
-                          <button type="button" class="link" (click)="disconnectDrive()" [disabled]="busy() || sendingToDrive()">Disconnect</button>
-                        }
+                        <span class="yt-phone-actions">
+                          @if (dr.needsReconnect) {
+                            <button type="button" (click)="connectDrive(!!dr.ownDrive)" [disabled]="busy()">Reconnect</button>
+                          } @else {
+                            @if (dr.channelId && !dr.ownDrive) {
+                              <button type="button" class="link" (click)="connectDrive(true)" [disabled]="busy()">Use a separate Drive for {{ dr.channelTitle }}</button>
+                            }
+                            <button type="button" class="link" (click)="disconnectDrive()" [disabled]="busy() || sendingToDrive()">Disconnect</button>
+                          }
+                        </span>
                       </div>
                       <label class="yt-phone-field">
-                        <span class="yt-label">Drive folder</span>
-                        <input type="text" maxlength="100" [ngModel]="folderName()" (ngModelChange)="folderName.set($event)"
-                               [disabled]="sendingToDrive()" [class.invalid]="fieldError('folderName')" placeholder="AnimStudio Shorts" />
+                        <span class="yt-label">Drive folder <small class="yt-muted">- pick one AnimStudio made, or type a new name</small></span>
+                        <input type="text" maxlength="100" list="yt-drive-folders" [ngModel]="folderName()" (ngModelChange)="folderName.set($event)"
+                               [disabled]="sendingToDrive()" [class.invalid]="fieldError('folderName')" [placeholder]="dr.folderName" />
+                        <datalist id="yt-drive-folders">
+                          @for (f of driveFolders(); track f) { <option [value]="f"></option> }
+                        </datalist>
                       </label>
                       @if (folderName().trim() !== dr.folderName && !fieldError('folderName')) {
-                        <button type="button" class="link" (click)="saveDefaultFolder()" [disabled]="busy()">Use "{{ folderName().trim() }}" every time</button>
+                        <button type="button" class="link" (click)="saveDefaultFolder()" [disabled]="busy()">Use "{{ folderName().trim() }}" every time{{ dr.channelId ? ' for ' + dr.channelTitle : '' }}</button>
+                      }
+                      <div class="yt-phone-row">
+                        <span class="yt-muted">Only want the file? Save a copy to Drive - nothing goes to YouTube.</span>
+                        <button type="button" (click)="saveCopyToDrive()"
+                                [disabled]="busy() || dr.needsReconnect || savingCopy() || !folderNameValid()">Save a copy to Drive</button>
+                      </div>
+                      @if (driveCopy(); as c) {
+                        @switch (c.state) {
+                          @case ('Sending') {
+                            <div class="bar"><div [style.width.%]="c.percent"></div></div>
+                            <p class="yt-muted">Saving to Google Drive… {{ c.percent }}% - you can close this window; it carries on.</p>
+                          }
+                          @case ('Saved') {
+                            <p class="ok">✓ Saved: <strong>{{ c.folderName }}</strong> / {{ c.fileName }}
+                              @if (c.driveUrl) { · <a [href]="c.driveUrl" target="_blank" rel="noopener noreferrer">Open in Drive ↗</a> }</p>
+                          }
+                          @case ('Failed') { <p class="yt-err">{{ c.error }}</p> }
+                          @case ('Cancelled') { <p class="yt-muted">{{ c.error || 'Stopped.' }}</p> }
+                        }
                       }
                     }
                   } @else {
@@ -779,6 +814,7 @@ interface PublishPrefs {
     .yt-phone { margin-bottom: .9rem; }
     .yt-phone .yt-dest-note { margin: 0; }
     .yt-phone-row { display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap; font-size: .86rem; }
+    .yt-phone-actions { display: inline-flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
     .yt-card label.yt-phone-field input { width: 100%; box-sizing: border-box; }
     .yt-phone-field input.invalid { border-color: #f87171; }
     .yt-card label.yt-check { display: flex; align-items: flex-start; gap: .5rem; color: inherit; font-size: .86rem; }
@@ -1315,6 +1351,23 @@ export class YouTubePublishDialogComponent implements OnInit {
   readonly candidates = signal<PhoneUploadCandidate[] | null>(null);
   readonly checking = signal(false);
   readonly sendingToDrive = computed(() => this.handoff()?.state === 'Sending');
+  /** Folders AnimStudio made on the Drive the chosen channel uses, for the folder picker. */
+  readonly driveFolders = signal<string[]>([]);
+  /** A plain "save a copy to Drive" of this render, apart from any phone send. */
+  readonly driveCopy = signal<PhoneHandoff | null>(null);
+  readonly savingCopy = computed(() => this.driveCopy()?.state === 'Sending');
+  readonly folderNameValid = computed(() => isValidDriveFolderName(this.folderName().trim()));
+  private copyPoll: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * The Drive follows the channel picked: a channel can have a Drive of its own, and on the
+   * personal Drive each channel has its own folder.
+   */
+  private readonly driveFollowsChannel = effect(() => {
+    const channelId = this.channelId();
+    if (this.loading() || this.isRelease()) return;
+    untracked(() => this.refreshDrive(channelId || null));
+  });
   readonly someLikely = computed(() => (this.candidates() ?? []).some((c) => c.likely));
   private handoffPoll: ReturnType<typeof setTimeout> | null = null;
 
@@ -1324,6 +1377,7 @@ export class YouTubePublishDialogComponent implements OnInit {
     inject(DestroyRef).onDestroy(() => {
       this.stopPolling();
       this.stopHandoffPoll();
+      if (this.copyPoll !== null) clearTimeout(this.copyPoll);
       for (const url of this.frameUrls.values()) URL.revokeObjectURL(url);
     });
     // Other projects are searched on the server; a newer query cancels the one in flight.
@@ -1373,7 +1427,12 @@ export class YouTubePublishDialogComponent implements OnInit {
         this.muteAudio.set(prefs.muteAudio ?? false);
         if (!this.isRelease() && prefs.route === 'phone') this.route.set('phone');
         // Reattach to a send of this render that is still copying or waiting for the phone upload.
-        const pending = handoffs.find((h) => isHandoffActive(h) || h.state === 'Expired');
+        const pending = handoffs.find((h) => !h.saveOnly && (isHandoffActive(h) || h.state === 'Expired'));
+        const copy = handoffs.find((h) => h.saveOnly && h.state === 'Sending');
+        if (copy) {
+          this.driveCopy.set(copy);
+          this.pollCopy(copy.id);
+        }
         if (pending) {
           this.route.set('phone');
           this.handoff.set(pending);
@@ -1827,13 +1886,14 @@ export class YouTubePublishDialogComponent implements OnInit {
     this.serverErrors.set([]);
   }
 
-  connectDrive(): void {
+  /** Connects the personal Drive, or (`forChannel`) one used only by the chosen channel. */
+  connectDrive(forChannel = false): void {
     this.busy.set(true);
     this.error.set(null);
     // Coming back lands on the same page, which reopens this dialog; remember to show the phone route.
     this.route.set('phone');
     this.savePrefs();
-    this.api.startDriveConnect(this.returnPath()).subscribe({
+    this.api.startDriveConnect(this.returnPath(), forChannel ? this.channelId() || null : null).subscribe({
       next: (url) => {
         // Only ever leave the app for Google's own sign-in page.
         if (!url.startsWith('https://accounts.google.com/')) {
@@ -1851,12 +1911,17 @@ export class YouTubePublishDialogComponent implements OnInit {
   }
 
   disconnectDrive(): void {
-    if (!confirm('Disconnect Google Drive? Videos already there stay in your Drive.')) return;
+    const dr = this.drive();
+    const own = !!dr?.ownDrive;
+    const message = own
+      ? `Disconnect ${dr?.channelTitle}'s own Drive? It will use your Drive again. Videos already there stay.`
+      : 'Disconnect your Google Drive? Channels without a Drive of their own lose it too. Videos already there stay.';
+    if (!confirm(message)) return;
     this.busy.set(true);
-    this.api.disconnectDrive().subscribe({
+    this.api.disconnectDrive(own ? this.channelId() || null : null).subscribe({
       next: () => {
-        this.drive.update((d) => d && { ...d, connected: false, accountName: null, accountEmail: null, needsReconnect: false });
         this.busy.set(false);
+        this.refreshDrive(this.channelId() || null);
       },
       error: (e: Error) => {
         this.error.set(e.message);
@@ -1870,7 +1935,7 @@ export class YouTubePublishDialogComponent implements OnInit {
     const name = this.folderName().trim();
     if (!isValidDriveFolderName(name)) return;
     this.busy.set(true);
-    this.api.setDriveFolder(name).subscribe({
+    this.api.setDriveFolder(name, this.channelId() || null).subscribe({
       next: (d) => {
         this.drive.set(d);
         this.busy.set(false);
@@ -1880,6 +1945,50 @@ export class YouTubePublishDialogComponent implements OnInit {
         this.busy.set(false);
       },
     });
+  }
+
+  /** What the chosen channel's Drive is now, its folder as the starting choice, and its folders to pick from. */
+  private refreshDrive(channelId: string | null): void {
+    this.api.driveStatus(channelId).pipe(catchError(() => of(null))).subscribe((d) => {
+      if (!d) return;
+      this.drive.set(d);
+      if (!this.sendingToDrive()) this.folderName.set(d.folderName);
+      this.driveFolders.set([]);
+      if (d.connected && !d.needsReconnect) {
+        this.api.driveFolders(channelId).pipe(catchError(() => of([] as string[]))).subscribe((f) => this.driveFolders.set(f));
+      }
+    });
+  }
+
+  /** Copies this render to the folder above, on the chosen channel's Drive. Nothing goes to YouTube. */
+  saveCopyToDrive(): void {
+    if (this.savingCopy() || !this.folderNameValid()) return;
+    this.error.set(null);
+    this.api.saveToDrive(this.jobId(), { channelId: this.channelId() || null, folderName: this.folderName().trim() }).subscribe({
+      next: (c) => {
+        this.driveCopy.set(c);
+        this.pollCopy(c.id);
+      },
+      error: (e: Error & { code?: string }) => {
+        this.error.set(e.message);
+        if (e.code === 'drive-reconnect') this.drive.update((d) => d && { ...d, needsReconnect: true });
+      },
+    });
+  }
+
+  private pollCopy(id: string): void {
+    if (this.copyPoll !== null) clearTimeout(this.copyPoll);
+    this.copyPoll = null;
+    if (this.driveCopy()?.state !== 'Sending') return;
+    this.copyPoll = setTimeout(() => {
+      this.api.handoff(id).subscribe({
+        next: (c) => {
+          this.driveCopy.set(c);
+          this.pollCopy(id);
+        },
+        error: () => this.pollCopy(id),
+      });
+    }, 1500);
   }
 
   private sendToPhone(): void {

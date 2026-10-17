@@ -1,9 +1,12 @@
 import { Component, HostListener, computed, inject, signal } from '@angular/core';
+import { catchError, of } from 'rxjs';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import {
   AUTO_SHORT_STYLES, AutoShortStyle, AutoShortTextMode, Clip, ClipFit, ExportQuality, RenderJob,
 } from '../../../../core/models/api.models';
+import { GoogleDriveStatus, isValidDriveFolderName } from '../../../../core/models/youtube.models';
+import { YouTubePublishService } from '../../../../core/services/youtube-publish.service';
 import { StudioStateService } from '../../services/studio-state.service';
 import { formatRunTime } from '../photo-story/photo-story-logic';
 
@@ -50,6 +53,7 @@ const MAX_LINES = 100;
 })
 export class AutoShortsComponent {
   readonly state = inject(StudioStateService);
+  private readonly youtube = inject(YouTubePublishService);
 
   readonly formats = FORMATS;
   readonly styles = AUTO_SHORT_STYLES;
@@ -104,12 +108,57 @@ export class AutoShortsComponent {
 
   readonly musicOptions = computed(() => this.state.musicCandidates());
 
+  // --- Google Drive: copy each short there as it finishes (done on the server) ---
+  /** The personal Drive, then what each connected channel uses; null while loading. */
+  readonly drives = signal<GoogleDriveStatus[] | null>(null);
+  readonly anyDrive = computed(() => (this.drives() ?? []).some((d) => d.connected && !d.needsReconnect));
+  readonly driveOn = signal(false);
+  /** '' is the personal Drive. */
+  readonly driveChannelId = signal('');
+  readonly driveTarget = computed(() =>
+    (this.drives() ?? []).find((d) => (d.channelId ?? '') === this.driveChannelId()) ?? null);
+  /** Empty uses the channel's (or the Drive's) own folder. */
+  readonly driveFolder = signal('');
+  readonly driveFolders = signal<string[]>([]);
+  readonly driveFolderOrDefault = computed(() => this.driveFolder().trim() || this.driveTarget()?.folderName || '');
+  readonly driveFolderError = computed<string | null>(() => {
+    const name = this.driveFolder().trim();
+    return name && !isValidDriveFolderName(name)
+      ? 'Use a folder name of up to 100 letters, digits, spaces and - _ . ( ) &.'
+      : null;
+  });
+
   readonly totalSeconds = computed(() => this.count() * this.seconds());
   readonly blocked = computed<string | null>(() => {
     if (this.state.blockedReason()) return this.state.blockedReason();
     if (this.pickedClips().length === 0) return 'Pick at least one clip or picture.';
+    if (this.driveOn()) {
+      const d = this.driveTarget();
+      if (!d?.connected) return 'Choose a Drive that is connected, or turn off saving to Drive.';
+      if (d.needsReconnect) return 'That Google Drive needs connecting again.';
+      if (this.driveFolderError()) return this.driveFolderError();
+    }
     return null;
   });
+
+  constructor() {
+    // Optional: without it the batch still renders, just without the Drive copies.
+    this.youtube.driveConnections().pipe(catchError(() => of([] as GoogleDriveStatus[]))).subscribe((list) => {
+      this.drives.set(list);
+      const first = list.find((d) => d.connected && !d.needsReconnect);
+      if (first) this.pickDriveChannel(first.channelId ?? '');
+    });
+  }
+
+  pickDriveChannel(channelId: string): void {
+    this.driveChannelId.set(channelId);
+    this.driveFolder.set('');
+    this.driveFolders.set([]);
+    const d = this.driveTarget();
+    if (!d?.connected || d.needsReconnect) return;
+    this.youtube.driveFolders(channelId || null).pipe(catchError(() => of([] as string[])))
+      .subscribe((f) => { if (this.driveChannelId() === channelId) this.driveFolders.set(f); });
+  }
 
   readonly submitting = signal(false);
   readonly queued = signal<RenderJob[] | null>(null);
@@ -200,6 +249,9 @@ export class AutoShortsComponent {
         quality: this.quality(),
         watermark: this.watermark(),
         includeOutro: this.outro(),
+        saveToDrive: this.driveOn(),
+        driveChannelId: this.driveOn() ? this.driveChannelId() || null : null,
+        driveFolderName: this.driveOn() ? this.driveFolder().trim() || null : null,
       },
       (jobs) => this.queued.set(jobs),
       () => this.submitting.set(false),

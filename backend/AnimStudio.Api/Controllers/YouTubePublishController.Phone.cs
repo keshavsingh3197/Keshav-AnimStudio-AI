@@ -1,6 +1,7 @@
 using AnimStudio.Api.Common;
 using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Publishing;
+using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Publishing;
 using AnimStudio.Infrastructure.Publishing;
 using Microsoft.AspNetCore.Mvc;
@@ -22,19 +23,38 @@ public sealed partial class YouTubePublishController
 {
     private const int MaxHandoffsListed = 50;
 
+    /// <summary>The Drive a channel's videos go to (its own, or the personal one); no channel is the personal Drive.</summary>
     [HttpGet("drive")]
     public async Task<ActionResult<ApiResponse<GoogleDriveStatus>>> DriveStatus(
+        [FromQuery] string? channelId, [FromServices] GoogleDriveConnectionStore drive, CancellationToken ct)
+    {
+        if (!IsOptionalChannelId(channelId)) return DriveBadRequest<GoogleDriveStatus>("channel-invalid", "Unknown channel.", "channelId");
+        try
+        {
+            return Ok(ApiResponse<GoogleDriveStatus>.Ok(await drive.GetStatusAsync(currentUser.UserId, channelId, ct)));
+        }
+        catch (YouTubePublishException ex)
+        {
+            return Failure<GoogleDriveStatus>(ex);
+        }
+    }
+
+    /// <summary>The personal Drive, then what every connected channel uses.</summary>
+    [HttpGet("drive/connections")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<GoogleDriveStatus>>>> DriveConnections(
         [FromServices] GoogleDriveConnectionStore drive, CancellationToken ct) =>
-        Ok(ApiResponse<GoogleDriveStatus>.Ok(await drive.GetStatusAsync(currentUser.UserId, ct)));
+        Ok(ApiResponse<IReadOnlyList<GoogleDriveStatus>>.Ok(await drive.ListAsync(currentUser.UserId, ct)));
 
     [HttpPost("drive/oauth/start")]
-    public ActionResult<ApiResponse<YouTubeConnectStartResponse>> StartDriveConnect(
-        [FromServices] GoogleDriveConnectionStore drive, [FromBody] YouTubeConnectStartRequest? request)
+    public async Task<ActionResult<ApiResponse<YouTubeConnectStartResponse>>> StartDriveConnect(
+        [FromServices] GoogleDriveConnectionStore drive, [FromBody] DriveConnectStartRequest? request, CancellationToken ct)
     {
+        if (!IsOptionalChannelId(request?.ChannelId))
+            return DriveBadRequest<YouTubeConnectStartResponse>("channel-invalid", "Unknown channel.", "channelId");
         try
         {
             return Ok(ApiResponse<YouTubeConnectStartResponse>.Ok(
-                new YouTubeConnectStartResponse(drive.BeginConnect(currentUser.UserId, request?.ReturnPath))));
+                new YouTubeConnectStartResponse(await drive.BeginConnectAsync(currentUser.UserId, request?.ChannelId, request?.ReturnPath, ct))));
         }
         catch (YouTubePublishException ex)
         {
@@ -49,7 +69,7 @@ public sealed partial class YouTubePublishController
         try
         {
             var (status, returnPath) = await drive.CompleteConnectAsync(currentUser.UserId, request?.Code, request?.State, ct);
-            await audit.RecordAsync("google.drive.connect", currentUser.UserId, null, "connected", RemoteAddress(), ct);
+            await audit.RecordAsync("google.drive.connect", currentUser.UserId, null, status.ChannelId ?? "personal", RemoteAddress(), ct);
             return Ok(ApiResponse<DriveConnectCompleteResponse>.Ok(new DriveConnectCompleteResponse(status, returnPath)));
         }
         catch (YouTubePublishException ex)
@@ -64,9 +84,10 @@ public sealed partial class YouTubePublishController
     public async Task<ActionResult<ApiResponse<GoogleDriveStatus>>> SetDriveFolder(
         [FromServices] GoogleDriveConnectionStore drive, [FromBody] DriveFolderRequest? request, CancellationToken ct)
     {
+        if (!IsOptionalChannelId(request?.ChannelId)) return DriveBadRequest<GoogleDriveStatus>("channel-invalid", "Unknown channel.", "channelId");
         try
         {
-            return Ok(ApiResponse<GoogleDriveStatus>.Ok(await drive.SetFolderAsync(currentUser.UserId, request?.FolderName, ct)));
+            return Ok(ApiResponse<GoogleDriveStatus>.Ok(await drive.SetFolderAsync(currentUser.UserId, request?.ChannelId, request?.FolderName, ct)));
         }
         catch (YouTubePublishException ex)
         {
@@ -74,15 +95,81 @@ public sealed partial class YouTubePublishController
         }
     }
 
-    [HttpDelete("drive")]
-    public async Task<IActionResult> DisconnectDrive([FromServices] GoogleDriveConnectionStore drive, CancellationToken ct)
+    /// <summary>Folders to pick from on the Drive a channel uses - the ones AnimStudio made there.</summary>
+    [HttpGet("drive/folders")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<string>>>> DriveFolders(
+        [FromQuery] string? channelId, [FromServices] GoogleDriveConnectionStore drive, CancellationToken ct)
     {
-        if (!await drive.DisconnectAsync(currentUser.UserId, ct))
-            return NotFound(ApiResponse<string>.Fail("Google Drive isn't connected.", new ApiError("not-found", "Google Drive isn't connected.")));
+        if (!IsOptionalChannelId(channelId)) return DriveBadRequest<IReadOnlyList<string>>("channel-invalid", "Unknown channel.", "channelId");
+        try
+        {
+            return Ok(ApiResponse<IReadOnlyList<string>>.Ok(await drive.ListFoldersAsync(currentUser.UserId, channelId, ct)));
+        }
+        catch (YouTubePublishException ex)
+        {
+            return Failure<IReadOnlyList<string>>(ex);
+        }
+    }
 
-        await audit.RecordAsync("google.drive.disconnect", currentUser.UserId, "connected", "none", RemoteAddress(), ct);
+    [HttpDelete("drive")]
+    public async Task<IActionResult> DisconnectDrive(
+        [FromQuery] string? channelId, [FromServices] GoogleDriveConnectionStore drive, CancellationToken ct)
+    {
+        if (!IsOptionalChannelId(channelId)) return DriveBadRequest<string>("channel-invalid", "Unknown channel.", "channelId");
+        try
+        {
+            if (!await drive.DisconnectAsync(currentUser.UserId, channelId, ct))
+                return NotFound(ApiResponse<string>.Fail("Google Drive isn't connected.", new ApiError("not-found", "Google Drive isn't connected.")));
+        }
+        catch (YouTubePublishException ex)
+        {
+            return Failure<string>(ex).Result!;
+        }
+
+        await audit.RecordAsync("google.drive.disconnect", currentUser.UserId, channelId ?? "personal", "none", RemoteAddress(), ct);
         return NoContent();
     }
+
+    /// <summary>
+    /// Copies a finished render to Google Drive - the channel's own Drive if it has one, else
+    /// the personal Drive in the channel's folder. Nothing is put on YouTube. Returns at once
+    /// with a handoff to poll.
+    /// </summary>
+    [HttpPost("render-jobs/{jobId}/save-to-drive")]
+    public async Task<ActionResult<ApiResponse<PhoneHandoffStatus>>> SaveToDrive(
+        string jobId, [FromBody] SaveToDriveRequest? request,
+        [FromServices] GoogleDriveConnectionStore drive, [FromServices] PhoneHandoffManager handoffs,
+        [FromServices] IPhoneHandoffRepository repository, CancellationToken ct)
+    {
+        var job = await LoadOwnedJobAsync(jobId, ct);
+        if (!IsOptionalChannelId(request?.ChannelId)) return HandoffBadRequest("channel-invalid", "Unknown channel.", "channelId");
+        if (job.Status is not (RenderJobStatus.Completed or RenderJobStatus.CompletedWithWarnings) || job.OutputStorageKey is null)
+            return HandoffBadRequest("render-not-ready", "This render hasn't finished yet. Save it to Drive once it's done.", "jobId");
+
+        DriveTarget target;
+        try
+        {
+            target = await drive.ResolveAsync(currentUser.UserId, request?.ChannelId, request?.FolderName, ct);
+        }
+        catch (YouTubePublishException ex)
+        {
+            return HandoffBadRequest(ex.Code, ex.Message, ex.Code == "drive-folder-invalid" ? "folderName" : "drive");
+        }
+
+        var title = string.IsNullOrWhiteSpace(job.Name) ? "AnimStudio video" : job.Name.Trim();
+        var handoff = DriveCopies.SaveOnly(currentUser.UserId, job.ProjectId, job.Id, request?.ChannelId, title, target, PhoneHandoffState.Sending);
+        handoff.TotalBytes = job.OutputSizeBytes ?? 0;
+        await repository.UpsertAsync(handoff, ct);
+        handoffs.StartSending(handoff, job.OutputStorageKey!, job.OutputSizeBytes ?? 0);
+
+        logger.LogInformation("User {UserId} saved render {JobId} to Google Drive", currentUser.UserId, job.Id);
+        return Accepted(ApiResponse<PhoneHandoffStatus>.Ok(handoffs.Describe(handoff)));
+    }
+
+    private static bool IsOptionalChannelId(string? channelId) => channelId is null || IsChannelId(channelId);
+
+    private BadRequestObjectResult DriveBadRequest<T>(string code, string message, string field) =>
+        BadRequest(ApiResponse<T>.Fail(message, new ApiError(code, message, Field: field)));
 
     /// <summary>Checks the details like a direct upload would, then starts the copy to Drive. Returns at once with a handoff to poll.</summary>
     [HttpPost("render-jobs/{jobId}/send-to-phone")]
@@ -96,16 +183,6 @@ public sealed partial class YouTubePublishController
 
         if (request is null || !IsChannelId(request.ChannelId))
             return HandoffBadRequest("channel-missing", "Choose the channel you'll upload to from the phone.", "channelId");
-
-        var driveStatus = await drive.GetStatusAsync(currentUser.UserId, ct);
-        if (!driveStatus.Connected)
-            return HandoffBadRequest("drive-not-connected", "Connect Google Drive first.", "drive");
-        if (driveStatus.NeedsReconnect)
-            return HandoffBadRequest("drive-reconnect", "Google Drive access has expired or was removed. Connect Drive again.", "drive");
-
-        var folder = string.IsNullOrWhiteSpace(request.FolderName) ? driveStatus.FolderName : request.FolderName.Trim();
-        if (!GoogleDriveClient.IsValidFolderName(folder))
-            return HandoffBadRequest("drive-folder-invalid", GoogleDriveClient.FolderNameRule, "folderName");
 
         var connection = await connections.GetAsync(currentUser.UserId, request.ChannelId!, ct);
         if (connection is null)
@@ -139,6 +216,17 @@ public sealed partial class YouTubePublishController
         if (commentError is not null)
             return HandoffBadRequest(commentError.Code, commentError.Message, commentError.Field);
 
+        // The channel's own Drive if it has one, else the personal Drive in the channel's folder.
+        DriveTarget target;
+        try
+        {
+            target = await drive.ResolveAsync(currentUser.UserId, connection.ChannelId, request.FolderName, ct);
+        }
+        catch (YouTubePublishException ex)
+        {
+            return HandoffBadRequest(ex.Code, ex.Message, ex.Code == "drive-folder-invalid" ? "folderName" : "drive");
+        }
+
         var details = validation.Normalized!;
         var handoff = new PhoneHandoff
         {
@@ -158,7 +246,8 @@ public sealed partial class YouTubePublishController
             RelatedVideoIds = [.. related.Select(r => r.VideoId)],
             DurationSeconds = facts.DurationSeconds,
             Muted = request.MuteAudio,
-            DriveFolderName = folder,
+            DriveChannelId = target.DriveChannelId,
+            DriveFolderName = target.FolderName,
             DriveFileName = PhoneHandoffManager.FileNameFor(details.Title),
             TotalBytes = job.OutputSizeBytes ?? 0,
             State = PhoneHandoffState.Sending,
@@ -198,7 +287,7 @@ public sealed partial class YouTubePublishController
         if (handoff.State == PhoneHandoffState.Sending && handoffs.CancelSending(handoff.Id))
             return Ok(ApiResponse<PhoneHandoffStatus>.Ok(handoffs.Describe(handoff)));
 
-        if (handoff.State is PhoneHandoffState.WaitingForPhone or PhoneHandoffState.Expired)
+        if (handoff.State is PhoneHandoffState.WaitingForPhone or PhoneHandoffState.Expired or PhoneHandoffState.WaitingForRender)
         {
             handoff.State = PhoneHandoffState.Cancelled;
             await repository.UpsertAsync(handoff, ct);
@@ -278,7 +367,36 @@ public sealed partial class YouTubePublishController
 }
 
 public sealed record DriveConnectCompleteResponse(GoogleDriveStatus Drive, string ReturnPath);
-public sealed record DriveFolderRequest(string? FolderName);
+/// <param name="ChannelId">The channel whose Drive (or folder on the personal Drive) to set; null for the personal Drive's own.</param>
+public sealed record DriveFolderRequest(string? FolderName, string? ChannelId = null);
+
+/// <param name="ChannelId">Connect a Drive for this channel; null for the personal Drive.</param>
+public sealed record DriveConnectStartRequest(string? ReturnPath, string? ChannelId = null);
+
+/// <param name="ChannelId">Whose Drive and folder to use; null for the personal Drive's default folder.</param>
+/// <param name="FolderName">A folder for this one copy; empty uses the default.</param>
+public sealed record SaveToDriveRequest(string? ChannelId = null, string? FolderName = null);
+
+/// <summary>Plain copies to Drive - a saved render, or one of an auto-shorts batch.</summary>
+public static class DriveCopies
+{
+    public static PhoneHandoff SaveOnly(
+        string userId, string projectId, string jobId, string? channelId, string title, DriveTarget target, PhoneHandoffState state) => new()
+    {
+        Id = Guid.NewGuid().ToString("N"),
+        UserId = userId,
+        ProjectId = projectId,
+        JobId = jobId,
+        ChannelId = channelId ?? string.Empty,
+        Title = title,
+        SaveOnly = true,
+        DriveChannelId = target.DriveChannelId,
+        DriveFolderName = target.FolderName,
+        DriveFileName = PhoneHandoffManager.FileNameFor(title),
+        State = state,
+        CreatedAt = DateTime.UtcNow
+    };
+}
 
 public sealed record SendToPhoneRequest(
     string? ChannelId,

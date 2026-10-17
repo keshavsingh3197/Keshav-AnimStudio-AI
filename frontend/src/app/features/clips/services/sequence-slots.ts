@@ -16,8 +16,9 @@ import { TimelineItem } from '../../../core/models/api.models';
 /** Lanes whose items take a slot in the sequence rather than playing over V1. */
 export const SLOT_TRACK_IDS: ReadonlySet<string> = new Set(['IMG1', 'IMG', 'IMAGE', 'V2', 'V3', 'TXT1']);
 
-export function isSlotItem(item: Pick<TimelineItem, 'trackId'>): boolean {
-  return SLOT_TRACK_IDS.has(item.trackId);
+/** A text set to play over the picture is the one item on these lanes that takes no slot. */
+export function isSlotItem(item: Pick<TimelineItem, 'trackId'> & Partial<Pick<TimelineItem, 'type' | 'overlay'>>): boolean {
+  return SLOT_TRACK_IDS.has(item.trackId) && !(item.type === 'text' && item.overlay);
 }
 
 /** How far two times may differ and still be the same position. */

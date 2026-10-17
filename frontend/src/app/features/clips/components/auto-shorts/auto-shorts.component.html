@@ -12,7 +12,10 @@
     <div class="as-done">
       <div class="as-done-icon" aria-hidden="true">✅</div>
       <h4>{{ jobs.length }} short{{ jobs.length === 1 ? '' : 's' }} rendering</h4>
-      <p>They render one after another in the background. You can close this and keep editing - each one shows in the activity panel, and lands on the Render page ready to download or publish.</p>
+      <p>They render side by side in the background. You can close this and keep editing - each one shows in the activity panel, and lands on the Render page ready to download or publish.</p>
+      @if (driveOn() && driveTarget(); as d) {
+        <p>☁ Each one is copied to Google Drive - <strong>{{ driveFolderOrDefault() }}</strong>{{ d.accountEmail ? ' on ' + d.accountEmail : '' }} - as soon as it finishes, even if you close the studio.</p>
+      }
       <ul class="as-job-list">
         @for (job of jobs; track job.jobId) {
           <li><span class="as-job-name">{{ job.name || 'Short' }}</span><span class="as-job-status">{{ job.status }}</span></li>
@@ -132,6 +135,42 @@
         <div class="as-toggles">
           <label><input type="checkbox" [ngModel]="keepClipAudio()" (ngModelChange)="keepClipAudio.set($event)" /> Keep clips' own sound under the music</label>
         </div>
+
+        <h4>6 · Google Drive</h4>
+        @if (drives() === null) {
+          <p class="as-hint">Checking Google Drive…</p>
+        } @else if (!anyDrive()) {
+          <p class="as-hint">Connect Google Drive from the Publish dialog (or Settings) to have every short copied there automatically.</p>
+        } @else {
+          <div class="as-toggles">
+            <label><input type="checkbox" [ngModel]="driveOn()" (ngModelChange)="driveOn.set($event)" /> Save each short to Google Drive as it finishes</label>
+          </div>
+          @if (driveOn()) {
+            <div class="as-row">
+              <label class="as-label" for="as-drive-for">For</label>
+              <select id="as-drive-for" class="as-text" [ngModel]="driveChannelId()" (ngModelChange)="pickDriveChannel($event)">
+                @for (d of drives(); track d.channelId ?? '') {
+                  <option [ngValue]="d.channelId ?? ''" [disabled]="!d.connected || d.needsReconnect">
+                    {{ d.channelId ? d.channelTitle : 'My Drive' }}{{ !d.connected ? ' - no Drive' : d.needsReconnect ? ' - reconnect Drive' : d.ownDrive ? ' - its own Drive' : '' }}
+                  </option>
+                }
+              </select>
+            </div>
+            <div class="as-row">
+              <label class="as-label" for="as-drive-folder">Folder</label>
+              <input id="as-drive-folder" class="as-text" type="text" maxlength="100" list="as-drive-folders"
+                     [placeholder]="driveTarget()?.folderName ?? ''"
+                     [ngModel]="driveFolder()" (ngModelChange)="driveFolder.set($event)" />
+              <datalist id="as-drive-folders">
+                @for (f of driveFolders(); track f) { <option [value]="f"></option> }
+              </datalist>
+            </div>
+            @if (driveFolderError(); as err) { <p class="as-warn">{{ err }}</p> }
+            @else {
+              <p class="as-hint">Into <strong>{{ driveFolderOrDefault() }}</strong>{{ driveTarget()?.accountEmail ? ' on ' + driveTarget()!.accountEmail : '' }} - made for you if it isn't there yet.</p>
+            }
+          }
+        }
 
         <details class="as-more">
           <summary>More options</summary>

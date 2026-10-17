@@ -659,6 +659,15 @@ public sealed record AutoShortsRequest
 
     /// <summary>Same seed, same batch. Null draws a fresh one.</summary>
     public int? Seed { get; init; }
+
+    /// <summary>Copy each short to Google Drive as soon as it has rendered.</summary>
+    public bool SaveToDrive { get; init; }
+
+    /// <summary>Whose Drive and folder: the channel's own Drive, or its folder on the personal one. Null is the personal Drive.</summary>
+    [RegularExpression("^UC[A-Za-z0-9_-]{22}$")] public string? DriveChannelId { get; init; }
+
+    /// <summary>A folder for this batch; empty uses the channel's (or the Drive's) default.</summary>
+    [StringLength(100)] public string? DriveFolderName { get; init; }
 }
 
 public sealed record TimelineItemTextStyleRequest
@@ -682,6 +691,11 @@ public sealed record TimelineItemTextStyleRequest
     [Range(0, TextOverlayLayout.MaxOutlineWidth)] public double OutlineWidth { get; init; }
     public bool Shadow { get; init; }
     public bool Uppercase { get; init; }
+
+    /// <summary>A full-frame card behind the text; null draws none.</summary>
+    [RegularExpression("^#[0-9a-fA-F]{6}$")] public string? CardColor { get; init; }
+    [Range(0, 1)] public double? CardOpacity { get; init; }
+    [RegularExpression("^(none|fade|vignette)$")] public string? CardEffect { get; init; }
 
     [StringLength(32)] public string? TransitionIn { get; init; } = "fade";
     public double TransitionInDuration { get; init; } = 0.5;

@@ -6,15 +6,40 @@ namespace AnimStudio.Infrastructure.Persistence.SqlServer;
 
 public sealed class SqlGoogleDriveConnectionRepository(ISqlConnectionFactory factory) : IGoogleDriveConnectionRepository
 {
-    public async Task<GoogleDriveConnection?> GetAsync(string userId, CancellationToken ct)
+    public async Task<GoogleDriveConnection?> GetAsync(string userId, string? channelId, CancellationToken ct)
     {
         await using var conn = await factory.OpenConnectionAsync(ct).ConfigureAwait(false);
         const string sql = "SELECT DataJson FROM GoogleDriveConnections WHERE Id = @Id";
         await using var cmd = new SqlCommand(sql, conn);
-        cmd.Parameters.AddWithValue("@Id", userId);
+        cmd.Parameters.AddWithValue("@Id", GoogleDriveConnection.KeyFor(userId, channelId));
 
         var res = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
-        return res is string json ? SqlJson.Deserialize<GoogleDriveConnection>(json) : null;
+        var found = res is string json ? SqlJson.Deserialize<GoogleDriveConnection>(json) : null;
+        // The key is built from the owner, but the stored owner is what decides.
+        return found is not null && string.Equals(found.UserId, userId, StringComparison.Ordinal) ? found : null;
+    }
+
+    public async Task<IReadOnlyList<GoogleDriveConnection>> ListByUserAsync(string userId, CancellationToken ct)
+    {
+        await using var conn = await factory.OpenConnectionAsync(ct).ConfigureAwait(false);
+        // A prefix compare rather than LIKE, so nothing in the id is read as a wildcard.
+        const string sql = """
+            SELECT DataJson FROM GoogleDriveConnections
+            WHERE Id = @UserId OR LEFT(Id, LEN(@Prefix)) = @Prefix
+            """;
+        await using var cmd = new SqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("@UserId", userId);
+        cmd.Parameters.AddWithValue("@Prefix", userId + ":");
+
+        var list = new List<GoogleDriveConnection>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
+        {
+            if (SqlJson.Deserialize<GoogleDriveConnection>(reader.GetString(0)) is { } item
+                && string.Equals(item.UserId, userId, StringComparison.Ordinal))
+                list.Add(item);
+        }
+        return list;
     }
 
     public async Task UpsertAsync(GoogleDriveConnection connection, CancellationToken ct)
@@ -33,12 +58,14 @@ public sealed class SqlGoogleDriveConnectionRepository(ISqlConnectionFactory fac
         await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 
-    public async Task<bool> DeleteAsync(string userId, CancellationToken ct)
+    public async Task<bool> DeleteAsync(string userId, string? channelId, CancellationToken ct)
     {
+        if (await GetAsync(userId, channelId, ct).ConfigureAwait(false) is null) return false;
+
         await using var conn = await factory.OpenConnectionAsync(ct).ConfigureAwait(false);
         const string sql = "DELETE FROM GoogleDriveConnections WHERE Id = @Id";
         await using var cmd = new SqlCommand(sql, conn);
-        cmd.Parameters.AddWithValue("@Id", userId);
+        cmd.Parameters.AddWithValue("@Id", GoogleDriveConnection.KeyFor(userId, channelId));
 
         return await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) > 0;
     }

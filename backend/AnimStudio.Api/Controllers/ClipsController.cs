@@ -6,7 +6,9 @@ using AnimStudio.Application.Clips;
 using AnimStudio.Application.Security;
 using AnimStudio.Domain.Assets;
 using AnimStudio.Domain.Jobs;
+using AnimStudio.Domain.Publishing;
 using AnimStudio.Infrastructure.Ffmpeg;
+using AnimStudio.Infrastructure.Publishing;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
@@ -245,6 +247,9 @@ public sealed class ClipsController(
                         OutlineWidth = t.TextStyle.OutlineWidth,
                         Shadow = t.TextStyle.Shadow,
                         Uppercase = t.TextStyle.Uppercase,
+                        CardColor = t.TextStyle.CardColor,
+                        CardOpacity = t.TextStyle.CardOpacity,
+                        CardEffect = t.TextStyle.CardEffect,
                         TransitionIn = t.TextStyle.TransitionIn,
                         TransitionInDuration = t.TextStyle.TransitionInDuration,
                         TransitionOut = t.TextStyle.TransitionOut,
@@ -276,8 +281,26 @@ public sealed class ClipsController(
     /// </summary>
     [HttpPost("api/projects/{projectId}/clips/auto-shorts")]
     public async Task<ActionResult<ApiResponse<List<RenderJobResponse>>>> AutoShorts(
-        string projectId, [FromBody] AutoShortsRequest request, CancellationToken ct)
+        string projectId, [FromBody] AutoShortsRequest request,
+        [FromServices] GoogleDriveConnectionStore drive, [FromServices] IPhoneHandoffRepository handoffs,
+        CancellationToken ct)
     {
+        // The Drive is checked before anything renders, so a batch never finishes with
+        // nowhere to go. The copies themselves start as each short finishes, on the server -
+        // closing the studio doesn't stop them.
+        DriveTarget? target = null;
+        if (request.SaveToDrive)
+        {
+            try
+            {
+                target = await drive.ResolveAsync(currentUser.UserId, request.DriveChannelId, request.DriveFolderName, ct);
+            }
+            catch (YouTubePublishException ex)
+            {
+                return BadRequest(ApiResponse<List<RenderJobResponse>>.Fail(ex.Message, new ApiError(ex.Code, ex.Message, Field: "drive")));
+            }
+        }
+
         var jobs = await clips.QueueAutoShortsAsync(projectId, new AutoShortsCommand
         {
             SourceAssetIds = request.SourceAssetIds,
@@ -299,6 +322,16 @@ public sealed class ClipsController(
             IncludeOutro = request.IncludeOutro,
             Seed = request.Seed,
         }, ct);
+
+        if (target is not null)
+        {
+            foreach (var job in jobs)
+            {
+                var title = string.IsNullOrWhiteSpace(job.Name) ? "Auto short" : job.Name.Trim();
+                await handoffs.UpsertAsync(DriveCopies.SaveOnly(
+                    currentUser.UserId, job.ProjectId, job.Id, request.DriveChannelId, title, target, PhoneHandoffState.WaitingForRender), ct);
+            }
+        }
 
         return Accepted(ApiResponse<List<RenderJobResponse>>.Ok([.. jobs.Select(j => j.ToResponse())]));
     }

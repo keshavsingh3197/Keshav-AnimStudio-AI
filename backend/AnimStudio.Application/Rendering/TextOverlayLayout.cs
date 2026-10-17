@@ -16,6 +16,23 @@ public enum TextBoxStyle
     Band = 2
 }
 
+/// <summary>What a text card does while its text shows.</summary>
+public enum TextCardEffect
+{
+    /// <summary>Cuts in and out with the text, fully there in between.</summary>
+    None = 0,
+
+    /// <summary>Fades in and out over the text's own entrance and exit.</summary>
+    Fade = 1,
+
+    /// <summary>Darkens toward the edges, drawing the eye to the words.</summary>
+    Vignette = 2
+}
+
+/// <summary>A full-frame colour behind a text overlay - a title's own card.</summary>
+/// <param name="Rgb">Six hex digits, no prefix.</param>
+public sealed record TextCard(string Rgb, double Opacity, TextCardEffect Effect);
+
 /// <summary>A text overlay's style with every value checked, defaulted and in render form.</summary>
 /// <param name="FontSize">In 360-reference pixels; see <see cref="TextOverlayLayout.ReferenceShortSide"/>.</param>
 /// <param name="ColorRgb">Six hex digits, no prefix - the form drawtext takes after <c>0x</c>.</param>
@@ -32,7 +49,8 @@ public sealed record TextOverlayLook(
     bool Shadow,
     bool Uppercase,
     double CenterX,
-    double CenterY);
+    double CenterY,
+    TextCard? Card = null);
 
 /// <summary>
 /// The rules that decide where a text overlay's lines fall. The studio preview runs the
@@ -110,7 +128,24 @@ public static partial class TextOverlayLayout
             Shadow: style.Shadow,
             Uppercase: style.Uppercase,
             CenterX: x,
-            CenterY: y);
+            CenterY: y,
+            Card: ResolveCard(style));
+    }
+
+    /// <summary>The card behind the text, or null when there is none or it would not show.</summary>
+    public static TextCard? ResolveCard(TimelineItemTextStyleSpec? style)
+    {
+        if (style is null || Hex(style.CardColor) is not { } rgb) return null;
+        var opacity = Clamp(style.CardOpacity ?? 1, 0, 1, 1);
+        if (opacity <= 0) return null;
+
+        var effect = style.CardEffect?.Trim().ToLowerInvariant() switch
+        {
+            "fade" => TextCardEffect.Fade,
+            "vignette" => TextCardEffect.Vignette,
+            _ => TextCardEffect.None
+        };
+        return new TextCard(rgb, opacity, effect);
     }
 
     /// <summary>

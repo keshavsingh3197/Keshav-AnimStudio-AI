@@ -176,6 +176,58 @@ public class PhoneHandoffTests
         await Assert.ThrowsAsync<YouTubePublishException>(() => client.EnsureFolderAsync("t", "it's", null, CancellationToken.None));
     }
 
+    [Fact]
+    public async Task Listing_Drive_folders_drops_ids_that_are_not_Drive_ids()
+    {
+        var handler = new StubHandler(_ => Task.FromResult(Json(
+            """{"files":[{"id":"folder_1234567890","name":"Bhakti Shorts"},{"id":"../x","name":"Bad"}]}""")));
+        using var client = new GoogleDriveClient(NullLogger<GoogleDriveClient>.Instance, handler);
+
+        var folders = await client.ListFoldersAsync("t", CancellationToken.None);
+
+        Assert.Equal([("folder_1234567890", "Bhakti Shorts")], folders);
+    }
+
+    [Theory]
+    [InlineData("Bhakti Sagar", "Bhakti Sagar Shorts")]
+    [InlineData("  Kids: Fun/Learn!  ", "Kids Fun Learn Shorts")]
+    [InlineData("भक्ति सागर", "भक्ति सागर Shorts")]
+    [InlineData("***", GoogleDriveConnection.DefaultFolderName)]
+    [InlineData(null, GoogleDriveConnection.DefaultFolderName)]
+    public void A_channel_gets_a_Drive_folder_named_after_it(string? title, string expected)
+    {
+        var name = GoogleDriveConnectionStore.AutoFolderName(title);
+
+        Assert.Equal(expected, name);
+        Assert.True(GoogleDriveClient.IsValidFolderName(name));
+    }
+
+    [Fact]
+    public void A_long_channel_name_still_makes_a_valid_folder()
+    {
+        var name = GoogleDriveConnectionStore.AutoFolderName(new string('a', 300));
+
+        Assert.True(GoogleDriveClient.IsValidFolderName(name));
+        Assert.EndsWith(" Shorts", name, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_personal_Drive_keeps_the_key_it_had_before_channels_had_their_own()
+    {
+        Assert.Equal("user-a", GoogleDriveConnection.KeyFor("user-a", null));
+        Assert.Equal("user-a", GoogleDriveConnection.KeyFor("user-a", ""));
+        Assert.Equal("user-a:UCabc", GoogleDriveConnection.KeyFor("user-a", "UCabc"));
+    }
+
+    [Fact]
+    public void A_Drive_sign_in_carries_the_channel_it_was_started_for()
+    {
+        var cache = new YouTubeOAuthStateCache(TimeProvider.System);
+        var (state, _) = cache.Create("user-a", "/", YouTubeOAuthStateCache.DriveKind, "UCabcdefghijklmnopqrstuv");
+
+        Assert.Equal("UCabcdefghijklmnopqrstuv", cache.Take(state, "user-a", YouTubeOAuthStateCache.DriveKind)!.Target);
+    }
+
     private static HttpResponseMessage Json(string body) =>
         new(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
 

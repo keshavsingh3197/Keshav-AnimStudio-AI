@@ -624,6 +624,10 @@
 }
 
 .tl-item-txt { background: linear-gradient(135deg, rgba(245, 158, 11, 0.25) 0%, rgba(217, 119, 6, 0.35) 100%); border-color: rgba(245, 158, 11, 0.5); }
+/* A text in its own slot shows its card colour down the left edge. */
+.tl-item-txt:not(.tl-item-txt-over) { box-shadow: inset 4px 0 0 var(--card, rgba(245, 158, 11, 0.8)); }
+/* Over the picture: see-through and dashed, so it reads as lying on top of the clips. */
+.tl-item-txt-over { background: rgba(245, 158, 11, 0.12); border-style: dashed; }
 .tl-item-img,
 .tl-item-v3  { background: linear-gradient(135deg, rgba(16, 185, 129, 0.25) 0%, rgba(5, 150, 105, 0.35) 100%); border-color: rgba(16, 185, 129, 0.5); }
 .tl-item-v2  { background: linear-gradient(135deg, rgba(6, 182, 212, 0.25) 0%, rgba(8, 145, 178, 0.35) 100%); border-color: rgba(6, 182, 212, 0.5); }

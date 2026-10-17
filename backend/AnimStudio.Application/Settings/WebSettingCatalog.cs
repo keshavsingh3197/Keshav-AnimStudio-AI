@@ -56,7 +56,7 @@ public static class WebSettingCatalog
         new("Render:SubtitleFontSize", "Rendering", "Subtitle size", "Burned-in subtitle font size at 1080p.", WebSettingType.Integer, true, 16, 160),
         new("Render:WatermarkText", "Rendering", "Default watermark text", "Pre-fills the watermark box on the clip screen.", WebSettingType.Text, true, MaxLength: 80),
         new("Render:JobNameTemplate", "Rendering", "Render name pattern", "How new renders are named. Tokens: {project}, {format}, {aspect}, {resolution}, {n} (render number), {date}, {time}. Renders can be renamed once finished.", WebSettingType.Text, true, MaxLength: 120),
-        new("Render:MaxConcurrentJobs", "Rendering", "Renders at once", "How many render jobs run in parallel.", WebSettingType.Integer, false, 1, 8),
+        new("Render:MaxConcurrentJobs", "Rendering", "Renders at once", "How many render jobs run in parallel. A batch of auto shorts finishes about this many times sooner on a machine with cores to spare; each extra render uses about as much CPU and memory as the first.", WebSettingType.Integer, true, 1, 8),
         new("Render:MaxAttempts", "Rendering", "Render retries", "How many times a failed render is attempted before it is marked failed.", WebSettingType.Integer, false, 1, 10),
         new("Render:WorkspaceRetentionHours", "Rendering", "Keep render workspaces (hours)", "How long a render's temporary folder is kept.", WebSettingType.Integer, false, 1, 720),
         new("Render:ClipCacheMaxGigabytes", "Rendering", "Clip cache size (GB)", "Disk space for conformed clips reused between exports. 0 turns the cache off.", WebSettingType.Integer, false, 0, 2000),

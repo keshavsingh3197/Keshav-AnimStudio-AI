@@ -33,7 +33,7 @@ import {
   SubtitleCue, TEXT_MAX_CHARS, TextDesign, TextLook,
   applyFrameDesign, cuesFromScript, cuesToSrt, defaultFrameLayout, isLayerActive, layerWindow,
   isHexColor, layerAspect, newFrameText, newLayerId, parseSubtitleFile, readCrop, readFrameLayout, readMotion,
-  resolveTextLook, sortCues, wrapText,
+  resolveTextLook, sortCues, wrapText, DEFAULT_TEXT_CARD, resolveTextCard, textCardOpacity,
 } from './text-overlay-layout';
 import {
   CinematicImage, DEFAULT_CINEMATIC, cinemaBarPercent, cinematicFields, cinematicOf,
@@ -119,6 +119,14 @@ export interface MonitorTextBlock {
   /** Typed / written-on entrance: the share of each line shown, 0-1. Null shows every line whole. */
   reveal: number[] | null;
   selected: boolean;
+}
+
+/** The full-frame card behind a text in its own slot, as the monitor draws it. */
+export interface MonitorTextCard {
+  key: string;
+  color: string;
+  opacity: number;
+  vignette: boolean;
 }
 
 /** A picture or video that can go on the frame. */
@@ -2242,11 +2250,32 @@ export class StudioStateService implements OnDestroy {
 
   readonly activeV3Item = this.activeImgItem;
 
-  readonly activeTxtItem = computed<TimelineItem | null>(() => {
+  /**
+   * Every TXT1 text at the playhead. Usually one, but a text set to play over the picture
+   * can share its moment with a titled slot - the card goes first, as the export draws it.
+   */
+  readonly activeTxtItems = computed<TimelineItem[]>(() => {
     const t = this.currentTime();
     const track = this.timelineTracks().find((tr) => tr.id === 'TXT1');
-    if (track && !track.visible) return null;
-    return this.timelineItems().find((item) => item.trackId === 'TXT1' && t >= item.startTime && t < (item.startTime + item.duration)) ?? null;
+    if (track && !track.visible) return [];
+    return this.timelineItems()
+      .filter((item) => item.trackId === 'TXT1' && t >= item.startTime && t < (item.startTime + item.duration))
+      .sort((a, b) => (resolveTextCard(a.textStyle) ? 0 : 1) - (resolveTextCard(b.textStyle) ? 0 : 1));
+  });
+
+  /** The cards behind the texts at the playhead, drawn over the picture and under every word. */
+  readonly monitorTextCards = computed<MonitorTextCard[]>(() => {
+    const t = this.currentTime();
+    const cards: MonitorTextCard[] = [];
+    for (const item of this.activeTxtItems()) {
+      const card = resolveTextCard(item.textStyle);
+      if (!card) continue;
+      const opacity = textCardOpacity(card, t, item.startTime, item.startTime + item.duration,
+        item.textStyle?.transitionInDuration, item.textStyle?.transitionOutDuration);
+      if (opacity <= 0) continue;
+      cards.push({ key: item.id, color: card.color, opacity, vignette: card.effect === 'vignette' });
+    }
+    return cards;
   });
 
   /** Every celebration playing at the playhead; several can overlap on the one lane. */
@@ -5401,8 +5430,10 @@ export class StudioStateService implements OnDestroy {
       startTime: validStart,
       duration: dur,
       src: content,
-      name: 'Text Overlay',
-      textStyle: { ...DEFAULT_TEXT_STYLE },
+      name: 'Text',
+      // Its own slot in the sequence, on a card; "Play over the picture" in the inspector
+      // lays it over the clip instead.
+      textStyle: { ...DEFAULT_TEXT_STYLE, ...DEFAULT_TEXT_CARD },
     };
     this.timelineItems.update((items) => [...items, newItem]);
     this.selectedTimelineItemId.set(newItem.id);
@@ -5518,6 +5549,40 @@ export class StudioStateService implements OnDestroy {
       items.map((it) => (it.id === itemId ? { ...it, src: content } : it))
     );
     this.markDirty();
+  }
+
+  /**
+   * Switches a text between its own slot (on a card, everything after it moves along) and
+   * playing over the picture (over whatever clip or image is under it, taking no room).
+   * Going over the picture drops the card, which would hide what it lies on; coming back
+   * gives it the default card unless it already has one.
+   */
+  setTextPlacement(itemId: string, overlay: boolean): void {
+    const item = this.timelineItems().find((it) => it.id === itemId && it.type === 'text');
+    if (!item || !!item.overlay === overlay) return;
+    // Where it plays now, which stays where it plays: over the picture it keeps this time,
+    // back in a slot it takes the cut point nearest it.
+    const at = item.startTime;
+    this.timelineItems.update((items) => items.map((it) => {
+      if (it.id !== itemId) return it;
+      const style: TimelineItemTextStyle = { ...DEFAULT_TEXT_STYLE, ...it.textStyle };
+      if (overlay) {
+        delete style.cardColor;
+        delete style.cardOpacity;
+        delete style.cardEffect;
+      } else if (!resolveTextCard(style)) {
+        Object.assign(style, DEFAULT_TEXT_CARD);
+      }
+      const next: TimelineItem = { ...it, textStyle: style, slotIndex: undefined, startTime: at };
+      if (overlay) next.overlay = true; else delete next.overlay;
+      return next;
+    }));
+    this.settleSlots();
+    this.seekTo(this.timelineItems().find((it) => it.id === itemId)?.startTime ?? at);
+    this.markDirty();
+    this.status.notify([overlay
+      ? 'The text now plays over the picture - nothing moves to make room.'
+      : 'The text now has its own slot, on a card.']);
   }
 
   updateTextItemStyle(itemId: string, styleUpdates: Partial<TimelineItemTextStyle>): void {
@@ -6112,8 +6177,8 @@ export class StudioStateService implements OnDestroy {
       }
     }
 
-    const txt = this.activeTxtItem();
-    if (txt && txt.src.trim()) {
+    for (const txt of this.activeTxtItems()) {
+      if (!txt.src.trim()) continue;
       const look = resolveTextLook(txt.textStyle);
       const motion = this.textOverlayMotion(txt);
       const shown = lines(txt.src, look);

@@ -865,6 +865,9 @@ export const MIN_ERASE_SIZE = 1;
 
 export type TextBoxStyle = 'none' | 'box' | 'band';
 
+/** What a text card does while its words show. Mirrors TextCardEffect on the server. */
+export type TextCardEffect = 'none' | 'fade' | 'vignette';
+
 export interface TimelineItemTextStyle {
   /** Pixels on a frame whose short side is 360 (the monitor); the export scales it to the canvas. */
   fontSize: number;
@@ -889,6 +892,14 @@ export interface TimelineItemTextStyle {
   outlineWidth?: number;
   shadow?: boolean;
   uppercase?: boolean;
+  /**
+   * #rrggbb filling the whole frame behind the words while they show - the card a title in
+   * its own slot sits on. Absent: no card, the words lie over whatever is underneath.
+   */
+  cardColor?: string;
+  /** 0-1; absent is fully opaque. */
+  cardOpacity?: number;
+  cardEffect?: TextCardEffect;
   /** Transition In animation for text overlay */
   transitionIn?: 'none' | 'fade' | 'slide-up' | 'slide-down' | 'slide-left' | 'slide-right' | 'zoom' | 'zoom-in' | 'zoom-out' | 'typewriter' | 'wipe';
   transitionInDuration?: number;
@@ -921,6 +932,12 @@ export interface TimelineItem {
   slotIndex?: number;
   /** Type 'celebration' on FX1: the kind is `src`; how many, how big and how fast are here. */
   celebration?: TimelineCelebration;
+  /**
+   * Text only. Off (the default): the text takes its own slot in the sequence, on its card.
+   * On: it plays over whatever image or video is under it, for its own start and length,
+   * and takes no slot - nothing moves to make room.
+   */
+  overlay?: boolean;
 }
 
 /** Mirrors CelebrationRequest on the server; see features/clips/services/celebration.ts. */
@@ -970,6 +987,12 @@ export interface AutoShortsBody {
   watermark: WatermarkBody;
   includeOutro: boolean;
   seed?: number | null;
+  /** Copy each short to Google Drive as soon as it has rendered - on the server. */
+  saveToDrive?: boolean;
+  /** Whose Drive and folder; null is the personal Drive. */
+  driveChannelId?: string | null;
+  /** A folder for this batch; empty uses the channel's (or the Drive's) default. */
+  driveFolderName?: string | null;
 }
 
 export interface ClipMergeBody {

@@ -99,6 +99,12 @@ public sealed class MongoIndexInitializer(
                     .Ascending(h => h.State).Ascending(h => h.CreatedAt)),
             ], ct).ConfigureAwait(false);
 
+            // A user's Drives (personal and per channel) are listed together.
+            var drives = mongo.GetCollection<GoogleDriveConnection>(MongoCollections.GoogleDriveConnections);
+            await drives.Indexes.CreateOneAsync(
+                new CreateIndexModel<GoogleDriveConnection>(Builders<GoogleDriveConnection>.IndexKeys
+                    .Ascending(d => d.UserId)), cancellationToken: ct).ConfigureAwait(false);
+
             var voiceProfiles = mongo.GetCollection<VoiceProfile>(MongoCollections.VoiceProfiles);
             await voiceProfiles.Indexes.CreateOneAsync(
                 new CreateIndexModel<VoiceProfile>(Builders<VoiceProfile>.IndexKeys
