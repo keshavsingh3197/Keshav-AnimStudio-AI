@@ -77,7 +77,7 @@ Order is dependency-driven. `P3` unlocks most of the rest.
 - [x] **A3.7** `PromptLibrary` — versioned templates in Mongo, strict variable allowlist, no raw user text splicing
 - [x] **A3.8** `AiOutputSanitizer` + JSON-schema validation for every structured LLM response
 - [x] **A3.9** HTTP wiring: per-provider client, timeout, retry+jitter, **base-URL allowlist (SSRF guard)**
-- [x] **A3.10** Text providers: `OpenAiCompatible` (Groq / OpenRouter / Together / Ollama / LM Studio), `Gemini`, plus `KnownAiProviders` (the catalogue), `IAiSecretResolver` and `AiJsonResponse`
+- [x] **A3.10** Text providers: `OpenAiCompatible` (Groq / OpenRouter / Together / Ollama / LM Studio), plus `KnownAiProviders` (the catalogue), `IAiSecretResolver` and `AiJsonResponse`
 - [x] **A3.11** Image providers: `Pollinations` (keyless), `CloudflareWorkersAi`, `HuggingFaceInference`, `ComfyUiLocal`, plus `AiImageValidator` (magic-byte sniffing)
 - [x] **A3.12** Speech providers: `PiperLocal` (process), `OpenAiCompatibleTts` (covers Kokoro + hosted), plus `LocalProcessAiProvider` and `AiAudioValidator`
 - [x] **A3.13** Transcription providers: `WhisperCppLocal` (process), `OpenAiCompatibleAsr` (covers faster-whisper, Groq Whisper + hosted), plus `AiTranscriptValidator`

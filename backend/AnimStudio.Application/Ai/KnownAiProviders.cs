@@ -10,7 +10,6 @@ namespace AnimStudio.Application.Ai;
 public enum AiProviderFamily
 {
     OpenAiCompatibleText = 1,
-    GeminiText = 2,
     PollinationsImage = 3,
     CloudflareWorkersAiImage = 4,
     HuggingFaceImage = 5,
@@ -19,7 +18,6 @@ public enum AiProviderFamily
     OpenAiCompatibleTts = 8,
     WhisperCppTranscription = 9,
     OpenAiCompatibleAsr = 10,
-    GeminiTts = 11,
     /// <summary>A signed-in command-line agent on this machine (Claude Code, Copilot CLI).</summary>
     LocalCliText = 12
 }
@@ -82,7 +80,6 @@ public static class KnownAiProviders
     public const string Together = "together";
     public const string Ollama = "ollama";
     public const string LmStudio = "lmstudio";
-    public const string Gemini = "gemini";
     public const string Pollinations = "pollinations";
     public const string CloudflareWorkersAi = "cloudflare-ai";
     public const string HuggingFace = "huggingface";
@@ -90,7 +87,6 @@ public static class KnownAiProviders
     public const string PiperLocal = "piper-local";
     public const string Kokoro = "kokoro";
     public const string OpenAiTts = "openai-tts";
-    public const string GeminiTts = "gemini-tts";
     public const string WhisperCppLocal = "whispercpp-local";
     public const string FasterWhisper = "faster-whisper";
     public const string GroqWhisper = "groq-whisper";
@@ -110,15 +106,6 @@ public static class KnownAiProviders
             "https://console.groq.com/keys",
             DefaultDailyRequestLimit: 900),
 
-        new(Gemini, AiCapability.Text, AiProviderFamily.GeminiText,
-            "Google Gemini",
-            "https://generativelanguage.googleapis.com",
-            "gemini-3.8-flash",
-            RunsLocally: false,
-            "Free tier on the Flash models. Handles long transcripts in one call, so it is " +
-            "the better fallback when a whole video's captions go in at once.",
-            "https://aistudio.google.com/apikey",
-            DefaultDailyRequestLimit: 1200),
 
         new(OpenRouter, AiCapability.Text, AiProviderFamily.OpenAiCompatibleText,
             "OpenRouter",
@@ -240,22 +227,6 @@ public static class KnownAiProviders
             KeyUrl: null,
             LicenseClass: "PublicDomain"),
 
-        new(GeminiTts, AiCapability.Speech, AiProviderFamily.GeminiTts,
-            "Google Gemini speech",
-            "https://generativelanguage.googleapis.com",
-            "gemini-2.5-flash-preview-tts",
-            RunsLocally: false,
-            "Thirty natural stock voices that speak Hindi and English alike, steered by " +
-            "asking (\"Say cheerfully: ...\"). Billed per use on a paid Gemini key, so Google " +
-            "Cloud credits cover it. It needs its own copy of the Gemini key, and is never " +
-            "sent a recording of anyone's voice.",
-            "https://aistudio.google.com/apikey",
-            DefaultDailyRequestLimit: 500,
-            Models:
-            [
-                new("gemini-2.5-flash-preview-tts", "Flash - fast, cheaper"),
-                new("gemini-2.5-pro-preview-tts", "Pro - most expressive, costs more")
-            ]),
 
         new(OpenAiTts, AiCapability.Speech, AiProviderFamily.OpenAiCompatibleTts,
             "OpenAI-compatible speech",
@@ -319,7 +290,6 @@ public static class KnownAiProviders
     public static AiCapability CapabilityOf(AiProviderFamily family) => family switch
     {
         AiProviderFamily.OpenAiCompatibleText
-            or AiProviderFamily.GeminiText
             or AiProviderFamily.LocalCliText => AiCapability.Text,
 
         AiProviderFamily.PollinationsImage
@@ -328,8 +298,7 @@ public static class KnownAiProviders
             or AiProviderFamily.ComfyUiImage => AiCapability.Image,
 
         AiProviderFamily.PiperSpeech
-            or AiProviderFamily.OpenAiCompatibleTts
-            or AiProviderFamily.GeminiTts => AiCapability.Speech,
+            or AiProviderFamily.OpenAiCompatibleTts => AiCapability.Speech,
 
         AiProviderFamily.WhisperCppTranscription
             or AiProviderFamily.OpenAiCompatibleAsr => AiCapability.Transcription,

@@ -51,9 +51,6 @@ const KOKORO_LANGUAGES: Record<string, string> = {
   i: 'Italian', j: 'Japanese', p: 'Portuguese', z: 'Chinese',
 };
 
-/** ISO 639's "multiple languages": a voice that speaks whatever the script is in (Gemini's). */
-const ANY_LANGUAGE = 'mul';
-const ANY_LANGUAGE_LABEL = 'Any language';
 
 /** The voices that sound most natural in each language, tried in order. */
 const PREFERRED_VOICES = {
@@ -1125,12 +1122,8 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
   async copyAiPrompt(): Promise<void> {
     const mine = this.myVoices().map((v) => `my:${v.name}`);
     const groups = this.voiceGroups().filter((g) => g.label !== 'My voices');
-    // Gemini's voices are told apart by their character ("Kore (Firm)"), which helps the AI cast them.
-    const builtIn = groups.map((g) => g.label === ANY_LANGUAGE_LABEL
-      ? `  ${g.label}: ${g.voices.map((v) => `${v.value} - ${v.label.replace(/^\S+\s*\((.+)\)$/, '$1').toLowerCase()}`).join(', ')}`
-      : `  ${g.label}: ${g.voices.map((v) => v.value).join(', ')}`);
-    const anyLanguage = groups.some((g) => g.label === ANY_LANGUAGE_LABEL);
-    const byLanguage = groups.some((g) => g.label !== ANY_LANGUAGE_LABEL);
+    const builtIn = groups.map((g) => `  ${g.label}: ${g.voices.map((v) => v.value).join(', ')}`);
+    const byLanguage = groups.length > 0;
     const clips = this.voiceClips()
       .map((c, i) => `  clip ${i + 1}: ${c.startSeconds.toFixed(1)}s - ${c.endSeconds.toFixed(1)}s`);
     const prompt = [
@@ -1151,15 +1144,11 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
       `- "end" (optional) is the second the line must have finished by. Without it a line must finish before the next line's "start" (the last one, before the video ends). A line too long for its time is spoken faster, up to ${MAX_FIT_RATE}x, so keep the words to what fits.`,
       '- "speed" is 0.5 to 2.0; 0.9 - 1.0 sounds like calm narration. A line\'s own "speed" or "voice" overrides its character\'s.',
       '- "emotion" is one word (calm, excited, sad, angry, whispering, divine, ...).',
-      ...(anyLanguage ? [
-        `- With an "${ANY_LANGUAGE_LABEL}" voice, a line's "text" may begin with a short acting direction, like "Say excitedly: ..." or "Whisper: ..."; it is performed, not read out. Never do this with any other voice - it would be read aloud.`,
-      ] : []),
       '- Keep each line to one or two sentences, sized to its time: about 2.5 words per second at speed 1.0 (fewer for Hindi - about 2), so a 7-second line at speed 0.9 has room for about 15 English words.',
       '- Lines must not overlap, and the last line must end before the video does. Add up the time of every line and check the total fits.',
       `- "voice" must be one of these.${mine.length > 0 ? ` My own voices: ${mine.join(', ')}.` : ''} Built-in voices:`,
       ...builtIn,
       ...(byLanguage ? ['  (Those listed by language speak only that language: a Hindi script needs a Hindi voice - ids starting with "h"; my own voices speak any language.)'] : []),
-      ...(anyLanguage ? [`  ("${ANY_LANGUAGE_LABEL}" voices speak Hindi, English and more, read from the text itself. Write only the id, like "Kore", and pick by the character after it.)`] : []),
       '',
       `The video is ${this.videoEnd().toFixed(1)} seconds long.${clips.length > 0 ? ' Its clips:' : ''}`,
       ...clips,
@@ -1493,7 +1482,7 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
       return { language: KOKORO_LANGUAGES[match[1]], label: `${name} (${match[2] === 'f' ? 'female' : 'male'})` };
     }
     const gender = v.gender ? ` (${v.gender.toLowerCase()})` : '';
-    const language = v.languageCode === ANY_LANGUAGE ? ANY_LANGUAGE_LABEL : v.languageCode || 'Voices';
+    const language = v.languageCode || 'Voices';
     return { language, label: `${v.name || v.id}${gender}` };
   }
 
@@ -1516,11 +1505,10 @@ export class VoiceoverPanelComponent implements OnInit, OnDestroy {
       : this.voices().some((v) => v.id === value);
   }
 
-  /** The user's own voices and Gemini's speak any language; a Kokoro voice speaks its own. */
+  /** The user's own voices speak any language; a Kokoro voice speaks its own. */
   private fitsLanguage(value: string, language: Language): boolean {
     if (!value) return false;
     if (value.startsWith(MY_PREFIX)) return true;
-    if (this.voices().some((v) => v.id === value && v.languageCode === ANY_LANGUAGE)) return true;
     return value.startsWith('h') === (language === 'hindi');
   }
 

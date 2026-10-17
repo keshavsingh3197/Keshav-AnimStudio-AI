@@ -267,7 +267,7 @@ public sealed class VoiceoverController(
         }
 
         // The tuned voice is part of it: a line it spoke is not the line the converter made.
-        // So is the engine and model: the same words in Kokoro's "Kore" are not Gemini's.
+        // So is the engine and model: the same words in Kokoro's voice are not Piper's.
         var fingerprint = Sha256Hex(string.Join('\n',
             text, voiceId, rate.ToString("R", CultureInfo.InvariantCulture), mine?.Id, mine?.StorageKey, mine?.TunedVoiceId,
             mine is null ? null : MyVoiceTuning.Revision, engine, model));

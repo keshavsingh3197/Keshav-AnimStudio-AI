@@ -153,7 +153,7 @@ public sealed class VoiceScriptController(
 
         if (outcome.Kind == AiOutcomeKind.Unavailable)
             return Fail(StatusCodes.Status503ServiceUnavailable, "polish-unavailable",
-                "No AI text model is turned on. Enable one under Ai:Providers (Groq, Gemini, OpenRouter or a local Ollama), " +
+                "No AI text model is turned on. Enable one under Ai:Providers (Groq, OpenRouter or a local Ollama), " +
                 "then try again.");
         if (!outcome.IsSuccess)
             return Fail(StatusCodes.Status502BadGateway, outcome.ErrorCode ?? "polish-failed",
@@ -161,7 +161,7 @@ public sealed class VoiceScriptController(
                 {
                     "transport-failed" =>
                         "The AI text model isn't running - nothing answered on its address. Start Ollama (ollama serve), " +
-                        "or turn on a hosted one (Groq or Gemini) under Admin > AI providers.",
+                        "or turn on a hosted one (Groq or OpenRouter) under Admin > AI providers.",
                     "timeout" =>
                         "The AI text model took too long. A local model loads on its first request; try again in a moment.",
                     _ => "The AI model could not rewrite the script just now. Try again in a minute."

@@ -432,15 +432,6 @@ public static class DependencyInjection
                         sp.GetRequiredService<ILogger<OpenAiCompatibleTextProvider>>()));
                     break;
 
-                case AiProviderFamily.GeminiText:
-                    services.AddSingleton<IAiProvider>(sp => new GeminiTextProvider(
-                        providerId,
-                        sp.GetRequiredService<IAiHttpClientFactory>(),
-                        sp.GetRequiredService<IAiSecretResolver>(),
-                        sp.GetRequiredService<IOptionsMonitor<AiOptions>>(),
-                        sp.GetRequiredService<ILogger<GeminiTextProvider>>()));
-                    break;
-
                 case AiProviderFamily.PollinationsImage:
                     services.AddSingleton<IAiProvider>(sp => new PollinationsImageProvider(
                         providerId,
@@ -489,15 +480,6 @@ public static class DependencyInjection
                         sp.GetRequiredService<IAiSecretResolver>(),
                         sp.GetRequiredService<IOptionsMonitor<AiOptions>>(),
                         sp.GetRequiredService<ILogger<OpenAiCompatibleTtsProvider>>()));
-                    break;
-
-                case AiProviderFamily.GeminiTts:
-                    services.AddSingleton<IAiProvider>(sp => new GeminiTtsProvider(
-                        providerId,
-                        sp.GetRequiredService<IAiHttpClientFactory>(),
-                        sp.GetRequiredService<IAiSecretResolver>(),
-                        sp.GetRequiredService<IOptionsMonitor<AiOptions>>(),
-                        sp.GetRequiredService<ILogger<GeminiTtsProvider>>()));
                     break;
 
                 case AiProviderFamily.ComfyUiImage:

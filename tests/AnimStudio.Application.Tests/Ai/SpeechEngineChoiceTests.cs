@@ -43,31 +43,31 @@ public class SpeechEngineChoiceTests
 
     private static AiSpeechRequest Line(string? engine = null, string? model = null) => new()
     {
-        Text = "Namaste.", VoiceId = "Kore", ProviderId = engine, Model = model
+        Text = "Namaste.", VoiceId = "en_US-amy-medium", ProviderId = engine, Model = model
     };
 
     [Fact]
     public async Task A_chosen_engine_is_used_even_when_it_is_not_first()
     {
         var kokoro = new RecordingSpeechProvider("kokoro");
-        var gemini = new RecordingSpeechProvider("gemini-tts");
-        var (executor, _) = Build(AiOptionsBuilder.WithChain(AiCapability.Speech, "kokoro", "gemini-tts"), kokoro, gemini);
+        var piper = new RecordingSpeechProvider("piper-local");
+        var (executor, _) = Build(AiOptionsBuilder.WithChain(AiCapability.Speech, "kokoro", "piper-local"), kokoro, piper);
 
-        var outcome = await executor.SpeechAsync(Line("gemini-tts"), AiCallContext.None, CancellationToken.None);
+        var outcome = await executor.SpeechAsync(Line("piper-local"), AiCallContext.None, CancellationToken.None);
 
         Assert.True(outcome.IsSuccess);
         Assert.Empty(kokoro.Requests);
-        Assert.Single(gemini.Requests);
+        Assert.Single(piper.Requests);
     }
 
     [Fact]
     public async Task A_chosen_engine_that_is_not_on_is_unavailable_rather_than_another_engine()
     {
-        // Voice ids belong to one engine: falling back would speak "Kore" to Kokoro and fail anyway.
+        // Voice ids belong to one engine: falling back would give a Piper voice to Kokoro and fail anyway.
         var kokoro = new RecordingSpeechProvider("kokoro");
         var (executor, _) = Build(AiOptionsBuilder.WithChain(AiCapability.Speech, "kokoro"), kokoro);
 
-        var outcome = await executor.SpeechAsync(Line("gemini-tts"), AiCallContext.None, CancellationToken.None);
+        var outcome = await executor.SpeechAsync(Line("piper-local"), AiCallContext.None, CancellationToken.None);
 
         Assert.Equal(AiOutcomeKind.Unavailable, outcome.Kind);
         Assert.Empty(kokoro.Requests);
@@ -77,39 +77,42 @@ public class SpeechEngineChoiceTests
     public async Task Without_a_choice_the_chain_order_decides_as_before()
     {
         var kokoro = new RecordingSpeechProvider("kokoro");
-        var gemini = new RecordingSpeechProvider("gemini-tts");
-        var (executor, _) = Build(AiOptionsBuilder.WithChain(AiCapability.Speech, "kokoro", "gemini-tts"), kokoro, gemini);
+        var piper = new RecordingSpeechProvider("piper-local");
+        var (executor, _) = Build(AiOptionsBuilder.WithChain(AiCapability.Speech, "kokoro", "piper-local"), kokoro, piper);
 
         await executor.SpeechAsync(Line(), AiCallContext.None, CancellationToken.None);
 
         Assert.Single(kokoro.Requests);
-        Assert.Empty(gemini.Requests);
+        Assert.Empty(piper.Requests);
     }
 
     [Fact]
     public async Task Another_model_is_another_take_not_a_cache_hit_and_is_recorded_by_name()
     {
-        var gemini = new RecordingSpeechProvider("gemini-tts");
-        var (executor, usage) = Build(AiOptionsBuilder.WithChain(AiCapability.Speech, "gemini-tts"), gemini);
+        var piper = new RecordingSpeechProvider("piper-local");
+        var (executor, usage) = Build(AiOptionsBuilder.WithChain(AiCapability.Speech, "piper-local"), piper);
 
-        await executor.SpeechAsync(Line("gemini-tts", "gemini-2.5-flash-preview-tts"), AiCallContext.None, CancellationToken.None);
-        await executor.SpeechAsync(Line("gemini-tts", "gemini-2.5-pro-preview-tts"), AiCallContext.None, CancellationToken.None);
-        var again = await executor.SpeechAsync(Line("gemini-tts", "gemini-2.5-pro-preview-tts"), AiCallContext.None, CancellationToken.None);
+        await executor.SpeechAsync(Line("piper-local", "voice-model-a"), AiCallContext.None, CancellationToken.None);
+        await executor.SpeechAsync(Line("piper-local", "voice-model-b"), AiCallContext.None, CancellationToken.None);
+        var again = await executor.SpeechAsync(Line("piper-local", "voice-model-b"), AiCallContext.None, CancellationToken.None);
 
-        Assert.Equal(2, gemini.Requests.Count);
-        Assert.Equal("gemini-2.5-pro-preview-tts", gemini.Requests[1].Model);
+        Assert.Equal(2, piper.Requests.Count);
+        Assert.Equal("voice-model-b", piper.Requests[1].Model);
         Assert.True(again.Value!.Provenance.FromCache);
-        Assert.Contains(usage.Records, r => r.Model == "gemini-2.5-pro-preview-tts" && r.Outcome == AiCallOutcome.Succeeded);
+        Assert.Contains(usage.Records, r => r.Model == "voice-model-b" && r.Outcome == AiCallOutcome.Succeeded);
     }
 
     [Fact]
     public void Only_an_offered_or_configured_model_may_be_asked_for()
     {
-        var gemini = KnownAiProviders.Find(KnownAiProviders.GeminiTts)!;
+        var offering = KnownAiProviders.Find(KnownAiProviders.OpenAiTts)! with
+        {
+            Models = [new AiModelChoice("tts-1-hd", "HD")]
+        };
 
-        Assert.True(gemini.Allows("gemini-2.5-pro-preview-tts", configuredModel: null));
-        Assert.True(gemini.Allows("my-own-tts-model", configuredModel: "my-own-tts-model"));
-        Assert.False(gemini.Allows("../../v1/files", configuredModel: null));
+        Assert.True(offering.Allows("tts-1-hd", configuredModel: null));
+        Assert.True(offering.Allows("my-own-tts-model", configuredModel: "my-own-tts-model"));
+        Assert.False(offering.Allows("../../v1/files", configuredModel: null));
         Assert.False(KnownAiProviders.Find(KnownAiProviders.Kokoro)!.Allows("anything", configuredModel: "kokoro"));
     }
 }

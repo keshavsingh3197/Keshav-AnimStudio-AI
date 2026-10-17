@@ -166,7 +166,7 @@ public class AiCredentialStoreTests
     [Fact]
     public async Task Host_supplied_keys_appear_in_the_listing_alongside_stored_ones()
     {
-        var (store, _) = Build(("Ai:Secrets:gemini", "AIza_from_the_environment"));
+        var (store, _) = Build(("Ai:Secrets:openrouter", "sk-or_from_the_environment"));
 
         await store.SetAsync(Groq, "gsk_stored_in_the_database", null, CancellationToken.None);
 
@@ -174,7 +174,7 @@ public class AiCredentialStoreTests
 
         Assert.Equal(2, all.Count);
         Assert.Contains(all, c => c.ProviderId == "groq" && c.Source == AiCredentialSource.Database);
-        Assert.Contains(all, c => c.ProviderId == "gemini" && c.Source == AiCredentialSource.Configuration);
+        Assert.Contains(all, c => c.ProviderId == "openrouter" && c.Source == AiCredentialSource.Configuration);
     }
 
     [Fact]

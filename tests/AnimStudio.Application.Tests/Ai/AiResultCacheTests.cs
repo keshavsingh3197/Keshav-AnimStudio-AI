@@ -117,7 +117,7 @@ public class AiResultCacheTests
 
         Assert.NotEqual(
             baseline.Hash,
-            AiCacheKey.Create(AiProviderId.Parse("gemini"), AiCapability.Text, "llama", "p").Hash);
+            AiCacheKey.Create(AiProviderId.Parse("openrouter"), AiCapability.Text, "llama", "p").Hash);
 
         Assert.NotEqual(
             baseline.Hash,

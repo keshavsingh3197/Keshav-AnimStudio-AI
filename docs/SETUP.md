@@ -393,7 +393,7 @@ in `appsettings.json` (`Ai:Providers:<id>:Enabled`) and put its key in the admin
 | Local transcription ("Speak it" in the Voiceover panel) | [whisper.cpp](https://github.com/ggerganov/whisper.cpp) — `scripts\setup-dictation.ps1` installs `whisper-cli` and the multilingual `ggml-small` model | `whispercpp-local`: `ExecutablePath`, `ModelsPath`, `Model` |
 | Transcription (server) | [faster-whisper-server](https://github.com/fedirz/faster-whisper-server), Docker | `faster-whisper`, `http://localhost:8000/v1` |
 
-Hosted free tiers (Groq, Gemini, OpenRouter, Cloudflare Workers AI, HuggingFace,
+Hosted free tiers (Groq, OpenRouter, Cloudflare Workers AI, HuggingFace,
 Pollinations) need **no install** — just an account, `Enabled: true`, and the key stored
 through the admin API. Outbound calls are restricted to `Ai:HostAllowlist`; loopback and
 private addresses are permitted only for providers marked `IsLocal`.
