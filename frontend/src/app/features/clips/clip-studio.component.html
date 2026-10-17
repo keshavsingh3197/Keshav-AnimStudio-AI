@@ -55,6 +55,11 @@
     <app-photo-story></app-photo-story>
   }
 
+  <!-- Auto Shorts: a batch of different shorts cut from chosen clips, pictures and lines. -->
+  @if (state.autoShortsOpen()) {
+    <app-auto-shorts></app-auto-shorts>
+  }
+
   @if (state.endCardDialogOpen()) {
     <div class="modal-backdrop" (click)="state.endCardDialogOpen.set(false)">
       <div class="insert-dialog end-card-dialog" role="dialog" aria-modal="true" aria-label="End card"

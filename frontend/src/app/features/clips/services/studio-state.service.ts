@@ -2,7 +2,7 @@ import { Injectable, computed, effect, inject, signal, untracked, OnDestroy } fr
 import { catchError, concatMap, finalize, forkJoin, from, map, mergeMap, of, toArray } from 'rxjs';
 
 import {
-  Clip, ClipAudioBody, ClipFit, ClipOrder, ClipSlotBody, ClipStudio, ExportQuality, MAX_CLIP_GAIN, RenderJob, ExportTimelineFormat,
+  AutoShortsBody, Clip, ClipAudioBody, ClipFit, ClipOrder, ClipSlotBody, ClipStudio, ExportQuality, MAX_CLIP_GAIN, RenderJob, ExportTimelineFormat,
   SHORTS_MAX_SECONDS, TRANSITIONS, WATERMARK_POSITIONS, WatermarkBody, WatermarkKind, WatermarkPosition,
   aspectRatioLabel, isTerminal, videoFormat, OutroBody,
   TimelineItem, TimelineItemType, TrackControlState, TimelineItemTransform, TimelineItemTextStyle,
@@ -9644,6 +9644,45 @@ export class StudioStateService implements OnDestroy {
         this.openExportProgress();
         this.status.notify([`Rendering your photo story: ${slides.length} shots, ${Math.round(at)}s.`]);
       }
+    );
+  }
+
+  /** Auto Shorts: several different shorts cut from chosen clips, pictures and lines at once. */
+  readonly autoShortsOpen = signal(false);
+
+  /** The project's footage and pictures an auto short can cut from: library files, no exports or client splits. */
+  readonly autoShortSources = computed(() => {
+    const seen = new Set<string>();
+    return (this.studio()?.clips ?? []).filter((c) => {
+      if (c.isExport) return false;
+      const id = this.resolveAssetId(c);
+      if (!id || seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+  });
+
+  /**
+   * Queues the batch. The server plans every short and checks every file; each short comes
+   * back as its own job, listed in the activity panel so the studio can be left while they render.
+   */
+  queueAutoShorts(
+    body: Omit<AutoShortsBody, 'watermark'> & { watermark: boolean },
+    done: (jobs: RenderJob[]) => void,
+    settled: () => void,
+  ): void {
+    const projectId = this.loadedProjectId;
+    if (!this.ownsCurrentProject(projectId) || this.blockedReason() !== null) { settled(); return; }
+
+    const wm: WatermarkBody = this.effectiveWatermark();
+    this.status.run(
+      this.api.autoShorts(projectId, { ...body, watermark: body.watermark ? wm : { ...wm, kind: 'None' as WatermarkKind } })
+        .pipe(finalize(settled)),
+      (jobs: RenderJob[]) => {
+        for (const job of jobs) this.trackExport(job);
+        this.status.notify([`Rendering ${jobs.length} short${jobs.length === 1 ? '' : 's'} - follow them in the activity panel or on the Render page.`]);
+        done(jobs);
+      },
     );
   }
 

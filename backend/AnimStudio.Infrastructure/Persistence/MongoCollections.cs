@@ -19,6 +19,8 @@ public static class MongoCollections
     public const string LiveStreamKeys = "liveStreamKeys";
     public const string YouTubeConnections = "youTubeConnections";
     public const string YouTubePublications = "youTubePublications";
+    public const string GoogleDriveConnections = "googleDriveConnections";
+    public const string PhoneHandoffs = "phoneHandoffs";
     public const string WebSettings = "webSettings";
     public const string AdminAudit = "adminAudit";
     public const string HubConfig = "hubConfig";

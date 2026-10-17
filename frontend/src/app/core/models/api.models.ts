@@ -942,6 +942,36 @@ export interface TrackControlState {
   color: string;
 }
 
+/** Pace and finish of a batch of auto shorts; Mixed lets each short pick its own. */
+export const AUTO_SHORT_STYLES = ['Mixed', 'Energetic', 'Cinematic', 'Calm'] as const;
+export type AutoShortStyle = (typeof AUTO_SHORT_STYLES)[number];
+
+/** How the batch's lines go on screen. */
+export const AUTO_SHORT_TEXT_MODES = ['None', 'Hook', 'PerShot', 'HookAndPerShot'] as const;
+export type AutoShortTextMode = (typeof AUTO_SHORT_TEXT_MODES)[number];
+
+/** Several different shorts cut automatically from the chosen clips, pictures and lines. */
+export interface AutoShortsBody {
+  sourceAssetIds: string[];
+  lines: string[];
+  musicAssetIds: string[];
+  count: number;
+  targetSeconds: number;
+  style: AutoShortStyle;
+  textMode: AutoShortTextMode;
+  transitions: boolean;
+  motion: boolean;
+  keepClipAudio: boolean;
+  exportName?: string | null;
+  width: number;
+  height: number;
+  fit: ClipFit;
+  quality: ExportQuality;
+  watermark: WatermarkBody;
+  includeOutro: boolean;
+  seed?: number | null;
+}
+
 export interface ClipMergeBody {
   exportName?: string;
   assetIds: string[];

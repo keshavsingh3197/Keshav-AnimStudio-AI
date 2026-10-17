@@ -115,6 +115,29 @@ public sealed record ClipMergeCommand
     public IReadOnlyList<ClipSlot> Slots { get; init; } = [];
 }
 
+/// <summary>A batch of auto shorts as asked for; see <see cref="AutoShortPlanner"/>.</summary>
+public sealed record AutoShortsCommand
+{
+    public IReadOnlyList<string> SourceAssetIds { get; init; } = [];
+    public IReadOnlyList<string> Lines { get; init; } = [];
+    public IReadOnlyList<string> MusicAssetIds { get; init; } = [];
+    public int Count { get; init; } = 3;
+    public double TargetSeconds { get; init; } = 30;
+    public AutoShortStyle Style { get; init; } = AutoShortStyle.Mixed;
+    public AutoShortTextMode TextMode { get; init; } = AutoShortTextMode.Hook;
+    public bool Transitions { get; init; } = true;
+    public bool Motion { get; init; } = true;
+    public bool KeepClipAudio { get; init; } = true;
+    public string? ExportName { get; init; }
+    public int Width { get; init; } = 1080;
+    public int Height { get; init; } = 1920;
+    public ClipFit Fit { get; init; } = ClipFit.BlurredBackdrop;
+    public ExportQuality Quality { get; init; } = ExportQuality.High;
+    public WatermarkSettings Watermark { get; init; } = new();
+    public bool IncludeOutro { get; init; }
+    public int? Seed { get; init; }
+}
+
 /// <summary>
 /// The clip stitch's front door: reads the library, resolves a running order, and queues
 /// the job.
@@ -718,6 +741,91 @@ public sealed class ClipMergeService(
     /// fetch it into their own output.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// Plans and queues a batch of different shorts cut from the chosen clips, pictures and
+    /// lines - one ordinary stitch job per short, so each is polled, downloaded and
+    /// published like any other export.
+    /// <para>
+    /// Every file is checked here before anything is planned: it must belong to this
+    /// project, and be footage, a picture or (for music) something with sound. Each short is
+    /// then queued through <see cref="QueueAsync"/>, which checks it all again - the planner
+    /// is trusted with timing, never with access.
+    /// </para>
+    /// </summary>
+    public async Task<IReadOnlyList<RenderJob>> QueueAutoShortsAsync(
+        string projectId, AutoShortsCommand command, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        await EnsureOwnedAsync(projectId, ct).ConfigureAwait(false);
+
+        if (!capabilities.IsAvailable)
+        {
+            throw new RenderException(RenderErrorCode.RendererUnavailable,
+                capabilities.UnavailableReason ?? "Video rendering is not configured on this server.");
+        }
+
+        var sourceIds = command.SourceAssetIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal).ToList();
+        var musicIds = command.MusicAssetIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal).ToList();
+        if (sourceIds.Count == 0)
+            throw EditingException.Invalid("no-clips", "Choose at least one clip or picture to cut shorts from.");
+
+        var loaded = await assets.GetManyAsync([.. sourceIds.Concat(musicIds)], ct).ConfigureAwait(false);
+        var byId = loaded.ToDictionary(a => a.Id, StringComparer.Ordinal);
+
+        var sources = new List<AutoShortSource>(sourceIds.Count);
+        foreach (var id in sourceIds)
+        {
+            var asset = Require(byId, id, projectId, "clip");
+            if (asset.Kind is not (AssetKind.Video or AssetKind.Image) || !asset.IsUsableInScene)
+                throw EditingException.Invalid("not-a-video-or-image", $"'{asset.Name}' is not a video or image clip.");
+            sources.Add(new AutoShortSource(asset.Id, asset.Kind, asset.Probe.DurationSeconds));
+        }
+
+        foreach (var id in musicIds)
+        {
+            var asset = Require(byId, id, projectId, "music");
+            if (asset.Kind is not (AssetKind.Audio or AssetKind.Video))
+                throw EditingException.Invalid("not-audio", $"'{asset.Name}' has no sound in it.");
+        }
+
+        IReadOnlyList<ClipMergeCommand> plans;
+        try
+        {
+            plans = AutoShortPlanner.Plan(new AutoShortBatch
+            {
+                Sources = sources,
+                Lines = command.Lines,
+                MusicAssetIds = musicIds,
+                Count = command.Count,
+                TargetSeconds = command.TargetSeconds,
+                Style = command.Style,
+                TextMode = command.TextMode,
+                // A renderer without xfade cuts hard rather than refusing the batch.
+                Transitions = command.Transitions && capabilities.Supports(RenderFeature.CrossFadeTransitions),
+                Motion = command.Motion,
+                KeepClipAudio = command.KeepClipAudio,
+                ExportName = command.ExportName ?? "Auto short",
+                Width = command.Width,
+                Height = command.Height,
+                Fit = command.Fit == ClipFit.BlurredBackdrop && !capabilities.Supports(RenderFeature.BlurBackdrop)
+                    ? ClipFit.Cover : command.Fit,
+                Quality = command.Quality,
+                Watermark = command.Watermark,
+                IncludeOutro = command.IncludeOutro,
+                Seed = command.Seed,
+            });
+        }
+        catch (ArgumentException ex)
+        {
+            throw EditingException.Invalid("nothing-usable", ex.Message);
+        }
+
+        var queued = new List<RenderJob>(plans.Count);
+        foreach (var plan in plans)
+            queued.Add(await QueueAsync(projectId, plan, ct).ConfigureAwait(false));
+        return queued;
+    }
+
     private static Asset Require(
         Dictionary<string, Asset> byId, string assetId, string projectId, string role)
     {

@@ -5,6 +5,7 @@ import { Observable, map } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../models/api.models';
 import {
+  GoogleDriveStatus, PhoneHandoff, PhoneHandoffCheck,
   YouTubeChannel, YouTubeDashboard, YouTubeDraft, YouTubeLiveBroadcast, YouTubeLiveSetup, YouTubeLiveSuggestParams, YouTubePublication, YouTubePublishSource, YouTubePublishStatus,
   YouTubeSuggestion, YouTubeSuggestOptions, YouTubeSuggestParams, YouTubeThumbnailChoice, YouTubeUpload, YouTubeVideoMetadata,
 } from '../models/youtube.models';
@@ -127,6 +128,79 @@ export class YouTubePublishService {
 
   cancel(uploadId: string): Observable<unknown> {
     return this.http.post(`${this.base}/uploads/${encodeURIComponent(uploadId)}/cancel`, {});
+  }
+
+  // ------------------------------------------------------------------ send to phone
+
+  driveStatus(): Observable<GoogleDriveStatus> {
+    return this.http
+      .get<ApiResponse<GoogleDriveStatus>>(`${this.base}/drive`)
+      .pipe(map((r) => r.data as GoogleDriveStatus));
+  }
+
+  /** Where to send the browser to approve Drive access; Google returns to /youtube/callback too. */
+  startDriveConnect(returnPath: string): Observable<string> {
+    return this.http
+      .post<ApiResponse<{ authorizationUrl: string }>>(`${this.base}/drive/oauth/start`, { returnPath })
+      .pipe(map((r) => r.data!.authorizationUrl));
+  }
+
+  completeDriveConnect(code: string, state: string): Observable<{ drive: GoogleDriveStatus; returnPath: string }> {
+    return this.http
+      .post<ApiResponse<{ drive: GoogleDriveStatus; returnPath: string }>>(`${this.base}/drive/oauth/complete`, { code, state })
+      .pipe(map((r) => r.data!));
+  }
+
+  setDriveFolder(folderName: string): Observable<GoogleDriveStatus> {
+    return this.http
+      .put<ApiResponse<GoogleDriveStatus>>(`${this.base}/drive/folder`, { folderName })
+      .pipe(map((r) => r.data as GoogleDriveStatus));
+  }
+
+  disconnectDrive(): Observable<unknown> {
+    return this.http.delete(`${this.base}/drive`);
+  }
+
+  /** Copies the render to Drive; its details are put on the YouTube-app upload once it appears. */
+  sendToPhone(jobId: string, body: {
+    channelId: string; metadata: YouTubeVideoMetadata; relatedVideoIds: string[]; firstComment: string | null;
+    folderName: string | null; muteAudio: boolean;
+  }): Observable<PhoneHandoff> {
+    return this.http
+      .post<ApiResponse<PhoneHandoff>>(`${this.base}/render-jobs/${encodeURIComponent(jobId)}/send-to-phone`, body)
+      .pipe(map((r) => r.data as PhoneHandoff));
+  }
+
+  handoffs(jobId?: string): Observable<PhoneHandoff[]> {
+    const query = jobId ? `?jobId=${encodeURIComponent(jobId)}` : '';
+    return this.http
+      .get<ApiResponse<PhoneHandoff[]>>(`${this.base}/phone-handoffs${query}`)
+      .pipe(map((r) => r.data ?? []));
+  }
+
+  handoff(id: string): Observable<PhoneHandoff> {
+    return this.http
+      .get<ApiResponse<PhoneHandoff>>(`${this.base}/phone-handoffs/${encodeURIComponent(id)}`)
+      .pipe(map((r) => r.data as PhoneHandoff));
+  }
+
+  /** Looks for the phone upload now; applies the details if exactly one video fits, else lists them to pick. */
+  checkHandoff(id: string): Observable<PhoneHandoffCheck> {
+    return this.http
+      .post<ApiResponse<PhoneHandoffCheck>>(`${this.base}/phone-handoffs/${encodeURIComponent(id)}/check`, {})
+      .pipe(map((r) => r.data as PhoneHandoffCheck));
+  }
+
+  applyHandoff(id: string, videoId: string): Observable<PhoneHandoff> {
+    return this.http
+      .post<ApiResponse<PhoneHandoff>>(`${this.base}/phone-handoffs/${encodeURIComponent(id)}/apply`, { videoId })
+      .pipe(map((r) => r.data as PhoneHandoff));
+  }
+
+  cancelHandoff(id: string): Observable<PhoneHandoff> {
+    return this.http
+      .post<ApiResponse<PhoneHandoff>>(`${this.base}/phone-handoffs/${encodeURIComponent(id)}/cancel`, {})
+      .pipe(map((r) => r.data as PhoneHandoff));
   }
 
   // ------------------------------------------------------------------ live

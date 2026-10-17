@@ -82,6 +82,12 @@ public static class MongoMappingRegistrar
             // App-assigned GUID - one record per video uploaded from the app.
             MapWithLiteralId<YouTubePublication>();
 
+            // The user id - one Drive per user.
+            MapWithLiteralId<GoogleDriveConnection>();
+
+            // App-assigned GUID - one record per video sent to the phone.
+            MapWithLiteralId<PhoneHandoff>();
+
             // The configuration path, e.g. "Render:Crf" - one value per key.
             MapWithLiteralId<WebSetting>();
 

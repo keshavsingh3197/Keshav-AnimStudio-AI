@@ -88,6 +88,17 @@ public sealed class MongoIndexInitializer(
                     .Ascending(p => p.LastCheckedAt).Descending(p => p.PublishedAt)),
             ], ct).ConfigureAwait(false);
 
+            // Phone handoffs are listed per owner (and render) newest first; the matcher looks
+            // for every one still waiting, oldest first.
+            var handoffs = mongo.GetCollection<PhoneHandoff>(MongoCollections.PhoneHandoffs);
+            await handoffs.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<PhoneHandoff>(Builders<PhoneHandoff>.IndexKeys
+                    .Ascending(h => h.UserId).Ascending(h => h.JobId).Descending(h => h.CreatedAt)),
+                new CreateIndexModel<PhoneHandoff>(Builders<PhoneHandoff>.IndexKeys
+                    .Ascending(h => h.State).Ascending(h => h.CreatedAt)),
+            ], ct).ConfigureAwait(false);
+
             var voiceProfiles = mongo.GetCollection<VoiceProfile>(MongoCollections.VoiceProfiles);
             await voiceProfiles.Indexes.CreateOneAsync(
                 new CreateIndexModel<VoiceProfile>(Builders<VoiceProfile>.IndexKeys

@@ -5,9 +5,9 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subject, catchError, debounceTime, distinctUntilChanged, forkJoin, map, of, switchMap, tap } from 'rxjs';
 
 import {
-  MAX_RELATED_VIDEOS, MAX_THUMBNAIL_UPLOAD_BYTES, YOUTUBE_MUSIC_CATEGORY_ID, YouTubeCheck, YouTubeThumbnailChoice, YouTubeDestination, YouTubeDraft, YouTubePrivacy, YouTubePublication, YouTubePublishSource,
-  YouTubePublishStatus, YouTubeSuggestEngine, YouTubeUpload,
-  isUploadFinished, parseYouTubeTags, relatedVideosBlock, youTubeTagsLength,
+  GoogleDriveStatus, MAX_RELATED_VIDEOS, MAX_THUMBNAIL_UPLOAD_BYTES, PhoneHandoff, PhoneUploadCandidate, YOUTUBE_MUSIC_CATEGORY_ID, YouTubeCheck, YouTubeThumbnailChoice, YouTubeDestination, YouTubeDraft, YouTubePrivacy, YouTubePublication, YouTubePublishSource,
+  YouTubePublishStatus, YouTubeSuggestEngine, YouTubeUpload, YouTubeUploadRoute,
+  isHandoffActive, isUploadFinished, isValidDriveFolderName, parseYouTubeTags, relatedVideosBlock, youTubeTagsLength,
 } from '../core/models/youtube.models';
 import { ActivityService } from '../core/services/activity.service';
 import { ApiService } from '../core/services/api.service';
@@ -47,6 +47,9 @@ interface PublishPrefs {
   categoryId?: string;
   privacy?: YouTubePrivacy;
   madeForKids?: boolean;
+  /** Upload from here, or send to the phone for a Shorts sound. */
+  route?: YouTubeUploadRoute;
+  muteAudio?: boolean;
 }
 
 /**
@@ -85,29 +88,76 @@ interface PublishPrefs {
           } @else if (reviewing()) {
             <div class="yt-review">
               <p class="yt-muted">Check everything once more. Nothing is sent to YouTube until you confirm.</p>
-              <dl>
-                <div><dt>Destination</dt><dd>{{ isMusic() ? 'YouTube + YouTube Music (Music category)' : 'YouTube' }}</dd></div>
-                <div><dt>Channel</dt><dd>{{ selectedChannel()?.channelTitle }}</dd></div>
-                <div><dt>Visibility</dt><dd>{{ privacyLabel() }}{{ notify() && privacy() === 'public' ? ' · subscribers notified' : '' }}</dd></div>
-                <div><dt>Audience</dt><dd>{{ madeForKids() ? 'Made for kids' : 'Not made for kids' }}</dd></div>
-                <div><dt>Category</dt><dd>{{ categoryName() }}</dd></div>
-                <div><dt>Thumbnail</dt><dd>
-                  @if (thumbPreview(); as src) { <img class="yt-review-thumb" [src]="src" alt="Chosen thumbnail" /> } @else { YouTube picks automatically }
-                </dd></div>
-                <div><dt>Title</dt><dd><strong>{{ title().trim() }}</strong></dd></div>
-                <div><dt>Tags ({{ tags().length }})</dt><dd>{{ tags().join(', ') || '—' }}</dd></div>
-                <div><dt>Description</dt><dd><pre>{{ finalDescription() || '—' }}</pre></dd></div>
-                @if (firstComment().trim()) {
-                  <div><dt>First comment</dt><dd><pre>{{ firstComment().trim() }}</pre></dd></div>
-                }
-                @if (relatedSelected().length) {
-                  <div><dt>Related ({{ relatedSelected().length }})</dt><dd>{{ relatedTitles() }}</dd></div>
-                }
-              </dl>
-              @for (c of warnings(); track c.code) { <p class="yt-warn">⚠ {{ c.message }}</p> }
-              @if (privacy() === 'public') {
-                <p class="yt-warn">This goes live publicly as soon as YouTube finishes processing it.</p>
-              }
+              <div class="yt-review-grid">
+                <!-- What goes up: the video itself, its shape and its thumbnail. -->
+                <aside class="yt-review-media">
+                  <div class="yt-stage" [class.vertical]="draft()?.video?.isVertical">
+                    <video [src]="previewSrc()" controls playsinline preload="metadata"></video>
+                  </div>
+                  @if (draft(); as d) {
+                    <dl class="yt-facts">
+                      @if (d.video.durationSeconds != null) { <div><dt>Length</dt><dd>{{ clock(d.video.durationSeconds) }}</dd></div> }
+                      @if (d.video.width && d.video.height) { <div><dt>Picture</dt><dd>{{ d.video.width }}×{{ d.video.height }}</dd></div> }
+                      <div><dt>Type</dt><dd>{{ d.video.isVertical && (d.video.durationSeconds ?? 0) <= 180 ? 'Short' : 'Video' }}</dd></div>
+                    </dl>
+                  }
+                  <div class="yt-review-thumb-box">
+                    <span class="yt-label">Thumbnail</span>
+                    @if (route() === 'phone') { <span class="yt-muted">Picked in the YouTube app</span> }
+                    @else if (thumbPreview(); as src) {
+                      <img class="yt-review-thumb" [class.vertical]="draft()?.video?.isVertical && (thumbMode() === 'auto' || thumbMode() === 'frame')"
+                           [src]="src" alt="Chosen thumbnail" />
+                    } @else { <span class="yt-muted">YouTube picks automatically</span> }
+                  </div>
+                </aside>
+
+                <div class="yt-review-main">
+                  <section class="yt-card yt-review-card" aria-labelledby="yt-review-where">
+                    <span class="yt-label" id="yt-review-where">Where it goes</span>
+                    <dl>
+                      <div><dt>Destination</dt><dd>{{ isMusic() ? 'YouTube + YouTube Music (Music category)' : 'YouTube' }}</dd></div>
+                      @if (route() === 'phone') {
+                        <div><dt>Upload from</dt><dd>📱 Your phone - via Google Drive folder "{{ folderName().trim() }}"{{ muteAudio() ? ', without its own sound' : '' }}</dd></div>
+                      }
+                      <div><dt>Channel</dt><dd>{{ selectedChannel()?.channelTitle }}</dd></div>
+                      <div><dt>Visibility</dt><dd>{{ privacyLabel() }}{{ notify() && privacy() === 'public' ? ' · subscribers notified' : '' }}</dd></div>
+                      <div><dt>Audience</dt><dd>{{ madeForKids() ? 'Made for kids' : 'Not made for kids' }}</dd></div>
+                      <div><dt>Category</dt><dd>{{ categoryName() }}</dd></div>
+                      @if (relatedSelected().length) {
+                        <div><dt>Related ({{ relatedSelected().length }})</dt><dd>{{ relatedTitles() }}</dd></div>
+                      }
+                    </dl>
+                    @for (c of warnings(); track c.code) { <p class="yt-warn">⚠ {{ c.message }}</p> }
+                    @if (route() === 'phone') {
+                      <p class="yt-muted">Nothing goes to YouTube from here. The video goes to Google Drive; these details are put on
+                        the Short once you upload it from the YouTube app.</p>
+                    } @else if (privacy() === 'public') {
+                      <p class="yt-warn">This goes live publicly as soon as YouTube finishes processing it.</p>
+                    }
+                  </section>
+
+                  <section class="yt-card yt-review-card yt-review-words" aria-labelledby="yt-review-what">
+                    <span class="yt-label" id="yt-review-what">What viewers see</span>
+                    <div class="yt-review-title">{{ title().trim() }}</div>
+                    <div class="yt-review-block">
+                      <span class="yt-review-key">Description</span>
+                      <pre>{{ finalDescription() || '—' }}</pre>
+                    </div>
+                    <div class="yt-review-block">
+                      <span class="yt-review-key">Tags ({{ tags().length }})</span>
+                      @if (tags().length) {
+                        <div class="yt-review-tags">@for (t of tags(); track t) { <span>{{ t }}</span> }</div>
+                      } @else { <span class="yt-muted">—</span> }
+                    </div>
+                    @if (firstComment().trim()) {
+                      <div class="yt-review-block">
+                        <span class="yt-review-key">First comment</span>
+                        <pre>{{ firstComment().trim() }}</pre>
+                      </div>
+                    }
+                  </section>
+                </div>
+              </div>
             </div>
           } @else {
             <!-- Where it should be found. Either way it is one upload with one video id. -->
@@ -131,6 +181,70 @@ interface PublishPrefs {
                 two links: <code>youtube.com</code> and <code>music.youtube.com</code>. Official audio-only songs
                 ("Art Tracks") on YouTube Music still only come from a music distributor.
               </p>
+            }
+            @if (!isRelease()) {
+              <!-- How it goes up: straight from here, or via the phone for a licensed Shorts sound. -->
+              <div class="yt-dest yt-route" role="radiogroup" aria-label="Upload from">
+                <button type="button" role="radio" class="yt-dest-opt" [class.active]="route() === 'direct'" [attr.aria-checked]="route() === 'direct'"
+                        (click)="setRoute('direct')" [disabled]="uploading() || sendingToDrive()">
+                  <span class="yt-dest-icon" aria-hidden="true">⇪</span>
+                  <span><strong>Upload from here</strong><small>One click, straight to the channel</small></span>
+                </button>
+                <button type="button" role="radio" class="yt-dest-opt" [class.active]="route() === 'phone'" [attr.aria-checked]="route() === 'phone'"
+                        (click)="setRoute('phone')" [disabled]="uploading() || sendingToDrive()">
+                  <span class="yt-dest-icon" aria-hidden="true">📱</span>
+                  <span><strong>From my phone</strong><small>Add a Shorts sound in the YouTube app - no copyright claim</small></span>
+                </button>
+              </div>
+              @if (route() === 'phone') {
+                <section class="yt-card yt-phone" aria-label="Send to phone">
+                  <p class="yt-dest-note">
+                    <strong>How it works.</strong> AnimStudio puts the video in your Google Drive. On your phone, upload it as a
+                    Short from the YouTube app and add a song with <em>Add sound</em> - a song added there is licensed for Shorts,
+                    so it isn't claimed. Leave the title as anything: as soon as the Short appears on the channel, AnimStudio puts
+                    the title, description, tags and settings below on it.
+                  </p>
+                  @if (drive(); as dr) {
+                    @if (!dr.connected) {
+                      <div class="yt-phone-row">
+                        <span>Google Drive isn't connected. AnimStudio only gets access to the files it adds, not the rest of your Drive.</span>
+                        <button type="button" (click)="connectDrive()" [disabled]="busy()">Connect Google Drive</button>
+                      </div>
+                    } @else {
+                      <div class="yt-phone-row">
+                        <span>☁ <strong>{{ dr.accountName || 'Google Drive' }}</strong>{{ dr.accountEmail ? ' · ' + dr.accountEmail : '' }}
+                          @if (dr.needsReconnect) { <span class="yt-err-inline"> - access expired</span> }</span>
+                        @if (dr.needsReconnect) {
+                          <button type="button" (click)="connectDrive()" [disabled]="busy()">Reconnect</button>
+                        } @else {
+                          <button type="button" class="link" (click)="disconnectDrive()" [disabled]="busy() || sendingToDrive()">Disconnect</button>
+                        }
+                      </div>
+                      <label class="yt-phone-field">
+                        <span class="yt-label">Drive folder</span>
+                        <input type="text" maxlength="100" [ngModel]="folderName()" (ngModelChange)="folderName.set($event)"
+                               [disabled]="sendingToDrive()" [class.invalid]="fieldError('folderName')" placeholder="AnimStudio Shorts" />
+                      </label>
+                      @if (folderName().trim() !== dr.folderName && !fieldError('folderName')) {
+                        <button type="button" class="link" (click)="saveDefaultFolder()" [disabled]="busy()">Use "{{ folderName().trim() }}" every time</button>
+                      }
+                    }
+                  } @else {
+                    <p class="yt-muted">Checking Google Drive…</p>
+                  }
+                  <label class="yt-check">
+                    <input type="checkbox" [ngModel]="muteAudio()" (ngModelChange)="muteAudio.set($event)" [disabled]="sendingToDrive()" />
+                    <span>Take out the video's own sound, so the Shorts sound replaces it
+                      <small>Leave this off to keep a voice-over; you can still lower it under <em>Volume</em> in the YouTube app.</small></span>
+                  </label>
+                  @if (draft(); as d) {
+                    @if (!d.video.isVertical || (d.video.durationSeconds ?? 0) > 180) {
+                      <p class="yt-warn">⚠ Shorts sounds are only offered for vertical videos up to 3 minutes. This one would go up as an ordinary video.</p>
+                    }
+                  }
+                  <p class="yt-muted">The thumbnail and "notify subscribers" are set in the YouTube app for a phone upload.</p>
+                </section>
+              }
             }
             <div class="yt-grid">
               <!-- Left: what is being published, where, and how. -->
@@ -202,14 +316,16 @@ interface PublishPrefs {
                         </div>
                         <input type="search" class="yt-lib-search" [ngModel]="libQuery()" (ngModelChange)="setLibQuery($event)"
                                maxlength="80" placeholder="Search pictures…" aria-label="Search pictures" />
+                        @if (libItems().length) { <span class="yt-lib-count">{{ libItems().length }} picture{{ libItems().length === 1 ? '' : 's' }}</span> }
                       </div>
                       <div class="yt-lib-grid" role="listbox" aria-label="Pictures">
                         @for (a of libItems(); track a.id) {
                           <button type="button" role="option" class="yt-lib-item" [class.on]="libPicked()?.id === a.id"
                                   [attr.aria-selected]="libPicked()?.id === a.id" [disabled]="uploading() || libPicking() === a.id"
                                   (click)="pickLibrary(a)" [title]="a.name + (a.from ? ' · ' + a.from : '')">
-                            <img [src]="libThumb(a.id)" alt="" loading="lazy" />
+                            <img [src]="libThumb(a.id)" alt="" loading="lazy" decoding="async" />
                             @if (libPicking() === a.id) { <span class="yt-frame-wait"></span> }
+                            @if (libPicked()?.id === a.id) { <span class="yt-lib-check" aria-hidden="true">✓</span> }
                             <span class="yt-lib-name">{{ a.name }}@if (a.from) {<small>{{ a.from }}</small>}</span>
                           </button>
                         } @empty {
@@ -419,8 +535,6 @@ interface PublishPrefs {
                   }
                 </section>
 
-                </div>
-                <div class="yt-col">
                 <!-- First comment: posted on the video as soon as the upload finishes. -->
                 <section class="yt-field">
                   <div class="yt-field-head">
@@ -440,6 +554,8 @@ interface PublishPrefs {
                   }
                 </section>
 
+                </div>
+                <div class="yt-col">
                 <!-- Related videos: the user's own uploads from AnimStudio, linked at the end of the description. -->
                 <section class="yt-field yt-related">
                   <div class="yt-field-head">
@@ -510,7 +626,61 @@ interface PublishPrefs {
         @if (!loading() && status()?.configured) {
           <footer class="yt-foot">
             <div class="yt-foot-status">
-              @if (upload(); as u) {
+              @if (route() === 'phone' && handoff(); as h) {
+                @switch (h.state) {
+                  @case ('Sending') {
+                    <div class="bar"><div [style.width.%]="h.percent"></div></div>
+                    <p class="yt-muted">Copying to Google Drive{{ h.muted ? ' (without its sound)' : '' }}…
+                      {{ h.bytesSent / 1048576 | number: '1.0-1' }} / {{ h.totalBytes / 1048576 | number: '1.0-1' }} MB ({{ h.percent }}%)
+                      - you can close this window; it carries on.</p>
+                  }
+                  @case ('WaitingForPhone') {
+                    <p class="ok">✓ In your Google Drive: <strong>{{ h.folderName }}</strong> / {{ h.fileName }}
+                      @if (h.driveUrl) { · <a [href]="h.driveUrl" target="_blank" rel="noopener noreferrer">Open in Drive ↗</a> }</p>
+                    <ol class="yt-steps">
+                      <li>On your phone, open the <strong>YouTube</strong> app on <strong>{{ h.channelTitle }}</strong> and tap <strong>＋ → Create a Short</strong>.</li>
+                      <li>Tap the gallery, open <strong>Drive</strong> (or Files → Google Drive) and pick <strong>{{ h.fileName }}</strong>.</li>
+                      <li>Tap <strong>Add sound</strong>, choose the song{{ h.muted ? '' : ', and lower the video\\'s own sound under Volume if you like' }}.</li>
+                      <li>Tap <strong>Next → Upload</strong>. Any title will do.</li>
+                    </ol>
+                    <p class="yt-muted">AnimStudio checks the channel every minute and puts these details on the Short by itself.
+                      @if (h.lastCheckedAt) { Last checked {{ ago(h.lastCheckedAt) === 'today' ? timeOf(h.lastCheckedAt) : ago(h.lastCheckedAt) }}. }</p>
+                  }
+                  @case ('Applied') {
+                    <p class="ok">✓ Details applied to your Short on {{ h.channelTitle }}.
+                      @if (h.videoUrl) { <a [href]="h.videoUrl" target="_blank" rel="noopener noreferrer">Watch ↗</a> · }
+                      @if (h.studioUrl) { <a [href]="h.studioUrl" target="_blank" rel="noopener noreferrer">Open in YouTube Studio ↗</a> }</p>
+                    @if (h.commentPosted) { <p class="yt-muted">💬 First comment posted.</p> }
+                  }
+                  @case ('Expired') {
+                    <p class="yt-warn">No matching Short turned up in time. If you did upload it, pick it below to apply the details.</p>
+                  }
+                  @case ('Failed') { <p class="yt-err">{{ h.error }}</p> }
+                  @case ('Cancelled') { <p class="yt-muted">{{ h.error || 'Stopped. Nothing was changed on YouTube.' }}</p> }
+                }
+                @if (h.warning) { <p class="yt-warn">⚠ {{ h.warning }}</p> }
+                @if (candidates(); as list) {
+                  @if (h.state === 'WaitingForPhone' || h.state === 'Expired') {
+                    @if (list.length) {
+                      <p class="yt-muted">{{ someLikely() ?'More than one new video could be it - pick yours:' : 'New videos on the channel - pick the one you uploaded:' }}</p>
+                      <ul class="yt-rel-list yt-candidates" aria-label="New videos on the channel">
+                        @for (c of list; track c.videoId) {
+                          <li>
+                            <button type="button" class="yt-rel-row" [disabled]="busy()" (click)="applyHandoff(c)" [attr.aria-label]="'Apply the details to ' + c.title">
+                              <img class="yt-rel-thumb" [src]="c.thumbnailUrl || 'https://i.ytimg.com/vi/' + c.videoId + '/mqdefault.jpg'" alt="" loading="lazy" referrerpolicy="no-referrer" />
+                              <span class="yt-rel-text"><strong [title]="c.title">{{ c.title || '(no title)' }}</strong>
+                                <small>{{ c.publishedAt ? timeOf(c.publishedAt) : '' }}{{ c.durationSeconds != null ? ' · ' + clock(c.durationSeconds) : '' }}{{ c.likely ? ' · ✓ same length' : '' }}</small></span>
+                              <span class="yt-rel-add" aria-hidden="true">Use</span>
+                            </button>
+                          </li>
+                        }
+                      </ul>
+                    } @else {
+                      <p class="yt-muted">No new video on {{ h.channelTitle }} yet. YouTube can take a minute to list a fresh upload.</p>
+                    }
+                  }
+                }
+              } @else if (upload(); as u) {
                 @switch (u.state) {
                   @case ('Completed') {
                     <p class="ok">✓ Published to {{ u.channelTitle }} ({{ u.privacy }}).
@@ -545,15 +715,25 @@ interface PublishPrefs {
               @if (reviewing()) {
                 <button type="button" class="secondary" (click)="reviewing.set(false)" [disabled]="busy()">Back to edit</button>
                 <button type="button" (click)="publish()" [disabled]="!canPublish()">
-                  {{ busy() ? 'Starting…' : privacy() === 'private' ? 'Confirm & upload as draft' : 'Confirm & upload' }}
+                  {{ busy() ? 'Starting…' : route() === 'phone' ? 'Confirm & send to Drive' : privacy() === 'private' ? 'Confirm & upload as draft' : 'Confirm & upload' }}
                 </button>
+              } @else if (route() === 'phone' && handoff() && sendingToDrive()) {
+                <button type="button" class="secondary" (click)="cancelHandoff()">Stop copying</button>
+                <button type="button" (click)="closed.emit()">Close</button>
+              } @else if (route() === 'phone' && (handoff()?.state === 'WaitingForPhone' || handoff()?.state === 'Expired')) {
+                @if (handoff()?.state === 'WaitingForPhone') {
+                  <button type="button" class="secondary" (click)="cancelHandoff()" [disabled]="busy()" title="Stop looking for the phone upload">Stop waiting</button>
+                }
+                <button type="button" class="secondary" (click)="checkHandoff()" [disabled]="busy()">{{ checking() ? 'Checking…' : '🔄 Check now' }}</button>
+                <button type="button" (click)="closed.emit()">Close</button>
               } @else if (uploading()) {
                 <button type="button" class="secondary" (click)="cancelUpload()">Cancel upload</button>
                 <button type="button" (click)="closed.emit()">Close</button>
               } @else {
                 <button type="button" class="secondary" (click)="closed.emit()">{{ upload()?.state === 'Completed' ? 'Close' : 'Cancel' }}</button>
                 <button type="button" (click)="review()" [disabled]="!canPublish()">
-                  {{ upload()?.state === 'Completed' ? 'Publish again…' : privacy() === 'private' ? 'Review & upload as draft…' : 'Review & publish…' }}
+                  @if (route() === 'phone') { {{ handoff()?.state === 'Applied' ? 'Send another to phone…' : 'Review & send to phone…' }} }
+                  @else { {{ upload()?.state === 'Completed' ? 'Publish again…' : privacy() === 'private' ? 'Review & upload as draft…' : 'Review & publish…' }} }
                 </button>
               }
             </div>
@@ -594,12 +774,27 @@ interface PublishPrefs {
       background: rgba(255, 61, 61, .07); border: 1px solid rgba(255, 61, 61, .2); }
     .yt-dest-note code { font-size: .8rem; }
 
+    /* Send to phone */
+    .yt-route .yt-dest-icon { font-size: 1rem; }
+    .yt-phone { margin-bottom: .9rem; }
+    .yt-phone .yt-dest-note { margin: 0; }
+    .yt-phone-row { display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap; font-size: .86rem; }
+    .yt-card label.yt-phone-field input { width: 100%; box-sizing: border-box; }
+    .yt-phone-field input.invalid { border-color: #f87171; }
+    .yt-card label.yt-check { display: flex; align-items: flex-start; gap: .5rem; color: inherit; font-size: .86rem; }
+    .yt-check input { margin-top: .2rem; }
+    .yt-check small { display: block; color: var(--muted, #94a3b8); font-size: .76rem; }
+    .yt-err-inline { color: #fca5a5; }
+    .yt-steps { margin: .1rem 0 .2rem; padding-left: 1.3rem; display: grid; gap: .15rem; font-size: .85rem; }
+    .yt-candidates { max-height: 180px; }
+
     .yt-body { flex: 1 1 auto; overflow: auto; padding: 1rem 1.25rem; }
     .yt-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 1rem;
       padding: .75rem 1.25rem; border-top: 1px solid var(--border, rgba(148, 163, 184, .2));
       background: color-mix(in srgb, var(--surface-2, #1e293b) 55%, var(--surface, #0f172a)); }
     .yt-foot-status { min-width: 0; flex: 1 1 auto; display: grid; gap: .25rem; }
     .yt-foot-status p { margin: 0; }
+    .yt-foot-status { max-height: 40vh; overflow: auto; }
     .yt-actions { display: flex; gap: .5rem; flex: none; }
 
     .yt-grid { display: grid; grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); gap: 1.4rem; align-items: start; }
@@ -689,7 +884,9 @@ interface PublishPrefs {
     .yt-thumb-preview.over { border-color: #ff3d3d; box-shadow: 0 0 0 3px rgba(255, 61, 61, .25); }
     .yt-thumb-badge { position: absolute; left: 6px; bottom: 6px; padding: .1rem .45rem; border-radius: 4px; font-size: .7rem;
       background: rgba(0, 0, 0, .72); color: #fff; }
-    .yt-frames { display: grid; grid-template-columns: repeat(3, 1fr); gap: .35rem; }
+    /* Tiles clip (overflow: hidden), which lets the grid shrink auto rows to nothing to fit a max-height,
+       and the pictures end up stacked over each other. max-content rows keep each tile its full height. */
+    .yt-frames { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: max-content; gap: .4rem; }
     .yt-frame { position: relative; padding: 0; aspect-ratio: 16 / 9; border-radius: 6px; overflow: hidden; cursor: pointer;
       border: 2px solid transparent; background: #0b1220; }
     .yt-frame:hover:not(:disabled) { border-color: rgba(255, 61, 61, .55); box-shadow: none; }
@@ -708,17 +905,26 @@ interface PublishPrefs {
     .yt-lib-search { flex: 1 1 120px; min-width: 0; box-sizing: border-box; padding: .3rem .55rem; border-radius: 7px; font: inherit; font-size: .8rem;
       border: 1px solid rgba(148, 163, 184, .25); background: rgba(2, 6, 23, .55); color: inherit; }
     .yt-lib-search:focus { outline: none; border-color: #ff3d3d; box-shadow: 0 0 0 2px rgba(255, 61, 61, .2); }
-    .yt-lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: .35rem;
-      max-height: 232px; overflow: auto; padding: 2px; }
-    .yt-lib-item { position: relative; padding: 0; aspect-ratio: 16 / 10; border-radius: 6px; overflow: hidden; cursor: pointer;
-      border: 2px solid transparent; background: #0b1220; }
-    .yt-lib-item:hover:not(:disabled) { border-color: rgba(255, 61, 61, .55); box-shadow: none; }
-    .yt-lib-item.on { border-color: #ff3d3d; }
+    .yt-lib-count { flex: none; font-size: .72rem; color: var(--muted, #94a3b8); font-variant-numeric: tabular-nums; }
+    .yt-lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); grid-auto-rows: max-content;
+      align-content: start; gap: .45rem; max-height: 300px; overflow-y: auto; overflow-x: hidden; padding: 3px;
+      border-radius: 8px; background: rgba(2, 6, 23, .35); scrollbar-width: thin; overscroll-behavior: contain; }
+    .yt-lib-item { position: relative; padding: 0; aspect-ratio: 16 / 9; border-radius: 6px; overflow: hidden; cursor: pointer;
+      border: 2px solid transparent; background: #0b1220; transition: border-color .12s, transform .12s; }
+    .yt-lib-item:hover:not(:disabled) { border-color: rgba(255, 61, 61, .55); box-shadow: none; transform: translateY(-1px); }
+    .yt-lib-item:focus-visible { outline: 2px solid #ff3d3d; outline-offset: 1px; }
+    .yt-lib-item.on { border-color: #ff3d3d; box-shadow: 0 0 0 2px rgba(255, 61, 61, .3); }
     .yt-lib-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
-    .yt-lib-name { position: absolute; inset: auto 0 0 0; display: grid; padding: .5rem .3rem .15rem; text-align: left;
-      font-size: .64rem; line-height: 1.2; color: #fff; background: linear-gradient(transparent, rgba(0, 0, 0, .85));
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .yt-lib-name small { font-size: .6rem; opacity: .7; overflow: hidden; text-overflow: ellipsis; }
+    /* Names only on hover / focus / the picked one, so the grid reads as pictures, not a wall of text. */
+    .yt-lib-name { position: absolute; inset: auto 0 0 0; display: grid; padding: .6rem .35rem .2rem; text-align: left;
+      font-size: .66rem; font-weight: 500; line-height: 1.25; color: #fff; background: linear-gradient(transparent, rgba(0, 0, 0, .88));
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0; transition: opacity .12s; pointer-events: none; }
+    .yt-lib-item:hover .yt-lib-name, .yt-lib-item:focus-visible .yt-lib-name, .yt-lib-item.on .yt-lib-name { opacity: 1; }
+    @media (hover: none) { .yt-lib-name { opacity: 1; } }
+    .yt-lib-name small { font-size: .6rem; opacity: .75; overflow: hidden; text-overflow: ellipsis; }
+    .yt-lib-check { position: absolute; top: 4px; right: 4px; width: 1.15rem; height: 1.15rem; border-radius: 50%;
+      display: grid; place-items: center; background: #ff3d3d; color: #fff; font-size: .68rem; font-weight: 700;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, .5); }
     .yt-lib-none { grid-column: 1 / -1; padding: .8rem .4rem; text-align: center; }
     .yt-thumb-badge { max-width: calc(100% - 12px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; box-sizing: border-box; }
     .yt-review-thumb { width: 220px; max-width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 6px; display: block; }
@@ -767,45 +973,95 @@ interface PublishPrefs {
     .yt-err { color: #fca5a5; font-size: .9rem; margin: 0; }
     .yt-warn { color: #fcd34d; font-size: .85rem; margin: 0; }
 
-    .yt-review { max-width: 860px; margin: 0 auto; }
-    .yt-review dl { display: grid; gap: .5rem; margin: .75rem 0; }
-    .yt-review dl div { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: .75rem; }
-    @media (max-width: 560px) { .yt-review dl div { grid-template-columns: 1fr; gap: .1rem; } }
-    .yt-review dt { color: var(--muted, #94a3b8); font-size: .85rem; }
-    .yt-review dd { margin: 0; overflow-wrap: anywhere; }
-    .yt-review pre { margin: 0; white-space: pre-wrap; font: inherit; max-height: 40vh; overflow: auto;
-      background: rgba(148, 163, 184, .08); padding: .5rem .6rem; border-radius: 6px; }
+    /* Review: the video and its thumbnail on one side, where it goes and what viewers read on the
+       other. One column on phones; the panes spread out as the screen widens. */
+    .yt-review { max-width: 1180px; margin: 0 auto; display: grid; gap: .75rem; }
+    .yt-review-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
+    .yt-review-media { display: grid; gap: .65rem; align-content: start; min-width: 0; }
+    .yt-review-main { display: grid; gap: .9rem; align-content: start; min-width: 0; }
+    .yt-review-card { gap: .6rem; }
+    .yt-review dl { display: grid; gap: .45rem; margin: 0; }
+    .yt-review dl div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: .75rem; }
+    .yt-review dt { color: var(--muted, #94a3b8); font-size: .84rem; }
+    .yt-review dd { margin: 0; overflow-wrap: anywhere; font-size: .9rem; }
+    .yt-review .yt-facts { display: flex; gap: .3rem 1rem; }
+    .yt-review .yt-facts div { display: flex; gap: .3rem; }
+    .yt-review pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: .88rem; line-height: 1.5;
+      max-height: 40vh; overflow: auto; background: rgba(2, 6, 23, .35); padding: .55rem .7rem; border-radius: 6px; }
+    .yt-review-thumb-box { display: grid; gap: .35rem; }
+    .yt-review-thumb { width: 100%; max-width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 6px; display: block; }
+    .yt-review-thumb.vertical { aspect-ratio: 9 / 16; width: auto; max-height: 280px; justify-self: start; }
+    .yt-review-title { font-size: 1.05rem; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
+    .yt-review-block { display: grid; gap: .3rem; min-width: 0; }
+    .yt-review-key { font-size: .78rem; color: var(--muted, #94a3b8); font-weight: 600; }
+    .yt-review-tags { display: flex; flex-wrap: wrap; gap: .3rem; }
+    .yt-review-tags span { font-size: .78rem; padding: .12rem .55rem; border-radius: 999px; background: rgba(108, 140, 255, .16);
+      overflow-wrap: anywhere; }
+    .yt-review .yt-stage video { max-height: 46vh; }
+    @media (min-width: 900px) {
+      .yt-review-grid { grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); }
+      .yt-review-media { position: sticky; top: 0; }
+      .yt-review .yt-stage.vertical video { max-height: 52vh; }
+    }
+    @media (max-width: 560px) {
+      .yt-review dl div { grid-template-columns: 1fr; gap: .1rem; }
+      .yt-review .yt-stage.vertical video { max-height: 52vh; }
+      .yt-review-thumb.vertical { max-height: 220px; }
+    }
 
     /* Single column by default: the wrappers vanish and the sections sit in .yt-form's own grid. */
     .yt-form-cols, .yt-col { display: contents; }
 
     /* Wide and ultra-wide screens: use the room - a bigger dialog, a roomier left column, and the
-       words split in two (title / description / tags | first comment / related videos). */
+       words split in two (title / description / tags / first comment | related videos). */
     @media (min-width: 1600px) {
       .yt-dialog { width: min(1560px, 100%); max-height: 1100px; }
       .yt-grid { grid-template-columns: minmax(340px, 420px) minmax(0, 1fr); gap: 1.75rem; }
       .yt-stage video { max-height: 38vh; }
+      .yt-lib-grid { max-height: 340px; }
+      .yt-review { max-width: 1480px; }
+      .yt-review-grid { grid-template-columns: minmax(320px, 420px) minmax(0, 1fr); gap: 1.5rem; }
     }
     @media (min-width: 2000px) {
       .yt-dialog { width: min(2240px, calc(100vw - 96px)); max-height: 1240px; }
       .yt-body { padding: 1.25rem 1.75rem; }
-      .yt-grid { grid-template-columns: minmax(380px, 480px) minmax(0, 1fr); }
+      .yt-grid { grid-template-columns: minmax(420px, 540px) minmax(0, 1fr); }
       .yt-form-cols { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 1.5rem; align-items: start; }
       .yt-col { display: grid; gap: 1rem; align-content: start; min-width: 0; }
       .yt-field textarea { min-height: 300px; }
       .yt-rel-list { max-height: 460px; }
-      .yt-lib-grid { max-height: 320px; }
+      .yt-lib-grid { max-height: 400px; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+      /* Review uses the whole width: video | where it goes | what viewers see. */
+      .yt-review { max-width: none; }
+      .yt-review-grid { grid-template-columns: minmax(400px, 520px) minmax(0, 1fr); gap: 1.75rem; }
+      .yt-review-main { grid-template-columns: minmax(320px, .75fr) minmax(0, 1.5fr); gap: 1.25rem; align-items: start; }
+      .yt-review pre { max-height: 62vh; }
+      .yt-review-thumb.vertical { max-height: 360px; }
     }
     @media (min-width: 2000px) and (min-height: 1200px) {
       .yt-dialog { max-height: 1400px; }
       .yt-field textarea { min-height: 380px; }
     }
+    /* 32:9 and wider (5120px+): don't stretch lines past reading width. */
+    @media (min-width: 3200px) {
+      .yt-dialog { width: min(2880px, calc(100vw - 160px)); }
+      .yt-review-grid { grid-template-columns: minmax(480px, 640px) minmax(0, 1fr); }
+    }
 
+    /* Mobile browsers' toolbars eat into 100vh; dvh keeps the footer's buttons on screen. */
+    .yt-dialog { height: calc(100dvh - 32px); }
     @media (max-width: 640px) {
       .yt-backdrop { padding: 0; }
-      .yt-dialog { height: 100vh; max-height: none; border-radius: 0; }
-      .yt-foot { flex-direction: column; align-items: stretch; }
-      .yt-actions { justify-content: flex-end; }
+      .yt-dialog { height: 100vh; height: 100dvh; max-height: none; border-radius: 0; border: 0; }
+      .yt-head { padding: .7rem 1rem; }
+      .yt-body { padding: .85rem 1rem; }
+      .yt-foot { flex-direction: column; align-items: stretch; padding: .7rem 1rem max(.7rem, env(safe-area-inset-bottom)); }
+      .yt-foot-status { max-height: 25vh; }
+      .yt-actions { justify-content: stretch; }
+      .yt-actions > * { flex: 1; min-height: 42px; }
+      .yt-row { grid-template-columns: 1fr; }
+      .yt-frames.vertical { grid-template-columns: repeat(3, 1fr); }
+      .yt-thumb-preview.vertical { height: 240px; }
     }
   `],
 })
@@ -1031,17 +1287,43 @@ export class YouTubePublishDialogComponent implements OnInit {
     const comment = this.firstComment().trim();
     if (comment.length > this.maxCommentLength) list.push({ field: 'firstComment', code: 'comment-too-long', message: `The first comment is over ${this.maxCommentLength} characters.` });
     if (comment && this.selectedChannel() && !this.selectedChannel()!.canComment) list.push({ field: 'firstComment', code: 'youtube-comment-scope', message: 'Reconnect the channel to post the first comment, or leave it empty.' });
+    if (this.route() === 'phone') {
+      const drive = this.drive();
+      if (!drive?.connected) list.push({ field: 'drive', code: 'drive-not-connected', message: 'Connect Google Drive to send the video to your phone.' });
+      else if (drive.needsReconnect) list.push({ field: 'drive', code: 'drive-reconnect', message: 'Google Drive needs to be connected again.' });
+      if (!isValidDriveFolderName(this.folderName().trim())) list.push({ field: 'folderName', code: 'drive-folder-invalid', message: 'Use a Drive folder name of letters, digits, spaces and - _ . ( ) &.' });
+      // Putting the details on the phone upload needs the same permission as comments.
+      if (this.selectedChannel() && !this.selectedChannel()!.canComment) list.push({ field: 'channelId', code: 'youtube-edit-scope', message: 'Reconnect the channel so AnimStudio can fill in the phone upload\'s details.' });
+    }
     for (const e of this.serverErrors()) if (!list.some((x) => x.code === e.code)) list.push(e);
     return list;
   });
 
-  readonly canPublish = computed(() => !this.busy() && !this.suggesting() && !this.uploading() && this.problems().length === 0);
+  readonly canPublish = computed(() => !this.busy() && !this.suggesting() && !this.uploading() && !this.sendingToDrive()
+    && this.problems().length === 0);
+
+  // --- send to phone ---
+
+  /** Upload from here, or send to Drive for the YouTube app, where a Shorts sound is licensed. */
+  readonly route = signal<YouTubeUploadRoute>('direct');
+  readonly drive = signal<GoogleDriveStatus | null>(null);
+  /** The Drive folder for this send; starts as the Drive's default. */
+  readonly folderName = signal('');
+  readonly muteAudio = signal(false);
+  readonly handoff = signal<PhoneHandoff | null>(null);
+  /** The channel's new uploads from the last "Check now"; null until one has run. */
+  readonly candidates = signal<PhoneUploadCandidate[] | null>(null);
+  readonly checking = signal(false);
+  readonly sendingToDrive = computed(() => this.handoff()?.state === 'Sending');
+  readonly someLikely = computed(() => (this.candidates() ?? []).some((c) => c.likely));
+  private handoffPoll: ReturnType<typeof setTimeout> | null = null;
 
   private pollHandle: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     inject(DestroyRef).onDestroy(() => {
       this.stopPolling();
+      this.stopHandoffPoll();
       for (const url of this.frameUrls.values()) URL.revokeObjectURL(url);
     });
     // Other projects are searched on the server; a newer query cancels the one in flight.
@@ -1080,9 +1362,23 @@ export class YouTubePublishDialogComponent implements OnInit {
       uploads: this.api.uploads(this.jobId()),
       // The picker is optional: a failure here leaves it empty rather than blocking publishing.
       videos: this.api.videos().pipe(catchError(() => of([] as YouTubePublication[]))),
+      // Send to phone is optional too: without these the dialog still uploads directly.
+      drive: this.isRelease() ? of(null) : this.api.driveStatus().pipe(catchError(() => of(null))),
+      handoffs: this.isRelease() ? of([] as PhoneHandoff[]) : this.api.handoffs(this.jobId()).pipe(catchError(() => of([] as PhoneHandoff[]))),
     }).subscribe({
-      next: ({ status, draft, uploads, videos }) => {
+      next: ({ status, draft, uploads, videos, drive, handoffs }) => {
         const prefs = this.readPrefs();
+        this.drive.set(drive ?? { connected: false, accountName: null, accountEmail: null, folderName: 'AnimStudio Shorts', connectedAt: null, needsReconnect: false });
+        this.folderName.set(this.drive()!.folderName);
+        this.muteAudio.set(prefs.muteAudio ?? false);
+        if (!this.isRelease() && prefs.route === 'phone') this.route.set('phone');
+        // Reattach to a send of this render that is still copying or waiting for the phone upload.
+        const pending = handoffs.find((h) => isHandoffActive(h) || h.state === 'Expired');
+        if (pending) {
+          this.route.set('phone');
+          this.handoff.set(pending);
+          this.pollHandoff(pending.id);
+        }
         this.status.set(status);
         this.videos.set(videos);
         this.draft.set(draft);
@@ -1491,6 +1787,10 @@ export class YouTubePublishDialogComponent implements OnInit {
     this.error.set(null);
     this.serverErrors.set([]);
     this.savePrefs();
+    if (this.route() === 'phone') {
+      this.sendToPhone();
+      return;
+    }
 
     this.api.publish(this.jobId(), this.channelId(), {
       title: this.title().trim(),
@@ -1516,6 +1816,183 @@ export class YouTubePublishDialogComponent implements OnInit {
         this.busy.set(false);
       },
     });
+  }
+
+  // --- send to phone ---
+
+  setRoute(route: YouTubeUploadRoute): void {
+    if (this.uploading() || this.sendingToDrive() || this.isRelease()) return;
+    this.route.set(route);
+    this.error.set(null);
+    this.serverErrors.set([]);
+  }
+
+  connectDrive(): void {
+    this.busy.set(true);
+    this.error.set(null);
+    // Coming back lands on the same page, which reopens this dialog; remember to show the phone route.
+    this.route.set('phone');
+    this.savePrefs();
+    this.api.startDriveConnect(this.returnPath()).subscribe({
+      next: (url) => {
+        // Only ever leave the app for Google's own sign-in page.
+        if (!url.startsWith('https://accounts.google.com/')) {
+          this.error.set('The server returned an unexpected sign-in address.');
+          this.busy.set(false);
+          return;
+        }
+        window.location.assign(url);
+      },
+      error: (e: Error) => {
+        this.error.set(e.message);
+        this.busy.set(false);
+      },
+    });
+  }
+
+  disconnectDrive(): void {
+    if (!confirm('Disconnect Google Drive? Videos already there stay in your Drive.')) return;
+    this.busy.set(true);
+    this.api.disconnectDrive().subscribe({
+      next: () => {
+        this.drive.update((d) => d && { ...d, connected: false, accountName: null, accountEmail: null, needsReconnect: false });
+        this.busy.set(false);
+      },
+      error: (e: Error) => {
+        this.error.set(e.message);
+        this.busy.set(false);
+      },
+    });
+  }
+
+  /** Makes the folder typed here the Drive's default for later sends. */
+  saveDefaultFolder(): void {
+    const name = this.folderName().trim();
+    if (!isValidDriveFolderName(name)) return;
+    this.busy.set(true);
+    this.api.setDriveFolder(name).subscribe({
+      next: (d) => {
+        this.drive.set(d);
+        this.busy.set(false);
+      },
+      error: (e: Error) => {
+        this.error.set(e.message);
+        this.busy.set(false);
+      },
+    });
+  }
+
+  private sendToPhone(): void {
+    this.candidates.set(null);
+    this.api.sendToPhone(this.jobId(), {
+      channelId: this.channelId(),
+      metadata: {
+        title: this.title().trim(),
+        description: this.description().trim(),
+        tags: this.tags(),
+        categoryId: this.categoryId(),
+        privacy: this.privacy(),
+        madeForKids: this.madeForKids(),
+        // The phone upload has already notified subscribers (or not); this can't change it.
+        notifySubscribers: false,
+      },
+      relatedVideoIds: this.relatedSelected().map((v) => v.videoId),
+      firstComment: this.firstComment().trim() || null,
+      folderName: this.folderName().trim() || null,
+      muteAudio: this.muteAudio(),
+    }).subscribe({
+      next: (h) => {
+        this.handoff.set(h);
+        this.reviewing.set(false);
+        this.busy.set(false);
+        this.pollHandoff(h.id);
+      },
+      error: (e: Error & { code?: string }) => {
+        this.error.set(e.message);
+        if (e.code === 'drive-reconnect') this.drive.update((d) => d && { ...d, needsReconnect: true });
+        if (e.code === 'youtube-reconnect') this.markNeedsReconnect();
+        this.busy.set(false);
+      },
+    });
+  }
+
+  /** Asks the channel now; applies the details if exactly one new video fits, else lists them to pick. */
+  checkHandoff(): void {
+    const h = this.handoff();
+    if (!h || this.checking()) return;
+    this.checking.set(true);
+    this.busy.set(true);
+    this.error.set(null);
+    this.api.checkHandoff(h.id).subscribe({
+      next: ({ handoff, candidates }) => {
+        this.handoff.set(handoff);
+        this.candidates.set(candidates);
+        this.checking.set(false);
+        this.busy.set(false);
+      },
+      error: (e: Error) => {
+        this.error.set(e.message);
+        this.checking.set(false);
+        this.busy.set(false);
+      },
+    });
+  }
+
+  applyHandoff(candidate: PhoneUploadCandidate): void {
+    const h = this.handoff();
+    if (!h || this.busy()) return;
+    if (!candidate.likely && !confirm(`Put this video's details on "${candidate.title || candidate.videoId}"? Its title, description and settings will be replaced.`)) return;
+    this.busy.set(true);
+    this.error.set(null);
+    this.api.applyHandoff(h.id, candidate.videoId).subscribe({
+      next: (applied) => {
+        this.handoff.set(applied);
+        this.candidates.set(null);
+        this.busy.set(false);
+      },
+      error: (e: Error) => {
+        this.error.set(e.message);
+        this.busy.set(false);
+      },
+    });
+  }
+
+  cancelHandoff(): void {
+    const h = this.handoff();
+    if (!h) return;
+    this.api.cancelHandoff(h.id).subscribe({
+      next: (updated) => this.handoff.set(updated),
+      error: (e: Error) => this.error.set(e.message),
+    });
+  }
+
+  /** "14:32", for when a check ran or a video went up today. */
+  timeOf(iso: string): string {
+    const t = new Date(iso);
+    return Number.isFinite(t.getTime()) ? t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+  }
+
+  /** Quick while copying; while waiting, the server does the checking, so this only reads the saved state. */
+  private pollHandoff(id: string): void {
+    this.stopHandoffPoll();
+    const h = this.handoff();
+    if (!h || !isHandoffActive(h)) return;
+    this.handoffPoll = setTimeout(() => {
+      this.api.handoff(id).subscribe({
+        next: (updated) => {
+          this.handoff.set(updated);
+          if (updated.state !== 'WaitingForPhone') this.candidates.set(null);
+          this.pollHandoff(id);
+        },
+        // A blip while polling isn't the send failing; try again a little later.
+        error: () => this.pollHandoff(id),
+      });
+    }, h.state === 'Sending' ? 1500 : 15000);
+  }
+
+  private stopHandoffPoll(): void {
+    if (this.handoffPoll !== null) clearTimeout(this.handoffPoll);
+    this.handoffPoll = null;
   }
 
   cancelUpload(): void {
@@ -1580,6 +2057,8 @@ export class YouTubePublishDialogComponent implements OnInit {
         categoryId: this.isMusic() ? this.videoCategory() : this.categoryId(),
         privacy: this.privacy(),
         madeForKids: this.madeForKids() ?? undefined,
+        route: this.route(),
+        muteAudio: this.muteAudio(),
       };
       localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
     } catch {

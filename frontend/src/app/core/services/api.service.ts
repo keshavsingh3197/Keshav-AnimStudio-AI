@@ -8,7 +8,7 @@ import {
   AdminAccess, AdminAuditEntry, AdminHealth, AdminJob, AdminProviderBody, AdminProviders,
   AdminProviderTest, AdminUsage, AiCapabilities, ApiResponse, Asset, AssetSearchOptions, AssetSearchResult, BundleApplyBody,
   VoiceoverBody, VoiceoverVoices, MyVoice, VoiceScriptDictation, VoiceScriptPolish, MediaTranscript,
-  BundleImportResult, BundlePreview, Character, CharacterBody, ClipMergeBody, ClipOrder,
+  BundleImportResult, BundlePreview, Character, CharacterBody, AutoShortsBody, ClipMergeBody, ClipOrder,
   ClipStudio, CreateProjectBody,
   CreateSceneBody, DialogueBody, IngestCapabilities, IngestResult, IngestSummary,
   PlacementBody, Project, RenderJob, ExportTimelineFormat, RendererStatus, Scene, SceneAudioBody, SceneDetail,
@@ -606,6 +606,12 @@ export class ApiService {
   }
 
   /** Bulk delete, because a bulk import is routinely followed by a bulk mistake. */
+  /** Plans and queues a batch of shorts; one render job per short. */
+  autoShorts(projectId: string, body: AutoShortsBody): Observable<RenderJob[]> {
+    return this.unwrap(this.http.post<ApiResponse<RenderJob[]>>(
+      `${this.base}/api/projects/${projectId}/clips/auto-shorts`, body));
+  }
+
   deleteClips(projectId: string, assetIds: string[]): Observable<number> {
     return this.unwrap(this.http.post<ApiResponse<number>>(
       `${this.base}/api/projects/${projectId}/clips/delete`, { assetIds }));

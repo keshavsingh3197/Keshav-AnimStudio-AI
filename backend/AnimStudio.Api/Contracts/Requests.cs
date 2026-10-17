@@ -616,6 +616,51 @@ public sealed record ClipMergeRequest
     public List<ClipSlotRequest>? Slots { get; init; }
 }
 
+/// <summary>
+/// A batch of different shorts cut automatically from chosen clips, pictures and lines.
+/// Ids are checked against the project server-side; the bounds here only stop an
+/// oversized request before it is read any further.
+/// </summary>
+public sealed record AutoShortsRequest
+{
+    [Required, MinLength(1), MaxLength(AutoShortPlanner.MaxSources)]
+    public List<string> SourceAssetIds { get; init; } = [];
+
+    /// <summary>Hooks and captions, one per entry; dealt out at random across the batch.</summary>
+    [MaxLength(AutoShortPlanner.MaxLines)]
+    public List<string> Lines { get; init; } = [];
+
+    /// <summary>Music beds; each short takes one, rotating through them.</summary>
+    [MaxLength(AutoShortPlanner.MaxMusic)]
+    public List<string> MusicAssetIds { get; init; } = [];
+
+    [Range(1, AutoShortPlanner.MaxCount)] public int Count { get; init; } = 3;
+
+    [Range(AutoShortPlanner.MinTargetSeconds, AutoShortPlanner.MaxTargetSeconds)]
+    public double TargetSeconds { get; init; } = 30;
+
+    [EnumDataType(typeof(AutoShortStyle))] public AutoShortStyle Style { get; init; } = AutoShortStyle.Mixed;
+    [EnumDataType(typeof(AutoShortTextMode))] public AutoShortTextMode TextMode { get; init; } = AutoShortTextMode.Hook;
+
+    public bool Transitions { get; init; } = true;
+    public bool Motion { get; init; } = true;
+    public bool KeepClipAudio { get; init; } = true;
+
+    [StringLength(180)] public string? ExportName { get; init; }
+
+    [Range(360, 3840)] public int Width { get; init; } = 1080;
+    [Range(360, 3840)] public int Height { get; init; } = 1920;
+
+    [EnumDataType(typeof(ClipFit))] public ClipFit Fit { get; init; } = ClipFit.BlurredBackdrop;
+    [EnumDataType(typeof(ExportQuality))] public ExportQuality Quality { get; init; } = ExportQuality.High;
+
+    public WatermarkRequest Watermark { get; init; } = new();
+    public bool IncludeOutro { get; init; }
+
+    /// <summary>Same seed, same batch. Null draws a fresh one.</summary>
+    public int? Seed { get; init; }
+}
+
 public sealed record TimelineItemTextStyleRequest
 {
     /// <summary>Pixels on a frame whose short side is 360; scaled to the real canvas.</summary>

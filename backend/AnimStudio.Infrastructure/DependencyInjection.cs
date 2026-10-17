@@ -131,6 +131,8 @@ public static class DependencyInjection
             services.AddScoped<ILiveStreamKeyRepository, SqlLiveStreamKeyRepository>();
             services.AddScoped<IYouTubeConnectionRepository, SqlYouTubeConnectionRepository>();
             services.AddScoped<IYouTubePublicationRepository, SqlYouTubePublicationRepository>();
+            services.AddScoped<IGoogleDriveConnectionRepository, SqlGoogleDriveConnectionRepository>();
+            services.AddScoped<IPhoneHandoffRepository, SqlPhoneHandoffRepository>();
             services.AddScoped<IVoiceProfileRepository, SqlVoiceProfileRepository>();
             services.AddScoped<IWebSettingRepository, SqlWebSettingRepository>();
             services.AddScoped<IPromptTemplateRepository, SqlPromptTemplateRepository>();
@@ -166,6 +168,8 @@ public static class DependencyInjection
             services.AddScoped<ILiveStreamKeyRepository, MongoLiveStreamKeyRepository>();
             services.AddScoped<IYouTubeConnectionRepository, MongoYouTubeConnectionRepository>();
             services.AddScoped<IYouTubePublicationRepository, MongoYouTubePublicationRepository>();
+            services.AddScoped<IGoogleDriveConnectionRepository, MongoGoogleDriveConnectionRepository>();
+            services.AddScoped<IPhoneHandoffRepository, MongoPhoneHandoffRepository>();
             services.AddScoped<IVoiceProfileRepository, MongoVoiceProfileRepository>();
             services.AddScoped<IWebSettingRepository, MongoWebSettingRepository>();
             services.AddScoped<IPromptTemplateRepository, MongoPromptTemplateRepository>();
@@ -322,6 +326,16 @@ public static class DependencyInjection
             sp.GetRequiredService<ILogger<YouTubeVideoStatusClient>>()));
         services.AddScoped<YouTubePublicationService>();
         services.AddHostedService<YouTubeHealthMonitor>();
+
+        // Send to phone: the render goes to the user's Google Drive, they upload it from the
+        // YouTube app (adding a licensed Shorts sound), and the prepared details are put on it.
+        services.AddSingleton(sp => new GoogleDriveClient(
+            sp.GetRequiredService<ILogger<GoogleDriveClient>>()));
+        services.AddSingleton(sp => new YouTubeChannelVideosClient(
+            sp.GetRequiredService<ILogger<YouTubeChannelVideosClient>>()));
+        services.AddScoped<GoogleDriveConnectionStore>();
+        services.AddSingleton<PhoneHandoffManager>();
+        services.AddHostedService(sp => sp.GetRequiredService<PhoneHandoffManager>());
 
         // The YouTube page: subscriber/view counts per channel and per video, cached briefly.
         services.AddSingleton(sp => new YouTubeStatsClient(

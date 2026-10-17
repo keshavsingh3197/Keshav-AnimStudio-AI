@@ -435,6 +435,28 @@ public sealed class SqlDatabaseInitializer(
             CREATE INDEX IX_YouTubePublications_Check ON YouTubePublications (LastCheckedAt, PublishedAt);
         END;
 
+        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'GoogleDriveConnections')
+        BEGIN
+            CREATE TABLE GoogleDriveConnections (
+                Id NVARCHAR(200) NOT NULL PRIMARY KEY,
+                DataJson NVARCHAR(MAX) NOT NULL
+            );
+        END;
+
+        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'PhoneHandoffs')
+        BEGIN
+            CREATE TABLE PhoneHandoffs (
+                Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+                UserId NVARCHAR(200) NOT NULL,
+                JobId NVARCHAR(64) NOT NULL,
+                State INT NOT NULL,
+                CreatedAt DATETIME2 NOT NULL,
+                DataJson NVARCHAR(MAX) NOT NULL
+            );
+            CREATE INDEX IX_PhoneHandoffs_User ON PhoneHandoffs (UserId, JobId, CreatedAt DESC);
+            CREATE INDEX IX_PhoneHandoffs_State ON PhoneHandoffs (State, CreatedAt);
+        END;
+
         IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'VoiceProfiles')
         BEGIN
             CREATE TABLE VoiceProfiles (

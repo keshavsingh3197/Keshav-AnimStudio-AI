@@ -211,6 +211,79 @@ export function isUploadFinished(upload: YouTubeUpload): boolean {
   return upload.state === 'Completed' || upload.state === 'Failed' || upload.state === 'Cancelled';
 }
 
+// ------------------------------------------------------------------ send to phone
+
+/** How the video reaches YouTube: uploaded from here, or sent to Drive for the YouTube app (Shorts sounds). */
+export type YouTubeUploadRoute = 'direct' | 'phone';
+
+/** The Google Drive connected for "send to phone". Never the token. */
+export interface GoogleDriveStatus {
+  connected: boolean;
+  accountName: string | null;
+  accountEmail: string | null;
+  folderName: string;
+  connectedAt: string | null;
+  needsReconnect: boolean;
+}
+
+export type PhoneHandoffState = 'Sending' | 'WaitingForPhone' | 'Applied' | 'Failed' | 'Cancelled' | 'Expired';
+
+/** A video sent to Drive, waiting for its upload from the YouTube app to get the prepared details. */
+export interface PhoneHandoff {
+  id: string;
+  jobId: string;
+  projectId: string;
+  channelId: string;
+  channelTitle: string;
+  title: string;
+  state: PhoneHandoffState;
+  percent: number;
+  bytesSent: number;
+  totalBytes: number;
+  folderName: string;
+  fileName: string | null;
+  driveUrl: string | null;
+  muted: boolean;
+  errorCode: string | null;
+  error: string | null;
+  warning: string | null;
+  createdAt: string;
+  sentAt: string | null;
+  lastCheckedAt: string | null;
+  expiresAt: string | null;
+  videoId: string | null;
+  videoUrl: string | null;
+  studioUrl: string | null;
+  appliedAt: string | null;
+  commentPosted: boolean;
+}
+
+/** One of the channel's new uploads, offered as the phone upload; `likely` when its length matches. */
+export interface PhoneUploadCandidate {
+  videoId: string;
+  title: string;
+  publishedAt: string | null;
+  durationSeconds: number | null;
+  privacyStatus: string | null;
+  thumbnailUrl: string | null;
+  likely: boolean;
+}
+
+export interface PhoneHandoffCheck {
+  handoff: PhoneHandoff;
+  candidates: PhoneUploadCandidate[];
+}
+
+/** Still moving: being copied, or waiting for the phone upload to turn up. */
+export function isHandoffActive(h: PhoneHandoff): boolean {
+  return h.state === 'Sending' || h.state === 'WaitingForPhone';
+}
+
+/** Same rule as the server: letters (any script), digits, spaces and - _ . ( ) &. */
+export function isValidDriveFolderName(name: string): boolean {
+  return name.length > 0 && name.length <= 100 && name.trim() === name && /^[\p{L}\p{M}\p{N} _.\-()&]+$/u.test(name);
+}
+
 /** YouTube counts tags as typed: comma-joined, with quotes around any tag containing a space. */
 export function youTubeTagsLength(tags: string[]): number {
   return tags.reduce((sum, t) => sum + t.length + (t.includes(' ') ? 2 : 0), 0) + Math.max(0, tags.length - 1);

@@ -1,0 +1,181 @@
+<div class="as-backdrop" (click)="submitting() || close()"></div>
+<div class="as-dialog" role="dialog" aria-modal="true" aria-labelledby="as-title">
+  <header class="as-head">
+    <div class="as-title">
+      <h3 id="as-title">🎲 Auto Shorts</h3>
+      <p class="as-sub">Pick clips, pictures and lines once - get several different shorts, each cut to length with motion, transitions and text.</p>
+    </div>
+    <button class="as-close" type="button" (click)="close()" [disabled]="submitting()" aria-label="Close">&times;</button>
+  </header>
+
+  @if (queued(); as jobs) {
+    <div class="as-done">
+      <div class="as-done-icon" aria-hidden="true">✅</div>
+      <h4>{{ jobs.length }} short{{ jobs.length === 1 ? '' : 's' }} rendering</h4>
+      <p>They render one after another in the background. You can close this and keep editing - each one shows in the activity panel, and lands on the Render page ready to download or publish.</p>
+      <ul class="as-job-list">
+        @for (job of jobs; track job.jobId) {
+          <li><span class="as-job-name">{{ job.name || 'Short' }}</span><span class="as-job-status">{{ job.status }}</span></li>
+        }
+      </ul>
+      <div class="as-done-actions">
+        <a class="as-btn" [routerLink]="['/projects', jobs[0].projectId, 'render']" (click)="close()">Open Render page</a>
+        <button class="as-btn as-btn-cta" type="button" (click)="queued.set(null)">Make another batch</button>
+      </div>
+    </div>
+  } @else {
+    <div class="as-body">
+      <!-- What the shorts are cut from -->
+      <section class="as-sources" aria-label="Clips and pictures">
+        <div class="as-section-head">
+          <h4>1 · Clips &amp; pictures <span class="as-count">{{ pickedClips().length }} picked</span></h4>
+          <div class="as-tools">
+            <input class="as-search" type="search" placeholder="Search…" [ngModel]="query()" (ngModelChange)="query.set($event)" aria-label="Search clips" />
+            <div class="as-seg" role="group" aria-label="Show">
+              <button type="button" [class.on]="filter() === 'all'" (click)="filter.set('all')">All</button>
+              <button type="button" [class.on]="filter() === 'video'" (click)="filter.set('video')">Videos</button>
+              <button type="button" [class.on]="filter() === 'image'" (click)="filter.set('image')">Pictures</button>
+            </div>
+            <button class="as-link" type="button" (click)="pickVisible(true)">Pick shown</button>
+            <button class="as-link" type="button" (click)="pickVisible(false)">Clear shown</button>
+          </div>
+        </div>
+
+        @if (sources().length === 0) {
+          <p class="as-empty">Upload some clips or pictures to the library first.</p>
+        } @else {
+          <div class="as-grid">
+            @for (c of visible(); track idOf(c)) {
+              <button type="button" class="as-tile" [class.on]="isPicked(c)" (click)="toggle(c)"
+                      [attr.aria-pressed]="isPicked(c)" [title]="c.name">
+                <img [src]="thumb(c)" alt="" loading="lazy" />
+                <span class="as-tile-kind">{{ kindOf(c) === 'video' ? '🎬' : '🖼' }}</span>
+                @if (formatDuration(c); as d) { <span class="as-tile-dur">{{ d }}</span> }
+                <span class="as-tile-check" aria-hidden="true">✓</span>
+                <span class="as-tile-name">{{ c.name }}</span>
+              </button>
+            }
+          </div>
+        }
+        <p class="as-hint">{{ pickedVideos() }} videos · {{ pickedImages() }} pictures. Every pick is used across the batch before any repeats; videos show a different moment each time.</p>
+      </section>
+
+      <!-- How the shorts are cut -->
+      <section class="as-options" aria-label="Options">
+        <h4>2 · How many, how long</h4>
+        <div class="as-row">
+          <label class="as-label" for="as-count">Shorts</label>
+          <div class="as-chips">
+            @for (n of counts; track n) {
+              <button type="button" class="as-chip" [class.on]="count() === n" (click)="setCount(n)">{{ n }}</button>
+            }
+            <input id="as-count" class="as-num" type="number" min="1" [max]="maxCount" [ngModel]="count()" (ngModelChange)="setCount($event)" />
+          </div>
+        </div>
+        <div class="as-row">
+          <label class="as-label" for="as-secs">Length</label>
+          <div class="as-chips">
+            @for (d of durations; track d) {
+              <button type="button" class="as-chip" [class.on]="seconds() === d" (click)="setSeconds(d)">{{ d }}s</button>
+            }
+            <input id="as-secs" class="as-num" type="number" [min]="minSeconds" [max]="maxSeconds" [ngModel]="seconds()" (ngModelChange)="setSeconds($event)" />
+          </div>
+        </div>
+        <div class="as-row">
+          <span class="as-label">Format</span>
+          <div class="as-chips">
+            @for (f of formats; track f.id) {
+              <button type="button" class="as-chip" [class.on]="formatId() === f.id" (click)="formatId.set(f.id)">{{ f.label }}</button>
+            }
+          </div>
+        </div>
+
+        <h4>3 · Style</h4>
+        <div class="as-styles">
+          @for (s of styles; track s) {
+            <button type="button" class="as-style" [class.on]="style() === s" (click)="style.set(s)">
+              <span class="as-style-icon" aria-hidden="true">{{ styleHints[s].icon }}</span>
+              <span class="as-style-name">{{ s }}</span>
+              <span class="as-style-hint">{{ styleHints[s].hint }}</span>
+            </button>
+          }
+        </div>
+        <div class="as-toggles">
+          <label><input type="checkbox" [ngModel]="motion()" (ngModelChange)="motion.set($event)" /> Camera moves &amp; looks on pictures</label>
+          <label><input type="checkbox" [ngModel]="transitions()" (ngModelChange)="transitions.set($event)" /> Transitions between shots</label>
+        </div>
+
+        <h4>4 · Script lines <span class="as-count">{{ lines().length }}</span></h4>
+        <textarea class="as-lines" rows="5" [ngModel]="linesText()" (ngModelChange)="linesText.set($event)"
+                  placeholder="One line per row - hooks, captions, quotes. Each short gets different lines at random.&#10;Wait till the end 😮&#10;3 things nobody tells you&#10;Watch this before you go"></textarea>
+        <div class="as-chips">
+          @for (m of textModes; track m.id) {
+            <button type="button" class="as-chip" [class.on]="textMode() === m.id" (click)="textMode.set(m.id)"
+                    [disabled]="lines().length === 0 && m.id !== 'None'">{{ m.label }}</button>
+          }
+        </div>
+
+        <h4>5 · Sound</h4>
+        @if (musicOptions().length === 0) {
+          <p class="as-hint">No music in this project yet - the shorts keep their clips' own sound.</p>
+        } @else {
+          <p class="as-hint">Pick one or more beds; the shorts rotate through them.</p>
+          <div class="as-music">
+            @for (m of musicOptions(); track m.id) {
+              <label class="as-music-item" [class.on]="musicIds().has(m.id)">
+                <input type="checkbox" [checked]="musicIds().has(m.id)" (change)="toggleMusic(m.id)" />
+                <span>{{ m.name }}</span>
+              </label>
+            }
+          </div>
+        }
+        <div class="as-toggles">
+          <label><input type="checkbox" [ngModel]="keepClipAudio()" (ngModelChange)="keepClipAudio.set($event)" /> Keep clips' own sound under the music</label>
+        </div>
+
+        <details class="as-more">
+          <summary>More options</summary>
+          <div class="as-row">
+            <label class="as-label" for="as-name">Name</label>
+            <input id="as-name" class="as-text" type="text" maxlength="160" [ngModel]="name()" (ngModelChange)="name.set($event)" />
+          </div>
+          <div class="as-row">
+            <span class="as-label">Framing</span>
+            <div class="as-chips">
+              <button type="button" class="as-chip" [class.on]="fit() === 'BlurredBackdrop'" (click)="fit.set('BlurredBackdrop')">Blurred fill</button>
+              <button type="button" class="as-chip" [class.on]="fit() === 'Cover'" (click)="fit.set('Cover')">Crop to fill</button>
+              <button type="button" class="as-chip" [class.on]="fit() === 'Contain'" (click)="fit.set('Contain')">Fit with bars</button>
+            </div>
+          </div>
+          <div class="as-row">
+            <span class="as-label">Quality</span>
+            <div class="as-chips">
+              <button type="button" class="as-chip" [class.on]="quality() === 'Fast'" (click)="quality.set('Fast')">Fast</button>
+              <button type="button" class="as-chip" [class.on]="quality() === 'High'" (click)="quality.set('High')">High</button>
+              <button type="button" class="as-chip" [class.on]="quality() === 'Best'" (click)="quality.set('Best')">Best</button>
+            </div>
+          </div>
+          <div class="as-toggles">
+            <label><input type="checkbox" [ngModel]="watermark()" (ngModelChange)="watermark.set($event)" /> Watermark</label>
+            <label><input type="checkbox" [ngModel]="outro()" (ngModelChange)="outro.set($event)" /> End card</label>
+          </div>
+        </details>
+      </section>
+    </div>
+
+    <footer class="as-foot">
+      <div class="as-summary">
+        <strong>{{ count() }} × {{ seconds() }}s</strong>
+        <span>{{ format().label }} · {{ runTime(totalSeconds()) }} of video in all</span>
+        @if (state.status.error(); as err) { <span class="as-error" role="alert">{{ err }}</span> }
+        @else if (blocked(); as why) { <span class="as-warn">{{ why }}</span> }
+      </div>
+      <div class="as-foot-actions">
+        <button class="as-btn" type="button" (click)="close()" [disabled]="submitting()">Cancel</button>
+        <button class="as-btn as-btn-cta" type="button" (click)="create()" [disabled]="blocked() !== null || submitting()">
+          {{ submitting() ? 'Planning…' : 'Create ' + count() + ' short' + (count() === 1 ? '' : 's') }}
+        </button>
+      </div>
+    </footer>
+  }
+</div>

@@ -270,6 +270,40 @@ public sealed class ClipsController(
     }
 
     /// <summary>
+    /// Cuts several different shorts from the chosen clips, pictures and lines in one go,
+    /// each landing on the asked length with motion, transitions and text applied. Every
+    /// short is its own job, so they render, download and publish independently.
+    /// </summary>
+    [HttpPost("api/projects/{projectId}/clips/auto-shorts")]
+    public async Task<ActionResult<ApiResponse<List<RenderJobResponse>>>> AutoShorts(
+        string projectId, [FromBody] AutoShortsRequest request, CancellationToken ct)
+    {
+        var jobs = await clips.QueueAutoShortsAsync(projectId, new AutoShortsCommand
+        {
+            SourceAssetIds = request.SourceAssetIds,
+            Lines = request.Lines,
+            MusicAssetIds = request.MusicAssetIds,
+            Count = request.Count,
+            TargetSeconds = request.TargetSeconds,
+            Style = request.Style,
+            TextMode = request.TextMode,
+            Transitions = request.Transitions,
+            Motion = request.Motion,
+            KeepClipAudio = request.KeepClipAudio,
+            ExportName = request.ExportName,
+            Width = request.Width,
+            Height = request.Height,
+            Fit = request.Fit,
+            Quality = request.Quality,
+            Watermark = request.Watermark.ToSettings(),
+            IncludeOutro = request.IncludeOutro,
+            Seed = request.Seed,
+        }, ct);
+
+        return Accepted(ApiResponse<List<RenderJobResponse>>.Ok([.. jobs.Select(j => j.ToResponse())]));
+    }
+
+    /// <summary>
     /// Deletes several clips in one call.
     /// <para>
     /// Exists because a bulk drag-and-drop import is routinely followed by a bulk mistake -

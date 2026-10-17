@@ -40,26 +40,40 @@ public sealed class YouTubeOAuthStateCache(TimeProvider clock)
 
     private readonly ConcurrentDictionary<string, Pending> _pending = new(StringComparer.Ordinal);
 
-    public sealed record Pending(string UserId, string CodeVerifier, string ReturnPath, DateTime ExpiresAt);
+    public sealed record Pending(string UserId, string CodeVerifier, string ReturnPath, DateTime ExpiresAt, string Kind = ChannelKind);
 
-    public (string State, string CodeChallenge) Create(string userId, string returnPath)
+    /// <summary>A sign-in that connects a YouTube channel.</summary>
+    public const string ChannelKind = "youtube";
+
+    /// <summary>
+    /// A sign-in that connects a Google Drive. Its state starts with <see cref="DriveStatePrefix"/>,
+    /// so the one callback page Google returns to knows which API to hand the code to.
+    /// </summary>
+    public const string DriveKind = "drive";
+
+    public const string DriveStatePrefix = "drive.";
+
+    public (string State, string CodeChallenge) Create(string userId, string returnPath, string kind = ChannelKind)
     {
         Prune();
         if (_pending.Count >= MaxPending)
             throw new YouTubePublishException("youtube-busy", "Too many sign-ins are in progress. Try again in a few minutes.");
 
-        var state = Base64Url(RandomNumberGenerator.GetBytes(32));
+        var state = (kind == DriveKind ? DriveStatePrefix : string.Empty) + Base64Url(RandomNumberGenerator.GetBytes(32));
         var verifier = Base64Url(RandomNumberGenerator.GetBytes(48));
-        _pending[state] = new Pending(userId, verifier, returnPath, clock.GetUtcNow().UtcDateTime + Lifetime);
+        _pending[state] = new Pending(userId, verifier, returnPath, clock.GetUtcNow().UtcDateTime + Lifetime, kind);
 
         return (state, Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(verifier))));
     }
 
-    /// <summary>The pending sign-in for this state, removed so it can't be used twice - or null if unknown, expired or someone else's.</summary>
-    public Pending? Take(string state, string userId)
+    /// <summary>
+    /// The pending sign-in for this state, removed so it can't be used twice - or null if
+    /// unknown, expired, someone else's, or started for the other kind of connection.
+    /// </summary>
+    public Pending? Take(string state, string userId, string kind = ChannelKind)
     {
         if (!_pending.TryRemove(state, out var pending)) return null;
-        if (pending.ExpiresAt < clock.GetUtcNow().UtcDateTime) return null;
+        if (pending.ExpiresAt < clock.GetUtcNow().UtcDateTime || pending.Kind != kind) return null;
         return CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(pending.UserId), Encoding.UTF8.GetBytes(userId))
             ? pending
             : null;
@@ -124,7 +138,7 @@ public sealed partial class YouTubeConnectionStore(
         string userId, string? code, string? state, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(state) || state.Length > 128
-            || pending.Take(state, userId) is not { } started)
+            || pending.Take(state, userId, YouTubeOAuthStateCache.ChannelKind) is not { } started)
         {
             throw new YouTubePublishException("youtube-state-invalid",
                 "This sign-in link has expired or was already used. Start connecting the channel again.");

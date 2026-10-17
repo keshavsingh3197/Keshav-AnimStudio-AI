@@ -175,6 +175,11 @@
             title="Turn still pictures into a cinematic video - camera moves, colour looks and lens effects, no AI video needed">
       🎞 Photo Story
     </button>
+    <button class="hdr-btn" type="button" (click)="state.autoShortsOpen.set(true)"
+            [disabled]="state.blockedReason() !== null"
+            title="Make several different shorts at once from chosen clips, pictures and lines - shuffled, cut to length, animated">
+      🎲 Auto Shorts
+    </button>
     <button class="hdr-btn hdr-btn-cta" type="button"
             (click)="state.openExportModal()"
             [disabled]="state.status.busy() || state.uploading() || state.sideUpload() !== null || state.running() || state.blockedReason() !== null">
