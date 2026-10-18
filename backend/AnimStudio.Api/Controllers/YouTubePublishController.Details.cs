@@ -307,7 +307,7 @@ public sealed partial class YouTubePublishController
                     new ApiError("video-not-found", "That video isn't on this channel.")));
 
             var jpeg = source == YouTubeThumbnailSource.Frame
-                ? await thumbnails.FrameAsync(await RenderPreviewFile.EnsureAsync(store, job!, ct), frameAt, YouTubeThumbnailRules.TargetWidth, ct)
+                ? await thumbnails.FrameAsync(await RenderPreviewFile.EnsureAsync(store, dataPaths, job!, ct), frameAt, YouTubeThumbnailRules.TargetWidth, ct)
                 : await thumbnails.NormalizeAsync(image!, ct);
 
             var refused = await uploader.SetThumbnailAsync(videoId, jpeg,

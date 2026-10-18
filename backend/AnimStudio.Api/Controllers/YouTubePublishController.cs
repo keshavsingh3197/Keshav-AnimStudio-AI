@@ -4,6 +4,7 @@ using AnimStudio.Api.Security;
 using AnimStudio.Application.Abstractions.Ai;
 using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Abstractions.Storage;
+using AnimStudio.Infrastructure.Storage;
 using AnimStudio.Application.Admin;
 using AnimStudio.Application.Ai;
 using AnimStudio.Application.Clips;
@@ -52,6 +53,7 @@ public sealed partial class YouTubePublishController(
     ReleaseKitStore releaseKits,
     IAuthorizationService authorization,
     IObjectStore store,
+    AppDataPaths dataPaths,
     YouTubeThumbnailService thumbnails,
     ILogger<YouTubePublishController> logger) : ControllerBase
 {
@@ -369,7 +371,7 @@ public sealed partial class YouTubePublishController(
     {
         var job = await LoadOwnedJobAsync(jobId, ct);
 
-        return await QueueUploadAsync(request, Facts(job), token => RenderPreviewFile.EnsureAsync(store, job, token), "render", (connection, metadata, related, firstComment) => new YouTubeUploadRequest(
+        return await QueueUploadAsync(request, Facts(job), token => RenderPreviewFile.EnsureAsync(store, dataPaths, job, token), "render", (connection, metadata, related, firstComment) => new YouTubeUploadRequest(
             currentUser.UserId,
             job.Id,
             job.OutputStorageKey!,
@@ -489,7 +491,7 @@ public sealed partial class YouTubePublishController(
     {
         var job = await LoadOwnedJobAsync(jobId, ct);
         if (job.OutputStorageKey is null) throw new KeyNotFoundException();
-        return await FrameResultAsync(await RenderPreviewFile.EnsureAsync(store, job, ct), at, Facts(job).DurationSeconds, width, ct);
+        return await FrameResultAsync(await RenderPreviewFile.EnsureAsync(store, dataPaths, job, ct), at, Facts(job).DurationSeconds, width, ct);
     }
 
     private async Task<IActionResult> FrameResultAsync(string videoPath, double at, double? duration, int? width, CancellationToken ct)

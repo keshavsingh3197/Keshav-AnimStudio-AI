@@ -1,5 +1,6 @@
 using AnimStudio.Application.Abstractions.Storage;
 using AnimStudio.Domain.Jobs;
+using AnimStudio.Infrastructure.Storage;
 
 namespace AnimStudio.Api.Common;
 
@@ -7,14 +8,20 @@ namespace AnimStudio.Api.Common;
 /// A finished render staged once to a local file. <see cref="IObjectStore"/> streams are
 /// forward-only, but in-page playback needs range requests and ffmpeg needs to seek for a
 /// thumbnail frame, so both read this copy. The caller has already checked ownership.
+/// <para>
+/// The copies live under <see cref="AppDataPaths.PreviewCache"/> - not the OS temp folder,
+/// which nothing ever trimmed, so every previewed render stayed on the system drive for
+/// good. <c>RenderWorkspaceJanitor</c> evicts entries by age and total size; a hit bumps
+/// the file's write time so a video still being watched is not the first to go.
+/// </para>
 /// </summary>
 public static class RenderPreviewFile
 {
-    public static async Task<string> EnsureAsync(IObjectStore store, RenderJob job, CancellationToken ct)
+    public static async Task<string> EnsureAsync(IObjectStore store, AppDataPaths paths, RenderJob job, CancellationToken ct)
     {
         if (job.OutputStorageKey is null) throw new KeyNotFoundException();
 
-        var cacheDirectory = Path.Combine(Path.GetTempPath(), "animstudio-preview");
+        var cacheDirectory = paths.PreviewCache;
         Directory.CreateDirectory(cacheDirectory);
 
         // Job ids are server-generated; the file name is never taken from the client's text.
@@ -40,6 +47,17 @@ public static class RenderPreviewFile
             finally
             {
                 if (File.Exists(staging)) File.Delete(staging);
+            }
+        }
+        else
+        {
+            try
+            {
+                File.SetLastWriteTimeUtc(cached, DateTime.UtcNow);
+            }
+            catch (IOException)
+            {
+                // Another request is serving it; the eviction order is only a hint.
             }
         }
 

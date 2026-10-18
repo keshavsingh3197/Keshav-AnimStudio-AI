@@ -108,6 +108,12 @@ public sealed class RenderOptions
     public int ClipCacheMaxGigabytes { get; set; } = 20;
 
     /// <summary>
+    /// Size the render preview cache (seekable copies of finished renders) is trimmed back
+    /// to, oldest-used first. Entries unused for <see cref="WorkspaceRetentionHours"/> go too.
+    /// </summary>
+    public int PreviewCacheMaxGigabytes { get; set; } = 10;
+
+    /// <summary>
     /// Render jobs run side by side. Each stitch shares the cores out by this number, so a
     /// second job mostly fills the gaps the first leaves (probing, uploads, the single-threaded
     /// join) rather than doubling the load. Held to 1-8.

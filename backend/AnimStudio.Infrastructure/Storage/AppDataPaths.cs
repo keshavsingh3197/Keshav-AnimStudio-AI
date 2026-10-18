@@ -36,6 +36,9 @@ public sealed class AppDataPaths
     public string Temp => Path.Combine(Root, "temp");
     public string Screenshots => Path.Combine(Root, "screenshots");
 
+    /// <summary>Seekable local copies of finished renders, trimmed by the render janitor.</summary>
+    public string PreviewCache => Path.Combine(Root, "preview-cache");
+
     public static AppDataPaths Resolve(IConfiguration configuration, string contentRoot)
     {
         var objects = ResolvePath(configuration["Storage:LocalRoot"] is { Length: > 0 } l ? l : "App_Data/files", contentRoot);
