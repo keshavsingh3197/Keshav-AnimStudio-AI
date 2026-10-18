@@ -20,17 +20,33 @@
         @if (cutMenuOpen()) {
           <div class="cut-backdrop" (click)="cutMenuOpen.set(false)"></div>
           <div class="cut-menu" role="menu">
-            <div class="cut-menu-title">This project's videos</div>
-            @for (e of state.projectEdits(); track e.id) {
+            <div class="cut-menu-title">
+              This project's videos
+              @if (notUploadedCount() > 0) {
+                <span class="cut-menu-count" title="Videos not on YouTube yet">· {{ notUploadedCount() }} not on YouTube</span>
+              }
+            </div>
+            @for (e of editsByNumber(); track e.id) {
+              @let b = badge(e);
               <a class="cut-item" role="menuitem" [class.active]="e.id === state.currentEdit()?.id"
                  [routerLink]="[]" [queryParams]="{ edit: e.id }" queryParamsHandling="merge"
                  (click)="cutMenuOpen.set(false)">
                 <span class="cut-fmt" [class]="'cut-fmt fmt-' + e.format.toLowerCase()">{{ fmtLabel(e.format) }}</span>
-                <span class="cut-item-name">{{ e.name }}</span>
+                <span class="cut-num" title="Order in this project">#{{ e.number }}</span>
+                <span class="cut-item-name" [title]="e.name">{{ e.name }}</span>
+                <span [class]="'cut-status st-' + b.kind" [title]="b.title">{{ b.label }}</span>
                 <span class="cut-item-dur">{{ duration(e.durationSeconds) }}</span>
               </a>
             }
             <div class="cut-menu-sep"></div>
+            <button type="button" class="cut-item cut-action"
+                    (click)="cutMenuOpen.set(false); state.transferDialogMode.set('import')">
+              ⇣ Bring in clips, audio or text from another video…
+            </button>
+            <button type="button" class="cut-item cut-action"
+                    (click)="cutMenuOpen.set(false); state.transferDialogMode.set('create')">
+              ✂ New video from part of this one (choose what to include)…
+            </button>
             <a class="cut-item cut-action" [routerLink]="['/projects', state.store.projectId(), 'videos']"
                [queryParams]="{ create: 1, from: state.currentEdit()?.id }" (click)="cutMenuOpen.set(false)">
               + New video or Short from this one…
@@ -103,6 +119,10 @@
     <button class="hdr-btn" type="button" [disabled]="!state.hasUnsavedChanges()" (click)="state.saveDraft()" title="Save draft (Ctrl+S)">
       <span class="hdr-icon">💾</span> Save
     </button>
+    <button class="hdr-btn" type="button" (click)="state.transferDialogMode.set('import')"
+            title="Bring clips, music, voice, images or text in from another video - of this project or another">
+      ⇣ Import
+    </button>
     <a [routerLink]="['/projects', state.store.projectId(), 'media-tools']" [queryParams]="{ tab: 'chunker' }" style="text-decoration:none">
       <button class="hdr-btn" type="button">Chunk Video</button>
     </a>
@@ -150,6 +170,16 @@
         📊 Diagnostics
       </button>
     }
+    <button class="hdr-btn" type="button" (click)="state.photoStoryOpen.set(true)"
+            [disabled]="state.running() || state.blockedReason() !== null"
+            title="Turn still pictures into a cinematic video - camera moves, colour looks and lens effects, no AI video needed">
+      🎞 Photo Story
+    </button>
+    <button class="hdr-btn" type="button" (click)="state.autoShortsOpen.set(true)"
+            [disabled]="state.blockedReason() !== null"
+            title="Make several different shorts at once from chosen clips, pictures and lines - shuffled, cut to length, animated">
+      🎲 Auto Shorts
+    </button>
     <button class="hdr-btn hdr-btn-cta" type="button"
             (click)="state.openExportModal()"
             [disabled]="state.status.busy() || state.uploading() || state.sideUpload() !== null || state.running() || state.blockedReason() !== null">

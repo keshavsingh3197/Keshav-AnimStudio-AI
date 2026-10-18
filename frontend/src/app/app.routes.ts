@@ -92,7 +92,21 @@ export const routes: Routes = [
           import('./features/media-tools/media-tools.component')
             .then((m) => m.MediaToolsComponent),
       },
+      {
+        path: 'music',
+        title: 'Music - AnimStudio AI',
+        loadComponent: () =>
+          import('./features/music/music-library.component')
+            .then((m) => m.MusicLibraryComponent),
+      },
     ],
+  },
+
+  {
+    path: 'shorts',
+    title: 'Shorts - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/shorts/shorts-page.component').then((m) => m.ShortsPageComponent),
   },
 
   {
@@ -109,6 +123,22 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./features/release-kit/release-kit.component')
         .then((m) => m.ReleaseKitComponent),
+  },
+
+  {
+    path: 'youtube',
+    title: 'YouTube - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/youtube/youtube-dashboard.component')
+        .then((m) => m.YouTubeDashboardComponent),
+  },
+
+  {
+    path: 'youtube/checkup',
+    title: 'Video details checkup - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/youtube/youtube-checkup.component')
+        .then((m) => m.YouTubeCheckupComponent),
   },
 
   {

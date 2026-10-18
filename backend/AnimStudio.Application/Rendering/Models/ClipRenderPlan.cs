@@ -92,11 +92,37 @@ public sealed record ClipRenderPlan
     /// <summary>How a clip shaped differently from the canvas is fitted to it.</summary>
     public ClipFit Fit { get; init; } = ClipFit.Contain;
 
+    /// <summary>
+    /// Six hex digits the <see cref="ClipFit.Contain"/> bars are filled with. Validated
+    /// before it gets here: it is written straight into the pad filter.
+    /// </summary>
+    public string PadColorRgb { get; init; } = "000000";
+
     /// <summary>True when the source is an image asset requiring looped frame generation.</summary>
     public bool SourceIsImage { get; init; }
 
+    /// <summary>
+    /// A slot in the running order: no source at all, just <see cref="PadColorRgb"/> for
+    /// <see cref="ImageDurationSeconds"/> with the watermark and silence, for a slotted image
+    /// or title to be drawn into at the join. Set together with <see cref="SourceIsImage"/>,
+    /// whose fixed-length output it shares; <see cref="SourceRelativePath"/> is ignored.
+    /// </summary>
+    public bool SourceIsBlank { get; init; }
+
     /// <summary>Duration in seconds for an image clip (default 5.0 seconds).</summary>
     public double ImageDurationSeconds { get; init; } = 5.0;
+
+    /// <summary>
+    /// Image clips only: camera motion, grade and lens finish over the still. Null holds the
+    /// still as the static frame it always was.
+    /// </summary>
+    public CinematicImageSettings? Cinematic { get; init; }
+
+    /// <summary>
+    /// The still is worked on at this multiple of the canvas before its motion, so a slow
+    /// move steps by sub-pixels instead of visibly juddering. Same lever as a scene's.
+    /// </summary>
+    public int MotionSupersample { get; init; } = 2;
 
     /// <summary>Optional trim start in-point on the video source.</summary>
     public double? TrimStartSeconds { get; init; }
@@ -164,6 +190,12 @@ public sealed record ClipRenderPlan
     /// silent or muted - there is then nothing to keep.
     /// </summary>
     public bool KeepOwnAudio { get; init; }
+
+    /// <summary>
+    /// Blanks the picture to <see cref="PadColorRgb"/> and keeps only the sound - "use this
+    /// clip's audio, not its video". Timing, trims and freezes are unchanged.
+    /// </summary>
+    public bool HideVideo { get; init; }
 
     public WatermarkPlan? Watermark { get; init; }
 
@@ -236,7 +268,14 @@ public sealed record EndCardPlan(
     string? QrRelativePath,
     int BoxX, int BoxY, int BoxSize, int QrSize,
     IReadOnlyList<EndCardLine> Lines,
-    double FadeInSeconds = 0);
+    double FadeInSeconds = 0)
+{
+    /// <summary>
+    /// Bring the pieces in one after another - headline down from above, code and small
+    /// text up from below - rather than all at once. False on plans built before it existed.
+    /// </summary>
+    public bool Animate { get; init; }
+}
 
 /// <summary>
 /// One line of an end card. The font is per line because it is per SCRIPT: a Latin face

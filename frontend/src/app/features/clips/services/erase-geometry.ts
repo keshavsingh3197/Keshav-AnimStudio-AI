@@ -8,8 +8,9 @@ export interface EraseRect { x: number; y: number; width: number; height: number
  * EraseRegionSpec.Outer() so the preview fades exactly where the export does.
  */
 export function eraseOuter(r: EraseRegion): EraseRect {
-  // A fill is a plain drawbox in the export: hard-edged, never grown.
-  const feather = r.style === 'Fill' ? 0 : r.feather ?? ERASE_DEFAULT_FEATHER;
+  // A fill is a plain drawbox in the export, and a clean box is rebuilt from its own
+  // edges, which already meet the footage seamlessly: neither is grown.
+  const feather = r.style === 'Fill' || r.style === 'Clean' ? 0 : r.feather ?? ERASE_DEFAULT_FEATHER;
   const mx = (r.width * feather) / 200;
   const my = (r.height * feather) / 200;
   const x = Math.max(0, r.x - mx);

@@ -5,6 +5,7 @@ using AnimStudio.Application.Abstractions.Rendering;
 using AnimStudio.Application.Abstractions.Storage;
 using AnimStudio.Application.Clips;
 using AnimStudio.Application.Projects;
+using AnimStudio.Application.Rendering;
 using AnimStudio.Application.Security;
 using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Projects;
@@ -25,6 +26,7 @@ public sealed class RenderController(
     ProjectStatusService status,
     ICurrentUser currentUser,
     TimeProvider clock,
+    Microsoft.Extensions.Options.IOptionsMonitor<AnimStudio.Infrastructure.Ffmpeg.RenderOptions> renderOptions,
     ILogger<RenderController> logger) : ControllerBase
 {
     /// <summary>Queues a render. Long-running, so it returns a job to poll.</summary>
@@ -57,18 +59,22 @@ public sealed class RenderController(
         var jobWidth = project?.Settings.Width ?? 1920;
         var jobHeight = project?.Settings.Height ?? 1080;
         var targetFormat = (jobWidth < jobHeight) ? "Short" : (jobWidth == jobHeight ? "Square" : "Video");
+        var createdAt = clock.GetUtcNow().UtcDateTime;
+        var renderNumber = (await jobs.ListByProjectAsync(projectId, ct)).Count + 1;
 
         var job = new RenderJob
         {
             ProjectId = projectId,
             UserId = currentUser.UserId,
+            Name = RenderJobNaming.Expand(renderOptions.CurrentValue.JobNameTemplate, new RenderNameContext(
+                project?.Name, targetFormat, AspectLabel(jobWidth, jobHeight), jobWidth, jobHeight, renderNumber, createdAt)),
             Status = RenderJobStatus.Pending,
             ScenesTotal = sceneList.Count,
             Message = "Queued",
             Width = jobWidth,
             Height = jobHeight,
             TargetFormat = targetFormat,
-            CreatedAt = clock.GetUtcNow().UtcDateTime
+            CreatedAt = createdAt
         };
 
         await jobs.InsertAsync(job, ct);
@@ -96,6 +102,29 @@ public sealed class RenderController(
 
         var list = await jobs.ListByProjectAsync(projectId, ct);
         return Ok(ApiResponse<IReadOnlyList<RenderJobResponse>>.Ok([.. list.Select(Mappings.ToResponse)]));
+    }
+
+    /// <summary>Renames a finished render; the name shows on screen and names the download.</summary>
+    [HttpPatch("api/render-jobs/{jobId}")]
+    public async Task<ActionResult<ApiResponse<RenderJobResponse>>> Rename(
+        string jobId, [FromBody] RenameRenderJobRequest? request, CancellationToken ct)
+    {
+        var job = await LoadOwnedJobAsync(jobId, ct);
+
+        var name = RenderJobNaming.Normalize(request?.Name);
+        if (name is null)
+            return BadRequest(ApiResponse<RenderJobResponse>.Fail("Give the render a name.",
+                new ApiError("name-missing", "Give the render a name.", Field: "name")));
+        if ((request!.Name ?? string.Empty).Trim().Length > RenderJobNaming.MaxLength)
+            return BadRequest(ApiResponse<RenderJobResponse>.Fail($"Keep the name under {RenderJobNaming.MaxLength} characters.",
+                new ApiError("name-too-long", $"Keep the name under {RenderJobNaming.MaxLength} characters.", Field: "name")));
+
+        if (!job.IsTerminal || !await jobs.RenameAsync(jobId, name, ct))
+            return Conflict(ApiResponse<RenderJobResponse>.Fail("Rename it once the render has finished.",
+                new ApiError("job-still-running", "Rename it once the render has finished.", Field: "name")));
+
+        job.Name = name;
+        return Ok(ApiResponse<RenderJobResponse>.Ok(job.ToResponse()));
     }
 
     [HttpPost("api/render-jobs/{jobId}/cancel")]
@@ -195,12 +224,16 @@ public sealed class RenderController(
     /// portable across filesystems rather than about escaping.
     /// </para>
     /// <para>
-    /// A clip export carries the name of the Short/Video it was built from, and that name
-    /// wins as-is: the file is called what the person called the cut, not the project.
+    /// The render's own name wins first (the configurable default, or what the user renamed
+    /// it to), then a clip export's Short/Video name: the file is called what the person
+    /// called the cut, not the project.
     /// </para>
     /// </summary>
     private static string DownloadName(RenderJob job, Project? project, string jobId)
     {
+        if (ReadableName(job.Name) is { } renderName)
+            return $"{renderName}.mp4";
+
         if (ReadableName(job.ClipMerge?.ExportName) is { } exportName)
             return $"{exportName}.mp4";
 
@@ -292,31 +325,7 @@ public sealed class RenderController(
     {
         var job = await LoadOwnedJobAsync(jobId, ct);
 
-        if (job.OutputStorageKey is null)
-            throw new KeyNotFoundException();
-
-        var cacheDirectory = Path.Combine(Path.GetTempPath(), "animstudio-preview");
-        Directory.CreateDirectory(cacheDirectory);
-
-        var cached = Path.Combine(cacheDirectory, $"{jobId}.mp4");
-
-        if (!System.IO.File.Exists(cached)
-            || new FileInfo(cached).Length != (job.OutputSizeBytes ?? -1))
-        {
-            await using var source = await store.OpenAsync(job.OutputStorageKey, ct)
-                ?? throw new KeyNotFoundException();
-
-            // Written to a temp name first so a concurrent request never reads a half file.
-            var staging = cached + ".partial";
-            await using (var file = new FileStream(staging, FileMode.Create, FileAccess.Write,
-                FileShare.None, 1 << 20, useAsync: true))
-            {
-                await source.CopyToAsync(file, 1 << 20, ct);
-            }
-
-            System.IO.File.Move(staging, cached, overwrite: true);
-        }
-
+        var cached = await RenderPreviewFile.EnsureAsync(store, job, ct);
         return PhysicalFile(cached, "video/mp4", enableRangeProcessing: true);
     }
 
@@ -338,4 +347,15 @@ public sealed class RenderController(
 
         return job;
     }
+
+    /// <summary>"16:9", "9:16", "1:1" - reduced by the greatest common divisor.</summary>
+    private static string AspectLabel(int width, int height)
+    {
+        if (width <= 0 || height <= 0) return "16:9";
+        int a = width, b = height;
+        while (b != 0) (a, b) = (b, a % b);
+        return $"{width / a}:{height / a}";
+    }
 }
+
+public sealed record RenameRenderJobRequest(string? Name);

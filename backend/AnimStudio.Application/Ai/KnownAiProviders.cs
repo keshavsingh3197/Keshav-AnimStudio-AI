@@ -10,7 +10,6 @@ namespace AnimStudio.Application.Ai;
 public enum AiProviderFamily
 {
     OpenAiCompatibleText = 1,
-    GeminiText = 2,
     PollinationsImage = 3,
     CloudflareWorkersAiImage = 4,
     HuggingFaceImage = 5,
@@ -18,7 +17,9 @@ public enum AiProviderFamily
     PiperSpeech = 7,
     OpenAiCompatibleTts = 8,
     WhisperCppTranscription = 9,
-    OpenAiCompatibleAsr = 10
+    OpenAiCompatibleAsr = 10,
+    /// <summary>A signed-in command-line agent on this machine (Claude Code, Copilot CLI).</summary>
+    LocalCliText = 12
 }
 
 /// <summary>
@@ -41,8 +42,17 @@ public sealed record AiProviderDescriptor(
     string FreeTierNote,
     string? KeyUrl,
     string LicenseClass = "Unknown",
-    int? DefaultDailyRequestLimit = null)
+    int? DefaultDailyRequestLimit = null,
+    IReadOnlyList<AiModelChoice>? Models = null)
 {
+    /// <summary>
+    /// Whether a model may be asked for per request: one this catalogue offers, or the one the
+    /// operator configured. Anything else is refused - a model name reaches a request path.
+    /// </summary>
+    public bool Allows(string model, string? configuredModel) =>
+        (Models ?? []).Any(m => string.Equals(m.Id, model, StringComparison.Ordinal))
+        || string.Equals(model, configuredModel, StringComparison.Ordinal);
+
     /// <summary>
     /// A provider on this machine needs no key; a hosted one does. Derived rather than
     /// declared, so a local endpoint can never be configured to send a key over the wire.
@@ -51,6 +61,9 @@ public sealed record AiProviderDescriptor(
 
     public AiProviderId ProviderId => AiProviderId.Parse(Id);
 }
+
+/// <summary>A model a user may pick per request, with a label that says what it trades.</summary>
+public sealed record AiModelChoice(string Id, string Label);
 
 /// <summary>
 /// The catalogue of providers this build can actually construct.
@@ -63,11 +76,11 @@ public sealed record AiProviderDescriptor(
 public static class KnownAiProviders
 {
     public const string Groq = "groq";
+    public const string Gemini = "gemini";
     public const string OpenRouter = "openrouter";
     public const string Together = "together";
     public const string Ollama = "ollama";
     public const string LmStudio = "lmstudio";
-    public const string Gemini = "gemini";
     public const string Pollinations = "pollinations";
     public const string CloudflareWorkersAi = "cloudflare-ai";
     public const string HuggingFace = "huggingface";
@@ -79,6 +92,8 @@ public static class KnownAiProviders
     public const string FasterWhisper = "faster-whisper";
     public const string GroqWhisper = "groq-whisper";
     public const string OpenAiAsr = "openai-asr";
+    public const string ClaudeCodeLocal = "claude-code";
+    public const string CopilotCliLocal = "copilot-cli";
 
     public static IReadOnlyList<AiProviderDescriptor> All { get; } =
     [
@@ -92,15 +107,23 @@ public static class KnownAiProviders
             "https://console.groq.com/keys",
             DefaultDailyRequestLimit: 900),
 
-        new(Gemini, AiCapability.Text, AiProviderFamily.GeminiText,
+        new(Gemini, AiCapability.Text, AiProviderFamily.OpenAiCompatibleText,
             "Google Gemini",
-            "https://generativelanguage.googleapis.com",
+            "https://generativelanguage.googleapis.com/v1beta/openai",
             "gemini-2.5-flash",
             RunsLocally: false,
-            "Free tier on the Flash models. Handles long transcripts in one call, so it is " +
-            "the better fallback when a whole video's captions go in at once.",
+            "Free tier from Google AI Studio, no card needed. The strongest free choice for " +
+            "Hindi and other Indian languages, so it suits YouTube titles and descriptions. " +
+            "On the free tier Google may use prompts to improve its models - only public " +
+            "video details are sent from the checkup.",
             "https://aistudio.google.com/apikey",
-            DefaultDailyRequestLimit: 1200),
+            DefaultDailyRequestLimit: 200,
+            Models:
+            [
+                new("gemini-2.5-flash", "2.5 Flash - best quality on the free tier"),
+                new("gemini-2.5-flash-lite", "2.5 Flash-Lite - faster, larger free allowance")
+            ]),
+
 
         new(OpenRouter, AiCapability.Text, AiProviderFamily.OpenAiCompatibleText,
             "OpenRouter",
@@ -137,6 +160,26 @@ public static class KnownAiProviders
             RunsLocally: true,
             "Same as Ollama, for people who already run LM Studio's server. The model is " +
             "whichever one LM Studio has loaded, so the model name may be left empty.",
+            KeyUrl: null),
+
+        new(ClaudeCodeLocal, AiCapability.Text, AiProviderFamily.LocalCliText,
+            "Claude Code (local session)",
+            DefaultBaseUrl: null,
+            DefaultModel: null,
+            RunsLocally: true,
+            "Uses the Claude Code CLI already signed in on this machine, so a Claude " +
+            "subscription does the writing and no API key is stored here. Install Claude Code, " +
+            "run \"claude\" once to sign in, then enable this. Runs with its tools switched off.",
+            KeyUrl: null),
+
+        new(CopilotCliLocal, AiCapability.Text, AiProviderFamily.LocalCliText,
+            "GitHub Copilot CLI (local session)",
+            DefaultBaseUrl: null,
+            DefaultModel: null,
+            RunsLocally: true,
+            "Uses the GitHub Copilot CLI signed in on this machine (Copilot Pro, Business or " +
+            "Enterprise). Run \"copilot\" once and /login, then enable this. Point the " +
+            "executable at copilot.exe, not the npm .cmd shim.",
             KeyUrl: null),
 
         new(Pollinations, AiCapability.Image, AiProviderFamily.PollinationsImage,
@@ -202,6 +245,7 @@ public static class KnownAiProviders
             KeyUrl: null,
             LicenseClass: "PublicDomain"),
 
+
         new(OpenAiTts, AiCapability.Speech, AiProviderFamily.OpenAiCompatibleTts,
             "OpenAI-compatible speech",
             null,
@@ -263,14 +307,16 @@ public static class KnownAiProviders
     /// </summary>
     public static AiCapability CapabilityOf(AiProviderFamily family) => family switch
     {
-        AiProviderFamily.OpenAiCompatibleText or AiProviderFamily.GeminiText => AiCapability.Text,
+        AiProviderFamily.OpenAiCompatibleText
+            or AiProviderFamily.LocalCliText => AiCapability.Text,
 
         AiProviderFamily.PollinationsImage
             or AiProviderFamily.CloudflareWorkersAiImage
             or AiProviderFamily.HuggingFaceImage
             or AiProviderFamily.ComfyUiImage => AiCapability.Image,
 
-        AiProviderFamily.PiperSpeech or AiProviderFamily.OpenAiCompatibleTts => AiCapability.Speech,
+        AiProviderFamily.PiperSpeech
+            or AiProviderFamily.OpenAiCompatibleTts => AiCapability.Speech,
 
         AiProviderFamily.WhisperCppTranscription
             or AiProviderFamily.OpenAiCompatibleAsr => AiCapability.Transcription,

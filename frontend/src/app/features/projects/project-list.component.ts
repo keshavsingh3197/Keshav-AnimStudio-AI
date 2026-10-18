@@ -50,6 +50,8 @@ export class ProjectListComponent {
   searchTerm = '';
   statusFilter = 'All';
   aspectFilter = 'All';
+  /** 'All', or a project content type: music projects publish to YouTube Music. */
+  contentFilter = 'All';
   /** A channel id, or 'All'. */
   channelFilter = 'All';
   selectedProjectIds = new Set<string>();
@@ -157,6 +159,10 @@ export class ProjectListComponent {
         if (this.aspectFilter === '16:9 Video') return fmt === 'Video';
         return true;
       });
+    }
+
+    if (this.contentFilter !== 'All') {
+      list = list.filter(p => (p.contentType ?? 'video') === this.contentFilter);
     }
 
     if (this.channelFilter !== 'All') {

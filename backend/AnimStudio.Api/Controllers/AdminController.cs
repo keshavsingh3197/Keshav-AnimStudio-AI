@@ -7,6 +7,7 @@ using AnimStudio.Application.Abstractions.Diagnostics;
 using AnimStudio.Application.Admin;
 using AnimStudio.Application.Ai;
 using AnimStudio.Application.Options;
+using AnimStudio.Application.Publishing;
 using AnimStudio.Application.Security;
 using AnimStudio.Application.Uploads;
 using AnimStudio.Domain.Ai;
@@ -141,7 +142,8 @@ public sealed class AdminController(
             }
 
             var needsExecutable = descriptor?.Family
-                is AiProviderFamily.PiperSpeech or AiProviderFamily.WhisperCppTranscription;
+                is AiProviderFamily.PiperSpeech or AiProviderFamily.WhisperCppTranscription
+                    or AiProviderFamily.LocalCliText;
 
             rows.Add(new AdminProviderResponse(
                 provider.Id.Value,
@@ -552,6 +554,12 @@ public sealed class AdminController(
         var stored = await aiSettingsRepo.GetAsync(ct) ?? new AiSettings();
         if (!TryChannel(stored, channelId, out var channel)) return ChannelNotFound();
 
+        if (BrandChannelYouTubeSync.NameFollowsYouTube(stored, channelId))
+        {
+            const string follows = "This channel's name comes from YouTube. Rename it on YouTube, then press \"Sync from YouTube\".";
+            return BadRequest(ApiResponse<EmptyPayload>.Fail(follows, new ApiError("channel-name-from-youtube", follows)));
+        }
+
         var name = request.Name.Trim();
         if (IsNameTaken(stored, name, exceptId: channel?.Id ?? BrandChannel.DefaultId))
         {
@@ -567,6 +575,29 @@ public sealed class AdminController(
             before, name, RemoteAddress(), ct);
 
         return Ok(ApiResponse<IReadOnlyList<BrandChannelResponse>>.Ok(stored.ToChannelResponses()));
+    }
+
+    /// <summary>
+    /// Brings channels in from YouTube: re-reads the name, handle and picture of every YouTube
+    /// channel the admin has connected, renames the brand channels that publish to them, and
+    /// adds a brand channel for any connected YouTube channel that has none yet.
+    /// </summary>
+    [HttpPost("branding/channels/sync-youtube")]
+    public async Task<ActionResult<ApiResponse<BrandChannelSyncResponse>>> SyncChannelsFromYouTube(
+        [FromServices] AnimStudio.Infrastructure.Publishing.YouTubeConnectionStore connections,
+        [FromServices] AnimStudio.Infrastructure.Publishing.BrandChannelSyncService sync,
+        CancellationToken ct)
+    {
+        var refreshed = await connections.RefreshAsync(currentUser.UserId, ct);
+        var result = await sync.SyncAsync(refreshed.Channels, createMissing: true, RemoteAddress(), ct);
+        var stored = await aiSettingsRepo.GetAsync(ct);
+
+        return Ok(ApiResponse<BrandChannelSyncResponse>.Ok(new BrandChannelSyncResponse(
+            stored.ToChannelResponses(),
+            refreshed.Channels.Count,
+            [.. result.Created.Select(c => c.Name)],
+            [.. result.Renamed.Select(r => new BrandChannelRenameResponse(r.BrandChannelId, r.Before, r.After))],
+            [.. refreshed.Failed.Select(f => new YouTubeSyncFailureResponse(f.ChannelId, f.ChannelTitle, f.Reason))])));
     }
 
     /// <summary>
@@ -596,22 +627,66 @@ public sealed class AdminController(
         return Ok(ApiResponse<IReadOnlyDictionary<string, int>>.Ok(counts));
     }
 
+    /// <summary>
+    /// Makes a channel the default: the one new projects start with and that a project with
+    /// no channel (or a deleted one) renders with. The two swap places, and every project and
+    /// saved stream key goes with the look it had, so no existing video changes.
+    /// </summary>
+    [HttpPost("branding/channels/{channelId}/make-default")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<BrandChannelResponse>>>> MakeDefaultChannel(
+        string channelId,
+        [FromServices] AnimStudio.Infrastructure.LiveStreams.LiveStreamKeyStore liveKeys, CancellationToken ct)
+    {
+        if (BrandChannel.IsDefault(channelId))
+        {
+            const string message = "This channel is already the default.";
+            return BadRequest(ApiResponse<EmptyPayload>.Fail(message, new ApiError("default-channel", message)));
+        }
+
+        var stored = await aiSettingsRepo.GetAsync(ct) ?? new AiSettings();
+        var channel = stored.FindChannel(channelId);
+        if (channel is null) return ChannelNotFound();
+
+        var before = stored.DefaultChannelName;
+        await SwapWithDefaultAsync(stored, channel, liveKeys, ct);
+
+        await audit.RecordAsync("branding.channel-made-default", "global-branding",
+            before, stored.DefaultChannelName, RemoteAddress(), ct);
+
+        return Ok(ApiResponse<IReadOnlyList<BrandChannelResponse>>.Ok(stored.ToChannelResponses()));
+    }
+
     /// <param name="moveProjectsTo">
     /// The channel its projects move to. Omitted, they fall back to the default - which is
-    /// what a render would do anyway, but saying where they go makes it a decision.
+    /// what a render would do anyway, but saying where they go makes it a decision. Deleting
+    /// the default itself requires it: that channel becomes the new default.
     /// </param>
     [HttpDelete("branding/channels/{channelId}")]
     public async Task<ActionResult<ApiResponse<IReadOnlyList<BrandChannelResponse>>>> DeleteChannel(
         string channelId, [FromQuery] string? moveProjectsTo,
         [FromServices] AnimStudio.Infrastructure.LiveStreams.LiveStreamKeyStore liveKeys, CancellationToken ct)
     {
+        var stored = await aiSettingsRepo.GetAsync(ct) ?? new AiSettings();
+
         if (BrandChannel.IsDefault(channelId))
         {
-            const string message = "The default channel cannot be deleted.";
-            return BadRequest(ApiResponse<EmptyPayload>.Fail(message, new ApiError("default-channel", message)));
+            // There is always a default, so deleting it means another channel takes its place:
+            // swap the two, then delete the old default from where it now sits.
+            if (BrandChannel.IsDefault(moveProjectsTo) || stored.FindChannel(moveProjectsTo) is not { } replacement)
+            {
+                const string message = "Choose which channel becomes the default before deleting this one.";
+                return BadRequest(ApiResponse<EmptyPayload>.Fail(message, new ApiError("default-replacement-required", message)));
+            }
+
+            var oldName = stored.DefaultChannelName;
+            await SwapWithDefaultAsync(stored, replacement, liveKeys, ct);
+            await audit.RecordAsync("branding.channel-made-default", "global-branding",
+                oldName, stored.DefaultChannelName, RemoteAddress(), ct);
+
+            channelId = replacement.Id;
+            moveProjectsTo = null;
         }
 
-        var stored = await aiSettingsRepo.GetAsync(ct) ?? new AiSettings();
         var channel = stored.FindChannel(channelId);
         if (channel is null) return ChannelNotFound();
 
@@ -646,6 +721,32 @@ public sealed class AdminController(
             RemoteAddress(), ct);
 
         return Ok(ApiResponse<IReadOnlyList<BrandChannelResponse>>.Ok(stored.ToChannelResponses()));
+    }
+
+    /// <summary>
+    /// Swaps a channel with the default and moves everything keyed by their ids along, so
+    /// each project and stream key stays with the look it had. Projects that render with the
+    /// default today (none chosen, or a deleted channel) are pinned to where it now lives.
+    /// </summary>
+    private async Task SwapWithDefaultAsync(
+        AiSettings stored, BrandChannel channel,
+        AnimStudio.Infrastructure.LiveStreams.LiveStreamKeyStore liveKeys, CancellationToken ct)
+    {
+        foreach (var project in await projects.ListAllAsync(ct))
+        {
+            var current = project.Settings.BrandChannelId;
+            string? next;
+            if (string.Equals(current, channel.Id, StringComparison.Ordinal)) next = null;
+            else if (BrandChannel.IsDefault(current) || stored.FindChannel(current) is null) next = channel.Id;
+            else continue;
+
+            project.Settings.BrandChannelId = next;
+            await projects.ReplaceAsync(project, ct);
+        }
+
+        stored.SwapWithDefault(channel);
+        await aiSettingsRepo.SaveAsync(stored, ct);
+        await liveKeys.SwapChannelsAsync(BrandChannel.DefaultId, channel.Id, ct);
     }
 
     // --- branding & hallmark (per channel: ?channel=<id>, omitted = default) --------------
@@ -717,25 +818,69 @@ public sealed class AdminController(
             _ => "image/png"
         };
 
-        var assetId = MongoDB.Bson.ObjectId.GenerateNewId().ToString();
-        var storageKey = $"branding/global-logo-{assetId}{ext}";
-
+        WatermarkSettings watermark;
         await using (var stream = file.OpenReadStream())
         {
-            await store.SaveAsync(storageKey, stream, mimeType, ct);
+            watermark = await SaveLogoAsync(stored, target, channel, stream, Path.GetFileName(file.FileName),
+                ext, mimeType, file.Length, "Uploaded hallmark logo", ct);
         }
 
-        var now = clock.GetUtcNow().UtcDateTime;
+        return Ok(ApiResponse<WatermarkResponse?>.Ok(watermark.ToResponse()));
+    }
+
+    /// <summary>
+    /// Makes the channel's YouTube profile picture its watermark logo - the picture YouTube
+    /// last reported for the YouTube channel it publishes to, fetched by the server.
+    /// </summary>
+    [HttpPost("branding/logo/from-youtube")]
+    public async Task<ActionResult<ApiResponse<WatermarkResponse?>>> UseYouTubePictureAsLogo(
+        [FromQuery] string? channel,
+        [FromServices] AnimStudio.Infrastructure.Publishing.YouTubeAvatarDownloader downloader,
+        CancellationToken ct)
+    {
+        var stored = await aiSettingsRepo.GetAsync(ct) ?? new AiSettings();
+        if (!TryChannel(stored, channel, out var target)) return ChannelNotFound();
+
+        var publishing = stored.PublishingFor(channel);
+        AnimStudio.Infrastructure.Publishing.DownloadedImage image;
+        try
+        {
+            image = await downloader.DownloadAsync(publishing?.YouTubeThumbnailUrl, ct);
+        }
+        catch (AnimStudio.Infrastructure.Publishing.YouTubePublishException ex)
+        {
+            return BadRequest(ApiResponse<WatermarkResponse?>.Fail(ex.Message, new ApiError(ex.Code, ex.Message)));
+        }
+
+        WatermarkSettings watermark;
+        await using (var stream = new MemoryStream(image.Bytes, writable: false))
+        {
+            var name = $"{publishing?.YouTubeChannelTitle ?? "YouTube channel"} picture{image.Extension}";
+            watermark = await SaveLogoAsync(stored, target, channel, stream, name,
+                image.Extension, image.MimeType, image.Bytes.Length, "Logo from YouTube channel picture", ct);
+        }
+
+        return Ok(ApiResponse<WatermarkResponse?>.Ok(watermark.ToResponse()));
+    }
+
+    private async Task<WatermarkSettings> SaveLogoAsync(
+        AiSettings stored, BrandChannel? target, string? channel, Stream content, string name,
+        string ext, string mimeType, long size, string auditBefore, CancellationToken ct)
+    {
+        var assetId = MongoDB.Bson.ObjectId.GenerateNewId().ToString();
+        var storageKey = $"branding/global-logo-{assetId}{ext}";
+        await store.SaveAsync(storageKey, content, mimeType, ct);
+
         var asset = new Asset
         {
             Id = assetId,
             ProjectId = "global",
-            Name = Path.GetFileName(file.FileName),
+            Name = name,
             Kind = AssetKind.Image,
             StorageKey = storageKey,
             MimeType = mimeType,
-            FileSizeBytes = file.Length,
-            CreatedAt = now
+            FileSizeBytes = size,
+            CreatedAt = clock.GetUtcNow().UtcDateTime
         };
 
         await assets.InsertAsync(asset, ct);
@@ -747,15 +892,8 @@ public sealed class AdminController(
 
         await aiSettingsRepo.SaveAsync(stored, ct);
 
-        await audit.RecordAsync(
-            "branding.logo-uploaded",
-            ChannelAuditTarget(channel),
-            "Uploaded hallmark logo",
-            asset.Name,
-            RemoteAddress(),
-            ct);
-
-        return Ok(ApiResponse<WatermarkResponse?>.Ok(watermark.ToResponse()));
+        await audit.RecordAsync("branding.logo-uploaded", ChannelAuditTarget(channel), auditBefore, asset.Name, RemoteAddress(), ct);
+        return watermark;
     }
 
     [HttpGet("branding/outro")]
@@ -996,30 +1134,15 @@ public sealed class AdminController(
         return NotFound(ApiResponse<EmptyPayload>.Fail(message, new ApiError("channel-not-found", message)));
     }
 
-    private static bool IsNameTaken(AiSettings settings, string name, string? exceptId)
-    {
-        bool Same(string other) => string.Equals(other.Trim(), name, StringComparison.OrdinalIgnoreCase);
-        if (exceptId != BrandChannel.DefaultId && Same(settings.DefaultChannelName)) return true;
-        return settings.Channels.Any(c => c.Id != exceptId && Same(c.Name));
-    }
+    private static bool IsNameTaken(AiSettings settings, string name, string? exceptId) =>
+        BrandChannelYouTubeSync.IsNameTaken(settings, name, exceptId);
 
     private static string ChannelAuditTarget(string? channelId) =>
         BrandChannel.IsDefault(channelId) ? "global-branding" : $"global-branding:{channelId}";
 
-    private static WatermarkSettings? Copy(WatermarkSettings? w) => w is null ? null : new WatermarkSettings
-    {
-        Kind = w.Kind, Text = w.Text, LogoAssetId = w.LogoAssetId, Position = w.Position,
-        Opacity = w.Opacity, HeightFraction = w.HeightFraction, MarginFraction = w.MarginFraction,
-        ColorHex = w.ColorHex, BackplateOpacity = w.BackplateOpacity,
-    };
+    private static WatermarkSettings? Copy(WatermarkSettings? w) => w?.Clone();
 
-    private static OutroSettings? Copy(OutroSettings? o) => o is null ? null : new OutroSettings
-    {
-        Kind = o.Kind, AssetId = o.AssetId, DurationSeconds = o.DurationSeconds, Transition = o.Transition,
-        TransitionDurationFrames = o.TransitionDurationFrames, QrAssetId = o.QrAssetId,
-        Headline = o.Headline, Subtext = o.Subtext, HeadlineSecondary = o.HeadlineSecondary,
-        SubtextSecondary = o.SubtextSecondary, BackgroundHex = o.BackgroundHex, TextHex = o.TextHex,
-    };
+    private static OutroSettings? Copy(OutroSettings? o) => o?.Clone();
 
     private static AiProviderId Parse(string providerId) =>
         AiProviderId.TryParse(providerId, out var id) ? id : throw new KeyNotFoundException();

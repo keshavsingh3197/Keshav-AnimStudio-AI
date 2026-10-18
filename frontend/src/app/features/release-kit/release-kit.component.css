@@ -142,3 +142,5 @@
 .rk-live p { margin: 0 0 .75rem; }
 .rk-live-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
 .rk-live-actions a { text-decoration: none; }
+.rk-publish { border-color: color-mix(in srgb, var(--err) 35%, var(--border)); }
+.rk-publish p { margin: 0 0 .75rem; }

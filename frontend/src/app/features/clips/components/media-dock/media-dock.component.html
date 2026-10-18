@@ -8,6 +8,12 @@
       <input type="file" multiple accept="video/*,audio/*,image/*,.mp4,.webm,.mov,.png,.jpg,.jpeg,.webp,.gif,.mp3,.wav,.ogg,.m4a,.aac,.flac" (change)="state.onPick($event)" style="display:none" />
       <span class="import-plus">+</span>
     </label>
+    <button type="button" class="media-import-btn" (click)="urlImportOpen.set(true)" [disabled]="!state.store.project()"
+            title="Import from links - paste many URLs and download them all into this project">🔗</button>
+    <button type="button" class="media-import-btn" (click)="reuseOpen.set(true)" [disabled]="!state.store.project()"
+            title="Reuse from other projects - search this channel's (or every) project and add their files here">♻️</button>
+    <button type="button" class="media-import-btn" (click)="openMusic()" [disabled]="!state.store.project()"
+            title="Music library - search, listen and add royalty-free music to the timeline">🎵</button>
 
     <div class="media-search-box">
       <svg class="search-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -107,24 +113,45 @@
     </button>
   </div>
 
-  <!-- Timeline Status Sub-Filter (Row 2: All / Unused / In Cut) -->
+  <!-- Usage Sub-Filter (Row 2): matches the New / Unused / In other / In Cut badges on the cards -->
   <div class="media-status-pills">
     <button type="button" class="status-pill"
             [class.active]="state.statusFilter() === 'all'"
             (click)="state.statusFilter.set('all'); state.currentPage.set(0)">
-      All Status
+      All
     </button>
-    <button type="button" class="status-pill unused-pill"
+    <button type="button" class="status-pill"
+            [class.active]="state.statusFilter() === 'new'"
+            (click)="state.statusFilter.set('new'); state.currentPage.set(0)"
+            title="Added today and not used in any video yet">
+      <span class="status-badge-dot new-dot"></span>
+      New ({{ state.newUnusedCount() }})
+    </button>
+    <button type="button" class="status-pill"
             [class.active]="state.statusFilter() === 'unused'"
             (click)="state.statusFilter.set('unused'); state.currentPage.set(0)"
-            title="Show only media not yet placed on timeline">
+            title="Not used in any video of this project (includes New)">
       <span class="status-badge-dot unused-dot"></span>
+      Unused ({{ state.unusedAnywhereCount() }})
+    </button>
+    <button type="button" class="status-pill"
+            [class.active]="state.statusFilter() === 'other'"
+            (click)="state.statusFilter.set('other'); state.currentPage.set(0)"
+            title="Not in this cut, but used in other videos of this project">
+      <span class="status-badge-dot other-dot"></span>
+      In Others ({{ state.inOtherVideosCount() }})
+    </button>
+    <button type="button" class="status-pill"
+            [class.active]="state.statusFilter() === 'not_in_cut'"
+            (click)="state.statusFilter.set('not_in_cut'); state.currentPage.set(0)"
+            title="Not placed on this video's timeline">
+      <span class="status-badge-dot notincut-dot"></span>
       Not in Cut ({{ state.unusedCount() }})
     </button>
-    <button type="button" class="status-pill incut-pill"
+    <button type="button" class="status-pill"
             [class.active]="state.statusFilter() === 'in_cut'"
             (click)="state.statusFilter.set('in_cut'); state.currentPage.set(0)"
-            title="Show only media placed on timeline">
+            title="Placed on this video's timeline">
       <span class="status-badge-dot incut-dot"></span>
       In Cut ({{ state.inCutCount() }})
     </button>
@@ -208,7 +235,7 @@
              [attr.data-type]="state.getClipType(row.clip)"
              draggable="true"
              (click)="state.selectClip(row.clip.id, $event)"
-             (dragstart)="onDragStart(i, row)"
+             (dragstart)="onDragStart(i, row, $event)"
              (dragover)="state.onRowDragOver(i, $event)"
              (drop)="state.onRowDrop(i, $event)"
              (dragend)="state.onRowDragEnd()">
@@ -265,6 +292,22 @@
             @if (state.isClipOnTimeline(row.clip.id)) {
               <span class="clip-in-cut-tag" title="In timeline cut">
                 <span class="cut-dot"></span> In Cut
+                @if (state.usedInOtherVideosCount(row.clip) > 0) {
+                  <span class="cut-other-cnt" title="Also in {{ state.usedInOtherVideosCount(row.clip) }} other video(s)">+{{ state.usedInOtherVideosCount(row.clip) }}</span>
+                }
+              </span>
+            } @else if (state.usedInOtherVideosCount(row.clip) > 0) {
+              <span class="clip-in-cut-tag clip-other-tag" title="Not in this cut, but used in other videos of this project">
+                <span class="cut-dot"></span>
+                In {{ state.usedInOtherVideosCount(row.clip) }} other{{ state.usedInOtherVideosCount(row.clip) === 1 ? '' : 's' }}
+              </span>
+            } @else if (state.isClipAddedToday(row.clip)) {
+              <span class="clip-in-cut-tag clip-new-tag" title="Added today, not used in any video yet">
+                <span class="cut-dot"></span> New
+              </span>
+            } @else {
+              <span class="clip-in-cut-tag clip-unused-tag" title="Not used in any video of this project">
+                <span class="cut-dot"></span> Unused
               </span>
             }
 
@@ -316,6 +359,10 @@
           <div class="clip-card-footer">
             <span class="clip-title-text" [title]="row.clip.name">{{ row.clip.name }}</span>
             <div class="clip-footer-actions">
+              <button class="clip-action-icon-btn inspect" type="button" (click)="$event.stopPropagation(); inspect(row.clip)"
+                      [title]="state.getClipType(row.clip) === 'image' ? 'Inspect' : 'Inspect - play it and read, search and copy what is said'"
+                      aria-label="Inspect and transcript">📝</button>
+              <button class="clip-action-icon-btn info" type="button" (click)="$event.stopPropagation(); usageClip.set(row.clip)" title="Details and where it is used">ⓘ</button>
               <button class="clip-action-icon-btn dup" type="button" (click)="$event.stopPropagation(); state.duplicateClip(row.clip.id)" title="Duplicate clip">⧉</button>
             </div>
           </div>
@@ -363,3 +410,22 @@
     </div>
   </div>
 </div>
+
+@if (usageClip(); as clip) {
+  <app-media-usage-dialog [clip]="clip" (closed)="usageClip.set(null)" />
+}
+
+@if (musicOpen()) {
+  <app-music-picker-dialog (picked)="state.addLibraryMusic($event)" (closed)="musicOpen.set(false)" />
+}
+
+@if (urlImportOpen() && state.store.project(); as project) {
+  <app-url-import-dialog [projectId]="project.id" [folders]="state.store.folders()"
+                         (imported)="onUrlImported()" (closed)="onUrlImportClosed()"
+                         (editsCreated)="state.refreshProjectEdits()" />
+}
+
+@if (reuseOpen() && state.store.project(); as project) {
+  <app-asset-reuse-dialog [projectId]="project.id" [channelId]="project.brandChannelId"
+                          (added)="onUrlImported()" (closed)="onReuseClosed()" />
+}

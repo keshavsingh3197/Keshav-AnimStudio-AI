@@ -28,6 +28,13 @@ export class ReleaseKitService {
       .pipe(map((response) => this.absolute(response.data as ReleaseKitResult)));
   }
 
+  /** A kit built earlier (kept 24 hours), e.g. when the page returns from connecting a YouTube channel. */
+  getKit(jobId: string): Observable<ReleaseKitResult> {
+    return this.http
+      .get<ApiResponse<ReleaseKitResult>>(`${this.base}/api/releases/kits/${encodeURIComponent(jobId)}`)
+      .pipe(map((response) => this.absolute(response.data as ReleaseKitResult)));
+  }
+
   /** Fetched through HttpClient, not a plain link, so the download carries the same auth as every call. */
   fetchFile(url: string): Observable<Blob> {
     return this.http.get(url, { responseType: 'blob' });

@@ -55,7 +55,8 @@ public static class WebSettingCatalog
         new("Render:MouthFlapHz", "Rendering", "Mouth flap rate", "How many times per second a talking character's mouth opens.", WebSettingType.Integer, true, 2, 20),
         new("Render:SubtitleFontSize", "Rendering", "Subtitle size", "Burned-in subtitle font size at 1080p.", WebSettingType.Integer, true, 16, 160),
         new("Render:WatermarkText", "Rendering", "Default watermark text", "Pre-fills the watermark box on the clip screen.", WebSettingType.Text, true, MaxLength: 80),
-        new("Render:MaxConcurrentJobs", "Rendering", "Renders at once", "How many render jobs run in parallel.", WebSettingType.Integer, false, 1, 8),
+        new("Render:JobNameTemplate", "Rendering", "Render name pattern", "How new renders are named. Tokens: {project}, {format}, {aspect}, {resolution}, {n} (render number), {date}, {time}. Renders can be renamed once finished.", WebSettingType.Text, true, MaxLength: 120),
+        new("Render:MaxConcurrentJobs", "Rendering", "Renders at once", "How many render jobs run in parallel. A batch of auto shorts finishes about this many times sooner on a machine with cores to spare; each extra render uses about as much CPU and memory as the first.", WebSettingType.Integer, true, 1, 8),
         new("Render:MaxAttempts", "Rendering", "Render retries", "How many times a failed render is attempted before it is marked failed.", WebSettingType.Integer, false, 1, 10),
         new("Render:WorkspaceRetentionHours", "Rendering", "Keep render workspaces (hours)", "How long a render's temporary folder is kept.", WebSettingType.Integer, false, 1, 720),
         new("Render:ClipCacheMaxGigabytes", "Rendering", "Clip cache size (GB)", "Disk space for conformed clips reused between exports. 0 turns the cache off.", WebSettingType.Integer, false, 0, 2000),
@@ -91,6 +92,11 @@ public static class WebSettingCatalog
         new("LiveStream:Camera:Enabled", "Live streaming", "Camera Studio", "Allow streaming from Camera Studio.", WebSettingType.Boolean, false),
         new("LiveStream:Camera:MaxConcurrent", "Live streaming", "Camera streams at once", "How many Camera Studio streams can run together.", WebSettingType.Integer, false, 1, 10),
         new("LiveStream:Camera:Preset", "Live streaming", "Camera encoder preset", "x264 preset for the real-time camera encode.", WebSettingType.Choice, false, Choices: ["ultrafast", "superfast", "veryfast", "faster"]),
+
+        // --- Shorts page: read per request, so live.
+        new("Shorts:WeeklyGoal", "Shorts", "Shorts a week", "How many shorts you mean to make each week. The Shorts page reminds you when you're behind. 0 turns the reminder off.", WebSettingType.Integer, true, 0, 500),
+        new("Shorts:LowStockThreshold", "Shorts", "Low stock warning", "Warn when a project that makes auto shorts has fewer unused clips and pictures than this.", WebSettingType.Integer, true, 1, 200),
+        new("Shorts:UnpublishedReminderDays", "Shorts", "Unpublished reminder (days)", "Remind about finished shorts that haven't gone to YouTube after this many days.", WebSettingType.Integer, true, 0, 60),
 
         // --- YouTube: read through IOptionsMonitor, so live.
         new("YouTube:CacheSeconds", "YouTube", "Audience numbers cache (s)", "How long subscriber and viewer counts are reused.", WebSettingType.Integer, true, 5, 600),

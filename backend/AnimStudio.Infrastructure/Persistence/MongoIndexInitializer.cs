@@ -3,6 +3,7 @@ using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Publishing;
 using AnimStudio.Domain.Scenes;
 using AnimStudio.Domain.System;
+using AnimStudio.Domain.Voices;
 using KeshavSingh.Mongo.NoSql;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -73,6 +74,41 @@ public sealed class MongoIndexInitializer(
             await youTube.Indexes.CreateOneAsync(
                 new CreateIndexModel<YouTubeChannelConnection>(Builders<YouTubeChannelConnection>.IndexKeys
                     .Ascending(c => c.UserId)), cancellationToken: ct).ConfigureAwait(false);
+
+            // Published videos are listed per owner (and project) newest first; the health
+            // sweep looks for the least recently checked.
+            var publications = mongo.GetCollection<YouTubePublication>(MongoCollections.YouTubePublications);
+            await publications.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<YouTubePublication>(Builders<YouTubePublication>.IndexKeys
+                    .Ascending(p => p.UserId).Ascending(p => p.ProjectId).Descending(p => p.PublishedAt)),
+                new CreateIndexModel<YouTubePublication>(Builders<YouTubePublication>.IndexKeys
+                    .Ascending(p => p.UserId).Ascending(p => p.VideoId)),
+                new CreateIndexModel<YouTubePublication>(Builders<YouTubePublication>.IndexKeys
+                    .Ascending(p => p.LastCheckedAt).Descending(p => p.PublishedAt)),
+            ], ct).ConfigureAwait(false);
+
+            // Phone handoffs are listed per owner (and render) newest first; the matcher looks
+            // for every one still waiting, oldest first.
+            var handoffs = mongo.GetCollection<PhoneHandoff>(MongoCollections.PhoneHandoffs);
+            await handoffs.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<PhoneHandoff>(Builders<PhoneHandoff>.IndexKeys
+                    .Ascending(h => h.UserId).Ascending(h => h.JobId).Descending(h => h.CreatedAt)),
+                new CreateIndexModel<PhoneHandoff>(Builders<PhoneHandoff>.IndexKeys
+                    .Ascending(h => h.State).Ascending(h => h.CreatedAt)),
+            ], ct).ConfigureAwait(false);
+
+            // A user's Drives (personal and per channel) are listed together.
+            var drives = mongo.GetCollection<GoogleDriveConnection>(MongoCollections.GoogleDriveConnections);
+            await drives.Indexes.CreateOneAsync(
+                new CreateIndexModel<GoogleDriveConnection>(Builders<GoogleDriveConnection>.IndexKeys
+                    .Ascending(d => d.UserId)), cancellationToken: ct).ConfigureAwait(false);
+
+            var voiceProfiles = mongo.GetCollection<VoiceProfile>(MongoCollections.VoiceProfiles);
+            await voiceProfiles.Indexes.CreateOneAsync(
+                new CreateIndexModel<VoiceProfile>(Builders<VoiceProfile>.IndexKeys
+                    .Ascending(v => v.UserId)), cancellationToken: ct).ConfigureAwait(false);
 
                         // Migration / Seeder for Static Hub Data
             var hubConfig = mongo.GetCollection<HubConfig>(MongoCollections.HubConfig);

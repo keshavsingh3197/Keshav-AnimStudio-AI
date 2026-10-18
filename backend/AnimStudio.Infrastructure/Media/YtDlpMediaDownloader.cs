@@ -30,6 +30,7 @@ public sealed class YtDlpMediaDownloader(
     IOptions<IngestOptions> options,
     IFfmpegRunner runner,
     AppDataPaths dataPaths,
+    SunoSongResolver suno,
     ILogger<YtDlpMediaDownloader> logger)
 {
     private readonly IngestOptions _options = options.Value;
@@ -39,6 +40,9 @@ public sealed class YtDlpMediaDownloader(
 
     public async Task<MediaProbeResponse> ProbeAsync(Uri canonicalUrl, MediaPlatform platform, CancellationToken ct)
     {
+        var song = await ResolveSunoAsync(platform, canonicalUrl, ct).ConfigureAwait(false);
+        var fetchUrl = song?.MediaUrl ?? canonicalUrl;
+
         var tempDir = Path.Combine(dataPaths.Temp, "probe-media", Guid.NewGuid().ToString("n"));
         Directory.CreateDirectory(tempDir);
 
@@ -55,7 +59,7 @@ public sealed class YtDlpMediaDownloader(
                 "--extractor-args", "youtube:player_client=ios,android,web",
             };
             AddCookies(arguments);
-            arguments.AddRange(["--", canonicalUrl.AbsoluteUri]);
+            arguments.AddRange(["--", fetchUrl.AbsoluteUri]);
 
             var (exitCode, stdout, stderr) = await RunAsync(arguments, tempDir, platform, ct).ConfigureAwait(false);
 
@@ -74,15 +78,16 @@ public sealed class YtDlpMediaDownloader(
             using var doc = JsonDocument.Parse(firstJson);
             var root = doc.RootElement;
 
-            var id = GetString(root, "id") ?? "";
-            var title = GetString(root, "title") ?? GetString(root, "description") ?? "Untitled video";
-            var channel = GetString(root, "uploader") ?? GetString(root, "channel") ?? GetString(root, "creator")
+            // A Suno file on the CDN carries no metadata of its own; the song page supplied it.
+            var id = song?.Id ?? GetString(root, "id") ?? "";
+            var title = song?.Title ?? GetString(root, "title") ?? GetString(root, "description") ?? "Untitled video";
+            var channel = song?.Artist ?? GetString(root, "uploader") ?? GetString(root, "channel") ?? GetString(root, "creator")
                           ?? GetString(root, "uploader_id") ?? platform.Name;
 
             // LinkedIn and X report many of these as JSON null, not absent.
-            double duration = GetDouble(root, "duration") ?? 0;
+            double duration = GetDouble(root, "duration") ?? song?.DurationSeconds ?? 0;
 
-            var thumb = GetString(root, "thumbnail") ?? "";
+            var thumb = song?.ThumbnailUrl ?? GetString(root, "thumbnail") ?? "";
 
             int? width = GetInt(root, "width");
             int? height = GetInt(root, "height");
@@ -189,6 +194,9 @@ public sealed class YtDlpMediaDownloader(
     {
         Directory.CreateDirectory(targetDirectory);
 
+        var song = await ResolveSunoAsync(platform, canonicalUrl, ct).ConfigureAwait(false);
+        var fetchUrl = song?.MediaUrl ?? canonicalUrl;
+
         var stem = Guid.NewGuid().ToString("n");
         var format = (request.Format ?? "mp4").Trim().ToLowerInvariant();
         bool isAudio = format is "mp3" or "wav" or "m4a" or "aac" or "flac" or "opus";
@@ -237,7 +245,7 @@ public sealed class YtDlpMediaDownloader(
             "-o", Path.Combine(targetDirectory, stem + ".%(ext)s"),
             "--print-to-file", "%(title)s\t%(duration)s", Path.Combine(targetDirectory, "meta.txt"),
             "--",
-            canonicalUrl.AbsoluteUri
+            fetchUrl.AbsoluteUri
         ]);
 
         var (exitCode, _, stderr) = await RunAsync(arguments, targetDirectory, platform, ct).ConfigureAwait(false);
@@ -258,7 +266,8 @@ public sealed class YtDlpMediaDownloader(
         }
 
         var (title, duration) = ReadMetadata(targetDirectory);
-        title ??= Path.GetFileNameWithoutExtension(downloadedFile);
+        title = song?.Title ?? title ?? Path.GetFileNameWithoutExtension(downloadedFile);
+        if (duration <= 0 && song?.DurationSeconds is { } songDuration) duration = songDuration;
 
         if (!isAudio && !string.IsNullOrWhiteSpace(request.CompressionPreset) && !request.CompressionPreset.Equals("original", StringComparison.OrdinalIgnoreCase))
         {
@@ -329,6 +338,12 @@ public sealed class YtDlpMediaDownloader(
             IsAudioOnly: isAudio,
             Title: title);
     }
+
+    /// <summary>yt-dlp refuses suno.com, so a Suno link is swapped for the song's CDN file first.</summary>
+    private async Task<SunoSong?> ResolveSunoAsync(MediaPlatform platform, Uri canonicalUrl, CancellationToken ct) =>
+        ReferenceEquals(platform, MediaSourceValidator.Suno)
+            ? await suno.ResolveAsync(canonicalUrl, ct).ConfigureAwait(false)
+            : null;
 
     private void AddCookies(List<string> arguments)
     {

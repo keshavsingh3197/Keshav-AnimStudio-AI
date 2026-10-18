@@ -99,7 +99,8 @@ public abstract class LocalProcessAiProvider(
     /// caller decides what a failure means for its own capability.
     /// </summary>
     protected async Task<AiProcessResult> RunAsync(
-        IReadOnlyList<string> arguments, string? standardInput, CancellationToken ct)
+        IReadOnlyList<string> arguments, string? standardInput, CancellationToken ct,
+        string? workingDirectory = null, bool scrubAppSecrets = false)
     {
         var executable = ExecutablePath
             ?? throw new AiProviderException("not-configured",
@@ -116,6 +117,24 @@ public abstract class LocalProcessAiProvider(
         };
 
         foreach (var argument in arguments) startInfo.ArgumentList.Add(argument);
+
+        if (workingDirectory is not null) startInfo.WorkingDirectory = workingDirectory;
+
+        if (scrubAppSecrets)
+        {
+            // The child inherits this server's environment, which is where its own secrets
+            // live (Jwt__SigningKey, Mongo__ConnectionString...). A general-purpose agent CLI
+            // has no business seeing them, so ASP.NET-style hierarchical keys are removed.
+            foreach (var name in startInfo.Environment.Keys.ToList())
+            {
+                if (name.Contains("__", StringComparison.Ordinal)
+                    || name.StartsWith("ConnectionStrings", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(name, "PACKAGES_READ_TOKEN", StringComparison.OrdinalIgnoreCase))
+                {
+                    startInfo.Environment.Remove(name);
+                }
+            }
+        }
 
         using var process = new Process { StartInfo = startInfo };
 

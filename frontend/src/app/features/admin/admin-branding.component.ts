@@ -7,7 +7,7 @@ import { FormsModule } from '@angular/forms';
 
 import {
   BrandChannel, DEFAULT_BRAND_CHANNEL,
-  OUTRO_KINDS, OutroBody, OutroKind, WATERMARK_POSITIONS, WatermarkBody, WatermarkKind, WatermarkPosition,
+  EndCardAnimation, OUTRO_KINDS, OutroBody, OutroKind, WATERMARK_POSITIONS, WatermarkBody, WatermarkKind, WatermarkPosition,
 } from '../../core/models/api.models';
 import { ApiService } from '../../core/services/api.service';
 import { MediaToolsService } from '../../core/services/media-tools.service';
@@ -94,6 +94,9 @@ export class AdminBrandingComponent {
   readonly saveOutroSuccess = signal(false);
   readonly defaultChunkDuration = signal<number>(10);
   readonly chunkDurationSaved = signal<boolean>(false);
+  readonly imagePresets: readonly number[] = [3, 5, 8, 10, 15];
+  readonly defaultImageDuration = signal<number>(5);
+  readonly imageDurationSaved = signal<boolean>(false);
 
   form = blankWatermarkForm();
   outroForm = blankOutroForm();
@@ -159,6 +162,7 @@ export class AdminBrandingComponent {
     this.mediaTools.getMediaSettings().subscribe({
       next: (settings) => {
         this.defaultChunkDuration.set(settings.defaultChunkDurationSeconds || 10);
+        this.defaultImageDuration.set(settings.defaultImageDurationSeconds || 5);
       },
       error: () => {},
     });
@@ -216,6 +220,7 @@ export class AdminBrandingComponent {
             subtextSecondary: outro.subtextSecondary ?? '',
             backgroundHex: outro.backgroundHex || '#101828',
             textHex: outro.textHex || '#FFFFFF',
+            animation: (outro.animation ?? 'Rise') as EndCardAnimation,
           };
           if (outro.kind !== 'None' && outro.kind !== 'Card' && outro.assetId) {
             this.outroMediaUrl.set(this.api.globalOutroMediaUrl(channel) + '&t=' + Date.now());
@@ -455,6 +460,7 @@ export class AdminBrandingComponent {
       subtextSecondary: this.outroForm.subtextSecondary?.trim() || null,
       backgroundHex: this.outroForm.backgroundHex,
       textHex: this.outroForm.textHex,
+      animation: this.outroForm.animation,
     };
   }
 
@@ -484,6 +490,23 @@ export class AdminBrandingComponent {
       this.defaultChunkDuration.set(val);
       this.chunkDurationSaved.set(true);
       setTimeout(() => this.chunkDurationSaved.set(false), 4000);
+    });
+  }
+
+  // --- Image Duration ---
+
+  saveImageDuration(): void {
+    const dur = Number(this.defaultImageDuration());
+    if (!Number.isFinite(dur) || dur < 0.5 || dur > 120) {
+      this.status.notify(['Image duration must be between 0.5 and 120 seconds.']);
+      return;
+    }
+
+    this.imageDurationSaved.set(false);
+    this.status.run(this.mediaTools.updateImageDuration(dur), (val) => {
+      this.defaultImageDuration.set(val);
+      this.imageDurationSaved.set(true);
+      setTimeout(() => this.imageDurationSaved.set(false), 4000);
     });
   }
 }
@@ -516,6 +539,7 @@ function blankOutroForm() {
     subtextSecondary: '',
     backgroundHex: '#101828',
     textHex: '#FFFFFF',
+    animation: 'Rise' as EndCardAnimation,
   };
 }
 

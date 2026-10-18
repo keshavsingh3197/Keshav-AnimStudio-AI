@@ -35,7 +35,10 @@ public sealed class AiExecutor(
         AiTextRequest request, AiCallContext context, CancellationToken ct) =>
         ExecuteAsync(
             AiCapability.Text,
-            registry.TextChain(),
+            request.ProviderId is null
+                ? registry.TextChain()
+                : [.. registry.UsableTextProviders().Where(p =>
+                    string.Equals(p.Id.Value, request.ProviderId, StringComparison.OrdinalIgnoreCase))],
             FingerprintOf(request),
             request.BypassCache,
             request.Seed,
@@ -72,7 +75,10 @@ public sealed class AiExecutor(
         AiSpeechRequest request, AiCallContext context, CancellationToken ct) =>
         ExecuteAsync(
             AiCapability.Speech,
-            registry.SpeechChain(),
+            request.ProviderId is null
+                ? registry.SpeechChain()
+                : [.. registry.SpeechChain().Where(p =>
+                    string.Equals(p.Id.Value, request.ProviderId, StringComparison.OrdinalIgnoreCase))],
             FingerprintOf(request),
             request.BypassCache,
             null,
@@ -86,7 +92,7 @@ public sealed class AiExecutor(
             (entry, provenance) => new AiSpeechResult(
                 entry.Content, entry.ContentType, entry.DurationSeconds, provenance),
             (result, provenance) => result with { Provenance = provenance },
-            context, ct);
+            context, ct, request.Model);
 
     public Task<AiOutcome<AiTranscriptionResult>> TranscribeAsync(
         AiTranscriptionRequest request, AiCallContext context, CancellationToken ct) =>
@@ -122,7 +128,8 @@ public sealed class AiExecutor(
         Func<AiCacheEntry, AiProvenance, TResult> fromCacheEntry,
         Func<TResult, AiProvenance, TResult> withProvenance,
         AiCallContext context,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? modelOverride = null)
         where TProvider : class, IAiProvider
         where TResult : class
     {
@@ -144,7 +151,9 @@ public sealed class AiExecutor(
         {
             ct.ThrowIfCancellationRequested();
 
-            var model = configuration.ProviderFor(provider.Id)?.Model;
+            // A per-request model is part of the cache key and the usage record, so a Pro take
+            // is never served for a Flash request, nor billed under the wrong name.
+            var model = modelOverride ?? configuration.ProviderFor(provider.Id)?.Model;
             var key = fingerprint is null
                 ? default
                 : AiCacheKey.Create(provider.Id, capability, model, fingerprint);
@@ -300,12 +309,22 @@ public sealed class AiExecutor(
     // missing from one of these is a cache that returns the wrong answer, so each list is
     // deliberately exhaustive over its request type.
 
-    private static string FingerprintOf(AiTextRequest r) => Join(
-        r.SystemPrompt, r.Prompt, r.JsonSchema,
-        r.MaxOutputTokens.ToString(CultureInfo.InvariantCulture),
-        r.Temperature.ToString("R", CultureInfo.InvariantCulture),
-        r.Seed?.ToString(CultureInfo.InvariantCulture),
-        r.PromptTemplateKey, r.PromptTemplateVersion.ToString(CultureInfo.InvariantCulture));
+    // A pinned engine gets its own cache entry - asking Claude must not hand back Groq's
+    // answer. Chain requests keep the fingerprint they always had, so the cache survives.
+    private static string FingerprintOf(AiTextRequest r) => r.ProviderId is null
+        ? Join(
+            r.SystemPrompt, r.Prompt, r.JsonSchema,
+            r.MaxOutputTokens.ToString(CultureInfo.InvariantCulture),
+            r.Temperature.ToString("R", CultureInfo.InvariantCulture),
+            r.Seed?.ToString(CultureInfo.InvariantCulture),
+            r.PromptTemplateKey, r.PromptTemplateVersion.ToString(CultureInfo.InvariantCulture))
+        : Join(
+            r.SystemPrompt, r.Prompt, r.JsonSchema,
+            r.MaxOutputTokens.ToString(CultureInfo.InvariantCulture),
+            r.Temperature.ToString("R", CultureInfo.InvariantCulture),
+            r.Seed?.ToString(CultureInfo.InvariantCulture),
+            r.PromptTemplateKey, r.PromptTemplateVersion.ToString(CultureInfo.InvariantCulture),
+            "provider:" + r.ProviderId.ToLowerInvariant());
 
     private static string FingerprintOf(AiImageRequest r) => Join(
         r.Prompt, r.NegativePrompt,

@@ -2,13 +2,15 @@ import { DatePipe } from '@angular/common';
 import { Component, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
-import { BrandChannel, DEFAULT_BRAND_CHANNEL } from '../../core/models/api.models';
+import { BrandChannel, BrandChannelSyncResult, DEFAULT_BRAND_CHANNEL } from '../../core/models/api.models';
 import { LiveStreamKeyStatus, LiveStreamSetup } from '../../core/models/live-stream.models';
 import { ApiService } from '../../core/services/api.service';
 import { LiveStreamService } from '../../core/services/live-stream.service';
+import { YouTubePublishService } from '../../core/services/youtube-publish.service';
+import { YouTubePublishStatus } from '../../core/models/youtube.models';
 import { StatusService } from '../../core/services/status.service';
 
-type Filter = 'all' | 'logo' | 'text' | 'no-watermark' | 'no-end-card' | 'unused' | 'key-refused';
+type Filter = 'all' | 'youtube' | 'not-youtube' | 'logo' | 'text' | 'no-watermark' | 'no-end-card' | 'unused' | 'key-refused';
 type Sort = 'name' | 'projects' | 'recent';
 
 const PAGE_SIZE = 25;
@@ -31,10 +33,38 @@ const MAX_CHANNELS = 1000;
       <header class="ch-head">
         <div>
           <h2>Channels</h2>
-          <p class="muted">One look per channel: the watermark stamped on its videos and the end card they finish with. Each project publishes under one.</p>
+          <p class="muted">
+            Your YouTube channels and the look of their videos (watermark and end card). Names and pictures come from YouTube:
+            connect a channel and it appears here; rename it on YouTube, then press <em>↻</em> to refresh.
+          </p>
         </div>
         <span class="ch-count">{{ channels().length }} / {{ max }}</span>
       </header>
+
+      <div class="ch-yt">
+        <button type="button" class="btn-primary-glow" (click)="connectYouTube()"
+                [disabled]="connecting() || yt()?.configured === false">＋ Connect a YouTube channel</button>
+        <button type="button" class="btn-outline icon" (click)="syncFromYouTube()"
+                [disabled]="syncing() || yt()?.configured === false || !yt()?.channels?.length"
+                title="Refresh names and pictures from YouTube" aria-label="Refresh from YouTube">
+          <span [class.spin]="syncing()">↻</span>
+        </button>
+        @if (yt(); as st) {
+          @if (!st.configured) {
+            <span class="muted small">YouTube sign-in isn't set up on this server yet (Application settings → YouTube).</span>
+          } @else {
+            <span class="muted small">{{ st.channels.length }} YouTube channel{{ st.channels.length === 1 ? '' : 's' }} connected by you</span>
+          }
+        }
+      </div>
+
+      @if (syncFailures().length > 0) {
+        <div class="ch-alert" role="alert">
+          ⚠️ Couldn't refresh from YouTube:
+          @for (f of syncFailures(); track f.channelId) { <span><strong>{{ f.channelTitle }}</strong> - {{ f.reason }}</span> }
+          <button type="button" class="btn-outline" (click)="connectYouTube()">Reconnect</button>
+        </div>
+      }
 
       @if (rejectedKeys() > 0) {
         <div class="ch-alert" role="alert">
@@ -44,17 +74,20 @@ const MAX_CHANNELS = 1000;
         </div>
       }
 
-      <form class="ch-new" (submit)="$event.preventDefault(); create()">
-        <input #newName type="text" maxlength="60" placeholder="New channel name, e.g. Bhakti Kids"
-               [value]="newChannelName()" (input)="newChannelName.set(newName.value)" aria-label="New channel name" />
-        <label class="ch-from">Start from
-          <select [value]="copyFrom()" (change)="copyFrom.set($any($event.target).value)">
-            @for (c of byName(); track c.id) { <option [value]="c.id">{{ c.name }}</option> }
-          </select>
-        </label>
-        <button type="submit" class="btn-primary-glow"
-                [disabled]="!newChannelName().trim() || status.busy() || channels().length >= max">➕ Add channel</button>
-      </form>
+      <details class="ch-manual">
+        <summary>Add a brand that isn't a YouTube channel</summary>
+        <form class="ch-new" (submit)="$event.preventDefault(); create()">
+          <input #newName type="text" maxlength="60" placeholder="Brand name, e.g. Bhakti Kids"
+                 [value]="newChannelName()" (input)="newChannelName.set(newName.value)" aria-label="New brand name" />
+          <label class="ch-from">Start from
+            <select [value]="copyFrom()" (change)="copyFrom.set($any($event.target).value)">
+              @for (c of byName(); track c.id) { <option [value]="c.id">{{ c.name }}</option> }
+            </select>
+          </label>
+          <button type="submit" class="btn-outline"
+                  [disabled]="!newChannelName().trim() || status.busy() || channels().length >= max">➕ Add brand</button>
+        </form>
+      </details>
 
       <div class="ch-toolbar">
         <input type="search" placeholder="Search channels…" [value]="query()"
@@ -78,8 +111,11 @@ const MAX_CHANNELS = 1000;
       <div class="ch-table">
         @for (c of pageItems(); track c.id) {
           <div class="ch-row" [class.editing]="renaming() === c.id || deleting() === c.id">
-            <div class="ch-thumb" [title]="hasWatermark(c) ? c.watermark!.kind + ' watermark' : 'No watermark'">
-              @if (c.watermark?.kind === 'Logo') {
+            <div class="ch-thumb" [class.avatar]="!!c.youTubeThumbnailUrl"
+                 [title]="c.youTubeThumbnailUrl ? 'YouTube channel picture' : hasWatermark(c) ? c.watermark!.kind + ' watermark' : 'No watermark'">
+              @if (c.youTubeThumbnailUrl) {
+                <img [src]="c.youTubeThumbnailUrl" alt="" loading="lazy" referrerpolicy="no-referrer" />
+              } @else if (c.watermark?.kind === 'Logo') {
                 <img [src]="logoUrl(c)" alt="" loading="lazy" />
               } @else if (c.watermark?.kind === 'Text') {
                 <span class="ch-thumb-text" [style.color]="c.watermark!.colorHex || '#fff'">{{ c.watermark!.text || 'Aa' }}</span>
@@ -97,9 +133,21 @@ const MAX_CHANNELS = 1000;
                   <button type="button" class="btn-outline" (click)="renaming.set(null)">Cancel</button>
                 </form>
               } @else {
-                <span class="ch-name">{{ c.name }} @if (c.isDefault) { <span class="ch-tag">default</span> }</span>
+                <span class="ch-name">
+                  {{ c.name }} @if (c.isDefault) { <span class="ch-tag">default</span> }
+                  @if (youTubeUrl(c); as url) {
+                    <a class="ch-yt-link" [href]="url" target="_blank" rel="noopener noreferrer"
+                       title="Open on YouTube">{{ c.youTubeChannelHandle || 'YouTube' }} ↗</a>
+                  }
+                </span>
               }
               <span class="ch-meta">
+                @switch (connectionOf(c)) {
+                  @case ('connected') { <span class="ok">▶ Connected</span> }
+                  @case ('reconnect') { <span class="warn">⚠️ Reconnect needed</span> }
+                  @case ('elsewhere') { <span class="off" title="Linked to a YouTube channel you haven't connected">▶ Connected by someone else</span> }
+                  @default { <span class="off">Not on YouTube</span> }
+                }
                 <span [class.off]="!hasWatermark(c)">🛡 {{ hasWatermark(c) ? c.watermark!.kind : 'No watermark' }}</span>
                 <span [class.off]="!hasEndCard(c)">🎬 {{ hasEndCard(c) ? c.outro!.kind : 'No end card' }}</span>
                 <span>📁 {{ projectsOf(c) }} {{ projectsOf(c) === 1 ? 'project' : 'projects' }}</span>
@@ -119,10 +167,23 @@ const MAX_CHANNELS = 1000;
                 <button type="button" class="btn-outline" [class.warn]="keySummary(c).state === 'Rejected'"
                         (click)="toggleKeys(c)" [attr.aria-expanded]="editingKeys() === c.id">🔑 Stream key</button>
               }
-              <button type="button" class="btn-outline icon" title="Rename" (click)="startRename(c)">✎</button>
+              @if (connectionOf(c) === 'reconnect') {
+                <button type="button" class="btn-outline warn" (click)="connectYouTube()">Reconnect</button>
+              }
+              @if (c.youTubeThumbnailUrl) {
+                <button type="button" class="btn-outline" title="Make the YouTube channel picture this channel's watermark logo"
+                        (click)="usePictureAsLogo(c)" [disabled]="status.busy()">🖼 Picture as logo</button>
+              }
+              @if (!c.youTubeChannelId) {
+                <button type="button" class="btn-outline icon" title="Rename" (click)="startRename(c)">✎</button>
+              }
+              @if (!c.isDefault) {
+                <button type="button" class="btn-outline" title="New projects start with this channel; projects without one use it"
+                        (click)="makeDefault(c)" [disabled]="status.busy()">★ Make default</button>
+              }
               <button type="button" class="btn-outline icon" title="Duplicate" (click)="duplicate(c)"
                       [disabled]="channels().length >= max">⧉</button>
-              @if (!c.isDefault) {
+              @if (!c.isDefault || channels().length > 1) {
                 <button type="button" class="btn-outline icon danger" title="Delete" (click)="startDelete(c)">🗑</button>
               }
             </div>
@@ -165,7 +226,15 @@ const MAX_CHANNELS = 1000;
             @if (deleting() === c.id) {
               <div class="ch-delete">
                 Delete “{{ c.name }}”?
-                @if (projectsOf(c) > 0) {
+                @if (c.isDefault) {
+                  There's always a default channel - choose the one that takes its place
+                  @if (projectsOf(c) > 0) { (its {{ projectsOf(c) }} {{ projectsOf(c) === 1 ? 'project moves' : 'projects move' }} there too) }:
+                  <select [value]="moveTo()" (change)="moveTo.set($any($event.target).value)" aria-label="New default channel">
+                    @for (o of byName(); track o.id) {
+                      @if (!o.isDefault) { <option [value]="o.id">{{ o.name }}</option> }
+                    }
+                  </select>
+                } @else if (projectsOf(c) > 0) {
                   Its {{ projectsOf(c) }} {{ projectsOf(c) === 1 ? 'project moves' : 'projects move' }} to
                   <select [value]="moveTo()" (change)="moveTo.set($any($event.target).value)" aria-label="Move projects to">
                     @for (o of byName(); track o.id) {
@@ -203,6 +272,15 @@ const MAX_CHANNELS = 1000;
       border: 1px solid var(--border, #1e2433);
     }
     .ch-thumb img { max-width: 100%; max-height: 100%; object-fit: contain; }
+    .ch-thumb.avatar { width: 40px; margin-inline: 12px; border-radius: 50%; background: var(--surface, #111827); }
+    .ch-thumb.avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .ch-yt { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+    .ch-yt .small, .small { font-size: .78rem; }
+    .ch-yt-link { font-size: .74rem; font-weight: 400; margin-left: 6px; color: var(--brand, #6c8cff); text-decoration: none; }
+    .ch-yt-link:hover { text-decoration: underline; }
+    .ch-meta .ok { color: #86efac; }
+    .ch-manual { margin-bottom: 12px; font-size: .82rem; }
+    .ch-manual summary { cursor: pointer; color: var(--muted, #8b9bb4); margin-bottom: 8px; }
     .ch-thumb-text { font-size: .62rem; font-weight: 700; padding: 0 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
     .ch-thumb-none { color: var(--muted, #6b7280); }
     input[type=search], input[type=text] {
@@ -243,6 +321,8 @@ const MAX_CHANNELS = 1000;
     .ch-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
     .ch-actions a.btn-outline { text-decoration: none; }
     .btn-outline.icon { padding-inline: 8px; }
+    .spin { display: inline-block; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
     .btn-outline.danger { color: #f87171; }
     .ch-rename { display: flex; gap: 6px; align-items: center; }
     .ch-rename input { max-width: 280px; }
@@ -293,6 +373,8 @@ export class AdminChannelsComponent {
 
   readonly filters: readonly { id: Filter; label: string }[] = [
     { id: 'all', label: 'All' },
+    { id: 'youtube', label: 'On YouTube' },
+    { id: 'not-youtube', label: 'Not on YouTube' },
     { id: 'logo', label: 'Logo' },
     { id: 'text', label: 'Text' },
     { id: 'no-watermark', label: 'No watermark' },
@@ -316,7 +398,8 @@ export class AdminChannelsComponent {
     const q = this.query().trim().toLowerCase();
     const f = this.filter();
     const list = this.channels().filter((c) =>
-      (!q || c.name.toLowerCase().includes(q)) && this.matchesFilter(c, f));
+      (!q || c.name.toLowerCase().includes(q) || (c.youTubeChannelHandle ?? '').toLowerCase().includes(q))
+      && this.matchesFilter(c, f));
 
     const order = new Map(this.channels().map((c, i) => [c.id, i]));
     switch (this.sort()) {
@@ -333,6 +416,13 @@ export class AdminChannelsComponent {
     return this.filtered().slice(p * PAGE_SIZE, (p + 1) * PAGE_SIZE);
   });
 
+  // ---- YouTube: where channel names and pictures come from
+  private readonly youtube = inject(YouTubePublishService);
+  readonly yt = signal<YouTubePublishStatus | null>(null);
+  readonly syncing = signal(false);
+  readonly connecting = signal(false);
+  readonly syncFailures = signal<BrandChannelSyncResult['failed']>([]);
+
   constructor() {
     this.load();
   }
@@ -341,6 +431,12 @@ export class AdminChannelsComponent {
     this.status.run(this.api.listBrandChannels(), (list) => {
       this.channels.set(list);
       this.loaded.set(true);
+    });
+    // Stored channels only - YouTube itself is asked only when the refresh button is pressed,
+    // so opening the page spends no API quota.
+    this.youtube.status().subscribe({
+      next: (st) => this.yt.set(st),
+      error: () => this.yt.set(null),
     });
     this.api.brandChannelUsage().subscribe({ next: (u) => this.usage.set(u), error: () => this.usage.set({}) });
     this.loadKeys();
@@ -405,6 +501,8 @@ export class AdminChannelsComponent {
       case 'text': return c.watermark?.kind === 'Text';
       case 'no-watermark': return !this.hasWatermark(c);
       case 'no-end-card': return !this.hasEndCard(c);
+      case 'youtube': return !!c.youTubeChannelId;
+      case 'not-youtube': return !c.youTubeChannelId;
       case 'unused': return this.projectsOf(c) === 0;
       case 'key-refused': return this.keySummary(c).state === 'Rejected';
       default: return true;
@@ -416,7 +514,64 @@ export class AdminChannelsComponent {
   }
 
   logoUrl(c: BrandChannel): string {
-    return this.api.globalLogoUrl(c.id);
+    // The asset id busts the cache when the logo is replaced.
+    return `${this.api.globalLogoUrl(c.id)}&v=${encodeURIComponent(c.watermark?.logoAssetId ?? '')}`;
+  }
+
+  /** Only a real channel id becomes a link. */
+  youTubeUrl(c: BrandChannel): string | null {
+    return c.youTubeChannelId && /^UC[A-Za-z0-9_-]{22}$/.test(c.youTubeChannelId)
+      ? `https://www.youtube.com/channel/${c.youTubeChannelId}`
+      : null;
+  }
+
+  connectionOf(c: BrandChannel): 'connected' | 'reconnect' | 'elsewhere' | 'none' {
+    if (!c.youTubeChannelId) return 'none';
+    const mine = this.yt()?.channels.find((x) => x.channelId === c.youTubeChannelId);
+    if (!mine) return 'elsewhere';
+    return mine.needsReconnect ? 'reconnect' : 'connected';
+  }
+
+  connectYouTube(): void {
+    this.connecting.set(true);
+    this.youtube.startConnect('/admin/channels').subscribe({
+      next: (url) => {
+        if (url.startsWith('https://accounts.google.com/')) window.location.assign(url);
+        else { this.connecting.set(false); this.status.notify(['The server returned an unexpected sign-in address.']); }
+      },
+      error: (e: Error) => { this.connecting.set(false); this.status.notify([e.message]); },
+    });
+  }
+
+  syncFromYouTube(): void {
+    if (this.syncing()) return;
+    this.syncing.set(true);
+    this.api.syncBrandChannelsFromYouTube().subscribe({
+      next: (r) => {
+        this.syncing.set(false);
+        this.apply(r.channels);
+        this.syncFailures.set(r.failed);
+        this.youtube.status().subscribe({ next: (st) => this.yt.set(st), error: () => {} });
+
+        const messages = [
+          ...r.created.map((name) => `Added "${name}" from YouTube.`),
+          ...r.renamed.map((x) => `"${x.before}" is now "${x.after}" (renamed on YouTube).`),
+        ];
+        if (messages.length > 0) this.status.notify(messages);
+        else if (r.failed.length === 0) this.status.notify(['Everything already matches YouTube.']);
+      },
+      error: (e: Error) => {
+        this.syncing.set(false);
+        this.status.notify([e.message]);
+      },
+    });
+  }
+
+  usePictureAsLogo(c: BrandChannel): void {
+    this.status.run(this.api.useYouTubePictureAsLogo(c.isDefault ? null : c.id), (watermark) => {
+      this.channels.update((list) => list.map((x) => x.id === c.id ? { ...x, watermark } : x));
+      this.status.notify([`"${c.name}" now uses its YouTube picture as the watermark logo.`]);
+    });
   }
 
   linkParams(c: BrandChannel): Record<string, string> | null {
@@ -462,7 +617,8 @@ export class AdminChannelsComponent {
 
   startDelete(c: BrandChannel): void {
     this.renaming.set(null);
-    this.moveTo.set(DEFAULT_BRAND_CHANNEL);
+    // The default can only go once another channel is picked to replace it.
+    this.moveTo.set(c.isDefault ? (this.byName().find((x) => !x.isDefault)?.id ?? DEFAULT_BRAND_CHANNEL) : DEFAULT_BRAND_CHANNEL);
     this.deleting.set(c.id);
   }
 
@@ -472,9 +628,26 @@ export class AdminChannelsComponent {
     this.status.run(this.api.deleteBrandChannel(c.id, this.moveTo()), (list) => {
       this.deleting.set(null);
       this.apply(list);
-      this.status.notify([moved > 0
-        ? `Deleted "${c.name}"; ${moved} project(s) moved to ${destination}.`
-        : `Deleted "${c.name}".`]);
+      this.loadKeys();
+      this.status.notify([c.isDefault
+        ? `Deleted "${c.name}"; "${destination}" is now the default.`
+        : moved > 0
+          ? `Deleted "${c.name}"; ${moved} project(s) moved to ${destination}.`
+          : `Deleted "${c.name}".`]);
+    });
+  }
+
+  makeDefault(c: BrandChannel): void {
+    const current = this.channels().find((x) => x.isDefault)?.name ?? 'Default';
+    if (!confirm(`Make "${c.name}" the default channel? New projects will start with it. "${current}" stays as a normal channel, and existing projects keep the look they have.`)) return;
+    this.status.run(this.api.makeDefaultBrandChannel(c.id), (list) => {
+      this.deleting.set(null);
+      this.renaming.set(null);
+      this.editingKeys.set(null);
+      this.apply(list);
+      // Stream keys moved with the channels, so their per-id status has to be read again.
+      this.loadKeys();
+      this.status.notify([`"${c.name}" is now the default channel.`]);
     });
   }
 }

@@ -28,6 +28,7 @@ import {
   SupportedPlatform,
   VideoChunkResult,
 } from '../../core/models/media-tools.models';
+import { ActivityService } from '../../core/services/activity.service';
 import { ApiService } from '../../core/services/api.service';
 import { MediaToolsService } from '../../core/services/media-tools.service';
 import { ProjectStore } from '../../core/services/project-store';
@@ -80,6 +81,7 @@ const DEFAULT_FOLDER_NAME = 'Downloads';
 })
 export class MediaToolsComponent implements OnInit, AfterViewInit {
   private readonly mediaTools = inject(MediaToolsService);
+  private readonly activity = inject(ActivityService);
   private readonly api = inject(ApiService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
@@ -616,7 +618,8 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
         addToClipOrder: this.addToTimeline(),
       };
 
-      const res = await firstValueFrom(this.mediaTools.downloadMedia(req));
+      const res = await firstValueFrom(this.activity.trackRequest('download', probe.title || rawUrl,
+        () => this.mediaTools.downloadMedia(req), { detail: `From ${probe.platformName}`, link: ['/tools'] }));
 
       if (this.saveToComputer()) {
         if (fileHandle) {
@@ -914,6 +917,7 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
       case 'reddit': return 'r/';
       case 'dailymotion': return 'd';
       case 'twitch': return '⌁';
+      case 'suno': return '♫';
       case 'direct': return '⬇';
       default: return '🔗';
     }

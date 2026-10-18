@@ -13,6 +13,12 @@ public sealed class ChannelPublishSettings
     /// <summary>Shown in the console so the link is readable even when the publisher hasn't connected it.</summary>
     public string? YouTubeChannelTitle { get; set; }
 
+    /// <summary>The channel's <c>@handle</c>, as YouTube last reported it.</summary>
+    public string? YouTubeChannelHandle { get; set; }
+
+    /// <summary>The channel's profile picture on YouTube (https only), as YouTube last reported it.</summary>
+    public string? YouTubeThumbnailUrl { get; set; }
+
     public string Privacy { get; set; } = "public";
     public string CategoryId { get; set; } = "1";
     public bool MadeForKids { get; set; }
@@ -24,6 +30,9 @@ public sealed class ChannelPublishSettings
     /// <summary>Appended below every description: links, credits, the support message.</summary>
     public string? DescriptionFooter { get; set; }
 
+    /// <summary>Posted as a comment on every upload once it is on YouTube; the dialog can change it per video.</summary>
+    public string? FirstComment { get; set; }
+
     /// <summary>A copy for a duplicated channel - minus the YouTube link, which belongs to the original.</summary>
     public ChannelPublishSettings CopyDefaults() => new()
     {
@@ -32,6 +41,7 @@ public sealed class ChannelPublishSettings
         MadeForKids = MadeForKids,
         NotifySubscribers = NotifySubscribers,
         Tags = [.. Tags],
-        DescriptionFooter = DescriptionFooter
+        DescriptionFooter = DescriptionFooter,
+        FirstComment = FirstComment
     };
 }

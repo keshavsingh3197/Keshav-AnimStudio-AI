@@ -38,12 +38,17 @@ export interface WebSettingsOverview {
 export interface ChannelPublishSettings {
   youTubeChannelId: string | null;
   youTubeChannelTitle: string | null;
+  /** As YouTube last reported them; set by the server, never trusted from the request. */
+  youTubeChannelHandle?: string | null;
+  youTubeThumbnailUrl?: string | null;
   privacy: 'public' | 'unlisted' | 'private';
   categoryId: string;
   madeForKids: boolean;
   notifySubscribers: boolean;
   tags: string[];
   descriptionFooter: string | null;
+  /** Posted as a comment on every upload; the publish dialog can change it per video. */
+  firstComment?: string | null;
 }
 
 @Injectable({ providedIn: 'root' })

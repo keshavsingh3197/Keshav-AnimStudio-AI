@@ -19,11 +19,25 @@ public class LiveStreamArgumentsTests
     [InlineData(LiveStreamOrientation.Landscape, LiveStreamQuality.Hd1080, 1920, 1080)]
     [InlineData(LiveStreamOrientation.Portrait, LiveStreamQuality.Hd720, 720, 1280)]
     [InlineData(LiveStreamOrientation.Portrait, LiveStreamQuality.Hd1080, 1080, 1920)]
+    [InlineData(LiveStreamOrientation.Both, LiveStreamQuality.Hd720, 1280, 720)]
+    [InlineData(LiveStreamOrientation.Both, LiveStreamQuality.Hd1080, 1920, 1080)]
     public void Frame_follows_orientation_and_quality(
         LiveStreamOrientation orientation, LiveStreamQuality quality, int width, int height)
     {
         var frame = LiveStreamArguments.FrameFor(orientation, quality);
         Assert.Equal((width, height), (frame.Width, frame.Height));
+    }
+
+    [Theory]
+    [InlineData(LiveStreamQuality.Hd720, 405)]
+    [InlineData(LiveStreamQuality.Hd1080, 607)]
+    public void Both_keeps_the_cover_inside_youtubes_vertical_crop(LiveStreamQuality quality, int stripWidth)
+    {
+        var settings = new LiveStreamSettings { Orientation = LiveStreamOrientation.Both, Quality = quality };
+        var graph = ValueAfter(LiveStreamArguments.Stage("cover.png", settings, "stage00.png"), "-filter_complex");
+
+        var art = int.Parse(System.Text.RegularExpressions.Regex.Match(graph, @"\[b\]scale=(\d+):").Groups[1].Value);
+        Assert.InRange(art, 1, stripWidth);
     }
 
     [Fact]

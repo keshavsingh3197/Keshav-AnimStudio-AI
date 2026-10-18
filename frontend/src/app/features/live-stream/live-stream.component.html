@@ -228,7 +228,14 @@
           <select id="ls-orient" [(ngModel)]="form.orientation">
             <option value="Landscape">Landscape 16:9</option>
             <option value="Portrait">Vertical 9:16 (Shorts feed)</option>
+            <option value="Both">Both - landscape + vertical (YouTube dual format)</option>
           </select>
+          @if (form.orientation === 'Both') {
+            <span class="muted ls-small-print">
+              Sent as 16:9. YouTube shows it in the normal player and crops a vertical version for the Shorts feed,
+              so viewers see whichever fits. Song covers are kept in the centre so the crop shows them.
+            </span>
+          }
         </div>
         <div class="ls-field ls-span-2 ls-checks">
           <label><input type="checkbox" [(ngModel)]="form.loopForever" /> Loop the playlist until I stop it</label>
@@ -262,9 +269,15 @@
           <input type="radio" name="keyMode" value="paste" [(ngModel)]="form.keyMode" />
           Paste a key for this stream
         </label>
+        <label>
+          <input type="radio" name="keyMode" value="youtube" [(ngModel)]="form.keyMode" />
+          ✨ Create on YouTube (AI title, description &amp; tags)
+        </label>
       </div>
 
-      @if (form.keyMode === 'channel') {
+      @if (form.keyMode === 'youtube') {
+        <app-youtube-live-setup kind="playlist" [initial]="youTubeBroadcast()" [disabled]="!!submitting()" (broadcastChange)="youTubeBroadcast.set($event)" />
+      } @else if (form.keyMode === 'channel') {
         <div class="ls-field">
           <label for="ls-channel">Channel</label>
           <select id="ls-channel" [(ngModel)]="form.channelId">

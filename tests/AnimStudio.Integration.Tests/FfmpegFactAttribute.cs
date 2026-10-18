@@ -129,3 +129,13 @@ public static class FfmpegLocator
         return output.Trim();
     }
 }
+
+/// <summary>The theory form of <see cref="FfmpegFactAttribute"/>: skips every case without ffmpeg.</summary>
+public sealed class FfmpegTheoryAttribute : TheoryAttribute
+{
+    public FfmpegTheoryAttribute()
+    {
+        if (!FfmpegLocator.IsAvailable)
+            Skip = $"ffmpeg not found (looked for '{FfmpegLocator.FfmpegPath}').";
+    }
+}

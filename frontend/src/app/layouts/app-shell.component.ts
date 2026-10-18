@@ -2,9 +2,15 @@ import { Component, ElementRef, effect, inject, signal, viewChild } from '@angul
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
 import { AdminAccess } from '../core/models/api.models';
+import { ActivityPanelComponent } from './activity-panel.component';
 import { ProjectHubModalComponent } from './project-hub-modal.component';
+import { ActivityService } from '../core/services/activity.service';
 import { ApiService } from '../core/services/api.service';
+import { ShortsService } from '../core/services/shorts.service';
 import { StatusService } from '../core/services/status.service';
+
+/** How often the Shorts badge is re-read; alerts change on the scale of renders and days, not seconds. */
+const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
 
 /**
  * The frame every screen sits in: the brand bar, the one place errors and warnings are
@@ -17,7 +23,7 @@ import { StatusService } from '../core/services/status.service';
  */
 @Component({
   selector: 'app-shell',
-  imports: [RouterLink, RouterLinkActive, RouterOutlet, ProjectHubModalComponent],
+  imports: [RouterLink, RouterLinkActive, RouterOutlet, ProjectHubModalComponent, ActivityPanelComponent],
   template: `
     <header class="topbar">
       <div class="wrap topbar-inner">
@@ -28,6 +34,13 @@ import { StatusService } from '../core/services/status.service';
           <a routerLink="/projects" routerLinkActive="active" class="topbar-navlink">
             <span class="topbar-navlink-icon">🎬</span> Projects
           </a>
+          <a routerLink="/shorts" routerLinkActive="active" class="topbar-navlink"
+             [title]="shortsAttention() ? shortsAttention() + ' thing(s) on the Shorts page want attention' : 'Every short across your projects'">
+            <span class="topbar-navlink-icon">📱</span> Shorts
+            @if (shortsAttention() > 0) {
+              <span class="topbar-badge">{{ shortsAttention() }}</span>
+            }
+          </a>
           <a (click)="openVideoModal()" class="topbar-navlink" style="cursor: pointer;">
             <span class="topbar-navlink-icon">🎞️</span> Video Editor
           </a>
@@ -36,6 +49,9 @@ import { StatusService } from '../core/services/status.service';
           </a>
           <a routerLink="/release" routerLinkActive="active" class="topbar-navlink">
             <span class="topbar-navlink-icon">🎵</span> Music Release
+          </a>
+          <a routerLink="/youtube" routerLinkActive="active" class="topbar-navlink">
+            <span class="topbar-navlink-icon">▶️</span> YouTube
           </a>
           <a routerLink="/live" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }" class="topbar-navlink">
             <span class="topbar-navlink-icon">🔴</span> Go Live
@@ -56,6 +72,18 @@ import { StatusService } from '../core/services/status.service';
 
 
         <div class="topbar-end">
+          @if (activity.items().length > 0) {
+            <button type="button" class="topbar-activity" (click)="activityPanel()?.toggle()"
+                    [class.is-running]="activity.running().length > 0"
+                    title="Uploads, exports and downloads">
+              @if (activity.running().length > 0) {
+                <span class="topbar-busy-dot"></span>
+                {{ activity.running().length }} in progress
+              } @else {
+                ✓ Activity
+              }
+            </button>
+          }
           @if (status.busy()) {
             <span class="topbar-busy">
               <span class="topbar-busy-dot"></span>
@@ -101,6 +129,8 @@ import { StatusService } from '../core/services/status.service';
       <router-outlet></router-outlet>
     </main>
 
+    <app-activity-panel></app-activity-panel>
+
     <footer class="app-footer">
       <div class="wrap app-footer-inner">
         <div class="app-footer-brand">
@@ -110,8 +140,10 @@ import { StatusService } from '../core/services/status.service';
 
         <nav class="app-footer-links" aria-label="Footer">
           <a routerLink="/projects">Projects</a>
+          <a routerLink="/shorts">Shorts</a>
           <a routerLink="/tools">Media Studio</a>
           <a routerLink="/release">Music Release</a>
+          <a routerLink="/youtube">YouTube</a>
           <a routerLink="/live">Go Live</a>
           <a routerLink="/live/camera">Camera Studio</a>
           <a routerLink="/collab">Collab Studio</a>
@@ -257,6 +289,27 @@ import { StatusService } from '../core/services/status.service';
       50% { opacity: .4; transform: scale(.75); }
     }
 
+    .topbar-activity {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      padding: .3rem .7rem;
+      border: 1px solid var(--border);
+      border-radius: 99px;
+      background: none;
+      color: var(--muted);
+      font: inherit;
+      font-size: .8rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .topbar-activity:hover,
+    .topbar-activity.is-running {
+      color: var(--text);
+      border-color: color-mix(in srgb, var(--brand) 50%, var(--border));
+    }
+
     .topbar-settings {
       border-radius: var(--radius-sm);
       padding: .3rem .65rem;
@@ -285,17 +338,33 @@ export class AppShellComponent {
   private readonly router = inject(Router);
 
   readonly status = inject(StatusService);
+  readonly activity = inject(ActivityService);
   readonly access = signal<AdminAccess | null>(null);
+  readonly activityPanel = viewChild(ActivityPanelComponent);
 
   readonly showVideoModal = signal(false);
+  /** Warnings and errors on the Shorts page - failed renders or copies, used-up stock, a missed weekly goal. */
+  readonly shortsAttention = signal(0);
+  private readonly shorts = inject(ShortsService);
   readonly year = new Date().getFullYear();
   private readonly banner = viewChild<ElementRef<HTMLElement>>('banner');
+
+  private refreshShortsAttention(): void {
+    // A badge is a nicety: if the overview can't be read, there is simply no badge.
+    this.shorts.overview().subscribe({
+      next: (o) => this.shortsAttention.set(o.alerts.filter((a) => a.severity !== 'info').length),
+      error: () => undefined,
+    });
+  }
 
   openVideoModal() {
     this.showVideoModal.set(true);
   }
 
   constructor() {
+    this.refreshShortsAttention();
+    setInterval(() => this.refreshShortsAttention(), SHORTS_ATTENTION_MS);
+
     /**
      * Brings a new banner into view.
      *

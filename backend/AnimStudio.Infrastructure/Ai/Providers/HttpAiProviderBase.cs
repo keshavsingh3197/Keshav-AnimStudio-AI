@@ -313,6 +313,8 @@ public abstract class HttpAiProviderBase : IAiProvider
         {
             400 => "bad-request",
             401 or 403 => "credential-rejected",
+            // A prepaid plan with an empty wallet.
+            402 => "billing-required",
             404 => "endpoint-or-model-not-found",
             408 => "timeout",
             413 => "request-too-large",

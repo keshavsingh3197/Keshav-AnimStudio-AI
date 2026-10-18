@@ -227,6 +227,12 @@
                 </div>
               }
 
+              @if (character.voice) {
+                <div class="appearance-chips">
+                  <span class="look-chip">🗣️ {{ describeVoice(character.voice) }}</span>
+                </div>
+              }
+
               <!-- Subtitle Preview Pill -->
               <div class="card-subtitle-preview">
                 <div class="subtitle-speaker-label" [style.color]="character.subtitleColorHex || '#ffe164'">
@@ -685,6 +691,138 @@
             (ngModelChange)="sampleDialogue.set($event)"
             placeholder="Type any test dialogue..."
           />
+        </div>
+
+        <!-- Character Voice -->
+        <div class="form-field voice-field">
+          <label>🗣️ Character Voice</label>
+          <p class="field-hint">
+            Speak as this character: when you record in Collab Studio or Camera Studio, your own voice is changed to this one as you talk.
+          </p>
+          <div class="voice-chips">
+            <button type="button" class="voice-chip" [class.selected]="!form.voice" (click)="setVoicePreset(null)" title="Your voice, unchanged">
+              🙂 Own voice
+            </button>
+            @for (preset of voicePresets; track preset.id) {
+              <button
+                type="button"
+                class="voice-chip"
+                [class.selected]="form.voice?.preset === preset.id"
+                (click)="setVoicePreset(preset.id)"
+                [title]="preset.hint"
+              >{{ preset.icon }} {{ preset.label }}</button>
+            }
+          </div>
+
+          @if (form.voice; as voice) {
+            <div class="voice-sliders">
+              <label>Pitch <span>{{ voice.pitchSemitones > 0 ? '+' : '' }}{{ voice.pitchSemitones }} semitones</span>
+                <input type="range" min="-12" max="12" step="1" [ngModel]="voice.pitchSemitones" (ngModelChange)="patchVoice({ pitchSemitones: +$event })" />
+              </label>
+              <label title="The size of the body the voice comes from, apart from its pitch. Heard with Studio quality.">
+                Size <span>{{ (voice.sizeSemitones ?? 0) < 0 ? 'bigger' : (voice.sizeSemitones ?? 0) > 0 ? 'smaller' : 'as you' }} · studio</span>
+                <input type="range" min="-6" max="6" step="0.5" [ngModel]="voice.sizeSemitones ?? 0" (ngModelChange)="patchVoice({ sizeSemitones: +$event })" />
+              </label>
+              <label>Bass <span>{{ voice.bassDecibels > 0 ? '+' : '' }}{{ voice.bassDecibels }} dB</span>
+                <input type="range" min="-12" max="12" step="1" [ngModel]="voice.bassDecibels" (ngModelChange)="patchVoice({ bassDecibels: +$event })" />
+              </label>
+              <label>Treble <span>{{ voice.trebleDecibels > 0 ? '+' : '' }}{{ voice.trebleDecibels }} dB</span>
+                <input type="range" min="-12" max="12" step="1" [ngModel]="voice.trebleDecibels" (ngModelChange)="patchVoice({ trebleDecibels: +$event })" />
+              </label>
+              <label>Growl <span>{{ voice.drive * 100 | number: '1.0-0' }}%</span>
+                <input type="range" min="0" max="1" step="0.05" [ngModel]="voice.drive" (ngModelChange)="patchVoice({ drive: +$event })" />
+              </label>
+              <label>Robot <span>{{ voice.robot * 100 | number: '1.0-0' }}%</span>
+                <input type="range" min="0" max="1" step="0.05" [ngModel]="voice.robot" (ngModelChange)="patchVoice({ robot: +$event })" />
+              </label>
+              @if (voice.robot > 0) {
+                <label>Robot tone <span>{{ voice.robotHertz }} Hz</span>
+                  <input type="range" min="20" max="400" step="5" [ngModel]="voice.robotHertz" (ngModelChange)="patchVoice({ robotHertz: +$event })" />
+                </label>
+              }
+              <label>Echo <span>{{ voice.echo * 100 | number: '1.0-0' }}%</span>
+                <input type="range" min="0" max="1" step="0.05" [ngModel]="voice.echo" (ngModelChange)="patchVoice({ echo: +$event })" />
+              </label>
+              <label>Hall <span>{{ voice.reverb * 100 | number: '1.0-0' }}%</span>
+                <input type="range" min="0" max="1" step="0.05" [ngModel]="voice.reverb" (ngModelChange)="patchVoice({ reverb: +$event })" />
+              </label>
+              <label class="voice-check">
+                <input type="checkbox" [ngModel]="voice.radio" (ngModelChange)="patchVoice({ radio: $event })" />
+                Radio band (walkie-talkie)
+              </label>
+            </div>
+
+            @if (aiAvailable() || voice.aiSampleAssetId) {
+              <div class="voice-ai">
+                <label for="voice-sample">🤖 AI voice: sound like a real person</label>
+                <p class="field-hint">
+                  Pick a clear 10&ndash;25 second recording of one person speaking. Studio voice then turns your performance into their voice
+                  with local AI on this computer: your timing and acting stay, the voice becomes theirs. Pitch and Size come from their recording.
+                </p>
+                <div class="voice-ai-row">
+                  <select id="voice-sample" [ngModel]="voice.aiSampleAssetId ?? ''" (ngModelChange)="setVoiceSample($event)">
+                    <option value="">No AI voice (effects only)</option>
+                    @for (asset of sampleAssets(); track asset.id) {
+                      <option [value]="asset.id">{{ asset.name }}</option>
+                    }
+                  </select>
+                  <label class="btn-secondary voice-upload" [class.disabled]="isUploadingSample()">
+                    <input type="file" accept=".wav,.mp3,.m4a,.mp4" (change)="onUploadVoiceSample($event)" [disabled]="isUploadingSample()" hidden />
+                    {{ isUploadingSample() ? 'Uploading…' : '⬆ Upload a sample' }}
+                  </label>
+                </div>
+                @if (voice.aiSampleAssetId) {
+                  <label class="voice-check voice-consent">
+                    <input type="checkbox" [ngModel]="voice.aiSampleConsent" (ngModelChange)="patchVoice({ aiSampleConsent: $event })" />
+                    The person in this recording agreed to their voice being used for this character (it's me, or I have their permission).
+                  </label>
+                  @if (!voice.aiSampleConsent) {
+                    <p class="field-hint voice-error">Tick the permission box to save an AI voice.</p>
+                  }
+                  @if (!aiAvailable()) {
+                    <p class="field-hint voice-error">AI voices aren't set up on this server yet, so this one plays with its effects only.</p>
+                  }
+                }
+              </div>
+            }
+          }
+
+          <div class="voice-tester">
+            <button type="button" class="btn-secondary" (click)="recordTestLine()">
+              {{ testerState() === 'recording' ? '⏹ Stop recording' : '🎤 Record a test line' }}
+            </button>
+            <button
+              type="button"
+              class="btn-secondary"
+              (click)="toggleTestPlayback()"
+              [disabled]="testerState() === 'idle' || testerState() === 'recording'"
+            >{{ testerState() === 'playing' ? '⏸ Stop' : '▶ Hear it as ' + (form.name.trim() || 'the character') }}</button>
+            @if (studioAvailable() && form.voice) {
+              <button
+                type="button"
+                class="btn-secondary"
+                (click)="hearStudioQuality()"
+                [disabled]="testerState() === 'idle' || testerState() === 'recording' || studioBusy()"
+                title="The server re-voices the line the way Studio voice will: more like a real person"
+              >{{ studioBusy() ? 'Making it…' : '✨ Hear studio quality' }}</button>
+            }
+          </div>
+          <p class="field-hint">
+            @if (testerState() === 'recording') {
+              Say a line now; it stops by itself after {{ testLineSeconds }} seconds.
+            } @else if (studioBusy() && form.voice?.aiSampleAssetId) {
+              Making the AI voice: about a minute to start, then roughly 12 seconds per second of speech on this computer. The very first time also downloads the AI (about 2 GB).
+            } @else if (testerState() === 'playing' && hearingStudio()) {
+              Playing the studio version on a loop. Move a slider to go back to the live preview.
+            } @else if (testerState() === 'playing') {
+              Playing on a loop: move the sliders to hear the change. Size is only heard in studio quality.
+            } @else {
+              Nothing is uploaded: the test line stays in this page.
+            }
+          </p>
+          @if (testerError(); as message) {
+            <p class="field-hint voice-error">{{ message }}</p>
+          }
         </div>
 
         <!-- Appearance Spec Subgrid -->

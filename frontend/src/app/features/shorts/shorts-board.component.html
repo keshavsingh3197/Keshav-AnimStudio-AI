@@ -1,0 +1,282 @@
+@if (loading() && !overview()) {
+  <p class="sb-muted">Loading your shorts…</p>
+} @else if (loadError() && !overview()) {
+  <div class="sb-alert sb-error" role="alert">{{ loadError() }} <button type="button" class="sb-link" (click)="load()">Try again</button></div>
+} @else if (overview(); as o) {
+  <!-- Where things stand -->
+  <div class="sb-tiles" role="group" aria-label="Summary">
+    <button type="button" class="sb-tile" [class.on]="statusFilter() === 'rendering'" (click)="statusFilter.set('rendering')">
+      <span class="sb-tile-n">{{ o.counts.rendering }}</span><span class="sb-tile-l">Rendering</span>
+    </button>
+    <button type="button" class="sb-tile" [class.on]="statusFilter() === 'ready'" (click)="statusFilter.set('ready')">
+      <span class="sb-tile-n">{{ o.counts.ready }}</span><span class="sb-tile-l">Ready</span>
+    </button>
+    <button type="button" class="sb-tile" [class.on]="statusFilter() === 'needs-youtube'" (click)="statusFilter.set('needs-youtube')">
+      <span class="sb-tile-n sb-warn-text">{{ o.counts.notOnYouTube }}</span><span class="sb-tile-l">Not on YouTube</span>
+    </button>
+    <button type="button" class="sb-tile" [class.on]="statusFilter() === 'needs-drive'" (click)="statusFilter.set('needs-drive')">
+      <span class="sb-tile-n">{{ o.counts.notOnDrive }}</span><span class="sb-tile-l">Not on Drive</span>
+    </button>
+    <button type="button" class="sb-tile" [class.on]="statusFilter() === 'failed'" (click)="statusFilter.set('failed')">
+      <span class="sb-tile-n" [class.sb-err-text]="o.counts.failed > 0">{{ o.counts.failed }}</span><span class="sb-tile-l">Failed</span>
+    </button>
+    <div class="sb-tile sb-tile-static" [title]="o.counts.weeklyGoal ? 'Weekly goal - change it under Settings > Shorts' : 'Set a weekly goal under Settings > Shorts'">
+      <span class="sb-tile-n">{{ o.counts.madeThisWeek }}{{ o.counts.weeklyGoal ? ' / ' + o.counts.weeklyGoal : '' }}</span>
+      <span class="sb-tile-l">Made in 7 days</span>
+      @if (o.counts.weeklyGoal) {
+        <span class="sb-meter" aria-hidden="true"><span [style.width.%]="Math.min(100, (o.counts.madeThisWeek / o.counts.weeklyGoal) * 100)"></span></span>
+      }
+    </div>
+  </div>
+
+  <!-- What wants attention -->
+  @if (alerts().length > 0) {
+    <ul class="sb-alerts">
+      @for (a of alerts(); track a.code + (a.projectId ?? '')) {
+        <li class="sb-alert" [class.sb-error]="a.severity === 'error'" [class.sb-warning]="a.severity === 'warning'">
+          <span>{{ a.message }}</span>
+          @switch (a.code) {
+            @case ('render-failed') { <button type="button" class="sb-link" (click)="statusFilter.set('failed'); selectNeeding('failed')">Select them</button> }
+            @case ('drive-failed') { <button type="button" class="sb-link" (click)="statusFilter.set('failed')">Show them</button> }
+            @case ('not-on-youtube') { <button type="button" class="sb-link" (click)="statusFilter.set('needs-youtube'); selectNeeding('youtube')">Select them</button> }
+            @case ('pool-empty') { @if (a.projectId) { <a class="sb-link" [routerLink]="['/projects', a.projectId, 'clips']">Add clips</a> } }
+            @case ('pool-low') { @if (a.projectId) { <a class="sb-link" [routerLink]="['/projects', a.projectId, 'clips']">Add clips</a> } }
+          }
+        </li>
+      }
+    </ul>
+  }
+
+  <!-- Stock of unused clips per project -->
+  @if (o.pools.length > 0 && !(compact() && o.pools.length === 1 && o.pools[0].batches === 0)) {
+    <div class="sb-pools">
+      @for (p of o.pools; track p.projectId) {
+        <div class="sb-pool" [class.sb-pool-empty]="p.videos + p.images > 0 && p.unusedVideos + p.unusedImages === 0">
+          <div class="sb-pool-head">
+            @if (!projectId()) { <a [routerLink]="['/projects', p.projectId, 'clips']">{{ p.projectName }}</a> } @else { <strong>Library stock</strong> }
+            <span class="sb-muted">{{ p.batches }} batch{{ p.batches === 1 ? '' : 'es' }} · {{ p.shorts }} shorts</span>
+          </div>
+          <div class="sb-pool-bar" aria-hidden="true">
+            <span [style.width.%]="p.videos + p.images ? ((p.unusedVideos + p.unusedImages) / (p.videos + p.images)) * 100 : 0"></span>
+          </div>
+          <div class="sb-muted">
+            <strong>{{ p.unusedVideos + p.unusedImages }}</strong> of {{ p.videos + p.images }} never used ·
+            {{ p.unusedVideos }} videos, {{ p.unusedImages }} pictures new
+          </div>
+        </div>
+      }
+    </div>
+  }
+
+  <!-- Filters -->
+  <div class="sb-filters">
+    <input class="sb-search" type="search" placeholder="Search name, batch or project…" [ngModel]="search()" (ngModelChange)="search.set($event)" aria-label="Search shorts" />
+    <div class="sb-chips" role="group" aria-label="Status">
+      @for (f of statusFilters; track f.id) {
+        <button type="button" class="sb-chip" [class.on]="statusFilter() === f.id" (click)="statusFilter.set(f.id)">
+          {{ f.label }} <span class="sb-chip-n">{{ filterCounts()[f.id] }}</span>
+        </button>
+      }
+    </div>
+    @if (!projectId() && projects().length > 1) {
+      <select class="sb-select" [ngModel]="projectFilter()" (ngModelChange)="projectFilter.set($event)" aria-label="Project">
+        <option value="">All projects</option>
+        @for (p of projects(); track p.id) { <option [value]="p.id">{{ p.name }}</option> }
+      </select>
+    }
+    <label class="sb-check" title="Also list landscape and square renders, not just shorts">
+      <input type="checkbox" [ngModel]="scope() === 'all'" (ngModelChange)="scope.set($event ? 'all' : 'shorts')" /> All renders
+    </label>
+    <button type="button" class="sb-link" (click)="load()" [disabled]="loading()">↻ Refresh</button>
+    <button type="button" class="sb-link" (click)="checkDrive()" [disabled]="checkingDrive()"
+            title="Ask Google Drive whether every copy is still there, and file older copies into Project / date + batch folders, and rename copies all called 'AnimStudio video'">
+      {{ checkingDrive() ? 'Checking Drive…' : '☁ Check and tidy Drive' }}
+    </button>
+  </div>
+
+  <!-- Bulk actions -->
+  @if (selected().size > 0) {
+    <div class="sb-bulk" role="toolbar" aria-label="Selected shorts">
+      <strong>{{ selected().size }} selected</strong>
+      <button type="button" class="sb-btn" (click)="openPanel('youtube')" [class.on]="panel() === 'youtube'" [disabled]="selectedReady().length === 0">▶ Publish {{ selectedReady().length }} to YouTube</button>
+      <button type="button" class="sb-btn" (click)="openPanel('drive')" [class.on]="panel() === 'drive'" [disabled]="selectedForDrive().length === 0">☁ Save {{ selectedForDrive().length }} to Drive</button>
+      <button type="button" class="sb-btn" (click)="download()" [disabled]="selectedReady().length === 0">⬇ Download {{ selectedReady().length }}</button>
+      @if (selectedFailed().length > 0) {
+        <button type="button" class="sb-btn" (click)="retry()" [disabled]="working()">↻ Retry {{ selectedFailed().length }}</button>
+      }
+      <button type="button" class="sb-link" (click)="clearSelection()">Clear</button>
+    </div>
+
+    @if (panel() === 'drive') {
+      <div class="sb-panel">
+        @if (drives() === null) {
+          <p class="sb-muted">Checking Google Drive…</p>
+        } @else if (!(drives() ?? []).some((d) => d.connected && !d.needsReconnect)) {
+          <p class="sb-muted">Connect Google Drive first - from the Publish dialog on a render, or Settings.</p>
+        } @else {
+          <div class="sb-row">
+            <label for="sb-drive-for">Drive</label>
+            <select id="sb-drive-for" class="sb-select" [ngModel]="driveChannelId()" (ngModelChange)="pickDrive($event)">
+              @for (d of drives(); track d.channelId ?? '') {
+                <option [ngValue]="d.channelId ?? ''" [disabled]="!d.connected || d.needsReconnect">
+                  {{ d.channelId ? d.channelTitle : 'My Drive' }}{{ !d.connected ? ' - no Drive' : d.needsReconnect ? ' - reconnect' : '' }}
+                </option>
+              }
+            </select>
+          </div>
+          <div class="sb-row">
+            <label for="sb-drive-folder">Folder</label>
+            <input id="sb-drive-folder" class="sb-input" type="text" maxlength="100" list="sb-drive-folders"
+                   [placeholder]="driveTarget()?.folderName ?? ''" [ngModel]="driveFolder()" (ngModelChange)="driveFolder.set($event)" />
+            <datalist id="sb-drive-folders">@for (f of driveFolders(); track f) { <option [value]="f"></option> }</datalist>
+          </div>
+          @if (driveFolderError(); as err) { <p class="sb-warn-text">{{ err }}</p> }
+          <label class="sb-check"><input type="checkbox" [ngModel]="driveAgain()" (ngModelChange)="driveAgain.set($event)" /> Copy again even if already on Drive</label>
+          <p class="sb-muted">Ready shorts start copying now; ones still rendering are copied the moment they finish - on the server, so you can close this page.</p>
+          <div class="sb-panel-actions">
+            <button type="button" class="sb-btn sb-cta" (click)="saveToDrive()" [disabled]="working() || !!driveFolderError()">
+              {{ working() ? 'Sending…' : 'Save ' + selectedForDrive().length + ' to ' + (driveFolder().trim() || driveTarget()?.folderName || 'Drive') }}
+            </button>
+          </div>
+        }
+      </div>
+    }
+
+    @if (panel() === 'youtube') {
+      <div class="sb-panel">
+        @if (channels() === null) {
+          <p class="sb-muted">Loading channels…</p>
+        } @else if ((channels() ?? []).length === 0) {
+          <p class="sb-muted">No YouTube channel is connected. <a routerLink="/youtube">Connect one</a> first.</p>
+        } @else {
+          <div class="sb-row">
+            <label for="sb-yt-channel">Channel</label>
+            <select id="sb-yt-channel" class="sb-select" [ngModel]="ytChannelId()" (ngModelChange)="ytChannelId.set($event)">
+              @for (c of channels(); track c.channelId) {
+                <option [value]="c.channelId" [disabled]="c.needsReconnect">{{ c.channelTitle }}{{ c.needsReconnect ? ' - reconnect' : '' }}</option>
+              }
+            </select>
+          </div>
+          <div class="sb-row">
+            <span class="sb-label">Visibility</span>
+            <div class="sb-chips">
+              <button type="button" class="sb-chip" [class.on]="ytPrivacy() === 'private'" (click)="ytPrivacy.set('private')">Private</button>
+              <button type="button" class="sb-chip" [class.on]="ytPrivacy() === 'unlisted'" (click)="ytPrivacy.set('unlisted')">Unlisted</button>
+              <button type="button" class="sb-chip" [class.on]="ytPrivacy() === 'public'" (click)="ytPrivacy.set('public')">Public</button>
+            </div>
+          </div>
+          <div class="sb-row">
+            <span class="sb-label">Audience</span>
+            <div class="sb-chips">
+              <button type="button" class="sb-chip" [class.on]="!ytMadeForKids()" (click)="ytMadeForKids.set(false)">Not made for kids</button>
+              <button type="button" class="sb-chip" [class.on]="ytMadeForKids()" (click)="ytMadeForKids.set(true)">Made for kids</button>
+            </div>
+          </div>
+          <label class="sb-check"><input type="checkbox" [ngModel]="ytShortsTag()" (ngModelChange)="ytShortsTag.set($event)" /> Add <code>#shorts</code> to each title</label>
+          <label class="sb-check"><input type="checkbox" [ngModel]="ytSkipPublished()" (ngModelChange)="ytSkipPublished.set($event)" /> Skip ones already on YouTube</label>
+          <textarea class="sb-input" rows="3" maxlength="5000" [ngModel]="ytDescription()" (ngModelChange)="ytDescription.set($event)"
+                    placeholder="Description for all of them (optional). Leave empty to use each project's description, music credits and the channel's footer."></textarea>
+          <p class="sb-muted">Titles are each short's name. Tags and category come from the channel's defaults.
+            YouTube's standard API quota allows about 6 uploads a day - any beyond that fail with a quota error and can be retried tomorrow.
+            For one short at a time with full control, use Publish on the Render page.</p>
+          <div class="sb-panel-actions">
+            <button type="button" class="sb-btn sb-cta" (click)="publishToYouTube()" [disabled]="working() || !ytChannelId()">
+              {{ working() ? 'Queueing…' : 'Publish ' + selectedReady().length + ' as ' + ytPrivacy() }}
+            </button>
+          </div>
+        }
+      </div>
+    }
+  } @else if (rows().length > 0) {
+    <div class="sb-quick">
+      <span class="sb-muted">Quick select:</span>
+      <button type="button" class="sb-link" (click)="selectNeeding('youtube')">ready, not on YouTube</button>
+      <button type="button" class="sb-link" (click)="selectNeeding('drive')">ready, not on Drive</button>
+      @if (o.counts.failed > 0) { <button type="button" class="sb-link" (click)="selectNeeding('failed')">failed</button> }
+    </div>
+  }
+
+  <!-- Batches -->
+  @if (groups().length === 0) {
+    <p class="sb-empty">
+      @if ((o.shorts.length) === 0) {
+        No shorts yet. Open the Video editor in a project and use <strong>Auto Shorts</strong> to make a batch.
+      } @else {
+        Nothing matches these filters.
+      }
+    </p>
+  }
+  @for (g of groups(); track g.key; let i = $index) {
+    <section class="sb-group" [id]="g.key">
+      <header class="sb-group-head">
+        <input type="checkbox" [checked]="groupSelection(g) === 'all'" [indeterminate]="groupSelection(g) === 'some'"
+               (change)="toggleGroupSelection(g)" [attr.aria-label]="'Select all in ' + g.title" />
+        <button type="button" class="sb-group-toggle" (click)="toggleGroup(g)" [attr.aria-expanded]="isOpen(g, i)">
+          <span class="sb-caret" aria-hidden="true">{{ isOpen(g, i) ? '▾' : '▸' }}</span>
+          <span class="sb-group-icon" aria-hidden="true">{{ g.isBatch ? '📁' : '🎞' }}</span>
+          <span class="sb-group-title">{{ g.title }}</span>
+          @if (!projectId()) { <span class="sb-muted">· {{ g.projectName }}</span> }
+          <span class="sb-muted">· {{ when(g.createdAt) }}</span>
+        </button>
+        @let st = groupStats(g);
+        <span class="sb-group-stats">
+          <span>{{ g.rows.length }} short{{ g.rows.length === 1 ? '' : 's' }}</span>
+          @if (st.rendering) { <span class="sb-pill sb-busy">{{ st.rendering }} rendering</span> }
+          @if (st.failed) { <span class="sb-pill sb-err">{{ st.failed }} failed</span> }
+          <span class="sb-pill" [class.sb-ok]="st.ready > 0 && st.youtube === st.ready">▶ {{ st.youtube }}/{{ st.ready }}</span>
+          <span class="sb-pill" [class.sb-ok]="st.ready > 0 && st.drive === st.ready">☁ {{ st.drive }}/{{ st.ready }}</span>
+        </span>
+      </header>
+
+      @if (isOpen(g, i)) {
+        <table class="sb-table">
+          <thead>
+            <tr>
+              <th class="sb-col-check"><span class="sr-only">Select</span></th>
+              <th>Short</th>
+              <th>Length</th>
+              <th>Render</th>
+              <th>Drive</th>
+              <th>YouTube</th>
+              <th class="sb-col-actions"><span class="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (r of g.rows; track r.job.jobId) {
+              @let rs = renderState(r);
+              @let ds = driveState(r);
+              @let ys = youtubeState(r);
+              <tr [class.on]="isSelected(r)">
+                <td class="sb-col-check"><input type="checkbox" [checked]="isSelected(r)" (change)="toggleRow(r)" [attr.aria-label]="'Select ' + (r.job.name || 'short')" /></td>
+                <td class="sb-name">
+                  <span class="sb-name-text" [title]="r.job.name || ''">{{ r.job.name || 'Short' }}</span>
+                  <span class="sb-muted">{{ aspect(r) }} · {{ when(r.job.createdAt) }}</span>
+                  @if (results()[r.job.jobId]; as res) {
+                    <span class="sb-result" [class.sb-err-text]="!res.ok" [class.sb-muted]="res.skipped">{{ res.message }}</span>
+                  }
+                </td>
+                <td>{{ runTime(seconds(r)) }}</td>
+                <td>
+                  <span class="sb-pill" [class]="'sb-pill sb-' + rs.tone" [title]="r.job.errorMessage || ''">{{ rs.label }}</span>
+                  @if (rs.percent !== null) { <span class="sb-progress" aria-hidden="true"><span [style.width.%]="rs.percent"></span></span> }
+                </td>
+                <td>
+                  @if (ds.url) { <a class="sb-pill sb-ok" [href]="ds.url" target="_blank" rel="noopener noreferrer" [title]="ds.title">{{ ds.label }} ↗</a> }
+                  @else { <span [class]="'sb-pill sb-' + ds.tone" [title]="ds.title">{{ ds.label }}</span> }
+                </td>
+                <td>
+                  @if (ys.url) { <a class="sb-pill sb-ok" [href]="ys.url" target="_blank" rel="noopener noreferrer" [title]="ys.title">{{ ys.label }} ↗</a> }
+                  @else { <span [class]="'sb-pill sb-' + ys.tone" [title]="ys.title">{{ ys.label }}</span> }
+                </td>
+                <td class="sb-col-actions">
+                  @if (r.job.hasOutput) { <a class="sb-icon" [href]="downloadUrl(r)" title="Download MP4" aria-label="Download MP4">⬇</a> }
+                  <a class="sb-icon" [routerLink]="['/projects', r.job.projectId, 'render']" title="Open on the Render page (preview, rename, publish with full details)" aria-label="Open on the Render page">↗</a>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      }
+    </section>
+  }
+}

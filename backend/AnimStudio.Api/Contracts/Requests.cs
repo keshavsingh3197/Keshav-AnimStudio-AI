@@ -2,6 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using AnimStudio.Application.Clips;
+using AnimStudio.Application.Rendering;
 using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Projects;
 using AnimStudio.Domain.Rendering;
@@ -60,6 +61,22 @@ public sealed record CreateProjectRequest
 
     /// <summary>The channel to publish under; its watermark is copied in. Null means the default.</summary>
     [StringLength(64)] public string? BrandChannelId { get; init; }
+
+    /// <summary>"video" or "music"; null is a video.</summary>
+    [AllowedValues(ProjectContentTypes.Video, ProjectContentTypes.Music, null)]
+    public string? ContentType { get; init; }
+}
+
+/// <summary>A project's content type on the wire, and back.</summary>
+public static class ProjectContentTypes
+{
+    public const string Video = "video";
+    public const string Music = "music";
+
+    public static ProjectContentType Parse(string? value) =>
+        value == Music ? ProjectContentType.Music : ProjectContentType.Video;
+
+    public static string Format(ProjectContentType type) => type == ProjectContentType.Music ? Music : Video;
 }
 
 /// <summary>A new brand channel, optionally starting as a copy of an existing one's look.</summary>
@@ -139,6 +156,28 @@ public sealed record CreateCharacterRequest
     [StringLength(9)] public string? SubtitleColorHex { get; init; }
 
     public CharacterAppearanceRequest? Appearance { get; init; }
+
+    /// <summary>Null leaves the voice as it is; <c>Enabled = false</c> clears it.</summary>
+    public CharacterVoiceRequest? Voice { get; init; }
+}
+
+/// <summary>The ranges are checked again by the editing service, which owns the rules.</summary>
+public sealed record CharacterVoiceRequest
+{
+    public bool Enabled { get; init; }
+    [StringLength(40)] public string? Preset { get; init; }
+    [Range(-12, 12)] public double PitchSemitones { get; init; }
+    [Range(-6, 6)] public double SizeSemitones { get; init; }
+    [Range(-12, 12)] public double BassDecibels { get; init; }
+    [Range(-12, 12)] public double TrebleDecibels { get; init; }
+    [Range(0, 1)] public double Drive { get; init; }
+    [Range(0, 1)] public double Robot { get; init; }
+    [Range(20, 400)] public double RobotHertz { get; init; } = 60;
+    public bool Radio { get; init; }
+    [Range(0, 1)] public double Echo { get; init; }
+    [Range(0, 1)] public double Reverb { get; init; }
+    [StringLength(64)] public string? AiSampleAssetId { get; init; }
+    public bool AiSampleConsent { get; init; }
 }
 
 public sealed record AssignSceneBackgroundRequest
@@ -175,8 +214,15 @@ public sealed record UpdateProjectRequest
     /// <summary>Null leaves the channel unchanged; "default" (or blank) picks the default channel.</summary>
     [StringLength(64)] public string? BrandChannelId { get; init; }
 
+    /// <summary>"video" or "music". Null leaves it unchanged.</summary>
+    [AllowedValues(ProjectContentTypes.Video, ProjectContentTypes.Music, null)]
+    public string? ContentType { get; init; }
+
     /// <summary>True: use the channel's watermark live; false: DefaultWatermark is custom. Null: unchanged.</summary>
     public bool? FollowChannelWatermark { get; init; }
+
+    /// <summary>Seconds an image plays when added to the timeline. Null: unchanged; 0: use the studio-wide default.</summary>
+    [Range(0, ImageDurationLimits.Max)] public double? DefaultImageDurationSeconds { get; init; }
 }
 
 public sealed record CreateSceneRequest
@@ -348,6 +394,8 @@ public sealed record OutroRequest
     [RegularExpression("^#[0-9A-Fa-f]{6}$")]
     public string? TextHex { get; init; }
 
+    public EndCardAnimation Animation { get; init; } = EndCardAnimation.Rise;
+
     public OutroSettings ToSettings() => new()
     {
         Kind = Kind,
@@ -361,7 +409,8 @@ public sealed record OutroRequest
         HeadlineSecondary = HeadlineSecondary,
         SubtextSecondary = SubtextSecondary,
         BackgroundHex = BackgroundHex ?? "#101828",
-        TextHex = TextHex ?? "#FFFFFF"
+        TextHex = TextHex ?? "#FFFFFF",
+        Animation = Animation
     };
 }
 
@@ -423,6 +472,9 @@ public sealed record TimedMusicClipRequest
     [Range(0, ClipAudioSpec.MaxGain)] public double Volume { get; init; } = 0.5;
     [Range(0, 86400)] public double? TrimStartSeconds { get; init; }
     [Range(0, 86400)] public double? TrimEndSeconds { get; init; }
+
+    /// <summary>A voiceover line (A1): it leads the mix, so music ducks under it and it never ducks itself.</summary>
+    public bool IsVoiceover { get; init; }
 }
 
 /// <summary>
@@ -445,6 +497,9 @@ public sealed record ClipAudioRequest
 
     /// <summary>Plays that sound OVER the clip's own audio rather than instead of it.</summary>
     public bool KeepOriginalAudio { get; init; }
+
+    /// <summary>Uses the clip for its sound only: the picture is blanked to the backdrop colour.</summary>
+    public bool HideVideo { get; init; }
 }
 
 /// <summary>
@@ -464,6 +519,15 @@ public sealed record MusicDuckWindowRequest
     [Range(0, 1)] public double Level { get; init; } = 1.0;
 }
 
+/// <summary>A blank stretch in the running order, where a slotted image, overlay video or title plays.</summary>
+public sealed record ClipSlotRequest
+{
+    /// <summary>How many clips play before it: 0 is before the first, the clip count after the last.</summary>
+    [Range(0, ClipMergeSpec.MaxClips)] public int BeforeClipIndex { get; init; }
+
+    [Range(0, ClipMergeSpec.MaxSlotSeconds)] public double Seconds { get; init; }
+}
+
 /// <summary>
 /// One video built from several clips. The order of <c>AssetIds</c> IS the running order -
 /// there is no separate sequence field that could disagree with it.
@@ -472,10 +536,17 @@ public sealed record ClipMergeRequest
 {
     [MaxLength(200)]
     public string? ExportName { get; init; }
-    [Required, MinLength(1), MaxLength(ClipMergeSpec.MaxClips)]
+    /// <summary>
+    /// Empty for a cut of pictures, titles or music alone, whose <c>Slots</c> are the
+    /// picture; the service refuses a request with neither.
+    /// </summary>
+    [Required, MaxLength(ClipMergeSpec.MaxClips)]
     public List<string> AssetIds { get; init; } = [];
 
     public ClipFit Fit { get; init; } = ClipFit.Contain;
+
+    /// <summary>Colour of the Contain bars, <c>#rrggbb</c>. Null is black.</summary>
+    [RegularExpression("^#[0-9a-fA-F]{6}$")] public string? BackgroundColor { get; init; }
 
     [Range(360, 3840)] public int? OutputWidth { get; init; }
     [Range(360, 3840)] public int? OutputHeight { get; init; }
@@ -526,15 +597,119 @@ public sealed record ClipMergeRequest
     /// </summary>
     public bool IncludeOutro { get; init; }
 
+    /// <summary>
+    /// Seconds to hold the last clip's final frame before the end card, so the card starts
+    /// after music or text that runs on past the clips instead of over it.
+    /// </summary>
+    [Range(0, 600)] public double OutroHoldSeconds { get; init; }
+
+    /// <summary>Level the finished mix to YouTube's loudness target (-14 LUFS), so it plays as loud as other videos.</summary>
+    public bool YouTubeLoudness { get; init; }
+
     public List<TimelineItemRequest>? TimelineItems { get; init; }
+
+    /// <summary>
+    /// Blank stretches the cut opens for images, overlay videos and text that take their own
+    /// slot. Null means the clips play back to back.
+    /// </summary>
+    [MaxLength(ClipMergeSpec.MaxClips + 1)]
+    public List<ClipSlotRequest>? Slots { get; init; }
+}
+
+/// <summary>
+/// A batch of different shorts cut automatically from chosen clips, pictures and lines.
+/// Ids are checked against the project server-side; the bounds here only stop an
+/// oversized request before it is read any further.
+/// </summary>
+public sealed record AutoShortsRequest
+{
+    [Required, MinLength(1), MaxLength(AutoShortPlanner.MaxSources)]
+    public List<string> SourceAssetIds { get; init; } = [];
+
+    /// <summary>Hooks and captions, one per entry; dealt out at random across the batch.</summary>
+    [MaxLength(AutoShortPlanner.MaxLines)]
+    public List<string> Lines { get; init; } = [];
+
+    /// <summary>Music beds; each short takes one, rotating through them.</summary>
+    [MaxLength(AutoShortPlanner.MaxMusic)]
+    public List<string> MusicAssetIds { get; init; } = [];
+
+    /// <summary>How many shorts; 0 with the Spread layout makes as many as it takes to use every pick once.</summary>
+    [Range(0, AutoShortPlanner.MaxCount)] public int Count { get; init; } = 3;
+
+    /// <summary>The exact length with FitLength; the most any short may run with the other layouts.</summary>
+    [Range(AutoShortPlanner.MinTargetSeconds, AutoShortPlanner.MaxTargetSeconds)]
+    public double TargetSeconds { get; init; } = 30;
+
+    /// <summary>How the picks are shared out between the shorts.</summary>
+    [EnumDataType(typeof(AutoShortLayout))] public AutoShortLayout Layout { get; init; } = AutoShortLayout.FitLength;
+
+    /// <summary>How long each picture stays on screen (Spread and AllInEach).</summary>
+    [Range(AutoShortPlanner.MinImageSeconds, AutoShortPlanner.MaxImageSeconds)]
+    public double ImageSeconds { get; init; } = AutoShortPlanner.DefaultImageSeconds;
+
+    /// <summary>Longest stretch of one video (Spread and AllInEach); null plays each in full.</summary>
+    [Range(AutoShortPlanner.MinShotSeconds, AutoShortPlanner.MaxTargetSeconds)]
+    public double? MaxClipSeconds { get; init; }
+
+    [EnumDataType(typeof(AutoShortStyle))] public AutoShortStyle Style { get; init; } = AutoShortStyle.Mixed;
+    [EnumDataType(typeof(AutoShortTextMode))] public AutoShortTextMode TextMode { get; init; } = AutoShortTextMode.Hook;
+
+    public bool Transitions { get; init; } = true;
+    public bool Motion { get; init; } = true;
+    public bool KeepClipAudio { get; init; } = true;
+
+    [StringLength(180)] public string? ExportName { get; init; }
+
+    [Range(360, 3840)] public int Width { get; init; } = 1080;
+    [Range(360, 3840)] public int Height { get; init; } = 1920;
+
+    [EnumDataType(typeof(ClipFit))] public ClipFit Fit { get; init; } = ClipFit.BlurredBackdrop;
+    [EnumDataType(typeof(ExportQuality))] public ExportQuality Quality { get; init; } = ExportQuality.High;
+
+    public WatermarkRequest Watermark { get; init; } = new();
+    public bool IncludeOutro { get; init; }
+
+    /// <summary>Same seed, same batch. Null draws a fresh one.</summary>
+    public int? Seed { get; init; }
+
+    /// <summary>Copy each short to Google Drive as soon as it has rendered.</summary>
+    public bool SaveToDrive { get; init; }
+
+    /// <summary>Whose Drive and folder: the channel's own Drive, or its folder on the personal one. Null is the personal Drive.</summary>
+    [RegularExpression("^UC[A-Za-z0-9_-]{22}$")] public string? DriveChannelId { get; init; }
+
+    /// <summary>A folder for this batch; empty uses the channel's (or the Drive's) default.</summary>
+    [StringLength(100)] public string? DriveFolderName { get; init; }
 }
 
 public sealed record TimelineItemTextStyleRequest
 {
+    /// <summary>Pixels on a frame whose short side is 360; scaled to the real canvas.</summary>
+    [Range(TextOverlayLayout.MinFontSize, TextOverlayLayout.MaxFontSize)]
     public double FontSize { get; init; } = 36;
     [StringLength(32)] public string Color { get; init; } = "#ffffff";
     [StringLength(32)] public string BackgroundColor { get; init; } = "rgba(0,0,0,0.6)";
+    [RegularExpression("^(top|center|bottom|custom)$")]
     [StringLength(16)] public string Position { get; init; } = "bottom";
+
+    /// <summary>Centre of the text, in percent of the frame. Used with Position custom.</summary>
+    [Range(0, 100)] public double? X { get; init; }
+    [Range(0, 100)] public double? Y { get; init; }
+
+    [RegularExpression("^(none|box|band)$")] public string? BoxStyle { get; init; }
+    [RegularExpression("^#[0-9a-fA-F]{6}$")] public string? BoxColor { get; init; }
+    [Range(0, 1)] public double? BoxOpacity { get; init; }
+    [RegularExpression("^#[0-9a-fA-F]{6}$")] public string? OutlineColor { get; init; }
+    [Range(0, TextOverlayLayout.MaxOutlineWidth)] public double OutlineWidth { get; init; }
+    public bool Shadow { get; init; }
+    public bool Uppercase { get; init; }
+
+    /// <summary>A full-frame card behind the text; null draws none.</summary>
+    [RegularExpression("^#[0-9a-fA-F]{6}$")] public string? CardColor { get; init; }
+    [Range(0, 1)] public double? CardOpacity { get; init; }
+    [RegularExpression("^(none|fade|vignette)$")] public string? CardEffect { get; init; }
+
     [StringLength(32)] public string? TransitionIn { get; init; } = "fade";
     public double TransitionInDuration { get; init; } = 0.5;
     [StringLength(32)] public string? TransitionOut { get; init; } = "fade";
@@ -544,6 +719,9 @@ public sealed record TimelineItemTextStyleRequest
 public sealed record TimelineItemTransformRequest
 {
     public double Scale { get; init; } = 1.0;
+
+    /// <summary>Overlay width in percent of the canvas width; replaces Scale when set.</summary>
+    [Range(1, 100)] public double? WidthPercent { get; init; }
 
     /// <summary>Normalized percentage offset [-50, 50] from canvas centre on X axis.</summary>
     public double X { get; init; }
@@ -564,6 +742,38 @@ public sealed record TimelineItemTransformRequest
 
     /// <summary>Request video stabilization for this clip.</summary>
     public bool Stabilization { get; init; }
+
+    /// <summary>Image and video overlays: rect, rounded or circle.</summary>
+    [RegularExpression("^(rect|rounded|circle)$")] public string? Shape { get; init; }
+
+    /// <summary>Ring drawn inside the overlay's edge, in 360-reference pixels like text sizes.</summary>
+    [Range(0, MediaOverlayShape.MaxBorderWidth)] public double BorderWidth { get; init; }
+
+    [RegularExpression("^#[0-9a-fA-F]{6}$")] public string? BorderColor { get; init; }
+
+    /// <summary>Width / height of the overlay after its crop, so a shaped overlay is scaled to a known size.</summary>
+    [Range(MediaOverlayShape.MinAspectRatio, MediaOverlayShape.MaxAspectRatio)] public double? AspectRatio { get; init; }
+
+    /// <summary>Image clips: camera move over the still.</summary>
+    [RegularExpression("^(none|zoom-in|zoom-out|pan-left|pan-right|pan-up|pan-down|drift|handheld|breathe)$")]
+    public string? Motion { get; init; }
+
+    [Range(CinematicImageSettings.MinIntensity, CinematicImageSettings.MaxIntensity)]
+    public double MotionIntensity { get; init; } = CinematicImageSettings.DefaultIntensity;
+
+    [RegularExpression("^(ease|linear)$")] public string? MotionEasing { get; init; }
+
+    /// <summary>Where a zoom heads, in percent of the image.</summary>
+    [Range(0, 100)] public double FocusX { get; init; } = 50;
+    [Range(0, 100)] public double FocusY { get; init; } = 50;
+
+    /// <summary>Image clips: colour grade.</summary>
+    [RegularExpression("^(none|cinematic|warm|cool|vintage|noir|vivid|matte)$")]
+    public string? Look { get; init; }
+
+    public bool Vignette { get; init; }
+    public bool Grain { get; init; }
+    public bool CinemaBars { get; init; }
 
     /// <summary>Existing marks to wipe from the source frame before our own is drawn.</summary>
     [MaxLength(EraseRegionSpec.MaxPerClip)]
@@ -605,10 +815,62 @@ public sealed record TimelineItemRequest
     public double? Volume { get; init; }
     public double? TrimStartSeconds { get; init; }
     public double? TrimEndSeconds { get; init; }
+    public CelebrationRequest? Celebration { get; init; }
+}
+
+/// <summary>Type "celebration" on the FX1 lane; the kind travels as the item's Src.</summary>
+public sealed record CelebrationRequest
+{
+    [StringLength(16)] public string? Mode { get; init; }
+    [Range(1, 100)] public int? Density { get; init; }
+    [Range(0.5, 2.0)] public double? Size { get; init; }
+    [Range(0.5, 2.0)] public double? Speed { get; init; }
 }
 
 /// <summary>Null clears the quota; the bar then shows the drive's capacity.</summary>
 public sealed record UpdateStorageQuotaRequest
 {
     [Range(1, 1_000_000)] public double? QuotaGb { get; init; }
+}
+
+/// <summary>One voice switch in a studio-voice timeline; a null voice is the performer's own.</summary>
+public sealed record StudioVoiceSegmentRequest
+{
+    public double StartSeconds { get; init; }
+    public CharacterVoiceRequest? Voice { get; init; }
+}
+
+/// <summary>One script line to speak. Limits are enforced (and reported per field) by the controller.</summary>
+public sealed record VoiceoverRequest
+{
+    [StringLength(4000)] public string? Text { get; init; }
+    [StringLength(64)] public string? VoiceId { get; init; }
+    public double? Rate { get; init; }
+    [StringLength(120)] public string? Name { get; init; }
+
+    /// <summary>One of the caller's own voices: the line is spoken by <see cref="VoiceId"/>, then re-voiced into it.</summary>
+    [StringLength(64)] public string? MyVoiceId { get; init; }
+
+    /// <summary>The speech engine to use instead of the configured order; ignored for <see cref="MyVoiceId"/>.</summary>
+    [StringLength(64)] public string? Engine { get; init; }
+
+    /// <summary>One of <see cref="Engine"/>'s offered models; null for its configured one.</summary>
+    [StringLength(80)] public string? Model { get; init; }
+}
+
+/// <summary>A voiceover script to rewrite so it reads aloud well. <see cref="Fresh"/> asks for a new take, not the cached one.</summary>
+public sealed record VoiceScriptPolishRequest
+{
+    [StringLength(12_000)] public string? Script { get; init; }
+    public bool Fresh { get; init; }
+}
+
+/// <summary>
+/// Transcribe an audio or video asset. <see cref="Language"/> is a code such as "hi" or "en";
+/// null lets the recognizer detect it. <see cref="Save"/> also keeps the transcript as a .srt asset.
+/// </summary>
+public sealed record MediaTranscriptRequest
+{
+    [StringLength(8)] public string? Language { get; init; }
+    public bool Save { get; init; }
 }

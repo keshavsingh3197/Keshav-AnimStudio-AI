@@ -94,7 +94,7 @@ public static class LiveStreamArguments
             ];
         }
 
-        var layout = Layout(frame);
+        var layout = Layout(frame, settings.Orientation);
         return
         [
             "-y", "-hide_banner", "-loglevel", "error", "-i", coverFile,
@@ -114,7 +114,7 @@ public static class LiveStreamArguments
         string audioFile, string stageFile, LiveStreamSettings settings, string segmentFile)
     {
         var frame = FrameFor(settings.Orientation, settings.Quality);
-        var layout = Layout(frame);
+        var layout = Layout(frame, settings.Orientation);
 
         var arguments = new List<string>
         {
@@ -268,7 +268,7 @@ public static class LiveStreamArguments
 
     private sealed record StageLayout(int Art, int ArtTop, int WaveWidth, int WaveHeight, int WaveTop);
 
-    private static StageLayout Layout(Frame frame)
+    private static StageLayout Layout(Frame frame, LiveStreamOrientation orientation)
     {
         int Even(double value) => (int)Math.Round(value / 2) * 2;
 
@@ -280,6 +280,21 @@ public static class LiveStreamArguments
             var artTop = Even(frame.Height * 0.2);
             var waveHeight = Even(frame.Height * 0.08);
             return new StageLayout(art, artTop, Even(frame.Width * 0.9), waveHeight, artTop + art + Even(frame.Height * 0.05));
+        }
+
+        if (orientation == LiveStreamOrientation.Both)
+        {
+            // Dual format: YouTube's vertical version is the centre 9:16 strip of this frame
+            // (405 px wide at 720p). The cover fits inside it, and the waveform is centred, so
+            // its middle carries on in the strip while the landscape player shows all of it.
+            var strip = frame.Height * 9.0 / 16;
+            var cropArt = Even(Math.Min(strip * 0.9, frame.Height * 0.56));
+            var cropWave = Even(frame.Height * 0.14);
+            var cropArtTop = Even(frame.Height * 0.12);
+            return new StageLayout(
+                cropArt, cropArtTop,
+                Even(frame.Width * 0.83), cropWave,
+                cropArtTop + cropArt + Even(frame.Height * 0.06));
         }
 
         var landscapeArt = Even(frame.Height * 0.62);

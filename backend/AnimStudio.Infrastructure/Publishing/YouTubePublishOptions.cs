@@ -27,6 +27,27 @@ public sealed class YouTubePublishOptions
     /// <summary>How long a finished upload stays in the list.</summary>
     public int KeepFinishedHours { get; set; } = 24;
 
+    /// <summary>
+    /// How often published videos are re-checked on YouTube in the background, so a rejected
+    /// or deleted video shows up as an issue in the app. 0 turns the background check off
+    /// (the render page still checks when it opens).
+    /// </summary>
+    public int HealthCheckMinutes { get; set; } = 60;
+
+    /// <summary>Videos published longer ago than this are no longer checked in the background.</summary>
+    public int HealthCheckDays { get; set; } = 30;
+
+    /// <summary>
+    /// Send to phone: how often the channel is checked for the upload made from the YouTube
+    /// app while a handoff is fresh (its first hour); after that, every 15 minutes. Each check
+    /// costs 3 quota units per channel. 0 turns automatic matching off - details can still be
+    /// applied by picking the video in the dialog.
+    /// </summary>
+    public int PhoneHandoffCheckSeconds { get; set; } = 60;
+
+    /// <summary>A handoff whose phone upload hasn't turned up after this long stops being looked for.</summary>
+    public int PhoneHandoffExpireDays { get; set; } = 3;
+
     public bool IsConfigured =>
         !string.IsNullOrWhiteSpace(ClientId)
         && !string.IsNullOrWhiteSpace(ClientSecret)

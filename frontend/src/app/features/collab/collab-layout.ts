@@ -4,12 +4,42 @@
  * preview, the recording and the re-render after a take, so all three look the same.
  */
 
-export type CollabLayout = 'side' | 'stack' | 'react' | 'green' | 'stitch';
+export type CollabLayout = 'side' | 'stack' | 'react' | 'green' | 'stitch' | 'commentary' | 'dub';
 export type CollabAspect = 'portrait' | 'landscape' | 'square';
 export type Fit = 'fill' | 'fit';
 
-/** In a stitch, the original plays first and then it's your turn. */
+/** In a stitch, the original plays first and then it's your turn; a commentary goes back and forth. */
 export type StitchPhase = 'source' | 'you';
+
+/** The layouts that take turns with the original rather than playing alongside it. */
+export function takesTurns(layout: CollabLayout): boolean {
+  return layout === 'stitch' || layout === 'commentary';
+}
+
+/**
+ * One switch in a turn-taking take: from `at` seconds after the original first started, it's
+ * `phase`'s turn, and (for the original) it carries on from `sourceTime`. A take's turns are
+ * what lets a rebuild pause and resume the original at exactly the moments you did.
+ */
+export interface Turn {
+  at: number;
+  phase: StitchPhase;
+  sourceTime: number;
+}
+
+/** The entry in force `seconds` after the original started (the first one before that). */
+export function cueAt<T extends { at: number }>(cues: readonly T[], seconds: number): T {
+  let current = cues[0];
+  for (const c of cues) if (c.at <= seconds) current = c;
+  return current;
+}
+
+/** Whether your voice is in the mix during a phase: not while the original has the floor, unless you're on screen. */
+export function voiceHeard(s: CollabSettings, phase: StitchPhase): boolean {
+  if (s.layout === 'stitch') return phase === 'you';
+  if (s.layout === 'commentary') return phase === 'you' || s.commentaryBubble;
+  return true;
+}
 
 export interface Spot {
   /** Centre, 0-1 of the frame. */
@@ -38,6 +68,8 @@ export interface CollabSettings {
   voiceVolume: number;
   /** Lowers the original while you speak. */
   duck: boolean;
+  /** Commentary: show you in the react bubble while the original plays. */
+  commentaryBubble: boolean;
   countdown: 0 | 3 | 5 | 10;
 }
 
@@ -54,6 +86,8 @@ export const LAYOUTS: readonly LayoutChoice[] = [
   { id: 'react', icon: '◳', label: 'React', hint: 'Original full screen, you in a bubble. Drag it anywhere.' },
   { id: 'green', icon: '🧍', label: 'Green screen', hint: 'You, cut out, standing in front of the original. No green screen needed.' },
   { id: 'stitch', icon: '⏭', label: 'Stitch', hint: 'A part of the original plays, then it\'s your turn.' },
+  { id: 'commentary', icon: '💬', label: 'Commentary', hint: 'Play a part, pause it and talk on camera, play the next part, talk again: as often as you like. Pausing the video is your turn.' },
+  { id: 'dub', icon: '🎙️', label: 'Dub', hint: 'The video full screen with your voice over it: give its characters your voice. The camera isn\'t needed.' },
 ];
 
 export const ASPECTS: readonly { id: CollabAspect; label: string }[] = [
@@ -80,6 +114,7 @@ export function defaultCollabSettings(): CollabSettings {
     sourceVolume: 0.9,
     voiceVolume: 1,
     duck: true,
+    commentaryBubble: false,
     countdown: 3,
   };
 }
@@ -117,6 +152,7 @@ export function sanitizeCollabSettings(raw: unknown): CollabSettings {
     sourceVolume: clamp(s.sourceVolume, 0, 1.5, d.sourceVolume),
     voiceVolume: clamp(s.voiceVolume, 0, 2, d.voiceVolume),
     duck: typeof s.duck === 'boolean' ? s.duck : d.duck,
+    commentaryBubble: typeof s.commentaryBubble === 'boolean' ? s.commentaryBubble : d.commentaryBubble,
     countdown: oneOf(s.countdown, [0, 3, 5, 10] as const, d.countdown),
   };
 }
@@ -147,6 +183,8 @@ export interface Placement {
   round: boolean;
   /** The camera is cut out of its background (green screen). */
   cutout: boolean;
+  /** The camera is a movable bubble over the original (react, and commentary while it plays). */
+  bubble: boolean;
 }
 
 /** Where each picture goes in a W×H frame. `cameraAspect` is width / height of the camera picture. */
@@ -157,29 +195,39 @@ export function place(s: CollabSettings, W: number, H: number, cameraAspect: num
       const first = Math.round(W * s.split);
       const a: Rect = { x: 0, y: 0, w: first, h: H };
       const b: Rect = { x: first, y: 0, w: W - first, h: H };
-      return { source: s.youFirst ? b : a, camera: s.youFirst ? a : b, round: false, cutout: false };
+      return { source: s.youFirst ? b : a, camera: s.youFirst ? a : b, round: false, cutout: false, bubble: false };
     }
     case 'stack': {
       const first = Math.round(H * s.split);
       const a: Rect = { x: 0, y: 0, w: W, h: first };
       const b: Rect = { x: 0, y: first, w: W, h: H - first };
-      return { source: s.youFirst ? b : a, camera: s.youFirst ? a : b, round: false, cutout: false };
+      return { source: s.youFirst ? b : a, camera: s.youFirst ? a : b, round: false, cutout: false, bubble: false };
     }
-    case 'react': {
-      const w = Math.round(W * s.react.size);
-      const h = s.react.round ? w : Math.round(w * (H >= W ? 4 / 3 : 3 / 4));
-      return { source: full, camera: spotRect(s.react, w, h, W, H), round: s.react.round, cutout: false };
-    }
+    case 'react':
+      return reactBubble(s, W, H, full);
     case 'green': {
       const w = Math.round(W * s.green.size);
       const h = Math.round(w / (cameraAspect || 16 / 9));
-      return { source: full, camera: spotRect(s.green, w, h, W, H), round: false, cutout: true };
+      return { source: full, camera: spotRect(s.green, w, h, W, H), round: false, cutout: true, bubble: false };
     }
     case 'stitch':
       return phase === 'source'
-        ? { source: full, camera: null, round: false, cutout: false }
-        : { source: null, camera: full, round: false, cutout: false };
+        ? { source: full, camera: null, round: false, cutout: false, bubble: false }
+        : { source: null, camera: full, round: false, cutout: false, bubble: false };
+    case 'dub':
+      return { source: full, camera: null, round: false, cutout: false, bubble: false };
+    case 'commentary':
+      if (phase === 'you') return { source: null, camera: full, round: false, cutout: false, bubble: false };
+      return s.commentaryBubble
+        ? reactBubble(s, W, H, full)
+        : { source: full, camera: null, round: false, cutout: false, bubble: false };
   }
+}
+
+function reactBubble(s: CollabSettings, W: number, H: number, full: Rect): Placement {
+  const w = Math.round(W * s.react.size);
+  const h = s.react.round ? w : Math.round(w * (H >= W ? 4 / 3 : 3 / 4));
+  return { source: full, camera: spotRect(s.react, w, h, W, H), round: s.react.round, cutout: false, bubble: true };
 }
 
 /** A box of w×h centred on the spot, kept at least partly inside the frame so it can always be grabbed. */
@@ -270,7 +318,7 @@ export class CollabPainter {
       ctx.beginPath();
       ctx.arc(p.camera.x + r, p.camera.y + r, r, 0, Math.PI * 2);
       ctx.clip();
-    } else if (s.layout === 'react') {
+    } else if (p.bubble) {
       ctx.beginPath();
       ctx.roundRect(p.camera.x, p.camera.y, p.camera.w, p.camera.h, Math.round(p.camera.w * 0.06));
       ctx.clip();
@@ -278,7 +326,7 @@ export class CollabPainter {
     this.drawVideo(camera, p.camera, 'fill', s.mirror);
     ctx.restore();
 
-    if (s.layout === 'react') this.outline(p.camera, p.round);
+    if (p.bubble) this.outline(p.camera, p.round);
     if (s.layout === 'side' || s.layout === 'stack') this.divider(s, W, H);
   }
 

@@ -1,4 +1,5 @@
-export type LiveStreamOrientation = 'Landscape' | 'Portrait';
+/** `Both` sends 16:9 and YouTube's dual format crops the vertical (Shorts feed) version from its centre. */
+export type LiveStreamOrientation = 'Landscape' | 'Portrait' | 'Both';
 export type LiveStreamQuality = 'Hd720' | 'Hd1080';
 export type LiveStreamItemKind = 'Video' | 'CoverAndAudio';
 export type LiveStreamItemSource = 'Upload' | 'Render' | 'Asset' | 'Url' | 'ReleaseKit';
@@ -61,10 +62,14 @@ export interface PlaylistEntry {
   thumbnailUrl?: string;
 }
 
-/** Where the key comes from: a channel's saved key, or one pasted for this stream. Exactly one. */
+/**
+ * Where the key comes from: a channel's saved key, one pasted for this stream, or a broadcast
+ * created on a connected YouTube channel (its key is looked up on the server). Exactly one.
+ */
 export interface LiveStreamGoLive {
   channelId?: string;
   streamKey?: string;
+  youTube?: { channelId: string; broadcastId: string };
 }
 
 export interface LiveStreamDestination {

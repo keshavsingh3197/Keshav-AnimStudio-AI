@@ -601,7 +601,7 @@ public sealed class SqlRenderJobRepository(ISqlConnectionFactory factory, TimePr
     public async Task<IReadOnlyList<RenderJob>> ListByProjectAsync(string projectId, CancellationToken ct)
     {
         await using var conn = await factory.OpenConnectionAsync(ct).ConfigureAwait(false);
-        const string sql = "SELECT TOP 50 DataJson FROM RenderJobs WHERE ProjectId = @ProjectId ORDER BY CreatedAt DESC";
+        const string sql = "SELECT TOP 200 DataJson FROM RenderJobs WHERE ProjectId = @ProjectId ORDER BY CreatedAt DESC";
         await using var cmd = new SqlCommand(sql, conn);
         cmd.Parameters.AddWithValue("@ProjectId", projectId);
 
@@ -936,6 +936,40 @@ public sealed class SqlRenderJobRepository(ISqlConnectionFactory factory, TimePr
 
         var count = await updateCmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         return count > 0;
+    }
+
+    public async Task<bool> RenameAsync(string jobId, string name, CancellationToken ct)
+    {
+        await using var conn = await factory.OpenConnectionAsync(ct).ConfigureAwait(false);
+        await using var tx = conn.BeginTransaction();
+
+        // Finished statuses only: Completed (2), Failed (3), Cancelled (4), CompletedWithWarnings (5).
+        const string getSql = "SELECT DataJson FROM RenderJobs WITH (UPDLOCK) WHERE Id = @Id AND Status IN (2, 3, 4, 5)";
+        RenderJob? job = null;
+        await using (var getCmd = new SqlCommand(getSql, conn, tx))
+        {
+            getCmd.Parameters.AddWithValue("@Id", jobId);
+            if (await getCmd.ExecuteScalarAsync(ct).ConfigureAwait(false) is string json)
+                job = SqlJson.Deserialize<RenderJob>(json);
+        }
+
+        if (job == null)
+        {
+            await tx.RollbackAsync(ct).ConfigureAwait(false);
+            return false;
+        }
+
+        job.Name = name;
+        const string updateSql = "UPDATE RenderJobs SET DataJson = @DataJson WHERE Id = @Id";
+        await using (var updateCmd = new SqlCommand(updateSql, conn, tx))
+        {
+            updateCmd.Parameters.AddWithValue("@Id", jobId);
+            updateCmd.Parameters.AddWithValue("@DataJson", SqlJson.Serialize(job));
+            await updateCmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        }
+
+        await tx.CommitAsync(ct).ConfigureAwait(false);
+        return true;
     }
 }
 

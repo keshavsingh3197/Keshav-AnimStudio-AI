@@ -24,7 +24,7 @@ public sealed record ClipJunctionOverride(
 /// <summary>One music (or other audio) clip placed at its own point on the timeline.</summary>
 public sealed record TimedMusicClip(
     string AssetId, double StartSeconds, double Volume,
-    double? TrimStartSeconds, double? TrimEndSeconds);
+    double? TrimStartSeconds, double? TrimEndSeconds, bool IsVoiceover = false);
 
 /// <summary>
 /// One stretch of the finished timeline over which the music plays at a reduced level,
@@ -32,12 +32,16 @@ public sealed record TimedMusicClip(
 /// </summary>
 public sealed record MusicDuckWindow(double StartSeconds, double EndSeconds, double Level);
 
+/// <summary>A blank stretch of <paramref name="Seconds"/> played before clip <paramref name="BeforeClipIndex"/>.</summary>
+public sealed record ClipSlot(int BeforeClipIndex, double Seconds);
+
 /// <summary>
 /// One clip's sound: the level of its own audio, and optionally a sound of its own that
 /// either replaces that audio or plays over it. Position in the list IS the clip it names.
 /// </summary>
 public sealed record ClipAudioTrack(
-    double Volume, string? AudioAssetId, double AudioVolume, bool KeepOriginalAudio, double? TrimStartSeconds, double? TrimEndSeconds);
+    double Volume, string? AudioAssetId, double AudioVolume, bool KeepOriginalAudio, double? TrimStartSeconds, double? TrimEndSeconds,
+    bool HideVideo = false);
 
 /// <summary>What to stitch, and how. The order of <see cref="AssetIds"/> is the edit.</summary>
 public sealed record ClipMergeCommand
@@ -46,6 +50,9 @@ public sealed record ClipMergeCommand
     public IReadOnlyList<string> AssetIds { get; init; } = [];
 
     public ClipFit Fit { get; init; } = ClipFit.Contain;
+
+    /// <summary><c>#rrggbb</c> for the Contain bars; null is black.</summary>
+    public string? BackgroundColor { get; init; }
 
     public int? OutputWidth { get; init; }
     public int? OutputHeight { get; init; }
@@ -93,8 +100,53 @@ public sealed record ClipMergeCommand
     /// </summary>
     public bool IncludeOutro { get; init; }
 
+    /// <summary>Seconds the last clip's final frame is held before the outro. Only with an outro.</summary>
+    public double OutroHoldSeconds { get; init; }
+
+    /// <summary>Level the finished mix to YouTube's loudness target (-14 LUFS).</summary>
+    public bool YouTubeLoudness { get; init; }
+
     public IReadOnlyList<TimelineItemSpec>? TimelineItems { get; init; }
+
+    /// <summary>
+    /// Blank stretches in the running order, for images, overlay videos and text that take
+    /// their own slot. Empty means the clips play back to back.
+    /// </summary>
+    public IReadOnlyList<ClipSlot> Slots { get; init; } = [];
+
+    /// <summary>The batch this export belongs to; set by Auto Shorts, null otherwise.</summary>
+    public RenderJobBatch? Batch { get; init; }
 }
+
+/// <summary>A batch of auto shorts as asked for; see <see cref="AutoShortPlanner"/>.</summary>
+public sealed record AutoShortsCommand
+{
+    public IReadOnlyList<string> SourceAssetIds { get; init; } = [];
+    public IReadOnlyList<string> Lines { get; init; } = [];
+    public IReadOnlyList<string> MusicAssetIds { get; init; } = [];
+    public int Count { get; init; } = 3;
+    public double TargetSeconds { get; init; } = 30;
+    public AutoShortLayout Layout { get; init; } = AutoShortLayout.FitLength;
+    public double ImageSeconds { get; init; } = AutoShortPlanner.DefaultImageSeconds;
+    public double? MaxClipSeconds { get; init; }
+    public AutoShortStyle Style { get; init; } = AutoShortStyle.Mixed;
+    public AutoShortTextMode TextMode { get; init; } = AutoShortTextMode.Hook;
+    public bool Transitions { get; init; } = true;
+    public bool Motion { get; init; } = true;
+    public bool KeepClipAudio { get; init; } = true;
+    public string? ExportName { get; init; }
+    public int Width { get; init; } = 1080;
+    public int Height { get; init; } = 1920;
+    public ClipFit Fit { get; init; } = ClipFit.BlurredBackdrop;
+    public ExportQuality Quality { get; init; } = ExportQuality.High;
+    public WatermarkSettings Watermark { get; init; } = new();
+    public bool IncludeOutro { get; init; }
+    public int? Seed { get; init; }
+}
+
+/// <summary>A queued Auto Shorts batch: its id and name, one render per short, and the picks no short used.</summary>
+public sealed record AutoShortsQueued(
+    string BatchId, string BatchName, IReadOnlyList<RenderJob> Jobs, IReadOnlyList<string> UnusedAssetIds);
 
 /// <summary>
 /// The clip stitch's front door: reads the library, resolves a running order, and queues
@@ -262,10 +314,12 @@ public sealed class ClipMergeService(
 
         var clipIds = command.AssetIds ?? [];
 
-        if (clipIds.Count == 0)
+        // A cut of pictures, titles or music alone has no clip: its one slot is the picture,
+        // rendered as a blank backdrop with the lanes drawn over it.
+        if (clipIds.Count == 0 && !command.Slots.Any(s => double.IsFinite(s.Seconds) && s.Seconds > 0))
         {
             throw EditingException.Invalid("no-clips",
-                "Choose at least one clip to include.");
+                "Add a clip, picture, title or music to the timeline first.");
         }
 
         if (clipIds.Count > ClipMergeSpec.MaxClips)
@@ -389,7 +443,7 @@ public sealed class ClipMergeService(
                 $"Music volume must be between 0 and {ClipAudioSpec.MaxGain:0.#}.");
         }
 
-        if (command.Junctions is { } junctions && junctions.Count != clipIds.Count - 1)
+        if (command.Junctions is { } junctions && junctions.Count != Math.Max(0, clipIds.Count - 1))
         {
             throw EditingException.Invalid("junction-count-mismatch",
                 "There must be exactly one transition setting for every gap between clips.");
@@ -404,6 +458,21 @@ public sealed class ClipMergeService(
                     throw EditingException.Invalid("transition-out-of-range",
                         $"A transition must be between 0 and {MaxTransitionSeconds:0.#} seconds.");
                 }
+            }
+        }
+
+        foreach (var slot in command.Slots)
+        {
+            if (slot.BeforeClipIndex < 0 || slot.BeforeClipIndex > clipIds.Count)
+            {
+                throw EditingException.Invalid("slot-out-of-range",
+                    "A slot must sit before, between or after the clips in the video.");
+            }
+
+            if (!double.IsFinite(slot.Seconds) || slot.Seconds is < 0 or > ClipMergeSpec.MaxSlotSeconds)
+            {
+                throw EditingException.Invalid("slot-out-of-range",
+                    $"A slot must be between 0 and {ClipMergeSpec.MaxSlotSeconds:0} seconds long.");
             }
         }
 
@@ -507,7 +576,8 @@ public sealed class ClipMergeService(
                 StartSeconds = t.StartSeconds,
                 Volume = t.Volume,
                 TrimStartSeconds = t.TrimStartSeconds,
-                TrimEndSeconds = t.TrimEndSeconds
+                TrimEndSeconds = t.TrimEndSeconds,
+                IsVoiceover = t.IsVoiceover
             })
             .ToList();
 
@@ -515,7 +585,8 @@ public sealed class ClipMergeService(
         // document carry one entry per clip to express "as recorded".
         var clipAudioSpecs = command.ClipAudio is { Count: > 0 } tracks
                              && tracks.Any(t => t.Volume != 1.0
-                                                || t.AudioAssetId is { Length: > 0 })
+                                                || t.AudioAssetId is { Length: > 0 }
+                                                || t.HideVideo)
             ? tracks
                 .Select(t => new ClipAudioSpec
                 {
@@ -524,7 +595,8 @@ public sealed class ClipMergeService(
                     AudioVolume = t.AudioVolume,
                     KeepOriginalAudio = t.KeepOriginalAudio,
                     TrimStartSeconds = t.TrimStartSeconds,
-                    TrimEndSeconds = t.TrimEndSeconds
+                    TrimEndSeconds = t.TrimEndSeconds,
+                    HideVideo = t.HideVideo
                 })
                 .ToList()
             : [];
@@ -545,11 +617,14 @@ public sealed class ClipMergeService(
             Height = jobHeight,
             TargetFormat = targetFormat,
             CreatedAt = clock.GetUtcNow().UtcDateTime,
+            Batch = command.Batch,
             ClipMerge = new ClipMergeSpec
             {
                 ExportName = command.ExportName,
                 AssetIds = [.. clipIds],
                 Fit = command.Fit,
+                // Checked here as well as at the API: it ends up inside the pad filter.
+                BackgroundColor = EraseRegionSpec.IsHexColor(command.BackgroundColor) ? command.BackgroundColor : null,
                 OutputWidth = command.OutputWidth,
                 OutputHeight = command.OutputHeight,
                 Quality = command.Quality,
@@ -564,7 +639,11 @@ public sealed class ClipMergeService(
                 ClipAudio = clipAudioSpecs,
                 Watermark = watermark,
                 Outro = outro ?? new OutroSettings(),
-                TimelineItems = command.TimelineItems?.ToList() ?? []
+                // A hold only ever leads into an end card; without one the video ends on the clip.
+                OutroHoldSeconds = outro is { IsEnabled: true } ? Math.Clamp(command.OutroHoldSeconds, 0, 600) : 0,
+                TimelineItems = command.TimelineItems?.ToList() ?? [],
+                YouTubeLoudness = command.YouTubeLoudness,
+                Slots = BuildSlots(command.Slots)
             }
         };
 
@@ -658,7 +737,8 @@ public sealed class ClipMergeService(
             HeadlineSecondary = chosen.HeadlineSecondary,
             SubtextSecondary = chosen.SubtextSecondary,
             BackgroundHex = chosen.BackgroundHex,
-            TextHex = chosen.TextHex
+            TextHex = chosen.TextHex,
+            Animation = chosen.Animation
         };
         copy.Clamp();
         return copy.IsEnabled ? copy : null;
@@ -672,6 +752,131 @@ public sealed class ClipMergeService(
     /// fetch it into their own output.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// Plans and queues a batch of different shorts cut from the chosen clips, pictures and
+    /// lines - one ordinary stitch job per short, so each is polled, downloaded and
+    /// published like any other export.
+    /// <para>
+    /// Every file is checked here before anything is planned: it must belong to this
+    /// project, and be footage, a picture or (for music) something with sound. Each short is
+    /// then queued through <see cref="QueueAsync"/>, which checks it all again - the planner
+    /// is trusted with timing, never with access.
+    /// </para>
+    /// </summary>
+    public async Task<AutoShortsQueued> QueueAutoShortsAsync(
+        string projectId, AutoShortsCommand command, CancellationToken ct)
+    {
+        var plan = await PlanAutoShortsAsync(projectId, command, ct).ConfigureAwait(false);
+
+        var batch = new RenderJobBatch
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Name = AutoShortBatchName(command.ExportName),
+            Count = plan.Shorts.Count,
+            CreatedAt = clock.GetUtcNow().UtcDateTime,
+            Layout = command.Layout.ToString(),
+            SourceAssetIds = [.. command.SourceAssetIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal)],
+        };
+
+        var queued = new List<RenderJob>(plan.Shorts.Count);
+        for (var k = 0; k < plan.Shorts.Count; k++)
+        {
+            var place = new RenderJobBatch
+            {
+                Id = batch.Id, Name = batch.Name, Index = k, Count = batch.Count,
+                CreatedAt = batch.CreatedAt, Layout = batch.Layout, SourceAssetIds = batch.SourceAssetIds,
+            };
+            queued.Add(await QueueAsync(projectId, plan.Shorts[k] with { Batch = place }, ct).ConfigureAwait(false));
+        }
+        return new AutoShortsQueued(batch.Id, batch.Name, queued, plan.UnusedAssetIds);
+    }
+
+    /// <summary>
+    /// What a batch would come out as - how many shorts, how long, from which picks - with
+    /// every check a real batch gets, but nothing queued. The plan is random, so this is a
+    /// faithful shape rather than the exact cut (unless a seed is given).
+    /// </summary>
+    public async Task<AutoShortPlan> PreviewAutoShortsAsync(
+        string projectId, AutoShortsCommand command, CancellationToken ct) =>
+        await PlanAutoShortsAsync(projectId, command, ct).ConfigureAwait(false);
+
+    private static string AutoShortBatchName(string? exportName)
+    {
+        var name = string.IsNullOrWhiteSpace(exportName) ? "Auto shorts" : exportName.Trim();
+        return name.Length > 180 ? name[..180] : name;
+    }
+
+    private async Task<AutoShortPlan> PlanAutoShortsAsync(
+        string projectId, AutoShortsCommand command, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        await EnsureOwnedAsync(projectId, ct).ConfigureAwait(false);
+
+        if (!capabilities.IsAvailable)
+        {
+            throw new RenderException(RenderErrorCode.RendererUnavailable,
+                capabilities.UnavailableReason ?? "Video rendering is not configured on this server.");
+        }
+
+        var sourceIds = command.SourceAssetIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal).ToList();
+        var musicIds = command.MusicAssetIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct(StringComparer.Ordinal).ToList();
+        if (sourceIds.Count == 0)
+            throw EditingException.Invalid("no-clips", "Choose at least one clip or picture to cut shorts from.");
+
+        var loaded = await assets.GetManyAsync([.. sourceIds.Concat(musicIds)], ct).ConfigureAwait(false);
+        var byId = loaded.ToDictionary(a => a.Id, StringComparer.Ordinal);
+
+        var sources = new List<AutoShortSource>(sourceIds.Count);
+        foreach (var id in sourceIds)
+        {
+            var asset = Require(byId, id, projectId, "clip");
+            if (asset.Kind is not (AssetKind.Video or AssetKind.Image) || !asset.IsUsableInScene)
+                throw EditingException.Invalid("not-a-video-or-image", $"'{asset.Name}' is not a video or image clip.");
+            sources.Add(new AutoShortSource(asset.Id, asset.Kind, asset.Probe.DurationSeconds));
+        }
+
+        foreach (var id in musicIds)
+        {
+            var asset = Require(byId, id, projectId, "music");
+            if (asset.Kind is not (AssetKind.Audio or AssetKind.Video))
+                throw EditingException.Invalid("not-audio", $"'{asset.Name}' has no sound in it.");
+        }
+
+        try
+        {
+            return AutoShortPlanner.PlanBatch(new AutoShortBatch
+            {
+                Sources = sources,
+                Lines = command.Lines,
+                MusicAssetIds = musicIds,
+                Count = command.Count,
+                TargetSeconds = command.TargetSeconds,
+                Layout = command.Layout,
+                ImageSeconds = command.ImageSeconds,
+                MaxClipSeconds = command.MaxClipSeconds,
+                Style = command.Style,
+                TextMode = command.TextMode,
+                // A renderer without xfade cuts hard rather than refusing the batch.
+                Transitions = command.Transitions && capabilities.Supports(RenderFeature.CrossFadeTransitions),
+                Motion = command.Motion,
+                KeepClipAudio = command.KeepClipAudio,
+                ExportName = command.ExportName ?? "Auto short",
+                Width = command.Width,
+                Height = command.Height,
+                Fit = command.Fit == ClipFit.BlurredBackdrop && !capabilities.Supports(RenderFeature.BlurBackdrop)
+                    ? ClipFit.Cover : command.Fit,
+                Quality = command.Quality,
+                Watermark = command.Watermark,
+                IncludeOutro = command.IncludeOutro,
+                Seed = command.Seed,
+            });
+        }
+        catch (ArgumentException ex)
+        {
+            throw EditingException.Invalid("nothing-usable", ex.Message);
+        }
+    }
+
     private static Asset Require(
         Dictionary<string, Asset> byId, string assetId, string projectId, string role)
     {
@@ -715,6 +920,24 @@ public sealed class ClipMergeService(
     /// touch at the same level, so a long dialogue run is one envelope step rather than a
     /// separate duck per cut.
     /// </summary>
+    /// <summary>
+    /// One slot per position, in position order: two sent for the same place play back to
+    /// back, which is one longer blank. Anything too short to hold a frame is dropped.
+    /// </summary>
+    public static List<ClipSlotSpec> BuildSlots(IReadOnlyList<ClipSlot> slots) =>
+        [.. slots
+            .GroupBy(s => s.BeforeClipIndex)
+            .Select(g => new ClipSlotSpec
+            {
+                BeforeClipIndex = g.Key,
+                Seconds = Math.Min(g.Sum(s => s.Seconds), ClipMergeSpec.MaxSlotSeconds)
+            })
+            .Where(s => s.Seconds >= MinSlotSeconds)
+            .OrderBy(s => s.BeforeClipIndex)];
+
+    /// <summary>Below this a slot cannot hold a single frame at any rate the studio exports.</summary>
+    private const double MinSlotSeconds = 0.01;
+
     private static List<MusicDuckWindowSpec> BuildDuckWindows(IReadOnlyList<MusicDuckWindow> windows)
     {
         var result = new List<MusicDuckWindowSpec>();

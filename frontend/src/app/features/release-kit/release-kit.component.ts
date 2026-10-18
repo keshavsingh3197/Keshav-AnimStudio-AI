@@ -1,7 +1,7 @@
 import { DecimalPipe } from '@angular/common';
 import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
@@ -15,6 +15,7 @@ import { ReleaseKitService } from '../../core/services/release-kit.service';
 import { StatusService } from '../../core/services/status.service';
 import { FileDropDirective } from '../../shared/file-drop.directive';
 import { ImageCropDialogComponent } from '../../shared/image-crop-dialog.component';
+import { YouTubePublishDialogComponent } from '../../shared/youtube-publish-dialog.component';
 
 const AUDIO_ACCEPT = '.wav,.wave,.flac,.aif,.aiff,.mp3,.m4a';
 const COVER_ACCEPT = '.png,.jpg,.jpeg,.webp';
@@ -58,13 +59,15 @@ interface KitError {
 
 @Component({
   selector: 'app-release-kit',
-  imports: [FormsModule, DecimalPipe, FileDropDirective, ImageCropDialogComponent, RouterLink],
+  imports: [FormsModule, DecimalPipe, FileDropDirective, ImageCropDialogComponent, RouterLink, YouTubePublishDialogComponent],
   templateUrl: './release-kit.component.html',
   styleUrls: ['./release-kit.component.css'],
 })
 export class ReleaseKitComponent {
   private readonly releases = inject(ReleaseKitService);
   private readonly status = inject(StatusService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
 
   readonly audioAccept = AUDIO_ACCEPT;
   readonly coverAccept = COVER_ACCEPT;
@@ -135,7 +138,11 @@ export class ReleaseKitComponent {
     (this.result()?.files ?? []).filter((f) => f.mimeType.startsWith('audio/') || f.mimeType.startsWith('video/')),
   );
 
-  readonly hasVisualizer = computed(() => (this.result()?.files ?? []).some((f) => f.name.startsWith('visualizer_')));
+  readonly visualizer = computed(() => (this.result()?.files ?? []).find((f) => f.name.startsWith('visualizer_')) ?? null);
+  readonly hasVisualizer = computed(() => this.visualizer() !== null);
+
+  /** The visualizer's object URL while the Publish to YouTube Music dialog is open. */
+  readonly publishSrc = signal<string | null>(null);
 
   /** The cover being cropped to a square, when the crop dialog is open. */
   readonly cropSource = signal<File | null>(null);
@@ -147,6 +154,7 @@ export class ReleaseKitComponent {
 
   constructor() {
     this.restoreDetails();
+    this.restoreKit();
     inject(DestroyRef).onDestroy(() => {
       this.stopTimer();
       this.revokePreviews();
@@ -265,6 +273,19 @@ export class ReleaseKitComponent {
     }
   }
 
+  /** Opens the publish dialog on the visualizer: the song goes up as a Music video, listed on YouTube Music. */
+  async publishToYouTube(): Promise<void> {
+    const file = this.visualizer();
+    if (!file) return;
+    const src = await this.ensureObjectUrl(file);
+    if (src) this.publishSrc.set(src);
+  }
+
+  /** Where Google sign-in returns to: this kit, with the dialog open again. */
+  publishReturnPath(): string {
+    return `/release?kitId=${this.result()?.jobId ?? ''}&publish=1`;
+  }
+
   async preview(file: ReleaseKitFile): Promise<void> {
     await this.ensureObjectUrl(file);
   }
@@ -303,6 +324,27 @@ export class ReleaseKitComponent {
   formatSize(bytes: number): string {
     if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
     return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  }
+
+  /** Back from connecting a YouTube channel: show the kit again and, if asked, reopen the publish dialog. */
+  private restoreKit(): void {
+    const params = this.route.snapshot.queryParamMap;
+    const kitId = params.get('kitId');
+    if (!kitId || !/^[0-9a-f]{32}$/.test(kitId)) return;
+    const reopen = params.get('publish') === '1';
+
+    // Dropped from the address so a reload doesn't reopen the dialog.
+    void this.router.navigate([], { relativeTo: this.route, queryParams: {}, replaceUrl: true });
+    this.releases.getKit(kitId).subscribe({
+      next: (result) => {
+        this.result.set(result);
+        if (reopen) void this.publishToYouTube();
+      },
+      error: (err: unknown) => this.error.set({
+        message: err instanceof ApiFailure ? err.message : 'That release kit could not be loaded.',
+        hint: 'Kits are kept for 24 hours and are lost when the API restarts. Build it again if it has expired.',
+      }),
+    });
   }
 
   private async ensureObjectUrl(file: ReleaseKitFile): Promise<string | null> {

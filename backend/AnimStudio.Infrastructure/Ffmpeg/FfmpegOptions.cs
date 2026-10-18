@@ -107,7 +107,11 @@ public sealed class RenderOptions
     /// <summary>Size the clip cache is trimmed back to, oldest-used first.</summary>
     public int ClipCacheMaxGigabytes { get; set; } = 20;
 
-    /// <summary>Rendering is CPU-bound; more than one concurrent job just thrashes.</summary>
+    /// <summary>
+    /// Render jobs run side by side. Each stitch shares the cores out by this number, so a
+    /// second job mostly fills the gaps the first leaves (probing, uploads, the single-threaded
+    /// join) rather than doubling the load. Held to 1-8.
+    /// </summary>
     public int MaxConcurrentJobs { get; set; } = 1;
 
     public int LeaseSeconds { get; set; } = 120;
@@ -144,4 +148,10 @@ public sealed class RenderOptions
     /// whoever runs the server instead of once per video by whoever makes them.
     /// </summary>
     public string WatermarkText { get; set; } = string.Empty;
+
+    /// <summary>
+    /// How a new render is named. Tokens: {project}, {format}, {aspect}, {resolution}, {n},
+    /// {date}, {time}. See <c>RenderJobNaming</c>.
+    /// </summary>
+    public string JobNameTemplate { get; set; } = AnimStudio.Application.Rendering.RenderJobNaming.DefaultTemplate;
 }

@@ -194,11 +194,17 @@ public sealed class FfmpegVideoRenderingService(
                 var output = $"merge/l{level}_{i:D3}.mp4";
 
                 // No music and no verification here: both belong to the final pass. Mixing
-                // a music bed in at an intermediate level would layer it once per level.
+                // a music bed in at an intermediate level would layer it once per level; timed
+                // tracks (music and voiceover lines) would also land at their timeline offsets
+                // from the start of this batch rather than the video. Loudness is measured on
+                // the finished mix only.
                 var batchPlan = plan with
                 {
                     Scenes = batch.Scenes,
                     BackgroundMusicRelativePath = null,
+                    MusicTracks = [],
+                    MusicDuckWindows = [],
+                    YouTubeLoudness = false,
                     OutputRelativePath = output,
                     ConcatListRelativePath = $"merge/l{level}_{i:D3}.txt",
                     Encoder = plan.Encoder.ForIntermediate(_render.IntermediatePreset)

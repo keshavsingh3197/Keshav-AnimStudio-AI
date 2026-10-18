@@ -35,6 +35,12 @@ public sealed record UpdateProjectCommand
 
     /// <summary>Null leaves it unchanged.</summary>
     public bool? FollowChannelWatermark { get; init; }
+
+    /// <summary>Null leaves it unchanged.</summary>
+    public ProjectContentType? ContentType { get; init; }
+
+    /// <summary>Null leaves it unchanged; 0 goes back to the studio-wide default.</summary>
+    public double? DefaultImageDurationSeconds { get; init; }
     public bool? IsPinned { get; init; }
     public string? CustomThumbnail { get; init; }
 }
@@ -71,6 +77,13 @@ public sealed class ProjectEditingService(
 
         if (command.Width is < 320 or > 3840 || command.Height is < 240 or > 2160)
             throw EditingException.Invalid("canvas-out-of-range", "That canvas size is not supported.");
+
+        if (command.DefaultImageDurationSeconds is { } imageSeconds
+            && imageSeconds != 0 && !ImageDurationLimits.IsValid(imageSeconds))
+        {
+            throw EditingException.Invalid("image-duration-out-of-range",
+                $"Image duration must be between {ImageDurationLimits.Min} and {ImageDurationLimits.Max} seconds.");
+        }
 
         if (command.BackgroundMusicVolume is < 0 or > MaxMusicVolume)
             throw EditingException.Invalid("volume-out-of-range", "Music volume must be between 0 and 2.");
@@ -128,6 +141,12 @@ public sealed class ProjectEditingService(
 
         if (command.FollowChannelWatermark is { } follow)
             project.Settings.FollowChannelWatermark = follow;
+
+        if (command.ContentType is { } contentType)
+            project.Settings.ContentType = contentType;
+
+        if (command.DefaultImageDurationSeconds is { } imageDuration)
+            project.Settings.DefaultImageDurationSeconds = imageDuration == 0 ? null : imageDuration;
 
         if (command.BrandChannelId is not null)
         {

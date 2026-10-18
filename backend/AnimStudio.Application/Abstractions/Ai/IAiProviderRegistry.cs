@@ -34,6 +34,12 @@ public sealed record AiCapabilityStatus(
 public interface IAiProviderRegistry
 {
     IReadOnlyList<ITextAiProvider> TextChain();
+
+    /// <summary>
+    /// Every text provider that could answer right now - enabled, configured, circuit closed -
+    /// whether or not it is in the chain. What a "write with…" picker offers.
+    /// </summary>
+    IReadOnlyList<ITextAiProvider> UsableTextProviders();
     IReadOnlyList<IImageAiProvider> ImageChain();
     IReadOnlyList<ISpeechAiProvider> SpeechChain();
     IReadOnlyList<ITranscriptionProvider> TranscriptionChain();

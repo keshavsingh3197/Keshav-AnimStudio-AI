@@ -6,6 +6,7 @@ import { RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
+import { CharacterVoice, describeVoice, sanitizeVoice } from '../../shared/voice/character-voice';
 import { BrandChannel, Character, Project } from '../../core/models/api.models';
 import { SupportCardArt } from './brand-overlays';
 import {
@@ -20,6 +21,7 @@ import {
 } from '../../core/models/live-stream.models';
 import { ApiService } from '../../core/services/api.service';
 import { LiveStreamService } from '../../core/services/live-stream.service';
+import { SelectedYouTubeBroadcast, YouTubeLiveSetupComponent } from '../../shared/youtube-live-setup.component';
 import { StatusService } from '../../core/services/status.service';
 import { AudioMixer } from './audio-mixer';
 import { BACKLOG_WARNING, CameraUplink, RecorderFormat, UplinkStats, pickRecorderFormat } from './camera-uplink';
@@ -59,7 +61,7 @@ import {
 import { PersonMask, VisionEngine } from './vision-engine';
 
 type Panel = 'identity' | 'designer' | 'motion' | 'brand' | 'voice' | 'picture' | 'overlays' | 'scenes' | 'stream' | 'health';
-type KeyMode = 'channel' | 'paste';
+type KeyMode = 'channel' | 'paste' | 'youtube';
 type Sections = Omit<StudioSettings, 'version' | 'source'>;
 
 interface Preset {
@@ -134,7 +136,7 @@ export const SCENES: { id: SceneId; label: string; icon: string; key: string }[]
  */
 @Component({
   selector: 'app-live-camera',
-  imports: [FormsModule, DecimalPipe, RouterLink],
+  imports: [FormsModule, DecimalPipe, RouterLink, YouTubeLiveSetupComponent],
   templateUrl: './live-camera.component.html',
   styleUrls: ['./live-camera.component.css'],
   host: { '(document:keydown)': 'onKey($event)' },
@@ -147,6 +149,7 @@ export class LiveCameraComponent {
 
   readonly scenes = SCENES;
   readonly builtIns = BUILT_IN_CHARACTERS;
+  readonly describeVoice = describeVoice;
   readonly emojis = MASK_EMOJIS;
   readonly minMaskScale = MIN_MASK_SCALE;
   readonly backlogWarning = BACKLOG_WARNING;
@@ -248,6 +251,8 @@ export class LiveCameraComponent {
   /** Held only in this component's memory: never stored, sent only when going live. */
   streamKey = '';
   readonly showKey = signal(false);
+  /** A broadcast created (or picked) on a connected YouTube channel; its key stays on the server. */
+  readonly youTubeBroadcast = signal<SelectedYouTubeBroadcast | null>(null);
 
   // Audience
   readonly subscribers = signal<number | null>(null);
@@ -307,6 +312,8 @@ export class LiveCameraComponent {
   private localRecorder: MediaRecorder | null = null;
   private localChunks: Blob[] = [];
   private readonly characters = new Map<CharacterRef, ImageCharacter>();
+  /** The voices of the loaded project characters, for the "worn character" voice effect. */
+  private readonly characterVoices = new Map<CharacterRef, CharacterVoice>();
   private backgroundImage: ImageBitmap | null = null;
   private lastMask: PersonMask | null = null;
   private lastDetectionAt: number | null = null;
@@ -489,7 +496,7 @@ export class LiveCameraComponent {
 
   private afterSettingsChange(): void {
     const s = this.settings();
-    this.mixer?.apply(s.voice);
+    this.applyVoice();
     if (this.vision.state === 'ready') void this.vision.configure(s.identity.maxFaces, s.identity.sensitivity);
     if (s.identity.hideFaces && this.running() && this.vision.state === 'idle') void this.loadVision();
     if (this.motionWanted() && this.running() && this.motionState() === 'idle') void this.loadMotion();
@@ -548,7 +555,7 @@ export class LiveCameraComponent {
     const live = this.setup()?.channels.find((c) => c.id === channel.id);
     if (live && !this.onAir()) {
       this.form.channelId = live.id;
-      if (this.setup()?.canUseSavedKeys && this.keyStatus(live)?.state === 'Saved') this.form.keyMode = 'channel';
+      if (this.form.keyMode !== 'youtube' && this.setup()?.canUseSavedKeys && this.keyStatus(live)?.state === 'Saved') this.form.keyMode = 'channel';
       this.scheduleRemember();
     }
   }
@@ -602,7 +609,7 @@ export class LiveCameraComponent {
       // Processing a video file uses its own soundtrack; the microphone isn't needed.
       if (this.settings().source !== 'video') await this.openMicrophone();
       await this.applySources();
-      this.mixer.apply(this.settings().voice);
+      this.applyVoice();
 
       this.programMedia = new MediaStream([
         ...canvas.captureStream(FPS).getVideoTracks(),
@@ -1302,6 +1309,7 @@ export class LiveCameraComponent {
   }
 
   keyMissing(): string | null {
+    if (this.form.keyMode === 'youtube') return this.youTubeBroadcast() ? null : 'Create or pick a YouTube broadcast.';
     if (this.form.keyMode === 'paste') return this.streamKey.trim() ? null : 'Paste the stream key from YouTube Studio.';
     if (!this.form.channelId) return 'Choose a channel.';
     return this.keyStatus(this.selectedChannel())?.state === 'Saved' ? null : 'That channel has no usable saved key.';
@@ -1325,9 +1333,12 @@ export class LiveCameraComponent {
     this.error.set(null);
     this.scheduleRemember();
     try {
-      const target: LiveStreamGoLive = this.form.keyMode === 'channel'
-        ? { channelId: this.form.channelId }
-        : { streamKey: this.streamKey.trim() };
+      const broadcast = this.youTubeBroadcast();
+      const target: LiveStreamGoLive = this.form.keyMode === 'youtube' && broadcast
+        ? { youTube: { channelId: broadcast.channelId, broadcastId: broadcast.broadcast.broadcastId } }
+        : this.form.keyMode === 'channel'
+          ? { channelId: this.form.channelId }
+          : { streamKey: this.streamKey.trim() };
       const status = await firstValueFrom(this.live.startCamera({
         destination: this.form.destination,
         orientation: this.form.orientation,
@@ -1496,6 +1507,11 @@ export class LiveCameraComponent {
     try {
       const list: Character[] = await firstValueFrom(this.api.listCharacters(projectId));
       const loaded: ProjectCharacter[] = [];
+      this.characterVoices.clear();
+      for (const character of list) {
+        const voice = sanitizeVoice(character.voice);
+        if (voice) this.characterVoices.set(`project:${character.id}`, voice);
+      }
       for (const character of list.filter((c) => c.closedMouthAssetId)) {
         const ref = `project:${character.id}`;
         try {
@@ -1508,11 +1524,21 @@ export class LiveCameraComponent {
         }
       }
       this.projectCharacters.set(loaded);
+      this.applyVoice();
     } catch {
       this.notice.set('Couldn\'t load that project\'s characters.');
     } finally {
       this.loadingCharacters.set(false);
     }
+  }
+
+  /** The voice of the character being worn, when it has one. */
+  wornCharacterVoice(): CharacterVoice | null {
+    return this.characterVoices.get(this.settings().identity.character) ?? null;
+  }
+
+  private applyVoice(): void {
+    this.mixer?.apply(this.settings().voice, this.wornCharacterVoice());
   }
 
   /** Through HttpClient (not an <img>), so the image keeps the canvas exportable and goes through the app's request pipeline. */
@@ -1717,7 +1743,7 @@ export class LiveCameraComponent {
       this.setup.set(setup);
       if (!setup.destinations.some((d) => d.id === this.form.destination)) this.form.destination = setup.destinations[0]?.id ?? '';
       if (!setup.channels.some((c) => c.id === this.form.channelId)) this.form.channelId = setup.channels[0]?.id ?? '';
-      if (!setup.canUseSavedKeys) this.form.keyMode = 'paste';
+      if (!setup.canUseSavedKeys && this.form.keyMode === 'channel') this.form.keyMode = 'paste';
       this.ensureAudiencePolling();
     } catch (err: unknown) {
       this.error.set(err instanceof ApiFailure ? err.message : 'Could not load the stream settings.');
@@ -1732,7 +1758,7 @@ export class LiveCameraComponent {
       if (typeof saved.micId === 'string') this.micId = saved.micId.slice(0, 200);
       if (saved.quality === 'Hd720' || saved.quality === 'Hd1080') this.form.quality = saved.quality;
       if (saved.orientation === 'Landscape' || saved.orientation === 'Portrait') this.form.orientation = saved.orientation;
-      if (saved.keyMode === 'channel' || saved.keyMode === 'paste') this.form.keyMode = saved.keyMode;
+      if (saved.keyMode === 'channel' || saved.keyMode === 'paste' || saved.keyMode === 'youtube') this.form.keyMode = saved.keyMode;
       if (typeof saved.channelId === 'string') this.form.channelId = saved.channelId.slice(0, 128);
     } catch {
       // Storage unavailable or unreadable: the defaults are fine.

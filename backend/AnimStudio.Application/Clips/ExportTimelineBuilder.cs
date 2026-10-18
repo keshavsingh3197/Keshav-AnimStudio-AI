@@ -18,7 +18,15 @@ public sealed record ExportTimelineFacts(
     IReadOnlyList<SceneTransition> TransitionKinds,
     IReadOnlyList<double> LeadIns,
     FrameRate Rate,
-    FrameCount Total);
+    FrameCount Total)
+{
+    /// <summary>
+    /// Measured length of the slot played before each clip, the last entry after the last
+    /// clip; empty when the cut has none. A slot meets its neighbours with a cut, so it
+    /// moves everything after it along and changes nothing else.
+    /// </summary>
+    public IReadOnlyList<FrameCount> SlotsBefore { get; init; } = [];
+}
 
 /// <summary>
 /// Builds the <see cref="ExportTimeline"/> for a finished clip export. A pure function of
@@ -45,9 +53,17 @@ public static class ExportTimelineBuilder
         var v1Items = spec.TimelineItems.Where(it => it.TrackId is "V1" or "video").ToList();
         var perClipAudio = spec.ClipAudio.Count == spec.AssetIds.Count;
 
+        // Seconds of slot played up to and including the one before clip i.
+        var slotted = new double[spec.AssetIds.Count + 2];
+        for (var k = 0; k <= spec.AssetIds.Count; k++)
+        {
+            var seconds = k < facts.SlotsBefore.Count ? facts.SlotsBefore[k].ToSeconds(rate) : 0;
+            slotted[k + 1] = slotted[k] + seconds;
+        }
+
         for (var i = 0; i < facts.Lengths.Count && i < spec.AssetIds.Count; i++)
         {
-            var start = i == 0 ? 0 : offsets[i - 1].ToSeconds(rate);
+            var start = (i == 0 ? 0 : offsets[i - 1].ToSeconds(rate)) + slotted[i + 1];
             var end = start + facts.Lengths[i].ToSeconds(rate);
             var asset = resolveAsset(spec.AssetIds[i]);
             var item = v1Items.ElementAtOrDefault(i);
@@ -67,7 +83,8 @@ public static class ExportTimelineBuilder
 
             if (i < facts.Transitions.Count && facts.Transitions[i].Value > 0)
             {
-                var blendStart = offsets[i].ToSeconds(rate);
+                // Into the end card after a trailing slot, the blend starts after that slot too.
+                var blendStart = offsets[i].ToSeconds(rate) + slotted[i + 2];
                 var kind = i < facts.TransitionKinds.Count ? facts.TransitionKinds[i] : SceneTransition.Fade;
                 entries.Add(new ExportTimelineEntry
                 {
@@ -109,7 +126,7 @@ public static class ExportTimelineBuilder
         if (facts.Lengths.Count == spec.AssetIds.Count + 1)
         {
             var last = facts.Lengths.Count - 1;
-            var start = last == 0 ? 0 : offsets[last - 1].ToSeconds(rate);
+            var start = (last == 0 ? 0 : offsets[last - 1].ToSeconds(rate)) + slotted[^1];
             entries.Add(new ExportTimelineEntry
             {
                 Kind = ExportTimelineKinds.EndCard,

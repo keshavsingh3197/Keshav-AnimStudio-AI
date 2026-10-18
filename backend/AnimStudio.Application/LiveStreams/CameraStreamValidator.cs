@@ -32,7 +32,7 @@ public static partial class CameraStreamValidator
         if (string.IsNullOrWhiteSpace(settings.Destination) || !destinations.Contains(settings.Destination))
             return "Choose where to stream to.";
         if (!Enum.IsDefined(settings.Orientation))
-            return "Orientation must be landscape or portrait.";
+            return "Orientation must be landscape, portrait or both.";
         if (!Enum.IsDefined(settings.Quality))
             return "Quality must be 720p or 1080p.";
         if (!Enum.IsDefined(settings.Container))

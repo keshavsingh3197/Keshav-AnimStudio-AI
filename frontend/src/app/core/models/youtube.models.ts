@@ -9,6 +9,8 @@ export interface YouTubeChannel {
   lastUploadAt?: string;
   /** Google refused the saved access; the channel must be connected again. */
   needsReconnect: boolean;
+  /** False when connected before comment permission was asked for; reconnecting fixes it. */
+  canComment: boolean;
 }
 
 export interface YouTubeCategory {
@@ -31,6 +33,22 @@ export interface YouTubeCheck {
 
 export type YouTubePrivacy = 'public' | 'unlisted' | 'private';
 
+/**
+ * What is being published: a finished render, or a release kit's visualizer - a song, sent
+ * as a Music-category video so it is listed on YouTube Music under the channel.
+ */
+export type YouTubePublishSource = 'render' | 'release';
+
+/** YouTube's Music category; what makes an upload show up on YouTube Music. */
+export const YOUTUBE_MUSIC_CATEGORY_ID = '10';
+
+/**
+ * Where an upload is meant to be found. Both are one YouTube upload with one video id: the
+ * Music destination only sends it in the Music category, which lists it on YouTube Music
+ * as well, at music.youtube.com/watch?v=<same id>.
+ */
+export type YouTubeDestination = 'youtube' | 'music';
+
 export interface YouTubeVideoMetadata {
   title: string;
   description: string;
@@ -44,7 +62,10 @@ export interface YouTubeVideoMetadata {
 export interface YouTubeDraft {
   title: string;
   description: string;
+  /** The video's own tags. */
   tags: string[];
+  /** The brand channel's default tags (Admin > Publishing), added to every upload's own. */
+  channelTags: string[];
   categoryId: string;
   privacy: YouTubePrivacy;
   madeForKids: boolean;
@@ -61,6 +82,45 @@ export interface YouTubeDraft {
   };
   errors: YouTubeCheck[];
   warnings: YouTubeCheck[];
+  /** The brand channel's default first comment (Admin > Publishing). */
+  firstComment?: string;
+  /** A song, or a render of a music project: the dialog opens set to YouTube Music. */
+  isMusic?: boolean;
+}
+
+/** An AI-written title, description and tags; the user reviews them before publishing. */
+export interface YouTubeSuggestion {
+  title: string;
+  description: string;
+  tags: string[];
+  providerId: string;
+  /** Other titles to pick from; the main one is not repeated. */
+  titleOptions?: string[];
+  /** Other descriptions in different styles (short, detailed), each with the same chapters, credits and footer. */
+  descriptionOptions?: string[];
+  /** More tags to pick from, none already in `tags`. */
+  tagIdeas?: string[];
+}
+
+/** A text engine that can write suggestions now - a hosted model or a local signed-in CLI. */
+export interface YouTubeSuggestEngine {
+  id: string;
+  name: string;
+  runsLocally: boolean;
+}
+
+export interface YouTubeSuggestOptions {
+  engines: YouTubeSuggestEngine[];
+  tones: string[];
+}
+
+/** What to ask for, beyond the project's own material. */
+export interface YouTubeSuggestParams {
+  language: string;
+  fresh: boolean;
+  tone?: string;
+  brief?: string;
+  providerId?: string;
 }
 
 export type YouTubeUploadState = 'Queued' | 'Uploading' | 'Completed' | 'Failed' | 'Cancelled';
@@ -83,10 +143,160 @@ export interface YouTubeUpload {
   error?: string;
   startedAt: string;
   completedAt?: string;
+  /** The saved record of a finished upload. */
+  publicationId?: string;
+  /** e.g. the video is on YouTube but its link couldn't be saved. */
+  warning?: string;
+  /** The first comment's thread id, once it is posted. */
+  commentId?: string;
+  /** The same video on music.youtube.com; set for a Music-category upload. */
+  musicUrl?: string;
+  /** A custom thumbnail went up with the video and YouTube accepted it. */
+  thumbnailSet?: boolean;
+}
+
+/**
+ * The custom thumbnail sent with an upload: a frame of the video, or a JPG/PNG picture as a
+ * data URL. Neither leaves YouTube to pick one of its own frames.
+ */
+export interface YouTubeThumbnailChoice {
+  frameAtSeconds?: number | null;
+  imageBase64?: string | null;
+}
+
+/** YouTube's limit is 2 MB, but the server re-encodes, so a larger photo is fine to pick. */
+export const MAX_THUMBNAIL_UPLOAD_BYTES = 8 * 1024 * 1024;
+
+export type YouTubeVideoHealth = 'Unknown' | 'Processing' | 'Ok' | 'Issue' | 'Removed';
+
+/** A video uploaded from the app, saved automatically when the upload finished. */
+export interface YouTubePublication {
+  id: string;
+  projectId: string;
+  jobId: string;
+  channelId: string;
+  channelTitle: string;
+  videoId: string;
+  title: string;
+  privacy: string;
+  videoUrl: string;
+  studioUrl: string;
+  relatedVideoIds: string[];
+  publishedAt: string;
+  health: YouTubeVideoHealth;
+  privacyStatus?: string;
+  issueCode?: string;
+  issueMessage?: string;
+  thumbnailUrl?: string;
+  lastCheckedAt?: string;
+  /** The same video on music.youtube.com; set when it went up in the Music category. */
+  musicUrl?: string;
+}
+
+export const MAX_RELATED_VIDEOS = 10;
+
+/** True when the owner should look at the video on YouTube. */
+export function needsAttention(p: YouTubePublication): boolean {
+  return p.health === 'Issue' || p.health === 'Removed';
+}
+
+/** Mirrors the server's block, so the review screen and the byte count show what will be sent. */
+export function relatedVideosBlock(related: Pick<YouTubePublication, 'videoId' | 'title'>[]): string {
+  if (related.length === 0) return '';
+  const lines = related.map((r) => `▶ ${r.title.replace(/[\r\n]+/g, ' ').replace(/[<>]/g, '').trim() || 'Video'}: https://youtu.be/${r.videoId}`);
+  return `Related videos:\n${lines.join('\n')}`;
 }
 
 export function isUploadFinished(upload: YouTubeUpload): boolean {
   return upload.state === 'Completed' || upload.state === 'Failed' || upload.state === 'Cancelled';
+}
+
+// ------------------------------------------------------------------ send to phone
+
+/** How the video reaches YouTube: uploaded from here, or sent to Drive for the YouTube app (Shorts sounds). */
+export type YouTubeUploadRoute = 'direct' | 'phone';
+
+/**
+ * A Google Drive for saving renders and "send to phone". Never the token. Asked for a
+ * channel, it is what that channel uses: its own Drive (`ownDrive`), or else the personal
+ * Drive - in a folder of the channel's own either way.
+ */
+export interface GoogleDriveStatus {
+  connected: boolean;
+  accountName: string | null;
+  accountEmail: string | null;
+  folderName: string;
+  connectedAt: string | null;
+  needsReconnect: boolean;
+  /** Null for the personal Drive. */
+  channelId?: string | null;
+  channelTitle?: string | null;
+  ownDrive?: boolean;
+}
+
+export type PhoneHandoffState =
+  | 'Sending' | 'WaitingForPhone' | 'Applied' | 'Failed' | 'Cancelled' | 'Expired'
+  /** A plain save to Drive that has finished. */
+  | 'Saved'
+  /** Queued with its render; the copy starts when the render finishes. */
+  | 'WaitingForRender';
+
+/** A video sent to Drive, waiting for its upload from the YouTube app to get the prepared details. */
+export interface PhoneHandoff {
+  id: string;
+  jobId: string;
+  projectId: string;
+  channelId: string;
+  channelTitle: string;
+  title: string;
+  state: PhoneHandoffState;
+  percent: number;
+  bytesSent: number;
+  totalBytes: number;
+  folderName: string;
+  fileName: string | null;
+  driveUrl: string | null;
+  muted: boolean;
+  errorCode: string | null;
+  error: string | null;
+  warning: string | null;
+  createdAt: string;
+  sentAt: string | null;
+  lastCheckedAt: string | null;
+  expiresAt: string | null;
+  videoId: string | null;
+  videoUrl: string | null;
+  studioUrl: string | null;
+  appliedAt: string | null;
+  commentPosted: boolean;
+  /** A plain copy to Drive, with nothing to apply on YouTube. */
+  saveOnly?: boolean;
+}
+
+/** One of the channel's new uploads, offered as the phone upload; `likely` when its length matches. */
+export interface PhoneUploadCandidate {
+  videoId: string;
+  title: string;
+  publishedAt: string | null;
+  durationSeconds: number | null;
+  privacyStatus: string | null;
+  thumbnailUrl: string | null;
+  likely: boolean;
+}
+
+export interface PhoneHandoffCheck {
+  handoff: PhoneHandoff;
+  candidates: PhoneUploadCandidate[];
+}
+
+/** Still moving: being copied, or waiting for the phone upload to turn up. */
+export function isHandoffActive(h: PhoneHandoff): boolean {
+  return h.state === 'Sending' || h.state === 'WaitingForPhone' || h.state === 'WaitingForRender';
+}
+
+/** Same rule as the server: letters (any script), digits, spaces and - _ . ( ) &. */
+export function isValidDriveFolderName(name: string): boolean {
+  return name.length > 0 && name.length <= 100 && name.trim() === name && /^[\p{L}\p{M}\p{N} _.\-()&]+$/u.test(name);
 }
 
 /** YouTube counts tags as typed: comma-joined, with quotes around any tag containing a space. */
@@ -105,4 +315,161 @@ export function parseYouTubeTags(text: string): string[] {
     tags.push(tag);
   }
   return tags;
+}
+
+/** A connected channel with its live counters; counters are null when they couldn't be read. */
+export interface YouTubeChannelOverview {
+  channelId: string;
+  channelTitle: string;
+  channelHandle?: string | null;
+  thumbnailUrl?: string | null;
+  channelUrl: string;
+  studioUrl: string;
+  connectedAt: string;
+  lastUploadAt?: string | null;
+  needsReconnect: boolean;
+  subscribers?: number | null;
+  /** The owner hides the subscriber count on YouTube. */
+  subscribersHidden: boolean;
+  totalViews?: number | null;
+  totalVideos?: number | null;
+  /** Videos uploaded to this channel from the app. */
+  appUploads: number;
+  /** Why the counters couldn't be read, if they couldn't. */
+  statsError?: string | null;
+}
+
+export interface YouTubeVideoStats {
+  views?: number | null;
+  likes?: number | null;
+  comments?: number | null;
+}
+
+/** Everything the YouTube page shows, in one call. */
+export interface YouTubeDashboard {
+  configured: boolean;
+  channels: YouTubeChannelOverview[];
+  videos: YouTubePublication[];
+  /** Keyed by YouTube video id; videos YouTube no longer has are absent. */
+  videoStats: Record<string, YouTubeVideoStats>;
+  statsFetchedAt?: string | null;
+}
+
+/** A broadcast on a connected channel that Go Live can stream to. Never carries the stream key. */
+export interface YouTubeLiveBroadcast {
+  broadcastId: string;
+  title: string;
+  privacy: string;
+  lifeCycleStatus: string;
+  scheduledStartTime?: string;
+  watchUrl: string;
+  studioUrl: string;
+}
+
+/** What the live setup panel opens with for one connected channel. */
+export interface YouTubeLiveSetup {
+  /** False when the channel was connected without live-stream permission; reconnecting fixes it. */
+  canManageLive: boolean;
+  privacy: YouTubePrivacy;
+  categoryId: string;
+  madeForKids: boolean;
+  tags: string[];
+  descriptionFooter?: string;
+  upcoming: YouTubeLiveBroadcast[];
+  warning?: string;
+}
+
+export type YouTubeLiveKind = 'camera' | 'playlist' | 'music';
+
+export interface YouTubeLiveSuggestParams {
+  topic: string;
+  brief?: string;
+  tone?: string;
+  language: string;
+  kind: YouTubeLiveKind;
+  channelId?: string;
+  providerId?: string;
+  fresh: boolean;
+}
+
+// --- Details checkup: videos on a channel and what their details are missing ---
+
+export interface YouTubeDetailsIssue {
+  /** description-missing, description-short, tags-missing, hashtags-missing, playlist-missing, audience-unset, title-default. */
+  code: string;
+  severity: 'high' | 'low';
+  message: string;
+}
+
+export interface YouTubeCheckupPlaylist {
+  id: string;
+  title: string;
+  itemCount: number;
+}
+
+export interface YouTubeCheckupVideo {
+  videoId: string;
+  title: string;
+  description: string;
+  tags: string[];
+  categoryId: string | null;
+  privacy: string | null;
+  /** Null when the audience was never declared. */
+  madeForKids: boolean | null;
+  publishedAt: string | null;
+  durationSeconds: number | null;
+  thumbnailUrl: string | null;
+  isShort: boolean;
+  playlistIds: string[];
+  issues: YouTubeDetailsIssue[];
+  videoUrl: string;
+  studioUrl: string;
+  /** The AnimStudio project it was published from, if any. */
+  projectId: string | null;
+}
+
+export interface YouTubeCheckup {
+  channelId: string;
+  channelTitle: string;
+  playlists: YouTubeCheckupPlaylist[];
+  videos: YouTubeCheckupVideo[];
+  /** Set when playlists couldn't be read; membership is then not judged. */
+  playlistError: string | null;
+  checkedAt: string;
+}
+
+export interface YouTubeVideoDetailsSave {
+  metadata: YouTubeVideoMetadata;
+  addToPlaylistIds: string[];
+  currentPlaylistIds: string[];
+  playlistsKnown: boolean;
+}
+
+/** What the edit dialog shows around a video: the brand channel's setup and the AnimStudio project. */
+export interface YouTubeVideoEditContext {
+  brandChannelName: string | null;
+  /** Links, credits - what the channel ends every description with. */
+  descriptionFooter: string | null;
+  defaultTags: string[];
+  project: YouTubeVideoProjectContext | null;
+}
+
+export interface YouTubeVideoProjectContext {
+  id: string;
+  name: string;
+  description: string;
+  /** The render it was published from, for frames; null when that render is gone. */
+  renderJobId: string | null;
+  durationSeconds: number | null;
+  isVertical: boolean;
+}
+
+export interface YouTubeThumbnailSaved {
+  videoId: string;
+  setAt: string;
+}
+
+export interface YouTubeCheckupSaved {
+  video: YouTubeCheckupVideo;
+  warnings: string[];
 }

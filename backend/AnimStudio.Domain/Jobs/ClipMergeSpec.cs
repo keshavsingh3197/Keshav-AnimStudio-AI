@@ -46,12 +46,25 @@ public sealed class ClipMergeSpec
     /// </summary>
     public const int MaxDuckWindows = 2000;
 
+    /// <summary>
+    /// Longest blank stretch one slot may open. A slot holds an image, an overlay video or a
+    /// title, and an hour of one is already far past anything an editor would place.
+    /// </summary>
+    public const double MaxSlotSeconds = 3600;
+
     /// <summary>Video asset ids in playback order.</summary>
     public string? ExportName { get; set; }
     public List<string> AssetIds { get; set; } = [];
 
     /// <summary>How clips shaped differently from the canvas are fitted to it.</summary>
     public ClipFit Fit { get; set; } = ClipFit.Contain;
+
+    /// <summary>
+    /// <c>#rrggbb</c> the <see cref="ClipFit.Contain"/> bars are filled with - the space
+    /// above and below a wide clip in a Short, where a headline or caption usually goes.
+    /// Null is black, which is what every job written before this existed says.
+    /// </summary>
+    public string? BackgroundColor { get; set; }
 
     /// <summary>Custom output resolution override (e.g. 1080x1920 for Shorts conversion).</summary>
     public int? OutputWidth { get; set; }
@@ -120,6 +133,32 @@ public sealed class ClipMergeSpec
     public List<ClipAudioSpec> ClipAudio { get; set; } = [];
 
     public List<TimelineItemSpec> TimelineItems { get; set; } = [];
+
+    /// <summary>Level the finished mix to YouTube's loudness target (-14 LUFS). False on every job written before it existed.</summary>
+    public bool YouTubeLoudness { get; set; }
+
+    /// <summary>
+    /// Seconds the last clip's final frame is held before the outro, so the outro starts
+    /// once the music or text running past the clips has finished. Zero on older jobs.
+    /// </summary>
+    public double OutroHoldSeconds { get; set; }
+
+    /// <summary>
+    /// Blank stretches opened in the running order for images, overlay videos and text that
+    /// take their own slot instead of playing over a clip; their timeline items are drawn
+    /// into them like any overlay. At most one per position, in position order. Empty - every
+    /// job written before slots existed - means the clips play back to back.
+    /// </summary>
+    public List<ClipSlotSpec> Slots { get; set; } = [];
+}
+
+/// <summary>A blank stretch in the running order.</summary>
+public sealed class ClipSlotSpec
+{
+    /// <summary>How many clips play before it: 0 is before the first, <c>AssetIds.Count</c> after the last.</summary>
+    public int BeforeClipIndex { get; set; }
+
+    public double Seconds { get; set; }
 }
 
 /// <summary>
@@ -155,6 +194,13 @@ public sealed class ClipAudioSpec
     /// replacing it. Ignored when there is no <see cref="AudioAssetId"/>.
     /// </summary>
     public bool KeepOriginalAudio { get; set; }
+
+    /// <summary>
+    /// Plays the clip for its sound alone: the picture is replaced by the backdrop colour
+    /// for the clip's whole length, so overlay tracks (images, text) still show on top.
+    /// False on every job written before it existed.
+    /// </summary>
+    public bool HideVideo { get; set; }
 
     /// <summary>
     /// Loudest anything may be lifted, as a multiplier. +6dB is enough to rescue a quiet
@@ -215,6 +261,9 @@ public sealed class TimedMusicClipSpec
     /// <summary>Optional window on the SOURCE file. Null on either end plays from/to the end.</summary>
     public double? TrimStartSeconds { get; set; }
     public double? TrimEndSeconds { get; set; }
+
+    /// <summary>A voiceover line: music ducks under it, and it never ducks itself.</summary>
+    public bool IsVoiceover { get; set; }
 }
 
 /// <summary>One stretch of the finished timeline over which the music plays quieter.</summary>
@@ -232,10 +281,59 @@ public sealed class MusicDuckWindowSpec
 
 public sealed class TimelineItemTextStyleSpec
 {
+    /// <summary>
+    /// Size in pixels on a frame whose SHORT side is 360 - the size the studio monitor
+    /// shows it at. The render scales it to the real canvas, so a caption is the same
+    /// share of the picture in the preview and in the 1080x1920 export.
+    /// </summary>
     public double FontSize { get; set; } = 36;
     public string Color { get; set; } = "#ffffff";
+
+    /// <summary>
+    /// The CSS colour older clients sent for the plate. Read only when
+    /// <see cref="BoxStyle"/> is absent; <see cref="BoxColor"/>/<see cref="BoxOpacity"/>
+    /// replace it.
+    /// </summary>
     public string BackgroundColor { get; set; } = "rgba(0,0,0,0.6)";
+
+    /// <summary>top, center, bottom - or custom, which places it at <see cref="X"/>/<see cref="Y"/>.</summary>
     public string Position { get; set; } = "bottom";
+
+    /// <summary>Centre of the text block, in percent of the frame. Used when Position is custom.</summary>
+    public double? X { get; set; }
+    public double? Y { get; set; }
+
+    /// <summary>none, box (a plate behind each line) or band (a full-width strip). Null on older jobs.</summary>
+    public string? BoxStyle { get; set; }
+
+    /// <summary><c>#rrggbb</c>.</summary>
+    public string? BoxColor { get; set; }
+
+    /// <summary>0-1.</summary>
+    public double? BoxOpacity { get; set; }
+
+    /// <summary><c>#rrggbb</c>; ignored while <see cref="OutlineWidth"/> is zero.</summary>
+    public string? OutlineColor { get; set; }
+
+    /// <summary>Stroke width, in the same 360-reference pixels as <see cref="FontSize"/>.</summary>
+    public double OutlineWidth { get; set; }
+
+    public bool Shadow { get; set; }
+    public bool Uppercase { get; set; }
+
+    /// <summary>
+    /// <c>#rrggbb</c> filling the whole frame behind the text while it shows - the card a
+    /// title in its own slot sits on. Null draws no card, so the text lies over whatever is
+    /// underneath (the slot's backdrop, or the clip it overlays).
+    /// </summary>
+    public string? CardColor { get; set; }
+
+    /// <summary>0-1; null is fully opaque.</summary>
+    public double? CardOpacity { get; set; }
+
+    /// <summary>none (still), fade (in and out with the text) or vignette (darkened edges).</summary>
+    public string? CardEffect { get; set; }
+
     public string? TransitionIn { get; set; } = "fade";
     public double TransitionInDuration { get; set; } = 0.5;
     public string? TransitionOut { get; set; } = "fade";
@@ -245,6 +343,13 @@ public sealed class TimelineItemTextStyleSpec
 public sealed class TimelineItemTransformSpec
 {
     public double Scale { get; set; } = 1.0;
+
+    /// <summary>
+    /// Image and video overlays: width in percent of the CANVAS width, replacing
+    /// <see cref="Scale"/> - which multiplies the source's own pixels, so a 4000px logo and a
+    /// 200px one come out wildly different sizes. Null on items written before it existed.
+    /// </summary>
+    public double? WidthPercent { get; set; }
 
     /// <summary>Normalized percentage offset [-50, 50] from canvas centre on X axis.</summary>
     public double X { get; set; }
@@ -271,6 +376,48 @@ public sealed class TimelineItemTransformSpec
 
     /// <summary>Whether video stabilization post-process is requested for this clip.</summary>
     public bool Stabilization { get; set; }
+
+    /// <summary>
+    /// Image and video overlays: <c>rect</c>, <c>rounded</c> or <c>circle</c>. Null on items
+    /// written before shapes existed, which draw as the plain rectangle they always were.
+    /// </summary>
+    public string? Shape { get; set; }
+
+    /// <summary>Ring inside the overlay's edge, in 360-reference pixels. Zero is none.</summary>
+    public double BorderWidth { get; set; }
+
+    /// <summary><c>#rrggbb</c>; ignored while <see cref="BorderWidth"/> is zero.</summary>
+    public string? BorderColor { get; set; }
+
+    /// <summary>
+    /// Width / height of the overlay once cropped, as the studio measured it. Lets the render
+    /// scale a shaped overlay to an exact size without probing it. Null scales by width alone.
+    /// </summary>
+    public double? AspectRatio { get; set; }
+
+    /// <summary>
+    /// Image clips on V1: the camera move over the still - <c>zoom-in</c>, <c>zoom-out</c>,
+    /// <c>pan-left|right|up|down</c>, <c>drift</c>, <c>handheld</c>, <c>breathe</c>. Null or
+    /// <c>none</c> holds it still, as every image clip did before this existed.
+    /// </summary>
+    public string? Motion { get; set; }
+
+    /// <summary>Zoom amount or pan travel as a fraction of the frame.</summary>
+    public double MotionIntensity { get; set; } = 0.15;
+
+    /// <summary><c>ease</c> (the default) or <c>linear</c>.</summary>
+    public string? MotionEasing { get; set; }
+
+    /// <summary>Where a zoom heads, in percent of the image across and down.</summary>
+    public double FocusX { get; set; } = 50;
+    public double FocusY { get; set; } = 50;
+
+    /// <summary>Colour grade: <c>cinematic</c>, <c>warm</c>, <c>cool</c>, <c>vintage</c>, <c>noir</c>, <c>vivid</c>, <c>matte</c>.</summary>
+    public string? Look { get; set; }
+
+    public bool Vignette { get; set; }
+    public bool Grain { get; set; }
+    public bool CinemaBars { get; set; }
 
     public string? TransitionIn { get; set; } = "fade";
     public double TransitionInDuration { get; set; } = 0.5;
@@ -308,7 +455,14 @@ public enum EraseStyle
     /// <see cref="Patch"/>, then the project's own watermark drawn inside the box - the old
     /// mark is replaced by ours in the very same spot.
     /// </summary>
-    Brand = 3
+    Brand = 3,
+
+    /// <summary>
+    /// Rebuilds the box from the pixels around its edges, blended smoothly across it - no
+    /// blur, no copied texture. On a plain band, a gradient or a title strip the text is
+    /// simply gone, leaving an empty area to put your own titles on.
+    /// </summary>
+    Clean = 4
 }
 
 /// <summary>Which neighbouring footage a <see cref="EraseStyle.Patch"/> is copied from.</summary>
@@ -464,4 +618,16 @@ public sealed class TimelineItemSpec
     public double? Volume { get; set; }
     public double? TrimStartSeconds { get; set; }
     public double? TrimEndSeconds { get; set; }
+
+    /// <summary>Type "celebration": the kind is <see cref="Src"/>, the rest is here.</summary>
+    public CelebrationSpec? Celebration { get; set; }
+}
+
+/// <summary>A celebration item's settings as the studio sent them; clamped by the planner.</summary>
+public sealed class CelebrationSpec
+{
+    public string? Mode { get; set; }
+    public int? Density { get; set; }
+    public double? Size { get; set; }
+    public double? Speed { get; set; }
 }

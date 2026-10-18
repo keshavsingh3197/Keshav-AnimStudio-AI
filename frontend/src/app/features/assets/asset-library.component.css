@@ -819,177 +819,11 @@
   color: #93c5fd;
 }
 
-/* ── Centered Modal Backdrop & Asset Inspector Dialog ────────────── */
-.modal-backdrop {
-  position: fixed !important;
-  inset: 0 !important;
-  width: 100vw !important;
-  height: 100vh !important;
-  background: rgba(0, 0, 0, 0.82) !important;
-  backdrop-filter: blur(8px) !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  z-index: 9999 !important;
-  padding: 1.5rem !important;
-  box-sizing: border-box !important;
-  animation: fadeIn 0.15s ease-out;
-}
-
-.asset-inspector-dialog {
-  background: var(--surface, #0f1117);
-  border: 1px solid color-mix(in srgb, var(--brand, #6c8cff) 40%, var(--border, #21293a));
-  border-radius: 16px;
-  width: 92vw;
-  max-width: 920px;
-  max-height: 88vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.95), 0 0 1px 1px color-mix(in srgb, var(--brand, #6c8cff) 35%, transparent);
-  animation: modalScaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  margin: auto;
-}
-
-@keyframes modalScaleIn {
-  from {
-    transform: scale(0.95);
-    opacity: 0;
-  }
-  to {
-    transform: scale(1);
-    opacity: 1;
-  }
-}
-
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
 }
 
-.inspector-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 18px;
-  border-bottom: 1px solid var(--border, #21293a);
-  background: var(--surface-2, #141923);
-}
-.inspector-title {
-  font-size: 1rem;
-  font-weight: 700;
-  margin: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 500px;
-  color: #fff;
-}
-
-.inspector-body {
-  display: grid;
-  grid-template-columns: 1fr 300px;
-  background: #06080d;
-  overflow-y: auto;
-  max-height: calc(88vh - 55px);
-}
-
-.inspector-media-stage {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-  background: #000;
-  min-height: 380px;
-}
-
-.lightbox-video-wrap {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.lightbox-video-wrap video {
-  width: 100%;
-  max-height: 520px;
-  border-radius: 8px;
-  outline: none;
-}
-
-.lightbox-img-wrap img {
-  max-width: 100%;
-  max-height: 520px;
-  border-radius: 8px;
-  object-fit: contain;
-}
-
-.lightbox-audio-wrap {
-  text-align: center;
-  padding: 2rem;
-  width: 100%;
-}
-.audio-avatar {
-  font-size: 3rem;
-  margin-bottom: 0.5rem;
-}
-
-.lightbox-generic-wrap {
-  text-align: center;
-  padding: 2rem;
-}
-.generic-icon {
-  font-size: 3.5rem;
-  margin-bottom: 0.5rem;
-}
-
-.inspector-meta-sidebar {
-  padding: 16px;
-  border-left: 1px solid var(--border, #21293a);
-  background: var(--surface-2, #141923);
-  font-size: 0.82rem;
-}
-.inspector-meta-sidebar h4 {
-  font-size: 0.88rem;
-  margin-top: 0;
-  margin-bottom: 12px;
-  color: #fff;
-  border-bottom: 1px solid var(--border, #21293a);
-  padding-bottom: 6px;
-}
-
-.meta-dl dt {
-  font-weight: 600;
-  color: #8b9bb4;
-  margin-top: 8px;
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-.meta-dl dd {
-  margin-left: 0;
-  color: #e5e7eb;
-}
-
-.copy-mini-btn {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid var(--border, #21293a);
-  border-radius: 4px;
-  color: #60a5fa;
-  font-size: 0.68rem;
-  padding: 1px 6px;
-  cursor: pointer;
-  margin-left: 6px;
-}
-
-@media (max-width: 900px) {
-  .library-layout {
-    grid-template-columns: 1fr;
-  }
-  .inspector-body {
-    grid-template-columns: 1fr;
-  }
-}
 
 /* ── Pagination Bar ──────────────────────────────────────────────── */
 .pagination-bar {
@@ -1087,4 +921,15 @@
 }
 
 
-.collab-link { display: inline-block; margin-top: .6rem; font-weight: 600; }
+
+button.upload-btn {
+  border: none;
+}
+button.upload-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+
+/* Actions the asset library adds under the inspector's player. */
+.inspector-extra-actions { display: flex; flex-wrap: wrap; gap: 8px; }

@@ -11,7 +11,8 @@
 <div class="rk-note">
   <strong>How this reaches Spotify, Apple Music and other stores:</strong> stores only take uploads from
   distributors they have contracts with. This kit prepares your files so the upload to your distributor
-  is quick and doesn't get rejected. You can upload the visualizer video to YouTube yourself.
+  is quick and doesn't get rejected. YouTube Music is different: publish the visualizer from here and it is
+  listed there under your channel.
 </div>
 
 <div class="rk-grid">
@@ -277,6 +278,22 @@
         }
       </section>
 
+      <section class="card rk-publish">
+        <h3>▶ Publish to YouTube Music</h3>
+        @if (hasVisualizer()) {
+          <p class="muted">
+            Uploads the visualizer (cover art, waveform and the mastered audio) to your connected channel in the
+            Music category, with the title, credits and lyrics filled in from this release. YouTube Music lists it
+            under your channel. Audio-only tracks and albums there still come from your distributor.
+          </p>
+          <button type="button" (click)="publishToYouTube()" [disabled]="loadingFile() === visualizer()!.name">
+            {{ loadingFile() === visualizer()!.name ? 'Loading…' : '▶ Publish song to YouTube Music' }}
+          </button>
+        } @else {
+          <p class="muted">This kit has no visualizer video. Add a cover and tick "YouTube visualizer video", then build again.</p>
+        }
+      </section>
+
       <section class="card rk-live">
         <h3>🔴 Go live with it</h3>
         <p class="muted">
@@ -345,7 +362,7 @@
           <li>Upload <code>master.wav</code> and <code>cover_3000x3000.jpg</code>, then copy each field from <code>release_sheet.txt</code>.</li>
           <li>Set the release date at least 2–3 weeks ahead, so you can pitch the song to playlists before it's out.</li>
           <li>Once the distributor assigns an ISRC and UPC, save them and reuse them for every future release of this recording.</li>
-          <li>Upload the visualizer to YouTube, and use the promo loop as Spotify Canvas or as a Reels/Shorts background.</li>
+          <li>Publish the visualizer to YouTube Music above, and use the promo loop as Spotify Canvas or as a Reels/Shorts background.</li>
         </ol>
       </section>
     } @else if (!error()) {
@@ -367,4 +384,11 @@
 @if (cropSource(); as src) {
   <app-image-crop-dialog [source]="src" [square]="true" title="Crop the cover to a square" fileName="cover-square.png"
                          (cropped)="onCropped($event)" (cancelled)="cropSource.set(null)" />
+}
+
+@if (publishSrc(); as src) {
+  @if (result(); as r) {
+    <app-youtube-publish-dialog source="release" [jobId]="r.jobId" [previewSrc]="src" [returnPath]="publishReturnPath()"
+                                (closed)="publishSrc.set(null)" />
+  }
 }

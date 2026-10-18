@@ -23,7 +23,8 @@ public sealed record OutroResponse(
     string BackgroundHex = "#101828",
     string TextHex = "#FFFFFF",
     string? HeadlineSecondary = null,
-    string? SubtextSecondary = null);
+    string? SubtextSecondary = null,
+    string Animation = "Rise");
 
 public sealed record ProjectResponse(
     string Id, string Name, string? Description, string Status,
@@ -36,25 +37,66 @@ public sealed record ProjectResponse(
     WatermarkResponse? DefaultWatermark = null,
     OutroResponse? DefaultOutro = null,
     string? BrandChannelId = null,
-    bool FollowChannelWatermark = true);
+    bool FollowChannelWatermark = true,
+    /// <summary>"video" or "music"; a music project publishes to YouTube Music by default.</summary>
+    string ContentType = ProjectContentTypes.Video,
+    /// <summary>Seconds an image plays when added to the timeline; null = the studio-wide default.</summary>
+    double? DefaultImageDurationSeconds = null);
 
 /// <summary>A brand channel and its look. The built-in default comes first, with IsDefault set.</summary>
 public sealed record BrandChannelResponse(
     string Id, string Name, bool IsDefault, WatermarkResponse? Watermark, OutroResponse? Outro,
     // The YouTube channel this brand publishes to (Settings → YouTube publishing): an id, not a secret.
-    string? YouTubeChannelId = null, string? YouTubeChannelTitle = null);
+    string? YouTubeChannelId = null, string? YouTubeChannelTitle = null,
+    // As YouTube last reported them. When the brand publishes to a YouTube channel, its Name follows that channel's title.
+    string? YouTubeChannelHandle = null, string? YouTubeThumbnailUrl = null);
+
+/// <summary>What "Sync from YouTube" did, and the channel list after it.</summary>
+public sealed record BrandChannelSyncResponse(
+    IReadOnlyList<BrandChannelResponse> Channels,
+    int YouTubeChannels,
+    IReadOnlyList<string> Created,
+    IReadOnlyList<BrandChannelRenameResponse> Renamed,
+    IReadOnlyList<YouTubeSyncFailureResponse> Failed);
+
+public sealed record BrandChannelRenameResponse(string BrandChannelId, string Before, string After);
+
+public sealed record YouTubeSyncFailureResponse(string ChannelId, string ChannelTitle, string Reason);
 
 public sealed record CharacterResponse(
     string Id, string Name, string? Description, IReadOnlyList<string> Aliases,
     string? ClosedMouthAssetId, string? OpenMouthAssetId, bool IsNarrator, string? SubtitleColorHex,
-    CharacterAppearanceResponse Appearance);
+    CharacterAppearanceResponse Appearance, CharacterVoiceResponse? Voice = null);
 
 public sealed record CharacterAppearanceResponse(
     int? Age, string? Gender, string? Hair, string? Clothes, string? AdditionalDetails);
 
+public sealed record CharacterVoiceResponse(
+    string? Preset, double PitchSemitones, double BassDecibels, double TrebleDecibels,
+    double Drive, double Robot, double RobotHertz, bool Radio, double Echo, double Reverb,
+    double SizeSemitones = 0, string? AiSampleAssetId = null, bool AiSampleConsent = false);
+
 public sealed record AssetResponse(
     string Id, string Name, string Kind, string MimeType, long FileSizeBytes,
     int? Width, int? Height, bool HasAlpha, double? DurationSeconds, string ReviewStatus, string? FolderId = null);
+
+/// <summary>A file in another of the user's projects, found by the reuse search.</summary>
+/// <param name="IsExport">A cut exported from Clip Studio rather than an upload.</param>
+/// <param name="AlreadyAdded">The searching project already has a copy of it.</param>
+public sealed record AssetSearchHitResponse(
+    AssetResponse Asset, string ProjectId, string ProjectName, string ChannelId,
+    bool SameChannel, bool IsExport, bool AlreadyAdded, DateTime CreatedAt);
+
+/// <summary>A project the reuse search looked in that has matching files.</summary>
+public sealed record AssetSearchProjectResponse(
+    string Id, string Name, string ChannelId, bool SameChannel, int Matches);
+
+/// <param name="Total">Matches across every page.</param>
+/// <param name="Truncated">More matches follow this page.</param>
+/// <param name="KindCounts">Matches per file type (lower-case kind), ignoring the type filter.</param>
+public sealed record AssetSearchResponse(
+    IReadOnlyList<AssetSearchHitResponse> Items, int Total, int ProjectsSearched, bool Truncated,
+    IReadOnlyDictionary<string, int> KindCounts, IReadOnlyList<AssetSearchProjectResponse> Projects);
 
 public sealed record IngestResponse(
     string IngestId, string? ScriptId, int CueCount, int SegmentCount,
@@ -118,7 +160,20 @@ public sealed record RenderJobResponse(
     DateTime CreatedAt, DateTime? CompletedAt,
     int? Width = null, int? Height = null, string? TargetFormat = null,
     RenderDiagnosticsResponse? Diagnostics = null,
-    bool HasTimeline = false);
+    bool HasTimeline = false,
+    string? Name = null,
+    string? BatchId = null,
+    string? BatchName = null,
+    int? BatchIndex = null);
+
+/// <summary>A queued Auto Shorts batch: one render per short, and the picks none of them used.</summary>
+public sealed record AutoShortsResponse(
+    string BatchId, string BatchName, IReadOnlyList<RenderJobResponse> Jobs, IReadOnlyList<string> UnusedAssetIds);
+
+/// <summary>One short as a batch would cut it.</summary>
+public sealed record AutoShortPreviewItem(string Name, double Seconds, int Videos, int Images, IReadOnlyList<string> AssetIds);
+
+public sealed record AutoShortsPreviewResponse(IReadOnlyList<AutoShortPreviewItem> Shorts, IReadOnlyList<string> UnusedAssetIds);
 
 public sealed record RendererStatusResponse(
     bool Available, string? Version, string? UnavailableReason,
@@ -200,7 +255,8 @@ public sealed record AiCapabilitiesResponse(IReadOnlyList<AiCapabilityResponse> 
 /// </summary>
 public sealed record ClipResponse(
     string Id, string Name, long FileSizeBytes,
-    double? DurationSeconds, int? Width, int? Height, bool HasAudio, bool IsExport);
+    double? DurationSeconds, int? Width, int? Height, bool HasAudio, bool IsExport,
+    DateTime CreatedAt);
 
 public sealed record ClipOrderLineResponse(int Number, string Text, string? AssetId, string Match);
 
@@ -264,3 +320,52 @@ public sealed record StorageDetailResponse(
     long? DiskTotalBytes,
     long? DiskFreeBytes,
     IReadOnlyList<StorageFolderResponse> Folders);
+
+/// <summary>Whether studio voices can be made, and whether AI voices (a person's sample) can too.</summary>
+public sealed record StudioVoiceStatusResponse(bool Available, bool AiAvailable = false);
+
+/// <summary>What GET /api/voiceover/voices reports: whether speech can be made, and in which voices.</summary>
+public sealed record VoiceoverVoicesResponse(
+    bool Available, string? ProviderId, string Reason, IReadOnlyList<VoiceoverVoiceResponse> Voices,
+    IReadOnlyList<MyVoiceResponse> MyVoices, bool MyVoicesAvailable,
+    IReadOnlyList<VoiceoverEngineResponse>? Engines = null);
+
+/// <summary>
+/// A speech engine that is on and answering, in the configured order. <see cref="Models"/> is
+/// empty for an engine with nothing to choose; <see cref="Model"/> is the one used by default.
+/// </summary>
+public sealed record VoiceoverEngineResponse(
+    string Id, string Name, bool RunsLocally, string? Model, IReadOnlyList<VoiceoverModelResponse> Models);
+
+public sealed record VoiceoverModelResponse(string Id, string Label);
+
+/// <summary>What was heard in a dictated script, one line per spoken phrase.</summary>
+public sealed record VoiceScriptDictationResponse(IReadOnlyList<string> Lines);
+
+/// <summary>The script, rewritten to read aloud well. Shown to the user to keep or discard; never spoken unseen.</summary>
+public sealed record VoiceScriptPolishResponse(string Script, string? ProviderId);
+
+/// <summary>
+/// A voice the user added from their own sample. The sample itself is never sent back.
+/// <paramref name="Tuned"/>: the speech engine has a voice tuned from it, which speaks English lines directly.
+/// </summary>
+public sealed record MyVoiceResponse(
+    string Id, string Name, string BaseVoiceId, double? DurationSeconds, DateTime CreatedAtUtc, bool Tuned);
+
+public sealed record VoiceoverVoiceResponse(string Id, string Name, string? LanguageCode, string? Gender);
+
+/// <summary>
+/// What is said in an audio or video asset. <paramref name="Language"/> is what the recognizer
+/// detected, or the one asked for; null when neither is known. <paramref name="Truncated"/>: only
+/// the first two hours were transcribed. <paramref name="SavedAsset"/> is the .srt kept, when asked.
+/// </summary>
+public sealed record MediaTranscriptResponse(
+    IReadOnlyList<MediaTranscriptLineResponse> Lines,
+    string Text,
+    string SubRip,
+    string? Language,
+    string Provider,
+    bool Truncated,
+    AssetResponse? SavedAsset);
+
+public sealed record MediaTranscriptLineResponse(double StartSeconds, double EndSeconds, string Text);

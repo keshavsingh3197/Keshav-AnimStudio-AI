@@ -14,7 +14,13 @@ using Microsoft.Extensions.Options;
 namespace AnimStudio.Infrastructure.Jobs;
 
 /// <summary>
-/// Polls Mongo for render work and runs it.
+/// Polls the database for render work and runs up to <see cref="RenderOptions.MaxConcurrentJobs"/>
+/// jobs side by side - a batch of auto shorts renders together instead of one after another.
+/// <para>
+/// Each job is claimed atomically by the repository, so two slots (or two servers) never
+/// take the same one, and each run holds its lease under its own owner name, so one slot
+/// renewing its lease can never renew or steal another's.
+/// </para>
 /// <para>
 /// Uses <see cref="IServiceScopeFactory"/> to create a fresh scope per job rather than
 /// capturing scoped services: a background service outlives any request scope, so holding
@@ -28,10 +34,16 @@ public sealed class RenderJobWorker(
     IRenderCapabilities renderCapabilities,
     ILogger<RenderJobWorker> logger) : BackgroundService
 {
-    private readonly RenderOptions _options = options.Value;
+    /// <summary>Read on every use: the options are live, so an admin's change applies to the next job.</summary>
+    private RenderOptions Options => options.Value;
 
-    /// <summary>Identifies this process in a job's lease.</summary>
+    /// <summary>The ceiling the admin setting is held to, whatever the configuration says.</summary>
+    internal const int MaxSlots = 8;
+
+    /// <summary>Identifies this process; each run's lease owner adds its own number.</summary>
     private readonly string _instanceId = $"{Environment.MachineName}:{Environment.ProcessId}";
+
+    private long _runs;
 
     /// <summary>
     /// GPU encoder name detected at startup, or null for CPU. Passed into every clip
@@ -57,29 +69,43 @@ public sealed class RenderJobWorker(
             return;
         }
 
+        var running = new List<Task>();
         while (!stoppingToken.IsCancellationRequested)
         {
-            var didWork = false;
+            running.RemoveAll(t => t.IsCompleted);
+            var slots = Math.Clamp(Options.MaxConcurrentJobs, 1, MaxSlots);
+
+            if (running.Count < slots)
+            {
+                RenderJob? job = null;
+                var leaseOwner = $"{_instanceId}#{Interlocked.Increment(ref _runs)}";
+                try
+                {
+                    job = await ClaimAsync(leaseOwner, stoppingToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    // The loop must survive a database hiccup.
+                    logger.LogError(ex, "Render worker could not claim a job.");
+                }
+
+                if (job is not null)
+                {
+                    // Not awaited: the loop goes straight back to fill the next free slot.
+                    running.Add(Task.Run(() => RunGuardedAsync(job, leaseOwner, stoppingToken), CancellationToken.None));
+                    continue;
+                }
+            }
 
             try
             {
-                didWork = await TryRunOneAsync(stoppingToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                // The loop must survive anything a single job can throw.
-                logger.LogError(ex, "Render worker loop error.");
-            }
-
-            if (didWork) continue;
-
-            try
-            {
-                await Task.Delay(IdleDelay, stoppingToken).ConfigureAwait(false);
+                // Idle, or every slot busy: wake on the poll interval, or sooner when a job ends.
+                var tick = Task.Delay(IdleDelay, stoppingToken);
+                await (running.Count >= slots ? Task.WhenAny([.. running, tick]) : tick).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -87,24 +113,55 @@ public sealed class RenderJobWorker(
             }
         }
 
+        // Jobs see the same token and stop at their next check; their leases then expire
+        // and another worker picks them up.
+        try
+        {
+            await Task.WhenAll(running).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is OperationCanceledException || stoppingToken.IsCancellationRequested)
+        {
+            // Shutting down.
+        }
+
         logger.LogInformation("Render worker {InstanceId} stopped.", _instanceId);
     }
 
-    private async Task<bool> TryRunOneAsync(CancellationToken ct)
+    private async Task<RenderJob?> ClaimAsync(string leaseOwner, CancellationToken ct)
     {
         using var scope = scopeFactory.CreateScope();
         var jobs = scope.ServiceProvider.GetRequiredService<IRenderJobRepository>();
-
-        var lease = TimeSpan.FromSeconds(_options.LeaseSeconds);
-        var job = await jobs
-            .ClaimNextAsync(_instanceId, lease, _options.MaxAttempts, ct)
+        return await jobs
+            .ClaimNextAsync(leaseOwner, TimeSpan.FromSeconds(Options.LeaseSeconds), Options.MaxAttempts, ct)
             .ConfigureAwait(false);
+    }
 
-        if (job is null) return false;
+    private async Task RunGuardedAsync(RenderJob job, string leaseOwner, CancellationToken ct)
+    {
+        try
+        {
+            await RunAsync(job, leaseOwner, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Shutting down; the lease lapses and the job is picked up again.
+        }
+        catch (Exception ex)
+        {
+            // One job's failure must never take the worker down with it.
+            logger.LogError(ex, "Render job {JobId} failed outside its orchestrator.", job.Id);
+        }
+    }
+
+    private async Task RunAsync(RenderJob job, string leaseOwner, CancellationToken ct)
+    {
+        using var scope = scopeFactory.CreateScope();
+        var jobs = scope.ServiceProvider.GetRequiredService<IRenderJobRepository>();
+        var lease = TimeSpan.FromSeconds(Options.LeaseSeconds);
 
         // Attempts is incremented by the claim, so exceeding the cap means this job has
         // already taken down a worker MaxAttempts times. Fail it rather than loop forever.
-        if (job.Attempts > _options.MaxAttempts)
+        if (job.Attempts > Options.MaxAttempts)
         {
             job.Status = RenderJobStatus.Failed;
             job.ErrorCode = Domain.Errors.RenderErrorCode.TooManyAttempts.ToString();
@@ -114,7 +171,7 @@ public sealed class RenderJobWorker(
             await scope.ServiceProvider.GetRequiredService<ProjectStatusService>()
                 .MarkRenderFinishedAsync(job.ProjectId, false, ct).ConfigureAwait(false);
 
-            return true;
+            return;
         }
 
         logger.LogInformation("Claimed {Kind} job {JobId} (attempt {Attempt}).",
@@ -128,30 +185,33 @@ public sealed class RenderJobWorker(
             var clips = scope.ServiceProvider.GetRequiredService<ClipMergeOrchestrator>();
 
             // The resolver hands over a path that exists, or null. It is deliberately not
-            // _options.WatermarkFontFile: that setting is empty by default, and the
+            // Options.WatermarkFontFile: that setting is empty by default, and the
             // family-name route that used to cover for it kills ffmpeg on any build whose
             // fontconfig has no configuration file.
             var clipSettings = new ClipRenderSettings(
-                fonts.FontFilePath, DeliveryProfile(), _options.IntermediatePreset, lease,
-                HardwareEncoder: _options.UseHardwareEncoder ? _hwEncoder : null,
-                FontForText: fonts.FontFor);
+                fonts.FontFilePath, DeliveryProfile(), Options.IntermediatePreset, lease,
+                HardwareEncoder: Options.UseHardwareEncoder ? _hwEncoder : null,
+                FontForText: fonts.FontFor,
+                FontRunsForText: fonts.RunsFor,
+                KenBurnsSupersample: Options.KenBurnsSupersample,
+                ParallelJobs: Math.Clamp(Options.MaxConcurrentJobs, 1, MaxSlots));
 
-            await clips.ExecuteAsync(job, _instanceId, clipSettings, ct).ConfigureAwait(false);
+            await clips.ExecuteAsync(job, leaseOwner, clipSettings, ct).ConfigureAwait(false);
         }
         else
         {
             var orchestrator = scope.ServiceProvider.GetRequiredService<ProjectRenderOrchestrator>();
 
             var settings = new RenderSettings(
-                _options.KenBurnsSupersample,
-                _options.MouthFlapHz,
-                _options.SubtitleFontName,
-                _options.SubtitleFontSize,
+                Options.KenBurnsSupersample,
+                Options.MouthFlapHz,
+                Options.SubtitleFontName,
+                Options.SubtitleFontSize,
                 lease,
                 DeliveryProfile(),
-                _options.IntermediatePreset);
+                Options.IntermediatePreset);
 
-            await orchestrator.ExecuteAsync(job, _instanceId, settings, ct).ConfigureAwait(false);
+            await orchestrator.ExecuteAsync(job, leaseOwner, settings, ct).ConfigureAwait(false);
         }
 
         // One place to move the project out of Rendering, whichever way the job ended.
@@ -163,8 +223,6 @@ public sealed class RenderJobWorker(
                 .MarkRenderFinishedAsync(job.ProjectId, job.OutputStorageKey is not null, ct)
                 .ConfigureAwait(false);
         }
-
-        return true;
     }
 
     /// <summary>
@@ -176,7 +234,7 @@ public sealed class RenderJobWorker(
     /// all and no way to tell.
     /// </para>
     /// </summary>
-    private EncoderProfile DeliveryProfile() => DeliveryProfile(_options, logger);
+    private EncoderProfile DeliveryProfile() => DeliveryProfile(Options, logger);
 
     /// <summary>The same, for anything else that encodes a deliverable - the outro preview.</summary>
     internal static EncoderProfile DeliveryProfile(RenderOptions options, ILogger logger)

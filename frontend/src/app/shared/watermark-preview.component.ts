@@ -85,31 +85,40 @@ export class WatermarkPreviewComponent {
   readonly mark = computed(() => {
     const w = this.watermark();
     if (!w || w.kind === 'None') return null;
-
-    const cw = this.width(), ch = this.height();
-    const size = Math.max(8 / ch, w.heightFraction) * 100;          // cqh
-    let margin = Math.max(0, w.marginFraction) * 100;                // cqh
-    if (ch > cw) {
-      // The renderer's vertical safe area, converted from canvas pixels to cqh.
-      const safePx = Math.max(32, Math.round(cw * 0.05));
-      margin = Math.max(margin, (safePx / ch) * 100);
-    }
-
-    const pos = w.position;
-    const style: Record<string, string> = { height: `${size}cqh` };
-    if (pos.startsWith('Top')) style['top'] = `${margin}cqh`; else style['bottom'] = `${margin}cqh`;
-    if (pos.endsWith('Left')) style['left'] = `${margin}cqh`;
-    else if (pos.endsWith('Right')) style['right'] = `${margin}cqh`;
-    else { style['left'] = '50%'; style['translate'] = '-50% 0'; }
-    if (w.kind === 'Text') style['font-size'] = `${size}cqh`;
-
     return {
       kind: w.kind,
-      style,
+      style: watermarkMarkStyle(w, this.width(), this.height()),
       opacity: w.opacity,
       color: w.colorHex || '#ffffff',
       backplate: w.backplateOpacity ?? 0,
       text: w.text || 'yoursite.example',
     };
   });
+}
+
+/**
+ * Where and how big ClipPlanFactory.CreateWatermark draws the corner mark, as CSS in
+ * container-query units of a frame that is a size container: height and inset are
+ * fractions of the canvas HEIGHT, and an upright canvas gets the mobile safe margin (at
+ * least 32px of canvas or 5% of its width). Shared with the editor's monitor so the
+ * preview there is the export scaled down, not a fixed-pixel guess at it.
+ */
+export function watermarkMarkStyle(w: WatermarkBody, canvasWidth: number, canvasHeight: number): Record<string, string> {
+  const cw = canvasWidth, ch = canvasHeight;
+  const size = Math.max(8 / ch, w.heightFraction) * 100;          // cqh
+  let margin = Math.max(0, w.marginFraction) * 100;                // cqh
+  if (ch > cw) {
+    // The renderer's vertical safe area, converted from canvas pixels to cqh.
+    const safePx = Math.max(32, Math.round(cw * 0.05));
+    margin = Math.max(margin, (safePx / ch) * 100);
+  }
+
+  const pos = w.position;
+  const style: Record<string, string> = { height: `${size}cqh` };
+  if (pos.startsWith('Top')) style['top'] = `${margin}cqh`; else style['bottom'] = `${margin}cqh`;
+  if (pos.endsWith('Left')) style['left'] = `${margin}cqh`;
+  else if (pos.endsWith('Right')) style['right'] = `${margin}cqh`;
+  else { style['left'] = '50%'; style['translate'] = '-50% 0'; }
+  if (w.kind === 'Text') style['font-size'] = `${size}cqh`;
+  return style;
 }

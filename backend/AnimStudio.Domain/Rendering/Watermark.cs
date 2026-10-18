@@ -85,6 +85,13 @@ public sealed class WatermarkSettings
         _ => false
     };
 
+    public WatermarkSettings Clone() => new()
+    {
+        Kind = Kind, Text = Text, LogoAssetId = LogoAssetId, Position = Position,
+        Opacity = Opacity, HeightFraction = HeightFraction, MarginFraction = MarginFraction,
+        ColorHex = ColorHex, BackplateOpacity = BackplateOpacity,
+    };
+
     /// <summary>
     /// Clamps every fraction into a range that still produces a legible mark inside the
     /// frame. Called on the way in, so a stored spec is always renderable and the graph

@@ -9,6 +9,13 @@
       </div>
     </div>
     <div class="settings-top-actions">
+      <label class="channel-picker" title="Music: renders publish to YouTube Music (Music category), and so also appear on YouTube">
+        <span>🎯 Made for</span>
+        <select class="form-select" [(ngModel)]="form.contentType" aria-label="What this project makes">
+          <option value="video">🎬 Video</option>
+          <option value="music">♪ Music (YouTube Music)</option>
+        </select>
+      </label>
       @if (channels().length > 1) {
         <label class="channel-picker" title="Which YouTube channel this project publishes under: its watermark and end card">
           <span>📺 Channel</span>
@@ -160,6 +167,17 @@
     </div>
 
     <!-- Background Music Track -->
+    <div class="form-group">
+      <label class="form-label" for="project-image-sec">🖼️ Image Duration on the Timeline (seconds)</label>
+      <input class="form-input" id="project-image-sec" type="number" min="0.5" max="120" step="0.5"
+             style="max-width: 180px;"
+             [placeholder]="'Studio default: ' + studioImageDuration() + 's'"
+             [(ngModel)]="form.imageDurationSeconds" />
+      <p style="margin: 0.25rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
+        How long each image plays when it is added to the timeline. Leave blank to use the studio default.
+      </p>
+    </div>
+
     <div style="background: #0d1117; border: 1px solid var(--border); border-radius: 10px; padding: 1.1rem; margin-bottom: 1.25rem;">
       <div class="form-group" style="margin-bottom: form.backgroundMusicAssetId ? '1rem' : '0'">
         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.45rem;">
@@ -181,6 +199,9 @@
             <option [value]="asset.id">{{ asset.name }}</option>
           }
         </select>
+        @if (store.project(); as p) {
+          <a [routerLink]="['/projects', p.id, 'music']" style="display: inline-block; margin-top: 0.4rem; font-size: 0.82rem;">🎵 Find trending royalty-free music →</a>
+        }
       </div>
 
       @if (form.backgroundMusicAssetId) {
