@@ -5968,11 +5968,19 @@ tr.is-drag-over td {
 .studio-search-wrap > svg {
   position: absolute;
   left: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 15px !important;
+  height: 15px !important;
+  max-width: 15px;
+  max-height: 15px;
   color: var(--muted);
   pointer-events: none;
+  flex-shrink: 0;
 }
 
 .studio-search-wrap > input {
+  width: 100%;
   padding-left: 2.25rem !important;
 }
 
