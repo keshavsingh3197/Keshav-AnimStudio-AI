@@ -1,25 +1,50 @@
-<div class="page-head">
-  <div>
-    <h2>Script &amp; AI Storyboard Ingest</h2>
-    <p class="muted">
-      Turn any script, timed <span class="mono">.srt</span>/<span class="mono">.vtt</span> subtitle file, or AI-generated transcript into staged storyboard scenes. Hand-edited scenes are always preserved on re-import.
-    </p>
+<div class="sb-studio-bar">
+  <div class="sb-studio-title-col">
+    <div class="row" style="gap: 12px">
+      <div class="studio-icon-badge purple">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="16" y1="13" x2="8" y2="13"/>
+          <line x1="16" y1="17" x2="8" y2="17"/>
+        </svg>
+      </div>
+      <div>
+        <h2 style="margin: 0">Script &amp; AI Storyboard Ingest</h2>
+        <p class="muted" style="margin: 4px 0 0; font-size: .86rem">
+          Turn any script, timed <span class="mono">.srt</span>/<span class="mono">.vtt</span> subtitle file, or AI-generated transcript into staged storyboard scenes. Hand-edited scenes are always preserved on re-import.
+        </p>
+      </div>
+    </div>
   </div>
-  <div class="row">
-    <button class="secondary" type="button" (click)="showAiHelper.set(!showAiHelper())">
-      ✨ {{ showAiHelper() ? 'Hide AI Script Studio' : 'Open AI Prompt Helper' }}
+  <div class="sb-studio-actions">
+    <button class="secondary" type="button" (click)="showAiHelper.set(!showAiHelper())"
+            style="display: inline-flex; align-items: center; gap: 6px;">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+      </svg>
+      {{ showAiHelper() ? 'Hide AI Script Studio' : 'Open AI Prompt Helper' }}
     </button>
   </div>
 </div>
 
 @if (showAiHelper()) {
   <div class="card" style="border-color: rgba(108, 140, 255, 0.4); background: linear-gradient(180deg, rgba(108, 140, 255, 0.07) 0%, rgba(15, 17, 23, 0.9) 100%)">
-    <div class="section-head" style="margin-bottom: .6rem">
-      <div>
-        <span class="pill ok" style="margin-bottom: .35rem">Zero API Key Needed</span>
-        <h3 style="margin: 0">AI Prompt &amp; Subtitle Studio</h3>
+    <div class="studio-card-head">
+      <div class="studio-card-title-group">
+        <div class="studio-icon-badge purple">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+          </svg>
+        </div>
+        <div>
+          <div class="row" style="gap: 8px">
+            <h3 style="margin: 0">AI Prompt &amp; Subtitle Studio</h3>
+            <span class="pill ok">Zero API Key Needed</span>
+          </div>
+        </div>
       </div>
-      <button class="secondary" type="button" (click)="showAiHelper.set(false)">Close</button>
+      <button class="secondary small" type="button" (click)="showAiHelper.set(false)">Close</button>
     </div>
 
     <p class="muted">
@@ -46,8 +71,11 @@
       <div>
         <div class="row" style="justify-content: space-between; margin-bottom: .35rem">
           <label style="margin: 0">1. Copy Prompt for AI Chat</label>
-          <button type="button" class="secondary" style="padding: .3rem .7rem; font-size: .8rem" (click)="copyAiPrompt()">
-            📋 Copy Prompt
+          <button type="button" class="secondary" style="padding: .3rem .7rem; font-size: .8rem; display: inline-flex; align-items: center; gap: 5px;" (click)="copyAiPrompt()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+            </svg>
+            Copy Prompt
           </button>
         </div>
         <textarea rows="8" readonly class="mono" style="font-size: .8rem">{{ aiPrompt() }}</textarea>
@@ -56,10 +84,13 @@
       <div>
         <div class="row" style="justify-content: space-between; margin-bottom: .35rem">
           <label for="ai-result" style="margin: 0">2. Paste AI's .SRT Reply Here</label>
-          <button type="button" style="padding: .3rem .8rem; font-size: .8rem"
+          <button type="button" style="padding: .3rem .8rem; font-size: .8rem; display: inline-flex; align-items: center; gap: 5px;"
                   [disabled]="status.busy() || aiPastedResult.trim().length === 0"
                   (click)="saveAiSubtitles()">
-            💾 Save as Subtitle Asset
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>
+            </svg>
+            Save as Subtitle Asset
           </button>
         </div>
         <textarea id="ai-result" rows="8" [(ngModel)]="aiPastedResult" class="mono" style="font-size: .8rem"
@@ -73,12 +104,30 @@
   <div class="row" style="justify-content: space-between; margin-bottom: 1rem; padding-bottom: .75rem; border-bottom: 1px solid var(--border)">
     <div class="row" style="gap: .5rem">
       <button type="button" [class.secondary]="source() !== 'PastedText'"
-              (click)="source.set('PastedText')">📝 Paste Dialogue Script</button>
+              (click)="source.set('PastedText')"
+              style="display: inline-flex; align-items: center; gap: 6px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+        </svg>
+        Paste Dialogue Script
+      </button>
       <button type="button" [class.secondary]="source() !== 'SubtitleFile'"
-              (click)="source.set('SubtitleFile')">⏱ Subtitle File (.SRT / .VTT)</button>
+              (click)="source.set('SubtitleFile')"
+              style="display: inline-flex; align-items: center; gap: 6px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+        </svg>
+        Subtitle File (.SRT / .VTT)
+      </button>
       <button type="button" [class.secondary]="source() !== 'YouTubeCaptions'"
               (click)="source.set('YouTubeCaptions')"
-              [disabled]="!urlSourceAvailable()">▶ YouTube Captions</button>
+              [disabled]="!urlSourceAvailable()"
+              style="display: inline-flex; align-items: center; gap: 6px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="5 3 19 12 5 21 5 3"/>
+        </svg>
+        YouTube Captions
+      </button>
     </div>
 
     @if (!urlSourceAvailable() && urlSource(); as info) {
@@ -112,7 +161,7 @@
           @for (sp of detectedSpeakers(); track sp.name) {
             <span [class]="sp.matched ? 'pill ok' : 'pill warn'"
                   [title]="sp.matched ? 'Matches an existing project character' : 'No matching character yet — create on Characters tab'">
-              {{ sp.matched ? '✓' : '⚠' }} {{ sp.name }}
+              {{ sp.matched ? '✓' : '!' }} {{ sp.name }}
             </span>
           }
           <a routerLink="../characters" class="muted" style="margin-left: auto; font-size: .8rem">Manage Characters &rarr;</a>
@@ -125,11 +174,15 @@
     }
 
     @case ('SubtitleFile') {
-      <div appFileDrop=".srt,.vtt,text/vtt,application/x-subrip" (filesDropped)="uploadSubtitleFile($event[0])"
-           style="padding: 1.25rem; border: 1px dashed var(--border-bright); border-radius: 10px; background: var(--surface-2); text-align: center">
-        <label for="subtitle-upload" style="cursor: pointer; color: var(--brand)">Upload an .SRT or .VTT Subtitle File</label>
+      <div class="studio-dropzone" appFileDrop=".srt,.vtt,text/vtt,application/x-subrip" (filesDropped)="uploadSubtitleFile($event[0])">
+        <div class="studio-icon-badge" style="margin: 0 auto">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+        </div>
+        <label for="subtitle-upload" style="cursor: pointer; color: var(--brand); font-weight: 600; margin: 0">Upload an .SRT or .VTT Subtitle File</label>
         <input id="subtitle-upload" type="file" accept=".srt,.vtt,text/vtt,application/x-subrip"
-               (change)="uploadSubtitle($event)" style="margin: .4rem auto; display: block; max-width: 260px" />
+               (change)="uploadSubtitle($event)" style="margin: .2rem auto; display: block; max-width: 260px" />
         <span class="file-drop-hint">or drag &amp; drop a subtitle file here / paste with Ctrl+V</span>
       </div>
 
@@ -177,8 +230,12 @@
   }
 
   <div class="row" style="margin-top: 1rem; padding-top: .85rem; border-top: 1px solid var(--border)">
-    <button type="button" (click)="ingest()" [disabled]="!canSubmit()">
-      🎬 Build Storyboard Scenes
+    <button type="button" (click)="ingest()" [disabled]="!canSubmit()"
+            style="display: inline-flex; align-items: center; gap: 6px;">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/>
+      </svg>
+      Build Storyboard Scenes
     </button>
 
     @if (store.scenes().length > 0) {
@@ -192,42 +249,53 @@
 <!-- Everything that has been imported, so a script can be reviewed or re-cut later. -->
 @if (scripts().length > 0) {
   <div class="card">
-    <h3>Scripts</h3>
-    <table>
-      <thead>
-        <tr>
-          <th>Imported</th><th>Version</th><th>Status</th><th>Timing</th>
-          <th>Segments</th><th>Lines</th><th>Length</th><th></th>
-        </tr>
-      </thead>
-      <tbody>
-        @for (script of scripts(); track script.id) {
+    <div class="studio-card-head">
+      <div class="studio-card-title-group">
+        <div class="studio-icon-badge">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+          </svg>
+        </div>
+        <h3>Scripts</h3>
+      </div>
+    </div>
+    <div class="studio-table-wrap">
+      <table>
+        <thead>
           <tr>
-            <td class="muted">{{ script.createdAt | date: 'short' }}</td>
-            <td class="mono">v{{ script.version }}</td>
-            <td><span class="pill">{{ script.status }}</span></td>
-            <td>
-              <span [class]="script.hasSourceTimings ? 'pill ok' : 'pill warn'">
-                {{ script.hasSourceTimings ? 'real' : 'estimated' }}
-              </span>
-            </td>
-            <td>{{ script.segmentCount }}</td>
-            <td>{{ script.lineCount }}</td>
-            <td class="mono">{{ script.totalSeconds | number: '1.1-1' }}s</td>
-            <td style="text-align: right; white-space: nowrap">
-              <button class="secondary" type="button" (click)="previewScript(script.id)">
-                {{ preview()?.id === script.id ? 'Hide' : 'Preview' }}
-              </button>
-              <button class="secondary" type="button" (click)="generateFrom(script.id)"
-                      [disabled]="status.busy()">Cut scenes</button>
-            </td>
+            <th>Imported</th><th>Version</th><th>Status</th><th>Timing</th>
+            <th>Segments</th><th>Lines</th><th>Length</th><th></th>
           </tr>
-        }
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          @for (script of scripts(); track script.id) {
+            <tr>
+              <td class="muted">{{ script.createdAt | date: 'short' }}</td>
+              <td class="mono">v{{ script.version }}</td>
+              <td><span class="pill">{{ script.status }}</span></td>
+              <td>
+                <span [class]="script.hasSourceTimings ? 'pill ok' : 'pill warn'">
+                  {{ script.hasSourceTimings ? 'real' : 'estimated' }}
+                </span>
+              </td>
+              <td>{{ script.segmentCount }}</td>
+              <td>{{ script.lineCount }}</td>
+              <td class="mono">{{ script.totalSeconds | number: '1.1-1' }}s</td>
+              <td style="text-align: right; white-space: nowrap">
+                <button class="secondary" type="button" (click)="previewScript(script.id)">
+                  {{ preview()?.id === script.id ? 'Hide' : 'Preview' }}
+                </button>
+                <button class="secondary" type="button" (click)="generateFrom(script.id)"
+                        [disabled]="status.busy()">Cut scenes</button>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
 
     @if (preview(); as detail) {
-      <div class="subform">
+      <div class="subform" style="margin-top: 1rem">
         <h4>
           Segments <span class="muted">({{ detail.segments.length }} of
           {{ detail.segmentCount }})</span>
@@ -240,36 +308,38 @@
           </div>
         }
 
-        <table>
-          <thead>
-            <tr><th>#</th><th>Title</th><th>Speaker</th><th>Starts</th><th>Length</th>
-              <th>Cut because</th><th>Lines</th></tr>
-          </thead>
-          <tbody>
-            @for (segment of detail.segments; track segment.segmentKey) {
-              <tr>
-                <td class="mono">{{ segment.order }}</td>
-                <td>{{ segment.title }}</td>
-                <td class="muted">{{ segment.dominantSpeakerLabel }}</td>
-                <td class="mono">{{ segment.timelineStartSeconds | number: '1.1-1' }}s</td>
-                <td class="mono">
-                  {{ segment.timelineEndSeconds - segment.timelineStartSeconds | number: '1.1-1' }}s
-                </td>
-                <td class="muted">{{ segment.breakReason }}</td>
-                <td>
-                  @for (line of segment.lines; track $index) {
-                    <div>
-                      @if (line.speakerLabel) {
-                        <strong>{{ line.speakerLabel }}:</strong>
-                      }
-                      {{ line.text }}
-                    </div>
-                  }
-                </td>
-              </tr>
-            }
-          </tbody>
-        </table>
+        <div class="studio-table-wrap">
+          <table>
+            <thead>
+              <tr><th>#</th><th>Title</th><th>Speaker</th><th>Starts</th><th>Length</th>
+                <th>Cut because</th><th>Lines</th></tr>
+            </thead>
+            <tbody>
+              @for (segment of detail.segments; track segment.segmentKey) {
+                <tr>
+                  <td class="mono">{{ segment.order }}</td>
+                  <td>{{ segment.title }}</td>
+                  <td class="muted">{{ segment.dominantSpeakerLabel }}</td>
+                  <td class="mono">{{ segment.timelineStartSeconds | number: '1.1-1' }}s</td>
+                  <td class="mono">
+                    {{ segment.timelineEndSeconds - segment.timelineStartSeconds | number: '1.1-1' }}s
+                  </td>
+                  <td class="muted">{{ segment.breakReason }}</td>
+                  <td>
+                    @for (line of segment.lines; track $index) {
+                      <div>
+                        @if (line.speakerLabel) {
+                          <strong>{{ line.speakerLabel }}:</strong>
+                        }
+                        {{ line.text }}
+                      </div>
+                    }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
       </div>
     }
   </div>
@@ -277,42 +347,53 @@
 
 @if (ingests().length > 0) {
   <div class="card">
-    <h3>Import history</h3>
-    <table>
-      <thead>
-        <tr>
-          <th>When</th><th>Source</th><th>Status</th><th>Cues</th>
-          <th>Details</th><th>Notes</th>
-        </tr>
-      </thead>
-      <tbody>
-        @for (item of ingests(); track item.id) {
+    <div class="studio-card-head">
+      <div class="studio-card-title-group">
+        <div class="studio-icon-badge emerald">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+          </svg>
+        </div>
+        <h3>Import history</h3>
+      </div>
+    </div>
+    <div class="studio-table-wrap">
+      <table>
+        <thead>
           <tr>
-            <td class="muted">{{ item.createdAt | date: 'short' }}</td>
-            <td>{{ item.source }}</td>
-            <td>
-              <span [class]="item.status === 'Completed' ? 'pill ok' : 'pill warn'">
-                {{ item.status }}
-              </span>
-            </td>
-            <td class="mono">{{ item.cueCount }}</td>
-            <td class="muted">
-              @if (item.sourceTitle) { {{ item.sourceTitle }} }
-              @if (item.captionLanguage) { <span class="mono">{{ item.captionLanguage }}</span> }
-              @if (item.captionIsAutoGenerated) { <span class="pill warn">auto captions</span> }
-              @if (item.rightsBasisCode) { <span class="pill">{{ item.rightsBasisCode }}</span> }
-            </td>
-            <td class="muted">
-              @if (item.errorCode) {
-                <span class="mono">{{ item.errorCode }}</span>
-              }
-              @for (warning of item.warnings; track $index) {
-                <div>{{ warning }}</div>
-              }
-            </td>
+            <th>When</th><th>Source</th><th>Status</th><th>Cues</th>
+            <th>Details</th><th>Notes</th>
           </tr>
-        }
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          @for (item of ingests(); track item.id) {
+            <tr>
+              <td class="muted">{{ item.createdAt | date: 'short' }}</td>
+              <td>{{ item.source }}</td>
+              <td>
+                <span [class]="item.status === 'Completed' ? 'pill ok' : 'pill warn'">
+                  {{ item.status }}
+                </span>
+              </td>
+              <td class="mono">{{ item.cueCount }}</td>
+              <td class="muted">
+                @if (item.sourceTitle) { {{ item.sourceTitle }} }
+                @if (item.captionLanguage) { <span class="mono">{{ item.captionLanguage }}</span> }
+                @if (item.captionIsAutoGenerated) { <span class="pill warn">auto captions</span> }
+                @if (item.rightsBasisCode) { <span class="pill">{{ item.rightsBasisCode }}</span> }
+              </td>
+              <td class="muted">
+                @if (item.errorCode) {
+                  <span class="mono">{{ item.errorCode }}</span>
+                }
+                @for (warning of item.warnings; track $index) {
+                  <div>{{ warning }}</div>
+                }
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
   </div>
 }

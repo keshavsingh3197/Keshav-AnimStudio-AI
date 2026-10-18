@@ -1,14 +1,19 @@
-<section class="ml" [class.ml-studio]="inStudio()">
+<section class="ml studio-wide-page" [class.ml-studio]="inStudio()">
   @if (!inStudio()) {
-  <header class="ml-head">
-    <div>
-      <h2>🎵 Music for your videos</h2>
-      <p class="muted">Royalty-free Creative Commons music, checked against this project's licence settings.
-        Add a track to use it as the background bed or drop it on the timeline in the video editor.
-        Credits go into the YouTube description automatically.</p>
+  <header class="ml-head sb-studio-bar">
+    <div class="ml-head-left">
+      <div class="studio-icon-badge">🎵</div>
+      <div class="sb-studio-title-col">
+        <h2>Music for your videos</h2>
+        <p class="muted">Royalty-free Creative Commons music, checked against this project's licence settings.
+          Add a track to use it as the background bed or drop it on the timeline in the video editor.
+          Credits go into the YouTube description automatically.</p>
+      </div>
     </div>
     @if (store.project(); as p) {
-      <a class="ml-settings-link" [routerLink]="['/projects', p.id, 'settings']">Licence &amp; music settings →</a>
+      <div class="sb-studio-actions">
+        <a class="ml-settings-link secondary" [routerLink]="['/projects', p.id, 'settings']">Licence &amp; music settings →</a>
+      </div>
     }
   </header>
   }

@@ -1,7 +1,7 @@
-<section class="yt">
+<section class="yt studio-wide-page">
   <header class="yt-head">
     <div>
-      <p class="yt-eyebrow"><span class="yt-logo" aria-hidden="true">▶</span> YouTube</p>
+      <p class="yt-eyebrow"><span class="yt-logo" aria-hidden="true">▶</span> YouTube Studio Hub</p>
       <h1>Your channel at a glance</h1>
       <p class="muted">
         Subscribers, views and every video you've published from AnimStudio, with their links.
@@ -176,8 +176,13 @@
           }
         </div>
         <span class="yt-spacer"></span>
-        <input type="text" class="yt-search" placeholder="Search titles…" maxlength="100"
-               [ngModel]="query()" (ngModelChange)="query.set($event)" aria-label="Search videos" />
+        <div class="studio-search-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+          </svg>
+          <input type="text" class="yt-search" placeholder="Search titles…" maxlength="100"
+                 [ngModel]="query()" (ngModelChange)="query.set($event)" aria-label="Search videos" />
+        </div>
         @if (filterChannels().length > 1) {
           <select class="yt-select" [ngModel]="channelFilter()" (ngModelChange)="channelFilter.set($event)" aria-label="Channel">
             <option value="all">All channels</option>

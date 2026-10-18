@@ -1,35 +1,60 @@
 <!-- Storyboard Studio Header & KPI Strip -->
 <div class="sb-studio-bar">
   <div class="sb-studio-title-col">
-    <div class="row" style="gap: 10px">
-      <h2 style="margin: 0">Storyboard Sequence</h2>
-      @if (store.scenes().length > 0 && store.scenesMissingBackground().length === 0) {
-        <span class="pill ok">Ready to Render</span>
-      } @else if (store.scenesMissingBackground().length > 0) {
-        <span class="pill warn">{{ store.scenesMissingBackground().length }} Missing Background</span>
-      }
+    <div class="row" style="gap: 12px">
+      <div class="studio-icon-badge">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+          <rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>
+        </svg>
+      </div>
+      <div>
+        <div class="row" style="gap: 10px">
+          <h2 style="margin: 0">Storyboard Sequence</h2>
+          @if (store.scenes().length > 0 && store.scenesMissingBackground().length === 0) {
+            <span class="pill ok">Ready to Render</span>
+          } @else if (store.scenesMissingBackground().length > 0) {
+            <span class="pill warn">{{ store.scenesMissingBackground().length }} Missing Background</span>
+          }
+        </div>
+        <p class="muted" style="margin: 4px 0 0; font-size: .86rem">
+          Drag cards to reorder shots, click any scene to stage characters and dialogue, or auto-polish camera motion in one click.
+        </p>
+      </div>
     </div>
-    <p class="muted" style="margin: 4px 0 0; font-size: .86rem">
-      Drag cards to reorder shots, click any scene to stage characters and dialogue, or auto-polish camera motion in one click.
-    </p>
   </div>
 
   <div class="sb-studio-actions">
     @if (store.scenes().length > 0) {
       <button type="button" class="secondary" (click)="autoPolishStoryboard()" [disabled]="status.busy()"
-              title="Apply alternating Ken Burns camera motion and 0.5s crossfades to all scenes">
-        ✨ Auto-Polish Motion
+              title="Apply alternating Ken Burns camera motion and 0.5s crossfades to all scenes"
+              style="display: inline-flex; align-items: center; gap: 6px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+        </svg>
+        Auto-Polish Motion
       </button>
 
       <button type="button" class="secondary" (click)="showBatchPanel.set(!showBatchPanel())"
-              [class.active]="showBatchPanel()">
-        ⚙ Batch Tools {{ showBatchPanel() ? '▲' : '▼' }}
+              [class.active]="showBatchPanel()"
+              style="display: inline-flex; align-items: center; gap: 6px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/>
+          <line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/>
+          <line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/>
+          <line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>
+        </svg>
+        Batch Tools {{ showBatchPanel() ? '▴' : '▾' }}
       </button>
 
       @if (totalDialogueLines() > 0 && subtitlesUrl(); as srtHref) {
         <a [href]="srtHref" download="subtitles.srt" style="text-decoration: none">
-          <button type="button" class="secondary" title="Download timed .SRT subtitles for the whole storyboard">
-            ⬇ Export .SRT
+          <button type="button" class="secondary" title="Download timed .SRT subtitles for the whole storyboard"
+                  style="display: inline-flex; align-items: center; gap: 6px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            Export .SRT
           </button>
         </a>
       }
@@ -77,8 +102,15 @@
 <!-- Collapsible Batch Tools Drawer -->
 @if (store.scenes().length > 0 && showBatchPanel()) {
   <div class="card sb-batch-drawer">
-    <div class="section-head" style="margin-bottom: .75rem">
-      <h3 style="margin: 0">Batch Apply Across All {{ store.scenes().length }} Scenes</h3>
+    <div class="studio-card-head">
+      <div class="studio-card-title-group">
+        <div class="studio-icon-badge purple">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>
+          </svg>
+        </div>
+        <h3>Batch Apply Across All {{ store.scenes().length }} Scenes</h3>
+      </div>
       <button class="secondary small" type="button" (click)="showBatchPanel.set(false)">Close</button>
     </div>
 
@@ -143,8 +175,13 @@
   <div class="storyboard-header" style="flex-wrap: wrap; gap: .75rem">
     @if (store.scenes().length > 0) {
       <div class="storyboard-filter-group">
-        <input class="storyboard-search" type="text" [(ngModel)]="searchQuery"
-               placeholder="Search scene title or #number&hellip;" />
+        <div class="studio-search-wrap">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input class="storyboard-search" type="text" [(ngModel)]="searchQuery"
+                 placeholder="Search scene title or #number&hellip;" />
+        </div>
 
         <button type="button" class="filter-chip"
                 [class.active]="filterType() === 'all'"
@@ -189,6 +226,12 @@
 <!-- Scenes Presentation -->
 @if (store.scenes().length === 0) {
   <div class="card empty" style="padding: 3rem 1.5rem">
+    <div class="studio-icon-badge" style="width: 3rem; height: 3rem; border-radius: 12px; margin: 0 auto .75rem;">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+        <rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>
+      </svg>
+    </div>
     <h3 style="margin-bottom: .35rem">Your Storyboard Is Empty</h3>
     <p class="muted" style="max-width: 34rem; margin: 0 auto 1.1rem">
       Import a script or subtitle file to generate timed scenes automatically, or add your first shot using the bar above.
@@ -223,6 +266,9 @@
               <img class="storyboard-thumb-img" [src]="src" [alt]="scene.title || 'Scene ' + scene.sceneNumber" />
             } @else {
               <div class="storyboard-thumb-empty">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.55; margin-bottom: 4px;">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
+                </svg>
                 <span>No Background</span>
               </div>
             }
@@ -286,7 +332,7 @@
 
   <!-- 2. TABLE VIEW -->
   @if (viewMode() === 'table') {
-    <div class="card">
+    <div class="studio-table-wrap">
       <table>
         <thead>
           <tr>

@@ -3,7 +3,18 @@
   <header class="studio-header">
     <div class="header-left">
       <div class="title-row">
-        <span class="studio-icon">🎬</span>
+        <span class="studio-icon-badge">
+          <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none">
+            <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
+            <line x1="7" y1="2" x2="7" y2="22"></line>
+            <line x1="17" y1="2" x2="17" y2="22"></line>
+            <line x1="2" y1="12" x2="22" y2="12"></line>
+            <line x1="2" y1="7" x2="7" y2="7"></line>
+            <line x1="2" y1="17" x2="7" y2="17"></line>
+            <line x1="17" y1="17" x2="22" y2="17"></line>
+            <line x1="17" y1="7" x2="22" y2="7"></line>
+          </svg>
+        </span>
         <h1 class="studio-title">Productions</h1>
         <span class="project-count-badge">{{ totalCount }} Projects</span>
       </div>
@@ -14,7 +25,10 @@
 
     <div class="header-actions">
       <button type="button" class="btn-new-project" (click)="start('clips')">
-        <span class="btn-icon">＋</span>
+        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2.5" fill="none">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
         <span>New Project</span>
       </button>
     </div>
@@ -25,7 +39,10 @@
     <div class="launchpad-grid">
       <div class="launchpad-card" (click)="start('clips')">
         <div class="card-icon-wrap icon-purple">
-          <span class="icon">🎞️</span>
+          <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none">
+            <polygon points="23 7 16 12 23 17 23 7"></polygon>
+            <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+          </svg>
         </div>
         <div class="card-content">
           <div class="card-tag">NLE Timeline</div>
@@ -34,13 +51,15 @@
         </div>
         <div class="card-footer-cta">
           <span>Create Project</span>
-          <span class="arrow">➔</span>
+          <span class="arrow">&rarr;</span>
         </div>
       </div>
 
       <div class="launchpad-card" (click)="start('prompt')">
         <div class="card-icon-wrap icon-blue">
-          <span class="icon">✨</span>
+          <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none">
+            <path d="M12 2L14.8 8.5L22 9.3L16.5 14L18.2 21L12 17.3L5.8 21L7.5 14L2 9.3L9.2 8.5L12 2Z"></path>
+          </svg>
         </div>
         <div class="card-content">
           <div class="card-tag">AI Generator</div>
@@ -49,28 +68,37 @@
         </div>
         <div class="card-footer-cta">
           <span>Launch AI</span>
-          <span class="arrow">➔</span>
+          <span class="arrow">&rarr;</span>
         </div>
       </div>
 
       <div class="launchpad-card" (click)="start('import')">
         <div class="card-icon-wrap icon-emerald">
-          <span class="icon">🎙️</span>
+          <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+            <line x1="12" y1="19" x2="12" y2="23"></line>
+            <line x1="8" y1="23" x2="16" y2="23"></line>
+          </svg>
         </div>
         <div class="card-content">
-          <div class="card-tag">Voice & Subtitles</div>
-          <h3 class="card-title">Script & Voiceover</h3>
+          <div class="card-tag">Voice &amp; Subtitles</div>
+          <h3 class="card-title">Script &amp; Voiceover</h3>
           <p class="card-desc">Bring your audio voiceover or script file to auto-generate timed scenes.</p>
         </div>
         <div class="card-footer-cta">
           <span>Import Audio</span>
-          <span class="arrow">➔</span>
+          <span class="arrow">&rarr;</span>
         </div>
       </div>
 
       <div class="launchpad-card" (click)="start('bundle')">
         <div class="card-icon-wrap icon-amber">
-          <span class="icon">📊</span>
+          <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none">
+            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+            <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+            <line x1="12" y1="22.08" x2="12" y2="12"></line>
+          </svg>
         </div>
         <div class="card-content">
           <div class="card-tag">Spreadsheet</div>
@@ -79,7 +107,7 @@
         </div>
         <div class="card-footer-cta">
           <span>Upload CSV</span>
-          <span class="arrow">➔</span>
+          <span class="arrow">&rarr;</span>
         </div>
       </div>
     </div>
@@ -90,7 +118,11 @@
     <section class="creation-drawer-card">
       <div class="drawer-header">
         <div class="drawer-title-group">
-          <span class="drawer-icon">⚡</span>
+          <span class="studio-icon-badge purple">
+            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+            </svg>
+          </span>
           <h3>{{ heading(point) }}</h3>
         </div>
         <button type="button" class="btn-close-drawer" (click)="cancelStart()" title="Close creation tray">✕</button>
@@ -111,7 +143,7 @@
 
         <!-- Format & Aspect Ratio Selector -->
         <div class="drawer-field-group">
-          <label class="drawer-label">Select Canvas Format & Aspect Ratio</label>
+          <label class="drawer-label">Select Canvas Format &amp; Aspect Ratio</label>
           <div class="format-presets-grid">
             @for (preset of presets; track preset.label) {
               <div class="format-preset-card"
@@ -137,7 +169,7 @@
 
           @if (channels().length > 1) {
             <div class="advanced-col" style="margin-bottom: 0.75rem;">
-              <label for="channelSelect" class="drawer-label">📺 YouTube Channel / Brand</label>
+              <label for="channelSelect" class="drawer-label">YouTube Channel / Brand</label>
               <select id="channelSelect" class="drawer-select" [(ngModel)]="channelId">
                 @for (c of channels(); track c.id) {
                   <option [ngValue]="c.id">{{ c.name }}{{ c.isDefault ? ' (default)' : '' }}</option>
@@ -174,8 +206,8 @@
       <div class="drawer-footer">
         <button type="button" class="btn-cancel" (click)="cancelStart()">Cancel</button>
         <button type="button" class="btn-create-primary" (click)="create()" [disabled]="status.busy() || !name.trim()">
-          <span>Create & Open Editor</span>
-          <span class="arrow">➔</span>
+          <span>Create &amp; Open Editor</span>
+          <span class="arrow">&rarr;</span>
         </button>
       </div>
     </section>
@@ -186,7 +218,12 @@
     <div class="toolbar-left">
       <!-- Search Input -->
       <div class="search-input-wrap">
-        <span class="search-icon">🔍</span>
+        <span class="search-icon">
+          <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.2" fill="none">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+        </span>
         <input type="search" class="search-field"
                placeholder="Search projects by title or description..."
                [(ngModel)]="searchTerm" />
@@ -223,7 +260,7 @@
 
       <select class="toolbar-select" [(ngModel)]="contentFilter" (change)="currentPage.set(1)" aria-label="Filter by what the project makes">
         <option value="All">Video &amp; Music</option>
-        <option value="video">🎬 Videos</option>
+        <option value="video">Videos</option>
         <option value="music">♪ Music</option>
       </select>
 
@@ -287,7 +324,7 @@
       </div>
       <div class="bulk-buttons">
         <button type="button" class="btn-bulk-danger" (click)="deleteSelected()">
-          🗑️ Delete Selected
+          Delete Selected
         </button>
         <button type="button" class="btn-bulk-clear" (click)="clearSelection()">
           Clear Selection
@@ -299,7 +336,14 @@
   <!-- Empty Search/Filter State -->
   @if (filteredAndSortedProjects.length === 0) {
     <div class="empty-projects-card">
-      <div class="empty-icon">🎬</div>
+      <div class="studio-icon-badge" style="width: 3.25rem; height: 3.25rem; border-radius: 14px; margin: 0 auto 0.5rem;">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/>
+          <line x1="7" y1="2" x2="7" y2="22"/>
+          <line x1="17" y1="2" x2="17" y2="22"/>
+          <line x1="2" y1="12" x2="22" y2="12"/>
+        </svg>
+      </div>
       <h3 class="empty-title">No projects match your filter</h3>
       <p class="empty-desc">
         @if (searchTerm || statusFilter !== 'All' || aspectFilter !== 'All') {
@@ -314,7 +358,10 @@
         </button>
       } @else {
         <button type="button" class="btn-new-project" (click)="start('clips')">
-          + Create First Project
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          Create First Project
         </button>
       }
     </div>
@@ -335,7 +382,9 @@
                       [class.pinned]="isPinned(project.id)"
                       (click)="togglePin(project, $event)"
                       title="{{ isPinned(project.id) ? 'Unpin project' : 'Pin project to top' }}">
-                {{ isPinned(project.id) ? '⭐' : '☆' }}
+                <svg width="14" height="14" viewBox="0 0 24 24" [attr.fill]="isPinned(project.id) ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                </svg>
               </button>
             </div>
 
@@ -350,7 +399,17 @@
                 <div class="thumb-artwork-fallback">
                   <div class="fallback-glow"></div>
                   <div class="fallback-center">
-                    <span class="fallback-icon">{{ format(project.width, project.height) === 'Short' ? '📱' : '🎬' }}</span>
+                    <span class="fallback-icon">
+                      @if (format(project.width, project.height) === 'Short') {
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.85)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                          <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/>
+                        </svg>
+                      } @else {
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.85)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                          <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+                        </svg>
+                      }
+                    </span>
                     <span class="fallback-initials">{{ getProjectInitials(project.name) }}</span>
                   </div>
                 </div>
@@ -376,14 +435,19 @@
               <!-- Hover Play Overlay -->
               <div class="thumb-hover-overlay">
                 <div class="play-pill">
-                  <span class="play-icon">▶</span>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                    <polygon points="5 3 19 12 5 21 5 3"/>
+                  </svg>
                   <span>Open Video Editor</span>
                 </div>
               </div>
 
               <!-- Upload Custom Thumbnail Button -->
               <label class="btn-upload-thumb" (click)="$event.stopPropagation()" title="Upload Custom Thumbnail Image">
-                📷
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                  <circle cx="12" cy="13" r="4"/>
+                </svg>
                 <input type="file" accept="image/*" style="display: none" (change)="onUploadThumbnail($event, project)" />
               </label>
             </div>
@@ -404,28 +468,35 @@
                   @if (activeMenuProjectId() === project.id) {
                     <div class="studio-dropdown-menu" [style.top.px]="menuPos().top" [style.bottom.px]="menuPos().bottom" [style.right.px]="menuPos().right">
                       <button type="button" class="dropdown-item" (click)="openInClips(project.id, $event)">
-                        <span>🎞️</span> Open Video Editor
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
+                        Open Video Editor
                       </button>
                       <button type="button" class="dropdown-item" (click)="openInScenes(project.id, $event)">
-                        <span>🎭</span> Open Scene Editor
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+                        Open Scene Editor
                       </button>
                       <button type="button" class="dropdown-item" (click)="renameProject(project, $event)">
-                        <span>✏️</span> Rename Project
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                        Rename Project
                       </button>
                       <button type="button" class="dropdown-item" (click)="duplicateProject(project, $event)">
-                        <span>📑</span> Duplicate
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                        Duplicate
                       </button>
                       <button type="button" class="dropdown-item" (click)="exportProject(project, $event)">
-                        <span>📥</span> Export JSON
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        Export JSON
                       </button>
                       @if (project.customThumbnail) {
                         <button type="button" class="dropdown-item" (click)="removeThumbnail(project, $event)">
-                          <span>🖼️</span> Reset Thumbnail
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                          Reset Thumbnail
                         </button>
                       }
                       <div class="dropdown-divider"></div>
                       <button type="button" class="dropdown-item danger" (click)="confirmDelete(project.id, $event)">
-                        <span>🗑️</span> Delete Project
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                        Delete Project
                       </button>
                     </div>
                   }
@@ -442,7 +513,10 @@
               </div>
               @if (channels().length > 1) {
                 <div class="card-channel-row">
-                  <span class="channel-chip" [title]="'Publishes under ' + channelName(project)">📺 {{ channelName(project) }}</span>
+                  <span class="channel-chip" [title]="'Publishes under ' + channelName(project)">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -1px; margin-right: 3px;"><rect x="2" y="7" width="20" height="15" rx="2" ry="2"/><polyline points="17 2 12 7 7 2"/></svg>
+                    {{ channelName(project) }}
+                  </span>
                   @if (project.followChannelWatermark === false) { <span class="channel-own" title="This project uses its own watermark instead of the channel's">custom watermark</span> }
                 </div>
               }
@@ -465,7 +539,7 @@
 
     <!-- VIEW 2: Modern Table View -->
     @if (viewMode() === 'table') {
-      <div class="studio-table-container">
+      <div class="studio-table-wrap studio-table-container">
         <table class="studio-table">
           <thead>
             <tr>
@@ -499,10 +573,16 @@
                       @if (project.customThumbnail) {
                         <img [src]="project.customThumbnail" alt="" />
                       } @else {
-                        <span>{{ format(project.width, project.height) === 'Short' ? '📱' : '🎬' }}</span>
+                        @if (format(project.width, project.height) === 'Short') {
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.85)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/></svg>
+                        } @else {
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.85)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/></svg>
+                        }
                       }
                       <label class="btn-upload-thumb mini" (click)="$event.stopPropagation()" title="Upload Thumbnail">
-                        📷
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>
+                        </svg>
                         <input type="file" accept="image/*" style="display: none" (change)="onUploadThumbnail($event, project)" />
                       </label>
                     </div>
@@ -515,7 +595,7 @@
                         <span class="table-desc-text" [title]="project.description">{{ project.description }}</span>
                       }
                       @if (channels().length > 1) {
-                        <span class="channel-chip small">📺 {{ channelName(project) }}</span>
+                        <span class="channel-chip small">{{ channelName(project) }}</span>
                       }
                     </div>
                   </div>
@@ -545,7 +625,8 @@
                   } @else {
                     <div class="table-actions-group" (click)="$event.stopPropagation()">
                       <button type="button" class="btn-table-edit" (click)="openInClips(project.id, $event)">
-                        <span>🎞️</span> Edit
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                        Edit
                       </button>
 
                       <div class="menu-container">
@@ -556,28 +637,35 @@
                         @if (activeMenuProjectId() === project.id) {
                           <div class="studio-dropdown-menu" [style.top.px]="menuPos().top" [style.bottom.px]="menuPos().bottom" [style.right.px]="menuPos().right">
                             <button type="button" class="dropdown-item" (click)="openInClips(project.id, $event)">
-                              <span>🎞️</span> Open Video Editor
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
+                              Open Video Editor
                             </button>
                             <button type="button" class="dropdown-item" (click)="openInScenes(project.id, $event)">
-                              <span>🎭</span> Open Scene Editor
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+                              Open Scene Editor
                             </button>
                             <button type="button" class="dropdown-item" (click)="renameProject(project, $event)">
-                              <span>✏️</span> Rename Project
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                              Rename Project
                             </button>
                             <button type="button" class="dropdown-item" (click)="duplicateProject(project, $event)">
-                              <span>📑</span> Duplicate
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                              Duplicate
                             </button>
                             <button type="button" class="dropdown-item" (click)="exportProject(project, $event)">
-                              <span>📥</span> Export JSON
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                              Export JSON
                             </button>
                             @if (project.customThumbnail) {
                               <button type="button" class="dropdown-item" (click)="removeThumbnail(project, $event)">
-                                <span>🖼️</span> Reset Thumbnail
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                                Reset Thumbnail
                               </button>
                             }
                             <div class="dropdown-divider"></div>
                             <button type="button" class="dropdown-item danger" (click)="confirmDelete(project.id, $event)">
-                              <span>🗑️</span> Delete Project
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                              Delete Project
                             </button>
                           </div>
                         }

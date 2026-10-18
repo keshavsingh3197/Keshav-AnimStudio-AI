@@ -11,9 +11,7 @@
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  background: #090c14;
-  border: 1px solid var(--border, #1e2433);
-  border-radius: 10px;
+  background: linear-gradient(180deg, #0b0e17, #07090e);
 }
 
 .studio-timeline-card {
@@ -34,8 +32,8 @@
   align-items: center;
   height: 38px;
   padding: 0 10px;
-  background: #0d121c;
-  border-bottom: 1px solid #1e293b;
+  background: linear-gradient(180deg, rgba(21, 26, 38, 0.94), rgba(13, 18, 28, 0.98));
+  border-bottom: 1px solid var(--border, #1f2637);
   gap: 5px;
   flex-shrink: 0;
   overflow-x: auto;
@@ -54,19 +52,19 @@
 .tl-toolbar-sep {
   width: 1px;
   height: 18px;
-  background: #232d3f;
+  background: var(--border-bright, #2f3a56);
   margin: 0 4px;
 }
 
 .tool-btn {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid #1e293b;
+  background: rgba(21, 26, 38, 0.78);
+  border: 1px solid var(--border, #1f2637);
   color: #cbd5e1;
-  border-radius: 5px;
+  border-radius: 6px;
   height: 26px;
   padding: 0 8px;
   font-size: 0.72rem;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -77,16 +75,16 @@
 }
 
 .tool-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: #334155;
+  background: var(--surface-3, #1c2333);
+  border-color: var(--border-bright, #2f3a56);
   color: #fff;
 }
 
 .tool-btn.active {
-  background: rgba(108, 140, 255, 0.18);
+  background: linear-gradient(135deg, rgba(108, 140, 255, 0.24), rgba(168, 85, 247, 0.14));
   border-color: var(--brand, #6c8cff);
-  color: #8cb0ff;
-  box-shadow: 0 0 8px rgba(108, 140, 255, 0.25);
+  color: #fff;
+  box-shadow: 0 0 10px rgba(108, 140, 255, 0.28);
 }
 
 .tool-btn:disabled {
@@ -166,12 +164,12 @@
   top: calc(100% + 4px);
   left: 0;
   z-index: 60;
-  min-width: 175px;
-  background: #111624;
-  border: 1px solid #28354e;
-  border-radius: 6px;
-  padding: 4px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  min-width: 185px;
+  background: linear-gradient(180deg, rgba(21, 26, 38, 0.98), rgba(14, 17, 24, 0.99));
+  border: 1px solid var(--border-bright, #2f3a56);
+  border-radius: 10px;
+  padding: 5px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.68), inset 0 1px 0 rgba(255, 255, 255, 0.06);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -184,7 +182,7 @@
   padding: 6px 10px;
   background: transparent;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   color: #e2e8f0;
   font-size: 0.76rem;
   font-weight: 500;

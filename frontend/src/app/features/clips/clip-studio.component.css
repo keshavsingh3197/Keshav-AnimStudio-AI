@@ -8,8 +8,8 @@
   display: flex;
   flex-direction: column;
   height: calc(100vh - 56px);
-  background: var(--bg, #080a0f);
-  color: var(--text, #e2e8f0);
+  background: radial-gradient(circle at 50% 0%, rgba(108, 140, 255, 0.05), transparent 55%), var(--bg, #07090e);
+  color: var(--text, #eef1f8);
   overflow: hidden;
   box-sizing: border-box;
 }
@@ -34,14 +34,15 @@ app-studio-header {
 .notice.notice-info {
   margin: 0 6px 6px;
   padding: 8px 14px;
-  background: color-mix(in srgb, var(--brand, #6c8cff) 12%, var(--surface, #0f1117));
-  border: 1px solid var(--brand, #6c8cff);
-  border-radius: 8px;
+  background: linear-gradient(90deg, rgba(108, 140, 255, 0.16), rgba(14, 17, 24, 0.92));
+  border: 1px solid rgba(108, 140, 255, 0.45);
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-shrink: 0;
   font-size: 0.8rem;
+  box-shadow: var(--shadow-sm), var(--inner-highlight);
 }
 
 .notice-actions {
@@ -58,7 +59,7 @@ app-studio-header {
   gap: 6px;
   flex-grow: 1;
   min-height: 0;
-  padding: 0 6px 6px 6px;
+  padding: 6px;
   box-sizing: border-box;
   width: 100%;
 }
@@ -95,6 +96,9 @@ app-media-dock {
   height: 100%;
   min-height: 0;
   overflow: hidden;
+  border-radius: 10px;
+  border: 1px solid var(--border, #1f2637);
+  box-shadow: var(--shadow-sm), var(--inner-highlight);
 }
 
 /* Column 2 — Program Monitor / Video Viewport */
@@ -107,6 +111,9 @@ app-video-viewport {
   height: 100%;
   min-height: 0;
   overflow: hidden;
+  border-radius: 10px;
+  border: 1px solid var(--border, #1f2637);
+  box-shadow: var(--shadow-sm), var(--inner-highlight);
 }
 
 /* Column 3 — Right Inspector Dock */
@@ -119,6 +126,10 @@ app-inspector-dock {
   height: 100%;
   min-height: 0;
   overflow: hidden;
+  border-radius: 10px;
+  border: 1px solid var(--border, #1f2637);
+  background: linear-gradient(180deg, rgba(16, 20, 30, 0.96), rgba(11, 14, 22, 0.98));
+  box-shadow: var(--shadow-sm), var(--inner-highlight);
 }
 
 /* Row 2 — Bottom NLE Multi-Track Timeline (spans all 3 columns) */
@@ -131,6 +142,9 @@ app-timeline-dock {
   height: 100%;
   min-height: 0;
   overflow: hidden;
+  border-radius: 10px;
+  border: 1px solid var(--border, #1f2637);
+  box-shadow: var(--shadow-sm), var(--inner-highlight);
 }
 
 /* Loading State */
@@ -162,8 +176,8 @@ app-timeline-dock {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.75);
-  backdrop-filter: blur(6px);
+  background: rgba(4, 6, 12, 0.76);
+  backdrop-filter: blur(8px);
   z-index: 10000;
   display: flex;
   align-items: center;
@@ -171,16 +185,16 @@ app-timeline-dock {
 }
 
 .shortcuts-dialog {
-  background: #0f172a;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(21, 26, 38, 0.98), rgba(14, 17, 24, 0.99));
+  border: 1px solid var(--border-bright, #2f3a56);
+  border-radius: 16px;
   width: 95%;
   max-width: 860px;
   max-height: 90vh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(99, 102, 241, 0.15);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.8), var(--inner-highlight);
   animation: scFadeIn 0.15s ease-out;
 }
 
@@ -193,9 +207,9 @@ app-timeline-dock {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 14px 20px;
-  background: linear-gradient(180deg, #1e293b 0%, #162032 100%);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 15px 20px;
+  background: linear-gradient(180deg, rgba(28, 35, 51, 0.85) 0%, rgba(18, 23, 35, 0.95) 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
 }
 
 .shortcuts-title-wrap {
@@ -211,21 +225,21 @@ app-timeline-dock {
 .shortcuts-header h3 {
   margin: 0;
   font-size: 1.05rem;
-  font-weight: 700;
+  font-weight: 800;
   color: #f8fafc;
-  letter-spacing: -0.2px;
+  letter-spacing: -0.02em;
 }
 
 .shortcuts-subtitle {
   margin: 2px 0 0;
   font-size: 0.76rem;
-  color: #94a3b8;
+  color: var(--muted, #7681a3);
 }
 
 .shortcuts-header .close-btn {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
+  border-radius: 8px;
   width: 28px;
   height: 28px;
   display: flex;
@@ -251,7 +265,7 @@ app-timeline-dock {
   padding: 20px;
   overflow-y: auto;
   flex: 1;
-  background: #090e17;
+  background: rgba(9, 12, 20, 0.92);
 }
 
 @media (max-width: 768px) {

@@ -73,30 +73,34 @@ const MIN_SIDE = 16;
     </div>
   `,
   styles: [`
-    .crop-backdrop { position: fixed; inset: 0; z-index: 1000; background: rgba(2, 6, 23, 0.75);
+    .crop-backdrop { position: fixed; inset: 0; z-index: 1000; background: rgba(4, 6, 14, 0.78);
+      backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
       display: flex; align-items: center; justify-content: center; padding: 16px; }
-    .crop-dialog { background: #0f172a; border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 12px;
-      padding: 1rem 1.25rem; width: min(760px, 100%); max-height: calc(100vh - 32px); overflow: auto;
-      color: #e2e8f0; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); }
-    .crop-head { display: flex; align-items: center; justify-content: space-between; }
-    .crop-head h4 { margin: 0; font-size: 1rem; }
-    .crop-x { background: none; border: none; color: #8b9bb4; font-size: 1rem; cursor: pointer; }
-    .crop-hint { margin: 0.35rem 0 0.75rem; font-size: 0.78rem; color: #8b9bb4; }
-    .crop-stage { display: flex; justify-content: center; background: repeating-conic-gradient(#1e293b 0 25%, #0f172a 0 50%) 0 0 / 16px 16px;
-      border-radius: 8px; padding: 12px; overflow: hidden; }
+    .crop-dialog { background: var(--surface); border: 1px solid var(--border-bright); border-radius: 15px;
+      padding: 1.15rem 1.35rem; width: min(760px, 100%); max-height: calc(100vh - 32px); overflow: auto;
+      color: var(--text); box-shadow: 0 24px 64px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255,255,255,0.06); }
+    .crop-head { display: flex; align-items: center; justify-content: space-between; padding-bottom: 0.7rem; border-bottom: 1px solid var(--border); }
+    .crop-head h4 { margin: 0; font-size: 1.02rem; font-weight: 800; }
+    .crop-x { background: var(--surface-2); border: 1px solid var(--border); border-radius: 7px; padding: 3px 8px; color: var(--muted); font-size: 0.95rem; cursor: pointer; box-shadow: none; }
+    .crop-x:hover { color: #fff; border-color: var(--border-bright); background: var(--surface-3); transform: none; box-shadow: none; }
+    .crop-hint { margin: 0.65rem 0 0.85rem; font-size: 0.8rem; color: var(--muted); }
+    .crop-stage { display: flex; justify-content: center; background: repeating-conic-gradient(#1a2030 0 25%, #0e121c 0 50%) 0 0 / 16px 16px;
+      border: 1px solid var(--border); border-radius: 10px; padding: 14px; overflow: hidden; }
     .crop-frame { position: relative; display: inline-block; touch-action: none; user-select: none; cursor: crosshair; line-height: 0; }
-    .crop-frame img { display: block; max-width: 100%; max-height: 60vh; pointer-events: none; }
-    .crop-box { position: absolute; box-sizing: border-box; border: 2px solid #60a5fa; cursor: move;
-      box-shadow: 0 0 0 9999px rgba(2, 6, 23, 0.6); }
-    .crop-handle { position: absolute; width: 14px; height: 14px; background: #fff; border: 2px solid #3b82f6; border-radius: 3px; }
+    .crop-frame img { display: block; max-width: 100%; max-height: 58vh; pointer-events: none; border-radius: 4px; }
+    .crop-box { position: absolute; box-sizing: border-box; border: 2px solid var(--brand); cursor: move;
+      box-shadow: 0 0 0 9999px rgba(4, 6, 14, 0.65); }
+    .crop-handle { position: absolute; width: 14px; height: 14px; background: #fff; border: 2px solid var(--brand-dim); border-radius: 4px; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
     .crop-nw { left: -8px; top: -8px; cursor: nwse-resize; }
     .crop-ne { right: -8px; top: -8px; cursor: nesw-resize; }
     .crop-sw { left: -8px; bottom: -8px; cursor: nesw-resize; }
     .crop-se { right: -8px; bottom: -8px; cursor: nwse-resize; }
-    .crop-tools { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-top: 0.75rem; }
-    .crop-check { display: flex; gap: 0.35rem; align-items: center; font-size: 0.85rem; cursor: pointer; }
-    .crop-size { font-size: 0.78rem; color: #8b9bb4; margin-left: auto; }
-    .crop-actions { display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1rem; }
+    .crop-tools { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-top: 0.85rem; }
+    .crop-check { display: flex; gap: 0.4rem; align-items: center; font-size: 0.85rem; color: var(--text); margin: 0; cursor: pointer; }
+    .crop-size { font-size: 0.78rem; font-family: ui-monospace, monospace; color: var(--brand-bright); background: rgba(108, 140, 255, 0.12); border: 1px solid rgba(108, 140, 255, 0.28); padding: 2px 8px; border-radius: 99px; margin-left: auto; }
+    .crop-actions { display: flex; justify-content: flex-end; gap: 0.65rem; margin-top: 1rem; padding-top: 0.85rem; border-top: 1px solid var(--border); }
+    .btn-outline { background: var(--surface-2); color: var(--text-dim); border: 1px solid var(--border); box-shadow: none; }
+    .btn-outline:hover:not(:disabled) { background: var(--surface-3); color: #fff; border-color: var(--border-bright); }
   `],
 })
 export class ImageCropDialogComponent {

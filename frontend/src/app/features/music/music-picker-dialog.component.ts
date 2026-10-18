@@ -20,8 +20,13 @@ import { MusicLibraryComponent } from './music-library.component';
     <div class="mp-backdrop" (click)="closed.emit()">
       <div class="mp-dialog" role="dialog" aria-modal="true" aria-label="Music library" (click)="$event.stopPropagation()">
         <div class="mp-head">
-          <strong>🎵 Music library</strong>
-          <span class="mp-hint">Press ▶ to listen, then "Add to timeline" to place it at the playhead.</span>
+          <div class="mp-title-wrap">
+            <span class="studio-icon-badge">🎵</span>
+            <div>
+              <strong>Music Library</strong>
+              <span class="mp-hint">Press ▶ to listen, then "Add to timeline" to place it at the playhead.</span>
+            </div>
+          </div>
           <button type="button" class="mp-x" (click)="closed.emit()" title="Close">✕</button>
         </div>
         <div class="mp-body">
@@ -31,15 +36,19 @@ import { MusicLibraryComponent } from './music-library.component';
     </div>
   `,
   styles: [`
-    .mp-backdrop { position: fixed; inset: 0; z-index: 2000; background: rgba(2, 6, 23, .7);
-      display: flex; align-items: center; justify-content: center; padding: 16px; }
-    .mp-dialog { width: min(960px, 100%); max-height: 90vh; display: flex; flex-direction: column; gap: 10px;
-      background: #0f1420; color: #e2e8f0; border: 1px solid #263044; border-radius: 10px; padding: 14px 16px;
-      box-shadow: 0 20px 60px rgba(0,0,0,.6); }
-    .mp-head { display: flex; align-items: center; gap: 12px; }
-    .mp-hint { flex: 1; font-size: .75rem; color: #94a3b8; }
-    .mp-x { background: none; border: 0; color: #94a3b8; font-size: 1rem; cursor: pointer; }
-    .mp-body { overflow-y: auto; min-height: 0; }
+    .mp-backdrop { position: fixed; inset: 0; z-index: 2000; background: rgba(4, 6, 12, .75); backdrop-filter: blur(8px);
+      display: flex; align-items: center; justify-content: center; padding: 18px; }
+    .mp-dialog { width: min(1040px, 100%); max-height: 90vh; display: flex; flex-direction: column; gap: 12px;
+      background: linear-gradient(180deg, rgba(21, 26, 38, 0.98), rgba(14, 17, 24, 0.99)); color: var(--text, #eef1f8);
+      border: 1px solid var(--border-bright, #2f3a56); border-radius: 16px; padding: 16px 18px;
+      box-shadow: 0 24px 64px rgba(0,0,0,.68), inset 0 1px 0 rgba(255, 255, 255, 0.06); }
+    .mp-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+    .mp-title-wrap { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .mp-title-wrap strong { display: block; font-size: 1rem; font-weight: 800; letter-spacing: -0.01em; }
+    .mp-hint { display: block; font-size: .76rem; color: var(--muted, #7681a3); margin-top: 2px; }
+    .mp-x { background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border, #1f2637); border-radius: 8px; padding: 4px 10px; color: var(--muted, #7681a3); font-size: .95rem; cursor: pointer; }
+    .mp-x:hover { color: #fff; background: rgba(255, 255, 255, 0.08); transform: none; }
+    .mp-body { overflow-y: auto; min-height: 0; padding-right: 4px; }
   `],
 })
 export class MusicPickerDialogComponent {

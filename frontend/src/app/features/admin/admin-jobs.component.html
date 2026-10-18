@@ -1,8 +1,25 @@
-<div class="toolbar">
-  <button type="button" class="secondary" (click)="reload()" [disabled]="status.busy()">
-    Refresh
-  </button>
-  <span class="muted">The 40 most recent renders, newest first.</span>
+<div class="page-head" style="margin-top: 0">
+  <div style="display: flex; align-items: flex-start; gap: 0.85rem">
+    <div class="studio-icon-badge amber" style="width: 2.6rem; height: 2.6rem; margin-top: 2px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/>
+      </svg>
+    </div>
+    <div>
+      <div class="row" style="gap: 0.5rem; margin-bottom: 0.15rem">
+        <h2 style="margin: 0">Render Queue &amp; Jobs</h2>
+        @if (loaded()) {
+          <span class="pill brand">{{ jobs().length }} recent</span>
+        }
+      </div>
+      <p class="muted">The 40 most recent renders across all projects, newest first.</p>
+    </div>
+  </div>
+  <div class="row">
+    <button type="button" class="secondary" (click)="reload()" [disabled]="status.busy()">
+      ↻ Refresh
+    </button>
+  </div>
 </div>
 
 @if (!loaded()) {
@@ -11,59 +28,68 @@
   <div class="empty">Nothing has been rendered on this server yet.</div>
 } @else {
   <div class="card">
-    <table>
-      <thead>
-        <tr>
-          <th>Project</th><th>State</th><th>Progress</th>
-          <th>Started</th><th></th>
-        </tr>
-      </thead>
-      <tbody>
-        @for (job of jobs(); track job.id) {
+    <div class="studio-card-head">
+      <div class="studio-card-title-group">
+        <h3>Recent Render Jobs</h3>
+        <span class="pill">{{ jobs().length }}</span>
+      </div>
+    </div>
+    <div class="studio-table-wrap">
+      <table>
+        <thead>
           <tr>
-            <td>
-              <a [routerLink]="['/projects', job.projectId, 'render']">
-                <strong>{{ job.projectName ?? 'a deleted project' }}</strong>
-              </a>
-              <div class="mono muted">{{ job.id }}</div>
-            </td>
-            <td>
-              <span class="pill" [class]="'pill ' + tone(job)">{{ job.status }}</span>
-              @if (job.attempts > 1) {
-                <div class="muted">attempt {{ job.attempts }}</div>
-              }
-            </td>
-            <td style="width: 26%">
-              @if (job.isTerminal) {
-                <span class="muted">
-                  {{ job.scenesDone }} of {{ job.scenesTotal }} scenes
-                </span>
-              } @else {
-                <div class="bar"><i [style.width.%]="job.progress"></i></div>
-                <div class="muted">{{ job.stage }} &middot; {{ job.message }}</div>
-              }
-              @if (job.errorMessage) {
-                <div class="muted">{{ job.errorMessage }}</div>
-              }
-            </td>
-            <td class="muted">{{ job.createdAt | date: 'short' }}</td>
-            <td style="text-align: right">
-              @if (!job.isTerminal) {
-                <button type="button" class="secondary" (click)="cancel(job)">Cancel</button>
-              } @else if (canRetry(job)) {
-                <button type="button" class="secondary" (click)="retry(job)">
-                  Queue again
-                </button>
-              }
-            </td>
+            <th>Project</th><th>State</th><th>Progress</th>
+            <th>Started</th><th></th>
           </tr>
-        }
-      </tbody>
-    </table>
-    <p class="hint">
+        </thead>
+        <tbody>
+          @for (job of jobs(); track job.id) {
+            <tr>
+              <td>
+                <a [routerLink]="['/projects', job.projectId, 'render']">
+                  <strong>{{ job.projectName ?? 'a deleted project' }}</strong>
+                </a>
+                <div class="mono muted" style="font-size: 0.76rem">{{ job.id }}</div>
+              </td>
+              <td>
+                <span class="pill" [class]="'pill ' + tone(job)">{{ job.status }}</span>
+                @if (job.attempts > 1) {
+                  <div class="muted" style="font-size: 0.76rem; margin-top: 0.2rem">attempt {{ job.attempts }}</div>
+                }
+              </td>
+              <td style="width: 28%">
+                @if (job.isTerminal) {
+                  <span class="muted">
+                    {{ job.scenesDone }} of {{ job.scenesTotal }} scenes
+                  </span>
+                } @else {
+                  <div class="bar"><i [style.width.%]="job.progress"></i></div>
+                  <div class="muted" style="font-size: 0.8rem; margin-top: 0.2rem">{{ job.stage }} &middot; {{ job.message }}</div>
+                }
+                @if (job.errorMessage) {
+                  <div class="muted" style="color: var(--err); font-size: 0.8rem; margin-top: 0.2rem">{{ job.errorMessage }}</div>
+                }
+              </td>
+              <td class="muted mono" style="font-size: 0.8rem">{{ job.createdAt | date: 'short' }}</td>
+              <td style="text-align: right">
+                @if (!job.isTerminal) {
+                  <button type="button" class="secondary small" (click)="cancel(job)">Cancel</button>
+                } @else if (canRetry(job)) {
+                  <button type="button" class="secondary small" (click)="retry(job)">
+                    ↻ Queue again
+                  </button>
+                }
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    <p class="hint" style="margin-top: 0.75rem">
       Queueing again resets the attempt count and clears the error, and is offered only for
       a render that failed or was cancelled &mdash; requeuing a finished one would overwrite
       the video it already produced.
     </p>
   </div>
 }
+

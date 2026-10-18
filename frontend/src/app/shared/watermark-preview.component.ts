@@ -48,8 +48,9 @@ import { WatermarkBody } from '../core/models/api.models';
     :host { display: block; flex-shrink: 0; }
     .wp-frame {
       position: relative; width: 100%; overflow: hidden; flex-shrink: 0;
-      border-radius: 6px; border: 1px solid var(--border, #1e2433);
+      border-radius: 10px; border: 1px solid rgba(148, 163, 184, 0.22);
       container-type: size; background: #0b1020 center / cover no-repeat;
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06);
     }
     .wp-scene { position: absolute; inset: 0;
       background: linear-gradient(180deg, #1e3a5f 0%, #3b5a7a 55%, #22324a 100%); }
@@ -61,12 +62,12 @@ import { WatermarkBody } from '../core/models/api.models';
     .wp-mark { position: absolute; display: flex; }
     .wp-mark img { height: 100%; max-width: 35cqw; object-fit: contain; display: block; }
     .wp-text { font-weight: 700; line-height: 1; padding: 0 0.25em; white-space: nowrap;
-      font-family: 'Segoe UI', system-ui, sans-serif; }
-    .wp-missing, .wp-none { font-size: 0.7rem; color: #cbd5e1; background: rgba(0,0,0,.55);
-      padding: 2px 6px; border-radius: 4px; border: 1px dashed #475569; white-space: nowrap; }
+      font-family: 'Segoe UI', system-ui, sans-serif; border-radius: 3px; }
+    .wp-missing, .wp-none { font-size: 0.7rem; color: #cbd5e1; background: rgba(6, 9, 17, 0.72);
+      backdrop-filter: blur(6px); padding: 3px 8px; border-radius: 6px; border: 1px dashed rgba(148, 163, 184, 0.35); white-space: nowrap; }
     .wp-none { position: absolute; left: 50%; top: 50%; translate: -50% -50%; }
-    .wp-label { position: absolute; left: 6px; bottom: 6px; font-size: 0.65rem; color: #e2e8f0;
-      background: rgba(0,0,0,.55); padding: 1px 6px; border-radius: 4px; }
+    .wp-label { position: absolute; left: 8px; bottom: 8px; font-size: 0.65rem; font-weight: 600; color: #e2e8f0;
+      background: rgba(6, 9, 17, 0.72); backdrop-filter: blur(6px); border: 1px solid rgba(148, 163, 184, 0.18); padding: 2px 7px; border-radius: 6px; }
   `],
 })
 export class WatermarkPreviewComponent {

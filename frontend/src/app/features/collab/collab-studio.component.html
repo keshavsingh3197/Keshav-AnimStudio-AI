@@ -1,13 +1,17 @@
-<div class="page-head co-head">
+<div class="page-head co-head studio-wide-page">
   <div>
-    <h2>🤝 Collab Studio</h2>
-    <p class="muted co-lede">
+    <div style="display: flex; align-items: center; gap: 0.75rem">
+      <div class="studio-icon-badge purple" aria-hidden="true">🤝</div>
+      <h2 style="margin: 0">Collab Studio</h2>
+      <span class="pill brand" style="font-size: 0.7rem">Multi-Track Duet</span>
+    </div>
+    <p class="muted co-lede" style="margin-top: 0.35rem">
       Record yourself with an existing video: side by side, stacked, reacting in a bubble, cut out in front of it,
       answering after a part of it, or commenting part by part. Speak as one of your characters if you like. Change the layout, sync or volume after recording without filming again.
       Everything stays on this machine until you save it.
     </p>
   </div>
-  <a routerLink="/live/camera" class="co-switch">📷 Camera Studio →</a>
+  <a routerLink="/live/camera" class="secondary co-switch">📷 Camera Studio →</a>
 </div>
 
 @if (error(); as message) {

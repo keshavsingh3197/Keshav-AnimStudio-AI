@@ -1,4 +1,4 @@
-<section class="ck">
+<section class="ck studio-wide-page">
   <header class="ck-head">
     <div>
       <p class="ck-eyebrow"><a routerLink="/youtube">YouTube</a> › Details checkup</p>
@@ -70,8 +70,13 @@
             </button>
           }
         }
-        <input type="search" class="ck-search" placeholder="Search title, description, tags…" maxlength="100"
-               [ngModel]="query()" (ngModelChange)="setQuery($event)" aria-label="Search videos" />
+        <div class="studio-search-wrap" style="flex: 1 1 14rem; min-width: 180px">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+          </svg>
+          <input type="search" class="ck-search" placeholder="Search title, description, tags…" maxlength="100"
+                 [ngModel]="query()" (ngModelChange)="setQuery($event)" aria-label="Search videos" />
+        </div>
         <select class="ck-select" [ngModel]="sort()" (ngModelChange)="setSort($event)" aria-label="Sort videos">
           <option value="newest">Newest first</option>
           <option value="oldest">Oldest first</option>

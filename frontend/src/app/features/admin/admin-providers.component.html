@@ -1,11 +1,51 @@
 @if (data(); as data) {
-  <div class="toolbar">
-    <button type="button" class="secondary" (click)="reload()">Refresh</button>
-    @if (!anyReady()) {
-      <span class="muted">
-        Nothing is switched on. That is a supported way to run AnimStudio.
-      </span>
-    }
+  <div class="page-head" style="margin-top: 0">
+    <div style="display: flex; align-items: flex-start; gap: 0.85rem">
+      <div class="studio-icon-badge purple" style="width: 2.6rem; height: 2.6rem; margin-top: 2px">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+        </svg>
+      </div>
+      <div>
+        <div class="row" style="gap: 0.5rem; margin-bottom: 0.15rem">
+          <h2 style="margin: 0">AI Providers &amp; Fallback Chains</h2>
+          <span class="pill" [class.ok]="anyReady()" [class.warn]="!anyReady()">
+            {{ anyReady() ? 'Ready' : 'Offline Mode' }}
+          </span>
+        </div>
+        <p class="muted">
+          @if (!anyReady()) {
+            Nothing is switched on. That is a supported way to run AnimStudio.
+          } @else {
+            Configure local and cloud AI engines, rate ceilings, API keys, and automatic fallback order.
+          }
+        </p>
+      </div>
+    </div>
+    <div class="row">
+      <button type="button" class="secondary" (click)="reload()" [disabled]="status.busy()">↻ Refresh</button>
+    </div>
+  </div>
+
+  <div class="sb-kpi-strip">
+    <div class="sb-kpi-card">
+      <span class="sb-kpi-label">Registered Engines</span>
+      <strong class="sb-kpi-val mono">{{ data.providers.length }}</strong>
+    </div>
+    <div class="sb-kpi-card">
+      <span class="sb-kpi-label">Capabilities</span>
+      <strong class="sb-kpi-val mono">{{ capabilities.length }}</strong>
+    </div>
+    <div class="sb-kpi-card">
+      <span class="sb-kpi-label">Key Encryption</span>
+      <strong class="sb-kpi-val" [style.color]="data.encryptionConfigured ? 'var(--ok)' : 'var(--warn)'">
+        {{ data.encryptionConfigured ? 'Configured' : 'Local Only' }}
+      </strong>
+    </div>
+    <div class="sb-kpi-card">
+      <span class="sb-kpi-label">Allowed Hosts</span>
+      <strong class="sb-kpi-val mono">{{ data.hostAllowlist.length }}</strong>
+    </div>
   </div>
 
   @if (!data.encryptionConfigured) {
@@ -18,19 +58,28 @@
   }
 
   @for (capability of capabilities; track capability) {
-    <div class="section-head" style="margin-top: 1.4rem">
-      <div>
-        <h3>{{ label(capability) }}</h3>
-        <p class="muted" style="margin: 0">{{ describe(capability) }}</p>
+    <div class="section-head" style="margin-top: 1.6rem; margin-bottom: 0.75rem">
+      <div class="studio-card-title-group">
+        <span class="studio-icon-badge" style="width: 2rem; height: 2rem; border-radius: 8px; font-size: 0.9rem">
+          {{ capability === 'Text' ? '✍️' : capability === 'Image' ? '🎨' : capability === 'Speech' ? '🗣️' : '🎧' }}
+        </span>
+        <div>
+          <h3 style="margin: 0">{{ label(capability) }}</h3>
+          <p class="muted" style="margin: 0; font-size: 0.84rem">{{ describe(capability) }}</p>
+        </div>
       </div>
+      <span class="pill brand">{{ forCapability(capability).length }} providers</span>
     </div>
 
     <!-- Fallback order, first, because it is what decides which of the cards below
          actually gets used. -->
     @if (chain(capability); as chain) {
-      <div class="card">
-        <div class="section-head">
-          <strong>Tried in this order</strong>
+      <div class="card" style="border-color: color-mix(in srgb, var(--brand) 28%, var(--border))">
+        <div class="studio-card-head">
+          <div class="studio-card-title-group">
+            <strong>Tried in this order</strong>
+            <span class="pill brand">Fallback Chain</span>
+          </div>
           @if (chain.managedHere) {
             <button class="link" type="button" (click)="resetChain(capability)">
               back to the configuration file
@@ -80,7 +129,7 @@
     }
 
     @for (provider of forCapability(capability); track provider.id) {
-      <div class="card">
+      <div class="card" [style.border-color]="open() === provider.id ? 'var(--brand)' : ''">
         <div class="provider-head">
           <span class="dot" [class]="'dot ' + state(provider)"></span>
           <h3>{{ provider.displayName }}</h3>
@@ -90,7 +139,7 @@
             <span class="pill ok">on this machine</span>
           }
           @if (provider.chainPosition !== null) {
-            <span class="pill">#{{ provider.chainPosition + 1 }} in order</span>
+            <span class="pill brand">#{{ provider.chainPosition + 1 }} in order</span>
           }
           @if (provider.managedHere) {
             <span class="pill" title="Saved here, so these values beat appsettings.json">saved here</span>
@@ -106,23 +155,23 @@
           </label>
         </div>
 
-        <p class="muted" style="margin-bottom: .5rem">{{ explain(provider) }}</p>
+        <p class="muted" style="margin-bottom: .65rem">{{ explain(provider) }}</p>
 
         <div class="row">
-          <button type="button" class="secondary" (click)="toggleOpen(provider)">
-            {{ open() === provider.id ? 'Close' : 'Settings' }}
+          <button type="button" class="secondary small" [class.active]="open() === provider.id" (click)="toggleOpen(provider)">
+            {{ open() === provider.id ? '✕ Close' : '⚙ Settings' }}
           </button>
-          <button type="button" class="secondary" (click)="test(provider)"
+          <button type="button" class="secondary small" (click)="test(provider)"
                   [disabled]="status.busy()">
-            Test connection
+            ⚡ Test connection
           </button>
           @if (provider.key.configured) {
-            <span class="mono muted">key {{ provider.key.masked }}</span>
+            <span class="pill ok mono">key {{ provider.key.masked }}</span>
           } @else if (provider.requiresApiKey) {
-            <span class="muted">no key installed</span>
+            <span class="muted" style="font-size: 0.82rem">no key installed</span>
           }
           @if (tested()[provider.id]; as result) {
-            <span class="muted">{{ result }}</span>
+            <span class="pill">{{ result }}</span>
           }
         </div>
 
@@ -274,8 +323,14 @@
     }
   }
 
-  <div class="card">
-    <h3>Where a request may go</h3>
+  <div class="card" style="margin-top: 1.5rem">
+    <div class="studio-card-head">
+      <div class="studio-card-title-group">
+        <span class="studio-icon-badge emerald" style="width: 2rem; height: 2rem; border-radius: 8px">🛡️</span>
+        <h3>Where a request may go</h3>
+      </div>
+      <span class="pill ok">SSRF Guard Active</span>
+    </div>
     <p class="muted">
       Outbound AI calls are limited to these hosts. The list is part of the server's
       configuration and is deliberately not editable here &mdash; a control that could be
@@ -289,5 +344,8 @@
     </div>
   </div>
 } @else {
-  <div class="card muted">Loading&hellip;</div>
+  <div class="card muted" style="display: flex; align-items: center; gap: 0.65rem">
+    <span class="spinner"></span> Loading&hellip;
+  </div>
 }
+

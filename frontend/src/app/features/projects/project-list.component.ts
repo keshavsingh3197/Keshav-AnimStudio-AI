@@ -442,11 +442,11 @@ export class ProjectListComponent {
 
   heading(point: StartingPoint): string {
     switch (point) {
-      case 'prompt': return '🪄 AI Prompt to Video — Describe your concept';
-      case 'bundle': return '📊 Batch CSV Import — Bulk project creator';
-      case 'import': return '🎙️ Script & Voiceover — Timed production';
-      case 'clips': return '🎬 New Video Project — Multi-Track NLE Timeline';
-      default: return '🎭 New Project — Scenes & Cast Creator';
+      case 'prompt': return 'AI Prompt to Video — Describe your concept';
+      case 'bundle': return 'Batch CSV Import — Bulk project creator';
+      case 'import': return 'Script & Voiceover — Timed production';
+      case 'clips': return 'New Video Project — Multi-Track NLE Timeline';
+      default: return 'New Project — Scenes & Cast Creator';
     }
   }
 

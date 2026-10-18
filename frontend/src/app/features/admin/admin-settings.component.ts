@@ -14,14 +14,29 @@ import { AdminSettingsService, WebSetting, WebSettingsOverview } from '../../cor
   imports: [DatePipe],
   template: `
     <section class="ws">
-      <header class="ws-head">
-        <div>
-          <h2>Application settings</h2>
-          <p class="muted">Stored in the database and layered over appsettings.json. Changes apply immediately unless marked <span class="badge restart">after restart</span>.</p>
+      <header class="page-head" style="margin-top: 0">
+        <div style="display: flex; align-items: flex-start; gap: 0.85rem">
+          <div class="studio-icon-badge" style="width: 2.6rem; height: 2.6rem; margin-top: 2px">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>
+            </svg>
+          </div>
+          <div>
+            <div class="row" style="gap: 0.5rem; margin-bottom: 0.15rem">
+              <h2 style="margin: 0">Application settings</h2>
+              <span class="pill brand">Runtime Config</span>
+            </div>
+            <p class="muted">Stored in the database and layered over appsettings.json. Changes apply immediately unless marked <span class="badge restart">after restart</span>.</p>
+          </div>
         </div>
         <div class="ws-tools">
-          <input type="search" placeholder="Filter settings" [value]="filter()" (input)="filter.set($any($event.target).value)" aria-label="Filter settings" />
-          <button type="button" class="btn-outline icon" (click)="refresh()" [disabled]="busy()" title="Reload settings from the database">
+          <div class="studio-search-wrap" style="min-width: 230px">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+            </svg>
+            <input type="search" placeholder="Filter settings…" [value]="filter()" (input)="filter.set($any($event.target).value)" aria-label="Filter settings" />
+          </div>
+          <button type="button" class="secondary" (click)="refresh()" [disabled]="busy()" title="Reload settings from the database">
             <span [class.spin]="busy()">↻</span> Refresh config
           </button>
         </div>
@@ -31,26 +46,35 @@ import { AdminSettingsService, WebSetting, WebSettingsOverview } from '../../cor
         @if (o.pendingRestartCount > 0) {
           <div class="notice">{{ o.pendingRestartCount }} {{ o.pendingRestartCount === 1 ? 'change waits' : 'changes wait' }} for a server restart to take effect.</div>
         }
-        @if (o.loadedAt) { <p class="muted small">Loaded from the database {{ o.loadedAt | date: 'medium' }}.</p> }
+        @if (o.loadedAt) { <p class="muted small" style="margin-bottom: 0.85rem">Loaded from the database {{ o.loadedAt | date: 'medium' }}.</p> }
       }
-      @if (error()) { <p class="err">{{ error() }}</p> }
+      @if (error()) { <div class="notice error">{{ error() }}</div> }
 
       @for (group of groups(); track group.name) {
-        <div class="ws-card">
-          <h3>{{ group.name }}</h3>
+        <div class="card ws-card">
+          <div class="studio-card-head">
+            <div class="studio-card-title-group">
+              <h3>{{ group.name }}</h3>
+              <span class="pill">{{ group.settings.length }}</span>
+            </div>
+          </div>
           @for (s of group.settings; track s.key) {
             <div class="ws-row" [class.changed]="s.storedValue != null">
               <div class="ws-info">
-                <label [attr.for]="'ws-' + s.key">{{ s.label }}</label>
-                <span class="badge" [class.restart]="!s.appliesLive">{{ s.appliesLive ? 'live' : 'after restart' }}</span>
-                @if (s.pendingRestart) { <span class="badge warn">restart needed</span> }
+                <div class="row" style="gap: 0.4rem; margin-bottom: 0.15rem">
+                  <label [attr.for]="'ws-' + s.key" style="margin: 0">{{ s.label }}</label>
+                  <span class="badge" [class.restart]="!s.appliesLive">{{ s.appliesLive ? 'live' : 'after restart' }}</span>
+                  @if (s.pendingRestart) { <span class="badge warn">restart needed</span> }
+                </div>
                 <p class="muted small">{{ s.description }}</p>
-                <code class="muted small">{{ s.key }}</code>
-                <span class="muted small">
-                  · {{ s.storedValue != null ? 'set here' : 'from appsettings' }}
-                  @if (s.storedValue != null && s.fileValue != null) { (file: {{ s.fileValue }}) }
-                  @if (s.updatedAt) { · {{ s.updatedAt | date: 'short' }} }
-                </span>
+                <div style="margin-top: 0.15rem">
+                  <code class="muted small">{{ s.key }}</code>
+                  <span class="muted small">
+                    · {{ s.storedValue != null ? 'set here' : 'from appsettings' }}
+                    @if (s.storedValue != null && s.fileValue != null) { (file: {{ s.fileValue }}) }
+                    @if (s.updatedAt) { · {{ s.updatedAt | date: 'short' }} }
+                  </span>
+                </div>
               </div>
 
               <div class="ws-edit">
@@ -59,7 +83,8 @@ import { AdminSettingsService, WebSetting, WebSettingsOverview } from '../../cor
                     <label class="switch">
                       <input type="checkbox" [id]="'ws-' + s.key" [checked]="draftOf(s) === 'true'"
                              (change)="setDraft(s, $any($event.target).checked ? 'true' : 'false')" />
-                      {{ draftOf(s) === 'true' ? 'On' : 'Off' }}
+                      <span class="track"></span>
+                      <span>{{ draftOf(s) === 'true' ? 'On' : 'Off' }}</span>
                     </label>
                   }
                   @case ('Choice') {
@@ -82,9 +107,9 @@ import { AdminSettingsService, WebSetting, WebSettingsOverview } from '../../cor
                 }
                 @if (s.min != null && s.max != null) { <span class="muted small">{{ s.min }}–{{ s.max }}</span> }
                 <div class="ws-btns">
-                  <button type="button" class="btn-primary-glow" (click)="save(s)" [disabled]="busy() || !isDirty(s)">Save</button>
+                  <button type="button" class="small" (click)="save(s)" [disabled]="busy() || !isDirty(s)">Save</button>
                   @if (s.storedValue != null) {
-                    <button type="button" class="btn-outline" (click)="reset(s)" [disabled]="busy()" title="Go back to the appsettings.json value">Reset</button>
+                    <button type="button" class="secondary small" (click)="reset(s)" [disabled]="busy()" title="Go back to the appsettings.json value">Reset</button>
                   }
                 </div>
               </div>
@@ -95,28 +120,23 @@ import { AdminSettingsService, WebSetting, WebSettingsOverview } from '../../cor
     </section>
   `,
   styles: [`
-    .ws-head { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; align-items: flex-start; margin-bottom: .75rem; }
-    .ws-head h2 { margin: 0 0 .25rem; }
-    .ws-tools { display: flex; gap: .5rem; align-items: center; }
-    .ws-tools input { min-width: 200px; }
-    .ws-card { border: 1px solid var(--border, rgba(148, 163, 184, .2)); border-radius: 12px; padding: .75rem 1rem; margin-bottom: 1rem; }
-    .ws-card h3 { margin: .25rem 0 .5rem; font-size: 1rem; }
-    .ws-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 1rem; padding: .65rem 0;
-      border-top: 1px solid var(--border, rgba(148, 163, 184, .12)); }
-    .ws-row:first-of-type { border-top: 0; }
-    .ws-row.changed .ws-info label { color: var(--brand, #6c8cff); }
+    .ws-tools { display: flex; gap: .55rem; align-items: center; flex-wrap: wrap; }
+    .ws-card h3 { margin: 0; font-size: 1.02rem; }
+    .ws-row { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 1rem; padding: .8rem 0;
+      border-top: 1px solid var(--border); align-items: center; }
+    .ws-row:first-of-type { border-top: 0; padding-top: 0.2rem; }
+    .ws-row.changed .ws-info label { color: var(--brand-bright); }
     @media (max-width: 720px) { .ws-row { grid-template-columns: 1fr; } }
-    .ws-info label { font-weight: 600; margin-right: .4rem; }
+    .ws-info label { font-weight: 700; color: var(--text); font-size: 0.9rem; }
     .ws-info p { margin: .2rem 0; }
-    .ws-edit { display: flex; flex-wrap: wrap; gap: .4rem .6rem; align-items: center; align-content: flex-start; }
+    .ws-edit { display: flex; flex-wrap: wrap; gap: .45rem .6rem; align-items: center; align-content: flex-start; }
     .ws-edit input[type=number] { width: 9rem; }
     .ws-edit input[type=text], .ws-edit input[type=url] { flex: 1; min-width: 12rem; }
     .ws-btns { display: flex; gap: .4rem; }
-    .switch { display: inline-flex; align-items: center; gap: .4rem; cursor: pointer; }
-    .badge { font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; padding: .1rem .4rem; border-radius: 999px;
-      background: rgba(34, 197, 94, .15); color: #86efac; vertical-align: middle; }
-    .badge.restart { background: rgba(148, 163, 184, .15); color: #cbd5e1; }
-    .badge.warn { background: rgba(245, 158, 11, .18); color: #fcd34d; margin-left: .25rem; }
+    .badge { font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: .12rem .45rem; border-radius: 999px;
+      background: var(--ok-dim); color: var(--ok); vertical-align: middle; }
+    .badge.restart { background: rgba(148, 163, 184, .14); color: var(--text-dim); }
+    .badge.warn { background: var(--warn-dim); color: var(--warn); margin-left: .25rem; }
     .small { font-size: .78rem; }
     .spin { display: inline-block; animation: spin 1s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }

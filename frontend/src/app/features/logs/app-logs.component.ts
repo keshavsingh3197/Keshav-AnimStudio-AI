@@ -10,6 +10,73 @@ import { StatusService } from '../../core/services/status.service';
   selector: 'app-logs',
   imports: [DatePipe, DecimalPipe, FormsModule],
   templateUrl: './app-logs.component.html',
+  styles: [`
+    .filter-chip {
+      padding: 0.34rem 0.72rem;
+      font-size: 0.76rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      border-radius: 99px;
+      background: var(--surface-2);
+      color: var(--muted);
+      border: 1px solid var(--border);
+      box-shadow: none;
+      transition: all 0.15s ease;
+    }
+    .filter-chip:hover:not(:disabled) {
+      color: var(--text);
+      border-color: var(--border-bright);
+      background: var(--surface-3);
+      transform: none;
+      box-shadow: none;
+    }
+    .filter-chip.active {
+      background: rgba(108, 140, 255, 0.16);
+      color: var(--brand-bright);
+      border-color: var(--brand);
+      box-shadow: 0 0 12px rgba(108, 140, 255, 0.2);
+    }
+    .filter-chip[data-level="ERROR"].active {
+      background: var(--err-dim);
+      color: var(--err);
+      border-color: color-mix(in oklab, var(--err) 55%, transparent);
+      box-shadow: 0 0 12px rgba(244, 67, 80, 0.2);
+    }
+    .filter-chip[data-level="WARN"].active {
+      background: var(--warn-dim);
+      color: var(--warn);
+      border-color: color-mix(in oklab, var(--warn) 55%, transparent);
+      box-shadow: 0 0 12px rgba(245, 158, 11, 0.2);
+    }
+    .filter-chip[data-level="INFO"].active {
+      background: var(--ok-dim);
+      color: var(--ok);
+      border-color: color-mix(in oklab, var(--ok) 55%, transparent);
+      box-shadow: 0 0 12px rgba(34, 211, 107, 0.2);
+    }
+    .logs-console-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.65rem 1rem;
+      background: color-mix(in srgb, var(--surface-2) 85%, #000);
+      border-bottom: 1px solid var(--border);
+      font-size: 0.78rem;
+    }
+    .logs-dots {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .logs-dots i {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      display: inline-block;
+      opacity: 0.75;
+    }
+  `],
 })
 export class AppLogsComponent implements OnInit {
   private readonly api = inject(ApiService);
