@@ -1604,3 +1604,34 @@ export const EDIT_FORMATS: { value: EditFormat; label: string; ratio: string; wi
 
 /** Suggested categories; any text is allowed. */
 export const EDIT_CATEGORY_SUGGESTIONS = ['Full video', 'Short', 'Teaser', 'Highlight', 'Trailer', 'Reel', 'Clip'];
+
+export interface BatchSceneStyleBody {
+  backgroundEffect?: string;
+  randomizeMotion?: boolean;
+  intensity?: number;
+  easing?: string;
+  transition?: string;
+  transitionDurationSeconds?: number;
+  durationSeconds?: number;
+}
+
+export interface ServerLogFileItem {
+  name: string;
+  sizeBytes: number;
+  updatedAtUtc: string;
+}
+
+export interface ServerLogEntry {
+  timestamp: string;
+  level: string;
+  category: string;
+  message: string;
+  raw: string;
+}
+
+export interface ServerLogsResponse {
+  files: ServerLogFileItem[];
+  activeFile: string | null;
+  entries: ServerLogEntry[];
+}
+

@@ -289,6 +289,181 @@ public sealed class SystemController(
 
         return Ok(ApiResponse<double>.Ok(settings.DefaultChunkDurationSeconds));
     }
+
+    /// <summary>
+    /// Returns the Project Hub configuration (aspect ratio presets, studio templates,
+    /// quick-start actions, and current storage usage) so the Project Hub modal never 404s.
+    /// </summary>
+    [HttpGet("hub-config")]
+    public async Task<ActionResult<ApiResponse<AnimStudio.Domain.System.HubConfig>>> GetHubConfig(CancellationToken ct)
+    {
+        var settings = await aiSettingsRepo.GetAsync(ct);
+        var usage = await storageUsage.GetAsync(refresh: false, ct);
+        var summary = usage.ToSummary(settings?.StorageQuotaGb);
+
+        const double bytesPerGb = 1024.0 * 1024.0 * 1024.0;
+        var usedGb = Math.Round(summary.UsedBytes / bytesPerGb, 2);
+        var totalGb = summary.CapacityBytes.HasValue
+            ? Math.Round(summary.CapacityBytes.Value / bytesPerGb, 2)
+            : (settings?.StorageQuotaGb ?? 50.0);
+
+        var config = new AnimStudio.Domain.System.HubConfig
+        {
+            Id = "default",
+            StorageUsedGb = usedGb,
+            StorageTotalGb = totalGb,
+            Presets =
+            [
+                new() { Label = "YouTube (16:9)", Width = 1920, Height = 1080 },
+                new() { Label = "Shorts / Reels (9:16)", Width = 1080, Height = 1920 },
+                new() { Label = "Square (1:1)", Width = 1080, Height = 1080 },
+                new() { Label = "Social Feed (4:5)", Width = 1080, Height = 1350 },
+                new() { Label = "Ultrawide (21:9)", Width = 2560, Height = 1080 },
+                new() { Label = "4K UHD (16:9)", Width = 3840, Height = 2160 }
+            ],
+            Templates =
+            [
+                new() { Id = "tpl-yt", Name = "YouTube Storytelling (16:9)", WireframeClass = "wf-16-9", Tags = ["1080p", "Landscape", "Subtitles"] },
+                new() { Id = "tpl-shorts", Name = "Viral Shorts / Reels (9:16)", WireframeClass = "wf-9-16", Tags = ["Vertical", "Auto-Hook", "Fast Cut"] },
+                new() { Id = "tpl-podcast", Name = "Podcast & Dialogue Cut", WireframeClass = "wf-16-9", Tags = ["2 Speakers", "Audio Sync"] },
+                new() { Id = "tpl-music", Name = "Music Visualizer & Visualizer Bed", WireframeClass = "wf-1-1", Tags = ["Music", "YouTube Music"] }
+            ],
+            QuickStarts =
+            [
+                new() { Id = "qs-blank", Icon = "✨", Label = "Blank Project", Tooltip = "Start a clean project on a 1080p canvas" },
+                new() { Id = "qs-script", Icon = "📝", Label = "From Script / SRT", Tooltip = "Generate timed scenes from a transcript or subtitle file" },
+                new() { Id = "qs-shorts", Icon = "⚡", Label = "Auto Shorts Batch", Tooltip = "Cut vertical shorts from existing clips and hooks" },
+                new() { Id = "qs-bundle", Icon = "📦", Label = "Import ZIP Bundle", Tooltip = "Build an entire project from a single ZIP bundle" }
+            ]
+        };
+
+        return Ok(ApiResponse<AnimStudio.Domain.System.HubConfig>.Ok(config));
+    }
+
+    /// <summary>
+    /// Tails recent entries from the server's rolling daily log files under <c>App_Data/logs</c>.
+    /// Restricted by the same admission rule as the admin console so remote unauthenticated callers
+    /// cannot read server logs.
+    /// </summary>
+    [HttpGet("logs")]
+    public async Task<ActionResult<ApiResponse<ServerLogsResponse>>> GetServerLogs(
+        [FromServices] AnimStudio.Infrastructure.Storage.AppDataPaths dataPaths,
+        [FromQuery] string? file = null,
+        [FromQuery] int lines = 250,
+        [FromQuery] string? level = null,
+        [FromQuery] string? search = null,
+        CancellationToken ct = default)
+    {
+        if (!AdminAccessRules.IsAdmitted(adminOptions.CurrentValue, HttpContext, User))
+        {
+            return StatusCode(403, ApiResponse<ServerLogsResponse>.Fail(
+                "Server logs are only available to local or administrator sessions.",
+                new ApiError("forbidden", "Server logs require administrator access.")));
+        }
+
+        var logDir = dataPaths.Logs;
+        if (!Directory.Exists(logDir))
+        {
+            return Ok(ApiResponse<ServerLogsResponse>.Ok(new ServerLogsResponse([], null, [])));
+        }
+
+        var dirInfo = new DirectoryInfo(logDir);
+        var logFiles = dirInfo.GetFiles("*.log")
+            .OrderByDescending(f => f.LastWriteTimeUtc)
+            .Select(f => new ServerLogFileItem(f.Name, f.Length, f.LastWriteTimeUtc))
+            .ToList();
+
+        if (logFiles.Count == 0)
+        {
+            return Ok(ApiResponse<ServerLogsResponse>.Ok(new ServerLogsResponse([], null, [])));
+        }
+
+        var targetName = !string.IsNullOrWhiteSpace(file)
+            && logFiles.Any(f => string.Equals(f.Name, file, StringComparison.OrdinalIgnoreCase))
+            ? logFiles.First(f => string.Equals(f.Name, file, StringComparison.OrdinalIgnoreCase)).Name
+            : logFiles[0].Name;
+
+        var fullPath = Path.Combine(logDir, Path.GetFileName(targetName));
+        var clampedLines = Math.Clamp(lines, 20, 1000);
+        var entries = new List<ServerLogEntry>();
+
+        if (System.IO.File.Exists(fullPath))
+        {
+            var rawLines = new List<string>();
+            await using (var fs = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+            using (var reader = new StreamReader(fs))
+            {
+                while (await reader.ReadLineAsync(ct) is { } line)
+                {
+                    if (!string.IsNullOrWhiteSpace(line))
+                        rawLines.Add(line);
+                }
+            }
+
+            for (var i = rawLines.Count - 1; i >= 0 && entries.Count < clampedLines; i--)
+            {
+                var parsed = ParseLogLine(rawLines[i]);
+                if (!string.IsNullOrWhiteSpace(level)
+                    && !string.Equals(level, "ALL", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(parsed.Level, level, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (!string.IsNullOrWhiteSpace(search)
+                    && !parsed.Message.Contains(search, StringComparison.OrdinalIgnoreCase)
+                    && !parsed.Category.Contains(search, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                entries.Add(parsed);
+            }
+        }
+
+        return Ok(ApiResponse<ServerLogsResponse>.Ok(
+            new ServerLogsResponse(logFiles, targetName, entries)));
+    }
+
+    private static ServerLogEntry ParseLogLine(string raw)
+    {
+        // Format written by DailyFileLoggerProvider:
+        // 2026-10-18 12:34:56.789 +05:30 [INF] Category.Name: Message
+        try
+        {
+            var openBracket = raw.IndexOf('[');
+            var closeBracket = openBracket > 0 ? raw.IndexOf(']', openBracket) : -1;
+            if (openBracket > 0 && closeBracket > openBracket)
+            {
+                var timestamp = raw[..openBracket].Trim();
+                var lvl = raw[(openBracket + 1)..closeBracket].Trim().ToUpperInvariant();
+                var rest = raw[(closeBracket + 1)..].Trim();
+                var colonIdx = rest.IndexOf(": ", StringComparison.Ordinal);
+                if (colonIdx > 0)
+                {
+                    var cat = rest[..colonIdx].Trim();
+                    var msg = rest[(colonIdx + 2)..].Trim();
+                    return new ServerLogEntry(timestamp, NormalizeLevel(lvl), cat, msg, raw);
+                }
+
+                return new ServerLogEntry(timestamp, NormalizeLevel(lvl), "System", rest, raw);
+            }
+        }
+        catch
+        {
+            // Fallback for continuation / stack trace lines
+        }
+
+        return new ServerLogEntry(string.Empty, "INFO", "Continuation", raw, raw);
+    }
+
+    private static string NormalizeLevel(string lvl) => lvl switch
+    {
+        "ERR" or "ERROR" or "FTL" or "CRT" or "CRITICAL" => "ERROR",
+        "WRN" or "WARN" or "WARNING" => "WARN",
+        "DBG" or "DEBUG" or "TRC" or "TRACE" => "DEBUG",
+        _ => "INFO"
+    };
 }
 
 public sealed record MediaSystemSettingsResponse(
@@ -301,4 +476,19 @@ public sealed record MediaSystemSettingsResponse(
 public sealed record UpdateChunkDurationRequest(double DefaultChunkDurationSeconds);
 
 public sealed record UpdateImageDurationRequest(double DefaultImageDurationSeconds);
+
+public sealed record ServerLogFileItem(string Name, long SizeBytes, DateTime UpdatedAtUtc);
+
+public sealed record ServerLogEntry(
+    string Timestamp,
+    string Level,
+    string Category,
+    string Message,
+    string Raw);
+
+public sealed record ServerLogsResponse(
+    IReadOnlyList<ServerLogFileItem> Files,
+    string? ActiveFile,
+    IReadOnlyList<ServerLogEntry> Entries);
+
 

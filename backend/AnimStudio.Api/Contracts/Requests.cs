@@ -315,6 +315,22 @@ public sealed record AssignAssetRequest
     [Required, StringLength(64)] public string AssetId { get; init; } = string.Empty;
 }
 
+public sealed record DuplicateProjectRequest
+{
+    [StringLength(120)] public string? Name { get; init; }
+}
+
+public sealed record BatchSceneStyleRequest
+{
+    public BackgroundEffect? BackgroundEffect { get; init; }
+    public bool RandomizeMotion { get; init; }
+    [Range(0, 1)] public double? Intensity { get; init; }
+    public Easing? Easing { get; init; }
+    public SceneTransition? Transition { get; init; }
+    [Range(0, 60)] public double? TransitionDurationSeconds { get; init; }
+    [Range(0.5, 3600)] public double? DurationSeconds { get; init; }
+}
+
 /// <summary>
 /// A watermark, as the client describes it.
 /// <para>

@@ -177,6 +177,29 @@ public sealed class ScenesController(
         return Ok(ApiResponse<int>.Ok(count));
     }
 
+    /// <summary>
+    /// Applies camera motion, transitions, or uniform timing across all scenes in the project.
+    /// </summary>
+    [HttpPut("api/projects/{projectId}/scenes/style")]
+    public async Task<ActionResult<ApiResponse<int>>> SetAllStyles(
+        string projectId, [FromBody] BatchSceneStyleRequest request, CancellationToken ct)
+    {
+        var count = await editing.BatchUpdateStyleAsync(new BatchSceneStyleCommand
+        {
+            ProjectId = projectId,
+            UserId = currentUser.UserId,
+            BackgroundEffect = request.BackgroundEffect,
+            RandomizeMotion = request.RandomizeMotion,
+            Intensity = request.Intensity,
+            Easing = request.Easing,
+            Transition = request.Transition,
+            TransitionDurationSeconds = request.TransitionDurationSeconds,
+            DurationSeconds = request.DurationSeconds
+        }, ct);
+
+        return Ok(ApiResponse<int>.Ok(count));
+    }
+
     [HttpPost("api/scenes/{sceneId}/dialogue")]
     public async Task<ActionResult<ApiResponse<SceneDetailResponse>>> AddDialogue(
         string sceneId, [FromBody] UpsertDialogueRequest request, CancellationToken ct)

@@ -71,6 +71,18 @@ export class ApiService {
       this.http.get<ApiResponse<AdminAccess>>(`${this.base}/api/system/admin-access`));
   }
 
+  /** Tails the server's rolling daily log files. */
+  serverLogs(params?: { file?: string; lines?: number; level?: string; search?: string }): Observable<import('../models/api.models').ServerLogsResponse> {
+    const query: Record<string, string> = {};
+    if (params?.file) query['file'] = params.file;
+    if (params?.lines) query['lines'] = String(params.lines);
+    if (params?.level && params.level !== 'ALL') query['level'] = params.level;
+    if (params?.search) query['search'] = params.search;
+    return this.unwrap(
+      this.http.get<ApiResponse<import('../models/api.models').ServerLogsResponse>>(
+        `${this.base}/api/system/logs`, { params: query }));
+  }
+
   ingestCapabilities(): Observable<IngestCapabilities> {
     return this.unwrap(
       this.http.get<ApiResponse<IngestCapabilities>>(`${this.base}/api/ingest/capabilities`));
@@ -122,6 +134,11 @@ export class ApiService {
 
   createProject(body: CreateProjectBody): Observable<Project> {
     return this.unwrap(this.http.post<ApiResponse<Project>>(`${this.base}/api/projects`, body));
+  }
+
+  duplicateProject(projectId: string, name?: string): Observable<Project> {
+    return this.unwrap(
+      this.http.post<ApiResponse<Project>>(`${this.base}/api/projects/${projectId}/duplicate`, name ? { name } : {}));
   }
 
   updateProject(projectId: string, body: UpdateProjectBody): Observable<Project> {
@@ -407,6 +424,12 @@ export class ApiService {
     return this.unwrap(
       this.http.put<ApiResponse<number>>(
         `${this.base}/api/projects/${projectId}/scenes/audio`, { assetId }));
+  }
+
+  setAllSceneStyles(projectId: string, body: import('../models/api.models').BatchSceneStyleBody): Observable<number> {
+    return this.unwrap(
+      this.http.put<ApiResponse<number>>(
+        `${this.base}/api/projects/${projectId}/scenes/style`, body));
   }
 
   addDialogue(sceneId: string, body: DialogueBody): Observable<SceneDetail> {

@@ -98,20 +98,45 @@ export class ProjectListComponent {
 
   togglePin(p: Project, event?: Event): void {
     if (event) event.stopPropagation();
-    if (this.pinnedProjectIds.has(p.id)) {
-      this.pinnedProjectIds.delete(p.id);
-    } else {
+    const currentlyPinned = this.isPinned(p.id);
+    const nextPinned = !currentlyPinned;
+    if (nextPinned) {
       this.pinnedProjectIds.add(p.id);
+    } else {
+      this.pinnedProjectIds.delete(p.id);
     }
     try {
       localStorage.setItem('animstudio_pinned_projects', JSON.stringify([...this.pinnedProjectIds]));
     } catch {
       // Ignore storage write errors
     }
+
+    const intent = (p.distributionIntent && p.distributionIntent !== 'Social Media') ? p.distributionIntent : 'Public';
+    this.api.updateProject(p.id, {
+      name: p.name,
+      description: p.description,
+      width: p.width,
+      height: p.height,
+      fps: p.fps,
+      isPinned: nextPinned,
+      distributionIntent: intent,
+      acceptShareAlikeObligation: p.acceptShareAlikeObligation,
+      backgroundMusicAssetId: p.backgroundMusicAssetId,
+      backgroundMusicVolume: p.backgroundMusicVolume,
+      customThumbnail: p.customThumbnail,
+      brandChannelId: p.brandChannelId ?? null,
+    }).subscribe({
+      next: (updated) => {
+        this.projects.update(list => list.map(x => x.id === p.id ? updated : x));
+      },
+      error: () => undefined,
+    });
   }
 
   isPinned(id: string): boolean {
-    return this.pinnedProjectIds.has(id);
+    if (this.pinnedProjectIds.has(id)) return true;
+    const found = this.projects().find(p => p.id === id);
+    return !!found?.isPinned;
   }
 
   get totalCount(): number {
@@ -362,20 +387,12 @@ export class ProjectListComponent {
   duplicateProject(p: Project, event?: Event): void {
     if (event) event.stopPropagation();
     this.closeMenus();
-    this.status.notify(['Duplicating project...']);
-    const intent = (p.distributionIntent && p.distributionIntent !== 'Social Media') ? p.distributionIntent : 'Public';
+    this.status.notify(['Cloning project, scenes, characters, and assets...']);
     this.status.run(
-      this.api.createProject({
-        name: p.name + ' (Copy)',
-        width: p.width,
-        height: p.height,
-        fps: p.fps,
-        distributionIntent: intent,
-        brandChannelId: p.brandChannelId ?? null,
-      }),
+      this.api.duplicateProject(p.id),
       (cloned) => {
         this.projects.update(list => [cloned, ...list]);
-        this.status.notify(['Project duplicated successfully.']);
+        this.status.notify([`Project "${cloned.name}" duplicated with all scenes and cast.`]);
       }
     );
   }
@@ -383,14 +400,9 @@ export class ProjectListComponent {
   exportProject(p: Project, event?: Event): void {
     if (event) event.stopPropagation();
     this.closeMenus();
-    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(p, null, 2));
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute('href', dataStr);
-    downloadAnchor.setAttribute('download', `${p.name.replace(/[^a-z0-9_-]/gi, '_')}_project.json`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-    this.status.notify(['Exported project metadata.']);
+    const url = this.api.bundleExportUrl(p.id, false);
+    window.open(url, '_blank');
+    this.status.notify([`Downloading bundle ZIP for "${p.name}"...`]);
   }
 
   confirmDelete(projectId: string, event?: Event): void {

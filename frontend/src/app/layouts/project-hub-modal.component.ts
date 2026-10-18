@@ -949,23 +949,65 @@ export class ProjectHubModalComponent {
   }
 
   importProject() {
-    this.status.notify(['Importing from XML/ZIP is not yet implemented.']);
+    this.status.run(
+      this.api.createProject({
+        name: 'Imported Bundle Project',
+        width: 1920,
+        height: 1080,
+        fps: 30,
+        distributionIntent: 'Public',
+        brandChannelId: this.selectedChannelId(),
+      }),
+      (project) => {
+        this.close();
+        this.router.navigate(['/projects', project.id, 'bundle']);
+      },
+    );
   }
 
   versionHistory(p: Project) {
-    this.status.notify(['Version history for ' + p.name + ' is stored via auto-saves. (Mock)']);
-  }
-  
-  exportProject(p: Project) {
-    this.status.notify(['Exporting ' + p.name + ' data package...']);
+    this.close();
+    this.router.navigate(['/projects', p.id, 'videos']);
   }
 
-  bulkExport() { this.status.notify(['Bulk export started for ' + this.selectedIds().size + ' projects.']); }
-  bulkArchive() { this.status.notify(['Archived ' + this.selectedIds().size + ' projects.']); this.selectedIds.set(new Set()); }
-  bulkDelete() { 
-    if(confirm('Delete ' + this.selectedIds().size + ' projects?')) {
-      this.status.notify(['Deleted ' + this.selectedIds().size + ' projects.']); 
-      this.selectedIds.set(new Set());
+  exportProject(p: Project) {
+    const url = this.api.bundleExportUrl(p.id, false);
+    window.open(url, '_blank');
+    this.status.notify([`Downloading bundle for "${p.name}"...`]);
+  }
+
+  bulkExport() {
+    for (const id of this.selectedIds()) {
+      window.open(this.api.bundleExportUrl(id, false), '_blank');
+    }
+    this.status.notify([`Exporting ${this.selectedIds().size} project bundle(s)...`]);
+  }
+
+  bulkArchive() {
+    this.status.notify([`Cleared selection (${this.selectedIds().size} projects).`]);
+    this.selectedIds.set(new Set());
+  }
+
+  bulkDelete() {
+    const ids = [...this.selectedIds()];
+    if (ids.length === 0) return;
+    if (confirm(`Delete ${ids.length} selected project(s)? This cannot be undone.`)) {
+      let remaining = ids.length;
+      for (const id of ids) {
+        this.api.deleteProject(id).subscribe({
+          next: () => {
+            this.projects.update(list => list.filter(x => x.id !== id));
+            remaining--;
+            if (remaining === 0) {
+              this.selectedIds.set(new Set());
+              this.status.notify([`Deleted ${ids.length} project(s).`]);
+            }
+          },
+          error: () => {
+            remaining--;
+          },
+        });
+      }
     }
   }
 
@@ -1053,20 +1095,12 @@ export class ProjectHubModalComponent {
   }
 
   duplicateProject(p: Project) {
-    this.status.notify(['Duplicating project...']);
-    const intent = (p.distributionIntent && p.distributionIntent !== 'Social Media') ? p.distributionIntent : 'Public';
+    this.status.notify(['Cloning project, scenes, characters, and assets...']);
     this.status.run(
-      this.api.createProject({
-        name: p.name + ' (Copy)',
-        width: p.width,
-        height: p.height,
-        fps: p.fps,
-        distributionIntent: intent,
-        brandChannelId: p.brandChannelId ?? null,
-      }),
+      this.api.duplicateProject(p.id),
       (cloned) => {
         this.projects.update(list => [cloned, ...list]);
-        this.status.notify(['Project duplicated.']);
+        this.status.notify([`Duplicated "${p.name}" with all scenes & cast.`]);
       }
     );
   }

@@ -1,21 +1,45 @@
 @if (scene(); as detail) {
-  <div class="page-head">
-    <div>
-      <a routerLink="../../scenes" class="muted">&larr; All scenes</a>
-      <h2>Scene {{ detail.sceneNumber }}: {{ detail.title || 'Untitled scene' }}</h2>
-      <p class="muted">
-        {{ detail.durationSeconds | number: '1.1-1' }}s &middot;
-        {{ detail.dialogue.length }} lines &middot;
-        {{ detail.characters.length }} staged
-      </p>
+  <div class="sb-studio-bar" style="margin-bottom: 1rem">
+    <div class="sb-studio-title-col">
+      <div class="row" style="gap: .5rem; margin-bottom: .25rem">
+        <a routerLink="../../scenes" class="pw-back-link">
+          &larr; Storyboard
+        </a>
+        <span class="muted">/</span>
+        <span class="pill ok">Shot #{{ detail.sceneNumber }} of {{ store.scenes().length || detail.sceneNumber }}</span>
+        <span class="pill mono">{{ detail.durationSeconds | number: '1.1-1' }}s</span>
+        <span class="pill">{{ detail.dialogue.length }} lines</span>
+        <span class="pill">{{ detail.characters.length }} staged</span>
+      </div>
+      <h2 style="margin: 0">Scene {{ detail.sceneNumber }}: {{ detail.title || 'Untitled scene' }}</h2>
     </div>
 
-    <div class="row">
+    <div class="sb-studio-actions">
+      <!-- Quick Prev / Jump / Next Scene Navigation -->
+      <div class="row" style="gap: .35rem">
+        <button class="secondary" type="button" [disabled]="!prevScene()"
+                (click)="prevScene() && goToScene(prevScene()!.id)" title="Previous Scene">
+          &larr; Prev
+        </button>
+        @if (store.scenes().length > 1) {
+          <select [ngModel]="detail.id" (ngModelChange)="goToScene($event)"
+                  style="width: auto; min-width: 10.5rem; padding: .42rem .65rem">
+            @for (s of store.scenes(); track s.id) {
+              <option [value]="s.id">#{{ s.sceneNumber }} &middot; {{ s.title || 'Untitled' }} ({{ s.durationSeconds | number: '1.0-1' }}s)</option>
+            }
+          </select>
+        }
+        <button class="secondary" type="button" [disabled]="!nextScene()"
+                (click)="nextScene() && goToScene(nextScene()!.id)" title="Next Scene">
+          Next &rarr;
+        </button>
+      </div>
+
       <button class="secondary" type="button" (click)="duplicateScene()" [disabled]="status.busy()" title="Duplicate this scene">
-        Duplicate scene
+        Clone Shot
       </button>
       <button type="button" (click)="save()" [disabled]="status.busy()">
-        Save scene
+        Save Scene
       </button>
     </div>
   </div>

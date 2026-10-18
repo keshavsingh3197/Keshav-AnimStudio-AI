@@ -198,6 +198,279 @@ public sealed class ProjectEditingService(
     }
 
     /// <summary>
+    /// Deep-clones a project, including its settings, assets, characters, and scenes,
+    /// remapping all internal asset and character references so the duplicate is completely
+    /// independent of the original.
+    /// </summary>
+    public async Task<Project> DuplicateAsync(
+        string sourceProjectId, string userId, string? customName, CancellationToken ct)
+    {
+        var source = await projects.GetAsync(sourceProjectId, ct).ConfigureAwait(false)
+            ?? throw new KeyNotFoundException();
+
+        if (!string.Equals(source.UserId, userId, StringComparison.Ordinal))
+            throw new UnauthorizedAccessException();
+
+        var now = clock.GetUtcNow().UtcDateTime;
+        var name = !string.IsNullOrWhiteSpace(customName)
+            ? customName.Trim()
+            : $"{source.Name} (Copy)";
+
+        var copy = new Project
+        {
+            UserId = userId,
+            Name = name,
+            Description = source.Description,
+            Status = ProjectStatus.Draft,
+            IsPinned = false,
+            CustomThumbnail = source.CustomThumbnail,
+            StudioDraftJson = source.StudioDraftJson,
+            Settings = new ProjectSettings
+            {
+                Width = source.Settings.Width,
+                Height = source.Settings.Height,
+                FrameRateNum = source.Settings.FrameRateNum,
+                FrameRateDen = source.Settings.FrameRateDen,
+                DistributionIntent = source.Settings.DistributionIntent,
+                ContentType = source.Settings.ContentType,
+                AcceptShareAlikeObligation = source.Settings.AcceptShareAlikeObligation,
+                BackgroundMusicAssetId = source.Settings.BackgroundMusicAssetId,
+                BackgroundMusicVolume = source.Settings.BackgroundMusicVolume,
+                BrandChannelId = source.Settings.BrandChannelId,
+                FollowChannelWatermark = source.Settings.FollowChannelWatermark,
+                DefaultImageDurationSeconds = source.Settings.DefaultImageDurationSeconds,
+                ClipOrderAssetIds = [.. source.Settings.ClipOrderAssetIds],
+                DefaultWatermark = new WatermarkSettings
+                {
+                    Kind = source.Settings.DefaultWatermark.Kind,
+                    Text = source.Settings.DefaultWatermark.Text,
+                    LogoAssetId = source.Settings.DefaultWatermark.LogoAssetId,
+                    Position = source.Settings.DefaultWatermark.Position,
+                    Opacity = source.Settings.DefaultWatermark.Opacity,
+                    HeightFraction = source.Settings.DefaultWatermark.HeightFraction,
+                    MarginFraction = source.Settings.DefaultWatermark.MarginFraction,
+                    ColorHex = source.Settings.DefaultWatermark.ColorHex,
+                    BackplateOpacity = source.Settings.DefaultWatermark.BackplateOpacity
+                },
+                DefaultOutro = new OutroSettings
+                {
+                    Kind = source.Settings.DefaultOutro.Kind,
+                    AssetId = source.Settings.DefaultOutro.AssetId,
+                    DurationSeconds = source.Settings.DefaultOutro.DurationSeconds,
+                    Transition = source.Settings.DefaultOutro.Transition,
+                    TransitionDurationFrames = source.Settings.DefaultOutro.TransitionDurationFrames,
+                    QrAssetId = source.Settings.DefaultOutro.QrAssetId,
+                    Headline = source.Settings.DefaultOutro.Headline,
+                    Subtext = source.Settings.DefaultOutro.Subtext,
+                    HeadlineSecondary = source.Settings.DefaultOutro.HeadlineSecondary,
+                    SubtextSecondary = source.Settings.DefaultOutro.SubtextSecondary,
+                    BackgroundHex = source.Settings.DefaultOutro.BackgroundHex,
+                    TextHex = source.Settings.DefaultOutro.TextHex,
+                    Animation = source.Settings.DefaultOutro.Animation
+                }
+            },
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+
+        await projects.InsertAsync(copy, ct).ConfigureAwait(false);
+
+        // 1. Clone project assets and build oldId -> newId map
+        var assetMap = new Dictionary<string, string>(StringComparer.Ordinal);
+        var sourceAssets = await assets.ListByProjectAsync(source.Id, ct).ConfigureAwait(false);
+
+        foreach (var srcAsset in sourceAssets)
+        {
+            var ext = Path.GetExtension(srcAsset.StorageKey);
+            var newStorageKey = $"projects/{copy.Id}/assets/{Guid.NewGuid():n}{ext}";
+
+            await using (var content = await store.OpenAsync(srcAsset.StorageKey, ct).ConfigureAwait(false))
+            {
+                if (content is not null)
+                {
+                    await store.SaveAsync(newStorageKey, content, srcAsset.MimeType, ct).ConfigureAwait(false);
+                }
+                else
+                {
+                    newStorageKey = srcAsset.StorageKey;
+                }
+            }
+
+            var newAsset = new Asset
+            {
+                ProjectId = copy.Id,
+                Name = srcAsset.Name,
+                DisplayFileName = srcAsset.DisplayFileName,
+                OrderIndex = srcAsset.OrderIndex,
+                StorageKey = newStorageKey,
+                Kind = srcAsset.Kind,
+                MimeType = srcAsset.MimeType,
+                FileSizeBytes = srcAsset.FileSizeBytes,
+                Probe = srcAsset.Probe,
+                ReviewStatus = srcAsset.ReviewStatus,
+                UsageScope = srcAsset.UsageScope,
+                Provenance = srcAsset.Provenance,
+                IpRisk = srcAsset.IpRisk,
+                CopiedFromAssetId = srcAsset.Id,
+                CreatedAt = now
+            };
+
+            await assets.InsertAsync(newAsset, ct).ConfigureAwait(false);
+            assetMap[srcAsset.Id] = newAsset.Id;
+        }
+
+        string? MapAsset(string? id) =>
+            id is not null && assetMap.TryGetValue(id, out var mapped) ? mapped : id;
+
+        // Remap asset references inside project settings & draft JSON
+        if (assetMap.Count > 0)
+        {
+            copy.Settings.BackgroundMusicAssetId = MapAsset(copy.Settings.BackgroundMusicAssetId);
+            copy.Settings.DefaultWatermark.LogoAssetId = MapAsset(copy.Settings.DefaultWatermark.LogoAssetId);
+            copy.Settings.DefaultOutro.AssetId = MapAsset(copy.Settings.DefaultOutro.AssetId);
+            copy.Settings.DefaultOutro.QrAssetId = MapAsset(copy.Settings.DefaultOutro.QrAssetId);
+            copy.Settings.ClipOrderAssetIds = [.. copy.Settings.ClipOrderAssetIds.Select(id => MapAsset(id)!)];
+
+            if (!string.IsNullOrEmpty(copy.StudioDraftJson))
+            {
+                var draft = copy.StudioDraftJson;
+                foreach (var (oldId, newId) in assetMap)
+                {
+                    draft = draft.Replace(oldId, newId, StringComparison.Ordinal);
+                }
+                copy.StudioDraftJson = draft;
+            }
+
+            await projects.ReplaceAsync(copy, ct).ConfigureAwait(false);
+        }
+
+        // 2. Clone characters and build oldCharId -> newCharId map
+        var charMap = new Dictionary<string, string>(StringComparer.Ordinal);
+        var sourceChars = await characters.ListByProjectAsync(source.Id, ct).ConfigureAwait(false);
+
+        foreach (var srcChar in sourceChars)
+        {
+            var newChar = new AnimStudio.Domain.Characters.Character
+            {
+                ProjectId = copy.Id,
+                Name = srcChar.Name,
+                Description = srcChar.Description,
+                Aliases = [.. srcChar.Aliases],
+                IsNarrator = srcChar.IsNarrator,
+                IsAutoCreated = srcChar.IsAutoCreated,
+                SubtitleColorHex = srcChar.SubtitleColorHex,
+                Appearance = new AnimStudio.Domain.Characters.CharacterAppearance
+                {
+                    Age = srcChar.Appearance.Age,
+                    Gender = srcChar.Appearance.Gender,
+                    Hair = srcChar.Appearance.Hair,
+                    Clothes = srcChar.Appearance.Clothes,
+                    AdditionalDetails = srcChar.Appearance.AdditionalDetails
+                },
+                Sprites = new AnimStudio.Domain.Characters.CharacterSprites
+                {
+                    ClosedMouthAssetId = MapAsset(srcChar.Sprites.ClosedMouthAssetId),
+                    OpenMouthAssetId = MapAsset(srcChar.Sprites.OpenMouthAssetId)
+                },
+                Staging = new AnimStudio.Domain.Characters.CharacterStaging
+                {
+                    Anchor = srcChar.Staging.Anchor,
+                    HeightFraction = srcChar.Staging.HeightFraction,
+                    OffsetXFraction = srcChar.Staging.OffsetXFraction,
+                    OffsetYFraction = srcChar.Staging.OffsetYFraction,
+                    FlipHorizontal = srcChar.Staging.FlipHorizontal,
+                    ZOrder = srcChar.Staging.ZOrder
+                },
+                Voice = srcChar.Voice is null ? null : new AnimStudio.Domain.Characters.CharacterVoice
+                {
+                    Preset = srcChar.Voice.Preset,
+                    PitchSemitones = srcChar.Voice.PitchSemitones,
+                    SizeSemitones = srcChar.Voice.SizeSemitones,
+                    BassDecibels = srcChar.Voice.BassDecibels,
+                    TrebleDecibels = srcChar.Voice.TrebleDecibels,
+                    Drive = srcChar.Voice.Drive,
+                    Robot = srcChar.Voice.Robot,
+                    RobotHertz = srcChar.Voice.RobotHertz,
+                    Radio = srcChar.Voice.Radio,
+                    Echo = srcChar.Voice.Echo,
+                    Reverb = srcChar.Voice.Reverb,
+                    AiSampleAssetId = MapAsset(srcChar.Voice.AiSampleAssetId),
+                    AiSampleConsent = srcChar.Voice.AiSampleConsent
+                },
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+
+            await characters.InsertAsync(newChar, ct).ConfigureAwait(false);
+            charMap[srcChar.Id] = newChar.Id;
+        }
+
+        string? MapChar(string? id) =>
+            id is not null && charMap.TryGetValue(id, out var mapped) ? mapped : id;
+
+        // 3. Clone scenes with remapped character & asset IDs
+        var sourceScenes = await scenes.ListByProjectAsync(source.Id, ct).ConfigureAwait(false);
+        foreach (var srcScene in sourceScenes)
+        {
+            var newScene = new Scene
+            {
+                ProjectId = copy.Id,
+                SceneNumber = srcScene.SceneNumber,
+                OrderKey = srcScene.OrderKey,
+                Title = srcScene.Title,
+                Description = srcScene.Description,
+                DurationFrames = srcScene.DurationFrames,
+                BackgroundAssetId = MapAsset(srcScene.BackgroundAssetId),
+                Animation = srcScene.Animation,
+                TransitionToNext = srcScene.TransitionToNext,
+                TransitionDurationFrames = srcScene.TransitionDurationFrames,
+                Origin = srcScene.Origin,
+                Status = srcScene.Status,
+                UserEditedFields = [.. srcScene.UserEditedFields],
+                LockedFields = [.. srcScene.LockedFields],
+                Audio = new SceneAudio
+                {
+                    AssetId = MapAsset(srcScene.Audio.AssetId),
+                    SliceStartSeconds = srcScene.Audio.SliceStartSeconds,
+                    SliceEndSeconds = srcScene.Audio.SliceEndSeconds
+                },
+                Characters = [.. srcScene.Characters.Select(c => new CharacterPlacement
+                {
+                    CharacterId = MapChar(c.CharacterId) ?? c.CharacterId,
+                    PresenceStartFrame = c.PresenceStartFrame,
+                    PresenceEndFrame = c.PresenceEndFrame,
+                    Anchor = c.Anchor,
+                    HeightFraction = c.HeightFraction,
+                    OffsetXFraction = c.OffsetXFraction,
+                    OffsetYFraction = c.OffsetYFraction,
+                    FlipHorizontal = c.FlipHorizontal,
+                    ZOrder = c.ZOrder,
+                    Entrance = c.Entrance,
+                    EntranceDurationFrames = c.EntranceDurationFrames
+                })],
+                Dialogue = [.. srcScene.Dialogue.Select(d => new DialogueLine
+                {
+                    Index = d.Index,
+                    SpeakerLabel = d.SpeakerLabel,
+                    SpeakerCharacterId = MapChar(d.SpeakerCharacterId),
+                    Text = d.Text,
+                    RelativeStartFrame = d.RelativeStartFrame,
+                    RelativeEndFrame = d.RelativeEndFrame,
+                    SourceStartSeconds = d.SourceStartSeconds,
+                    SourceEndSeconds = d.SourceEndSeconds
+                })],
+                RevisionToken = Guid.NewGuid().ToString("n"),
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+
+            await scenes.InsertAsync(newScene, ct).ConfigureAwait(false);
+        }
+
+        return copy;
+    }
+
+    /// <summary>
     /// Every duration in a scene is a frame count, so changing the project's frame rate
     /// would otherwise silently change how long everything actually lasts - a 30fps scene
     /// of 150 frames is 5s, and 2.5s once the project is switched to 60fps. Rescaling keeps

@@ -61,10 +61,18 @@ export const routes: Routes = [
       },
       {
         path: 'import',
-        title: 'Import - AnimStudio AI',
+        title: 'Import & Script Studio - AnimStudio AI',
         loadComponent: () =>
           import('./features/ingest/import.component').then((m) => m.ImportComponent),
       },
+      {
+        path: 'prompt',
+        title: 'AI Prompt & Script Studio - AnimStudio AI',
+        data: { mode: 'ai' },
+        loadComponent: () =>
+          import('./features/ingest/import.component').then((m) => m.ImportComponent),
+      },
+      { path: 'storyboard', pathMatch: 'full', redirectTo: 'scenes' },
       {
         path: 'bundle',
         title: 'Bundle - AnimStudio AI',

@@ -1,55 +1,89 @@
-<div class="page-head">
-  <div>
-    <h2>Bundle</h2>
-    <p class="muted">
-      Build a whole video from one file. A bundle is a <code>.zip</code> holding the sheets
-      that describe your project and a <code>media/</code> folder with your images and audio.
-      <strong>No AI provider, key or internet connection is needed for any of this.</strong>
+<div class="sb-studio-bar">
+  <div class="sb-studio-title-col">
+    <h2 style="margin: 0">Project Bundle &amp; Portable Backup Studio</h2>
+    <p class="muted" style="margin: 4px 0 0; font-size: .86rem">
+      Export your entire project to edit in Excel / Google Sheets, back up all media files into a portable <code>.zip</code>, or import a modified bundle with full diff preview.
     </p>
   </div>
 </div>
 
-<div class="card">
-  <h3>1. Start from the template</h3>
-  <p class="muted">
-    The template has one example row per sheet and an empty <code>media/</code> folder.
-    Open the <code>.csv</code> files in Excel, Numbers, LibreOffice or Google Sheets.
-  </p>
-  <div class="row">
-    <a [href]="templateUrl"><button type="button">Download bundle template</button></a>
-    <a [href]="promptPackUrl">
-      <button type="button" class="secondary">Download AI prompt pack</button>
-    </a>
+<div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 1.25rem; margin-bottom: 1.25rem">
+  <!-- EXPORT CURRENT PROJECT BUNDLE -->
+  <div class="card" style="margin-bottom: 0; display: flex; flex-direction: column; justify-content: space-between">
+    <div>
+      <div class="row" style="justify-content: space-between; margin-bottom: .5rem">
+        <h3 style="margin: 0">Export Current Project</h3>
+        <span class="pill ok">{{ store.scenes().length }} scenes &middot; {{ store.characters().length }} cast</span>
+      </div>
+      <p class="muted" style="font-size: .88rem">
+        Download this project as a structured <code>.zip</code> bundle. Edit your scenes, dialogue, and character sheets in any spreadsheet editor and re-upload below to round-trip changes safely.
+      </p>
+    </div>
+
+    <div class="subform" style="margin-top: .75rem">
+      <div class="row" style="gap: .6rem; flex-wrap: wrap">
+        <button type="button" (click)="exportBundle(false)" [disabled]="status.busy()">
+          ⬇ Export Sheets (.ZIP)
+        </button>
+        <button type="button" class="secondary" (click)="exportBundle(true)" [disabled]="status.busy()"
+                title="Includes all uploaded images and audio inside media/">
+          📦 Full Backup with Media (.ZIP)
+        </button>
+      </div>
+    </div>
   </div>
-  <p class="muted">
-    The prompt pack is for filling the sheets in with any free AI chat you already use &mdash;
-    the AI part happens outside this application, so nothing needs configuring here. Anything
-    you paste into an outside tool leaves your machine, so fill the sheets in by hand if the
-    material is private.
-  </p>
+
+  <!-- DOWNLOAD STARTER TEMPLATE & AI PROMPT PACK -->
+  <div class="card" style="margin-bottom: 0; display: flex; flex-direction: column; justify-content: space-between">
+    <div>
+      <div class="row" style="justify-content: space-between; margin-bottom: .5rem">
+        <h3 style="margin: 0">1. Starter Template &amp; Offline AI Pack</h3>
+        <span class="pill">No API Key Needed</span>
+      </div>
+      <p class="muted" style="font-size: .88rem">
+        Starting from scratch? Grab the clean CSV template or the AI Prompt Pack to generate ready-to-import CSV sheets in any external chat tool (ChatGPT, Claude, Gemini).
+      </p>
+    </div>
+
+    <div class="subform" style="margin-top: .75rem">
+      <div class="row" style="gap: .6rem; flex-wrap: wrap">
+        <a [href]="templateUrl" style="text-decoration: none">
+          <button type="button" class="secondary">⬇ Blank CSV Template</button>
+        </a>
+        <a [href]="promptPackUrl" style="text-decoration: none">
+          <button type="button" class="secondary">✨ Download AI Prompt Pack</button>
+        </a>
+      </div>
+    </div>
+  </div>
 </div>
 
+<!-- STEP 2: DROPZONE UPLOAD -->
 <div class="card" appFileDrop=".zip,application/zip,application/x-zip-compressed" (filesDropped)="chooseFile($event[0])">
-  <h3>2. Upload it back</h3>
-  <p class="muted">
-    Put your images and audio in <code>media/</code>, refer to them from the sheets by their
-    filename, zip the folder, and drop it here. You will see every change before anything is
-    saved.
+  <div class="row" style="justify-content: space-between; margin-bottom: .5rem">
+    <h3 style="margin: 0">2. Upload &amp; Preview Bundle (.ZIP)</h3>
+    @if (fileName(); as name) {
+      <span class="pill ok mono">{{ name }}</span>
+    }
+  </div>
+  <p class="muted" style="font-size: .88rem">
+    Place your images and audio in <code>media/</code>, reference them by filename in the CSV sheets, zip the folder, and drop it below. Nothing is overwritten until you review and accept the diff plan.
   </p>
-  <label for="bundle">Bundle file</label>
-  <input id="bundle" type="file" accept=".zip,application/zip" (change)="choose($event)" />
-  <span class="file-drop-hint">or drop the .zip anywhere on this card / paste with Ctrl+V</span>
 
-  @if (fileName(); as name) {
-    <p class="muted mono">{{ name }}</p>
-  }
+  <div class="subform" style="text-align: center; padding: 1.5rem; border-style: dashed">
+    <label for="bundle" style="cursor: pointer; color: var(--text); font-size: .95rem; font-weight: 600; margin-bottom: .5rem">
+      Drop your <code>.zip</code> bundle here or click to browse
+    </label>
+    <input id="bundle" type="file" accept=".zip,application/zip" (change)="choose($event)" style="max-width: 22rem; margin: 0 auto" />
+    <span class="file-drop-hint">Supports drag-and-drop or clipboard paste (Ctrl+V)</span>
+  </div>
 </div>
 
 @if (preview(); as plan) {
   <div class="card">
     <div class="page-head">
       <div>
-        <h3>3. Review what would change</h3>
+        <h3>3. Review Import Diff Plan</h3>
         <p class="muted">
           {{ plan.mediaFilesUsed }} media
           {{ plan.mediaFilesUsed === 1 ? 'file is' : 'files are' }} referenced by your
@@ -57,12 +91,12 @@
           @if (plan.hasTranscript) { <span>A transcript was found in the bundle.</span> }
         </p>
       </div>
-      <button type="button" class="secondary" (click)="discard()">Discard</button>
+      <button type="button" class="secondary" (click)="discard()">Discard Preview</button>
     </div>
 
     @if (plan.errors.length > 0) {
       <div class="notice error">
-        Nothing can be imported until these are fixed in the file.
+        Nothing can be imported until these validation issues are fixed in the ZIP file:
       </div>
 
       <table>
@@ -83,18 +117,18 @@
     } @else {
       <table>
         <thead>
-          <tr><th>Sheet</th><th>New</th><th>Updated</th><th>Kept</th></tr>
+          <tr><th>Sheet</th><th>New</th><th>Updated</th><th>Kept (Hand-Edited)</th></tr>
         </thead>
         <tbody>
           @for (sheet of plan.sheets; track sheet.sheet) {
             <tr>
-              <td>{{ sheet.sheet }}</td>
-              <td>{{ sheet.create }}</td>
-              <td>{{ sheet.update }}</td>
+              <td><strong>{{ sheet.sheet }}</strong></td>
+              <td><span class="pill ok">+{{ sheet.create }}</span></td>
+              <td><span class="pill">{{ sheet.update }}</span></td>
               <td>
                 @if (sheet.conflict > 0) {
-                  <span class="pill err" title="You edited these by hand">
-                    {{ sheet.conflict }} you edited
+                  <span class="pill warn" title="You edited these by hand">
+                    {{ sheet.conflict }} hand-edited
                   </span>
                 } @else {
                   <span class="muted">—</span>
@@ -107,18 +141,18 @@
 
       @for (sheet of plan.sheets; track sheet.sheet) {
         @if (hasChanges(sheet)) {
-          <details>
-            <summary>{{ sheet.sheet }} &mdash; row by row</summary>
-            <table>
+          <details style="margin-top: .75rem">
+            <summary style="cursor: pointer; font-weight: 600; color: var(--brand)">{{ sheet.sheet }} &mdash; inspect row by row</summary>
+            <table style="margin-top: .5rem">
               <thead>
-                <tr><th>Row</th><th></th><th>What</th><th>Detail</th></tr>
+                <tr><th>Row</th><th>Action</th><th>Item</th><th>Detail</th></tr>
               </thead>
               <tbody>
                 @for (row of sheet.rows; track $index) {
                   <tr>
                     <td class="mono">{{ row.rowNumber }}</td>
                     <td>
-                      <span class="pill" [class.err]="row.action === 'Conflict'">
+                      <span class="pill" [class.err]="row.action === 'Conflict'" [class.ok]="row.action === 'Create'">
                         {{ row.action }}
                       </span>
                     </td>
@@ -132,42 +166,48 @@
         }
       }
 
-      @if (totalConflicts() > 0) {
-        <label>
-          <input type="checkbox" [(ngModel)]="overwriteUserEdits" name="overwriteUserEdits" />
-          Overwrite the {{ totalConflicts() }}
-          {{ totalConflicts() === 1 ? 'scene' : 'scenes' }} I edited by hand
+      <div class="subform" style="margin-top: 1rem">
+        @if (totalConflicts() > 0) {
+          <label style="font-weight: 500; color: var(--text)">
+            <input type="checkbox" [(ngModel)]="overwriteUserEdits" name="overwriteUserEdits" />
+            Overwrite the {{ totalConflicts() }}
+            {{ totalConflicts() === 1 ? 'scene' : 'scenes' }} I previously edited by hand
+          </label>
+        }
+
+        <label style="font-weight: 500; color: var(--text)">
+          <input type="checkbox" [(ngModel)]="removeMissingScenes" name="removeMissingScenes" />
+          Delete existing scenes that are not listed in this bundle
         </label>
-      }
+        <p class="muted" style="margin: .25rem 0 .75rem">
+          Leave unticked when importing a partial update so existing scenes are preserved.
+        </p>
 
-      <label>
-        <input type="checkbox" [(ngModel)]="removeMissingScenes" name="removeMissingScenes" />
-        Delete scenes this bundle does not mention
-      </label>
-      <p class="muted">
-        Leave that unticked unless the bundle describes the whole video. A sheet with three
-        scenes in it is usually a partial edit, not an instruction to delete the other fifty.
-      </p>
-
-      <button type="button" [disabled]="status.busy()" (click)="apply()">
-        Apply this import
-      </button>
+        <button type="button" [disabled]="status.busy()" (click)="apply()">
+          ✓ Apply Bundle Import
+        </button>
+      </div>
     }
   </div>
 }
 
 @if (result(); as done) {
-  <div class="card">
-    <h3>Imported</h3>
-    <p>
-      {{ done.charactersCreated }} characters added,
-      {{ done.charactersUpdated }} updated &middot;
-      {{ done.scenesCreated }} scenes added,
-      {{ done.scenesUpdated }} updated@if (done.scenesRemoved > 0) {<span>,
-      {{ done.scenesRemoved }} removed</span>} &middot;
-      {{ done.assetsCreated }} files stored &middot;
-      {{ done.dialogueLines }} lines of dialogue.
-    </p>
-    <button type="button" (click)="openScenes()">Open the scenes</button>
+  <div class="card" style="border-color: var(--ok)">
+    <div class="row" style="justify-content: space-between">
+      <div>
+        <h3 style="margin: 0 0 .35rem; color: var(--ok)">Bundle Imported Successfully</h3>
+        <p style="margin: 0">
+          {{ done.charactersCreated }} characters added,
+          {{ done.charactersUpdated }} updated &middot;
+          {{ done.scenesCreated }} scenes added,
+          {{ done.scenesUpdated }} updated@if (done.scenesRemoved > 0) {<span>,
+          {{ done.scenesRemoved }} removed</span>} &middot;
+          {{ done.assetsCreated }} media files stored &middot;
+          {{ done.dialogueLines }} dialogue lines.
+        </p>
+      </div>
+      <button type="button" (click)="openScenes()">Open Storyboard &rarr;</button>
+    </div>
   </div>
 }
+

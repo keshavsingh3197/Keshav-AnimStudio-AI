@@ -115,6 +115,40 @@ public class ProjectEditingServiceTests
             world.ProjectEditing.UpdateAsync(
                 Command(world) with { UserId = EditingWorld.OtherUserId }, CancellationToken.None));
     }
+
+    [Fact]
+    public async Task Duplicating_a_project_clones_assets_characters_and_scenes_with_remapped_ids()
+    {
+        var world = new EditingWorld();
+        var bgAsset = world.AddAsset("bg-1", AssetKind.Image);
+        world.Store.Put(bgAsset.StorageKey, [10, 20, 30]);
+
+        var hero = world.AddCharacter("hero-1", "Hero");
+        hero.Sprites.ClosedMouthAssetId = "bg-1";
+
+        var scene = world.AddScene(1, seconds: 5, backgroundAssetId: "bg-1");
+        scene.Characters.Add(new CharacterPlacement { CharacterId = "hero-1", PresenceEndFrame = 150 });
+        scene.Dialogue.Add(new DialogueLine { SpeakerCharacterId = "hero-1", Text = "Cloned line" });
+
+        var clone = await world.ProjectEditing.DuplicateAsync(
+            world.Project.Id, EditingWorld.UserId, "My Clone", CancellationToken.None);
+
+        Assert.NotEqual(world.Project.Id, clone.Id);
+        Assert.Equal("My Clone", clone.Name);
+
+        var clonedAsset = Assert.Single(world.Assets.Items, a => a.ProjectId == clone.Id);
+        Assert.NotEqual("bg-1", clonedAsset.Id);
+        Assert.Equal([10, 20, 30], world.Store.Contents[clonedAsset.StorageKey]);
+
+        var clonedHero = Assert.Single(world.Characters.Items, c => c.ProjectId == clone.Id);
+        Assert.NotEqual("hero-1", clonedHero.Id);
+        Assert.Equal(clonedAsset.Id, clonedHero.Sprites.ClosedMouthAssetId);
+
+        var clonedScene = Assert.Single(world.Scenes.Items, s => s.ProjectId == clone.Id);
+        Assert.Equal(clonedAsset.Id, clonedScene.BackgroundAssetId);
+        Assert.Equal(clonedHero.Id, clonedScene.Characters[0].CharacterId);
+        Assert.Equal(clonedHero.Id, clonedScene.Dialogue[0].SpeakerCharacterId);
+    }
 }
 
 public class CharacterEditingServiceTests

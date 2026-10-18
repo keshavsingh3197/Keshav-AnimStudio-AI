@@ -34,9 +34,21 @@ export class BundleImportComponent {
   /** Both default to the safe answer, matching the server. */
   overwriteUserEdits = false;
   removeMissingScenes = false;
+  includeMediaInExport = false;
 
   readonly templateUrl = this.api.bundleTemplateUrl();
   readonly promptPackUrl = this.api.aiPromptPackUrl();
+
+  exportBundle(includeMedia: boolean): void {
+    const projectId = this.store.projectId();
+    if (!projectId) return;
+    window.open(this.api.bundleExportUrl(projectId, includeMedia), '_blank');
+    this.status.notify([
+      includeMedia
+        ? 'Preparing full project archive (.zip with media files)...'
+        : 'Downloading lightweight project sheets bundle (.zip)...',
+    ]);
+  }
 
   choose(event: Event): void {
     const input = event.target as HTMLInputElement;

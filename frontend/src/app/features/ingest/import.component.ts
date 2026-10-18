@@ -1,7 +1,7 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { Component, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
 import {
   IngestCapabilities, IngestSummary, ScriptDetail, ScriptSummary, TranscriptSourceStatus,
@@ -21,12 +21,13 @@ type SourceKind = 'PastedText' | 'SubtitleFile' | 'YouTubeCaptions';
  */
 @Component({
   selector: 'app-import',
-  imports: [DatePipe, DecimalPipe, FormsModule, FileDropDirective],
+  imports: [DatePipe, DecimalPipe, FormsModule, RouterLink, FileDropDirective],
   templateUrl: './import.component.html',
 })
 export class ImportComponent {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
 
   readonly store = inject(ProjectStore);
   readonly status = inject(StatusService);
@@ -64,6 +65,10 @@ export class ImportComponent {
   private historyLoadedFor: string | null = null;
 
   constructor() {
+    if (this.route.snapshot.data['mode'] === 'ai') {
+      this.showAiHelper.set(true);
+    }
+
     this.api.ingestCapabilities().subscribe({
       next: (caps) => this.capabilities.set(caps),
       error: () => undefined,
@@ -77,6 +82,55 @@ export class ImportComponent {
       this.historyLoadedFor = project.id;
       this.reloadHistory();
     });
+  }
+
+  /** Parses speaker prefixes from the current pasted transcript for live pre-import feedback. */
+  detectedSpeakers(): { name: string; matched: boolean }[] {
+    const lines = this.transcript.split(/\r?\n/);
+    const seen = new Set<string>();
+    for (const raw of lines) {
+      const match = /^([A-Za-z0-9 _.-]{1,32}):\s+.+/.exec(raw.trim());
+      if (match) {
+        seen.add(match[1].trim());
+      }
+    }
+    const existingNames = new Set(
+      this.store.characters().map((c) => c.name.trim().toLowerCase())
+    );
+    return Array.from(seen).map((name) => ({
+      name,
+      matched: existingNames.has(name.toLowerCase()),
+    }));
+  }
+
+  transcriptLineCount(): number {
+    return this.transcript
+      .split(/\r?\n/)
+      .filter((line) => line.trim().length > 0).length;
+  }
+
+  loadSamplePreset(preset: 'park' | 'podcast' | 'explainer'): void {
+    if (preset === 'park') {
+      this.transcript = [
+        'Rahul: Hey Priya, look at this park!',
+        "Priya: It's beautiful. I come here every morning.",
+        "Rahul: Then let's make it our meeting spot.",
+      ].join('\n');
+    } else if (preset === 'podcast') {
+      this.transcript = [
+        'Host: Welcome back to Studio Pulse! Today we are breaking down visual storytelling.',
+        'Guest: Thanks for having me. The secret to great pacing is cutting on every new idea.',
+        'Host: How do you keep viewers hooked in the first five seconds?',
+        'Guest: Start right in the middle of the action and let the characters drive the camera.',
+      ].join('\n');
+    } else {
+      this.transcript = [
+        'Narrator: Every great animation begins with a structured script.',
+        'Narrator: First, break your story into clear scenes with distinct locations.',
+        'Narrator: Next, stage your characters and pair each line with expressive motion.',
+        'Narrator: Finally, render your timeline in crisp full HD or vertical short format.',
+      ].join('\n');
+    }
   }
 
   /** Uploads a .srt or .vtt, then selects it - the common case is one file, once. */

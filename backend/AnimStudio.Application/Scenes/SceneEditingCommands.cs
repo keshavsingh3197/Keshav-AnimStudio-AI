@@ -98,3 +98,18 @@ public sealed record SetSceneAudioCommand
     public double? SliceStartSeconds { get; init; }
     public double? SliceEndSeconds { get; init; }
 }
+
+public sealed record BatchSceneStyleCommand
+{
+    public required string ProjectId { get; init; }
+    public required string UserId { get; init; }
+
+    public BackgroundEffect? BackgroundEffect { get; init; }
+    public bool RandomizeMotion { get; init; }
+    public double? Intensity { get; init; }
+    public Easing? Easing { get; init; }
+
+    public SceneTransition? Transition { get; init; }
+    public double? TransitionDurationSeconds { get; init; }
+    public double? DurationSeconds { get; init; }
+}

@@ -101,6 +101,22 @@ export class SceneEditorComponent implements OnDestroy {
     sliceEndSeconds: 0,
   };
 
+  readonly inspectorTab = signal<'all' | 'stage' | 'motion' | 'dialogue' | 'audio'>('all');
+
+  readonly prevScene = computed(() => {
+    const all = this.store.scenes();
+    const curId = this.sceneId();
+    const idx = all.findIndex((s) => s.id === curId);
+    return idx > 0 ? all[idx - 1] : null;
+  });
+
+  readonly nextScene = computed(() => {
+    const all = this.store.scenes();
+    const curId = this.sceneId();
+    const idx = all.findIndex((s) => s.id === curId);
+    return idx >= 0 && idx + 1 < all.length ? all[idx + 1] : null;
+  });
+
   /** Currently spoken dialogue line at current playhead timestamp. */
   readonly activeDialogue = computed(() => {
     const time = this.currentTime();
@@ -123,6 +139,11 @@ export class SceneEditorComponent implements OnDestroy {
 
   ngOnDestroy(): void {
     this.pause();
+  }
+
+  goToScene(sceneId: string): void {
+    if (!sceneId || sceneId === this.sceneId()) return;
+    void this.router.navigate(['../../scenes', sceneId], { relativeTo: this.route });
   }
 
   // --- playback & preview transport ----------------------------------------------

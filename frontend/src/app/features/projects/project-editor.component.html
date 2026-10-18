@@ -1,51 +1,147 @@
 @if (store.project(); as project) {
   @if (!isVideoEditor) {
-  <div class="page-head">
-    <div>
-      <a routerLink="/projects" class="muted">&larr; All projects</a>
-      <h1>{{ project.name }}</h1>
-      <p class="muted mono">
-        {{ project.width }}&times;{{ project.height }} &middot;
-        {{ aspect(project.width, project.height) }} &middot; {{ project.fps }}fps &middot;
-        {{ store.scenes().length }} scenes &middot; {{ store.characters().length }} characters
-      </p>
-      <!-- The format sits beside the status because it is the same kind of fact: what
-           this project IS, visible on every one of its screens rather than on one. -->
-      <span [class]="formatClass(project.width, project.height)">
-        {{ format(project.width, project.height) }}
-      </span>
-      <span [class]="statusClass(project.status)">{{ project.status }}</span>
-    </div>
+    <header class="pw-studio-header">
+      <div class="pw-header-top">
+        <div class="pw-brand-col">
+          <div class="pw-breadcrumb">
+            <a routerLink="/projects" class="pw-back-link">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.2" fill="none"><polyline points="15 18 9 12 15 6"/></svg>
+              Projects
+            </a>
+            <span class="pw-crumb-sep">/</span>
+            <span class="pw-crumb-Format" [class.is-short]="format(project.width, project.height) === 'Short'">
+              {{ format(project.width, project.height) }} ({{ aspect(project.width, project.height) }})
+            </span>
+            <span [class]="statusClass(project.status)">{{ project.status }}</span>
+          </div>
 
-    <div class="row">
-      @if (store.renderer(); as renderer) {
-        @if (renderer.available) {
-          <span class="pill ok">renderer ready</span>
-        } @else {
-          <span class="pill err" [title]="renderer.unavailableReason ?? ''">renderer unavailable</span>
-        }
-      }
-      <a [routerLink]="['/projects', project.id, 'render']"><button type="button">Render</button></a>
-      <button type="button" class="secondary" title="Capture Screenshot" (click)="captureScreenshot()">Capture</button>
-    </div>
-  </div>
+          <div class="pw-title-row">
+            <h1 class="pw-title">{{ project.name }}</h1>
+            <button type="button" class="pw-rename-btn" title="Rename Project" (click)="renameProject()">
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            </button>
+          </div>
 
-  <nav class="tabs">
-    <a [routerLink]="['/projects', project.id, 'scenes']" routerLinkActive="active">Scenes</a>
-    <a [routerLink]="['/projects', project.id, 'characters']" routerLinkActive="active">Characters</a>
-    <a [routerLink]="['/projects', project.id, 'assets']" routerLinkActive="active">Assets</a>
-    <a [routerLink]="['/projects', project.id, 'videos']" routerLinkActive="active">Videos &amp; Shorts</a>
-    <a [routerLink]="['/projects', project.id, 'clips']" routerLinkActive="active">Video editor</a>
-    <a [routerLink]="['/projects', project.id, 'media-tools']" routerLinkActive="active">Media studio</a>
-    <a [routerLink]="['/projects', project.id, 'music']" routerLinkActive="active">Music</a>
-    <a [routerLink]="['/projects', project.id, 'import']" routerLinkActive="active">Import</a>
-    <a [routerLink]="['/projects', project.id, 'bundle']" routerLinkActive="active">Bundle</a>
-    <a [routerLink]="['/projects', project.id, 'render']" routerLinkActive="active">Render</a>
-    <a [routerLink]="['/projects', project.id, 'settings']" routerLinkActive="active">Settings</a>
-  </nav>
-}
+          <div class="pw-meta-strip">
+            <span class="pw-meta-chip">
+              <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+              {{ project.width }}&times;{{ project.height }} &middot; {{ project.fps }}fps
+            </span>
+            <span class="pw-meta-chip">
+              <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><rect x="2" y="2" width="20" height="20" rx="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
+              {{ store.scenes().length }} scenes ({{ totalDurationFormatted() }})
+            </span>
+            <span class="pw-meta-chip">
+              <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+              {{ store.characters().length }} characters
+            </span>
+            <span class="pw-meta-chip">
+              <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              {{ store.assets().length }} assets
+            </span>
+          </div>
+        </div>
+
+        <div class="pw-actions-col">
+          @if (store.renderer(); as renderer) {
+            @if (renderer.available) {
+              <span class="pw-engine-pill ready" title="FFmpeg Render Pipeline Ready">
+                <span class="pw-dot"></span> Engine Ready
+              </span>
+            } @else {
+              <span class="pw-engine-pill offline" [title]="renderer.unavailableReason ?? ''">
+                <span class="pw-dot"></span> Engine Offline
+              </span>
+            }
+          }
+
+          <a [routerLink]="['/projects', project.id, 'clips']" class="pw-btn-link">
+            <button type="button" class="secondary pw-action-btn">
+              <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+              Video Timeline
+            </button>
+          </a>
+
+          <button type="button" class="secondary pw-action-btn" title="Download Project Bundle (.zip)" (click)="exportBundle()">
+            <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Bundle
+          </button>
+
+          <button type="button" class="secondary pw-action-btn" title="Capture Studio Screenshot" (click)="captureScreenshot()">
+            <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          </button>
+
+          <a [routerLink]="['/projects', project.id, 'render']" class="pw-btn-link">
+            <button type="button" class="pw-render-cta">
+              <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2.2" fill="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              Render &amp; Publish
+            </button>
+          </a>
+        </div>
+      </div>
+
+      <nav class="pw-nav-tabs" aria-label="Project workspace navigation">
+        <a [routerLink]="['/projects', project.id, 'scenes']" routerLinkActive="active" class="pw-tab">
+          <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+          <span>Storyboard</span>
+          @if (store.scenes().length > 0) {
+            <span class="pw-tab-count">{{ store.scenes().length }}</span>
+          }
+        </a>
+        <a [routerLink]="['/projects', project.id, 'characters']" routerLinkActive="active" class="pw-tab">
+          <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span>Characters</span>
+          @if (store.characters().length > 0) {
+            <span class="pw-tab-count">{{ store.characters().length }}</span>
+          }
+        </a>
+        <a [routerLink]="['/projects', project.id, 'assets']" routerLinkActive="active" class="pw-tab">
+          <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          <span>Assets</span>
+          @if (store.assets().length > 0) {
+            <span class="pw-tab-count">{{ store.assets().length }}</span>
+          }
+        </a>
+        <a [routerLink]="['/projects', project.id, 'videos']" routerLinkActive="active" class="pw-tab">
+          <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
+          <span>Videos &amp; Shorts</span>
+        </a>
+        <a [routerLink]="['/projects', project.id, 'clips']" routerLinkActive="active" class="pw-tab">
+          <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+          <span>Video Editor</span>
+        </a>
+        <a [routerLink]="['/projects', project.id, 'media-tools']" routerLinkActive="active" class="pw-tab">
+          <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>
+          <span>Media Tools</span>
+        </a>
+        <a [routerLink]="['/projects', project.id, 'music']" routerLinkActive="active" class="pw-tab">
+          <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+          <span>Music</span>
+        </a>
+        <a [routerLink]="['/projects', project.id, 'import']" routerLinkActive="active" class="pw-tab">
+          <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          <span>Script &amp; AI</span>
+        </a>
+        <a [routerLink]="['/projects', project.id, 'bundle']" routerLinkActive="active" class="pw-tab">
+          <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+          <span>Bundle</span>
+        </a>
+        <a [routerLink]="['/projects', project.id, 'render']" routerLinkActive="active" class="pw-tab">
+          <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          <span>Render</span>
+        </a>
+        <a [routerLink]="['/projects', project.id, 'settings']" routerLinkActive="active" class="pw-tab">
+          <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span>Settings</span>
+        </a>
+      </nav>
+    </header>
+  }
 
   <router-outlet />
 } @else {
-  <div class="card muted">Loading project&hellip;</div>
+  <div class="card muted" style="display:flex;align-items:center;gap:12px;padding:32px;justify-content:center;">
+    <span class="spinner"></span> Loading studio workspace&hellip;
+  </div>
 }
+
