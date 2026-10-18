@@ -964,8 +964,11 @@ export interface TrackControlState {
   color: string;
 }
 
-/** Pace and finish of a batch of auto shorts; Mixed lets each short pick its own. */
-export const AUTO_SHORT_STYLES = ['Mixed', 'Energetic', 'Cinematic', 'Calm'] as const;
+/**
+ * Pace and finish of a batch of auto shorts. Auto picks styles that suit the batch; Mixed
+ * deals every style out so no two shorts look alike.
+ */
+export const AUTO_SHORT_STYLES = ['Auto', 'Mixed', 'Energetic', 'Hype', 'Cinematic', 'Dramatic', 'Calm', 'Dreamy', 'Retro'] as const;
 export type AutoShortStyle = (typeof AUTO_SHORT_STYLES)[number];
 
 /** How the batch's lines go on screen. */
@@ -979,6 +982,10 @@ export type AutoShortTextMode = (typeof AUTO_SHORT_TEXT_MODES)[number];
  */
 export const AUTO_SHORT_LAYOUTS = ['Spread', 'AllInEach', 'FitLength'] as const;
 export type AutoShortLayout = (typeof AUTO_SHORT_LAYOUTS)[number];
+
+/** Where each short's videos go: anywhere, one to open on, or all of them before the pictures. */
+export const AUTO_SHORT_ORDERS = ['VideosFirst', 'VideoFirst', 'Shuffle'] as const;
+export type AutoShortOrder = (typeof AUTO_SHORT_ORDERS)[number];
 
 /** Several different shorts cut automatically from the chosen clips, pictures and lines. */
 export interface AutoShortsBody {
@@ -994,6 +1001,9 @@ export interface AutoShortsBody {
   imageSeconds: number;
   /** Longest stretch of one video (Spread and AllInEach); null plays each in full. */
   maxClipSeconds: number | null;
+  /** Every short runs exactly targetSeconds with Spread and AllInEach too; FitLength always does. */
+  exactLength?: boolean;
+  order?: AutoShortOrder;
   style: AutoShortStyle;
   textMode: AutoShortTextMode;
   transitions: boolean;
@@ -1030,7 +1040,12 @@ export interface AutoShortPreviewItem {
   seconds: number;
   videos: number;
   images: number;
+  /** The files it uses, in running order. */
   assetIds: string[];
+  /** The style this short was cut in (never Auto or Mixed). */
+  style?: AutoShortStyle | null;
+  /** Shots that repeat a file already used earlier in the batch. */
+  repeats?: number;
 }
 
 export interface AutoShortsPreview {

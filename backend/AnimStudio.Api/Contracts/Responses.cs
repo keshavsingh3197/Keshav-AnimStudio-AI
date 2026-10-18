@@ -170,8 +170,9 @@ public sealed record RenderJobResponse(
 public sealed record AutoShortsResponse(
     string BatchId, string BatchName, IReadOnlyList<RenderJobResponse> Jobs, IReadOnlyList<string> UnusedAssetIds);
 
-/// <summary>One short as a batch would cut it.</summary>
-public sealed record AutoShortPreviewItem(string Name, double Seconds, int Videos, int Images, IReadOnlyList<string> AssetIds);
+/// <summary>One planned short: its length, what it is made of (files in running order), its style, and how many shots repeat a file used earlier in the batch.</summary>
+public sealed record AutoShortPreviewItem(
+    string Name, double Seconds, int Videos, int Images, IReadOnlyList<string> AssetIds, string? Style, int Repeats);
 
 public sealed record AutoShortsPreviewResponse(IReadOnlyList<AutoShortPreviewItem> Shorts, IReadOnlyList<string> UnusedAssetIds);
 

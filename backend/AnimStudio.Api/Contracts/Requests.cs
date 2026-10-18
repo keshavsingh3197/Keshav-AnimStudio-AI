@@ -668,6 +668,12 @@ public sealed record AutoShortsRequest
     [Range(AutoShortPlanner.MinShotSeconds, AutoShortPlanner.MaxTargetSeconds)]
     public double? MaxClipSeconds { get; init; }
 
+    /// <summary>Every short runs exactly TargetSeconds with Spread and AllInEach too; FitLength always does.</summary>
+    public bool ExactLength { get; init; }
+
+    /// <summary>Where each short's videos go: anywhere, one to open on, or all of them first.</summary>
+    [EnumDataType(typeof(AutoShortOrder))] public AutoShortOrder Order { get; init; } = AutoShortOrder.Shuffle;
+
     [EnumDataType(typeof(AutoShortStyle))] public AutoShortStyle Style { get; init; } = AutoShortStyle.Mixed;
     [EnumDataType(typeof(AutoShortTextMode))] public AutoShortTextMode TextMode { get; init; } = AutoShortTextMode.Hook;
 

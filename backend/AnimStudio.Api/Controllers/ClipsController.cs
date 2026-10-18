@@ -328,15 +328,20 @@ public sealed class ClipsController(
         string projectId, [FromBody] AutoShortsRequest request, CancellationToken ct)
     {
         var plan = await clips.PreviewAutoShortsAsync(projectId, ToCommand(request), ct);
-        var shorts = plan.Shorts.Select(s =>
+        // A shot is a repeat when its file already played earlier in the batch.
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var shorts = plan.Shorts.Select((s, k) =>
         {
             var shots = (s.TimelineItems ?? []).Where(i => i.TrackId == "V1").ToList();
+            var repeats = shots.Count(i => !seen.Add(i.Src));
             return new AutoShortPreviewItem(
                 s.ExportName ?? "Short",
                 Math.Round(shots.Sum(i => i.Duration), 1),
                 shots.Count(i => i.Type == "video"),
                 shots.Count(i => i.Type == "image"),
-                [.. shots.Select(i => i.Src).Distinct(StringComparer.Ordinal)]);
+                [.. shots.Select(i => i.Src).Distinct(StringComparer.Ordinal)],
+                plan.Styles is { } styles && k < styles.Count ? styles[k].ToString() : null,
+                repeats);
         }).ToList();
         return Ok(ApiResponse<AutoShortsPreviewResponse>.Ok(new AutoShortsPreviewResponse(shorts, plan.UnusedAssetIds)));
     }
@@ -351,6 +356,8 @@ public sealed class ClipsController(
         Layout = request.Layout,
         ImageSeconds = request.ImageSeconds,
         MaxClipSeconds = request.MaxClipSeconds,
+        ExactLength = request.ExactLength,
+        Order = request.Order,
         Style = request.Style,
         TextMode = request.TextMode,
         Transitions = request.Transitions,

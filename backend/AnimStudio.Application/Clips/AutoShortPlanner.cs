@@ -27,7 +27,35 @@ public enum AutoShortStyle
     Mixed = 0,
     Energetic = 1,
     Cinematic = 2,
-    Calm = 3
+    Calm = 3,
+
+    /// <summary>Picks styles that suit the batch - its length, its picture holds and how much of it is footage.</summary>
+    Auto = 4,
+
+    /// <summary>Very fast cuts and shaky, punchy moves - for teasers and hooks.</summary>
+    Hype = 5,
+
+    /// <summary>Long, soft dissolves and slow breathing moves under a warm grade.</summary>
+    Dreamy = 6,
+
+    /// <summary>Iris wipes, slow push-ins and a dark, contrasty grade.</summary>
+    Dramatic = 7,
+
+    /// <summary>A faded film look with gentle pans and plain fades.</summary>
+    Retro = 8
+}
+
+/// <summary>Where a short's footage goes in its running order.</summary>
+public enum AutoShortOrder
+{
+    /// <summary>Videos and pictures in any order. Zero so requests from before ordering existed keep their behaviour.</summary>
+    Shuffle = 0,
+
+    /// <summary>Every short opens on a video when it has one; the rest in any order.</summary>
+    VideoFirst = 1,
+
+    /// <summary>All of a short's videos play first, then its pictures.</summary>
+    VideosFirst = 2
 }
 
 /// <summary>How the picks are shared out between the shorts of a batch.</summary>
@@ -76,6 +104,16 @@ public sealed record AutoShortBatch
     /// <summary>Longest stretch of one video, outside <see cref="AutoShortLayout.FitLength"/>. Null plays every video in full.</summary>
     public double? MaxClipSeconds { get; init; }
 
+    /// <summary>
+    /// Every short runs exactly <see cref="TargetSeconds"/> with the Spread and AllInEach
+    /// layouts too: a short that comes up short is topped up with picks no short used, then
+    /// by holding pictures a little longer, then by reusing picks (pictures before videos, a
+    /// different stretch of a video each time). FitLength is always exact.
+    /// </summary>
+    public bool ExactLength { get; init; }
+
+    public AutoShortOrder Order { get; init; } = AutoShortOrder.Shuffle;
+
     public AutoShortStyle Style { get; init; } = AutoShortStyle.Mixed;
     public AutoShortTextMode TextMode { get; init; } = AutoShortTextMode.Hook;
 
@@ -100,8 +138,9 @@ public sealed record AutoShortBatch
     public int? Seed { get; init; }
 }
 
-/// <summary>A planned batch: the shorts, and the picks none of them uses.</summary>
-public sealed record AutoShortPlan(IReadOnlyList<ClipMergeCommand> Shorts, IReadOnlyList<string> UnusedAssetIds);
+/// <summary>A planned batch: the shorts, the picks none of them uses, and the style each short was cut in.</summary>
+public sealed record AutoShortPlan(
+    IReadOnlyList<ClipMergeCommand> Shorts, IReadOnlyList<string> UnusedAssetIds, IReadOnlyList<AutoShortStyle>? Styles = null);
 
 /// <summary>
 /// Cuts several different shorts out of one pool of clips, pictures and lines, each one
@@ -142,12 +181,14 @@ public static class AutoShortPlanner
     private const double MinUsableClipSeconds = 1.0;
 
     private sealed record Pace(
+        AutoShortStyle Style,
         double ShotMin, double ShotMax,
         SceneTransition[] Transitions, double TransitionMin, double TransitionMax,
         string[] Motions, double IntensityMin, double IntensityMax, string Easing,
         string[] Looks, bool Vignette);
 
     private static readonly Pace Energetic = new(
+        AutoShortStyle.Energetic,
         1.6, 3.2,
         [SceneTransition.SlideLeft, SceneTransition.SlideRight, SceneTransition.WipeLeft, SceneTransition.WipeRight, SceneTransition.Fade],
         0.25, 0.45,
@@ -155,6 +196,7 @@ public static class AutoShortPlanner
         ["vivid", "none"], false);
 
     private static readonly Pace Cinematic = new(
+        AutoShortStyle.Cinematic,
         3.0, 5.0,
         [SceneTransition.Dissolve, SceneTransition.Fade, SceneTransition.CircleOpen],
         0.6, 1.0,
@@ -162,19 +204,76 @@ public static class AutoShortPlanner
         ["cinematic", "warm", "cool"], true);
 
     private static readonly Pace Calm = new(
+        AutoShortStyle.Calm,
         4.0, 6.5,
         [SceneTransition.Fade, SceneTransition.Dissolve],
         0.8, 1.4,
         ["breathe", "zoom-in", "drift"], 0.06, 0.12, "ease",
         ["warm", "matte", "none"], true);
 
-    private static Pace PaceFor(AutoShortStyle style, Random random) => style switch
+    private static readonly Pace Hype = new(
+        AutoShortStyle.Hype,
+        1.0, 2.0,
+        [SceneTransition.SlideLeft, SceneTransition.SlideRight, SceneTransition.WipeLeft, SceneTransition.WipeRight],
+        0.2, 0.3,
+        ["handheld", "zoom-in", "zoom-out", "pan-up", "pan-down"], 0.25, 0.35, "linear",
+        ["vivid"], false);
+
+    private static readonly Pace Dreamy = new(
+        AutoShortStyle.Dreamy,
+        4.5, 7.0,
+        [SceneTransition.Dissolve, SceneTransition.Fade],
+        1.0, 1.6,
+        ["breathe", "drift", "zoom-in"], 0.05, 0.10, "ease",
+        ["warm", "matte"], true);
+
+    private static readonly Pace Dramatic = new(
+        AutoShortStyle.Dramatic,
+        2.5, 4.5,
+        [SceneTransition.CircleOpen, SceneTransition.CircleClose, SceneTransition.Dissolve, SceneTransition.Fade],
+        0.5, 0.9,
+        ["zoom-in", "pan-up", "pan-down", "zoom-out"], 0.14, 0.22, "ease",
+        ["noir", "cinematic", "cool"], true);
+
+    private static readonly Pace Retro = new(
+        AutoShortStyle.Retro,
+        3.0, 5.0,
+        [SceneTransition.Fade, SceneTransition.WipeLeft, SceneTransition.WipeRight, SceneTransition.Dissolve],
+        0.4, 0.7,
+        ["drift", "pan-left", "pan-right", "zoom-out"], 0.08, 0.14, "ease",
+        ["vintage", "warm"], true);
+
+    private static readonly Pace[] AllPaces = [Energetic, Cinematic, Calm, Hype, Dreamy, Dramatic, Retro];
+
+    /// <summary>
+    /// The styles a batch may draw from. Mixed and Auto deal theirs from a deck, so a batch
+    /// goes through all of them before any style shows up twice.
+    /// </summary>
+    private static Pace[] PacesFor(AutoShortBatch batch, IReadOnlyList<AutoShortSource> usable, double target) => batch.Style switch
     {
-        AutoShortStyle.Energetic => Energetic,
-        AutoShortStyle.Cinematic => Cinematic,
-        AutoShortStyle.Calm => Calm,
-        _ => Pick(random, [Energetic, Cinematic, Calm])
+        AutoShortStyle.Energetic => [Energetic],
+        AutoShortStyle.Cinematic => [Cinematic],
+        AutoShortStyle.Calm => [Calm],
+        AutoShortStyle.Hype => [Hype],
+        AutoShortStyle.Dreamy => [Dreamy],
+        AutoShortStyle.Dramatic => [Dramatic],
+        AutoShortStyle.Retro => [Retro],
+        AutoShortStyle.Auto => AutoPaces(batch, usable, target),
+        _ => AllPaces,
     };
+
+    /// <summary>
+    /// Styles that suit the batch: quick ones for teasers, slow ones for long picture holds,
+    /// and the footage-led looks when most of the picks are video.
+    /// </summary>
+    private static Pace[] AutoPaces(AutoShortBatch batch, IReadOnlyList<AutoShortSource> usable, double target)
+    {
+        var footage = usable.Count(s => s.Kind == AssetKind.Video) / (double)usable.Count >= 0.5;
+        if (target <= 20) return [Hype, Energetic];
+        if (batch.Layout != AutoShortLayout.FitLength && batch.ImageSeconds >= 7 && !footage) return [Calm, Dreamy, Cinematic];
+        if (target <= 45) return footage ? [Energetic, Dramatic, Cinematic] : [Energetic, Cinematic, Retro];
+        return footage ? [Cinematic, Dramatic, Energetic] : [Cinematic, Dreamy, Retro, Calm];
+    }
 
     /// <summary>
     /// Plans the batch. Throws <see cref="ArgumentException"/> when there is nothing usable
@@ -208,19 +307,54 @@ public static class AutoShortPlanner
 
         // One pace per short, drawn as it is first needed, so its shot lengths and its
         // transitions come from the same style.
+        var paceDeck = new Deck<Pace>(PacesFor(batch, usable, target), random);
         var paces = new List<Pace>();
         Pace PaceAt(int k)
         {
-            while (paces.Count <= k) paces.Add(PaceFor(batch.Style, random));
+            while (paces.Count <= k) paces.Add(paceDeck.Next());
             return paces[k];
         }
 
-        List<List<Shot>> cuts = batch.Layout switch
+        List<List<Shot>> cuts;
+        var leftOvers = new List<AutoShortSource>();
+        switch (batch.Layout)
         {
-            AutoShortLayout.Spread => SpreadShots(batch, usable, target, random),
-            AutoShortLayout.AllInEach => AllInEachShots(batch, usable, target, random),
-            _ => FitLengthShots(batch, usable, target, random, PaceAt),
-        };
+            case AutoShortLayout.Spread:
+                cuts = SpreadShots(batch, usable, target, random, leftOvers);
+                break;
+            case AutoShortLayout.AllInEach:
+                cuts = AllInEachShots(batch, usable, target, random);
+                break;
+            default:
+                cuts = FitLengthShots(batch, usable, target, random, PaceAt);
+                break;
+        }
+
+        if (batch.ExactLength && batch.Layout != AutoShortLayout.FitLength)
+        {
+            var spare = new Queue<AutoShortSource>(leftOvers);
+            var reuse = ReusePool(usable, random);
+            foreach (var cut in cuts)
+            {
+                // Spread tops up from what no short took; AllInEach from what this short skipped.
+                var inCut = cut.Select(s => s.Source.AssetId).ToHashSet(StringComparer.Ordinal);
+                var skipped = new Queue<AutoShortSource>(batch.Layout == AutoShortLayout.AllInEach
+                    ? Shuffled(usable.Where(s => !inCut.Contains(s.AssetId)), random)
+                    : []);
+                AutoShortSource? Fresh() =>
+                    skipped.Count > 0 ? skipped.Dequeue() : spare.Count > 0 ? spare.Dequeue() : null;
+
+                FillToLength(cut, target, batch, Fresh, reuse, random);
+                if (batch.Order == AutoShortOrder.Shuffle && cut.Count > 1)
+                {
+                    var mixed = Shuffled(cut, random);
+                    cut.Clear();
+                    cut.AddRange(mixed);
+                }
+            }
+        }
+
+        foreach (var cut in cuts) Arrange(cut, batch.Order);
 
         var shorts = cuts
             .Select((shots, k) => BuildShort(
@@ -229,7 +363,178 @@ public static class AutoShortPlanner
             .ToList();
 
         var used = cuts.SelectMany(c => c).Select(s => s.Source.AssetId).ToHashSet(StringComparer.Ordinal);
-        return new AutoShortPlan(shorts, [.. usable.Select(s => s.AssetId).Where(id => !used.Contains(id))]);
+        return new AutoShortPlan(
+            shorts,
+            [.. usable.Select(s => s.AssetId).Where(id => !used.Contains(id))],
+            [.. cuts.Select((_, k) => PaceAt(k).Style)]);
+    }
+
+    /// <summary>
+    /// Puts a short's videos where the batch asked: first of all, or just one to open on.
+    /// The order within videos and within pictures is kept, so it stays as varied as planned.
+    /// </summary>
+    private static void Arrange(List<Shot> shots, AutoShortOrder order)
+    {
+        if (order == AutoShortOrder.Shuffle || shots.Count < 2) return;
+
+        if (order == AutoShortOrder.VideosFirst)
+        {
+            var sorted = shots.Where(s => s.Source.Kind == AssetKind.Video)
+                .Concat(shots.Where(s => s.Source.Kind != AssetKind.Video))
+                .ToList();
+            shots.Clear();
+            shots.AddRange(sorted);
+            return;
+        }
+
+        var first = shots.FindIndex(s => s.Source.Kind == AssetKind.Video);
+        if (first <= 0) return;
+        var opener = shots[first];
+        shots.RemoveAt(first);
+        shots.Insert(0, opener);
+    }
+
+    /// <summary>
+    /// What an exact-length short reuses once fresh picks run out: pictures first, so a
+    /// batch's videos stay one short each for as long as they can; videos when it has no pictures.
+    /// </summary>
+    private static Deck<AutoShortSource> ReusePool(List<AutoShortSource> usable, Random random)
+    {
+        var pictures = usable.Where(s => s.Kind == AssetKind.Image).ToList();
+        return new Deck<AutoShortSource>(pictures.Count > 0 ? pictures : usable, random);
+    }
+
+    private static double Total(List<Shot> shots) => Round(shots.Sum(s => s.Length));
+
+    /// <summary>
+    /// Brings a short to exactly <paramref name="target"/>: fresh picks first, then pictures
+    /// held up to half as long again, then reused picks, then whatever small remainder is left
+    /// is taken up by a picture or by footage the video has to spare - never a sub-second sliver.
+    /// </summary>
+    private static void FillToLength(
+        List<Shot> shots, double target, AutoShortBatch batch,
+        Func<AutoShortSource?> fresh, Deck<AutoShortSource> reuse, Random random)
+    {
+        // Over is only ever a first pick cut down to the cap; take it off the end.
+        var gap = Round(target - Total(shots));
+        while (gap < -0.01 && shots.Count > 0)
+        {
+            var last = shots[^1];
+            var keep = Round(last.Length + gap);
+            if (keep >= MinShotSeconds)
+            {
+                shots[^1] = last with { Length = keep, TrimStart = Math.Min(last.TrimStart, SpareFrom(last.Source, keep)) };
+                gap = 0;
+            }
+            else
+            {
+                shots.RemoveAt(shots.Count - 1);
+                gap = Round(gap + last.Length);
+            }
+        }
+
+        var hold = PictureHold(batch);
+        gap = AddFillers(shots, gap, batch, fresh, random);
+        gap = StretchPictures(shots, gap, Math.Min(MaxImageSeconds, hold * 1.5));
+        gap = AddFillers(shots, gap, batch, () => NextNotIn(reuse, shots), random);
+        if (gap <= 0.01) return;
+
+        // A sliver is left: a picture or spare footage takes it, else a shot gives up enough
+        // room for one more full-second shot.
+        gap = StretchPictures(shots, gap, MaxImageSeconds);
+        gap = ExtendFootage(shots, gap);
+        if (gap <= 0.01) return;
+
+        var room = MinShotSeconds - gap;
+        var donor = shots.FindLastIndex(s => s.Length - room >= MinShotSeconds);
+        if (donor < 0) return;
+        shots[donor] = shots[donor] with { Length = Round(shots[donor].Length - room) };
+        AddFillers(shots, Round(gap + room), batch, () => NextNotIn(reuse, shots), random);
+    }
+
+    private static double PictureHold(AutoShortBatch batch) =>
+        Math.Clamp(double.IsFinite(batch.ImageSeconds) ? batch.ImageSeconds : DefaultImageSeconds, MinImageSeconds, MaxImageSeconds);
+
+    /// <summary>Latest a window of <paramref name="length"/> may start in a clip.</summary>
+    private static double SpareFrom(AutoShortSource source, double length) =>
+        source.Kind == AssetKind.Video ? Math.Max(0, source.DurationSeconds!.Value - length) : 0;
+
+    /// <summary>
+    /// Adds shots from <paramref name="next"/> until the gap closes, each at its own length
+    /// or less, never leaving a gap no shot could fill. Returns what is still owed.
+    /// </summary>
+    private static double AddFillers(
+        List<Shot> shots, double gap, AutoShortBatch batch, Func<AutoShortSource?> next, Random random)
+    {
+        var guard = 0;
+        while (gap >= MinShotSeconds - 0.001 && guard++ < 400 && shots.Count < ClipMergeSpec.MaxClips)
+        {
+            var source = next();
+            if (source is null) break;
+
+            var len = Math.Min(NaturalLength(batch, source, gap), gap);
+            if (gap - len > 0.01 && gap - len < MinShotSeconds)
+            {
+                // Taking all of it beats leaving a sliver; a clip too short for that leaves a full second instead.
+                if (source.Kind == AssetKind.Image || source.DurationSeconds >= gap) len = gap;
+                else if (gap - MinShotSeconds >= MinShotSeconds) len = gap - MinShotSeconds;
+                else continue;
+            }
+
+            len = Round(len);
+            shots.Add(new Shot(source, len, RandomStart(source, len, random)));
+            gap = Round(gap - len);
+        }
+        return gap;
+    }
+
+    /// <summary>Spreads the gap evenly over the short's pictures, none past <paramref name="limit"/>. Returns what is still owed.</summary>
+    private static double StretchPictures(List<Shot> shots, double gap, double limit)
+    {
+        for (var pass = 0; pass < 8 && gap > 0.01; pass++)
+        {
+            var open = Enumerable.Range(0, shots.Count)
+                .Where(k => shots[k].Source.Kind == AssetKind.Image && shots[k].Length < limit - 0.01)
+                .ToList();
+            if (open.Count == 0) break;
+
+            var share = gap / open.Count;
+            for (var n = 0; n < open.Count && gap > 0.01; n++)
+            {
+                var k = open[n];
+                // The last one takes the rounding, so the sum lands on the cent.
+                var add = Round(Math.Min(n == open.Count - 1 ? gap : share, limit - shots[k].Length));
+                shots[k] = shots[k] with { Length = Round(shots[k].Length + add) };
+                gap = Round(gap - add);
+            }
+        }
+        return gap;
+    }
+
+    /// <summary>Lets a video run on into footage it has to spare, after its window or before it. Returns what is still owed.</summary>
+    private static double ExtendFootage(List<Shot> shots, double gap)
+    {
+        for (var k = shots.Count - 1; k >= 0 && gap > 0.01; k--)
+        {
+            var shot = shots[k];
+            if (shot.Source.Kind != AssetKind.Video) continue;
+            var after = shot.Source.DurationSeconds!.Value - shot.TrimStart - shot.Length;
+            var add = Round(Math.Min(gap, Math.Max(0, after) + shot.TrimStart));
+            if (add <= 0) continue;
+            var start = Round(Math.Max(0, shot.TrimStart - Math.Max(0, add - Math.Max(0, after))));
+            shots[k] = shot with { Length = Round(shot.Length + add), TrimStart = start };
+            gap = Round(gap - add);
+        }
+        return gap;
+    }
+
+    /// <summary>The next reusable pick that is not in this short yet, when there is one.</summary>
+    private static AutoShortSource NextNotIn(Deck<AutoShortSource> deck, List<Shot> shots)
+    {
+        var inShort = shots.Select(s => s.Source.AssetId).ToHashSet(StringComparer.Ordinal);
+        var pick = deck.Next();
+        for (var tries = 0; tries < deck.Size && inShort.Contains(pick.AssetId); tries++) pick = deck.Next();
+        return pick;
     }
 
     /// <summary>One shot: which file, for how long, and from where in it (footage only).</summary>
@@ -249,27 +554,33 @@ public static class AutoShortPlanner
     /// The picks shared out between the shorts, each used once. Longest first into whichever
     /// short is shortest so far and still has room, so a batch comes out evenly filled; a
     /// pick that fits nowhere is left for the next batch. With no count asked for, as few
-    /// shorts as it takes to fit every pick.
+    /// shorts as it takes to fit every pick - or, at an exact length, as many as the picks
+    /// can fill. With videos ordered first they are dealt out before any picture, so each
+    /// short gets its own videos. Picks that fit nowhere go into <paramref name="leftOvers"/>.
     /// </summary>
-    private static List<List<Shot>> SpreadShots(AutoShortBatch batch, List<AutoShortSource> usable, double cap, Random random)
+    private static List<List<Shot>> SpreadShots(
+        AutoShortBatch batch, List<AutoShortSource> usable, double cap, Random random, List<AutoShortSource> leftOvers)
     {
+        var videosFirst = batch.Order != AutoShortOrder.Shuffle;
         var picks = Shuffled(usable, random)
             .Select(s => (Source: s, Length: NaturalLength(batch, s, cap)))
             // Stable, so equal lengths keep their shuffled order.
-            .OrderByDescending(p => p.Length)
+            .OrderBy(p => videosFirst && p.Source.Kind != AssetKind.Video ? 1 : 0)
+            .ThenByDescending(p => p.Length)
             .ToList();
 
         var most = Math.Min(MaxCount, picks.Count);
         var auto = batch.Count <= 0;
+        var total = picks.Sum(p => p.Length) / cap;
         var count = auto
-            ? Math.Clamp((int)Math.Ceiling(picks.Sum(p => p.Length) / cap - 0.001), 1, most)
+            ? Math.Clamp((int)(batch.ExactLength ? Math.Floor(total + 0.001) : Math.Ceiling(total - 0.001)), 1, most)
             : Math.Clamp(batch.Count, 1, most);
 
         while (true)
         {
             var bins = Enumerable.Range(0, count).Select(_ => new List<Shot>()).ToList();
             var loads = new double[count];
-            var leftOver = 0;
+            var leftOver = new List<AutoShortSource>();
             foreach (var (source, length) in picks)
             {
                 var best = -1;
@@ -278,13 +589,15 @@ public static class AutoShortPlanner
                     if (loads[b] + length > cap + 0.001) continue;
                     if (best < 0 || loads[b] < loads[best]) best = b;
                 }
-                if (best < 0) { leftOver++; continue; }
+                if (best < 0) { leftOver.Add(source); continue; }
 
                 bins[best].Add(new Shot(source, length, 0));
                 loads[best] += length;
             }
 
-            if (auto && leftOver > 0 && count < most) { count++; continue; }
+            // At an exact length the left-overs top the shorts up instead of adding one.
+            if (auto && !batch.ExactLength && leftOver.Count > 0 && count < most) { count++; continue; }
+            leftOvers.AddRange(leftOver);
             return [.. bins.Where(b => b.Count > 0).Select(b => Shuffled(b, random))];
         }
     }
@@ -328,6 +641,10 @@ public static class AutoShortPlanner
     {
         var count = Math.Clamp(batch.Count <= 0 ? 3 : batch.Count, 1, MaxCount);
         var deck = new Deck<AutoShortSource>(usable, random);
+        // Opening shots come from the videos alone, so every short starts on footage - a
+        // different clip each time while there are clips to go round.
+        var videos = usable.Where(s => s.Kind == AssetKind.Video).ToList();
+        var openers = batch.Order != AutoShortOrder.Shuffle && videos.Count > 0 ? new Deck<AutoShortSource>(videos, random) : null;
         var cuts = new List<List<Shot>>(count);
 
         for (var k = 0; k < count; k++)
@@ -344,7 +661,7 @@ public static class AutoShortPlanner
             {
                 var len = lengths.Count > 0 ? lengths.Dequeue() + owed : Math.Max(MinShotSeconds, owed);
                 owed = 0;
-                var source = deck.Next();
+                var source = shots.Count == 0 && openers is not null ? openers.Next() : deck.Next();
 
                 if (source.Kind == AssetKind.Video)
                 {
@@ -581,6 +898,8 @@ public static class AutoShortPlanner
         private readonly List<T> pile = [];
         private T? last;
         private bool hasLast;
+
+        public int Size => items.Count;
 
         public T Next()
         {

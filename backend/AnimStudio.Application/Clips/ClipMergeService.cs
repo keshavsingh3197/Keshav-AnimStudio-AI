@@ -129,6 +129,8 @@ public sealed record AutoShortsCommand
     public AutoShortLayout Layout { get; init; } = AutoShortLayout.FitLength;
     public double ImageSeconds { get; init; } = AutoShortPlanner.DefaultImageSeconds;
     public double? MaxClipSeconds { get; init; }
+    public bool ExactLength { get; init; }
+    public AutoShortOrder Order { get; init; } = AutoShortOrder.Shuffle;
     public AutoShortStyle Style { get; init; } = AutoShortStyle.Mixed;
     public AutoShortTextMode TextMode { get; init; } = AutoShortTextMode.Hook;
     public bool Transitions { get; init; } = true;
@@ -854,6 +856,8 @@ public sealed class ClipMergeService(
                 Layout = command.Layout,
                 ImageSeconds = command.ImageSeconds,
                 MaxClipSeconds = command.MaxClipSeconds,
+                ExactLength = command.ExactLength,
+                Order = command.Order,
                 Style = command.Style,
                 TextMode = command.TextMode,
                 // A renderer without xfade cuts hard rather than refusing the batch.
