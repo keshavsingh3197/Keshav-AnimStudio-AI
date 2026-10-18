@@ -6,7 +6,14 @@ public enum LiveStreamOrientation
     Landscape = 0,
 
     /// <summary>9:16 - a vertical-only stream for the Shorts feed.</summary>
-    Portrait = 1
+    Portrait = 1,
+
+    /// <summary>
+    /// 16:9 laid out for YouTube's dual format: the landscape player gets the full frame and
+    /// YouTube crops the vertical (Shorts feed) version from its centre, so a song's cover
+    /// and waveform are kept inside that centre strip.
+    /// </summary>
+    Both = 2
 }
 
 public enum LiveStreamQuality

@@ -1,6 +1,9 @@
 using AnimStudio.Api.Common;
 using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Publishing;
+using AnimStudio.Domain.Ai;
+using AnimStudio.Domain.Jobs;
+using AnimStudio.Domain.Projects;
 using AnimStudio.Domain.Publishing;
 using AnimStudio.Infrastructure.Publishing;
 using Microsoft.AspNetCore.Mvc;
@@ -150,9 +153,7 @@ public sealed partial class YouTubePublishController
             : "a YouTube video - include two or three topic hashtags in the description";
 
         var settings = await settingsRepo.GetAsync(ct);
-        var footer = (settings?.DefaultPublishing?.YouTubeChannelId == connection.ChannelId
-            ? settings.DefaultPublishing
-            : settings?.Channels.FirstOrDefault(c => c.Publishing?.YouTubeChannelId == connection.ChannelId)?.Publishing)?.DescriptionFooter;
+        var footer = BrandFor(settings, connection.ChannelId).Publishing?.DescriptionFooter;
 
         return await WriteSuggestionAsync(summary, style, request, projectId,
             d => YouTubePublishValidator.WithFooter(d.Trim(), footer), "video " + video.VideoId, ct);
@@ -235,6 +236,130 @@ public sealed partial class YouTubePublishController
         }
     }
 
+    /// <summary>
+    /// What the edit dialog adds around a video: the brand channel's description footer and
+    /// default tags, and - for a video AnimStudio published - its project and the render it
+    /// came from, so a frame of it can become the thumbnail. Reads nothing from YouTube.
+    /// </summary>
+    [HttpGet("channels/{channelId}/videos/{videoId}/context")]
+    public async Task<ActionResult<ApiResponse<YouTubeVideoEditContext>>> VideoContext(
+        string channelId, string videoId, [FromServices] IYouTubePublicationRepository publicationRecords, CancellationToken ct)
+    {
+        var (connection, refusal) = await EditableChannelAsync<YouTubeVideoEditContext>(channelId, ct);
+        if (refusal is not null) return refusal;
+        if (!YouTubeChannelVideosClient.IsVideoId(videoId)) throw new KeyNotFoundException();
+
+        var (project, job) = await LinkedRenderAsync(publicationRecords, connection!.ChannelId, videoId, ct);
+        var settings = await settingsRepo.GetAsync(ct);
+        var (brandName, publishing) = BrandFor(settings, connection.ChannelId);
+
+        // The project's own brand channel is what the video was published with; it wins when it has a setup.
+        if (project is not null && settings?.PublishingFor(project.Settings.BrandChannelId) is { } projectPublishing)
+        {
+            publishing = projectPublishing;
+            brandName = settings.FindChannel(project.Settings.BrandChannelId)?.Name ?? settings.DefaultChannelName;
+        }
+
+        var facts = job is null ? null : Facts(job);
+        return Ok(ApiResponse<YouTubeVideoEditContext>.Ok(new YouTubeVideoEditContext(
+            brandName,
+            string.IsNullOrWhiteSpace(publishing?.DescriptionFooter) ? null : publishing.DescriptionFooter.Trim(),
+            publishing?.Tags ?? [],
+            project is null ? null : new YouTubeVideoProjectContext(
+                project.Id, project.Name, project.Description ?? string.Empty,
+                job?.Id, facts?.DurationSeconds, facts?.IsVertical ?? false))));
+    }
+
+    /// <summary>
+    /// Sets a new custom thumbnail on a video on the channel: a picture the user uploads, or a
+    /// frame of the AnimStudio render it was published from. Every picture is re-encoded on
+    /// the server, so YouTube never receives the client's bytes as they came.
+    /// </summary>
+    [HttpPut("channels/{channelId}/videos/{videoId}/thumbnail")]
+    [RequestSizeLimit(12 * 1024 * 1024)]
+    public async Task<ActionResult<ApiResponse<YouTubeThumbnailSaved>>> SetVideoThumbnail(
+        string channelId, string videoId, [FromBody] YouTubeThumbnailChoice? request,
+        [FromServices] YouTubeChannelVideosClient channelVideos, [FromServices] YouTubeVideoUploader uploader,
+        [FromServices] IYouTubePublicationRepository publicationRecords, CancellationToken ct)
+    {
+        var (connection, refusal) = await EditableChannelAsync<YouTubeThumbnailSaved>(channelId, ct);
+        if (refusal is not null) return refusal;
+        if (!YouTubeChannelVideosClient.IsVideoId(videoId)) throw new KeyNotFoundException();
+
+        // A frame comes from the render the video was published from - found here, never named by the client.
+        var (_, job) = await LinkedRenderAsync(publicationRecords, connection!.ChannelId, videoId, ct);
+        var (source, frameAt, image, error) = YouTubeThumbnailRules.Check(request, job is null ? null : Facts(job).DurationSeconds);
+        if (error is not null)
+            return BadRequest(ApiResponse<YouTubeThumbnailSaved>.Fail(error.Message, new ApiError(error.Code, error.Message, Field: error.Field)));
+        if (source == YouTubeThumbnailSource.None)
+            return BadRequest(ApiResponse<YouTubeThumbnailSaved>.Fail("Pick a frame or a picture first.",
+                new ApiError("thumbnail-missing", "Pick a frame or a picture first.", Field: YouTubeThumbnailRules.Field)));
+        if (source == YouTubeThumbnailSource.Frame && job is null)
+            return BadRequest(ApiResponse<YouTubeThumbnailSaved>.Fail("Frames are only offered for videos published from AnimStudio.",
+                new ApiError("thumbnail-frame-invalid", "Frames are only offered for videos published from AnimStudio. Upload a picture instead.", Field: YouTubeThumbnailRules.Field)));
+
+        try
+        {
+            var token = await connections.GetAccessTokenAsync(currentUser.UserId, connection.ChannelId, ct);
+            var video = await channelVideos.GetVideoAsync(token, videoId, ct);
+            if (video is null || !string.Equals(video.ChannelId, connection.ChannelId, StringComparison.Ordinal))
+                return NotFound(ApiResponse<YouTubeThumbnailSaved>.Fail("That video isn't on this channel.",
+                    new ApiError("video-not-found", "That video isn't on this channel.")));
+
+            var jpeg = source == YouTubeThumbnailSource.Frame
+                ? await thumbnails.FrameAsync(await RenderPreviewFile.EnsureAsync(store, job!, ct), frameAt, YouTubeThumbnailRules.TargetWidth, ct)
+                : await thumbnails.NormalizeAsync(image!, ct);
+
+            var refused = await uploader.SetThumbnailAsync(videoId, jpeg,
+                (_, token2) => connections.GetAccessTokenAsync(currentUser.UserId, connection.ChannelId, token2), ct);
+            if (refused is not null)
+            {
+                var message = YouTubeThumbnailRules.ChangeRefusedMessage(refused);
+                return BadRequest(ApiResponse<YouTubeThumbnailSaved>.Fail(message,
+                    new ApiError("thumbnail-refused", message, Field: YouTubeThumbnailRules.Field)));
+            }
+
+            await audit.RecordAsync("youtube.video.thumbnail", videoId, null, connection.ChannelId, RemoteAddress(), ct);
+            logger.LogInformation("User {UserId} set the thumbnail of YouTube video {VideoId} on channel {ChannelId} from a {Source}",
+                currentUser.UserId, videoId, connection.ChannelId, source);
+            return Ok(ApiResponse<YouTubeThumbnailSaved>.Ok(new YouTubeThumbnailSaved(videoId, DateTime.UtcNow)));
+        }
+        catch (YouTubePublishException ex)
+        {
+            logger.LogWarning("Setting the thumbnail of YouTube video {VideoId} failed: {Code}", videoId, ex.Code);
+            return Failure<YouTubeThumbnailSaved>(ex);
+        }
+    }
+
+    /// <summary>
+    /// The caller's own project and finished render a video was published from, when AnimStudio
+    /// published it. Either is null when it is gone, isn't the caller's, or has no output any more.
+    /// </summary>
+    private async Task<(Project? Project, RenderJob? Job)> LinkedRenderAsync(
+        IYouTubePublicationRepository publicationRecords, string youTubeChannelId, string videoId, CancellationToken ct)
+    {
+        var records = await publicationRecords.ListByVideoIdsAsync(currentUser.UserId, [videoId], ct);
+        var record = records.FirstOrDefault(r => string.Equals(r.ChannelId, youTubeChannelId, StringComparison.Ordinal))
+            ?? records.FirstOrDefault();
+        if (record is null) return (null, null);
+
+        var project = await projects.GetAsync(record.ProjectId, ct);
+        if (project is not null && !string.Equals(project.UserId, currentUser.UserId, StringComparison.Ordinal)) project = null;
+
+        var job = string.IsNullOrEmpty(record.JobId) ? null : await jobs.GetAsync(record.JobId, ct);
+        if (job is not null && (!string.Equals(job.UserId, currentUser.UserId, StringComparison.Ordinal) || !Facts(job).HasOutput)) job = null;
+        return (project, job);
+    }
+
+    /// <summary>The brand channel that publishes to a YouTube channel - its name and setup - or nulls when none does.</summary>
+    private static (string? Name, ChannelPublishSettings? Publishing) BrandFor(AiSettings? settings, string youTubeChannelId)
+    {
+        if (settings is null) return (null, null);
+        if (settings.DefaultPublishing?.YouTubeChannelId == youTubeChannelId) return (settings.DefaultChannelName, settings.DefaultPublishing);
+        var channel = settings.Channels.FirstOrDefault(c => c.Publishing?.YouTubeChannelId == youTubeChannelId);
+        return channel is null ? (null, null) : (channel.Name, channel.Publishing);
+    }
+
     /// <summary>The caller's connection for a channel that can be edited, or the response refusing it.</summary>
     private async Task<(YouTubeChannelConnection? Connection, ActionResult<ApiResponse<T>>? Refusal)> EditableChannelAsync<T>(
         string channelId, CancellationToken ct)
@@ -305,3 +430,25 @@ public sealed record YouTubeVideoDetailsRequest(
     bool PlaylistsKnown = true);
 
 public sealed record YouTubeCheckupSaveResponse(YouTubeCheckupVideo Video, IReadOnlyList<string> Warnings);
+
+/// <summary>What the edit dialog shows around a video on the channel.</summary>
+/// <param name="BrandChannelName">The brand channel whose setup applies, if any publishes here.</param>
+/// <param name="DescriptionFooter">That setup's footer - links, credits - to end the description with.</param>
+/// <param name="DefaultTags">That setup's tags, offered to add to the video's own.</param>
+/// <param name="Project">The AnimStudio project it was published from, if any.</param>
+public sealed record YouTubeVideoEditContext(
+    string? BrandChannelName,
+    string? DescriptionFooter,
+    IReadOnlyList<string> DefaultTags,
+    YouTubeVideoProjectContext? Project);
+
+/// <param name="RenderJobId">The finished render it was published from, for frames; null when that render is gone.</param>
+public sealed record YouTubeVideoProjectContext(
+    string Id,
+    string Name,
+    string Description,
+    string? RenderJobId,
+    double? DurationSeconds,
+    bool IsVertical);
+
+public sealed record YouTubeThumbnailSaved(string VideoId, DateTime SetAt);

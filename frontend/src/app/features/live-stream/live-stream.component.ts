@@ -675,8 +675,8 @@ export class LiveStreamComponent {
   }
 
   qualityLabel(stream: LiveStreamStatus): string {
-    const vertical = stream.orientation === 'Portrait';
-    return `${stream.quality === 'Hd1080' ? '1080p' : '720p'} ${vertical ? 'vertical' : 'landscape'}`;
+    const shape = stream.orientation === 'Portrait' ? 'vertical' : stream.orientation === 'Both' ? 'landscape + vertical' : 'landscape';
+    return `${stream.quality === 'Hd1080' ? '1080p' : '720p'} ${shape}`;
   }
 
   loopsLabel(stream: LiveStreamStatus): string {
@@ -887,7 +887,7 @@ export class LiveStreamComponent {
       const saved = JSON.parse(localStorage.getItem(REMEMBER_KEY) ?? '{}') as Remembered;
       if (saved.destination) this.form.destination = saved.destination;
       if (saved.quality === 'Hd720' || saved.quality === 'Hd1080') this.form.quality = saved.quality;
-      if (saved.orientation === 'Landscape' || saved.orientation === 'Portrait') this.form.orientation = saved.orientation;
+      if (saved.orientation === 'Landscape' || saved.orientation === 'Portrait' || saved.orientation === 'Both') this.form.orientation = saved.orientation;
       if (saved.keyMode === 'channel' || saved.keyMode === 'paste' || saved.keyMode === 'youtube') this.form.keyMode = saved.keyMode;
       if (typeof saved.channelId === 'string') this.form.channelId = saved.channelId;
       if (typeof saved.autoReconnect === 'boolean') this.form.autoReconnect = saved.autoReconnect;

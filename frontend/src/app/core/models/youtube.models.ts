@@ -445,6 +445,30 @@ export interface YouTubeVideoDetailsSave {
   playlistsKnown: boolean;
 }
 
+/** What the edit dialog shows around a video: the brand channel's setup and the AnimStudio project. */
+export interface YouTubeVideoEditContext {
+  brandChannelName: string | null;
+  /** Links, credits - what the channel ends every description with. */
+  descriptionFooter: string | null;
+  defaultTags: string[];
+  project: YouTubeVideoProjectContext | null;
+}
+
+export interface YouTubeVideoProjectContext {
+  id: string;
+  name: string;
+  description: string;
+  /** The render it was published from, for frames; null when that render is gone. */
+  renderJobId: string | null;
+  durationSeconds: number | null;
+  isVertical: boolean;
+}
+
+export interface YouTubeThumbnailSaved {
+  videoId: string;
+  setAt: string;
+}
+
 export interface YouTubeCheckupSaved {
   video: YouTubeCheckupVideo;
   warnings: string[];

@@ -1,4 +1,5 @@
-export type LiveStreamOrientation = 'Landscape' | 'Portrait';
+/** `Both` sends 16:9 and YouTube's dual format crops the vertical (Shorts feed) version from its centre. */
+export type LiveStreamOrientation = 'Landscape' | 'Portrait' | 'Both';
 export type LiveStreamQuality = 'Hd720' | 'Hd1080';
 export type LiveStreamItemKind = 'Video' | 'CoverAndAudio';
 export type LiveStreamItemSource = 'Upload' | 'Render' | 'Asset' | 'Url' | 'ReleaseKit';

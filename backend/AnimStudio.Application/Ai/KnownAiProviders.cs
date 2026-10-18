@@ -76,6 +76,7 @@ public sealed record AiModelChoice(string Id, string Label);
 public static class KnownAiProviders
 {
     public const string Groq = "groq";
+    public const string Gemini = "gemini";
     public const string OpenRouter = "openrouter";
     public const string Together = "together";
     public const string Ollama = "ollama";
@@ -105,6 +106,23 @@ public static class KnownAiProviders
             "The best default for extraction work, which is many small calls.",
             "https://console.groq.com/keys",
             DefaultDailyRequestLimit: 900),
+
+        new(Gemini, AiCapability.Text, AiProviderFamily.OpenAiCompatibleText,
+            "Google Gemini",
+            "https://generativelanguage.googleapis.com/v1beta/openai",
+            "gemini-2.5-flash",
+            RunsLocally: false,
+            "Free tier from Google AI Studio, no card needed. The strongest free choice for " +
+            "Hindi and other Indian languages, so it suits YouTube titles and descriptions. " +
+            "On the free tier Google may use prompts to improve its models - only public " +
+            "video details are sent from the checkup.",
+            "https://aistudio.google.com/apikey",
+            DefaultDailyRequestLimit: 200,
+            Models:
+            [
+                new("gemini-2.5-flash", "2.5 Flash - best quality on the free tier"),
+                new("gemini-2.5-flash-lite", "2.5 Flash-Lite - faster, larger free allowance")
+            ]),
 
 
         new(OpenRouter, AiCapability.Text, AiProviderFamily.OpenAiCompatibleText,

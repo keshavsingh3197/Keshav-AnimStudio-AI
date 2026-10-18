@@ -126,6 +126,25 @@ public static class YouTubeThumbnailRules
         _ => "The video is up, but its custom thumbnail wasn't set. Add it in YouTube Studio."
     };
 
+    /// <summary>
+    /// What to tell the user when YouTube refuses a new thumbnail for a video already on the
+    /// channel. Nothing else changed, so each is an error with the way forward.
+    /// </summary>
+    public static string ChangeRefusedMessage(string? reason) => reason switch
+    {
+        "forbidden" or "insufficientPermissions" =>
+            "YouTube didn't accept the custom thumbnail: the channel needs to be verified for custom thumbnails (youtube.com/verify).",
+        "invalidImage" or "mediaBodyRequired" =>
+            "YouTube couldn't use that picture as a thumbnail. Try another.",
+        "mediaTooLarge" =>
+            "The thumbnail was too large for YouTube. Try a smaller picture.",
+        "uploadRateLimitExceeded" or "rateLimitExceeded" or "quotaExceeded" =>
+            "YouTube is limiting thumbnail changes right now. Try again later.",
+        "videoNotFound" =>
+            "That video isn't on the channel any more.",
+        _ => "YouTube didn't set the thumbnail. Try again, or change it in YouTube Studio."
+    };
+
     private static (YouTubeThumbnailSource, double, byte[]?, YouTubeCheck?) Fail(string code, string message) =>
         (YouTubeThumbnailSource.None, 0, null, Error(code, message));
 

@@ -6,7 +6,7 @@ import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../models/api.models';
 import {
   GoogleDriveStatus, PhoneHandoff, PhoneHandoffCheck,
-  YouTubeCheckup, YouTubeCheckupSaved, YouTubeVideoDetailsSave,
+  YouTubeCheckup, YouTubeCheckupSaved, YouTubeThumbnailSaved, YouTubeVideoDetailsSave, YouTubeVideoEditContext,
   YouTubeChannel, YouTubeDashboard, YouTubeDraft, YouTubeLiveBroadcast, YouTubeLiveSetup, YouTubeLiveSuggestParams, YouTubePublication, YouTubePublishSource, YouTubePublishStatus,
   YouTubeSuggestion, YouTubeSuggestOptions, YouTubeSuggestParams, YouTubeThumbnailChoice, YouTubeUpload, YouTubeVideoMetadata,
 } from '../models/youtube.models';
@@ -88,6 +88,22 @@ export class YouTubePublishService {
       .put<ApiResponse<YouTubeCheckupSaved>>(
         `${this.base}/channels/${encodeURIComponent(channelId)}/videos/${encodeURIComponent(videoId)}`, body)
       .pipe(map((r) => r.data as YouTubeCheckupSaved));
+  }
+
+  /** The brand channel footer and tags, and the AnimStudio project, for the edit dialog. */
+  videoContext(channelId: string, videoId: string): Observable<YouTubeVideoEditContext> {
+    return this.http
+      .get<ApiResponse<YouTubeVideoEditContext>>(
+        `${this.base}/channels/${encodeURIComponent(channelId)}/videos/${encodeURIComponent(videoId)}/context`)
+      .pipe(map((r) => r.data as YouTubeVideoEditContext));
+  }
+
+  /** Sets a new custom thumbnail on a video on the channel: an uploaded picture or a frame of its render. */
+  setVideoThumbnail(channelId: string, videoId: string, choice: YouTubeThumbnailChoice): Observable<YouTubeThumbnailSaved> {
+    return this.http
+      .put<ApiResponse<YouTubeThumbnailSaved>>(
+        `${this.base}/channels/${encodeURIComponent(channelId)}/videos/${encodeURIComponent(videoId)}/thumbnail`, choice)
+      .pipe(map((r) => r.data as YouTubeThumbnailSaved));
   }
 
   /** `firstComment` is posted on the video once it is up; empty posts nothing. */

@@ -228,7 +228,14 @@
           <select id="ls-orient" [(ngModel)]="form.orientation">
             <option value="Landscape">Landscape 16:9</option>
             <option value="Portrait">Vertical 9:16 (Shorts feed)</option>
+            <option value="Both">Both - landscape + vertical (YouTube dual format)</option>
           </select>
+          @if (form.orientation === 'Both') {
+            <span class="muted ls-small-print">
+              Sent as 16:9. YouTube shows it in the normal player and crops a vertical version for the Shorts feed,
+              so viewers see whichever fits. Song covers are kept in the centre so the crop shows them.
+            </span>
+          }
         </div>
         <div class="ls-field ls-span-2 ls-checks">
           <label><input type="checkbox" [(ngModel)]="form.loopForever" /> Loop the playlist until I stop it</label>

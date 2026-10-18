@@ -1115,7 +1115,11 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
                 // A hard cut is a concat, never a zero-length xfade: xfade with duration=0
                 // ends at its offset and silently drops the whole second input - which is
                 // how an export with any overlay lost its end card.
-                graph.Append($"[{videoLabel}][v{k + 1}]concat=n=2:v=1:a=0[{next}];\n");
+                // concat outputs on AV_TIME_BASE (1/1000000), and the next xfade refuses a
+                // first input whose timebase differs from its second (1/fps). fps= puts the
+                // stream back on 1/fps with a constant rate; timestamps are already exact
+                // frame multiples, so no frame is dropped or duplicated.
+                graph.Append($"[{videoLabel}][v{k + 1}]concat=n=2:v=1:a=0,fps={rate.ToFfmpegRate()}[{next}];\n");
             }
             else
             {

@@ -6,11 +6,12 @@ import { Observable, catchError, of } from 'rxjs';
 
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
 import {
-  YouTubeCategory, YouTubeChannel, YouTubeCheckup, YouTubeCheckupVideo, YouTubePrivacy, YouTubeSuggestEngine,
-  YouTubeSuggestion,
+  YouTubeCategory, YouTubeChannel, YouTubeCheckup, YouTubeCheckupVideo, YouTubeSuggestEngine, YouTubeSuggestion,
 } from '../../core/models/youtube.models';
 import { YouTubePublishService } from '../../core/services/youtube-publish.service';
 import { MAX_ANSWER_CHARS, MAX_PROMPT_VIDEOS, buildHandoffPrompt, parseHandoffAnswer } from './checkup-ai-handoff';
+import { Draft, EMPTY_STATE, HASHTAG, HASHTAGS, RowState, draftDiffers, fitTags, splitTags } from './checkup-draft';
+import { CheckupVideoEditorComponent } from './checkup-video-editor.component';
 
 /** The issues the page counts and filters by, in the order they're shown. */
 const ISSUE_LABELS: readonly { code: string; label: string }[] = [
@@ -23,9 +24,6 @@ const ISSUE_LABELS: readonly { code: string; label: string }[] = [
   { code: 'title-default', label: 'File-name title' },
 ];
 
-/** Tags are sent comma-joined; YouTube's limit is 500 characters, so drafts stop a little short. */
-const TAGS_BUDGET = 450;
-
 /** Two drafts at a time: the server only writes two suggestions at once anyway. */
 const PARALLEL = 2;
 
@@ -36,28 +34,12 @@ type Sort = 'newest' | 'oldest' | 'most-missing' | 'title';
 /** Rows per page: enough to scan, few enough that 500 videos don't make one endless list. */
 const PAGE_SIZE = 25;
 
-interface Draft {
-  title: string;
-  description: string;
-  tagsText: string;
-  categoryId: string;
-  privacy: YouTubePrivacy;
-  madeForKids: boolean | null;
-  addPlaylistIds: string[];
-  titleOptions: string[];
-  descriptionOptions: string[];
-  tagIdeas: string[];
-}
+/** How many of the newest videos a check reads. Fewer is quicker and spends less YouTube quota. */
+const CHECK_SIZES = [10, 25, 50, 100, 250, 500] as const;
+const DEFAULT_CHECK_SIZE = 25;
 
-interface RowState {
-  draft: Draft | null;
-  busy: 'suggest' | 'save' | null;
-  error: string | null;
-  saved: boolean;
-  warnings: string[];
-}
-
-const EMPTY_STATE: RowState = { draft: null, busy: null, error: null, saved: false, warnings: [] };
+/** Remembered per browser, so the page opens with the last chosen size. */
+const PREFS_KEY = 'animstudio.youtube.checkup';
 
 /**
  * Details checkup: every video on a connected channel - however it was uploaded - with what
@@ -67,7 +49,7 @@ const EMPTY_STATE: RowState = { draft: null, busy: null, error: null, saved: fal
  */
 @Component({
   selector: 'app-youtube-checkup',
-  imports: [DatePipe, FormsModule, RouterLink],
+  imports: [DatePipe, FormsModule, RouterLink, CheckupVideoEditorComponent],
   templateUrl: './youtube-checkup.component.html',
   styleUrl: './youtube-checkup.component.css',
 })
@@ -77,6 +59,7 @@ export class YouTubeCheckupComponent implements OnInit {
   readonly issueLabels = ISSUE_LABELS;
   readonly maxPromptVideos = MAX_PROMPT_VIDEOS;
   readonly maxAnswerChars = MAX_ANSWER_CHARS;
+  readonly checkSizes = CHECK_SIZES;
 
   readonly channels = signal<YouTubeChannel[]>([]);
   readonly categories = signal<YouTubeCategory[]>([]);
@@ -85,7 +68,7 @@ export class YouTubeCheckupComponent implements OnInit {
   readonly configured = signal(true);
 
   readonly channelId = signal('');
-  readonly max = signal(100);
+  readonly max = signal(loadCheckSize());
   readonly checkup = signal<YouTubeCheckup | null>(null);
   readonly loading = signal(false);
   /** Seconds the current check has been running, so a slow channel doesn't look stuck. */
@@ -114,6 +97,9 @@ export class YouTubeCheckupComponent implements OnInit {
   readonly pasteText = signal('');
   readonly pasteReport = signal<{ ok: boolean; lines: string[] } | null>(null);
   readonly promptCopied = signal<string | null>(null);
+
+  /** Per video, when its thumbnail was last changed here - so the row's picture reloads. */
+  private readonly thumbVersions = signal<Record<string, number>>({});
 
   private loadingTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -151,7 +137,19 @@ export class YouTubeCheckupComponent implements OnInit {
   readonly pageTo = computed(() => Math.min(this.rows().length, (this.pageIndex() + 1) * PAGE_SIZE));
 
   readonly selectedVideos = computed(() => this.videos().filter((v) => this.selected().has(v.videoId)));
-  readonly draftsToSave = computed(() => this.selectedVideos().filter((v) => this.states()[v.videoId]?.draft && !this.states()[v.videoId]?.saved));
+  /** The video open in the edit dialog, and its neighbours in the filtered, sorted list. */
+  readonly openVideo = computed(() => this.videos().find((v) => v.videoId === this.open()) ?? null);
+  private readonly openIndex = computed(() => this.rows().findIndex((v) => v.videoId === this.open()));
+  readonly openPosition = computed(() => (this.openIndex() < 0 ? '' : `${this.openIndex() + 1} of ${this.rows().length}`));
+  readonly hasPrev = computed(() => this.openIndex() > 0);
+  readonly hasNext = computed(() => this.openIndex() >= 0 && this.openIndex() < this.rows().length - 1);
+  readonly aiSummary = computed(() => {
+    const engine = this.engines().find((e) => e.id === this.engine())?.name ?? 'Auto engine';
+    return `${engine}, tone ${this.tone()}, ${this.language() === 'hi' ? 'Hindi' : 'English'}`;
+  });
+
+  /** Selected drafts that would change something - an untouched draft isn't worth a YouTube call. */
+  readonly draftsToSave = computed(() => this.selectedVideos().filter((v) => this.hasChanges(v)));
 
   constructor() {
     inject(DestroyRef).onDestroy(() => this.stopTimer());
@@ -171,6 +169,16 @@ export class YouTubeCheckupComponent implements OnInit {
       this.engines.set(o.engines);
       this.tones.set(o.tones);
     });
+  }
+
+  setCheckSize(size: number): void {
+    this.max.set(CHECK_SIZES.find((s) => s === size) ?? DEFAULT_CHECK_SIZE);
+    try {
+      localStorage.setItem(PREFS_KEY, JSON.stringify({ max: this.max() }));
+    } catch {
+      // Storage is off (private window): the size just isn't remembered.
+    }
+    this.load();
   }
 
   pickChannel(channelId: string): void {
@@ -229,10 +237,47 @@ export class YouTubeCheckupComponent implements OnInit {
     return this.states()[videoId] ?? EMPTY_STATE;
   }
 
-  toggleOpen(v: YouTubeCheckupVideo): void {
-    if (this.open() === v.videoId) { this.open.set(null); return; }
+  hasChanges(v: YouTubeCheckupVideo): boolean {
+    const d = this.state(v.videoId).draft;
+    return !!d && draftDiffers(v, d);
+  }
+
+  openEditor(v: YouTubeCheckupVideo): void {
     if (!this.state(v.videoId).draft) this.patch(v.videoId, { draft: this.draftFrom(v) });
     this.open.set(v.videoId);
+  }
+
+  closeEditor(): void {
+    this.open.set(null);
+  }
+
+  /** Opens the previous or next video in the list, and turns the page so its row is in view. */
+  moveEditor(step: -1 | 1): void {
+    const index = this.openIndex() + step;
+    const v = this.rows()[index];
+    if (!v) return;
+    this.page.set(Math.floor(index / PAGE_SIZE));
+    this.openEditor(v);
+  }
+
+  /** Saves from the dialog; "next" moves on to the following video once the save succeeds. */
+  saveFromEditor(v: YouTubeCheckupVideo, next: boolean): void {
+    const following = next ? this.rows()[this.openIndex() + 1] ?? null : null;
+    this.runSave(v).subscribe((ok) => {
+      if (!ok || this.open() !== v.videoId) return;
+      if (following) this.openEditor(following); else this.closeEditor();
+    });
+  }
+
+  thumbnailChanged(videoId: string): void {
+    this.thumbVersions.update((all) => ({ ...all, [videoId]: Date.now() }));
+  }
+
+  /** The row's picture, reloaded past the browser cache after its thumbnail was changed here. */
+  thumbSrc(v: YouTubeCheckupVideo): string | null {
+    const version = this.thumbVersions()[v.videoId];
+    if (!v.thumbnailUrl || !version) return v.thumbnailUrl;
+    return `${v.thumbnailUrl}${v.thumbnailUrl.includes('?') ? '&' : '?'}v=${version}`;
   }
 
   setDraft(videoId: string, change: Partial<Draft>): void {
@@ -241,37 +286,12 @@ export class YouTubeCheckupComponent implements OnInit {
     this.patch(videoId, { draft: { ...st.draft, ...change }, saved: false });
   }
 
-  togglePlaylist(videoId: string, playlistId: string): void {
-    const d = this.state(videoId).draft;
-    if (!d) return;
-    const has = d.addPlaylistIds.includes(playlistId);
-    this.setDraft(videoId, { addPlaylistIds: has ? d.addPlaylistIds.filter((p) => p !== playlistId) : [...d.addPlaylistIds, playlistId] });
-  }
-
-  addTag(videoId: string, tag: string): void {
-    const d = this.state(videoId).draft;
-    if (!d) return;
-    this.setDraft(videoId, { tagsText: fitTags([...splitTags(d.tagsText), tag]).join(', '), tagIdeas: d.tagIdeas.filter((t) => t !== tag) });
-  }
-
   reset(v: YouTubeCheckupVideo): void {
     this.patch(v.videoId, { draft: this.draftFrom(v), error: null, warnings: [], saved: false });
   }
 
   suggest(v: YouTubeCheckupVideo): void {
     this.runSuggest(v).subscribe();
-  }
-
-  save(v: YouTubeCheckupVideo): void {
-    this.runSave(v).subscribe();
-  }
-
-  descriptionBytes(text: string): number {
-    return new TextEncoder().encode(text).length;
-  }
-
-  tagsLength(text: string): number {
-    return splitTags(text).join(',').length;
   }
 
   playlistTitle(id: string): string {
@@ -482,7 +502,6 @@ export class YouTubeCheckupComponent implements OnInit {
         next: (res) => {
           this.checkup.update((c) => c ? { ...c, videos: c.videos.map((x) => x.videoId === v.videoId ? res.video : x) } : c);
           this.patch(v.videoId, { busy: null, saved: true, warnings: res.warnings, draft: this.draftFrom(res.video) });
-          if (this.open() === v.videoId) this.open.set(null);
           sub.next(true);
           sub.complete();
         },
@@ -566,32 +585,14 @@ function sortVideos(list: YouTubeCheckupVideo[], sort: Sort): YouTubeCheckupVide
   }
 }
 
-const HASHTAG = /(^|\s)#[\p{L}\p{M}\p{N}_]+/u;
-const HASHTAGS = /#[\p{L}\p{M}\p{N}_]+/gu;
-
-function splitTags(text: string): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const raw of text.split(',')) {
-    const tag = raw.trim().replace(/^#/, '');
-    if (!tag || seen.has(tag.toLowerCase())) continue;
-    seen.add(tag.toLowerCase());
-    out.push(tag);
+/** The last check size chosen in this browser, or the default when none was (or storage is off). */
+function loadCheckSize(): number {
+  try {
+    const saved = Number((JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') as { max?: unknown }).max);
+    return CHECK_SIZES.find((s) => s === saved) ?? DEFAULT_CHECK_SIZE;
+  } catch {
+    return DEFAULT_CHECK_SIZE;
   }
-  return out;
-}
-
-/** Keeps tags in order until the comma-joined list would pass the budget. */
-function fitTags(tags: string[]): string[] {
-  const out: string[] = [];
-  let length = 0;
-  for (const tag of splitTags(tags.join(','))) {
-    const add = (out.length ? 1 : 0) + tag.length;
-    if (length + add > TAGS_BUDGET) break;
-    out.push(tag);
-    length += add;
-  }
-  return out;
 }
 
 function message(e: unknown): string {
