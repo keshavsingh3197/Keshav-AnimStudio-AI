@@ -62,7 +62,11 @@ export function fitTags(tags: string[]): string[] {
 }
 
 export function hasFooter(description: string, footer: string | null): boolean {
-  return !!footer && description.includes(footer.trim());
+  if (!footer?.trim()) return false;
+  const f = footer.trim();
+  if (description.includes(f)) return true;
+  const lines = f.split('\n').map((l) => l.trim()).filter(Boolean);
+  return lines.length > 0 && description.includes(lines[0]);
 }
 
 /** Adds the channel footer at the very end, once. */
@@ -81,6 +85,42 @@ export function insertAboveFooter(description: string, block: string, footer: st
     return `${description.slice(0, at).trimEnd()}\n\n${text}\n\n${description.slice(at)}`;
   }
   return `${description.trimEnd()}\n\n${text}`;
+}
+
+/**
+ * Safely truncates a string so its UTF-8 byte count is at most maxBytes.
+ * Tries to cleanly cut at a paragraph, sentence or word boundary without breaking multi-byte characters.
+ */
+export function trimUtf8Bytes(text: string, maxBytes: number): string {
+  const encoder = new TextEncoder();
+  if (encoder.encode(text).length <= maxBytes) return text;
+
+  let low = 0;
+  let high = text.length;
+  let best = 0;
+
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    const sub = text.slice(0, mid);
+    if (encoder.encode(sub).length <= maxBytes) {
+      best = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  let result = text.slice(0, best);
+  const lastNewline = result.lastIndexOf('\n');
+  if (lastNewline > best * 0.85) {
+    result = result.slice(0, lastNewline);
+  } else {
+    const lastSpace = result.lastIndexOf(' ');
+    if (lastSpace > best * 0.9) {
+      result = result.slice(0, lastSpace);
+    }
+  }
+  return result.trimEnd();
 }
 
 /** Whether saving the draft would change anything on YouTube. */
@@ -112,7 +152,7 @@ export function draftChecklist(v: YouTubeCheckupVideo, d: Draft, footer: string 
     { label: v.isShort ? 'Hashtags (#shorts and a few topics)' : 'Hashtags', ok: HASHTAG.test(`${title}\n${description}`) },
     { label: 'Audience declared', ok: d.madeForKids !== null },
   ];
-  if (playlistsKnown) items.push({ label: 'In a playlist', ok: v.playlistIds.length > 0 || d.addPlaylistIds.length > 0 });
+  if (playlistsKnown) items.push({ label: 'In a playlist (recommended)', ok: v.playlistIds.length > 0 || d.addPlaylistIds.length > 0, optional: true });
   if (footer) items.push({ label: 'Channel footer (links, credits)', ok: hasFooter(d.description, footer), optional: true });
   return items;
 }

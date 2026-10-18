@@ -5,276 +5,564 @@
     <!-- Header: where we are in the list, and the way out -->
     <header class="ve-head">
       <div class="ve-nav">
-        <button type="button" class="ve-icon" (click)="move.emit(-1)" [disabled]="!hasPrev() || !!st.busy" aria-label="Previous video" title="Previous video">‹</button>
-        <button type="button" class="ve-icon" (click)="move.emit(1)" [disabled]="!hasNext() || !!st.busy" aria-label="Next video" title="Next video">›</button>
-        @if (position()) { <span class="ve-pos">{{ position() }}</span> }
+        <button type="button" class="ve-nav-btn" (click)="move.emit(-1)" [disabled]="!hasPrev() || !!st.busy" aria-label="Previous video" title="Previous video (Alt+Left)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+        </button>
+        @if (position()) {
+          <span class="ve-pos-badge">{{ position() }}</span>
+        }
+        <button type="button" class="ve-nav-btn" (click)="move.emit(1)" [disabled]="!hasNext() || !!st.busy" aria-label="Next video" title="Next video (Alt+Right)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+        </button>
       </div>
-      <h2 id="ve-title" class="ve-title" [title]="v.title">{{ v.title || '(no title)' }}</h2>
-      <div class="ve-status">
-        @if (st.busy === 'suggest') { <span class="pill">✨ Writing…</span> }
-        @else if (st.busy === 'save') { <span class="pill">Saving…</span> }
-        @else if (st.saved && !dirty()) { <span class="pill ok">Saved ✓</span> }
-        @else if (dirty()) { <span class="pill warn">Unsaved changes</span> }
+
+      <div class="ve-head-title-wrap">
+        <h2 id="ve-title" class="ve-title" [title]="v.title">
+          @if (isShort()) {
+            <span class="ve-badge-short" title="YouTube Short">⚡ SHORT</span>
+          }
+          {{ v.title || '(no title)' }}
+        </h2>
       </div>
-      <button type="button" class="ve-icon" (click)="closed.emit()" aria-label="Close" title="Close (Esc)">✕</button>
+
+      <div class="ve-head-actions">
+        <div class="ve-status">
+          @if (st.busy === 'suggest') {
+            <span class="ve-pill ve-pill-ai"><span class="ve-spin-dot"></span> Generating AI Draft…</span>
+          } @else if (st.busy === 'save') {
+            <span class="ve-pill ve-pill-saving"><span class="ve-spin-dot"></span> Saving to YouTube…</span>
+          } @else if (st.saved && !dirty()) {
+            <span class="ve-pill ve-pill-saved">✓ Saved to YouTube</span>
+          } @else if (dirty()) {
+            <span class="ve-pill ve-pill-dirty">● Unsaved changes</span>
+          }
+        </div>
+        <button type="button" class="ve-close-btn" (click)="closed.emit()" aria-label="Close" title="Close (Esc)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </div>
     </header>
 
     @if (draft(); as d) {
       <div class="ve-body">
-        <!-- Left: the video, its thumbnail, what's missing and where it came from -->
+        <!-- Left Column: Video player, thumbnail studio, checklist, channel & project -->
         <aside class="ve-side">
-          <section class="ve-card ve-player" [class.vertical]="v.isShort || project()?.isVertical">
-            @if (playing() && embedUrl(); as src) {
-              <iframe [src]="src" title="Video player" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen
-                      referrerpolicy="strict-origin-when-cross-origin"></iframe>
-            } @else {
-              <button type="button" class="ve-poster" (click)="playing.set(true)" [attr.aria-label]="'Play ' + v.title">
-                <img [src]="currentThumb()" alt="" referrerpolicy="no-referrer" />
-                <span class="ve-play" aria-hidden="true">▶</span>
-                @if (v.durationSeconds) { <span class="ve-dur">{{ clock(v.durationSeconds) }}</span> }
-              </button>
-            }
-            <div class="ve-meta">
-              @if (v.publishedAt) { <span>{{ v.publishedAt | date: 'mediumDate' }}</span> }
-              <span class="pill">{{ v.privacy || 'unknown' }}</span>
-              @if (v.isShort) { <span class="pill">Short</span> }
-              <span class="ve-spacer"></span>
-              <a [href]="v.videoUrl" target="_blank" rel="noopener noreferrer">Watch ↗</a>
-              <a [href]="v.studioUrl" target="_blank" rel="noopener noreferrer">Studio ↗</a>
+          <!-- Video Player Card -->
+          <section class="ve-card ve-player-card">
+            <div class="ve-player-stage" [class.vertical]="isShort()">
+              @if (playing() && embedUrl(); as src) {
+                <iframe [src]="src" title="Video player" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen
+                        referrerpolicy="strict-origin-when-cross-origin"></iframe>
+              } @else {
+                <button type="button" class="ve-poster" (click)="playing.set(true)" [attr.aria-label]="'Play ' + v.title">
+                  <img [src]="currentThumb()" alt="Video thumbnail preview" referrerpolicy="no-referrer" />
+                  <div class="ve-poster-overlay">
+                    <span class="ve-play-icon" aria-hidden="true">
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                    </span>
+                  </div>
+                  @if (v.durationSeconds) {
+                    <span class="ve-dur-tag">{{ clock(v.durationSeconds) }}</span>
+                  }
+                  @if (isShort()) {
+                    <span class="ve-stage-badge">⚡ Short</span>
+                  }
+                </button>
+              }
+            </div>
+
+            <div class="ve-player-footer">
+              <div class="ve-meta-tags">
+                @if (v.publishedAt) {
+                  <span class="ve-meta-date">{{ v.publishedAt | date: 'mediumDate' }}</span>
+                }
+                <span class="ve-privacy-pill" [class.public]="v.privacy === 'public'" [class.private]="v.privacy === 'private'">
+                  <span class="ve-dot"></span> {{ v.privacy || 'unknown' }}
+                </span>
+                @if (v.isShort) {
+                  <span class="ve-format-pill">9:16 Short</span>
+                }
+              </div>
+              <div class="ve-player-links">
+                <a [href]="v.videoUrl" target="_blank" rel="noopener noreferrer" class="ve-link-btn" title="Open video watch page on YouTube">
+                  Watch ↗
+                </a>
+                <a [href]="v.studioUrl" target="_blank" rel="noopener noreferrer" class="ve-link-btn" title="Open YouTube Studio editor">
+                  Studio ↗
+                </a>
+              </div>
             </div>
           </section>
 
-          <!-- Thumbnail: set on YouTube straight away, apart from the details -->
-          <section class="ve-card" aria-labelledby="ve-thumb-label">
+          <!-- Thumbnail Studio Card -->
+          <section class="ve-card ve-thumb-card" aria-labelledby="ve-thumb-label">
             <div class="ve-card-head">
-              <h3 id="ve-thumb-label">Thumbnail</h3>
-              <div class="ve-seg" role="radiogroup" aria-label="Thumbnail source">
-                <button type="button" role="radio" [class.on]="thumbMode() === 'current'" [attr.aria-checked]="thumbMode() === 'current'"
+              <div class="ve-card-title-group">
+                <h3 id="ve-thumb-label">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+                  Thumbnail
+                </h3>
+              </div>
+              <div class="ve-segmented" role="radiogroup" aria-label="Thumbnail source">
+                <button type="button" role="radio" [class.active]="thumbMode() === 'current'" [attr.aria-checked]="thumbMode() === 'current'"
                         (click)="setThumbMode('current')" [disabled]="thumbBusy()">Current</button>
                 @if (canUseFrames()) {
-                  <button type="button" role="radio" [class.on]="thumbMode() === 'frame'" [attr.aria-checked]="thumbMode() === 'frame'"
-                          (click)="setThumbMode('frame')" [disabled]="thumbBusy()" title="A frame of the AnimStudio render">From video</button>
+                  <button type="button" role="radio" [class.active]="thumbMode() === 'frame'" [attr.aria-checked]="thumbMode() === 'frame'"
+                          (click)="setThumbMode('frame')" [disabled]="thumbBusy()" title="A frame of the AnimStudio render">Render Frames</button>
                 }
-                <button type="button" role="radio" [class.on]="thumbMode() === 'upload'" [attr.aria-checked]="thumbMode() === 'upload'"
+                <button type="button" role="radio" [class.active]="thumbMode() === 'upload'" [attr.aria-checked]="thumbMode() === 'upload'"
                         (click)="setThumbMode('upload')" [disabled]="thumbBusy()">Upload</button>
               </div>
             </div>
 
-            <div class="ve-thumb" [class.vertical]="thumbMode() === 'frame' && project()?.isVertical" [class.over]="thumbDragOver()"
+            <!-- Thumbnail Preview Area (Handles both 16:9 and 9:16 Shorts without cropping!) -->
+            <div class="ve-thumb-stage" [class.is-vertical]="isShort()" [class.drag-over]="thumbDragOver()"
                  (dragover)="onThumbDragOver($event)" (dragleave)="thumbDragOver.set(false)" (drop)="onThumbDrop($event)">
               @if (thumbPreview(); as src) {
-                <img [src]="src" alt="Thumbnail" referrerpolicy="no-referrer" />
-                @if (thumbMode() === 'frame' && frameAt() !== null) { <span class="ve-badge">Frame at {{ clock(frameAt()) }}</span> }
-                @if (thumbMode() === 'upload') { <span class="ve-badge">Your picture</span> }
+                <div class="ve-thumb-box" [class.vertical]="isShort()">
+                  <img [src]="src" alt="Thumbnail preview" referrerpolicy="no-referrer" />
+                  @if (thumbMode() === 'frame' && frameAt() !== null) {
+                    <span class="ve-thumb-tag">Frame at {{ clock(frameAt()) }}</span>
+                  }
+                  @if (thumbMode() === 'upload') {
+                    <span class="ve-thumb-tag">Custom Image</span>
+                  }
+                </div>
               } @else if (thumbMode() === 'frame') {
-                <span>Pick a frame below.</span>
+                <div class="ve-thumb-empty">
+                  <span>Pick a frame from the options below.</span>
+                </div>
               } @else {
-                <span>Drop a JPG or PNG here, or choose one below.</span>
+                <div class="ve-thumb-empty">
+                  <span>Drop a JPG or PNG here, or click choose below.</span>
+                </div>
               }
             </div>
 
             @if (thumbMode() === 'frame') {
-              <div class="ve-frames" [class.vertical]="project()?.isVertical" role="listbox" aria-label="Frames from the render">
-                @for (f of frames(); track f.at) {
-                  <button type="button" role="option" class="ve-frame" [class.on]="frameAt() === f.at" [attr.aria-selected]="frameAt() === f.at"
-                          [disabled]="f.failed || thumbBusy()" (click)="pickFrame(f.at)">
-                    @if (f.url) { <img [src]="f.url" alt="" /> } @else { <span class="ve-frame-wait" [class.failed]="f.failed">{{ f.failed ? '✕' : '' }}</span> }
-                    <span class="ve-frame-time">{{ clock(f.at) }}</span>
-                  </button>
-                }
+              <div class="ve-frames-section">
+                <div class="ve-frames" [class.vertical]="isShort()" role="listbox" aria-label="Frames from the render">
+                  @for (f of frames(); track f.at) {
+                    <button type="button" role="option" class="ve-frame" [class.selected]="frameAt() === f.at" [attr.aria-selected]="frameAt() === f.at"
+                            [disabled]="f.failed || thumbBusy()" (click)="pickFrame(f.at)">
+                      @if (f.url) {
+                        <img [src]="f.url" alt="" />
+                      } @else {
+                        <span class="ve-frame-wait" [class.failed]="f.failed">{{ f.failed ? '✕' : '' }}</span>
+                      }
+                      <span class="ve-frame-time">{{ clock(f.at) }}</span>
+                    </button>
+                  }
+                </div>
+                <button type="button" class="ve-btn-subtle" (click)="loadFrames(true)" [disabled]="thumbBusy()">
+                  ↻ Load other moments
+                </button>
               </div>
-              <button type="button" class="link ve-small" (click)="loadFrames(true)" [disabled]="thumbBusy()">↻ Other moments</button>
             } @else if (thumbMode() === 'upload') {
-              <input #thumbFile type="file" class="ve-sr" accept="image/jpeg,image/png" tabindex="-1" aria-hidden="true" (change)="onThumbFile(thumbFile)" />
-              <button type="button" class="secondary" (click)="thumbFile.click()" [disabled]="thumbBusy()">{{ thumbImage() ? '🔁 Replace picture' : '⬆ Choose a picture' }}</button>
-              <p class="muted ve-small">1280×720 (16:9) works best; JPG or PNG up to 8 MB. It's resized and re-encoded for YouTube.</p>
+              <div class="ve-upload-section">
+                <input #thumbFile type="file" class="ve-sr" accept="image/jpeg,image/png" tabindex="-1" aria-hidden="true" (change)="onThumbFile(thumbFile)" />
+                <div class="ve-upload-buttons">
+                  <button type="button" class="ve-btn-outline" (click)="thumbFile.click()" [disabled]="thumbBusy()">
+                    {{ thumbImage() ? '🔁 Replace image' : '⬆ Choose JPG/PNG' }}
+                  </button>
+                  @if (thumbImage()) {
+                    <button type="button" class="ve-btn-ghost" (click)="clearUploadedThumb()" [disabled]="thumbBusy()" title="Revert to current thumbnail">
+                      ✕ Cancel
+                    </button>
+                  }
+                </div>
+                <p class="ve-help-text">Recommended: 1280×720 (16:9) or 720×1280 (9:16); JPG/PNG up to 8 MB.</p>
+              </div>
             }
 
             @if (thumbMode() !== 'current') {
-              <div class="row ve-thumb-actions">
-                <button type="button" (click)="applyThumbnail()" [disabled]="!thumbChoice() || thumbBusy()">
-                  {{ thumbBusy() ? 'Setting…' : '🖼 Set as thumbnail on YouTube' }}
+              <div class="ve-thumb-apply-box">
+                <button type="button" class="ve-btn-primary" (click)="applyThumbnail()" [disabled]="!thumbChoice() || thumbBusy()">
+                  {{ thumbBusy() ? 'Applying…' : '🖼 Set as thumbnail on YouTube' }}
                 </button>
+                <p class="ve-help-text">Updates thumbnail immediately on YouTube via API. Custom thumbnails require an account with verified status.</p>
               </div>
-              <p class="muted ve-small">Changes the thumbnail on YouTube now, separately from Save. Custom thumbnails need a verified channel.</p>
             }
-            @if (thumbDone()) { <p class="ve-ok-text">✓ Thumbnail set on YouTube. It can take a few minutes to show everywhere.</p> }
-            @if (thumbError(); as e) { <p class="ve-error">{{ e }}</p> }
+
+            @if (thumbDone()) {
+              <div class="ve-alert-success">
+                <span>✓ Thumbnail set on YouTube! Changes may take a few minutes to propagate.</span>
+              </div>
+            }
+            @if (thumbError(); as e) {
+              <div class="ve-alert-error">
+                <span>⚠️ {{ e }}</span>
+              </div>
+            }
           </section>
 
-          <!-- What the saved video will still lack -->
-          <section class="ve-card" aria-labelledby="ve-check-label">
+          <!-- Checklist Card -->
+          <section class="ve-card ve-checklist-card" aria-labelledby="ve-check-label">
             <div class="ve-card-head">
-              <h3 id="ve-check-label">Checklist</h3>
-              @if (missing() === 0) { <span class="pill ok">All set</span> } @else { <span class="pill warn">{{ missing() }} missing</span> }
+              <div class="ve-card-title-group">
+                <h3 id="ve-check-label">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+                  Metadata Checklist
+                </h3>
+              </div>
+              @if (missing() === 0) {
+                <span class="ve-pill ve-pill-ok">All Set ✓</span>
+              } @else {
+                <span class="ve-pill ve-pill-warn">{{ missing() }} Missing</span>
+              }
             </div>
-            <ul class="ve-check">
+
+            <!-- Visual Progress Meter -->
+            <div class="ve-progress-bar-wrap">
+              <div class="ve-progress-bar" [style.width.%]="(completedCount() / (totalChecklistCount() || 1)) * 100"></div>
+            </div>
+
+            <ul class="ve-check-list">
               @for (i of checklist(); track i.label) {
-                <li [class.ok]="i.ok" [class.optional]="i.optional && !i.ok"><span aria-hidden="true">{{ i.ok ? '✓' : i.optional ? '○' : '✕' }}</span> {{ i.label }}</li>
+                <li class="ve-check-item" [class.is-ok]="i.ok" [class.is-optional]="i.optional && !i.ok">
+                  <span class="ve-check-icon" aria-hidden="true">
+                    @if (i.ok) {
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    } @else if (i.optional) {
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/></svg>
+                    } @else {
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                    }
+                  </span>
+                  <span class="ve-check-label-text">{{ i.label }}</span>
+                  @if (i.optional && !i.ok) {
+                    <span class="ve-check-optional-badge">Optional</span>
+                  }
+                </li>
               }
             </ul>
           </section>
 
-          <!-- Where it came from: the AnimStudio project and the channel's setup -->
-          <section class="ve-card" aria-labelledby="ve-ctx-label">
-            <h3 id="ve-ctx-label">Project &amp; channel</h3>
-            @if (contextError(); as e) { <p class="ve-error">{{ e }}</p> }
-            @if (!context() && !contextError()) { <p class="muted ve-small">Loading…</p> }
+          <!-- Project & Channel Setup Card -->
+          <section class="ve-card ve-context-card" aria-labelledby="ve-ctx-label">
+            <h3 id="ve-ctx-label">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+              Project &amp; Channel
+            </h3>
+            @if (contextError(); as e) {
+              <div class="ve-alert-error">{{ e }}</div>
+            }
+            @if (!context() && !contextError()) {
+              <div class="ve-context-loading">
+                <span class="ve-spin-dot"></span> Loading channel context…
+              </div>
+            }
             @if (context(); as c) {
               @if (c.project; as p) {
-                <div class="ve-ctx">
-                  <span class="ve-ctx-label">AnimStudio project</span>
-                  <a [routerLink]="['/projects', p.id, 'render']">{{ p.name || 'Untitled project' }}</a>
+                <div class="ve-context-block">
+                  <span class="ve-context-heading">AnimStudio Project</span>
+                  <a [routerLink]="['/projects', p.id, 'render']" class="ve-project-link">
+                    📁 {{ p.name || 'Untitled Project' }} ↗
+                  </a>
                   @if (p.description.trim()) {
-                    <p class="ve-ctx-text" [title]="p.description">{{ preview(p.description) }}</p>
-                    <button type="button" class="secondary ve-small" (click)="addProjectDescription()" [disabled]="!projectDescriptionUsable()">
-                      {{ projectDescriptionUsable() ? '+ Add to description' : '✓ In the description' }}
+                    <p class="ve-context-desc" [title]="p.description">{{ preview(p.description) }}</p>
+                    <button type="button" class="ve-btn-outline ve-btn-sm" (click)="addProjectDescription()" [disabled]="!projectDescriptionUsable()">
+                      {{ projectDescriptionUsable() ? '+ Insert into description' : '✓ Description already added' }}
                     </button>
                   }
                 </div>
               } @else {
-                <p class="muted ve-small">Not published from AnimStudio (phone or Studio upload).</p>
+                <div class="ve-context-block">
+                  <p class="ve-help-text">Direct YouTube upload (not linked to an AnimStudio project).</p>
+                </div>
               }
-              <div class="ve-ctx">
-                <span class="ve-ctx-label">Channel setup{{ c.brandChannelName ? ': ' + c.brandChannelName : '' }}</span>
+
+              <div class="ve-context-block">
+                <span class="ve-context-heading">Channel Publishing Config{{ c.brandChannelName ? ': ' + c.brandChannelName : '' }}</span>
                 @if (c.descriptionFooter; as f) {
-                  <pre class="ve-footer-preview">{{ f }}</pre>
+                  <div class="ve-footer-preview-box">
+                    <pre class="ve-footer-code">{{ f }}</pre>
+                  </div>
                 } @else {
-                  <p class="muted ve-small">No description footer is set for this channel. Add links and credits under Settings › Channels › Publishing.</p>
+                  <p class="ve-help-text">No channel footer is configured. Set default links &amp; credits in Settings › Channels.</p>
                 }
-                @if (c.defaultTags.length) { <p class="muted ve-small">Channel tags: {{ c.defaultTags.join(', ') }}</p> }
+                @if (c.defaultTags.length) {
+                  <div class="ve-channel-tags-row">
+                    <span class="ve-context-sub">Channel tags:</span>
+                    <div class="ve-channel-tag-chips">
+                      @for (ct of c.defaultTags; track ct) {
+                        <span class="ve-channel-tag">{{ ct }}</span>
+                      }
+                    </div>
+                  </div>
+                }
               </div>
             }
           </section>
         </aside>
 
-        <!-- Right: the details themselves -->
-        <div class="ve-main">
-          <div class="ve-ai">
-            <button type="button" (click)="suggest.emit()" [disabled]="!!st.busy">✨ {{ st.busy === 'suggest' ? 'Writing…' : 'Write with AI' }}</button>
-            <button type="button" class="secondary" (click)="copyPrompt.emit()" [disabled]="!!st.busy"
-                    title="Copies instructions for ChatGPT, Gemini or any AI tool with this video filled in. Paste its answer under 'Paste answer from my AI'.">
-              {{ promptCopied() ? '✓ Copied' : '📋 Prompt for my AI' }}
-            </button>
-            <span class="muted ve-small">{{ aiSummary() }} · keeps a real title and description; fills what's missing.</span>
-          </div>
-          @if (st.error) { <p class="ve-error" role="alert">{{ st.error }}</p> }
-          @for (w of st.warnings; track w) { <p class="ve-warn-text">{{ w }}</p> }
-
-          <label class="ve-field">
-            <span>Title <em class="muted" [class.ve-error]="d.title.length > 100">{{ d.title.length }}/100</em></span>
-            <input type="text" maxlength="100" [ngModel]="d.title" (ngModelChange)="set({ title: $event })" />
-          </label>
-          @if (d.titleOptions.length) {
-            <div class="ve-options">
-              <span class="muted ve-small">AI titles:</span>
-              @for (t of d.titleOptions; track t) { <button type="button" class="ve-option" (click)="set({ title: t })">{{ t }}</button> }
-            </div>
-          }
-
-          <div class="ve-field">
-            <div class="ve-field-head">
-              <label for="ve-desc">Description</label>
-              <div class="ve-field-tools">
-                @if (footer()) {
-                  <button type="button" class="ve-tool" (click)="addFooter()" [disabled]="footerIncluded()"
-                          title="Adds the channel's links and credits at the end">{{ footerIncluded() ? '✓ Channel footer' : '+ Channel footer' }}</button>
-                }
-                @if (projectDescriptionUsable()) {
-                  <button type="button" class="ve-tool" (click)="addProjectDescription()">+ Project description</button>
-                }
-                <em class="muted" [class.ve-error]="descriptionBytes(d.description) > 5000">{{ descriptionBytes(d.description) }}/5000 bytes</em>
+        <!-- Right Column: Details form, AI generation, descriptions, tags, metadata -->
+        <main class="ve-main">
+          <!-- AI Assistant Banner -->
+          <div class="ve-ai-banner">
+            <div class="ve-ai-left">
+              <div class="ve-ai-icon-badge">✨</div>
+              <div class="ve-ai-info">
+                <span class="ve-ai-title">AI Video Optimization Assistant</span>
+                <span class="ve-ai-desc">{{ aiSummary() }} · keeps existing high-quality text and completes missing fields.</span>
               </div>
             </div>
-            <textarea id="ve-desc" rows="12" [ngModel]="d.description" (ngModelChange)="set({ description: $event })"></textarea>
-          </div>
-          @if (d.descriptionOptions.length) {
-            <div class="ve-options">
-              <span class="muted ve-small">Other AI descriptions:</span>
-              @for (o of d.descriptionOptions; track $index) {
-                <button type="button" class="ve-option" [title]="preview(o)" (click)="set({ description: footer() ? withFooterText(o) : o })">Use option {{ $index + 1 }}</button>
-              }
+            <div class="ve-ai-buttons">
+              <button type="button" class="ve-ai-btn-generate" (click)="suggest.emit()" [disabled]="!!st.busy">
+                ✨ {{ st.busy === 'suggest' ? 'Generating…' : 'Write with AI' }}
+              </button>
+              <button type="button" class="ve-ai-btn-prompt" (click)="copyPrompt.emit()" [disabled]="!!st.busy"
+                      title="Copies formatted prompt for ChatGPT, Gemini, Claude, or any LLM.">
+                {{ promptCopied() ? '✓ Prompt Copied' : '📋 Prompt for my AI' }}
+              </button>
             </div>
+          </div>
+
+          @if (st.error) {
+            <div class="ve-alert-error" role="alert">⚠️ {{ st.error }}</div>
+          }
+          @for (w of st.warnings; track w) {
+            <div class="ve-alert-warn">⚠️ {{ w }}</div>
           }
 
-          <div class="ve-field">
-            <div class="ve-field-head">
-              <label for="ve-tags">Tags <span class="muted">comma separated</span></label>
-              <div class="ve-field-tools">
-                @if (channelTagsToAdd().length) {
-                  <button type="button" class="ve-tool" (click)="addChannelTags()" [title]="channelTagsToAdd().join(', ')">+ Channel tags ({{ channelTagsToAdd().length }})</button>
-                }
-                <em class="muted" [class.ve-error]="tagsLength(d.tagsText) > 500">{{ tagsLength(d.tagsText) }}/500</em>
-              </div>
+          <!-- Video Title -->
+          <div class="ve-field-group">
+            <div class="ve-field-header">
+              <label for="ve-title-input" class="ve-label">Title</label>
+              <span class="ve-counter" [class.ve-counter-warn]="d.title.length > 90" [class.ve-counter-err]="d.title.length > 100">
+                {{ d.title.length }}/100
+              </span>
             </div>
-            <input id="ve-tags" type="text" [ngModel]="d.tagsText" (ngModelChange)="set({ tagsText: $event })" />
-            @if (tags(d.tagsText).length) {
-              <div class="ve-chips">
-                @for (t of tags(d.tagsText); track t) {
-                  <span class="ve-chip">{{ t }}<button type="button" (click)="removeTag(t)" [attr.aria-label]="'Remove tag ' + t">×</button></span>
-                }
+            <div class="ve-input-wrap">
+              <input id="ve-title-input" type="text" maxlength="100" class="ve-input" [ngModel]="d.title" (ngModelChange)="set({ title: $event })" placeholder="Add a title that catches attention" />
+            </div>
+            @if (d.titleOptions.length) {
+              <div class="ve-suggestions-row">
+                <span class="ve-suggestions-label">AI Title Suggestions:</span>
+                <div class="ve-suggestions-chips">
+                  @for (t of d.titleOptions; track t) {
+                    <button type="button" class="ve-suggestion-chip" (click)="set({ title: t })" [title]="t">
+                      + {{ t }}
+                    </button>
+                  }
+                </div>
               </div>
             }
           </div>
-          @if (d.tagIdeas.length) {
-            <div class="ve-options">
-              <span class="muted ve-small">More tag ideas:</span>
-              @for (t of d.tagIdeas; track t) { <button type="button" class="ve-option" (click)="addTag(t)">+ {{ t }}</button> }
-            </div>
-          }
 
-          <div class="ve-grid">
-            <label class="ve-field">
-              <span>Category</span>
-              <select [ngModel]="d.categoryId" (ngModelChange)="set({ categoryId: $event })">
-                @for (cat of categories(); track cat.id) { <option [value]="cat.id">{{ cat.name }}</option> }
+          <!-- Video Description -->
+          <div class="ve-field-group">
+            <div class="ve-field-header">
+              <label for="ve-desc" class="ve-label">Description</label>
+              <div class="ve-field-tools">
+                @if (footer()) {
+                  <button type="button" class="ve-tool-chip" (click)="addFooter()" [disabled]="footerIncluded()"
+                          title="Appends standard channel footer, socials &amp; credits">
+                    {{ footerIncluded() ? '✓ Footer Included' : '+ Channel Footer' }}
+                  </button>
+                }
+                @if (projectDescriptionUsable()) {
+                  <button type="button" class="ve-tool-chip" (click)="addProjectDescription()" title="Insert project storyline / notes">
+                    + Project Notes
+                  </button>
+                }
+                <span class="ve-desc-counter" [class.ve-error]="descriptionBytes(d.description) > 5000" [title]="descCounterTooltip(d.description)">
+                  <span>{{ d.description.length.toLocaleString() }} chars</span>
+                  <span class="ve-sep">·</span>
+                  <span><strong>{{ descriptionBytes(d.description).toLocaleString() }}</strong>/5000 UTF-8 bytes</span>
+                </span>
+              </div>
+            </div>
+
+            @if (descriptionBytes(d.description) > 5000) {
+              <div class="ve-byte-notice" role="alert">
+                <div class="ve-byte-notice-icon">⚠️</div>
+                <div class="ve-byte-notice-content">
+                  <div class="ve-byte-notice-title">
+                    <strong>Description exceeds YouTube API limit by {{ descriptionBytes(d.description) - 5000 }} bytes</strong>
+                  </div>
+                  <p class="ve-byte-notice-desc">
+                    Your text has <strong>{{ d.description.length.toLocaleString() }} characters</strong>, but requires <strong>{{ descriptionBytes(d.description).toLocaleString() }} bytes</strong> in UTF-8.
+                    Devanagari (Hindi) characters take 3 bytes each and emojis take 3–4 bytes each.
+                  </p>
+                  <div class="ve-byte-notice-actions">
+                    <button type="button" class="ve-trim-btn" (click)="trimDescription()">
+                      ✂️ Auto-trim to 5,000 bytes
+                    </button>
+                    <span class="ve-help-text">Safely trims excess text at word boundaries so YouTube API allows saving.</span>
+                  </div>
+                </div>
+              </div>
+            }
+
+            <textarea id="ve-desc" rows="12" class="ve-textarea" [ngModel]="d.description" (ngModelChange)="set({ description: $event })" placeholder="Tell viewers about your video (chapters, links, credits, keywords)..."></textarea>
+
+            @if (d.descriptionOptions.length) {
+              <div class="ve-suggestions-row">
+                <span class="ve-suggestions-label">Alternative AI Descriptions:</span>
+                <div class="ve-suggestions-chips">
+                  @for (o of d.descriptionOptions; track $index) {
+                    <button type="button" class="ve-suggestion-chip" [title]="preview(o)" (click)="set({ description: footer() ? withFooterText(o) : o })">
+                      Use Variation {{ $index + 1 }}
+                    </button>
+                  }
+                </div>
+              </div>
+            }
+          </div>
+
+          <!-- Video Tags -->
+          <div class="ve-field-group">
+            <div class="ve-field-header">
+              <label for="ve-tags" class="ve-label">Tags <span class="ve-sublabel">(comma separated)</span></label>
+              <div class="ve-field-tools">
+                @if (channelTagsToAdd().length) {
+                  <button type="button" class="ve-tool-chip" (click)="addChannelTags()" [title]="channelTagsToAdd().join(', ')">
+                    + Channel Tags ({{ channelTagsToAdd().length }})
+                  </button>
+                }
+                <span class="ve-counter" [class.ve-counter-warn]="tagsLength(d.tagsText) > 450" [class.ve-counter-err]="tagsLength(d.tagsText) > 500">
+                  {{ tagsLength(d.tagsText) }}/500 chars
+                </span>
+              </div>
+            </div>
+
+            <div class="ve-input-wrap">
+              <input id="ve-tags" type="text" class="ve-input" [ngModel]="d.tagsText" (ngModelChange)="set({ tagsText: $event })" placeholder="e.g. animation, 3d, short, devotional, hindi" />
+            </div>
+
+            @if (tags(d.tagsText).length) {
+              <div class="ve-tags-cloud">
+                @for (t of tags(d.tagsText); track t) {
+                  <span class="ve-tag-pill">
+                    <span class="ve-tag-text">{{ t }}</span>
+                    <button type="button" class="ve-tag-remove" (click)="removeTag(t)" [attr.aria-label]="'Remove tag ' + t">✕</button>
+                  </span>
+                }
+              </div>
+            }
+
+            @if (d.tagIdeas.length) {
+              <div class="ve-suggestions-row">
+                <span class="ve-suggestions-label">Suggested Tag Ideas:</span>
+                <div class="ve-suggestions-chips">
+                  @for (t of d.tagIdeas; track t) {
+                    <button type="button" class="ve-suggestion-chip" (click)="addTag(t)">
+                      + {{ t }}
+                    </button>
+                  }
+                </div>
+              </div>
+            }
+          </div>
+
+          <!-- Category, Visibility & Audience Grid -->
+          <div class="ve-meta-grid">
+            <div class="ve-field-group">
+              <label for="ve-cat" class="ve-label">Category</label>
+              <select id="ve-cat" class="ve-select" [ngModel]="d.categoryId" (ngModelChange)="set({ categoryId: $event })">
+                @for (cat of categories(); track cat.id) {
+                  <option [value]="cat.id">{{ cat.name }}</option>
+                }
               </select>
-            </label>
-            <label class="ve-field">
-              <span>Visibility</span>
-              <select [ngModel]="d.privacy" (ngModelChange)="set({ privacy: $event })">
-                <option value="public">Public</option>
-                <option value="unlisted">Unlisted</option>
-                <option value="private">Private</option>
+            </div>
+
+            <div class="ve-field-group">
+              <label for="ve-priv" class="ve-label">Visibility</label>
+              <select id="ve-priv" class="ve-select" [ngModel]="d.privacy" (ngModelChange)="set({ privacy: $event })">
+                <option value="public">🌐 Public</option>
+                <option value="unlisted">🔗 Unlisted</option>
+                <option value="private">🔒 Private</option>
               </select>
-            </label>
-            <fieldset class="ve-field ve-radios" [class.ve-needs]="d.madeForKids === null">
-              <legend>Audience <em class="muted">(required by YouTube)</em></legend>
-              <label><input type="radio" name="ve-kids" [checked]="d.madeForKids === false" (change)="set({ madeForKids: false })" /> Not made for kids</label>
-              <label><input type="radio" name="ve-kids" [checked]="d.madeForKids === true" (change)="set({ madeForKids: true })" /> Made for kids</label>
+            </div>
+
+            <fieldset class="ve-field-group ve-audience-group" [class.needs-attention]="d.madeForKids === null">
+              <legend class="ve-label">Audience <span class="ve-sublabel">(COPPA requirement)</span></legend>
+              <div class="ve-audience-radios">
+                <label class="ve-radio-card" [class.selected]="d.madeForKids === false">
+                  <input type="radio" name="ve-kids" [checked]="d.madeForKids === false" (change)="set({ madeForKids: false })" />
+                  <span class="ve-radio-label">Not made for kids</span>
+                </label>
+                <label class="ve-radio-card" [class.selected]="d.madeForKids === true">
+                  <input type="radio" name="ve-kids" [checked]="d.madeForKids === true" (change)="set({ madeForKids: true })" />
+                  <span class="ve-radio-label">Made for kids</span>
+                </label>
+              </div>
             </fieldset>
           </div>
 
+          <!-- Playlists Section -->
           @if (playlists().length > 0) {
-            <fieldset class="ve-field">
-              <legend>Playlists</legend>
-              <div class="ve-playlists">
+            <fieldset class="ve-field-group ve-playlists-group">
+              <div class="ve-field-header">
+                <legend class="ve-label">
+                  Playlists <span class="ve-sublabel">(groups related videos for series &amp; recommendations)</span>
+                </legend>
+                <a [href]="studioPlaylistsUrl()" target="_blank" rel="noopener noreferrer" class="ve-link-btn">
+                  Manage in YouTube Studio ↗
+                </a>
+              </div>
+              <div class="ve-playlists-grid">
                 @for (p of playlists(); track p.id) {
                   @if (v.playlistIds.includes(p.id)) {
-                    <label class="ve-pl ve-pl-in"><input type="checkbox" checked disabled /> {{ p.title }} <em class="muted">(already in)</em></label>
+                    <label class="ve-playlist-item is-existing">
+                      <input type="checkbox" checked disabled />
+                      <span class="ve-playlist-title">{{ p.title }}</span>
+                      <span class="ve-playlist-badge">Already Added</span>
+                    </label>
                   } @else {
-                    <label class="ve-pl"><input type="checkbox" [checked]="d.addPlaylistIds.includes(p.id)" (change)="togglePlaylist(p.id)" /> {{ p.title }}</label>
+                    <label class="ve-playlist-item" [class.selected]="d.addPlaylistIds.includes(p.id)">
+                      <input type="checkbox" [checked]="d.addPlaylistIds.includes(p.id)" (change)="togglePlaylist(p.id)" />
+                      <span class="ve-playlist-title">{{ p.title }}</span>
+                    </label>
                   }
                 }
               </div>
             </fieldset>
           } @else if (playlistsKnown()) {
-            <p class="muted ve-small">The channel has no playlists yet - create one in YouTube Studio to group these videos.</p>
+            <div class="ve-field-group ve-playlists-empty">
+              <div class="ve-field-header">
+                <span class="ve-label">Playlists</span>
+                <a [href]="studioPlaylistsUrl()" target="_blank" rel="noopener noreferrer" class="ve-link-btn">
+                  Create Playlists in Studio ↗
+                </a>
+              </div>
+              <p class="ve-help-text">No playlists exist on this channel yet. Creating playlists helps organize series and boosts YouTube search ranking.</p>
+            </div>
           }
-        </div>
+        </main>
       </div>
 
+      <!-- Dialog Footer -->
       <footer class="ve-foot">
-        <button type="button" class="link" (click)="reset.emit()" [disabled]="!!st.busy || !dirty()">Undo my changes</button>
-        <span class="muted ve-small ve-hint">Esc closes and keeps the draft · Ctrl+Enter saves</span>
-        <span class="ve-spacer"></span>
-        @if (d.madeForKids === null) { <span class="ve-warn-text">Choose the audience first.</span> }
-        <button type="button" class="secondary" (click)="save.emit({ next: false })" [disabled]="!canSave()">
-          {{ st.busy === 'save' ? 'Saving…' : '💾 Save to YouTube' }}
-        </button>
-        @if (hasNext()) {
-          <button type="button" (click)="save.emit({ next: true })" [disabled]="!canSave()" title="Save, then open the next video (Ctrl+Shift+Enter)">💾 Save &amp; next ›</button>
-        }
+        <div class="ve-foot-left">
+          <button type="button" class="ve-btn-ghost" (click)="reset.emit()" [disabled]="!!st.busy || !dirty()">
+            ↺ Revert Changes
+          </button>
+          <span class="ve-foot-hint">Esc closes · Ctrl+Enter saves</span>
+        </div>
+
+        <div class="ve-foot-right">
+          @if (d.madeForKids === null) {
+            <span class="ve-status-warn">⚠️ Declare audience (Made for kids or Not)</span>
+          } @else if (descriptionBytes(d.description) > 5000) {
+            <span class="ve-status-warn">⚠️ Description is {{ descriptionBytes(d.description) - 5000 }} bytes over limit</span>
+          } @else if (tagsLength(d.tagsText) > 500) {
+            <span class="ve-status-warn">⚠️ Tags exceed 500 characters</span>
+          } @else if (d.title.trim().length === 0) {
+            <span class="ve-status-warn">⚠️ Title is required</span>
+          }
+
+          <button type="button" class="ve-btn-save-current" (click)="save.emit({ next: false })" [disabled]="!canSave()">
+            {{ st.busy === 'save' ? 'Saving…' : '💾 Save to YouTube' }}
+          </button>
+
+          @if (hasNext()) {
+            <button type="button" class="ve-btn-save-next" (click)="save.emit({ next: true })" [disabled]="!canSave()" title="Save changes and advance to the next video (Ctrl+Shift+Enter)">
+              💾 Save &amp; Next ›
+            </button>
+          }
+        </div>
       </footer>
     }
   </div>

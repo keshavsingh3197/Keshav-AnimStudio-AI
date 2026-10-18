@@ -11,7 +11,7 @@ import {
   YouTubeVideoEditContext,
 } from '../../core/models/youtube.models';
 import { YouTubePublishService } from '../../core/services/youtube-publish.service';
-import { Draft, RowState, draftChecklist, draftDiffers, fitTags, hasFooter, insertAboveFooter, splitTags, withFooter } from './checkup-draft';
+import { Draft, RowState, draftChecklist, draftDiffers, fitTags, hasFooter, insertAboveFooter, splitTags, trimUtf8Bytes, withFooter } from './checkup-draft';
 
 /** Where the frame picker samples the render, as fractions of its length; "Other moments" shifts them. */
 const FRAME_SPOTS = [0.1, 0.26, 0.42, 0.58, 0.74, 0.9];
@@ -91,11 +91,14 @@ export class CheckupVideoEditorComponent {
   readonly project = computed(() => this.context()?.project ?? null);
   readonly canUseFrames = computed(() => !!this.project()?.renderJobId && (this.project()?.durationSeconds ?? 0) > 0);
 
+  readonly isShort = computed(() => this.video().isShort || !!this.project()?.isVertical);
   readonly checklist = computed(() => {
     const d = this.draft();
     return d ? draftChecklist(this.video(), d, this.footer(), this.playlistsKnown()) : [];
   });
   readonly missing = computed(() => this.checklist().filter((i) => !i.ok && !i.optional).length);
+  readonly completedCount = computed(() => this.checklist().filter((i) => i.ok).length);
+  readonly totalChecklistCount = computed(() => this.checklist().length);
 
   readonly footerIncluded = computed(() => hasFooter(this.draft()?.description ?? '', this.footer()));
   readonly channelTagsToAdd = computed(() => {
@@ -202,7 +205,10 @@ export class CheckupVideoEditorComponent {
 
   canSave(): boolean {
     const d = this.draft();
-    return !!d && !this.state().busy && d.madeForKids !== null;
+    return !!d && !this.state().busy && d.madeForKids !== null
+      && this.descriptionBytes(d.description) <= 5000
+      && this.tagsLength(d.tagsText) <= 500
+      && d.title.trim().length > 0 && d.title.length <= 100;
   }
 
   set(change: Partial<Draft>): void {
@@ -210,6 +216,22 @@ export class CheckupVideoEditorComponent {
   }
 
   // --- details helpers
+
+  trimDescription(): void {
+    const d = this.draft();
+    if (!d) return;
+    this.set({ description: trimUtf8Bytes(d.description, 5000) });
+  }
+
+  descCounterTooltip(text: string): string {
+    const chars = text.length;
+    const bytes = this.descriptionBytes(text);
+    return `${chars.toLocaleString()} characters (${bytes.toLocaleString()} UTF-8 bytes). YouTube Data API limits descriptions to 5,000 UTF-8 bytes. Non-Latin scripts like Devanagari/Hindi use 3 bytes per letter; emojis use 3–4 bytes.`;
+  }
+
+  studioPlaylistsUrl(): string {
+    return `https://studio.youtube.com/channel/${encodeURIComponent(this.channelId())}/playlists`;
+  }
 
   addFooter(): void {
     const d = this.draft();
@@ -280,6 +302,12 @@ export class CheckupVideoEditorComponent {
     this.thumbError.set(null);
     this.thumbDone.set(false);
     if (mode === 'frame' && this.frames().length === 0) this.loadFrames(false);
+  }
+
+  clearUploadedThumb(): void {
+    this.thumbImage.set(null);
+    this.thumbMode.set('current');
+    this.thumbError.set(null);
   }
 
   /** A row of frames spread over the render; `another` moves them to other moments. */

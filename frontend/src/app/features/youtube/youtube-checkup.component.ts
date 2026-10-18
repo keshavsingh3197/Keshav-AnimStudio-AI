@@ -1,6 +1,7 @@
 import { DatePipe } from '@angular/common';
 import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
 import { Observable, catchError, of } from 'rxjs';
 
@@ -24,10 +25,15 @@ const ISSUE_LABELS: readonly { code: string; label: string }[] = [
   { code: 'title-default', label: 'File-name title' },
 ];
 
+/** Valid 11-char YouTube video ID */
+const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
+
 /** Two drafts at a time: the server only writes two suggestions at once anyway. */
 const PARALLEL = 2;
 
-type Filter = 'needs' | 'all' | string;
+export type Filter = 'needs' | 'all' | 'complete' | string;
+
+export type ViewMode = 'list' | 'grid' | 'compact';
 
 type Sort = 'newest' | 'oldest' | 'most-missing' | 'title';
 
@@ -40,6 +46,15 @@ const DEFAULT_CHECK_SIZE = 25;
 
 /** Remembered per browser, so the page opens with the last chosen size. */
 const PREFS_KEY = 'animstudio.youtube.checkup';
+const VIEW_MODE_KEY = 'animstudio.youtube.checkup.viewMode';
+
+function loadViewMode(): ViewMode {
+  try {
+    const m = localStorage.getItem(VIEW_MODE_KEY);
+    if (m === 'grid' || m === 'list' || m === 'compact') return m;
+  } catch {}
+  return 'list';
+}
 
 /**
  * Details checkup: every video on a connected channel - however it was uploaded - with what
@@ -55,6 +70,7 @@ const PREFS_KEY = 'animstudio.youtube.checkup';
 })
 export class YouTubeCheckupComponent implements OnInit {
   private readonly api = inject(YouTubePublishService);
+  private readonly sanitizer = inject(DomSanitizer);
 
   readonly issueLabels = ISSUE_LABELS;
   readonly maxPromptVideos = MAX_PROMPT_VIDEOS;
@@ -79,6 +95,17 @@ export class YouTubeCheckupComponent implements OnInit {
   readonly query = signal('');
   readonly sort = signal<Sort>('newest');
   readonly page = signal(0);
+  readonly viewMode = signal<ViewMode>(loadViewMode());
+
+  // Video preview player modal
+  readonly previewVideo = signal<YouTubeCheckupVideo | null>(null);
+  readonly previewEmbedUrl = computed<SafeResourceUrl | null>(() => {
+    const v = this.previewVideo();
+    if (!v) return null;
+    return VIDEO_ID.test(v.videoId)
+      ? this.sanitizer.bypassSecurityTrustResourceUrl(`https://www.youtube-nocookie.com/embed/${v.videoId}?autoplay=1&rel=0`)
+      : null;
+  });
 
   // AI settings shared by every draft.
   readonly tone = signal('auto');
@@ -117,12 +144,18 @@ export class YouTubeCheckupComponent implements OnInit {
     return { all: this.videos().length, needs, complete: this.videos().length - needs, byIssue };
   });
 
+  readonly healthPercent = computed(() => {
+    const c = this.counts();
+    return c.all > 0 ? Math.round((c.complete / c.all) * 100) : 0;
+  });
+
   readonly rows = computed(() => {
     const f = this.filter();
     const words = this.query().trim().toLowerCase().split(/\s+/).filter(Boolean);
     const shown = this.videos().filter((v) => {
       if (f === 'needs' && v.issues.length === 0) return false;
-      if (f !== 'needs' && f !== 'all' && !v.issues.some((i) => i.code === f)) return false;
+      if (f === 'complete' && v.issues.length > 0) return false;
+      if (f !== 'needs' && f !== 'all' && f !== 'complete' && !v.issues.some((i) => i.code === f)) return false;
       const text = `${v.title} ${v.description} ${v.tags.join(' ')}`.toLowerCase();
       return words.every((w) => text.includes(w));
     });
@@ -217,6 +250,19 @@ export class YouTubeCheckupComponent implements OnInit {
   setSort(sort: Sort): void {
     this.sort.set(sort);
     this.page.set(0);
+  }
+
+  setViewMode(mode: ViewMode): void {
+    this.viewMode.set(mode);
+    try { localStorage.setItem(VIEW_MODE_KEY, mode); } catch {}
+  }
+
+  openPreview(v: YouTubeCheckupVideo): void {
+    this.previewVideo.set(v);
+  }
+
+  closePreview(): void {
+    this.previewVideo.set(null);
   }
 
   goToPage(index: number): void {
