@@ -15,7 +15,14 @@ public enum SceneTransition
     SlideLeft = 5,
     SlideRight = 6,
     CircleOpen = 7,
-    CircleClose = 8
+    CircleClose = 8,
+
+    /// <summary>The next shot pushes the last one up and out - the whip cut of a creator Short.</summary>
+    SlideUp = 9,
+    SlideDown = 10,
+
+    /// <summary>The last shot rushes towards the camera into the next.</summary>
+    ZoomIn = 11
 }
 
 public sealed record TransitionSettings(SceneTransition Kind, FrameCount Duration)
@@ -36,6 +43,9 @@ public sealed record TransitionSettings(SceneTransition Kind, FrameCount Duratio
         SceneTransition.SlideRight => "slideright",
         SceneTransition.CircleOpen => "circleopen",
         SceneTransition.CircleClose => "circleclose",
+        SceneTransition.SlideUp => "slideup",
+        SceneTransition.SlideDown => "slidedown",
+        SceneTransition.ZoomIn => "zoomin",
         _ => throw new ArgumentOutOfRangeException(nameof(Kind), Kind, "Unknown scene transition.")
     };
 }

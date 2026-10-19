@@ -164,7 +164,8 @@ public sealed record RenderJobResponse(
     string? Name = null,
     string? BatchId = null,
     string? BatchName = null,
-    int? BatchIndex = null);
+    int? BatchIndex = null,
+    string? BatchStyle = null);
 
 /// <summary>A queued Auto Shorts batch: one render per short, and the picks none of them used.</summary>
 public sealed record AutoShortsResponse(

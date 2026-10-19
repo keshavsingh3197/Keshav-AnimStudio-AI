@@ -787,6 +787,7 @@ public sealed class ClipMergeService(
             {
                 Id = batch.Id, Name = batch.Name, Index = k, Count = batch.Count,
                 CreatedAt = batch.CreatedAt, Layout = batch.Layout, SourceAssetIds = batch.SourceAssetIds,
+                Style = plan.Styles is { } styles && k < styles.Count ? styles[k].ToString() : null,
             };
             queued.Add(await QueueAsync(projectId, plan.Shorts[k] with { Batch = place }, ct).ConfigureAwait(false));
         }

@@ -42,7 +42,13 @@ public enum AutoShortStyle
     Dramatic = 7,
 
     /// <summary>A faded film look with gentle pans and plain fades.</summary>
-    Retro = 8
+    Retro = 8,
+
+    /// <summary>
+    /// The creator explainer look: quick whip cuts up and down, punch-in zooms, a vivid grade
+    /// and big yellow captions - made for the first seconds that decide whether a Short is watched.
+    /// </summary>
+    Viral = 9
 }
 
 /// <summary>Where a short's footage goes in its running order.</summary>
@@ -185,7 +191,7 @@ public static class AutoShortPlanner
         double ShotMin, double ShotMax,
         SceneTransition[] Transitions, double TransitionMin, double TransitionMax,
         string[] Motions, double IntensityMin, double IntensityMax, string Easing,
-        string[] Looks, bool Vignette);
+        string[] Looks, bool Vignette, bool BoldText = false);
 
     private static readonly Pace Energetic = new(
         AutoShortStyle.Energetic,
@@ -243,7 +249,15 @@ public static class AutoShortPlanner
         ["drift", "pan-left", "pan-right", "zoom-out"], 0.08, 0.14, "ease",
         ["vintage", "warm"], true);
 
-    private static readonly Pace[] AllPaces = [Energetic, Cinematic, Calm, Hype, Dreamy, Dramatic, Retro];
+    private static readonly Pace Viral = new(
+        AutoShortStyle.Viral,
+        1.4, 2.8,
+        [SceneTransition.SlideUp, SceneTransition.SlideDown, SceneTransition.ZoomIn, SceneTransition.SlideLeft],
+        0.2, 0.32,
+        ["zoom-in", "zoom-out", "handheld"], 0.12, 0.2, "linear",
+        ["vivid", "none"], false, BoldText: true);
+
+    private static readonly Pace[] AllPaces = [Energetic, Cinematic, Calm, Hype, Dreamy, Dramatic, Retro, Viral];
 
     /// <summary>
     /// The styles a batch may draw from. Mixed and Auto deal theirs from a deck, so a batch
@@ -258,6 +272,7 @@ public static class AutoShortPlanner
         AutoShortStyle.Dreamy => [Dreamy],
         AutoShortStyle.Dramatic => [Dramatic],
         AutoShortStyle.Retro => [Retro],
+        AutoShortStyle.Viral => [Viral],
         AutoShortStyle.Auto => AutoPaces(batch, usable, target),
         _ => AllPaces,
     };
@@ -271,7 +286,7 @@ public static class AutoShortPlanner
         var footage = usable.Count(s => s.Kind == AssetKind.Video) / (double)usable.Count >= 0.5;
         if (target <= 20) return [Hype, Energetic];
         if (batch.Layout != AutoShortLayout.FitLength && batch.ImageSeconds >= 7 && !footage) return [Calm, Dreamy, Cinematic];
-        if (target <= 45) return footage ? [Energetic, Dramatic, Cinematic] : [Energetic, Cinematic, Retro];
+        if (target <= 45) return footage ? [Viral, Energetic, Dramatic, Cinematic] : [Energetic, Viral, Cinematic, Retro];
         return footage ? [Cinematic, Dramatic, Energetic] : [Cinematic, Dreamy, Retro, Calm];
     }
 
@@ -753,7 +768,7 @@ public static class AutoShortPlanner
         }
 
         var total = Round(at);
-        items.AddRange([.. TextItems(batch.TextMode, lines, [.. items], junctions, total)]);
+        items.AddRange([.. TextItems(batch.TextMode, lines, [.. items], junctions, total, pace.BoldText)]);
 
         var musicId = music?.Next();
         return new ClipMergeCommand
@@ -820,7 +835,7 @@ public static class AutoShortPlanner
 
     private static IEnumerable<TimelineItemSpec> TextItems(
         AutoShortTextMode mode, Deck<string>? lines, List<TimelineItemSpec> shots,
-        List<ClipJunctionOverride> junctions, double total)
+        List<ClipJunctionOverride> junctions, double total, bool bold = false)
     {
         if (lines is null || mode == AutoShortTextMode.None) yield break;
 
@@ -835,13 +850,22 @@ public static class AutoShortPlanner
                 Duration = total,
                 Src = lines.Next(),
                 Name = "Hook",
-                TextStyle = new TimelineItemTextStyleSpec
-                {
-                    FontSize = 30, Color = "#ffffff", Position = "top",
-                    BoxStyle = "box", BoxColor = "#000000", BoxOpacity = 0.55,
-                    OutlineColor = "#000000", OutlineWidth = 1.5, Shadow = true, Uppercase = true,
-                    TransitionIn = "slide-up", TransitionInDuration = 0.4, TransitionOut = "fade", TransitionOutDuration = 0.4,
-                },
+                TextStyle = bold
+                    // A dark word on a white plate, as creator Shorts label what is on screen.
+                    ? new TimelineItemTextStyleSpec
+                    {
+                        FontSize = 26, Color = "#111111", Position = "top",
+                        BoxStyle = "box", BoxColor = "#ffffff", BoxOpacity = 0.95,
+                        OutlineWidth = 0, Shadow = false, Uppercase = false,
+                        TransitionIn = "slide-up", TransitionInDuration = 0.25, TransitionOut = "fade", TransitionOutDuration = 0.25,
+                    }
+                    : new TimelineItemTextStyleSpec
+                    {
+                        FontSize = 30, Color = "#ffffff", Position = "top",
+                        BoxStyle = "box", BoxColor = "#000000", BoxOpacity = 0.55,
+                        OutlineColor = "#000000", OutlineWidth = 1.5, Shadow = true, Uppercase = true,
+                        TransitionIn = "slide-up", TransitionInDuration = 0.4, TransitionOut = "fade", TransitionOutDuration = 0.4,
+                    },
             };
         }
 
@@ -864,12 +888,20 @@ public static class AutoShortPlanner
                 Duration = Round(duration),
                 Src = lines.Next(),
                 Name = "Caption",
-                TextStyle = new TimelineItemTextStyleSpec
-                {
-                    FontSize = 24, Color = "#ffffff", Position = "custom", X = 50, Y = 74,
-                    BoxStyle = "none", OutlineColor = "#000000", OutlineWidth = 2, Shadow = true,
-                    TransitionIn = "typewriter", TransitionInDuration = 0.6, TransitionOut = "fade", TransitionOutDuration = 0.3,
-                },
+                TextStyle = bold
+                    // Big yellow words with a heavy outline, popped in fast on every cut.
+                    ? new TimelineItemTextStyleSpec
+                    {
+                        FontSize = 30, Color = "#ffd60a", Position = "custom", X = 50, Y = 70,
+                        BoxStyle = "none", OutlineColor = "#000000", OutlineWidth = 3, Shadow = true, Uppercase = true,
+                        TransitionIn = "slide-up", TransitionInDuration = 0.2, TransitionOut = "fade", TransitionOutDuration = 0.2,
+                    }
+                    : new TimelineItemTextStyleSpec
+                    {
+                        FontSize = 24, Color = "#ffffff", Position = "custom", X = 50, Y = 74,
+                        BoxStyle = "none", OutlineColor = "#000000", OutlineWidth = 2, Shadow = true,
+                        TransitionIn = "typewriter", TransitionInDuration = 0.6, TransitionOut = "fade", TransitionOutDuration = 0.3,
+                    },
             };
         }
     }

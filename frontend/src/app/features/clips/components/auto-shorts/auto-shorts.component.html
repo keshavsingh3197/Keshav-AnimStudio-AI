@@ -216,14 +216,13 @@
           <span class="as-label">Order</span>
           <div class="as-chips">
             @for (o of orders; track o.id) {
-              <button type="button" class="as-chip" [class.on]="order() === o.id" (click)="order.set(o.id)" [title]="o.hint"
-                      [disabled]="pickedVideos() === 0 && o.id !== 'Shuffle'">{{ o.label }}</button>
+              <button type="button" class="as-chip" [class.on]="order() === o.id" (click)="order.set(o.id)" [title]="o.hint">{{ o.label }}</button>
             }
           </div>
         </div>
         <div class="as-field">
           <span class="as-label"></span>
-          <p class="as-hint as-hint-inline">{{ pickedVideos() === 0 ? 'No videos picked - pictures only.' : orderHint() }}</p>
+          <p class="as-hint as-hint-inline">{{ pickedVideos() === 0 ? 'No videos picked yet - this order applies as soon as you add some.' : orderHint() }}</p>
         </div>
 
         <div class="as-field">
@@ -289,11 +288,38 @@
         <h4>3 · Style</h4>
         <div class="as-cards as-styles" role="radiogroup" aria-label="Style">
           @for (s of styles; track s) {
-            <button type="button" class="as-card" role="radio" [attr.aria-checked]="style() === s" [class.on]="style() === s" (click)="style.set(s)">
-              <span class="as-card-icon" aria-hidden="true">{{ styleHints[s].icon }}</span>
-              <span class="as-card-name">{{ s }}</span>
-              <span class="as-card-hint">{{ styleHints[s].hint }}</span>
+            @let pv = stylePreviews[s];
+            <button type="button" class="as-card as-style-card" role="radio" [attr.aria-checked]="style() === s" [class.on]="style() === s" (click)="pickStyle(s)">
+              <span [class]="'as-pv as-pv-' + pv.kind" [style.--cut]="pv.cut + 's'" [style.filter]="pv.grade" aria-hidden="true">
+                <span class="as-pv-shot"></span><span class="as-pv-shot"></span><span class="as-pv-shot"></span>
+                <span class="as-pv-text" [class.bold]="pv.bold">{{ pv.bold ? 'WOW' : 'line' }}</span>
+              </span>
+              <span class="as-card-body">
+                <span class="as-card-name">{{ styleHints[s].icon }} {{ s }}</span>
+                <span class="as-card-hint">{{ styleHints[s].hint }}</span>
+              </span>
             </button>
+          }
+        </div>
+        @let sp = stylePreview();
+        <div class="as-style-detail" aria-live="polite">
+          <dl>
+            <dt>Shots</dt><dd>{{ sp.shots }}</dd>
+            <dt>Transitions</dt><dd>{{ sp.transitions }}</dd>
+            <dt>Moves</dt><dd>{{ sp.moves }}</dd>
+            <dt>Look</dt><dd>{{ sp.look }}</dd>
+            <dt>Text</dt><dd>{{ sp.text }}</dd>
+          </dl>
+          @if (styleExample(); as ex) {
+            @if (playingExample() === ex.jobId) {
+              <video class="as-example" [src]="state.api.previewUrl(ex.jobId)" controls autoplay muted playsinline preload="metadata"></video>
+              <button type="button" class="as-link" (click)="playingExample.set(null)">Close example</button>
+            } @else {
+              <button type="button" class="as-chip" (click)="playingExample.set(ex.jobId)"
+                      [title]="ex.name + ' (' + ex.projectName + ')'">▶ Watch an example: {{ ex.name }}</button>
+            }
+          } @else if (style() !== 'Auto' && style() !== 'Mixed') {
+            <p class="as-hint">No {{ style() }} short rendered yet. The animation above shows its pace, and your first {{ style() }} short will play here.</p>
           }
         </div>
         <div class="as-toggles">

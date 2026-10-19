@@ -25,6 +25,7 @@ const FORMATS: readonly ShortFormat[] = [
 const STYLE_HINTS: Record<AutoShortStyle, { icon: string; hint: string }> = {
   Auto: { icon: '✨', hint: 'Suits your length and picks' },
   Mixed: { icon: '🎲', hint: 'A different style per short' },
+  Viral: { icon: '🚀', hint: 'Whip cuts, punch-ins, yellow captions' },
   Energetic: { icon: '⚡', hint: 'Slides and wipes, strong moves' },
   Hype: { icon: '🔥', hint: '1-2s cuts, shaky and punchy' },
   Cinematic: { icon: '🎬', hint: 'Dissolves, film grade' },
@@ -33,6 +34,38 @@ const STYLE_HINTS: Record<AutoShortStyle, { icon: string; hint: string }> = {
   Dreamy: { icon: '☁️', hint: 'Long dissolves, warm glow' },
   Retro: { icon: '📼', hint: 'Faded film, slow pans' },
 };
+
+/** What each style does, for the preview: the same numbers the server cuts with. */
+interface StylePreview {
+  /** Seconds per shot in the animated tile. */
+  cut: number;
+  /** How the tile's shots change. */
+  kind: 'fade' | 'slide' | 'up' | 'zoom' | 'iris';
+  /** CSS filter standing in for the colour grade. */
+  grade: string;
+  bold?: boolean;
+  shots: string;
+  transitions: string;
+  moves: string;
+  look: string;
+  text: string;
+}
+
+const STYLE_PREVIEWS: Record<AutoShortStyle, StylePreview> = {
+  Auto: { cut: 1.2, kind: 'slide', grade: 'none', shots: 'Chosen for your length and picks', transitions: 'From the chosen styles', moves: 'From the chosen styles', look: 'From the chosen styles', text: 'Hook on top, captions under each shot' },
+  Mixed: { cut: 1.2, kind: 'fade', grade: 'none', shots: 'Each short gets a different style', transitions: 'Varies per short', moves: 'Varies per short', look: 'Varies per short', text: 'Hook on top, captions under each shot' },
+  Viral: { cut: 0.7, kind: 'up', grade: 'saturate(1.4) contrast(1.05)', bold: true, shots: '1.4-2.8s, fast like creator Shorts', transitions: 'Whip up / down, zoom-through, slide', moves: 'Punch-in and punch-out zooms, handheld', look: 'Vivid colour', text: 'White-box hook, big YELLOW words per shot' },
+  Energetic: { cut: 0.9, kind: 'slide', grade: 'saturate(1.3)', shots: '1.6-3.2s', transitions: 'Slides and wipes', moves: 'Zooms, pans, handheld', look: 'Vivid colour', text: 'Black-box hook, typed captions' },
+  Hype: { cut: 0.55, kind: 'slide', grade: 'saturate(1.5) contrast(1.1)', shots: '1-2s, the quickest', transitions: 'Hard slides and wipes', moves: 'Shaky, punchy zooms and tilts', look: 'Vivid colour', text: 'Black-box hook, typed captions' },
+  Cinematic: { cut: 1.6, kind: 'fade', grade: 'contrast(1.1) saturate(0.85) sepia(0.12)', shots: '3-5s', transitions: 'Dissolves, fades, iris', moves: 'Slow drifts, zooms and pans', look: 'Film grade, warm or cool, vignette', text: 'Black-box hook, typed captions' },
+  Dramatic: { cut: 1.4, kind: 'iris', grade: 'contrast(1.3) brightness(0.8) saturate(0.7)', shots: '2.5-4.5s', transitions: 'Iris open / close, dissolves', moves: 'Push-ins and tilts', look: 'Dark, contrasty, vignette', text: 'Black-box hook, typed captions' },
+  Calm: { cut: 2, kind: 'fade', grade: 'saturate(0.9) sepia(0.15)', shots: '4-6.5s', transitions: 'Soft fades and dissolves', moves: 'Gentle breathing zooms', look: 'Warm or matte', text: 'Black-box hook, typed captions' },
+  Dreamy: { cut: 2.4, kind: 'fade', grade: 'brightness(1.08) sepia(0.2) saturate(1.1)', shots: '4.5-7s, the slowest', transitions: 'Long dissolves', moves: 'Slow breathing and drift', look: 'Warm glow, vignette', text: 'Black-box hook, typed captions' },
+  Retro: { cut: 1.6, kind: 'slide', grade: 'sepia(0.5) contrast(0.9) saturate(0.8)', shots: '3-5s', transitions: 'Fades and wipes', moves: 'Gentle pans', look: 'Faded film', text: 'Black-box hook, typed captions' },
+};
+
+/** A finished short to show as an example of a style. */
+interface StyleExample { jobId: string; name: string; projectName: string }
 
 const ORDERS: readonly { id: AutoShortOrder; label: string; hint: string }[] = [
   { id: 'VideosFirst', label: 'Videos first', hint: 'Each short plays its videos, then its pictures.' },
@@ -58,6 +91,7 @@ const PRESETS: readonly Preset[] = [
   { id: 'teaser', icon: '🔥', label: 'Teasers 15s', hint: 'Five quick-cut 15s hooks', layout: 'FitLength', seconds: 15, count: 5, style: 'Hype', order: 'VideoFirst' },
   { id: 'reels', icon: '⚡', label: 'Reels 30s', hint: 'Exact 30s shorts, picks shared out', layout: 'Spread', seconds: 30, count: 0, style: 'Energetic', order: 'VideosFirst' },
   { id: 'shorts', icon: '▶️', label: 'Shorts 60s', hint: 'Exact 60s shorts, picks shared out', layout: 'Spread', seconds: 60, count: 0, style: 'Auto', order: 'VideosFirst' },
+  { id: 'viral', icon: '🚀', label: 'Viral 30s', hint: 'Videos first, whip cuts, yellow captions', layout: 'Spread', seconds: 30, count: 0, style: 'Viral', order: 'VideosFirst' },
   { id: 'story', icon: '🎬', label: 'Story 90s', hint: 'Exact 90s, longer picture holds', layout: 'Spread', seconds: 90, count: 0, style: 'Cinematic', order: 'VideosFirst', imageSeconds: 7 },
 ];
 
@@ -121,6 +155,7 @@ export class AutoShortsComponent {
   readonly formats = FORMATS;
   readonly styles = AUTO_SHORT_STYLES;
   readonly styleHints = STYLE_HINTS;
+  readonly stylePreviews = STYLE_PREVIEWS;
   readonly textModes = TEXT_MODES;
   readonly layouts = LAYOUTS;
   readonly orders = ORDERS;
@@ -195,6 +230,12 @@ export class AutoShortsComponent {
   readonly formatId = signal('9:16');
   readonly format = computed(() => FORMATS.find((f) => f.id === this.formatId()) ?? FORMATS[0]);
   readonly style = signal<AutoShortStyle>('Auto');
+  readonly stylePreview = computed(() => STYLE_PREVIEWS[this.style()]);
+  /** The latest finished short in each style: this project's first, then any project's. */
+  readonly styleExamples = signal<ReadonlyMap<string, StyleExample>>(new Map());
+  readonly styleExample = computed(() => this.styleExamples().get(this.style()) ?? null);
+  /** The example short playing under the styles, if one is open. */
+  readonly playingExample = signal<string | null>(null);
   readonly textMode = signal<AutoShortTextMode>('Hook');
   readonly linesText = signal('');
   readonly lines = computed(() =>
@@ -307,6 +348,7 @@ export class AutoShortsComponent {
   constructor() {
     this.readPrefs();
     this.loadUsage();
+    this.loadStyleExamples();
 
     // Re-plan on the server (nothing queued) whenever a setting that shapes the batch changes.
     this.previewRequests.pipe(
@@ -476,7 +518,9 @@ export class AutoShortsComponent {
     this.setCount(p.count);
     this.exact.set(true);
     this.style.set(p.style);
-    this.order.set(this.pickedVideos() > 0 ? p.order : 'Shuffle');
+    // Kept even before any video is picked: a short with no video comes out the same either
+    // way, and dropping to Shuffle here used to stick once videos were added.
+    this.order.set(p.order);
     if (p.imageSeconds) this.setImageSeconds(p.imageSeconds);
     this.motion.set(true);
     this.transitions.set(true);
@@ -546,6 +590,30 @@ export class AutoShortsComponent {
     } catch {
       // Storage blocked: the choice lasts for this visit only.
     }
+  }
+
+  pickStyle(s: AutoShortStyle): void {
+    this.style.set(s);
+    this.playingExample.set(null);
+  }
+
+  /** Each style's latest finished short, so a style can be watched before a batch uses it. */
+  private loadStyleExamples(): void {
+    const projectId = this.state.store.project()?.id ?? null;
+    this.shorts.overview(null).pipe(catchError(() => of(null))).subscribe((o) => {
+      if (!o) return;
+      const map = new Map<string, StyleExample>();
+      const ready = o.shorts
+        .filter((r) => r.job.batchStyle && r.job.hasOutput && r.job.status.startsWith('Completed'))
+        // This project's own shorts first, newest first within each.
+        .sort((a, b) => Number(b.job.projectId === projectId) - Number(a.job.projectId === projectId)
+          || b.job.createdAt.localeCompare(a.job.createdAt));
+      for (const r of ready) {
+        const style = r.job.batchStyle!;
+        if (!map.has(style)) map.set(style, { jobId: r.job.jobId, name: r.job.name ?? 'Short', projectName: r.projectName });
+      }
+      this.styleExamples.set(map);
+    });
   }
 
   private loadUsage(): void {

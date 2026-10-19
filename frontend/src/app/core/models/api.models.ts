@@ -534,6 +534,8 @@ export interface RenderJob {
   batchName?: string | null;
   /** 0-based place in the batch. */
   batchIndex?: number | null;
+  /** The style an auto short was cut in; null on renders from before styles were recorded. */
+  batchStyle?: string | null;
 }
 
 /** Downloadable forms of an export's timeline: a YouTube description draft, CSV or JSON. */
@@ -968,7 +970,7 @@ export interface TrackControlState {
  * Pace and finish of a batch of auto shorts. Auto picks styles that suit the batch; Mixed
  * deals every style out so no two shorts look alike.
  */
-export const AUTO_SHORT_STYLES = ['Auto', 'Mixed', 'Energetic', 'Hype', 'Cinematic', 'Dramatic', 'Calm', 'Dreamy', 'Retro'] as const;
+export const AUTO_SHORT_STYLES = ['Auto', 'Mixed', 'Viral', 'Energetic', 'Hype', 'Cinematic', 'Dramatic', 'Calm', 'Dreamy', 'Retro'] as const;
 export type AutoShortStyle = (typeof AUTO_SHORT_STYLES)[number];
 
 /** How the batch's lines go on screen. */

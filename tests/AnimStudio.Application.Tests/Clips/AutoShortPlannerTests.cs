@@ -420,6 +420,25 @@ public class AutoShortPlannerTests
     }
 
     [Fact]
+    public void Viral_cuts_fast_with_whips_and_bold_yellow_captions()
+    {
+        var plan = AutoShortPlanner.PlanBatch(Batch(count: 3, seconds: 30, text: AutoShortTextMode.HookAndPerShot,
+            lines: ["poora naam", "vibration ka hota", "letter tweak kiya"]) with { Style = AutoShortStyle.Viral });
+
+        Assert.All(plan.Styles!, s => Assert.Equal(AutoShortStyle.Viral, s));
+        SceneTransition[] whips = [SceneTransition.SlideUp, SceneTransition.SlideDown, SceneTransition.ZoomIn, SceneTransition.SlideLeft, SceneTransition.None];
+        foreach (var s in plan.Shorts)
+        {
+            Assert.All(s.Junctions!, j => Assert.Contains(j.Transition, whips));
+            Assert.All(Shots(s), i => Assert.InRange(i.Duration, 0.9, 2.81 + 2.81));
+            var captions = s.TimelineItems!.Where(i => i.Name == "Caption").ToList();
+            Assert.NotEmpty(captions);
+            Assert.All(captions, c => Assert.Equal("#ffd60a", c.TextStyle!.Color));
+            Assert.Equal("#ffffff", s.TimelineItems!.Single(i => i.Name == "Hook").TextStyle!.BoxColor);
+        }
+    }
+
+    [Fact]
     public void Fit_length_is_still_the_default_layout()
     {
         Assert.Equal(AutoShortLayout.FitLength, new AutoShortBatch { Sources = Mixed }.Layout);
