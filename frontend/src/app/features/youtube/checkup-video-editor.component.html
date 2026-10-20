@@ -329,9 +329,14 @@
           <div class="ve-field-group">
             <div class="ve-field-header">
               <label for="ve-title-input" class="ve-label">Title</label>
-              <span class="ve-counter" [class.ve-counter-warn]="d.title.length > 90" [class.ve-counter-err]="d.title.length > 100">
-                {{ d.title.length }}/100
-              </span>
+              <div class="ve-field-tools">
+                <button type="button" class="ve-tool-chip" (click)="copyField('title', d.title)" [disabled]="!d.title.trim()">
+                  {{ copiedKey() === 'title' ? '✓ Copied' : '📋 Copy Title' }}
+                </button>
+                <span class="ve-counter" [class.ve-counter-warn]="d.title.length > 90" [class.ve-counter-err]="d.title.length > 100">
+                  {{ d.title.length }}/100
+                </span>
+              </div>
             </div>
             <div class="ve-input-wrap">
               <input id="ve-title-input" type="text" maxlength="100" class="ve-input" [ngModel]="d.title" (ngModelChange)="set({ title: $event })" placeholder="Add a title that catches attention" />
@@ -355,6 +360,9 @@
             <div class="ve-field-header">
               <label for="ve-desc" class="ve-label">Description</label>
               <div class="ve-field-tools">
+                <button type="button" class="ve-tool-chip" (click)="copyField('desc', d.description)" [disabled]="!d.description.trim()">
+                  {{ copiedKey() === 'desc' ? '✓ Copied' : '📋 Copy Description' }}
+                </button>
                 @if (footer()) {
                   <button type="button" class="ve-tool-chip" (click)="addFooter()" [disabled]="footerIncluded()"
                           title="Appends standard channel footer, socials &amp; credits">
@@ -416,6 +424,9 @@
             <div class="ve-field-header">
               <label for="ve-tags" class="ve-label">Tags <span class="ve-sublabel">(comma separated)</span></label>
               <div class="ve-field-tools">
+                <button type="button" class="ve-tool-chip" (click)="copyField('tags', d.tagsText)" [disabled]="!d.tagsText.trim()">
+                  {{ copiedKey() === 'tags' ? '✓ Copied' : '📋 Copy Tags' }}
+                </button>
                 @if (channelTagsToAdd().length) {
                   <button type="button" class="ve-tool-chip" (click)="addChannelTags()" [title]="channelTagsToAdd().join(', ')">
                     + Channel Tags ({{ channelTagsToAdd().length }})
@@ -455,6 +466,46 @@
               </div>
             }
           </div>
+
+          <!-- Pinned Comment & Engagement Comment (Ready-to-Copy SEO Package) -->
+          @if (d.pinnedComment || d.engagementComment) {
+            <div class="ve-comments-seo-grid">
+              @if (d.pinnedComment !== undefined) {
+                <div class="ve-field-group">
+                  <div class="ve-field-header">
+                    <label class="ve-label">📌 Pinned Comment <span class="ve-sublabel">(1-click copy)</span></label>
+                    <button type="button" class="ve-tool-chip" (click)="copyField('pinned', d.pinnedComment)" [disabled]="!d.pinnedComment.trim()">
+                      {{ copiedKey() === 'pinned' ? '✓ Copied!' : '📋 Copy Pinned Comment' }}
+                    </button>
+                  </div>
+                  <textarea rows="3" class="ve-textarea ve-textarea-sm" [ngModel]="d.pinnedComment" (ngModelChange)="set({ pinnedComment: $event })"></textarea>
+                </div>
+              }
+              @if (d.engagementComment !== undefined) {
+                <div class="ve-field-group">
+                  <div class="ve-field-header">
+                    <label class="ve-label">💬 Engagement Comment <span class="ve-sublabel">(1-click copy)</span></label>
+                    <button type="button" class="ve-tool-chip" (click)="copyField('engage', d.engagementComment)" [disabled]="!d.engagementComment.trim()">
+                      {{ copiedKey() === 'engage' ? '✓ Copied!' : '📋 Copy Engagement' }}
+                    </button>
+                  </div>
+                  <textarea rows="3" class="ve-textarea ve-textarea-sm" [ngModel]="d.engagementComment" (ngModelChange)="set({ engagementComment: $event })"></textarea>
+                </div>
+              }
+            </div>
+          }
+
+          @if (d.transcriptText) {
+            <details class="ve-transcript-box">
+              <summary class="ve-transcript-summary">
+                <span>📜 Extracted Spoken Transcript / Lyrics ({{ d.transcriptText.length }} chars)</span>
+                <button type="button" class="ve-tool-chip" (click)="copyField('transcript', d.transcriptText); $event.stopPropagation()">
+                  {{ copiedKey() === 'transcript' ? '✓ Copied!' : '📋 Copy Transcript' }}
+                </button>
+              </summary>
+              <pre class="ve-transcript-pre">{{ d.transcriptText }}</pre>
+            </details>
+          }
 
           <!-- Category, Visibility & Audience Grid -->
           <div class="ve-meta-grid">

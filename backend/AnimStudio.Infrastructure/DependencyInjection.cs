@@ -334,6 +334,9 @@ public static class DependencyInjection
             sp.GetRequiredService<ILogger<GoogleDriveClient>>()));
         services.AddSingleton(sp => new YouTubeChannelVideosClient(
             sp.GetRequiredService<ILogger<YouTubeChannelVideosClient>>()));
+        services.AddSingleton(sp => new YouTubeTranscriptFetcher(
+            sp.GetRequiredService<ILogger<YouTubeTranscriptFetcher>>(),
+            sp.GetService<AnimStudio.Infrastructure.Ingest.YtDlpCaptionDownloader>()));
         services.AddScoped<GoogleDriveConnectionStore>();
         services.AddSingleton<PhoneHandoffManager>();
         services.AddHostedService(sp => sp.GetRequiredService<PhoneHandoffManager>());

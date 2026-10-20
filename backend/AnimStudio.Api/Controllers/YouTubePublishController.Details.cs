@@ -137,6 +137,23 @@ public sealed partial class YouTubePublishController
                 await scenes.ListByProjectAsync(project.Id, ct), null);
         }
 
+        // Also fetch the video's spoken captions / transcript directly from YouTube (100% free)
+        string? transcriptText = null;
+        try
+        {
+            var fetched = await transcriptFetcher.FetchAsync(video.VideoId, ct);
+            if (fetched.HasTranscript)
+            {
+                transcriptText = fetched.TranscriptText.Length > 3500
+                    ? fetched.TranscriptText[..3500]
+                    : fetched.TranscriptText;
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogDebug(ex, "Could not fetch YouTube captions for {VideoId}; continuing with metadata.", video.VideoId);
+        }
+
         var summary = string.Join('\n', new[]
         {
             projectSummary,
@@ -146,6 +163,7 @@ public sealed partial class YouTubePublishController
                 ? "Current description: " + (video.Description.Length > 2000 ? video.Description[..2000] : video.Description)
                 : "Current description: (none)",
             video.Tags.Count > 0 ? "Current tags: " + string.Join(", ", video.Tags.Take(30)) : "Current tags: (none)",
+            !string.IsNullOrWhiteSpace(transcriptText) ? "Spoken transcript / lyrics:\n" + transcriptText : string.Empty,
         }.Where(s => s.Length > 0));
 
         var style = video.DurationSeconds is <= ShortMaxSeconds
@@ -156,7 +174,117 @@ public sealed partial class YouTubePublishController
         var footer = BrandFor(settings, connection.ChannelId).Publishing?.DescriptionFooter;
 
         return await WriteSuggestionAsync(summary, style, request, projectId,
-            d => YouTubePublishValidator.WithFooter(d.Trim(), footer), "video " + video.VideoId, ct);
+            d => YouTubePublishValidator.WithFooter(d.Trim(), footer), "video " + video.VideoId, ct, transcriptText);
+    }
+
+    /// <summary>
+    /// Takes any YouTube video or Short URL (or 11-character Video ID), fetches its metadata
+    /// and spoken transcript/captions automatically (100% free), and generates the complete
+    /// SEO package (3+ titles, full description with lyrics/shloka/credits, tags, pinned
+    /// comment, and engagement comment).
+    /// </summary>
+    [HttpPost("seo-from-url")]
+    public async Task<ActionResult<ApiResponse<YouTubeUrlSeoResponse>>> GenerateSeoFromUrl(
+        [FromBody] YouTubeUrlSeoRequest? request,
+        [FromServices] IYouTubePublicationRepository publicationRecords,
+        CancellationToken ct)
+    {
+        var (isValid, videoId, canonicalUrl, urlError) = YouTubeTranscriptFetcher.ParseUrlOrVideoId(request?.Url);
+        if (!isValid || videoId is null || canonicalUrl is null)
+        {
+            return BadRequest(ApiResponse<YouTubeUrlSeoResponse>.Fail(
+                urlError ?? "Paste a valid YouTube URL.",
+                new ApiError("url-invalid", urlError ?? "Paste a valid YouTube URL.", Field: "url")));
+        }
+
+        if (request?.Brief is { Length: > YouTubeMetadataSuggester.MaxBriefChars * 4 }
+            || request?.Tone is { } tone && !YouTubeMetadataSuggester.Tones.ContainsKey(tone))
+        {
+            return BadRequest(ApiResponse<YouTubeUrlSeoResponse>.Fail(
+                $"Keep the notes under {YouTubeMetadataSuggester.MaxBriefChars} characters and pick a tone from the list.",
+                new ApiError("suggest-input-invalid", "Invalid tone or brief.")));
+        }
+
+        var fetched = await transcriptFetcher.FetchAsync(videoId, ct);
+
+        string? projectId = null;
+        var projectSummary = string.Empty;
+        var record = (await publicationRecords.ListByVideoIdsAsync(currentUser.UserId, [videoId], ct)).FirstOrDefault();
+        if (record is not null && await projects.GetAsync(record.ProjectId, ct) is { } project
+            && string.Equals(project.UserId, currentUser.UserId, StringComparison.Ordinal))
+        {
+            projectId = project.Id;
+            projectSummary = YouTubeMetadataSuggester.BuildSummary(project.Name, project.Description,
+                await scenes.ListByProjectAsync(project.Id, ct), null);
+        }
+
+        var isShort = (fetched.DurationSeconds is > 0 and <= ShortMaxSeconds)
+                      || (request?.Url?.Contains("/shorts/", StringComparison.OrdinalIgnoreCase) ?? false);
+        var transcriptSnippet = fetched.HasTranscript
+            ? (fetched.TranscriptText.Length > 3500 ? fetched.TranscriptText[..3500] : fetched.TranscriptText)
+            : null;
+
+        var summary = string.Join('\n', new[]
+        {
+            projectSummary,
+            !string.IsNullOrWhiteSpace(fetched.Author) ? "Channel: " + fetched.Author : "Channel: OMKR",
+            "Current title: " + (!string.IsNullOrWhiteSpace(fetched.Title) ? fetched.Title : videoId),
+            "Original URL: " + canonicalUrl,
+            !string.IsNullOrWhiteSpace(fetched.Description)
+                ? "Current description: " + (fetched.Description.Length > 1500 ? fetched.Description[..1500] : fetched.Description)
+                : string.Empty,
+            fetched.Keywords.Count > 0 ? "Current tags: " + string.Join(", ", fetched.Keywords.Take(25)) : string.Empty,
+            !string.IsNullOrWhiteSpace(transcriptSnippet)
+                ? "Spoken transcript / lyrics:\n" + transcriptSnippet
+                : "Spoken transcript / lyrics: (No caption track found on this video; generate from title and channel context.)",
+        }.Where(s => s.Length > 0));
+
+        var style = isShort
+            ? "a YouTube Short (9:16 vertical) - end the description with #shorts and topic hashtags"
+            : "a YouTube video - include topic hashtags in the description";
+
+        var settings = await settingsRepo.GetAsync(ct);
+        var footer = !string.IsNullOrWhiteSpace(request?.ChannelId)
+            ? BrandFor(settings, request.ChannelId!).Publishing?.DescriptionFooter
+            : settings?.DefaultPublishing?.DescriptionFooter;
+
+        var suggestReq = new YouTubeSuggestRequest(
+            request?.Language ?? "hi",
+            Fresh: true,
+            Tone: request?.Tone ?? "devotional-omkr",
+            Brief: request?.Brief,
+            ProviderId: request?.ProviderId);
+
+        var suggestAction = await WriteSuggestionAsync(summary, style, suggestReq, projectId,
+            d => YouTubePublishValidator.WithFooter(d.Trim(), footer), "url-video " + videoId, ct, transcriptSnippet);
+
+        if (suggestAction.Result is ObjectResult obj && obj.Value is ApiResponse<YouTubeSuggestResponse> apiResp && apiResp.Success && apiResp.Data is { } suggestion)
+        {
+            return Ok(ApiResponse<YouTubeUrlSeoResponse>.Ok(new YouTubeUrlSeoResponse(
+                videoId,
+                isShort ? $"https://youtube.com/shorts/{videoId}" : canonicalUrl,
+                fetched.Title,
+                fetched.Author,
+                fetched.DurationSeconds,
+                isShort,
+                fetched.HasTranscript,
+                fetched.TranscriptText,
+                suggestion)));
+        }
+
+        // Fallback direct local generation so URL SEO never fails
+        var direct = YouTubeFreeSeoEngine.Generate(summary, style, suggestReq.Tone, suggestReq.Language ?? "hi", suggestReq.Brief, transcriptSnippet);
+        var fallbackSuggestion = ToSuggestResponse(direct, YouTubeFreeSeoEngine.FreeLocalProviderId, d => YouTubePublishValidator.WithFooter(d.Trim(), footer));
+        return Ok(ApiResponse<YouTubeUrlSeoResponse>.Ok(new YouTubeUrlSeoResponse(
+            videoId,
+            isShort ? $"https://youtube.com/shorts/{videoId}" : canonicalUrl,
+            fetched.Title,
+            fetched.Author,
+            fetched.DurationSeconds,
+            isShort,
+            fetched.HasTranscript,
+            fetched.TranscriptText,
+            fallbackSuggestion)));
     }
 
     /// <summary>
@@ -452,3 +580,22 @@ public sealed record YouTubeVideoProjectContext(
     bool IsVertical);
 
 public sealed record YouTubeThumbnailSaved(string VideoId, DateTime SetAt);
+
+public sealed record YouTubeUrlSeoRequest(
+    string? Url,
+    string? Language = "hi",
+    string? Tone = "devotional-omkr",
+    string? Brief = null,
+    string? ProviderId = null,
+    string? ChannelId = null);
+
+public sealed record YouTubeUrlSeoResponse(
+    string VideoId,
+    string VideoUrl,
+    string OriginalTitle,
+    string? Author,
+    double? DurationSeconds,
+    bool IsShort,
+    bool HasTranscript,
+    string TranscriptText,
+    YouTubeSuggestResponse Suggestion);

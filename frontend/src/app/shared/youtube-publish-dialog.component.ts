@@ -579,6 +579,21 @@ interface PublishPrefs {
                   <textarea id="yt-first-comment" rows="3" [ngModel]="firstComment()" (ngModelChange)="firstComment.set($event)"
                             [disabled]="uploading()" [class.invalid]="fieldError('firstComment')"
                             placeholder="Thanks for watching! Which part was your favourite? 👇"></textarea>
+                  @if (pinnedCommentIdea() || engagementCommentIdea()) {
+                    <div class="yt-ideas" role="group" aria-label="AI Comment Suggestions">
+                      <span class="yt-ideas-label">Comment ideas</span>
+                      @if (pinnedCommentIdea(); as pc) {
+                        <button type="button" class="yt-chip" [class.active]="firstComment() === pc" (click)="firstComment.set(pc)" [disabled]="uploading()" [title]="pc">
+                          📌 Use Pinned Comment
+                        </button>
+                      }
+                      @if (engagementCommentIdea(); as ec) {
+                        <button type="button" class="yt-chip" [class.active]="firstComment() === ec" (click)="firstComment.set(ec)" [disabled]="uploading()" [title]="ec">
+                          💬 Use Engagement Question
+                        </button>
+                      }
+                    </div>
+                  }
                   @if (firstComment().trim() && selectedChannel(); as ch) {
                     @if (!ch.canComment) {
                       <p class="yt-warn">{{ ch.channelTitle }} was connected before AnimStudio could post comments.
@@ -1285,6 +1300,8 @@ export class YouTubePublishDialogComponent implements OnInit {
   readonly descriptionOptions = signal<string[]>([]);
   /** Extra tags the last suggestion offered, to add with a click. */
   readonly tagIdeas = signal<string[]>([]);
+  readonly pinnedCommentIdea = signal<string | null>(null);
+  readonly engagementCommentIdea = signal<string | null>(null);
   /** Ideas not already among the tags. */
   readonly tagIdeasLeft = computed(() => {
     const have = new Set(this.tags().map((t) => t.toLowerCase()));
@@ -1292,7 +1309,8 @@ export class YouTubePublishDialogComponent implements OnInit {
   });
 
   private static readonly ToneLabels: Record<string, string> = {
-    auto: '🎯 Any tone', funny: '😂 Funny', devotional: '🙏 Devotional', emotional: '🥹 Emotional',
+    auto: '🎯 Any tone', 'devotional-omkr': '🕉️ OMKR 3D Devotional (Brand Rules)',
+    funny: '😂 Funny', devotional: '🙏 Devotional', emotional: '🥹 Emotional',
     dramatic: '🎭 Dramatic', informative: '📘 Informative', energetic: '⚡ Energetic', kids: '🧸 For kids',
     motivational: '💪 Motivational', 'clickbait-free': '✅ Honest / no clickbait',
   };
@@ -1606,6 +1624,11 @@ export class YouTubePublishDialogComponent implements OnInit {
         this.descriptionOptions.set(s.descriptionOptions?.length ? [s.description, ...s.descriptionOptions] : []);
         this.tagsText.set(s.tags.join(', '));
         this.tagIdeas.set(s.tagIdeas ?? []);
+        this.pinnedCommentIdea.set(s.pinnedComment ?? null);
+        this.engagementCommentIdea.set(s.engagementComment ?? null);
+        if (!this.firstComment().trim() && s.pinnedComment) {
+          this.firstComment.set(s.pinnedComment);
+        }
         this.suggestedOnce.set(true);
         const by = this.engines().find((e) => e.id === s.providerId)?.name ?? s.providerId;
         this.suggestNote.set(`Filled in by ${by}. Read it through and edit before publishing.`);

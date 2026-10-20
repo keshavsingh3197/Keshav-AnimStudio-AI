@@ -6,7 +6,7 @@ import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../models/api.models';
 import {
   GoogleDriveStatus, PhoneHandoff, PhoneHandoffCheck,
-  YouTubeCheckup, YouTubeCheckupSaved, YouTubeThumbnailSaved, YouTubeVideoDetailsSave, YouTubeVideoEditContext,
+  YouTubeCheckup, YouTubeCheckupSaved, YouTubeThumbnailSaved, YouTubeUrlSeoResult, YouTubeVideoDetailsSave, YouTubeVideoEditContext,
   YouTubeChannel, YouTubeDashboard, YouTubeDraft, YouTubeLiveBroadcast, YouTubeLiveSetup, YouTubeLiveSuggestParams, YouTubePublication, YouTubePublishSource, YouTubePublishStatus,
   YouTubeSuggestion, YouTubeSuggestOptions, YouTubeSuggestParams, YouTubeThumbnailChoice, YouTubeUpload, YouTubeVideoMetadata,
 } from '../models/youtube.models';
@@ -80,6 +80,20 @@ export class YouTubePublishService {
       .post<ApiResponse<YouTubeSuggestion>>(
         `${this.base}/channels/${encodeURIComponent(channelId)}/videos/${encodeURIComponent(videoId)}/suggest`, params)
       .pipe(map((r) => r.data as YouTubeSuggestion));
+  }
+
+  /** Fetches metadata + spoken transcript for any YouTube URL/Video ID (100% free) and generates the full SEO package. */
+  generateSeoFromUrl(body: {
+    url: string;
+    language?: string;
+    tone?: string;
+    brief?: string;
+    providerId?: string;
+    channelId?: string | null;
+  }): Observable<YouTubeUrlSeoResult> {
+    return this.http
+      .post<ApiResponse<YouTubeUrlSeoResult>>(`${this.base}/seo-from-url`, body)
+      .pipe(map((r) => r.data as YouTubeUrlSeoResult));
   }
 
   /** Writes reviewed details onto a video on the channel and adds it to playlists. */

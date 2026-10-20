@@ -69,6 +69,18 @@ export class CheckupVideoEditorComponent {
   readonly contextError = signal<string | null>(null);
 
   readonly playing = signal(false);
+  readonly copiedKey = signal<string | null>(null);
+
+  async copyField(key: string, text: string | undefined | null): Promise<void> {
+    if (!text?.trim()) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      this.copiedKey.set(key);
+      setTimeout(() => {
+        if (this.copiedKey() === key) this.copiedKey.set(null);
+      }, 2000);
+    } catch {}
+  }
 
   // Thumbnail
   readonly thumbMode = signal<ThumbMode>('current');

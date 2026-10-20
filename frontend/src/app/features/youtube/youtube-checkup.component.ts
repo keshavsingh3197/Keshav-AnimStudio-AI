@@ -7,7 +7,7 @@ import { Observable, catchError, of } from 'rxjs';
 
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
 import {
-  YouTubeCategory, YouTubeChannel, YouTubeCheckup, YouTubeCheckupVideo, YouTubeSuggestEngine, YouTubeSuggestion,
+  YouTubeCategory, YouTubeChannel, YouTubeCheckup, YouTubeCheckupVideo, YouTubeSuggestEngine, YouTubeSuggestion, YouTubeUrlSeoResult,
 } from '../../core/models/youtube.models';
 import { YouTubePublishService } from '../../core/services/youtube-publish.service';
 import { MAX_ANSWER_CHARS, MAX_PROMPT_VIDEOS, buildHandoffPrompt, parseHandoffAnswer } from './checkup-ai-handoff';
@@ -124,6 +124,14 @@ export class YouTubeCheckupComponent implements OnInit {
   readonly pasteText = signal('');
   readonly pasteReport = signal<{ ok: boolean; lines: string[] } | null>(null);
   readonly promptCopied = signal<string | null>(null);
+
+  // Automated YouTube URL -> Transcript + SEO Generator (100% Free supported)
+  readonly urlSeoOpen = signal(false);
+  readonly urlSeoInput = signal('');
+  readonly urlSeoBusy = signal(false);
+  readonly urlSeoError = signal<string | null>(null);
+  readonly urlSeoResult = signal<YouTubeUrlSeoResult | null>(null);
+  readonly urlCopiedKey = signal<string | null>(null);
 
   /** Per video, when its thumbnail was last changed here - so the row's picture reloads. */
   private readonly thumbVersions = signal<Record<string, number>>({});
@@ -441,6 +449,8 @@ export class YouTubeCheckupComponent implements OnInit {
           title: a.title || draft.title,
           description: a.description || draft.description,
           tags: a.tags,
+          pinnedComment: a.pinnedComment,
+          engagementComment: a.engagementComment,
           providerId: 'pasted',
         }),
         saved: false,
@@ -615,7 +625,80 @@ export class YouTubeCheckupComponent implements OnInit {
       titleOptions: replaceTitle ? titles.filter((t) => t !== s.title) : titles,
       descriptionOptions: offered.filter((o) => o && o !== description),
       tagIdeas: (s.tagIdeas ?? []).filter((t) => !splitTags(d.tagsText).includes(t)),
+      pinnedComment: s.pinnedComment || d.pinnedComment,
+      engagementComment: s.engagementComment || d.engagementComment,
+      transcriptText: s.transcriptText ?? d.transcriptText,
     };
+  }
+
+  toneLabel(t: string): string {
+    const labels: Record<string, string> = {
+      auto: '🎯 Auto Tone',
+      'devotional-omkr': '🕉️ OMKR 3D Devotional (Brand Rules)',
+      devotional: '🙏 Devotional',
+      funny: '😂 Funny',
+      emotional: '🥹 Emotional',
+      dramatic: '🎭 Dramatic',
+      informative: '📘 Informative',
+      energetic: '⚡ Energetic',
+      kids: '🧸 For Kids',
+      motivational: '💪 Motivational',
+      'clickbait-free': '✅ Honest / No Clickbait',
+    };
+    return labels[t] ?? t;
+  }
+
+  generateUrlSeo(): void {
+    const url = this.urlSeoInput().trim();
+    if (!url || this.urlSeoBusy()) return;
+    this.urlSeoBusy.set(true);
+    this.urlSeoError.set(null);
+    this.api.generateSeoFromUrl({
+      url,
+      language: this.language(),
+      tone: this.tone(),
+      brief: this.brief().trim() || undefined,
+      providerId: this.engine() || undefined,
+      channelId: this.channelId() || undefined,
+    }).subscribe({
+      next: (res) => {
+        this.urlSeoResult.set(res);
+        this.urlSeoBusy.set(false);
+      },
+      error: (e: unknown) => {
+        this.urlSeoError.set(message(e));
+        this.urlSeoBusy.set(false);
+      },
+    });
+  }
+
+  async copyUrlField(key: string, text: string): Promise<void> {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      this.urlCopiedKey.set(key);
+      setTimeout(() => {
+        if (this.urlCopiedKey() === key) this.urlCopiedKey.set(null);
+      }, 2000);
+    } catch {
+      this.error.set('Clipboard access was blocked by the browser.');
+    }
+  }
+
+  hasChannelVideo(videoId: string): boolean {
+    return this.videos().some((v) => v.videoId === videoId);
+  }
+
+  applyUrlSeoToChannelVideo(res: YouTubeUrlSeoResult): void {
+    const v = this.videos().find((x) => x.videoId === res.videoId);
+    if (!v) return;
+    const draft = this.state(v.videoId).draft ?? this.draftFrom(v);
+    this.patch(v.videoId, {
+      draft: this.merge(v, draft, res.suggestion),
+      saved: false,
+      error: null,
+    });
+    this.openEditor(v);
   }
 }
 

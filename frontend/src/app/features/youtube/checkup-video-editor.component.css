@@ -1050,3 +1050,50 @@
   .ve-side, .ve-main { padding: 0.85rem; }
   .ve-foot { padding: 0.65rem 0.85rem; }
 }
+
+
+/* Pinned Comment, Engagement Comment & Spoken Transcript Box */
+.ve-comments-seo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.85rem;
+}
+
+.ve-textarea-sm {
+  min-height: 4.5rem !important;
+}
+
+.ve-transcript-box {
+  padding: 0.65rem 0.9rem;
+  border-radius: 10px;
+  background: rgba(12, 16, 26, 0.85);
+  border: 1px solid rgba(108, 140, 255, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.ve-transcript-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #93c5fd;
+}
+
+.ve-transcript-pre {
+  margin: 0.5rem 0 0;
+  padding: 0.6rem 0.75rem;
+  border-radius: 8px;
+  background: rgba(6, 9, 15, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: #e2e8f0;
+  font: 0.8rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 180px;
+  overflow-y: auto;
+}

@@ -100,6 +100,24 @@ export interface YouTubeSuggestion {
   descriptionOptions?: string[];
   /** More tags to pick from, none already in `tags`. */
   tagIdeas?: string[];
+  /** Suggested pinned comment encouraging viewer participation (e.g. Har Har Mahadev / Jai Mata Di). */
+  pinnedComment?: string | null;
+  /** Short interactive engagement question comment. */
+  engagementComment?: string | null;
+  /** Extracted spoken transcript / lyrics used to build the SEO package. */
+  transcriptText?: string | null;
+}
+
+export interface YouTubeUrlSeoResult {
+  videoId: string;
+  videoUrl: string;
+  originalTitle: string;
+  author?: string | null;
+  durationSeconds?: number | null;
+  isShort: boolean;
+  hasTranscript: boolean;
+  transcriptText: string;
+  suggestion: YouTubeSuggestion;
 }
 
 /** A text engine that can write suggestions now - a hosted model or a local signed-in CLI. */

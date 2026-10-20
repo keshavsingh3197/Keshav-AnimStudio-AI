@@ -12,6 +12,9 @@ export interface Draft {
   titleOptions: string[];
   descriptionOptions: string[];
   tagIdeas: string[];
+  pinnedComment?: string;
+  engagementComment?: string;
+  transcriptText?: string | null;
 }
 
 export interface RowState {

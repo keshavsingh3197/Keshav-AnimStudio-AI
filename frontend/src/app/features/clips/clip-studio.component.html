@@ -1468,12 +1468,94 @@
                           title="Upload straight to your YouTube channel as a private draft, then finish it in YouTube Studio">
                     <svg class="ex-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4M7 9l5-5 5 5M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3" /></svg> Upload to YouTube
                   </button>
+                  <button type="button" class="btn btn-outline-info" [class.active]="drivePanelOpen()"
+                          (click)="toggleDrivePanel(completedJob.jobId)"
+                          title="Save this rendered MP4 video directly to your Google Drive folder">
+                    ☁ {{ driveCopy()?.state === 'Saved' || driveCopy()?.state === 'WaitingForPhone' ? '✓ Saved to Drive' : (driveSaving() ? 'Uploading to Drive…' : 'Upload to Google Drive') }}
+                  </button>
                   <a routerLink="/live"
                      [queryParams]="{ renderJobId: completedJob.jobId, title: state.exportName() || null }"
                      class="btn btn-outline-danger" title="Stream this export to YouTube Live">
                     <span class="ex-live-dot" aria-hidden="true"></span> Go live
                   </a>
                 </div>
+                @if (drivePanelOpen()) {
+                  <div class="export-drive-panel">
+                    <div class="export-drive-head">
+                      <span class="export-drive-title">☁ Save Rendered Video to Google Drive</span>
+                      <button type="button" class="btn btn-sm btn-outline-light" (click)="drivePanelOpen.set(false)">Close</button>
+                    </div>
+                    @if (drives() === null) {
+                      <p class="export-drive-hint">Checking connected Google Drive accounts…</p>
+                    } @else if (!anyDriveConnected()) {
+                      <div class="export-drive-connect-row">
+                        <span class="export-drive-hint">No Google Drive connected yet. Connect once to upload finished renders straight to Drive.</span>
+                        <button type="button" class="btn btn-sm btn-info" (click)="connectGoogleDrive(completedJob.jobId)" [disabled]="driveConnectBusy()">
+                          {{ driveConnectBusy() ? 'Opening Google…' : '🔗 Connect Google Drive' }}
+                        </button>
+                      </div>
+                    } @else {
+                      <div class="export-drive-controls">
+                        <label class="export-drive-field">
+                          <span>Drive Account</span>
+                          <select class="export-select" [ngModel]="driveChannelId()" (ngModelChange)="pickDriveChannel($event)" [disabled]="driveSaving()">
+                            @for (d of drives(); track d.channelId ?? '') {
+                              <option [ngValue]="d.channelId ?? ''" [disabled]="!d.connected || d.needsReconnect">
+                                {{ d.channelId ? d.channelTitle : 'My Personal Drive' }}{{ d.accountEmail ? ' (' + d.accountEmail + ')' : '' }}{{ !d.connected ? ' — not connected' : d.needsReconnect ? ' — reconnect needed' : '' }}
+                              </option>
+                            }
+                          </select>
+                        </label>
+                        <label class="export-drive-field">
+                          <span>Drive Folder</span>
+                          <input type="text" class="export-text-input" maxlength="100" list="export-drive-folders-list"
+                                 [placeholder]="driveTarget()?.folderName || 'AnimStudio Shorts'"
+                                 [ngModel]="driveFolder()" (ngModelChange)="driveFolder.set($event)"
+                                 [disabled]="driveSaving()" />
+                          <datalist id="export-drive-folders-list">
+                            @for (f of driveFolders(); track f) {
+                              <option [value]="f"></option>
+                            }
+                          </datalist>
+                        </label>
+                        <button type="button" class="btn btn-success export-drive-send-btn"
+                                (click)="saveExportToDrive(completedJob.jobId)"
+                                [disabled]="driveSaving() || !!driveFolderError()">
+                          {{ driveSaving() ? '☁ Uploading (' + (driveCopy()?.percent || 0) + '%)…' : '☁ Save to Drive Now' }}
+                        </button>
+                      </div>
+                      @if (driveFolderError(); as ferr) {
+                        <p class="export-drive-err">⚠️ {{ ferr }}</p>
+                      }
+                    }
+                    @if (driveCopy(); as dc) {
+                      @if (dc.state === 'Sending') {
+                        <div class="export-drive-progress">
+                          <div class="monitor-bar-container">
+                            <div class="monitor-bar-fill" [style.width.%]="dc.percent || 5"></div>
+                          </div>
+                          <span class="export-drive-hint">
+                            Copying to Google Drive ({{ dc.bytesSent / 1048576 | number:'1.0-1' }} / {{ dc.totalBytes / 1048576 | number:'1.0-1' }} MB · {{ dc.percent }}%) — continues in background.
+                          </span>
+                        </div>
+                      } @else if (dc.state === 'Saved' || dc.state === 'WaitingForPhone') {
+                        <div class="export-drive-done">
+                          <span>✓ Saved to Google Drive: <strong>{{ dc.folderName }}</strong> / {{ dc.fileName }}</span>
+                          @if (dc.driveUrl) {
+                            <a [href]="dc.driveUrl" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-info">
+                              Open in Google Drive ↗
+                            </a>
+                          }
+                        </div>
+                      } @else if (dc.state === 'Failed' && dc.error) {
+                        <p class="export-drive-err">⚠️ {{ dc.error }}</p>
+                      }
+                    }
+                    @if (driveError(); as derr) {
+                      <p class="export-drive-err">⚠️ {{ derr }}</p>
+                    }
+                  </div>
+                }
                 @if (completedJob.hasTimeline) {
                   <div class="timeline-downloads">
                     <span class="timeline-downloads-label"

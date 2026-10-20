@@ -217,7 +217,7 @@
           <div class="ck-ai-summary-left">
             <span class="ck-ai-icon">✨</span>
             <span class="ck-ai-summary-title">AI Writing Engine &amp; Persona Settings</span>
-            <span class="ck-ai-summary-pill">Tone: {{ tone() }} · {{ language() === 'hi' ? 'Hindi' : 'English' }}{{ brief() ? ' · custom notes' : '' }}</span>
+            <span class="ck-ai-summary-pill">Tone: {{ toneLabel(tone()) }} · {{ language() === 'hi' ? 'Hindi' : 'English' }}{{ brief() ? ' · custom notes' : '' }}</span>
           </div>
           <span class="ck-ai-chevron">▾</span>
         </summary>
@@ -228,7 +228,7 @@
               <div class="ck-select-box">
                 <select class="ck-select" [ngModel]="tone()" (ngModelChange)="tone.set($event)">
                   @for (t of tones(); track t) {
-                    <option [value]="t">{{ t }}</option>
+                    <option [value]="t">{{ toneLabel(t) }}</option>
                   }
                 </select>
                 <span class="ck-select-chevron">▾</span>
@@ -321,10 +321,140 @@
           <span class="ck-bulk-busy"><span class="ck-spin-dot"></span> {{ b }}</span>
         }
 
-        <button type="button" class="ck-paste-toggle-btn" (click)="pasteOpen.set(!pasteOpen())" [attr.aria-expanded]="pasteOpen()">
-          {{ pasteOpen() ? 'Hide Paste Tool' : '📥 Paste AI Output' }}
-        </button>
+        <div class="ck-toolbar-right-btns">
+          <button type="button" class="ck-url-seo-toggle-btn" [class.is-active]="urlSeoOpen()" (click)="urlSeoOpen.set(!urlSeoOpen())" [attr.aria-expanded]="urlSeoOpen()">
+            {{ urlSeoOpen() ? 'Hide URL SEO Tool' : '🔗 Paste YouTube URL → Auto SEO & Transcript (Free)' }}
+          </button>
+          <button type="button" class="ck-paste-toggle-btn" (click)="pasteOpen.set(!pasteOpen())" [attr.aria-expanded]="pasteOpen()">
+            {{ pasteOpen() ? 'Hide Paste Tool' : '📥 Paste AI Output' }}
+          </button>
+        </div>
       </div>
+
+      <!-- Automated YouTube URL -> Transcript + Full SEO Package Generator (100% Free) -->
+      @if (urlSeoOpen()) {
+        <div class="ck-url-seo-panel">
+          <div class="ck-url-seo-head">
+            <div>
+              <h4>🔗 Automated YouTube URL Transcript &amp; SEO Package Generator <span class="ck-free-badge">100% Free · No API Key Needed</span></h4>
+              <p>Paste any YouTube Video or Short URL (or 11-char ID). Automatically extracts spoken captions/lyrics and generates 3+ high-CTR titles, full description (with lyrics, shloka, chapters &amp; OMKR/AnimStudio credits), tags, pinned comment, and engagement comment.</p>
+            </div>
+          </div>
+
+          <div class="ck-url-seo-input-row">
+            <input type="url" class="ck-search-input ck-url-input"
+                   placeholder="https://youtube.com/shorts/... or https://www.youtube.com/watch?v=..."
+                   [ngModel]="urlSeoInput()" (ngModelChange)="urlSeoInput.set($event)"
+                   (keydown.enter)="generateUrlSeo()" [disabled]="urlSeoBusy()" />
+            <button type="button" class="ck-btn-bulk-ai" (click)="generateUrlSeo()" [disabled]="urlSeoBusy() || !urlSeoInput().trim()">
+              {{ urlSeoBusy() ? '⏳ Extracting & Generating…' : '✨ Generate Full SEO Package' }}
+            </button>
+          </div>
+
+          @if (urlSeoError(); as ue) {
+            <div class="ck-alert ck-alert-error">⚠️ {{ ue }}</div>
+          }
+
+          @if (urlSeoResult(); as res) {
+            <div class="ck-url-seo-results">
+              <div class="ck-url-seo-meta-bar">
+                <span>🎬 <strong>{{ res.originalTitle || res.videoId }}</strong>{{ res.author ? ' · ' + res.author : '' }}</span>
+                <div class="ck-url-seo-meta-actions">
+                  @if (hasChannelVideo(res.videoId)) {
+                    <button type="button" class="ck-btn-primary ck-btn-xs" (click)="applyUrlSeoToChannelVideo(res)">
+                      ⚡ Apply &amp; Open in Video Editor
+                    </button>
+                  }
+                  <a [href]="res.videoUrl" target="_blank" rel="noopener noreferrer" class="ck-btn-outline ck-btn-xs">Watch on YouTube ↗</a>
+                </div>
+              </div>
+
+              <!-- Titles with 1-click Copy -->
+              <div class="ck-url-seo-block">
+                <div class="ck-url-seo-block-head">
+                  <span class="ck-form-label">🔥 High-CTR Titles</span>
+                </div>
+                <div class="ck-url-titles-list">
+                  @for (t of [res.suggestion.title].concat(res.suggestion.titleOptions || []); track $index) {
+                    @if (t) {
+                      <div class="ck-url-copy-item">
+                        <span class="ck-url-copy-text">{{ t }}</span>
+                        <button type="button" class="ck-copy-btn" (click)="copyUrlField('title-' + $index, t)">
+                          {{ urlCopiedKey() === 'title-' + $index ? '✓ Copied!' : '📋 Copy' }}
+                        </button>
+                      </div>
+                    }
+                  }
+                </div>
+              </div>
+
+              <!-- Full Description with 1-click Copy -->
+              <div class="ck-url-seo-block">
+                <div class="ck-url-seo-block-head">
+                  <span class="ck-form-label">📝 Full Ready-to-Copy Description (Lyrics, Shloka, Chapters &amp; Credits)</span>
+                  <button type="button" class="ck-copy-btn" (click)="copyUrlField('desc', res.suggestion.description)">
+                    {{ urlCopiedKey() === 'desc' ? '✓ Copied Description!' : '📋 Copy Description' }}
+                  </button>
+                </div>
+                <pre class="ck-url-pre">{{ res.suggestion.description }}</pre>
+              </div>
+
+              <!-- Tags with 1-click Copy -->
+              <div class="ck-url-seo-block">
+                <div class="ck-url-seo-block-head">
+                  <span class="ck-form-label">🏷️ SEO Tags ({{ res.suggestion.tags.length }})</span>
+                  <button type="button" class="ck-copy-btn" (click)="copyUrlField('tags', res.suggestion.tags.join(', '))">
+                    {{ urlCopiedKey() === 'tags' ? '✓ Copied Tags!' : '📋 Copy All Tags' }}
+                  </button>
+                </div>
+                <div class="ck-url-copy-item">
+                  <span class="ck-url-copy-text">{{ res.suggestion.tags.join(', ') }}</span>
+                </div>
+              </div>
+
+              <!-- Pinned & Engagement Comments Row -->
+              <div class="ck-url-comments-grid">
+                @if (res.suggestion.pinnedComment) {
+                  <div class="ck-url-seo-block">
+                    <div class="ck-url-seo-block-head">
+                      <span class="ck-form-label">📌 Pinned Comment</span>
+                      <button type="button" class="ck-copy-btn" (click)="copyUrlField('pinned', res.suggestion.pinnedComment!)">
+                        {{ urlCopiedKey() === 'pinned' ? '✓ Copied!' : '📋 Copy' }}
+                      </button>
+                    </div>
+                    <pre class="ck-url-pre ck-url-pre-sm">{{ res.suggestion.pinnedComment }}</pre>
+                  </div>
+                }
+                @if (res.suggestion.engagementComment) {
+                  <div class="ck-url-seo-block">
+                    <div class="ck-url-seo-block-head">
+                      <span class="ck-form-label">💬 Engagement Question Comment</span>
+                      <button type="button" class="ck-copy-btn" (click)="copyUrlField('engage', res.suggestion.engagementComment!)">
+                        {{ urlCopiedKey() === 'engage' ? '✓ Copied!' : '📋 Copy' }}
+                      </button>
+                    </div>
+                    <pre class="ck-url-pre ck-url-pre-sm">{{ res.suggestion.engagementComment }}</pre>
+                  </div>
+                }
+              </div>
+
+              <!-- Spoken Transcript / Captions -->
+              @if (res.transcriptText) {
+                <details class="ck-url-transcript-details">
+                  <summary>📜 View Extracted Spoken Transcript / Lyrics ({{ res.transcriptText.length }} chars)</summary>
+                  <div class="ck-url-seo-block-head" style="margin-top: 8px;">
+                    <span class="ck-help-text">Automatically extracted from YouTube closed captions</span>
+                    <button type="button" class="ck-copy-btn" (click)="copyUrlField('transcript', res.transcriptText!)">
+                      {{ urlCopiedKey() === 'transcript' ? '✓ Copied Transcript!' : '📋 Copy Transcript' }}
+                    </button>
+                  </div>
+                  <pre class="ck-url-pre ck-url-pre-sm">{{ res.transcriptText }}</pre>
+                </details>
+              }
+            </div>
+          }
+        </div>
+      }
 
       <!-- Paste AI Output Panel -->
       @if (pasteOpen()) {
