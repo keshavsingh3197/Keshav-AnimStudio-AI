@@ -111,7 +111,7 @@ public sealed record FontRunLine(IReadOnlyList<FontRun> Runs, double AscentEm, d
 }
 
 /// <summary>A run ready to draw: its text in a file, and where it starts along the line in ems.</summary>
-public sealed record MergeTextRun(string RelativePath, string FontFilePath, double OffsetEm);
+public sealed record MergeTextRun(string RelativePath, string FontFilePath, double OffsetEm, string? ColorRgb = null);
 
 /// <summary>
 /// A line drawn as several runs. drawtext measures each run only by itself, so the line is

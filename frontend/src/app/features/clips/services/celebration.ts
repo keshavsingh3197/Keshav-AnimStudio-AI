@@ -8,7 +8,7 @@
  * both - CelebrationPlannerTests.Matches_the_studio_preview pins numbers this file produces too.
  */
 
-export type CelebrationKind = 'confetti' | 'cannon' | 'flowers' | 'petals' | 'hearts' | 'sparkles' | 'snow' | 'balloons';
+export type CelebrationKind = 'confetti' | 'cannon' | 'flowers' | 'petals' | 'hearts' | 'sparkles' | 'snow' | 'balloons' | 'cosmic';
 export type CelebrationMode = 'burst' | 'rain';
 
 /** What a celebration timeline item carries besides its kind (the item's `src`). */
@@ -38,6 +38,7 @@ export const CELEBRATIONS: readonly CelebrationOption[] = [
   { id: 'sparkles', label: 'Sparkles', icon: '✨', hint: 'Twinkling golden stars across the frame' },
   { id: 'balloons', label: 'Balloons', icon: '🎈', hint: 'Balloons rise from below' },
   { id: 'snow', label: 'Snow', icon: '❄', hint: 'Gentle snowfall' },
+  { id: 'cosmic', label: 'Cosmic stars & dust', icon: '🌌', hint: 'Subtle drifting stars, dust motes and nebula glow' },
 ];
 
 export const CELEBRATION_MAX_PARTICLES = 48;
@@ -73,6 +74,7 @@ const MARIGOLD = ['ff9f1c', 'ffb703', 'fb8500', 'ffd60a'];
 const ROSE = ['e63946', 'ff4d6d', 'c9184a', 'ff8fab'];
 const HEART = ['ff4d6d', 'ff006e', 'ff8fab', 'e5383b'];
 const SPARKLE = ['fff3b0', 'ffd166', 'ffffff', 'ffe8a3'];
+const COSMIC = ['38bdf8', '818cf8', 'c084fc', 'facc15', 'ffffff', '60a5fa'];
 const BALLOON = ['ef476f', 'ffd166', '06d6a0', '118ab2', '9b5de5', 'f78c6b'];
 
 const CANNON_DRAG = 2.2;
@@ -88,7 +90,7 @@ export function celebrationOption(kind: string | undefined): CelebrationOption |
 
 /** Weather keeps falling; showers happen once. */
 export function defaultCelebrationMode(kind: CelebrationKind): CelebrationMode {
-  return kind === 'snow' || kind === 'sparkles' ? 'rain' : 'burst';
+  return kind === 'snow' || kind === 'sparkles' || kind === 'cosmic' ? 'rain' : 'burst';
 }
 
 /** FNV-1a over UTF-16 code units, as `CelebrationPlanner.Seed` does. */
@@ -234,6 +236,18 @@ export function planCelebration(kind: CelebrationKind, settings: CelebrationSett
         const spin = between(-12, 12);
         list.push(make({ shape: 'balloon', rgb, width: w, height: h, motion: 'rise', x0, y0, delay, speed,
           swayAmplitude: amp, swayHz: hz, phase, spinDegreesPerSecond: spin, velocityX: 0, twinkleHz: 0 }));
+        break;
+      }
+      case 'cosmic': {
+        const isStar = R() < 0.65;
+        const w = px(unit * (isStar ? between(1.6, 3.4) : between(1.0, 2.2)));
+        const rgb = pick(COSMIC);
+        const x0 = R(); const y0 = between(0.02, 0.98);
+        const speed = between(0.008, 0.035) * s.speed; const amp = between(0.006, 0.018); const hz = between(0.15, 0.45);
+        const spin = isStar ? between(10, 45) * sign(R()) : 0;
+        const twinkle = between(0.4, 1.2) * s.speed;
+        list.push(make({ shape: isStar ? 'star' : 'flake', rgb, width: w, height: w, motion: 'twinkle', x0, y0, delay, speed,
+          swayAmplitude: amp, swayHz: hz, phase, spinDegreesPerSecond: spin, velocityX: 0, twinkleHz: twinkle }));
         break;
       }
     }

@@ -711,6 +711,7 @@ public sealed record TimelineItemTextStyleRequest
     [Range(TextOverlayLayout.MinFontSize, TextOverlayLayout.MaxFontSize)]
     public double FontSize { get; init; } = 36;
     [StringLength(32)] public string Color { get; init; } = "#ffffff";
+    [RegularExpression("^#[0-9a-fA-F]{6}$")] public string? AccentColor { get; init; }
     [StringLength(32)] public string BackgroundColor { get; init; } = "rgba(0,0,0,0.6)";
     [RegularExpression("^(top|center|bottom|custom)$")]
     [StringLength(16)] public string Position { get; init; } = "bottom";

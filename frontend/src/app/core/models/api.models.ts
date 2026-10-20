@@ -880,6 +880,8 @@ export interface TimelineItemTextStyle {
   fontSize: number;
   /** #rrggbb */
   color: string;
+  /** Optional #rrggbb accent colour for inline [accent] spans (e.g. comparative letter highlights). */
+  accentColor?: string;
   /** Legacy CSS plate colour; superseded by boxStyle/boxColor/boxOpacity when those are set. */
   backgroundColor: string;
   /** 'custom' places the centre of the text at x/y. */
@@ -970,11 +972,11 @@ export interface TrackControlState {
  * Pace and finish of a batch of auto shorts. Auto picks styles that suit the batch; Mixed
  * deals every style out so no two shorts look alike.
  */
-export const AUTO_SHORT_STYLES = ['Auto', 'Mixed', 'Viral', 'Energetic', 'Hype', 'Cinematic', 'Dramatic', 'Calm', 'Dreamy', 'Retro'] as const;
+export const AUTO_SHORT_STYLES = ['Auto', 'Mixed', 'DirectResponse', 'Explainer', 'Viral', 'Energetic', 'Hype', 'Cinematic', 'Dramatic', 'Calm', 'Dreamy', 'Retro'] as const;
 export type AutoShortStyle = (typeof AUTO_SHORT_STYLES)[number];
 
 /** How the batch's lines go on screen. */
-export const AUTO_SHORT_TEXT_MODES = ['None', 'Hook', 'PerShot', 'HookAndPerShot'] as const;
+export const AUTO_SHORT_TEXT_MODES = ['None', 'Hook', 'PerShot', 'HookAndPerShot', 'WordPop', 'HookAndWordPop'] as const;
 export type AutoShortTextMode = (typeof AUTO_SHORT_TEXT_MODES)[number];
 
 /**
@@ -985,8 +987,8 @@ export type AutoShortTextMode = (typeof AUTO_SHORT_TEXT_MODES)[number];
 export const AUTO_SHORT_LAYOUTS = ['Spread', 'AllInEach', 'FitLength'] as const;
 export type AutoShortLayout = (typeof AUTO_SHORT_LAYOUTS)[number];
 
-/** Where each short's videos go: anywhere, one to open on, or all of them before the pictures. */
-export const AUTO_SHORT_ORDERS = ['VideosFirst', 'VideoFirst', 'Shuffle'] as const;
+/** Where each short's videos go: anywhere, one to open on, all of them before the pictures, or in exact sequence order. */
+export const AUTO_SHORT_ORDERS = ['InOrder', 'VideosFirst', 'VideoFirst', 'Shuffle'] as const;
 export type AutoShortOrder = (typeof AUTO_SHORT_ORDERS)[number];
 
 /** Several different shorts cut automatically from the chosen clips, pictures and lines. */

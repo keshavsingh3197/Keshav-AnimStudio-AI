@@ -52,6 +52,15 @@
     <input type="color" class="tse-picker" [ngModel]="l.color" (ngModelChange)="set({ color: $event })" title="Any colour" />
   </div>
 
+  <div class="tse-label" title="Wrap any letter or word in [brackets] (e.g. Ch[a]nged) to highlight it in this colour">Accent [bracket] colour</div>
+  <div class="tse-colors">
+    @for (c of textSwatches; track c) {
+      <button type="button" class="tse-swatch" [class.on]="(l.accentColor ?? '#facc15') === c" [style.background]="c"
+              [title]="'Highlight [text] in ' + c" (click)="set({ accentColor: c })"></button>
+    }
+    <input type="color" class="tse-picker" [ngModel]="l.accentColor ?? '#facc15'" (ngModelChange)="set({ accentColor: $event })" title="Accent colour for [bracketed] letters" />
+  </div>
+
   <div class="tse-label">Background</div>
   <div class="tse-seg">
     <button type="button" [class.on]="l.box === 'none'" (click)="setBox('none')">None</button>

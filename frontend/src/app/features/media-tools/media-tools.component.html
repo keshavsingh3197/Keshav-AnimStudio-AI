@@ -657,6 +657,48 @@
         </div>
       </div>
 
+      <!-- Visual Style & Layout Presets (1-Click) -->
+      <div style="margin-top: 1rem;">
+        <label style="font-weight: 600; font-size: 0.85rem;">🎨 Chunk Visual Style &amp; Layout Preset:</label>
+        <div class="comp-grid" role="radiogroup" aria-label="Chunk style preset" style="margin-top: 0.4rem;">
+          @for (s of chunkStylePresets; track s.id) {
+            <button type="button" role="radio" class="comp-card"
+                    [class.active]="chunkStyle() === s.id"
+                    [attr.aria-checked]="chunkStyle() === s.id"
+                    (click)="selectChunkStyle(s.id)">
+              <span class="comp-head">
+                <span class="comp-icon">{{ s.icon }}</span>
+                <span class="comp-name">{{ s.label }}</span>
+                <span class="comp-check" aria-hidden="true">✓</span>
+              </span>
+              <span class="comp-desc">{{ s.desc }}</span>
+            </button>
+          }
+        </div>
+      </div>
+
+      <!-- Optional Style Customization (Progressive Disclosure) -->
+      @if (chunkStyle() !== 'original' || convertTo916() || chunkHookText() || chunkShowPartBadge() || chunkSubtleZoom()) {
+        <div style="margin-top: 0.85rem; padding: 0.75rem; background: rgba(15, 23, 42, 0.55); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px;">
+          <div style="font-size: 0.8rem; font-weight: 600; color: #38bdf8; margin-bottom: 0.5rem;">
+            ✨ Short / Ad Overlay Customization (Optional)
+          </div>
+          <div class="row" style="gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+            <input type="text" style="flex: 1; min-width: 220px;"
+                   [ngModel]="chunkHookText()" (ngModelChange)="chunkHookText.set($event)"
+                   placeholder="Optional top hook banner (e.g. Wait for Part 2 😱 or Secret Name Report)" />
+            <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer; font-size: 0.82rem; margin: 0;">
+              <input type="checkbox" [ngModel]="chunkShowPartBadge()" (ngModelChange)="chunkShowPartBadge.set($event)" />
+              <span>Burn <strong>PART 1, 2…</strong> badge</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer; font-size: 0.82rem; margin: 0;">
+              <input type="checkbox" [ngModel]="chunkSubtleZoom()" (ngModelChange)="chunkSubtleZoom.set($event)" />
+              <span>Subtle Zoom-In (Slow Push)</span>
+            </label>
+          </div>
+        </div>
+      }
+
       <!-- Advanced options -->
       <div style="margin-top: 1rem; display: flex; flex-direction: column; gap: 0.5rem;">
         <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
@@ -665,14 +707,14 @@
         </label>
 
         <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-          <input type="checkbox" [ngModel]="convertTo916()" (ngModelChange)="convertTo916.set($event)" />
-          <span><strong>Convert to 9:16 Shorts:</strong> Auto-format landscape video with blurred backdrop for vertical screens</span>
+          <input type="checkbox" [ngModel]="convertTo916()" (ngModelChange)="onConvertTo916Change($event)" />
+          <span><strong>Convert to 9:16 Shorts:</strong> Auto-format landscape video with vertical backdrop</span>
         </label>
 
         @if (store?.project()) {
           <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
             <input type="checkbox" [ngModel]="importAsClips()" (ngModelChange)="importAsClips.set($event)" />
-            <span><strong>Import as Project Clips:</strong> Add generated chunks directly into Video Studio timeline</span>
+            <span><strong>Import as Project Clips (in order):</strong> Add generated chunks directly into Video Studio timeline &amp; Auto Shorts</span>
           </label>
         }
       </div>

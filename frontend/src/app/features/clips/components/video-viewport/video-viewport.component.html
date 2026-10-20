@@ -300,7 +300,7 @@
                 @for (line of b.lines; track $index) {
                   <!-- A typed entrance shows the share of the line typed so far, as the export does. -->
                   <div class="text-line"><span [style]="textLineStyle(b)"
-                        [style.clip-path]="b.reveal ? revealClip(b.reveal[$index]) : null">{{ line }}</span></div>
+                        [style.clip-path]="b.reveal ? revealClip(b.reveal[$index]) : null">@for (run of accentRuns(line, b.look.accentColor); track $index) {<span [style.color]="run.accent ? b.look.accentColor : null">{{ run.text }}</span>}</span></div>
                 }
               </div>
             }

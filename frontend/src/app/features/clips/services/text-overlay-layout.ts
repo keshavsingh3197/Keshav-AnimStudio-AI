@@ -86,6 +86,7 @@ export function textCardOpacity(card: TextCard, t: number, start: number, end: n
 export interface TextLook {
   fontSize: number;
   color: string;
+  accentColor?: string;
   box: TextBoxStyle;
   boxColor: string;
   boxOpacity: number;
@@ -96,6 +97,11 @@ export interface TextLook {
   /** Centre of the block, percent of the frame. */
   x: number;
   y: number;
+}
+
+export interface TextAccentRun {
+  text: string;
+  accent: boolean;
 }
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -126,6 +132,7 @@ export function resolveTextLook(style: TimelineItemTextStyle | null | undefined)
   return {
     fontSize: clamp(s.fontSize, TEXT_MIN_FONT, TEXT_MAX_FONT, 36),
     color: isHexColor(s.color) ? s.color.toLowerCase() : '#ffffff',
+    accentColor: isHexColor(s.accentColor) ? s.accentColor.toLowerCase() : undefined,
     box,
     boxColor,
     boxOpacity,
@@ -136,6 +143,69 @@ export function resolveTextLook(style: TimelineItemTextStyle | null | undefined)
     x,
     y,
   };
+}
+
+/**
+ * Splits a line containing `[accent]` brackets into runs when `accentColor` is set.
+ * Mirrors `TextOverlayLayout.ParseAccentSegments` on the server.
+ */
+export function parseAccentRuns(line: string, accentColor?: string): TextAccentRun[] {
+  if (!line) return [];
+  if (!accentColor || !line.includes('[') || !line.includes(']')) {
+    return [{ text: line, accent: false }];
+  }
+  const runs: TextAccentRun[] = [];
+  let cursor = 0;
+  while (cursor < line.length) {
+    const start = line.indexOf('[', cursor);
+    if (start < 0) {
+      runs.push({ text: line.slice(cursor), accent: false });
+      break;
+    }
+    const end = line.indexOf(']', start + 1);
+    if (end < 0) {
+      runs.push({ text: line.slice(cursor), accent: false });
+      break;
+    }
+    if (start > cursor) {
+      runs.push({ text: line.slice(cursor, start), accent: false });
+    }
+    if (end > start + 1) {
+      runs.push({ text: line.slice(start + 1, end), accent: true });
+    }
+    cursor = end + 1;
+  }
+  return runs.length > 0 ? runs : [{ text: line, accent: false }];
+}
+
+/**
+ * Builds a comparative strip (`Original → Ch[a]nged`) that automatically wraps altered or
+ * added letters in `[...]` so the accent colour highlights the exact letter tweak.
+ */
+export function buildComparisonDiff(original: string, changed: string): string {
+  const orig = original.trim();
+  const chg = changed.trim();
+  if (!orig && !chg) return 'Original → Ch[a]nged';
+  if (!orig) return `[${chg}]`;
+  if (!chg) return orig;
+  if (chg.includes('[') && chg.includes(']')) return `${orig} → ${chg}`;
+
+  let prefix = 0;
+  while (prefix < orig.length && prefix < chg.length && orig[prefix].toLowerCase() === chg[prefix].toLowerCase()) {
+    prefix++;
+  }
+  let origSuffix = orig.length;
+  let chgSuffix = chg.length;
+  while (origSuffix > prefix && chgSuffix > prefix && orig[origSuffix - 1].toLowerCase() === chg[chgSuffix - 1].toLowerCase()) {
+    origSuffix--;
+    chgSuffix--;
+  }
+
+  if (chgSuffix > prefix) {
+    const highlighted = `${chg.slice(0, prefix)}[${chg.slice(prefix, chgSuffix)}]${chg.slice(chgSuffix)}`;
+    return `${orig} → ${highlighted}`;
+  }
+  return `${orig} → [${chg}]`;
 }
 
 function resolveBox(s: TimelineItemTextStyle): [TextBoxStyle, string, number] {
@@ -209,14 +279,18 @@ export interface TextDesign {
 }
 
 export const TEXT_DESIGNS: TextDesign[] = [
-  { id: 'caption', label: 'Caption', style: { color: '#ffffff', boxStyle: 'box', boxColor: '#000000', boxOpacity: 0.6, outlineWidth: 0, shadow: false, uppercase: false } },
-  { id: 'outline', label: 'Bold outline', style: { color: '#ffffff', boxStyle: 'none', outlineColor: '#000000', outlineWidth: 2.5, shadow: true, uppercase: false } },
-  { id: 'punch', label: 'Yellow punch', style: { color: '#ffd400', boxStyle: 'none', outlineColor: '#000000', outlineWidth: 2.5, shadow: false, uppercase: true } },
-  { id: 'headline', label: 'Headline band', style: { color: '#ffffff', boxStyle: 'band', boxColor: '#e11d48', boxOpacity: 1, outlineWidth: 0, shadow: false, uppercase: true } },
-  { id: 'news', label: 'News strip', style: { color: '#ffffff', boxStyle: 'band', boxColor: '#1d4ed8', boxOpacity: 0.95, outlineWidth: 0, shadow: false, uppercase: false } },
-  { id: 'paper', label: 'Paper', style: { color: '#111827', boxStyle: 'box', boxColor: '#ffffff', boxOpacity: 0.92, outlineWidth: 0, shadow: false, uppercase: false } },
-  { id: 'neon', label: 'Neon', style: { color: '#22d3ee', boxStyle: 'none', outlineColor: '#0b1020', outlineWidth: 1.5, shadow: true, uppercase: true } },
-  { id: 'minimal', label: 'Minimal', style: { color: '#ffffff', boxStyle: 'none', outlineWidth: 0, shadow: true, uppercase: false } },
+  { id: 'caption', label: 'Caption', style: { color: '#ffffff', accentColor: undefined, boxStyle: 'box', boxColor: '#000000', boxOpacity: 0.6, outlineWidth: 0, shadow: false, uppercase: false } },
+  { id: 'word-pop', label: 'Word Pop', style: { color: '#ffffff', accentColor: '#facc15', boxStyle: 'box', boxColor: '#090d16', boxOpacity: 0.72, outlineColor: '#000000', outlineWidth: 3, shadow: true, uppercase: true } },
+  { id: 'comparison', label: 'Name Diff', style: { color: '#ffffff', accentColor: '#facc15', boxStyle: 'box', boxColor: '#0f172a', boxOpacity: 0.88, outlineColor: '#38bdf8', outlineWidth: 1.5, shadow: true, uppercase: false } },
+  { id: 'glass-pill', label: 'Glass Pill', style: { color: '#f8fafc', accentColor: '#38bdf8', boxStyle: 'box', boxColor: '#0f172a', boxOpacity: 0.82, outlineColor: '#38bdf8', outlineWidth: 1.5, shadow: true, uppercase: false } },
+  { id: 'cta-pulse', label: 'CTA Button', style: { color: '#0f172a', accentColor: '#e11d48', boxStyle: 'box', boxColor: '#facc15', boxOpacity: 0.98, outlineColor: '#ffffff', outlineWidth: 1.5, shadow: true, uppercase: true } },
+  { id: 'outline', label: 'Bold outline', style: { color: '#ffffff', accentColor: undefined, boxStyle: 'none', outlineColor: '#000000', outlineWidth: 2.5, shadow: true, uppercase: false } },
+  { id: 'punch', label: 'Yellow punch', style: { color: '#ffd400', accentColor: '#ffffff', boxStyle: 'none', outlineColor: '#000000', outlineWidth: 2.5, shadow: false, uppercase: true } },
+  { id: 'headline', label: 'Headline band', style: { color: '#ffffff', accentColor: '#facc15', boxStyle: 'band', boxColor: '#e11d48', boxOpacity: 1, outlineWidth: 0, shadow: false, uppercase: true } },
+  { id: 'news', label: 'News strip', style: { color: '#ffffff', accentColor: '#facc15', boxStyle: 'band', boxColor: '#1d4ed8', boxOpacity: 0.95, outlineWidth: 0, shadow: false, uppercase: false } },
+  { id: 'paper', label: 'Paper', style: { color: '#111827', accentColor: '#e11d48', boxStyle: 'box', boxColor: '#ffffff', boxOpacity: 0.92, outlineWidth: 0, shadow: false, uppercase: false } },
+  { id: 'neon', label: 'Neon', style: { color: '#22d3ee', accentColor: '#facc15', boxStyle: 'none', outlineColor: '#0b1020', outlineWidth: 1.5, shadow: true, uppercase: true } },
+  { id: 'minimal', label: 'Minimal', style: { color: '#ffffff', accentColor: undefined, boxStyle: 'none', outlineWidth: 0, shadow: true, uppercase: false } },
 ];
 
 // --- frame layout (Shorts bars) ----------------------------------------------------
@@ -413,6 +487,16 @@ export interface FrameDesign {
 }
 
 export const FRAME_DESIGNS: FrameDesign[] = [
+  {
+    id: 'cosmic-glass', label: 'Cosmic Ad', bars: 'color', barColor: '#070b19', topSize: 24, bottomSize: 20,
+    top: { color: '#f8fafc', accentColor: '#facc15', boxStyle: 'box', boxColor: '#0f172a', boxOpacity: 0.85, uppercase: true, outlineColor: '#38bdf8', outlineWidth: 1.5, shadow: true },
+    bottom: { color: '#0f172a', accentColor: '#e11d48', boxStyle: 'box', boxColor: '#facc15', boxOpacity: 0.96, uppercase: true, outlineColor: '#ffffff', outlineWidth: 1, shadow: true },
+  },
+  {
+    id: 'gold-report', label: 'Gold Showcase', bars: 'color', barColor: '#0c0a09', topSize: 25, bottomSize: 19,
+    top: { color: '#fef08a', accentColor: '#ffffff', boxStyle: 'band', boxColor: '#1c1917', boxOpacity: 0.92, uppercase: true, outlineColor: '#ca8a04', outlineWidth: 1.5, shadow: true },
+    bottom: { color: '#fafaf9', accentColor: '#facc15', boxStyle: 'box', boxColor: '#292524', boxOpacity: 0.85, uppercase: false, outlineWidth: 0, shadow: true },
+  },
   {
     id: 'midnight', label: 'Midnight', bars: 'color', barColor: '#0f172a', topSize: 26, bottomSize: 20,
     top: { color: '#ffffff', boxStyle: 'none', uppercase: true, outlineWidth: 0, shadow: false },

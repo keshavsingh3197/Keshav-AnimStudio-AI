@@ -26,6 +26,8 @@ const STYLE_HINTS: Record<AutoShortStyle, { icon: string; hint: string }> = {
   Auto: { icon: '✨', hint: 'Suits your length and picks' },
   Mixed: { icon: '🎲', hint: 'A different style per short' },
   Viral: { icon: '🚀', hint: 'Whip cuts, punch-ins, yellow captions' },
+  DirectResponse: { icon: '🌌', hint: 'Cosmic glass pills, 1-word pop, Order Now CTA' },
+  Explainer: { icon: '📊', hint: 'Clean slide reveals, comparison & info cards' },
   Energetic: { icon: '⚡', hint: 'Slides and wipes, strong moves' },
   Hype: { icon: '🔥', hint: '1-2s cuts, shaky and punchy' },
   Cinematic: { icon: '🎬', hint: 'Dissolves, film grade' },
@@ -55,6 +57,8 @@ const STYLE_PREVIEWS: Record<AutoShortStyle, StylePreview> = {
   Auto: { cut: 1.2, kind: 'slide', grade: 'none', shots: 'Chosen for your length and picks', transitions: 'From the chosen styles', moves: 'From the chosen styles', look: 'From the chosen styles', text: 'Hook on top, captions under each shot' },
   Mixed: { cut: 1.2, kind: 'fade', grade: 'none', shots: 'Each short gets a different style', transitions: 'Varies per short', moves: 'Varies per short', look: 'Varies per short', text: 'Hook on top, captions under each shot' },
   Viral: { cut: 0.7, kind: 'up', grade: 'saturate(1.4) contrast(1.05)', bold: true, shots: '1.4-2.8s, fast like creator Shorts', transitions: 'Whip up / down, zoom-through, slide', moves: 'Punch-in and punch-out zooms, handheld', look: 'Vivid colour', text: 'White-box hook, big YELLOW words per shot' },
+  DirectResponse: { cut: 0.85, kind: 'slide', grade: 'contrast(1.12) saturate(1.25)', bold: true, shots: '1.8-3.5s, high-retention ad pacing', transitions: 'Slide & push entrances, zoom-through', moves: 'Subtle slow push-in (Ken Burns) & punch zooms', look: 'Cosmic starry FX, neon glass cards', text: 'Glassmorphic hook, [accent] highlights & Order Now CTA' },
+  Explainer: { cut: 1.1, kind: 'slide', grade: 'contrast(1.08) saturate(1.15)', shots: '2.0-4.0s, clear showcase cuts', transitions: 'Clean horizontal & vertical slides', moves: 'Steady slow push-in and pan', look: 'Crisp high-clarity grade', text: 'Structured pill cards & kinetic word pop' },
   Energetic: { cut: 0.9, kind: 'slide', grade: 'saturate(1.3)', shots: '1.6-3.2s', transitions: 'Slides and wipes', moves: 'Zooms, pans, handheld', look: 'Vivid colour', text: 'Black-box hook, typed captions' },
   Hype: { cut: 0.55, kind: 'slide', grade: 'saturate(1.5) contrast(1.1)', shots: '1-2s, the quickest', transitions: 'Hard slides and wipes', moves: 'Shaky, punchy zooms and tilts', look: 'Vivid colour', text: 'Black-box hook, typed captions' },
   Cinematic: { cut: 1.6, kind: 'fade', grade: 'contrast(1.1) saturate(0.85) sepia(0.12)', shots: '3-5s', transitions: 'Dissolves, fades, iris', moves: 'Slow drifts, zooms and pans', look: 'Film grade, warm or cool, vignette', text: 'Black-box hook, typed captions' },
@@ -68,6 +72,7 @@ const STYLE_PREVIEWS: Record<AutoShortStyle, StylePreview> = {
 interface StyleExample { jobId: string; name: string; projectName: string }
 
 const ORDERS: readonly { id: AutoShortOrder; label: string; hint: string }[] = [
+  { id: 'InOrder', label: 'In order (1 → N)', hint: 'Keeps the exact sequence from your timeline or selection without shuffling.' },
   { id: 'VideosFirst', label: 'Videos first', hint: 'Each short plays its videos, then its pictures.' },
   { id: 'VideoFirst', label: 'Open on a video', hint: 'Each short starts on a video; the rest is mixed.' },
   { id: 'Shuffle', label: 'Shuffle', hint: 'Videos and pictures in any order.' },
@@ -88,6 +93,7 @@ interface Preset {
 
 /** One click to a sensible batch; every setting stays editable afterwards. */
 const PRESETS: readonly Preset[] = [
+  { id: 'direct-ad', icon: '🌌', label: 'Direct Ad 30s', hint: 'Cosmic glass hook, 1-word pop & CTA in exact order', layout: 'Spread', seconds: 30, count: 0, style: 'DirectResponse', order: 'InOrder' },
   { id: 'teaser', icon: '🔥', label: 'Teasers 15s', hint: 'Five quick-cut 15s hooks', layout: 'FitLength', seconds: 15, count: 5, style: 'Hype', order: 'VideoFirst' },
   { id: 'reels', icon: '⚡', label: 'Reels 30s', hint: 'Exact 30s shorts, picks shared out', layout: 'Spread', seconds: 30, count: 0, style: 'Energetic', order: 'VideosFirst' },
   { id: 'shorts', icon: '▶️', label: 'Shorts 60s', hint: 'Exact 60s shorts, picks shared out', layout: 'Spread', seconds: 60, count: 0, style: 'Auto', order: 'VideosFirst' },
@@ -99,6 +105,8 @@ const TEXT_MODES: readonly { id: AutoShortTextMode; label: string }[] = [
   { id: 'Hook', label: 'Hook on top' },
   { id: 'PerShot', label: 'Caption per shot' },
   { id: 'HookAndPerShot', label: 'Hook + captions' },
+  { id: 'WordPop', label: '⚡ 1-Word Pop' },
+  { id: 'HookAndWordPop', label: '⚡ Hook + 1-Word Pop' },
   { id: 'None', label: 'No text' },
 ];
 
@@ -445,6 +453,19 @@ export class AutoShortsComponent {
   /** Only what no short has used yet - for a batch that is all new. */
   pickUnused(): void {
     this.picked.set(new Set(this.sources().filter((c) => this.uses(c) === 0).map((c) => this.idOf(c))));
+  }
+
+  /**
+   * Picks the clips arranged on the open timeline in exact sequence order (1 → N)
+   * and sets Order to 'InOrder' so sequential shorts follow the timeline cut.
+   */
+  pickTimelineInOrder(): void {
+    const ids = this.state.timelineOrderedAssetIds();
+    if (ids.length === 0) return;
+    this.picked.set(new Set(ids));
+    this.layout.set('Spread');
+    this.count.set(0);
+    this.order.set('InOrder');
   }
 
   toggleMusic(id: string): void {

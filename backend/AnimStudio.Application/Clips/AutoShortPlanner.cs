@@ -17,7 +17,9 @@ public enum AutoShortTextMode
     PerShot = 2,
 
     /// <summary>A hook at the top and a line under every shot.</summary>
-    HookAndPerShot = 3
+    HookAndPerShot = 3,
+    WordPop = 4,
+    HookAndWordPop = 5
 }
 
 /// <summary>The pace and finish every short in a batch is cut to.</summary>
@@ -48,7 +50,9 @@ public enum AutoShortStyle
     /// The creator explainer look: quick whip cuts up and down, punch-in zooms, a vivid grade
     /// and big yellow captions - made for the first seconds that decide whether a Short is watched.
     /// </summary>
-    Viral = 9
+    Viral = 9,
+    DirectResponse = 10,
+    Explainer = 11
 }
 
 /// <summary>Where a short's footage goes in its running order.</summary>
@@ -61,7 +65,8 @@ public enum AutoShortOrder
     VideoFirst = 1,
 
     /// <summary>All of a short's videos play first, then its pictures.</summary>
-    VideosFirst = 2
+    VideosFirst = 2,
+    InOrder = 3
 }
 
 /// <summary>How the picks are shared out between the shorts of a batch.</summary>
@@ -257,6 +262,22 @@ public static class AutoShortPlanner
         ["zoom-in", "zoom-out", "handheld"], 0.12, 0.2, "linear",
         ["vivid", "none"], false, BoldText: true);
 
+    private static readonly Pace DirectResponse = new(
+        AutoShortStyle.DirectResponse,
+        1.8, 3.4,
+        [SceneTransition.SlideLeft, SceneTransition.SlideRight, SceneTransition.SlideUp, SceneTransition.ZoomIn],
+        0.22, 0.35,
+        ["zoom-in", "drift"], 0.08, 0.16, "ease",
+        ["cinematic", "vivid", "cool"], true, BoldText: true);
+
+    private static readonly Pace Explainer = new(
+        AutoShortStyle.Explainer,
+        2.4, 4.2,
+        [SceneTransition.SlideLeft, SceneTransition.SlideUp, SceneTransition.Fade],
+        0.25, 0.4,
+        ["zoom-in", "pan-left", "pan-right"], 0.08, 0.14, "ease",
+        ["cinematic", "none"], false, BoldText: true);
+
     private static readonly Pace[] AllPaces = [Energetic, Cinematic, Calm, Hype, Dreamy, Dramatic, Retro, Viral];
 
     /// <summary>
@@ -273,6 +294,8 @@ public static class AutoShortPlanner
         AutoShortStyle.Dramatic => [Dramatic],
         AutoShortStyle.Retro => [Retro],
         AutoShortStyle.Viral => [Viral],
+        AutoShortStyle.DirectResponse => [DirectResponse],
+        AutoShortStyle.Explainer => [Explainer],
         AutoShortStyle.Auto => AutoPaces(batch, usable, target),
         _ => AllPaces,
     };
@@ -390,7 +413,7 @@ public static class AutoShortPlanner
     /// </summary>
     private static void Arrange(List<Shot> shots, AutoShortOrder order)
     {
-        if (order == AutoShortOrder.Shuffle || shots.Count < 2) return;
+        if (order is AutoShortOrder.Shuffle or AutoShortOrder.InOrder || shots.Count < 2) return;
 
         if (order == AutoShortOrder.VideosFirst)
         {
@@ -576,12 +599,13 @@ public static class AutoShortPlanner
     private static List<List<Shot>> SpreadShots(
         AutoShortBatch batch, List<AutoShortSource> usable, double cap, Random random, List<AutoShortSource> leftOvers)
     {
-        var videosFirst = batch.Order != AutoShortOrder.Shuffle;
-        var picks = Shuffled(usable, random)
+        var inOrder = batch.Order == AutoShortOrder.InOrder;
+        var videosFirst = batch.Order != AutoShortOrder.Shuffle && !inOrder;
+        var picks = (inOrder ? usable : Shuffled(usable, random))
             .Select(s => (Source: s, Length: NaturalLength(batch, s, cap)))
             // Stable, so equal lengths keep their shuffled order.
             .OrderBy(p => videosFirst && p.Source.Kind != AssetKind.Video ? 1 : 0)
-            .ThenByDescending(p => p.Length)
+            .ThenByDescending(p => inOrder ? 0 : p.Length)
             .ToList();
 
         var most = Math.Min(MaxCount, picks.Count);
@@ -596,10 +620,16 @@ public static class AutoShortPlanner
             var bins = Enumerable.Range(0, count).Select(_ => new List<Shot>()).ToList();
             var loads = new double[count];
             var leftOver = new List<AutoShortSource>();
+            var seqBin = 0;
             foreach (var (source, length) in picks)
             {
                 var best = -1;
-                for (var b = 0; b < count; b++)
+                if (inOrder)
+                {
+                    while (seqBin < count && loads[seqBin] + length > cap + 0.001 && bins[seqBin].Count > 0) seqBin++;
+                    if (seqBin < count && (loads[seqBin] + length <= cap + 0.001 || bins[seqBin].Count == 0)) best = seqBin;
+                }
+                for (var b = 0; !inOrder && b < count; b++)
                 {
                     if (loads[b] + length > cap + 0.001) continue;
                     if (best < 0 || loads[b] < loads[best]) best = b;
@@ -613,7 +643,7 @@ public static class AutoShortPlanner
             // At an exact length the left-overs top the shorts up instead of adding one.
             if (auto && !batch.ExactLength && leftOver.Count > 0 && count < most) { count++; continue; }
             leftOvers.AddRange(leftOver);
-            return [.. bins.Where(b => b.Count > 0).Select(b => Shuffled(b, random))];
+            return [.. bins.Where(b => b.Count > 0).Select(b => inOrder ? b : Shuffled(b, random))];
         }
     }
 
@@ -630,7 +660,7 @@ public static class AutoShortPlanner
         {
             var shots = new List<Shot>();
             var at = 0.0;
-            foreach (var source in Shuffled(usable, random))
+            foreach (var source in batch.Order == AutoShortOrder.InOrder ? usable : Shuffled(usable, random))
             {
                 var length = NaturalLength(batch, source, cap);
                 if (at + length > cap + 0.001)
@@ -655,11 +685,12 @@ public static class AutoShortPlanner
     private static List<List<Shot>> FitLengthShots(AutoShortBatch batch, List<AutoShortSource> usable, double target, Random random, Func<int, Pace> paceAt)
     {
         var count = Math.Clamp(batch.Count <= 0 ? 3 : batch.Count, 1, MaxCount);
-        var deck = new Deck<AutoShortSource>(usable, random);
+        var inOrder = batch.Order == AutoShortOrder.InOrder;
+        var deck = new Deck<AutoShortSource>(usable, random, inOrder);
         // Opening shots come from the videos alone, so every short starts on footage - a
         // different clip each time while there are clips to go round.
         var videos = usable.Where(s => s.Kind == AssetKind.Video).ToList();
-        var openers = batch.Order != AutoShortOrder.Shuffle && videos.Count > 0 ? new Deck<AutoShortSource>(videos, random) : null;
+        var openers = batch.Order != AutoShortOrder.Shuffle && !inOrder && videos.Count > 0 ? new Deck<AutoShortSource>(videos, random) : null;
         var cuts = new List<List<Shot>>(count);
 
         for (var k = 0; k < count; k++)
@@ -768,7 +799,42 @@ public static class AutoShortPlanner
         }
 
         var total = Round(at);
-        items.AddRange([.. TextItems(batch.TextMode, lines, [.. items], junctions, total, pace.BoldText)]);
+        items.AddRange([.. TextItems(batch.TextMode, lines, [.. items], junctions, total, pace.BoldText, pace.Style)]);
+        if (pace.Style == AutoShortStyle.DirectResponse)
+        {
+            items.Add(new TimelineItemSpec
+            {
+                Id = "auto_cosmic_fx",
+                Type = "celebration",
+                TrackId = "FX1",
+                StartTime = 0,
+                Duration = total,
+                Src = "cosmic",
+                Name = "Cosmic Atmosphere",
+                Celebration = new CelebrationSpec { Mode = "rain", Density = 28, Size = 0.9, Speed = 0.85 },
+            });
+            if (total >= 4.0)
+            {
+                var ctaDur = Round(Math.Min(2.5, total * 0.35));
+                items.Add(new TimelineItemSpec
+                {
+                    Id = "auto_cta",
+                    Type = "text",
+                    TrackId = "TXT1",
+                    StartTime = Round(total - ctaDur),
+                    Duration = ctaDur,
+                    Src = "ORDER NOW →",
+                    Name = "CTA Button",
+                    TextStyle = new TimelineItemTextStyleSpec
+                    {
+                        FontSize = 24, Color = "#0f172a", Position = "custom", X = 50, Y = 88,
+                        BoxStyle = "box", BoxColor = "#facc15", BoxOpacity = 0.98,
+                        OutlineColor = "#ffffff", OutlineWidth = 1.5, Shadow = true, Uppercase = true,
+                        TransitionIn = "slide-up", TransitionInDuration = 0.25, TransitionOut = "fade", TransitionOutDuration = 0.2,
+                    },
+                });
+            }
+        }
 
         var musicId = music?.Next();
         return new ClipMergeCommand
@@ -835,11 +901,11 @@ public static class AutoShortPlanner
 
     private static IEnumerable<TimelineItemSpec> TextItems(
         AutoShortTextMode mode, Deck<string>? lines, List<TimelineItemSpec> shots,
-        List<ClipJunctionOverride> junctions, double total, bool bold = false)
+        List<ClipJunctionOverride> junctions, double total, bool bold = false, AutoShortStyle style = AutoShortStyle.Mixed)
     {
         if (lines is null || mode == AutoShortTextMode.None) yield break;
 
-        if (mode is AutoShortTextMode.Hook or AutoShortTextMode.HookAndPerShot)
+        if (mode is AutoShortTextMode.Hook or AutoShortTextMode.HookAndPerShot or AutoShortTextMode.HookAndWordPop)
         {
             yield return new TimelineItemSpec
             {
@@ -850,7 +916,15 @@ public static class AutoShortPlanner
                 Duration = total,
                 Src = lines.Next(),
                 Name = "Hook",
-                TextStyle = bold
+                TextStyle = style == AutoShortStyle.DirectResponse
+                    ? new TimelineItemTextStyleSpec
+                    {
+                        FontSize = 28, Color = "#f8fafc", AccentColor = "#facc15", Position = "top",
+                        BoxStyle = "box", BoxColor = "#0f172a", BoxOpacity = 0.85,
+                        OutlineColor = "#38bdf8", OutlineWidth = 1.5, Shadow = true, Uppercase = false,
+                        TransitionIn = "slide-up", TransitionInDuration = 0.25, TransitionOut = "fade", TransitionOutDuration = 0.25,
+                    }
+                    : bold
                     // A dark word on a white plate, as creator Shorts label what is on screen.
                     ? new TimelineItemTextStyleSpec
                     {
@@ -867,6 +941,63 @@ public static class AutoShortPlanner
                         TransitionIn = "slide-up", TransitionInDuration = 0.4, TransitionOut = "fade", TransitionOutDuration = 0.4,
                     },
             };
+        }
+
+        if (mode is AutoShortTextMode.WordPop or AutoShortTextMode.HookAndWordPop)
+        {
+            var wordIdx = 0;
+            for (var k = 0; k < shots.Count; k++)
+            {
+                var padIn = k > 0 ? junctions[k - 1].TransitionSeconds / 2 : 0;
+                var padOut = k < junctions.Count ? junctions[k].TransitionSeconds / 2 : 0;
+                var duration = shots[k].Duration - padIn - padOut;
+                if (duration < 0.6) continue;
+
+                var rawWords = lines.Next().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                if (rawWords.Length == 0) continue;
+
+                // Group into 1-2 word kinetic pops so each word stays readable (>= 0.32s).
+                var maxChunks = Math.Max(1, (int)Math.Floor(duration / 0.38));
+                var wordsPerChunk = Math.Max(1, (int)Math.Ceiling(rawWords.Length / (double)maxChunks));
+                var chunks = new List<string>();
+                for (var w = 0; w < rawWords.Length; w += wordsPerChunk)
+                {
+                    chunks.Add(string.Join(' ', rawWords.Skip(w).Take(wordsPerChunk)));
+                }
+
+                var chunkDur = Round(duration / chunks.Count);
+                var startAt = shots[k].StartTime + padIn;
+                for (var c = 0; c < chunks.Count; c++)
+                {
+                    var isLast = c == chunks.Count - 1;
+                    var dur = isLast ? Round(shots[k].StartTime + shots[k].Duration - padOut - startAt) : chunkDur;
+                    if (dur < 0.15) break;
+                    var highlight = c % 2 == 1;
+                    yield return new TimelineItemSpec
+                    {
+                        Id = $"auto_wpop_{wordIdx++}",
+                        Type = "text",
+                        TrackId = "TXT1",
+                        StartTime = Round(startAt),
+                        Duration = Math.Max(0.15, dur),
+                        Src = chunks[c],
+                        Name = "Word Pop",
+                        TextStyle = new TimelineItemTextStyleSpec
+                        {
+                            FontSize = 36,
+                            Color = highlight ? "#facc15" : "#ffffff",
+                            AccentColor = "#facc15",
+                            Position = "custom", X = 50, Y = 56,
+                            BoxStyle = style == AutoShortStyle.DirectResponse ? "box" : "none",
+                            BoxColor = "#090d16", BoxOpacity = 0.72,
+                            OutlineColor = "#000000", OutlineWidth = 3, Shadow = true, Uppercase = true,
+                            TransitionIn = "zoom", TransitionInDuration = 0.08, TransitionOut = "none", TransitionOutDuration = 0,
+                        },
+                    };
+                    startAt = Round(startAt + dur);
+                }
+            }
+            yield break;
         }
 
         if (mode is not (AutoShortTextMode.PerShot or AutoShortTextMode.HookAndPerShot)) yield break;
@@ -888,7 +1019,15 @@ public static class AutoShortPlanner
                 Duration = Round(duration),
                 Src = lines.Next(),
                 Name = "Caption",
-                TextStyle = bold
+                TextStyle = style == AutoShortStyle.DirectResponse
+                    ? new TimelineItemTextStyleSpec
+                    {
+                        FontSize = 28, Color = "#f8fafc", AccentColor = "#facc15", Position = "custom", X = 50, Y = 68,
+                        BoxStyle = "box", BoxColor = "#0f172a", BoxOpacity = 0.85,
+                        OutlineColor = "#38bdf8", OutlineWidth = 1.5, Shadow = true, Uppercase = false,
+                        TransitionIn = "slide-up", TransitionInDuration = 0.25, TransitionOut = "fade", TransitionOutDuration = 0.25,
+                    }
+                    : bold
                     // Big yellow words with a heavy outline, popped in fast on every cut.
                     ? new TimelineItemTextStyleSpec
                     {
@@ -925,7 +1064,7 @@ public static class AutoShortPlanner
     /// Deals items in a shuffled order and reshuffles only when it runs dry, never dealing
     /// the same item twice in a row across the reshuffle when there is a choice.
     /// </summary>
-    private sealed class Deck<T>(IReadOnlyList<T> items, Random random)
+    private sealed class Deck<T>(IReadOnlyList<T> items, Random random, bool preserveOrder = false)
     {
         private readonly List<T> pile = [];
         private T? last;
@@ -937,14 +1076,21 @@ public static class AutoShortPlanner
         {
             if (pile.Count == 0)
             {
-                pile.AddRange(items);
-                for (var i = pile.Count - 1; i > 0; i--)
+                if (preserveOrder)
                 {
-                    var j = random.Next(i + 1);
-                    (pile[i], pile[j]) = (pile[j], pile[i]);
+                    for (var i = items.Count - 1; i >= 0; i--) pile.Add(items[i]);
                 }
-                if (hasLast && pile.Count > 1 && EqualityComparer<T>.Default.Equals(pile[^1], last))
-                    (pile[0], pile[^1]) = (pile[^1], pile[0]);
+                else
+                {
+                    pile.AddRange(items);
+                    for (var i = pile.Count - 1; i > 0; i--)
+                    {
+                        var j = random.Next(i + 1);
+                        (pile[i], pile[j]) = (pile[j], pile[i]);
+                    }
+                    if (hasLast && pile.Count > 1 && EqualityComparer<T>.Default.Equals(pile[^1], last))
+                        (pile[0], pile[^1]) = (pile[^1], pile[0]);
+                }
             }
 
             var next = pile[^1];

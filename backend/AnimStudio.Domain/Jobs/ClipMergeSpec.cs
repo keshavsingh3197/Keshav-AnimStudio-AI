@@ -288,6 +288,7 @@ public sealed class TimelineItemTextStyleSpec
     /// </summary>
     public double FontSize { get; set; } = 36;
     public string Color { get; set; } = "#ffffff";
+    public string? AccentColor { get; set; }
 
     /// <summary>
     /// The CSS colour older clients sent for the plate. Read only when

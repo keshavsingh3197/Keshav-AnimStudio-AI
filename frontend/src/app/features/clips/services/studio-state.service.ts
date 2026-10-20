@@ -5732,6 +5732,284 @@ export class StudioStateService implements OnDestroy {
     this.markDirty();
   }
 
+  /**
+   * 1-click Direct-Response Ad & Viral Short layout templates:
+   * - 'stack-3': 3-Row Dynamic Video Stack with staggered slide-in reveal
+   * - 'doc-split': 50/50 Talking Head + Document/Report Showcase
+   * - 'cosmic-card': Framed Cosmic Glassmorphic Container + Comparison Name Strip
+   * - 'book-mockup': 3D Product/Report Display + Social-Proof Badge + Pulsing CTA
+   */
+  applyAdLayoutPreset(preset: 'stack-3' | 'doc-split' | 'cosmic-card' | 'book-mockup'): void {
+    const videos = this.frameVideoCandidates();
+    const images = this.frameImageCandidates();
+    const media = [...videos, ...images];
+
+    if (preset === 'stack-3') {
+      const picks = (videos.length >= 3 ? videos : media).slice(0, 3);
+      const bands: FrameImage[] = picks.map((m, idx) => ({
+        id: newLayerId('fi'),
+        kind: m.kind,
+        assetId: m.id,
+        name: `Row ${idx + 1}: ${m.name}`.slice(0, 120),
+        x: 50,
+        y: idx === 0 ? 18 : idx === 1 ? 50 : 82,
+        width: 92,
+        opacity: 1,
+        crop: { left: 0, right: 0, top: 12, bottom: 12 },
+        shape: 'rounded',
+        borderWidth: 2,
+        borderColor: '#38bdf8',
+        sourceAspect: m.kind === 'video' ? 16 / 9 : null,
+        trimStart: 0,
+        animIn: idx === 0 ? 'slide-right' : idx === 1 ? 'slide-left' : 'slide-up',
+        animInDuration: 0.35,
+        animOut: 'fade',
+        animOutDuration: 0.3,
+        start: idx === 0 ? 0 : idx === 1 ? 0.35 : 0.7,
+        end: null,
+      }));
+      const badge: FrameText = {
+        id: newLayerId('ft'),
+        label: '3-Stack Hook',
+        text: '⚡ [3] SIGNS TO WATCH',
+        style: {
+          ...DEFAULT_TEXT_STYLE,
+          fontSize: 24, color: '#f8fafc', accentColor: '#facc15',
+          position: 'custom', x: 50, y: 6,
+          boxStyle: 'box', boxColor: '#0f172a', boxOpacity: 0.9,
+          outlineColor: '#38bdf8', outlineWidth: 1.5, shadow: true, uppercase: true,
+          transitionIn: 'slide-down', transitionInDuration: 0.25,
+        },
+        start: 0, end: null,
+      };
+      this.frameLayout.update((l) => ({
+        ...l,
+        bars: 'color',
+        barColor: '#070b19',
+        images: bands,
+        texts: [badge],
+      }));
+      for (const b of bands) {
+        void measureMediaAspect(this.assetUrl(b.assetId), b.kind).then((aspect) => {
+          if (aspect) this.updateFrameImage(b.id, { sourceAspect: aspect });
+        });
+      }
+      this.markDirty();
+      this.status.notify([
+        bands.length > 0
+          ? `Applied 3-Row Stack layout with ${bands.length} staggered layers.`
+          : 'Applied 3-Row Stack frame — add up to 3 videos/pictures in Pictures & Videos below.',
+      ]);
+      return;
+    }
+
+    if (preset === 'doc-split') {
+      const topVid = videos[0] ?? media[0];
+      const bottomDoc = images[0] ?? videos[1] ?? media[0];
+      const layers: FrameImage[] = [];
+      if (topVid) {
+        layers.push({
+          id: newLayerId('fi'),
+          kind: topVid.kind,
+          assetId: topVid.id,
+          name: `Speaker: ${topVid.name}`.slice(0, 120),
+          x: 50, y: 25, width: 92, opacity: 1,
+          crop: { ...NO_CROP }, shape: 'rounded',
+          borderWidth: 2, borderColor: '#eab308', sourceAspect: null, trimStart: 0,
+          animIn: 'slide-down', animInDuration: 0.35, animOut: 'fade', animOutDuration: 0.3,
+          start: 0, end: null,
+        });
+      }
+      if (bottomDoc) {
+        layers.push({
+          id: newLayerId('fi'),
+          kind: bottomDoc.kind,
+          assetId: bottomDoc.id,
+          name: `Report Preview: ${bottomDoc.name}`.slice(0, 120),
+          x: 50, y: 74, width: 88, opacity: 1,
+          crop: { ...NO_CROP }, shape: 'rounded',
+          borderWidth: 3, borderColor: '#facc15', sourceAspect: null, trimStart: 0,
+          animIn: 'slide-up', animInDuration: 0.45, animOut: 'fade', animOutDuration: 0.3,
+          start: 0.25, end: null,
+        });
+      }
+      const banner: FrameText = {
+        id: newLayerId('ft'),
+        label: 'Report Banner',
+        text: '★ PERSONAL REPORT PREVIEW ★',
+        style: {
+          ...DEFAULT_TEXT_STYLE,
+          fontSize: 22, color: '#090d16', accentColor: '#ffffff',
+          position: 'custom', x: 50, y: 50,
+          boxStyle: 'band', boxColor: '#eab308', boxOpacity: 0.96,
+          outlineColor: '#ffffff', outlineWidth: 1, shadow: false, uppercase: true,
+          transitionIn: 'slide-right', transitionInDuration: 0.3,
+        },
+        start: 0, end: null,
+      };
+      this.frameLayout.update((l) => ({
+        ...l,
+        bars: 'color',
+        barColor: '#0c0a09',
+        images: layers,
+        texts: [banner],
+      }));
+      for (const im of layers) {
+        void measureMediaAspect(this.assetUrl(im.assetId), im.kind).then((aspect) => {
+          if (aspect) this.updateFrameImage(im.id, { sourceAspect: aspect });
+        });
+      }
+      this.markDirty();
+      this.status.notify(['Applied 50/50 Talking Head + Document Showcase layout.']);
+      return;
+    }
+
+    if (preset === 'cosmic-card') {
+      const hasCosmic = this.itemsForTrack('FX1').some((it) => it.type === 'celebration' && it.src === 'cosmic');
+      if (!hasCosmic) this.addCelebration('cosmic', 0);
+      const texts: FrameText[] = [
+        {
+          id: newLayerId('ft'),
+          label: 'Cosmic Header Pill',
+          text: '✨ [COSMIC] NAME ANALYSIS',
+          style: {
+            ...DEFAULT_TEXT_STYLE,
+            fontSize: 25, color: '#f8fafc', accentColor: '#facc15',
+            position: 'custom', x: 50, y: 16,
+            boxStyle: 'box', boxColor: '#0f172a', boxOpacity: 0.9,
+            outlineColor: '#38bdf8', outlineWidth: 1.5, shadow: true, uppercase: true,
+            transitionIn: 'slide-down', transitionInDuration: 0.3,
+          },
+          start: 0, end: null,
+        },
+        {
+          id: newLayerId('ft'),
+          label: 'Comparison Strip',
+          text: 'Original: Jonath[o]n\nChanged:  Jonath[a]n',
+          style: {
+            ...DEFAULT_TEXT_STYLE,
+            fontSize: 28, color: '#ffffff', accentColor: '#facc15',
+            position: 'custom', x: 50, y: 50,
+            boxStyle: 'box', boxColor: '#0f172a', boxOpacity: 0.92,
+            outlineColor: '#38bdf8', outlineWidth: 2, shadow: true, uppercase: false,
+            transitionIn: 'slide-right', transitionInDuration: 0.35,
+          },
+          start: 0.2, end: null,
+        },
+        {
+          id: newLayerId('ft'),
+          label: 'Glassmorphic Info Pill',
+          text: '✔ Vibrational [Alignment] Unlocked',
+          style: {
+            ...DEFAULT_TEXT_STYLE,
+            fontSize: 22, color: '#e2e8f0', accentColor: '#38bdf8',
+            position: 'custom', x: 50, y: 78,
+            boxStyle: 'box', boxColor: '#1e1b4b', boxOpacity: 0.88,
+            outlineColor: '#818cf8', outlineWidth: 1.5, shadow: true, uppercase: false,
+            transitionIn: 'slide-up', transitionInDuration: 0.4,
+          },
+          start: 0.45, end: null,
+        },
+      ];
+      this.frameLayout.update((l) => ({
+        ...l,
+        bars: 'color',
+        barColor: '#070b19',
+        texts,
+      }));
+      this.setInspectorTab('layout');
+      this.markDirty();
+      this.status.notify(['Applied Cosmic Glassmorphic Card + Comparison Strip + Starry Nebula FX.']);
+      return;
+    }
+
+    if (preset === 'book-mockup') {
+      const hasCosmic = this.itemsForTrack('FX1').some((it) => it.type === 'celebration' && it.src === 'cosmic');
+      if (!hasCosmic) this.addCelebration('cosmic', 0);
+      const mockupAsset = images[0] ?? videos[0];
+      const mockupLayers: FrameImage[] = mockupAsset ? [{
+        id: newLayerId('fi'),
+        kind: mockupAsset.kind,
+        assetId: mockupAsset.id,
+        name: `3D Report Mockup: ${mockupAsset.name}`.slice(0, 120),
+        x: 50, y: 48, width: 64, opacity: 1,
+        crop: { ...NO_CROP }, shape: 'rounded',
+        borderWidth: 4, borderColor: '#facc15', sourceAspect: null, trimStart: 0,
+        animIn: 'zoom', animInDuration: 0.45, animOut: 'fade', animOutDuration: 0.3,
+        start: 0, end: null,
+      }] : [];
+      const texts: FrameText[] = [
+        {
+          id: newLayerId('ft'),
+          label: 'Social Proof Badge',
+          text: '★ [10,000+] REPORTS SOLD',
+          style: {
+            ...DEFAULT_TEXT_STYLE,
+            fontSize: 24, color: '#ffffff', accentColor: '#facc15',
+            position: 'custom', x: 50, y: 14,
+            boxStyle: 'box', boxColor: '#0f172a', boxOpacity: 0.92,
+            outlineColor: '#eab308', outlineWidth: 2, shadow: true, uppercase: true,
+            transitionIn: 'slide-down', transitionInDuration: 0.3,
+          },
+          start: 0, end: null,
+        },
+        {
+          id: newLayerId('ft'),
+          label: 'CTA Order Button',
+          text: '👆 ORDER NOW →',
+          style: {
+            ...DEFAULT_TEXT_STYLE,
+            fontSize: 30, color: '#090d16', accentColor: '#dc2626',
+            position: 'custom', x: 50, y: 86,
+            boxStyle: 'box', boxColor: '#facc15', boxOpacity: 0.98,
+            outlineColor: '#ffffff', outlineWidth: 2.5, shadow: true, uppercase: true,
+            transitionIn: 'zoom-in', transitionInDuration: 0.35,
+          },
+          start: 0.3, end: null,
+        },
+      ];
+      this.frameLayout.update((l) => ({
+        ...l,
+        bars: 'color',
+        barColor: '#070b19',
+        images: mockupLayers,
+        texts,
+      }));
+      for (const im of mockupLayers) {
+        void measureMediaAspect(this.assetUrl(im.assetId), im.kind).then((aspect) => {
+          if (aspect) this.updateFrameImage(im.id, { sourceAspect: aspect });
+        });
+      }
+      this.setInspectorTab('layout');
+      this.markDirty();
+      this.status.notify(['Applied 3D Report Mockup + "10,000+ SOLD" Social Proof Badge + CTA Button.']);
+    }
+  }
+
+  /** Applies the high-contrast 1-Word Pop kinetic subtitle style to all subtitle cues. */
+  applyWordPopSubtitleStyle(): void {
+    this.updateSubtitleStyle({
+      fontSize: 38,
+      color: '#ffffff',
+      accentColor: '#facc15',
+      position: 'custom',
+      x: 50,
+      y: 56,
+      boxStyle: 'box',
+      boxColor: '#090d16',
+      boxOpacity: 0.72,
+      outlineColor: '#000000',
+      outlineWidth: 3,
+      shadow: true,
+      uppercase: true,
+      transitionIn: 'zoom-in',
+      transitionInDuration: 0.1,
+      transitionOut: 'none',
+      transitionOutDuration: 0.1,
+    });
+    this.status.notify(['Applied 1-Word Kinetic Pop style to subtitles.']);
+  }
+
   resetFrameLayout(): void {
     this.frameLayout.set(defaultFrameLayout());
     this.selectedFrameLayer.set(null);
@@ -8961,6 +9239,7 @@ export class StudioStateService implements OnDestroy {
       ...base,
       fontSize: look.fontSize,
       color: look.color,
+      accentColor: look.accentColor ?? undefined,
       boxStyle: look.box,
       boxColor: look.boxColor,
       boxOpacity: look.boxOpacity,
@@ -9726,6 +10005,35 @@ export class StudioStateService implements OnDestroy {
       seen.add(id);
       return true;
     });
+  });
+
+  /**
+   * Asset IDs from the open timeline in exact playback order (V1 cut clips + IMG1 images),
+   * deduplicated while preserving first-seen sequence. Used by Auto Shorts "From Timeline (in order)".
+   */
+  readonly timelineOrderedAssetIds = computed<string[]>(() => {
+    const known = new Set(this.autoShortSources().map((c) => this.resolveAssetId(c)));
+    const ordered: { time: number; id: string }[] = [];
+    for (const s of this.clipSchedule()) {
+      const id = this.resolveAssetId(s.clip);
+      if (id && known.has(id)) ordered.push({ time: s.startSeconds, id });
+    }
+    for (const it of this.timelineItems()) {
+      if (it.type === 'image' || it.type === 'video') {
+        const id = this.resolveAssetId(it.src);
+        if (id && known.has(id)) ordered.push({ time: it.startTime, id });
+      }
+    }
+    ordered.sort((a, b) => a.time - b.time);
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const item of ordered) {
+      if (!seen.has(item.id)) {
+        seen.add(item.id);
+        out.push(item.id);
+      }
+    }
+    return out;
   });
 
   /**

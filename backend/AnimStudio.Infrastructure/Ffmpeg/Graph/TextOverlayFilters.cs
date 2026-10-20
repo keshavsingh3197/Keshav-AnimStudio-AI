@@ -137,7 +137,7 @@ internal static class TextOverlayFilters
                 foreach (var run in runs.Runs)
                 {
                     var rx = FilterExpr.Quote($"{FilterExpr.N(Math.Round(left + run.OffsetEm * size, 1))}{slideX.Replace("{W}", "w")}");
-                    var parts = DrawParts(run.RelativePath, run.FontFilePath, size, look, rx, y, alpha, enable, border, null);
+                    var parts = DrawParts(run.RelativePath, run.FontFilePath, size, look, rx, y, alpha, enable, border, null, run.ColorRgb);
 
                     var next = $"{labelPrefix}_{step++}";
                     graph.Append($"[{current}]drawtext={string.Join(':', parts)}[{next}];\n");
@@ -161,7 +161,7 @@ internal static class TextOverlayFilters
     /// <summary>One drawtext's options; <paramref name="boxPad"/> non-null puts a plate behind the text.</summary>
     private static List<string> DrawParts(
         string textPath, string fontPath, int size, TextOverlayLook look, string x, string y,
-        string? alpha, string enable, int border, int? boxPad)
+        string? alpha, string enable, int border, int? boxPad, string? colorRgbOverride = null)
     {
         var parts = new List<string>
         {
@@ -171,7 +171,7 @@ internal static class TextOverlayFilters
             // A caption is shown, not interpreted: %{pts} in it is text, not a timestamp.
             "expansion=none",
             $"fontsize={FilterExpr.N(size)}",
-            $"fontcolor=0x{look.ColorRgb}",
+            $"fontcolor=0x{colorRgbOverride ?? look.ColorRgb}",
             $"x={x}",
             $"y={y}"
         };

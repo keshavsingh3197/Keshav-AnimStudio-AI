@@ -236,6 +236,7 @@ public sealed class ClipsController(
                     {
                         FontSize = t.TextStyle.FontSize,
                         Color = t.TextStyle.Color,
+                        AccentColor = t.TextStyle.AccentColor,
                         BackgroundColor = t.TextStyle.BackgroundColor,
                         Position = t.TextStyle.Position,
                         X = t.TextStyle.X,

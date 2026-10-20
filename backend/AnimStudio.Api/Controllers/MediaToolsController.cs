@@ -250,6 +250,10 @@ public sealed class MediaToolsController(
         [FromForm] string? projectId = null,
         [FromForm] bool importAsClips = false,
         [FromForm] string compressionPreset = "original",
+        [FromForm] string chunkStyle = "original",
+        [FromForm] string? hookText = null,
+        [FromForm] bool showPartBadge = false,
+        [FromForm] bool subtleZoom = false,
         CancellationToken ct = default)
     {
         // Load default chunk duration from settings if not explicitly specified
@@ -341,7 +345,8 @@ public sealed class MediaToolsController(
             }
 
             var chunkResult = await chunker.ChunkVideoAsync(
-                inputVideoPath, sourceTitle, chunkDuration, accurateCut, convertTo916, jobId, workDir, compressionPreset, ct);
+                inputVideoPath, sourceTitle, chunkDuration, accurateCut, convertTo916, jobId, workDir,
+                compressionPreset, chunkStyle, hookText, showPartBadge, subtleZoom, ct);
 
             // If requested, import chunks as Project Clips!
             if (targetProject is not null)

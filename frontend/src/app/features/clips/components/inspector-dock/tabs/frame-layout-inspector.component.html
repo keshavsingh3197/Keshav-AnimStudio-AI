@@ -26,6 +26,26 @@
         </button>
       }
     </div>
+
+    <div class="fl-label" style="margin-top: 8px;">⚡ Direct-Response Ad &amp; Short Layouts (1-Click)</div>
+    <div class="fl-sub-actions" style="flex-wrap: wrap; gap: 4px;">
+      <button type="button" class="fl-mini" (click)="state.applyAdLayoutPreset('stack-3')"
+              title="Split screen into 3 horizontal video/image bands with staggered slide-in reveal">
+        ▤ 3-Row Stack
+      </button>
+      <button type="button" class="fl-mini" (click)="state.applyAdLayoutPreset('doc-split')"
+              title="Top talking head + bottom scrolling document/report showcase with gold banner">
+        📄 50/50 Video + Doc
+      </button>
+      <button type="button" class="fl-mini" (click)="state.applyAdLayoutPreset('cosmic-card')"
+              title="Floating glassmorphic container with cosmic starry FX and comparison strip">
+        🌌 Cosmic Glass Card
+      </button>
+      <button type="button" class="fl-mini" (click)="state.applyAdLayoutPreset('book-mockup')"
+              title="Centered report/book display with '10,000+ SOLD' social proof badge and Order Now CTA">
+        📘 3D Report + CTA
+      </button>
+    </div>
   </div>
 
   <div class="fl-card">
@@ -89,7 +109,25 @@
             <textarea rows="2" [attr.aria-label]="t.label"
                       class="form-control form-control-sm bg-dark text-light border-secondary border-opacity-50"
                       [ngModel]="t.text" (ngModelChange)="state.updateFrameText(t.id, $event)"
-                      [placeholder]="i === 0 ? 'e.g. Wait for the ending 😱' : i === 1 ? 'e.g. Follow for part 2' : 'Your text'"></textarea>
+                      [placeholder]="i === 0 ? 'e.g. Wait for the ending 😱 (use [word] for accent colour)' : i === 1 ? 'e.g. Follow for part 2' : 'Your text'"></textarea>
+            <div class="fl-sub-actions" style="margin-top: 4px;">
+              <button type="button" class="fl-mini" (click)="toggleComparisonHelper(t.id)"
+                      title="Generate an Original vs. Changed comparison strip with automatic letter highlighting">
+                🔀 Compare Names (Ch[a]nged)
+              </button>
+              <span class="fl-hint mb-0" style="align-self: center;">Tip: wrap letters in <code>[a]</code> to highlight</span>
+            </div>
+            @if (compOpenFor() === t.id) {
+              <div class="p-2 mt-1" style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 6px;">
+                <div class="d-flex gap-1 mb-1">
+                  <input type="text" class="form-control form-control-sm bg-dark text-light border-secondary"
+                         [ngModel]="compOriginal()" (ngModelChange)="compOriginal.set($event)" placeholder="Original (e.g. Jonathon)" />
+                  <input type="text" class="form-control form-control-sm bg-dark text-light border-secondary"
+                         [ngModel]="compChanged()" (ngModelChange)="compChanged.set($event)" placeholder="Changed (e.g. Jonathan)" />
+                </div>
+                <button type="button" class="fl-add" (click)="applyComparisonToLayer(t.id)">✨ Build Comparison Card</button>
+              </div>
+            }
             <div class="fl-sub-label">⏱ When it shows</div>
             <app-layer-timing [layer]="t" />
             <div class="fl-sub-label">✨ Animation</div>
@@ -259,6 +297,8 @@
                   title="A new 2-second line at the playhead">+ Line here</button>
           <button type="button" class="fl-mini" (click)="scriptOpen.set(!scriptOpen())"
                   title="Paste what is said and time it across the video">📝 From script</button>
+          <button type="button" class="fl-mini" (click)="applyWordPopPreset()"
+                  title="Set 1-word-at-a-time kinetic pop style centered on screen">⚡ 1-Word Pop</button>
           <label class="fl-mini fl-file" title="Import an .srt or .vtt file">
             <input type="file" accept=".srt,.vtt,text/vtt,application/x-subrip" (change)="onSubtitleFile($event)" hidden />
             📂 Import .srt/.vtt

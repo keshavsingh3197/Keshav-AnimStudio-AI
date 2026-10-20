@@ -1000,21 +1000,53 @@ public sealed class ClipMergeOrchestrator(
         var runs = new List<MergeTextLineRuns?>(lines.Count);
         for (var i = 0; i < lines.Count; i++)
         {
+            var rawLine = lines[i];
+            var accentSegments = TextOverlayLayout.ParseAccentSegments(rawLine, look.AccentRgb);
+            var cleanLine = accentSegments.Count > 0
+                ? string.Concat(accentSegments.Select(s => s.Text))
+                : rawLine;
+
             // Generated names only: the item id is client-supplied and never reaches the disk.
-            paths.Add(lines[i].Length == 0
+            paths.Add(cleanLine.Length == 0
                 ? null
                 : await workspace
-                    .WriteTextAsync($"txt/overlay_{itemIndex:D3}_{i}.txt", lines[i], ct)
+                    .WriteTextAsync($"txt/overlay_{itemIndex:D3}_{i}.txt", cleanLine, ct)
                     .ConfigureAwait(false));
 
-            runs.Add(lines[i].Length > 0 && settings.FontRunsForText?.Invoke(lines[i], fontFile) is { } split
-                ? await WriteRunsAsync(split, $"txt/overlay_{itemIndex:D3}_{i}", workspace, ct).ConfigureAwait(false)
-                : null);
+            if (accentSegments.Count > 0 && look.AccentRgb is { } accentRgb)
+            {
+                runs.Add(await WriteAccentRunsAsync(
+                    accentSegments, fontFile, look.ColorRgb, accentRgb, $"txt/overlay_{itemIndex:D3}_{i}", workspace, ct)
+                    .ConfigureAwait(false));
+            }
+            else
+            {
+                runs.Add(cleanLine.Length > 0 && settings.FontRunsForText?.Invoke(cleanLine, fontFile) is { } split
+                    ? await WriteRunsAsync(split, $"txt/overlay_{itemIndex:D3}_{i}", workspace, ct).ConfigureAwait(false)
+                    : null);
+            }
         }
 
         return new MergeTextOverlay(paths, fontFile, look,
             [.. lines.Select(l => new System.Globalization.StringInfo(l).LengthInTextElements)],
             runs.Any(r => r is not null) ? runs : null);
+    }
+
+    private static async Task<MergeTextLineRuns> WriteAccentRunsAsync(
+        IReadOnlyList<TextAccentSegment> segments, string fontFilePath, string baseRgb, string accentRgb,
+        string stem, IRenderWorkspace workspace, CancellationToken ct)
+    {
+        var runs = new List<MergeTextRun>(segments.Count);
+        var offset = 0.0;
+        for (var k = 0; k < segments.Count; k++)
+        {
+            var seg = segments[k];
+            var path = await workspace.WriteTextAsync($"{stem}_r{k}.txt", seg.Text, ct).ConfigureAwait(false);
+            var color = seg.IsAccent ? accentRgb : baseRgb;
+            runs.Add(new MergeTextRun(path, fontFilePath, offset, color));
+            offset += TextOverlayLayout.EstimateAdvanceEm(seg.Text);
+        }
+        return new MergeTextLineRuns(runs, offset, 0.85, 0.22);
     }
 
     private static async Task<MergeTextLineRuns> WriteRunsAsync(
