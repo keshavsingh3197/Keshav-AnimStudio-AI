@@ -110,6 +110,10 @@
         <button class="tool-btn icon-only" type="button" [class.active]="state.activeInspectorTab() === 'effects'" (click)="state.activeInspectorTab.set('effects')" title="Visual Effects">
           <span class="tool-btn-icon">✨</span><span class="tool-btn-label">Effects</span>
         </button>
+        <button class="tool-btn icon-only" type="button" [class.active]="state.styleStudioOpen()" (click)="state.styleStudioOpen.set(true)"
+                title="Open Styles, Effects &amp; Layouts Studio — review and apply Auto-Short styles, camera motion, color grade &amp; kinetic captions to timeline">
+          <span class="tool-btn-icon">🎬</span><span class="tool-btn-label">Styles</span>
+        </button>
         <button class="tool-btn icon-only tool-btn-subtle" type="button" (click)="state.addCelebration('flowers')"
                 title="Add a celebration at the playhead (flower shower, confetti, hearts…) on FX1 - change the kind under Effects">
           <span class="tool-btn-icon">🎉</span><span class="tool-btn-label">Celebrate</span>

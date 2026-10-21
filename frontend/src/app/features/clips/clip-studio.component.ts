@@ -17,6 +17,7 @@ import { TransferDialogComponent } from './components/transfer-dialog/transfer-d
 import { FrameCropDialogComponent } from './components/frame-crop-dialog/frame-crop-dialog.component';
 import { PhotoStoryComponent } from './components/photo-story/photo-story.component';
 import { AutoShortsComponent } from './components/auto-shorts/auto-shorts.component';
+import { StyleStudioDialogComponent } from './components/style-studio-dialog/style-studio-dialog.component';
 import { clipboardFiles } from '../../shared/file-drop.directive';
 import { YouTubePublishDialogComponent } from '../../shared/youtube-publish-dialog.component';
 import { MediaInspectorDialogComponent } from '../../shared/transcript/media-inspector-dialog.component';
@@ -38,6 +39,7 @@ import { lastApplied, loadStoredLibrary, spokenText } from './components/inspect
     FrameCropDialogComponent,
     PhotoStoryComponent,
     AutoShortsComponent,
+    StyleStudioDialogComponent,
     RouterLink,
     YouTubePublishDialogComponent,
     MediaInspectorDialogComponent,

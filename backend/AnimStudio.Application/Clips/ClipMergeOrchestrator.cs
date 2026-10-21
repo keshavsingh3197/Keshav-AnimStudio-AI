@@ -385,7 +385,7 @@ public sealed class ClipMergeOrchestrator(
                             : "000000",
                         SourceIsImage = isImage,
                         ImageDurationSeconds = imageDur,
-                        Cinematic = isImage ? CinematicOf(v1Transform) : null,
+                        Cinematic = CinematicOf(v1Transform),
                         MotionSupersample = Math.Clamp(settings.KenBurnsSupersample, 1, 4),
                         TrimStartSeconds = finalTrimStart,
                         TrimEndSeconds = finalTrimEnd,

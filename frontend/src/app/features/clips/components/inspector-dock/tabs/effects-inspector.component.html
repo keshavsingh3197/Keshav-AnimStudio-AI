@@ -1,6 +1,20 @@
 <div class="effects-container">
   <app-scope-bar what="Visual effects" verb="style" />
 
+  <!-- Auto-Short Styles & FX Studio Launcher Banner -->
+  <div class="effects-card" style="margin-bottom: 10px; background: linear-gradient(135deg, rgba(15, 23, 42, 0.9), rgba(30, 27, 75, 0.65)); border: 1px solid rgba(250, 204, 21, 0.35);">
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+      <div>
+        <div style="font-size: 0.78rem; font-weight: 700; color: #fef08a;">✨ Auto-Short Styles &amp; FX Studio</div>
+        <div style="font-size: 0.68rem; color: #cbd5e1; margin-top: 2px;">Preview &amp; apply Direct-Response, Viral, Cinematic, Hype, camera moves, kinetic Word-Pop &amp; ad layouts to your timeline.</div>
+      </div>
+      <button type="button" (click)="state.styleStudioOpen.set(true)"
+              style="padding: 6px 12px; border-radius: 7px; border: 1px solid #facc15; background: rgba(250, 204, 21, 0.18); color: #fef08a; font-size: 0.72rem; font-weight: 700; cursor: pointer; flex-shrink: 0;">
+        Open Studio →
+      </button>
+    </div>
+  </div>
+
   <!-- Controls stay hidden while the scope resolves to no clips: they would
        otherwise look editable but write to nothing. -->
   @if (state.getTargetClipIds().length > 0) {

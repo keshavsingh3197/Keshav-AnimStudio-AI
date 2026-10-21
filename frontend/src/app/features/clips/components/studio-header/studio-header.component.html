@@ -119,6 +119,11 @@
     <button class="hdr-btn" type="button" [disabled]="!state.hasUnsavedChanges()" (click)="state.saveDraft()" title="Save draft (Ctrl+S)">
       <span class="hdr-icon">💾</span> Save
     </button>
+    <button class="hdr-btn" type="button" (click)="state.styleStudioOpen.set(true)"
+            style="background: linear-gradient(135deg, rgba(250,204,21,0.18), rgba(56,189,248,0.14)); border-color: rgba(250,204,21,0.45); color: #fef08a; font-weight: 700;"
+            title="Open Auto-Short Styles, Camera FX &amp; Ad Layouts Studio — review live and apply to your timeline">
+      <span class="hdr-icon">✨</span> Styles &amp; FX
+    </button>
     <button class="hdr-btn" type="button" (click)="state.transferDialogMode.set('import')"
             title="Bring clips, music, voice, images or text in from another video - of this project or another">
       ⇣ Import
