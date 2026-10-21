@@ -118,6 +118,22 @@ export const routes: Routes = [
   },
 
   {
+    path: 'calendar',
+    title: 'Content calendar - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/calendar/content-calendar.component')
+        .then((m) => m.ContentCalendarComponent),
+  },
+
+  {
+    path: 'calendar/links',
+    title: 'Saved links - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/calendar/source-links.component')
+        .then((m) => m.SourceLinksComponent),
+  },
+
+  {
     path: 'tools',
     title: 'Media Tools & Chunker - AnimStudio AI',
     loadComponent: () =>

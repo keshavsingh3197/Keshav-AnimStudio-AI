@@ -1,0 +1,149 @@
+<div class="cal">
+  <header class="cal-head">
+    <div>
+      <p class="cal-eyebrow">Content calendar</p>
+      <h1>Plan ahead, publish on time</h1>
+      <p class="cal-sub">
+        Each topic plans its posts ahead. Mark them ready as you go. Once a video is on YouTube
+        (uploaded here or from your phone), the calendar links it and makes sure YouTube publishes it at the planned time.
+      </p>
+    </div>
+    <div class="cal-head-actions">
+      <a routerLink="/calendar/links" class="button-like">🔗 Saved links</a>
+      <button type="button" class="secondary" (click)="newTopic()">＋ Topic</button>
+      <button type="button" (click)="newPost()" [disabled]="topics().length === 0">＋ Post</button>
+    </div>
+  </header>
+
+  <div class="cal-stats">
+    <button type="button" class="stat" [class.on]="filter() === 'attention'" [class.alert]="summary().attention > 0"
+            (click)="filter.set(filter() === 'attention' ? 'all' : 'attention')">
+      <strong>{{ summary().attention }}</strong><span>need attention</span>
+    </button>
+    <div class="stat"><strong>{{ summary().thisWeek }}</strong><span>going out in 7 days</span></div>
+    <button type="button" class="stat" [class.on]="filter() === 'todo'" (click)="filter.set(filter() === 'todo' ? 'all' : 'todo')">
+      <strong>{{ summary().todo }}</strong><span>still to prepare</span>
+    </button>
+    <button type="button" class="stat" [class.on]="filter() === 'ready'" (click)="filter.set(filter() === 'ready' ? 'all' : 'ready')">
+      <strong>{{ summary().scheduled }}</strong><span>scheduled on YouTube</span>
+    </button>
+  </div>
+
+  <div class="cal-topics" role="toolbar" aria-label="Topics">
+    <button type="button" class="topic-pill" [class.on]="topicFilter() === 'all'" (click)="topicFilter.set('all')">All topics</button>
+    @for (t of visibleTopics(); track t.id) {
+      <span class="topic-pill" [class.on]="topicFilter() === t.id" [class.archived]="t.archived">
+        <button type="button" class="pill-main" (click)="topicFilter.set(topicFilter() === t.id ? 'all' : t.id)">
+          <span class="dot" [style.background]="t.color"></span>
+          <span class="pill-name">{{ t.name }}</span>
+          <span class="pill-cadence">{{ cadence(t) }}</span>
+        </button>
+        <button type="button" class="pill-edit" (click)="editTopic(t, $event)" [attr.aria-label]="'Edit ' + t.name">✎</button>
+      </span>
+    }
+    @if (topics().some(t => t.archived)) {
+      <label class="archived-toggle small">
+        <input type="checkbox" [ngModel]="showArchived()" (ngModelChange)="showArchived.set($event)" /> archived
+      </label>
+    }
+  </div>
+
+  <div class="cal-bar">
+    <div class="seg" role="tablist">
+      <button type="button" role="tab" [class.on]="view() === 'agenda'" (click)="setView('agenda')">Agenda</button>
+      <button type="button" role="tab" [class.on]="view() === 'month'" (click)="setView('month')">Month</button>
+    </div>
+    @if (view() === 'month') {
+      <div class="month-nav">
+        <button type="button" class="secondary small" (click)="shiftMonth(-1)" aria-label="Previous month">‹</button>
+        <strong>{{ monthStart() | date: 'MMMM yyyy' }}</strong>
+        <button type="button" class="secondary small" (click)="shiftMonth(1)" aria-label="Next month">›</button>
+        <button type="button" class="secondary small" (click)="thisMonth()">Today</button>
+      </div>
+    }
+    <span class="spacer"></span>
+    <button type="button" class="secondary small" (click)="loadItems()" [disabled]="loading()">{{ loading() ? 'Loading…' : 'Refresh' }}</button>
+  </div>
+
+  @if (error()) { <p class="cal-error" role="alert">{{ error() }}</p> }
+
+  @if (!loading() && topics().length === 0) {
+    <section class="empty card">
+      <h2>Start with a topic</h2>
+      <p class="muted">
+        A topic is something you post about regularly, e.g. "Monday motivation" every Monday at 18:00.
+        Choose its days and the calendar adds the posts ahead of time, with a reminder to have each one ready a few days early.
+      </p>
+      <button type="button" (click)="newTopic()">＋ Create the first topic</button>
+    </section>
+  } @else if (view() === 'agenda') {
+    @if (!loading() && agenda().length === 0) {
+      <p class="muted empty-line">Nothing planned here. Add a post, or give a topic some publish days.</p>
+    }
+    <div class="agenda">
+      @for (g of agenda(); track g.key) {
+        <section class="day" [class.today]="g.isToday">
+          <h2 class="day-head">
+            <span>{{ g.date | date: 'EEEE' }}</span>
+            <span class="muted">{{ g.date | date: 'd MMM' }}</span>
+            @if (g.isToday) { <span class="today-tag">today</span> }
+          </h2>
+          @for (item of g.items; track item.id) {
+            <article class="post" [class]="'post lvl-' + level(item)" (click)="openPost(item)" tabindex="0"
+                     (keydown.enter)="openPost(item)">
+              <span class="bar" [style.background]="topicOf(item)?.color ?? 'var(--brand)'"></span>
+              <span class="time">{{ item.publishAt | date: 'HH:mm' }}</span>
+              <span class="post-main">
+                <span class="post-title">{{ item.title }}</span>
+                <span class="post-meta">
+                  <span>{{ topicOf(item)?.name }}</span>
+                  @if (checklistProgress(item); as p) { <span>☑ {{ p }}</span> }
+                  @if (item.videoId) { <span>▶ linked</span> }
+                  @if (firstMessage(item); as m) { <span class="post-msg">{{ m }}</span> }
+                </span>
+              </span>
+              <span class="status" [class]="'status ' + statusClass(item.status)">{{ statusLabels[item.status] }}</span>
+              @if (item.status === 'Idea' || item.status === 'InProgress') {
+                <button type="button" class="small ready-btn" (click)="quickStatus(item, 'Ready', $event)" title="Mark ready">✓ Ready</button>
+              }
+            </article>
+          }
+        </section>
+      }
+    </div>
+  } @else {
+    <div class="month" role="grid">
+      @for (d of ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']; track d) {
+        <div class="month-dow" role="columnheader">{{ d }}</div>
+      }
+      @for (c of monthCells(); track c.key) {
+        <div class="cell" [class.out]="!c.inMonth" [class.today]="c.isToday" role="gridcell">
+          <div class="cell-head">
+            <span>{{ c.date | date: 'd' }}</span>
+            <button type="button" class="cell-add" (click)="newPost(c.date)" [attr.aria-label]="'Add a post on ' + (c.date | date: 'd MMM')">＋</button>
+          </div>
+          @for (item of c.items; track item.id) {
+            <button type="button" class="chip" [class]="'chip lvl-' + level(item) + ' ' + statusClass(item.status)"
+                    (click)="openPost(item)" [title]="item.title + ' - ' + statusLabels[item.status]">
+              <span class="dot" [style.background]="topicOf(item)?.color ?? 'var(--brand)'"></span>
+              <span class="chip-time">{{ item.publishAt | date: 'HH:mm' }}</span>
+              <span class="chip-title">{{ item.title }}</span>
+            </button>
+          }
+        </div>
+      }
+    </div>
+  }
+</div>
+
+@if (editingTopic() !== undefined) {
+  <app-topic-editor [topic]="editingTopic() ?? null" (saved)="topicSaved($event)" (deleted)="topicDeleted($event)"
+                    (closed)="editingTopic.set(undefined)" />
+}
+
+@if (panelItem() !== undefined) {
+  <app-plan-item-panel [item]="panelItem() ?? null" [topics]="topics()" [startAt]="panelStartAt()"
+                       [startTopicId]="topicFilter() !== 'all' ? topicFilter() : null"
+                       (saved)="postSaved($event)"
+                       (deleted)="postDeleted($event)" (closed)="panelItem.set(undefined)" />
+}

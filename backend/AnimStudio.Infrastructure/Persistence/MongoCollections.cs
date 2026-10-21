@@ -25,4 +25,7 @@ public static class MongoCollections
     public const string AdminAudit = "adminAudit";
     public const string HubConfig = "hubConfig";
     public const string VoiceProfiles = "voiceProfiles";
+    public const string ContentTopics = "contentTopics";
+    public const string ContentPlanItems = "contentPlanItems";
+    public const string ContentSourceLinks = "contentSourceLinks";
 }

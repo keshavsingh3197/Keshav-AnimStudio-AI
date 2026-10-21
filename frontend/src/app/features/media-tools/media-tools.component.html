@@ -328,6 +328,14 @@
             </label>
           }
 
+          <div class="field dl-topic">
+            <label class="field-label" for="dl-topic">Save the link under a calendar topic</label>
+            <select id="dl-topic" [ngModel]="linkTopic()" (ngModelChange)="linkTopic.set($event)">
+              <option value="">- No topic (still kept in Saved links) -</option>
+              @for (t of calendarTopics(); track t.id) { <option [value]="t.id">{{ t.name }}</option> }
+            </select>
+          </div>
+
           <label class="dest-option" [class.active]="addToProject()">
             <input type="checkbox" [ngModel]="addToProject()" (ngModelChange)="addToProject.set($event)" />
             <span>

@@ -1,0 +1,230 @@
+<div class="panel-backdrop" (click)="closed.emit()"></div>
+<aside class="panel" role="dialog" aria-modal="true" aria-labelledby="panel-title">
+  <header class="panel-head">
+    @if (topic(); as t) { <span class="topic-dot" [style.background]="t.color"></span> }
+    <h2 id="panel-title">{{ current() ? 'Post' : 'New post' }}</h2>
+    @if (current()?.autoPlanned) { <span class="tag">planned from cadence</span> }
+    <span class="spacer"></span>
+    <button type="button" class="secondary small" (click)="closed.emit()" aria-label="Close">✕</button>
+  </header>
+
+  <div class="panel-body">
+    @if (current(); as c) {
+      @if (c.attention.length > 0) {
+        <ul class="attention">
+          @for (a of c.attention; track a.code) {
+            <li [class]="'lvl-' + a.level.toLowerCase()">{{ a.message }}</li>
+          }
+        </ul>
+      }
+      @if (c.syncMessage) { <p class="cal-error small">YouTube: {{ c.syncMessage }}</p> }
+    }
+
+    <!-- what & when -->
+    <section class="block">
+      <div class="field">
+        <label for="post-title">Title</label>
+        <input id="post-title" type="text" maxlength="200" [(ngModel)]="title" />
+      </div>
+      <div class="grid-2">
+        <div class="field">
+          <label for="post-topic">Topic</label>
+          <select id="post-topic" [ngModel]="topicId" (ngModelChange)="onTopicChange($event)">
+            @for (t of topics(); track t.id) { <option [value]="t.id">{{ t.name }}</option> }
+          </select>
+        </div>
+        <div class="field">
+          <label for="post-at">Goes live</label>
+          <input id="post-at" type="datetime-local" [(ngModel)]="publishAtLocal" />
+        </div>
+        <div class="field">
+          <label for="post-status">Status</label>
+          <select id="post-status" [(ngModel)]="status">
+            @for (s of statuses; track s) { <option [value]="s">{{ statusLabels[s] }}</option> }
+          </select>
+        </div>
+        @if (current(); as c) {
+          <div class="field">
+            <label>Ready by</label>
+            <p class="readonly">{{ c.prepareBy | date: 'EEE d MMM, HH:mm' }}</p>
+          </div>
+        }
+      </div>
+      @if (current() && (status === 'Idea' || status === 'InProgress')) {
+        <button type="button" class="ready-btn" (click)="markReady()" [disabled]="busy()">✓ Mark ready</button>
+      }
+    </section>
+
+    <!-- checklist -->
+    <section class="block">
+      <h3>Checklist <span class="muted small">{{ checklistDone() }}/{{ checklist().length }}</span></h3>
+      <ul class="checklist">
+        @for (c of checklist(); track $index) {
+          <li>
+            <label class="check">
+              <input type="checkbox" [checked]="c.done" (change)="toggleCheck($index)" />
+              <span [class.done]="c.done">{{ c.text }}</span>
+            </label>
+            <button type="button" class="link-btn" (click)="removeCheck($index)" aria-label="Remove">✕</button>
+          </li>
+        }
+      </ul>
+      <div class="inline">
+        <input type="text" maxlength="200" [(ngModel)]="newCheck" placeholder="Add a step" (keydown.enter)="addCheck()" />
+        <button type="button" class="secondary small" (click)="addCheck()">Add</button>
+      </div>
+    </section>
+
+    <!-- where the work is -->
+    <section class="block">
+      <h3>Files</h3>
+      <div class="field">
+        <label for="post-project">Project</label>
+        <select id="post-project" [(ngModel)]="projectId">
+          <option value="">- None -</option>
+          @for (p of projects(); track p.id) { <option [value]="p.id">{{ p.name }}</option> }
+        </select>
+        @if (projectId) { <a class="small" [routerLink]="['/projects', projectId]">Open project →</a> }
+      </div>
+      <div class="field">
+        <label for="post-file">Finished file link <span class="muted">(Drive etc., for uploading from the phone)</span></label>
+        <div class="inline">
+          <input id="post-file" type="url" maxlength="2048" [(ngModel)]="fileLink" placeholder="https://drive.google.com/…" />
+          @if (href(fileLink); as f) { <a class="button-like small" [href]="f" target="_blank" rel="noopener noreferrer">Open</a> }
+        </div>
+      </div>
+      <div class="field">
+        <label for="post-notes">Notes, script, caption</label>
+        <textarea id="post-notes" rows="4" maxlength="4000" [(ngModel)]="notes"></textarea>
+        @if (notes.trim()) { <button type="button" class="link-btn small" (click)="copy(notes, 'Notes')">Copy notes</button> }
+      </div>
+      @if (topic()?.tags?.length) {
+        <div class="tags-row">
+          <span class="muted small">Tags:</span>
+          @for (t of topic()!.tags; track t) { <span class="tag">{{ t }}</span> }
+          <button type="button" class="link-btn small" (click)="copy(tagsText(), 'Tags')">Copy all</button>
+        </div>
+      }
+    </section>
+
+    <!-- YouTube -->
+    @if (current(); as c) {
+      <section class="block">
+        <h3>On YouTube</h3>
+        @if (c.videoId) {
+          <div class="video">
+            @if (thumbnail(c.youTube?.thumbnailUrl); as thumb) { <img [src]="thumb" alt="" width="120" height="68" /> }
+            <div class="video-meta">
+              <strong>{{ c.youTube?.title || c.videoId }}</strong>
+              <span class="muted small">
+                {{ c.youTube?.privacy ?? 'not checked yet' }}
+                @if (c.youTube?.scheduledAt) { · goes live {{ c.youTube!.scheduledAt | date: 'EEE d MMM, HH:mm' }} }
+                @if (c.youTube?.checkedAt) { · checked {{ c.youTube!.checkedAt | date: 'HH:mm' }} }
+              </span>
+              @if (scheduleDiffers()) {
+                <span class="warn small">Planned for {{ c.publishAt | date: 'EEE d MMM, HH:mm' }}</span>
+              }
+            </div>
+          </div>
+          <div class="actions">
+            @if (href(c.videoUrl); as v) { <a class="button-like small" [href]="v" target="_blank" rel="noopener noreferrer">Watch</a> }
+            @if (href(c.studioUrl); as s) { <a class="button-like small" [href]="s" target="_blank" rel="noopener noreferrer">Studio</a> }
+            @if (c.channelId) {
+              <button type="button" class="secondary small" (click)="sync()" [disabled]="busy()">{{ busy() === 'sync' ? 'Checking…' : 'Check now' }}</button>
+              @if (c.status !== 'Published' && (c.youTube?.privacy !== 'public')) {
+                <button type="button" class="small" (click)="schedule()" [disabled]="busy()">
+                  {{ busy() === 'schedule' ? 'Scheduling…' : 'Set planned time on YouTube' }}
+                </button>
+              }
+            }
+            @if (c.videoAutoLinked) {
+              <button type="button" class="secondary small" (click)="confirmLink()" [disabled]="busy()">It's the right video</button>
+            }
+            <button type="button" class="link-btn small" (click)="unlink()" [disabled]="busy()">Unlink</button>
+          </div>
+        } @else {
+          <p class="muted small">Uploaded it (from here or the phone)? Paste the link - the planned time is then checked and set on YouTube.</p>
+          <div class="inline">
+            <input type="text" maxlength="2048" [(ngModel)]="videoInput" placeholder="https://youtube.com/shorts/… or video id" (keydown.enter)="linkVideo()" />
+            <button type="button" class="small" (click)="linkVideo()" [disabled]="busy() || !videoInput.trim()">Link</button>
+          </div>
+          @if (c.channelId) {
+            <button type="button" class="secondary small" (click)="findUploads()" [disabled]="busy()">
+              {{ busy() === 'find' ? 'Looking…' : 'Pick from recent uploads' }}
+            </button>
+          } @else {
+            <p class="muted small">Set the topic's channel to pick from uploads and let the calendar schedule them.</p>
+          }
+          @if (candidates(); as list) {
+            @if (list.length === 0) { <p class="muted small">No unlinked uploads on the channel recently.</p> }
+            <ul class="candidates">
+              @for (v of list; track v.videoId) {
+                <li [class.suggested]="v.suggested">
+                  @if (thumbnail(v.thumbnailUrl); as thumb) { <img [src]="thumb" alt="" width="80" height="45" /> }
+                  <span class="cand-meta">
+                    <strong>{{ v.title }}</strong>
+                    <span class="muted small">
+                      {{ v.privacy }} · uploaded {{ v.publishedAt | date: 'd MMM HH:mm' }}
+                      @if (v.scheduledAt) { · goes live {{ v.scheduledAt | date: 'd MMM HH:mm' }} }
+                      @if (v.suggested) { · <b>likely match</b> }
+                    </span>
+                  </span>
+                  <button type="button" class="small" (click)="linkVideo(v.videoId)" [disabled]="busy()">Link</button>
+                </li>
+              }
+            </ul>
+          }
+        }
+      </section>
+
+      <!-- links -->
+      <section class="block">
+        <h3>Source links</h3>
+        @for (l of postLinks(); track l.id) {
+          <div class="link-row">
+            <span class="tag">{{ l.platformName }}</span>
+            @if (href(l.url); as u) { <a [href]="u" target="_blank" rel="noopener noreferrer" class="link-title">{{ l.title }}</a> }
+            <span class="spacer"></span>
+            <button type="button" class="link-btn small" (click)="copy(l.url, 'Link')">Copy</button>
+            <label class="check small"><input type="checkbox" [checked]="l.used" (change)="toggleUsed(l)" /> used</label>
+          </div>
+        }
+        <div class="inline">
+          <input type="url" maxlength="2048" [(ngModel)]="newLinkUrl" placeholder="Paste a link to keep with this post" />
+          <button type="button" class="secondary small" (click)="addLink()" [disabled]="busy() || !newLinkUrl.trim()">Save</button>
+        </div>
+        @if (topicLinks().length > 0) {
+          <details class="topic-links">
+            <summary class="small">{{ topicLinks().length }} more saved for this topic</summary>
+            @for (l of topicLinks(); track l.id) {
+              <div class="link-row">
+                <span class="tag">{{ l.platformName }}</span>
+                @if (href(l.url); as u) { <a [href]="u" target="_blank" rel="noopener noreferrer" class="link-title">{{ l.title }}</a> }
+                @if (l.used) { <span class="muted small">used</span> }
+                <span class="spacer"></span>
+                <button type="button" class="link-btn small" (click)="copy(l.url, 'Link')">Copy</button>
+                <button type="button" class="link-btn small" (click)="attachLink(l)">Use here</button>
+              </div>
+            }
+          </details>
+        }
+      </section>
+    }
+
+    @if (error()) { <p class="cal-error" role="alert">{{ error() }}</p> }
+    @if (notice()) { <p class="cal-notice" role="status">{{ notice() }}</p> }
+  </div>
+
+  <footer class="panel-foot">
+    @if (current()) {
+      @if (confirmDelete()) {
+        <button type="button" class="danger small" (click)="remove()" [disabled]="busy()">Delete it</button>
+        <button type="button" class="secondary small" (click)="confirmDelete.set(false)">Keep</button>
+      } @else {
+        <button type="button" class="danger small" (click)="confirmDelete.set(true)">Delete</button>
+      }
+    }
+    <span class="spacer"></span>
+    <button type="button" (click)="save()" [disabled]="busy()">{{ busy() === 'save' ? 'Saving…' : current() ? 'Save' : 'Add post' }}</button>
+  </footer>
+</aside>

@@ -34,6 +34,9 @@ export interface MediaDownloadRequest {
   addToClipOrder?: boolean;
   /** File into a top-level folder named after the website (YouTube, Instagram…), made on first use. */
   folderBySource?: boolean;
+  /** Content calendar: keep the link under this topic (and post) in Saved links. */
+  topicId?: string;
+  planItemId?: string;
 }
 
 export interface MediaDownloadResult {

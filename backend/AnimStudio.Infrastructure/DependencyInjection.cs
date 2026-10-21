@@ -15,6 +15,7 @@ using AnimStudio.Application.Characters;
 using AnimStudio.Application.Clips;
 using AnimStudio.Application.Ingest;
 using AnimStudio.Application.Options;
+using AnimStudio.Application.Planning;
 using AnimStudio.Application.Projects;
 using AnimStudio.Application.Rendering;
 using AnimStudio.Application.Scenes;
@@ -33,6 +34,7 @@ using AnimStudio.Infrastructure.Ingest;
 using AnimStudio.Infrastructure.Jobs;
 using AnimStudio.Infrastructure.LiveStreams;
 using AnimStudio.Infrastructure.Persistence;
+using AnimStudio.Infrastructure.Planning;
 using AnimStudio.Infrastructure.Publishing;
 using AnimStudio.Infrastructure.Releases;
 using AnimStudio.Infrastructure.Settings;
@@ -139,6 +141,9 @@ public static class DependencyInjection
             services.AddScoped<IPromptTemplateRepository, SqlPromptTemplateRepository>();
             services.AddScoped<IAiSettingsRepository, SqlAiSettingsRepository>();
             services.AddScoped<IAdminAuditRepository, SqlAdminAuditRepository>();
+            services.AddScoped<IContentTopicRepository, SqlContentTopicRepository>();
+            services.AddScoped<IContentPlanItemRepository, SqlContentPlanItemRepository>();
+            services.AddScoped<IContentSourceLinkRepository, SqlContentSourceLinkRepository>();
             services.AddHostedService<SqlDatabaseInitializer>();
 
             if (hasMongoConfig)
@@ -176,6 +181,9 @@ public static class DependencyInjection
             services.AddScoped<IPromptTemplateRepository, MongoPromptTemplateRepository>();
             services.AddScoped<IAiSettingsRepository, MongoAiSettingsRepository>();
             services.AddScoped<IAdminAuditRepository, MongoAdminAuditRepository>();
+            services.AddScoped<IContentTopicRepository, MongoContentTopicRepository>();
+            services.AddScoped<IContentPlanItemRepository, MongoContentPlanItemRepository>();
+            services.AddScoped<IContentSourceLinkRepository, MongoContentSourceLinkRepository>();
             services.AddHostedService<MongoIndexInitializer>();
         }
 
@@ -327,6 +335,13 @@ public static class DependencyInjection
             sp.GetRequiredService<ILogger<YouTubeVideoStatusClient>>()));
         services.AddScoped<YouTubePublicationService>();
         services.AddHostedService<YouTubeHealthMonitor>();
+
+        // Content calendar: topics plan their posts ahead, uploads (from the phone too) are
+        // linked to them, and the planned publish time is checked - and set - on YouTube.
+        services.Configure<ContentCalendarOptions>(configuration.GetSection(ContentCalendarOptions.Section));
+        services.AddScoped<ContentPlanningService>();
+        services.AddScoped<ContentCalendarYouTubeService>();
+        services.AddHostedService<ContentCalendarMonitor>();
 
         // Send to phone: the render goes to the user's Google Drive, they upload it from the
         // YouTube app (adding a licensed Shorts sound), and the prepared details are put on it.

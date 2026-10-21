@@ -16,6 +16,8 @@ import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { firstValueFrom } from 'rxjs';
 
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
+import { ContentTopic } from '../../core/models/calendar.models';
+import { ContentCalendarService } from '../../core/services/content-calendar.service';
 import { AssetFolder, DEFAULT_BRAND_CHANNEL, Project } from '../../core/models/api.models';
 import {
   ChunkItemResponse,
@@ -83,6 +85,7 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
   private readonly mediaTools = inject(MediaToolsService);
   private readonly activity = inject(ActivityService);
   private readonly api = inject(ApiService);
+  private readonly calendar = inject(ContentCalendarService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly sanitizer = inject(DomSanitizer);
@@ -153,6 +156,9 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
   readonly folderChoice = signal<string>(NEW_FOLDER);
   readonly newFolderName = signal<string>(DEFAULT_FOLDER_NAME);
   readonly addToTimeline = signal<boolean>(true);
+  /** Content calendar topic the downloaded link is saved under (Saved links). */
+  readonly calendarTopics = signal<ContentTopic[]>([]);
+  readonly linkTopic = signal<string>('');
   readonly NEW_PROJECT = NEW_PROJECT;
   readonly NEW_FOLDER = NEW_FOLDER;
 
@@ -416,6 +422,11 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
       error: (err: unknown) => this.probeError.set(this.toMediaError(err, 'Could not load the supported sources.')),
     });
 
+    this.calendar.listTopics().subscribe({
+      next: (topics) => this.calendarTopics.set(topics.filter((t) => !t.archived)),
+      error: () => this.calendarTopics.set([]),
+    });
+
     this.api.listProjects().subscribe({
       next: (list) => {
         this.projects.set(list);
@@ -629,6 +640,7 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
         folderId: projectId && folderChoice && folderChoice !== NEW_FOLDER ? folderChoice : undefined,
         folderName: projectId && folderChoice === NEW_FOLDER ? this.newFolderName().trim() || undefined : undefined,
         addToClipOrder: this.addToTimeline(),
+        topicId: this.linkTopic() || undefined,
       };
 
       const res = await firstValueFrom(this.activity.trackRequest('download', probe.title || rawUrl,

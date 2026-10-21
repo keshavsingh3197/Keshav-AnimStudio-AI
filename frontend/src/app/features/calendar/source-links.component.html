@@ -1,0 +1,98 @@
+<div class="links">
+  <header class="links-head">
+    <div>
+      <a routerLink="/calendar" class="back small">← Calendar</a>
+      <h1>Saved links</h1>
+      <p class="muted">
+        Every link you download in Media Studio is kept here, plus any you save yourself, filed by topic.
+        Open this on your phone to copy a link straight into the app you remix or upload with.
+      </p>
+    </div>
+    <button type="button" (click)="openAdd()">＋ Save a link</button>
+  </header>
+
+  @if (showAdd()) {
+    <section class="add card">
+      <div class="field">
+        <label for="link-url">Link</label>
+        <input id="link-url" type="url" maxlength="2048" [(ngModel)]="newUrl" placeholder="https://…" autofocus />
+      </div>
+      <div class="field">
+        <label for="link-title">Title <span class="muted">(optional)</span></label>
+        <input id="link-title" type="text" maxlength="300" [(ngModel)]="newTitle" />
+      </div>
+      <div class="field">
+        <label for="link-topic">Topic</label>
+        <select id="link-topic" [(ngModel)]="newTopic">
+          <option value="">- No topic -</option>
+          @for (t of topics(); track t.id) { <option [value]="t.id">{{ t.name }}</option> }
+        </select>
+      </div>
+      <div class="field">
+        <label for="link-note">Note <span class="muted">(what to use it for, credit…)</span></label>
+        <textarea id="link-note" rows="2" maxlength="1000" [(ngModel)]="newNote"></textarea>
+      </div>
+      <div class="row">
+        <button type="button" class="secondary" (click)="showAdd.set(false)">Cancel</button>
+        <button type="button" (click)="add()" [disabled]="busyId() === 'new' || !newUrl.trim()">Save</button>
+      </div>
+    </section>
+  }
+
+  <div class="filters">
+    <select [ngModel]="topicFilter()" (ngModelChange)="setTopic($event)" aria-label="Topic">
+      <option value="all">All topics</option>
+      @for (t of topics(); track t.id) { <option [value]="t.id">{{ t.name }}</option> }
+      <option value="none">No topic</option>
+    </select>
+    <input type="search" [ngModel]="query()" (ngModelChange)="query.set($event)" placeholder="Search links" aria-label="Search links" />
+    <label class="check">
+      <input type="checkbox" [ngModel]="unusedOnly()" (ngModelChange)="unusedOnly.set($event)" /> not used yet
+    </label>
+  </div>
+
+  @if (error()) { <p class="cal-error" role="alert">{{ error() }}</p> }
+  @if (notice()) { <p class="cal-notice" role="status">{{ notice() }}</p> }
+
+  @if (loading()) {
+    <p class="muted">Loading…</p>
+  } @else if (visible().length === 0) {
+    <p class="muted empty">No links here yet. Download something in Media Studio, choosing a topic, or save a link above.</p>
+  }
+
+  <ul class="list">
+    @for (l of visible(); track l.id) {
+      <li class="item" [class.used]="l.used" [style.border-left-color]="topicColor(l.topicId)">
+        <div class="item-top">
+          <span class="tag">{{ l.platformName }}</span>
+          @if (topicName(l.topicId); as name) { <span class="tag topic">{{ name }}</span> }
+          @if (l.origin === 'Download') {
+            <span class="muted small">downloaded {{ l.downloadCount }}× · {{ l.lastCapturedAt | date: 'd MMM' }}</span>
+          } @else {
+            <span class="muted small">saved {{ l.createdAt | date: 'd MMM' }}</span>
+          }
+        </div>
+        @if (href(l.url); as u) {
+          <a class="title" [href]="u" target="_blank" rel="noopener noreferrer">{{ l.title }}</a>
+          <span class="url">{{ l.url }}</span>
+        }
+        @if (l.note) { <p class="note">{{ l.note }}</p> }
+        <div class="item-actions">
+          <button type="button" class="small" (click)="copy(l)">Copy</button>
+          @if (canShare) { <button type="button" class="secondary small" (click)="share(l)">Share</button> }
+          @if (href(l.url); as u) { <a class="button-like small" [href]="u" target="_blank" rel="noopener noreferrer">Open</a> }
+          <label class="check small">
+            <input type="checkbox" [checked]="l.used" (change)="toggleUsed(l)" [disabled]="busyId() === l.id" /> used
+          </label>
+          <span class="spacer"></span>
+          <select class="small move" [ngModel]="l.topicId ?? ''" (ngModelChange)="moveTo(l, $event)" aria-label="Move to topic"
+                  [disabled]="busyId() === l.id">
+            <option value="">No topic</option>
+            @for (t of topics(); track t.id) { <option [value]="t.id">{{ t.name }}</option> }
+          </select>
+          <button type="button" class="danger small" (click)="remove(l)" [disabled]="busyId() === l.id" aria-label="Delete link">✕</button>
+        </div>
+      </li>
+    }
+  </ul>
+</div>

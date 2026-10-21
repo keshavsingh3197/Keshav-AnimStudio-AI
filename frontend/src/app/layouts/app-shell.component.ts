@@ -42,6 +42,10 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
               <span class="topbar-badge warn">{{ shortsAttention() }}</span>
             }
           </a>
+          <a routerLink="/calendar" routerLinkActive="active" class="topbar-navlink" title="Plan posts ahead and check they're scheduled">
+            <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            <span>Calendar</span>
+          </a>
           <button type="button" (click)="openVideoModal()" class="topbar-navlink topbar-navbtn">
             <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
             <span>Video Editor</span>
