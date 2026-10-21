@@ -227,10 +227,9 @@
                [style.background-color]="card.color" [style.opacity]="card.opacity"></div>
         }
 
-        <!-- Celebrations on FX1, drawn with the export's own particle plan. -->
-        @if (celebrationCues().length > 0) {
-          <app-celebration-layer [cues]="celebrationCues()" [clock]="monitorClock"
-                                 [exportWidth]="state.exportCanvas().width" [exportHeight]="state.exportCanvas().height" />
+        <!-- Dedicated backdrop for ad layouts (e.g. 3-Stack, Cosmic Card) to prevent underlying video bleed -->
+        @if (state.hasActiveAdLayoutBackdrop()) {
+          <div class="frame-layout-backdrop" [style.background]="state.frameLayout().barColor || '#070b19'"></div>
         }
 
         <!-- Frame images: logos and stickers, placed by their centre and sized by a share of
@@ -272,6 +271,12 @@
               </div>
             }
           </div>
+        }
+
+        <!-- Celebrations on FX1, drawn with the export's own particle plan (floats OVER video & frame images, below text). -->
+        @if (celebrationCues().length > 0) {
+          <app-celebration-layer [cues]="celebrationCues()" [clock]="monitorClock"
+                                 [exportWidth]="state.exportCanvas().width" [exportHeight]="state.exportCanvas().height" />
         }
 
         @if (dropHover()) {

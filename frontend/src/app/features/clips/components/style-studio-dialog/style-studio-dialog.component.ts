@@ -167,6 +167,24 @@ function parseAccentSegments(line: string): AccentSegment[] {
                     <h3 class="ss-pane-title">Direct-Response Ad &amp; Multi-Clip Layouts</h3>
                     <p class="ss-pane-desc">Choose a multi-layer composition style. These layouts combine talking heads, product reports, PDF documents, and cards.</p>
                   </div>
+                  <button class="ss-clear-layout-btn" type="button" (click)="clearLayout()" title="Remove all split-screen cards and revert to standard full-frame video">
+                    🗑 Revert to Full Frame
+                  </button>
+                </div>
+
+                <div class="ss-timing-control-strip">
+                  <span class="ss-timing-label">⏱ Active Timing:</span>
+                  <div class="ss-timing-chips">
+                    <button class="ss-timing-chip" type="button" [class.active]="layoutScope() === 'intro'" (click)="layoutScope.set('intro')">
+                      ⚡ Intro Hook (00:00–00:05)
+                    </button>
+                    <button class="ss-timing-chip" type="button" [class.active]="layoutScope() === 'selected'" (click)="layoutScope.set('selected')">
+                      🎯 Selected Shot Only
+                    </button>
+                    <button class="ss-timing-chip" type="button" [class.active]="layoutScope() === 'all'" (click)="layoutScope.set('all')">
+                      📺 Whole Video (00:00–End)
+                    </button>
+                  </div>
                 </div>
 
                 <div class="ss-layouts-list">
@@ -711,6 +729,29 @@ function parseAccentSegments(line: string): AccentSegment[] {
     }
 
     /* TAB 2: Ad Layouts List */
+    .ss-timing-control-strip {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 10px 14px; border-radius: 10px; background: #0c1220; border: 1px solid #1e293b;
+      margin-bottom: 12px; flex-wrap: wrap;
+    }
+    .ss-timing-label { font-size: 0.76rem; font-weight: 700; color: #94a3b8; }
+    .ss-timing-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .ss-timing-chip {
+      background: #111827; border: 1px solid #334155; color: #cbd5e1; border-radius: 6px;
+      padding: 4px 10px; font-size: 0.72rem; font-weight: 600; cursor: pointer; transition: all 0.15s;
+    }
+    .ss-timing-chip:hover { border-color: #64748b; color: #fff; }
+    .ss-timing-chip.active {
+      background: rgba(56, 189, 248, 0.15); border-color: #38bdf8; color: #38bdf8;
+    }
+    .ss-clear-layout-btn {
+      background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #fca5a5; border-radius: 6px; padding: 5px 12px; font-size: 0.74rem;
+      font-weight: 700; cursor: pointer; transition: all 0.15s;
+    }
+    .ss-clear-layout-btn:hover {
+      background: rgba(239, 68, 68, 0.22); border-color: #ef4444; color: #fff;
+    }
     .ss-layouts-list { display: flex; flex-direction: column; gap: 10px; }
     .ss-layout-card {
       display: flex !important; align-items: center !important; gap: 14px; padding: 12px 16px;
@@ -1082,6 +1123,7 @@ export class StyleStudioDialogComponent implements OnInit, OnDestroy {
   readonly scope = signal<'all' | 'selected'>('all');
   readonly selectedStyleId = signal<AutoShortStyle>('DirectResponse');
   readonly adLayout = signal<'none' | 'stack-3' | 'doc-split' | 'cosmic-card' | 'book-mockup'>('none');
+  readonly layoutScope = signal<'intro' | 'selected' | 'all'>('intro');
 
   readonly applyMotion = signal(true);
   readonly applyLook = signal(true);
@@ -1317,6 +1359,11 @@ export class StyleStudioDialogComponent implements OnInit, OnDestroy {
     };
   });
 
+  clearLayout(): void {
+    this.adLayout.set('none');
+    this.state.clearAdLayout();
+  }
+
   applyToTimeline(): void {
     const opts: ApplyTimelineStyleOptions = {
       styleId: this.selectedStyleId(),
@@ -1334,6 +1381,7 @@ export class StyleStudioDialogComponent implements OnInit, OnDestroy {
       addCtaButton: this.addCtaButton(),
       celebration: this.celebration(),
       adLayout: this.adLayout(),
+      layoutScope: this.layoutScope(),
     };
     this.state.applyAutoShortStyleToTimeline(opts);
   }

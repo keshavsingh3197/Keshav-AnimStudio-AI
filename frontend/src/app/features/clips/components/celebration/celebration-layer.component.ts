@@ -22,7 +22,7 @@ export interface CelebrationCue {
   standalone: true,
   template: `<canvas #canvas aria-hidden="true"></canvas>`,
   styles: [`
-    :host { position: absolute; inset: 0; pointer-events: none; z-index: 6; overflow: hidden; }
+    :host { position: absolute; inset: 0; pointer-events: none; z-index: 9; overflow: hidden; }
     canvas { width: 100%; height: 100%; display: block; }
   `],
 })

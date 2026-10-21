@@ -497,6 +497,15 @@
 .shot-bar.top { top: 0; }
 .shot-bar.bottom { bottom: 0; }
 
+/* Dedicated backdrop for multi-layer split screen / 3-stack ad layouts */
+.frame-layout-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
 /* Frame pictures and videos: the layer is the frame, and a size container, so a ring's
    width and a slide's travel are measured against it exactly as the export measures them.
    Each one is centred on its point. */

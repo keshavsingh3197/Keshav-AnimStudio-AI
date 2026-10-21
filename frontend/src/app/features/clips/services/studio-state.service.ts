@@ -5734,17 +5734,90 @@ export class StudioStateService implements OnDestroy {
     this.markDirty();
   }
 
+  /** Clears all ad layout split-screen layers and restores clean full-frame standard cut. */
+  clearAdLayout(): void {
+    this.frameLayout.update((l) => ({
+      ...l,
+      bars: 'auto',
+      images: [],
+      texts: l.texts.filter((t) => !t.id.startsWith('ft_')),
+    }));
+    this.selectedFrameLayer.set(null);
+    this.markDirty();
+    this.status.notify(['Restored Full-Frame Standard Cut (cleared ad layout layers).']);
+  }
+
   /**
    * 1-click Direct-Response Ad & Viral Short layout templates:
    * - 'stack-3': 3-Row Dynamic Video Stack with staggered slide-in reveal
    * - 'doc-split': 50/50 Talking Head + Document/Report Showcase
    * - 'cosmic-card': Framed Cosmic Glassmorphic Container + Comparison Name Strip
    * - 'book-mockup': 3D Product/Report Display + Social-Proof Badge + Pulsing CTA
+   * - 'none': Clears ad layout and restores standard full-frame
    */
-  applyAdLayoutPreset(preset: 'stack-3' | 'doc-split' | 'cosmic-card' | 'book-mockup'): void {
+  applyAdLayoutPreset(
+    preset: 'none' | 'stack-3' | 'doc-split' | 'cosmic-card' | 'book-mockup',
+    options?: {
+      scope?: 'intro' | 'selected' | 'all';
+      duration?: number | null;
+    }
+  ): void {
+    if (preset === 'none') {
+      this.clearAdLayout();
+      return;
+    }
+
+    const sched = this.clipSchedule();
+    const laneItems = this.timelineItems()
+      .filter((it) => (it.type === 'image' || it.type === 'video') && (it.trackId === 'IMG1' || it.trackId === 'V1' || it.trackId === 'V2'))
+      .sort((a, b) => a.startTime - b.startTime);
+
+    let layoutStart = 0;
+    let layoutEnd: number | null = null;
+
+    if (options?.scope === 'selected') {
+      const selId = this.selectedTimelineItemId();
+      const selItem = selId ? this.timelineItems().find((it) => it.id === selId) : null;
+      if (selItem) {
+        layoutStart = selItem.startTime;
+        layoutEnd = Math.round((selItem.startTime + selItem.duration) * 100) / 100;
+      } else {
+        const curClip = this.currentScheduledClip();
+        if (curClip) {
+          layoutStart = curClip.startSeconds;
+          layoutEnd = curClip.endSeconds;
+        }
+      }
+    } else if (options?.scope === 'all') {
+      layoutStart = 0;
+      layoutEnd = null; // Whole video
+    } else {
+      // Default: 'intro' hook (first shot or up to 5 seconds)
+      const firstDur = sched[0]?.durationSeconds ?? laneItems[0]?.duration ?? 5.0;
+      layoutStart = 0;
+      layoutEnd = Math.min(Math.max(3.0, firstDur), 6.0);
+    }
+
     const videos = this.frameVideoCandidates();
     const images = this.frameImageCandidates();
-    const media = [...videos, ...images];
+    const media: FrameMediaCandidate[] = [...videos, ...images];
+    if (media.length < 3 && laneItems.length > 0) {
+      const seen = new Set(media.map((m) => m.id));
+      for (const it of laneItems) {
+        if (it.src && !seen.has(it.src)) {
+          seen.add(it.src);
+          media.push({
+            id: it.src,
+            name: it.name || 'Shot',
+            kind: (it.type === 'video' ? 'video' : 'image') as 'video' | 'image',
+            seconds: it.duration ?? null,
+          });
+        }
+      }
+    }
+
+    const span = layoutEnd !== null ? Math.max(1, layoutEnd - layoutStart) : 5;
+    const staggerStep = Math.min(0.35, span * 0.08);
 
     if (preset === 'stack-3') {
       const picks = (videos.length >= 3 ? videos : media).slice(0, 3);
@@ -5766,9 +5839,9 @@ export class StudioStateService implements OnDestroy {
         animIn: idx === 0 ? 'slide-right' : idx === 1 ? 'slide-left' : 'slide-up',
         animInDuration: 0.35,
         animOut: 'fade',
-        animOutDuration: 0.3,
-        start: idx === 0 ? 0 : idx === 1 ? 0.35 : 0.7,
-        end: null,
+        animOutDuration: 0.35,
+        start: Math.round((layoutStart + idx * staggerStep) * 100) / 100,
+        end: layoutEnd,
       }));
       const badge: FrameText = {
         id: newLayerId('ft'),
@@ -5781,8 +5854,10 @@ export class StudioStateService implements OnDestroy {
           boxStyle: 'box', boxColor: '#0f172a', boxOpacity: 0.9,
           outlineColor: '#38bdf8', outlineWidth: 1.5, shadow: true, uppercase: true,
           transitionIn: 'slide-down', transitionInDuration: 0.25,
+          transitionOut: 'fade', transitionOutDuration: 0.35,
         },
-        start: 0, end: null,
+        start: layoutStart,
+        end: layoutEnd,
       };
       this.frameLayout.update((l) => ({
         ...l,
@@ -5799,7 +5874,7 @@ export class StudioStateService implements OnDestroy {
       this.markDirty();
       this.status.notify([
         bands.length > 0
-          ? `Applied 3-Row Stack layout with ${bands.length} staggered layers.`
+          ? `Applied 3-Row Stack layout (${layoutEnd ? `${layoutStart}s–${layoutEnd}s hook` : 'whole video'}).`
           : 'Applied 3-Row Stack frame — add up to 3 videos/pictures in Pictures & Videos below.',
       ]);
       return;
@@ -5818,8 +5893,8 @@ export class StudioStateService implements OnDestroy {
           x: 50, y: 25, width: 92, opacity: 1,
           crop: { ...NO_CROP }, shape: 'rounded',
           borderWidth: 2, borderColor: '#eab308', sourceAspect: null, trimStart: 0,
-          animIn: 'slide-down', animInDuration: 0.35, animOut: 'fade', animOutDuration: 0.3,
-          start: 0, end: null,
+          animIn: 'slide-down', animInDuration: 0.35, animOut: 'fade', animOutDuration: 0.35,
+          start: layoutStart, end: layoutEnd,
         });
       }
       if (bottomDoc) {
@@ -5831,8 +5906,8 @@ export class StudioStateService implements OnDestroy {
           x: 50, y: 74, width: 88, opacity: 1,
           crop: { ...NO_CROP }, shape: 'rounded',
           borderWidth: 3, borderColor: '#facc15', sourceAspect: null, trimStart: 0,
-          animIn: 'slide-up', animInDuration: 0.45, animOut: 'fade', animOutDuration: 0.3,
-          start: 0.25, end: null,
+          animIn: 'slide-up', animInDuration: 0.45, animOut: 'fade', animOutDuration: 0.35,
+          start: Math.round((layoutStart + staggerStep) * 100) / 100, end: layoutEnd,
         });
       }
       const banner: FrameText = {
@@ -5846,8 +5921,9 @@ export class StudioStateService implements OnDestroy {
           boxStyle: 'band', boxColor: '#eab308', boxOpacity: 0.96,
           outlineColor: '#ffffff', outlineWidth: 1, shadow: false, uppercase: true,
           transitionIn: 'slide-right', transitionInDuration: 0.3,
+          transitionOut: 'fade', transitionOutDuration: 0.35,
         },
-        start: 0, end: null,
+        start: layoutStart, end: layoutEnd,
       };
       this.frameLayout.update((l) => ({
         ...l,
@@ -5862,13 +5938,13 @@ export class StudioStateService implements OnDestroy {
         });
       }
       this.markDirty();
-      this.status.notify(['Applied 50/50 Talking Head + Document Showcase layout.']);
+      this.status.notify([`Applied 50/50 Talking Head + Document Showcase layout (${layoutEnd ? `${layoutStart}s–${layoutEnd}s hook` : 'whole video'}).`]);
       return;
     }
 
     if (preset === 'cosmic-card') {
       const hasCosmic = this.itemsForTrack('FX1').some((it) => it.type === 'celebration' && it.src === 'cosmic');
-      if (!hasCosmic) this.addCelebration('cosmic', 0);
+      if (!hasCosmic) this.addCelebration('cosmic', layoutStart);
       const texts: FrameText[] = [
         {
           id: newLayerId('ft'),
@@ -5881,8 +5957,9 @@ export class StudioStateService implements OnDestroy {
             boxStyle: 'box', boxColor: '#0f172a', boxOpacity: 0.9,
             outlineColor: '#38bdf8', outlineWidth: 1.5, shadow: true, uppercase: true,
             transitionIn: 'slide-down', transitionInDuration: 0.3,
+            transitionOut: 'fade', transitionOutDuration: 0.35,
           },
-          start: 0, end: null,
+          start: layoutStart, end: layoutEnd,
         },
         {
           id: newLayerId('ft'),
@@ -5895,8 +5972,9 @@ export class StudioStateService implements OnDestroy {
             boxStyle: 'box', boxColor: '#0f172a', boxOpacity: 0.92,
             outlineColor: '#38bdf8', outlineWidth: 2, shadow: true, uppercase: false,
             transitionIn: 'slide-right', transitionInDuration: 0.35,
+            transitionOut: 'fade', transitionOutDuration: 0.35,
           },
-          start: 0.2, end: null,
+          start: Math.round((layoutStart + staggerStep) * 100) / 100, end: layoutEnd,
         },
         {
           id: newLayerId('ft'),
@@ -5909,8 +5987,9 @@ export class StudioStateService implements OnDestroy {
             boxStyle: 'box', boxColor: '#1e1b4b', boxOpacity: 0.88,
             outlineColor: '#818cf8', outlineWidth: 1.5, shadow: true, uppercase: false,
             transitionIn: 'slide-up', transitionInDuration: 0.4,
+            transitionOut: 'fade', transitionOutDuration: 0.35,
           },
-          start: 0.45, end: null,
+          start: Math.round((layoutStart + staggerStep * 2) * 100) / 100, end: layoutEnd,
         },
       ];
       this.frameLayout.update((l) => ({
@@ -5921,14 +6000,14 @@ export class StudioStateService implements OnDestroy {
       }));
       this.setInspectorTab('layout');
       this.markDirty();
-      this.status.notify(['Applied Cosmic Glassmorphic Card + Comparison Strip + Starry Nebula FX.']);
+      this.status.notify([`Applied Cosmic Glassmorphic Card + Comparison Strip (${layoutEnd ? `${layoutStart}s–${layoutEnd}s hook` : 'whole video'}).`]);
       return;
     }
 
     if (preset === 'book-mockup') {
       const hasCosmic = this.itemsForTrack('FX1').some((it) => it.type === 'celebration' && it.src === 'cosmic');
-      if (!hasCosmic) this.addCelebration('cosmic', 0);
-      const mockupAsset = images[0] ?? videos[0];
+      if (!hasCosmic) this.addCelebration('cosmic', layoutStart);
+      const mockupAsset = images[0] ?? videos[0] ?? media[0];
       const mockupLayers: FrameImage[] = mockupAsset ? [{
         id: newLayerId('fi'),
         kind: mockupAsset.kind,
@@ -5937,8 +6016,8 @@ export class StudioStateService implements OnDestroy {
         x: 50, y: 48, width: 64, opacity: 1,
         crop: { ...NO_CROP }, shape: 'rounded',
         borderWidth: 4, borderColor: '#facc15', sourceAspect: null, trimStart: 0,
-        animIn: 'zoom', animInDuration: 0.45, animOut: 'fade', animOutDuration: 0.3,
-        start: 0, end: null,
+        animIn: 'zoom', animInDuration: 0.45, animOut: 'fade', animOutDuration: 0.35,
+        start: layoutStart, end: layoutEnd,
       }] : [];
       const texts: FrameText[] = [
         {
@@ -5952,8 +6031,9 @@ export class StudioStateService implements OnDestroy {
             boxStyle: 'box', boxColor: '#0f172a', boxOpacity: 0.92,
             outlineColor: '#eab308', outlineWidth: 2, shadow: true, uppercase: true,
             transitionIn: 'slide-down', transitionInDuration: 0.3,
+            transitionOut: 'fade', transitionOutDuration: 0.35,
           },
-          start: 0, end: null,
+          start: layoutStart, end: layoutEnd,
         },
         {
           id: newLayerId('ft'),
@@ -5966,8 +6046,9 @@ export class StudioStateService implements OnDestroy {
             boxStyle: 'box', boxColor: '#facc15', boxOpacity: 0.98,
             outlineColor: '#ffffff', outlineWidth: 2.5, shadow: true, uppercase: true,
             transitionIn: 'zoom-in', transitionInDuration: 0.35,
+            transitionOut: 'fade', transitionOutDuration: 0.35,
           },
-          start: 0.3, end: null,
+          start: Math.round((layoutStart + staggerStep) * 100) / 100, end: layoutEnd,
         },
       ];
       this.frameLayout.update((l) => ({
@@ -5984,7 +6065,7 @@ export class StudioStateService implements OnDestroy {
       }
       this.setInspectorTab('layout');
       this.markDirty();
-      this.status.notify(['Applied 3D Report Mockup + "10,000+ SOLD" Social Proof Badge + CTA Button.']);
+      this.status.notify([`Applied 3D Report Mockup + Social Proof Badge (${layoutEnd ? `${layoutStart}s–${layoutEnd}s hook` : 'whole video'}).`]);
     }
   }
 
@@ -6268,6 +6349,13 @@ export class StudioStateService implements OnDestroy {
           sourceTime: i.trimStart + (t - start),
         };
       });
+  });
+
+  /** Whether a dedicated solid/colored backdrop should occlude the background footage during an ad layout (e.g. 3-Stack, Cosmic Card). */
+  readonly hasActiveAdLayoutBackdrop = computed<boolean>(() => {
+    const fl = this.frameLayout();
+    if (fl.bars !== 'color' || fl.images.length === 0) return false;
+    return this.monitorFrameImages().length > 0;
   });
 
   // --- subtitles ---
@@ -10280,9 +10368,19 @@ export class StudioStateService implements OnDestroy {
       const hasPerShot = opts.textMode === 'PerShot' || opts.textMode === 'HookAndPerShot';
       const hasWordPop = opts.textMode === 'WordPop' || opts.textMode === 'HookAndWordPop';
 
-      const shots: { start: number; dur: number }[] = sched.length > 0
-        ? sched.map((s) => ({ start: s.startSeconds, dur: s.durationSeconds }))
-        : [{ start: 0, dur: totalDur }];
+      const shots: { start: number; dur: number }[] = [];
+      if (sched.length > 0) {
+        for (const s of sched) shots.push({ start: s.startSeconds, dur: s.durationSeconds });
+      } else {
+        const laneItems = this.timelineItems()
+          .filter((it) => (it.type === 'image' || it.type === 'video') && (it.trackId === 'IMG1' || it.trackId === 'V1' || it.trackId === 'V2'))
+          .sort((a, b) => a.startTime - b.startTime);
+        if (laneItems.length > 0) {
+          for (const it of laneItems) shots.push({ start: it.startTime, dur: it.duration });
+        } else {
+          shots.push({ start: 0, dur: totalDur });
+        }
+      }
 
       let lineIdx = 0;
       if (hasHook && lines.length > 0 && shots.length > 0) {
@@ -10332,11 +10430,11 @@ export class StudioStateService implements OnDestroy {
           const shotDur = Math.max(0.6, s.dur - pad * 2);
           const chunks = chunkIntoWordPops(line);
           if (chunks.length === 0) continue;
-          const step = Math.max(0.35, shotDur / chunks.length);
+          const idealStep = Math.min(0.85, Math.max(0.35, shotDur / chunks.length));
           for (let w = 0; w < chunks.length; w++) {
-            const wStart = shotStart + w * step;
-            if (wStart >= shotStart + shotDur - 0.15) break;
-            const wDur = Math.min(step, shotStart + shotDur - wStart);
+            const wStart = shotStart + w * idealStep;
+            if (wStart >= shotStart + shotDur - 0.1) break;
+            const wDur = Math.min(idealStep, shotStart + shotDur - wStart);
             const rawChunk = chunks[w];
             const chunkText = w % 2 === 1 && !rawChunk.includes('[') ? `[${rawChunk}]` : rawChunk;
             newTxtItems.push({
@@ -10415,8 +10513,12 @@ export class StudioStateService implements OnDestroy {
     }
 
     // 5. Optional Direct-Response Ad Layout
-    if (opts.adLayout !== 'none') {
-      this.applyAdLayoutPreset(opts.adLayout);
+    if (opts.adLayout === 'none') {
+      this.clearAdLayout();
+    } else {
+      this.applyAdLayoutPreset(opts.adLayout, {
+        scope: opts.layoutScope ?? (opts.scope === 'selected' ? 'selected' : 'intro'),
+      });
     }
 
     this.markDirty();
@@ -10566,6 +10668,7 @@ export interface ApplyTimelineStyleOptions {
   addCtaButton: boolean;
   celebration: CelebrationKind | 'none';
   adLayout: 'none' | 'stack-3' | 'doc-split' | 'cosmic-card' | 'book-mockup';
+  layoutScope?: 'intro' | 'selected' | 'all';
 }
 
 function chunkIntoWordPops(line: string): string[] {
