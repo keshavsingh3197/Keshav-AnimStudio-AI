@@ -1155,3 +1155,19 @@
   font-weight: 700;
   color: #93c5fd;
 }
+
+/* Scheduled: private now, public by itself later */
+.ck-pill.ck-scheduled {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+  background: var(--warn-dim);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ck-inline-link {
+  color: var(--brand-bright);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

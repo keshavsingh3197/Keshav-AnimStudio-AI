@@ -46,6 +46,10 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
             <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
             <span>Calendar</span>
           </a>
+          <a routerLink="/effects" routerLinkActive="active" class="topbar-navlink" title="Effects &amp; overlays - subscribe buttons, stingers, end screens and sounds to reuse in every video">
+            <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><path d="M12 2l2.4 5.6L20 10l-5.6 2.4L12 18l-2.4-5.6L4 10l5.6-2.4z"/><line x1="19" y1="17" x2="19" y2="22"/><line x1="16.5" y1="19.5" x2="21.5" y2="19.5"/></svg>
+            <span>Effects</span>
+          </a>
           <button type="button" (click)="openVideoModal()" class="topbar-navlink topbar-navbtn">
             <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
             <span>Video Editor</span>
@@ -64,6 +68,10 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
           <a routerLink="/youtube" routerLinkActive="active" class="topbar-navlink">
             <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><rect x="2" y="4" width="20" height="16" rx="4"/><polygon points="10 9 15 12 10 15 10 9" fill="currentColor" stroke="none"/></svg>
             <span>YouTube</span>
+          </a>
+          <a routerLink="/youtube/details" routerLinkActive="active" class="topbar-navlink" title="Full details and fresh SEO for any list of video IDs">
+            <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/><line x1="11" y1="8" x2="11" y2="14"/></svg>
+            <span>Video Details</span>
           </a>
           <a routerLink="/live" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }" class="topbar-navlink">
             <span class="topbar-live-dot" aria-hidden="true"></span>
@@ -166,9 +174,11 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
         <nav class="app-footer-links" aria-label="Footer">
           <a routerLink="/projects">Projects</a>
           <a routerLink="/shorts">Shorts</a>
+          <a routerLink="/effects">Effects</a>
           <a routerLink="/tools">Media Studio</a>
           <a routerLink="/release">Music Release</a>
           <a routerLink="/youtube">YouTube</a>
+          <a routerLink="/youtube/details">Video Details</a>
           <a routerLink="/live">Go Live</a>
           <a routerLink="/live/camera">Camera Studio</a>
           <a routerLink="/collab">Collab Studio</a>

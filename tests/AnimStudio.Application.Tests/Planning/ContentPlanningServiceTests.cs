@@ -131,6 +131,51 @@ public sealed class ContentPlanningServiceTests
             _service.AddLinkAsync("u1", new ContentLinkCommand("http://example.com", null, null, null, null, false), default));
     }
 
+    [Fact]
+    public async Task Postponing_moves_a_post_to_the_next_free_day_and_the_planner_leaves_both_days_alone()
+    {
+        var topic = await _service.CreateTopicAsync("u1", Weekly(), default);
+        var first = _items.All.OrderBy(i => i.PublishAt).First();
+
+        var view = await _service.PostponeAsync(first.Id, "u1", null, default);
+
+        // 26 Oct and 2 Nov are taken (by itself and the next slot), so 9 Nov, 18:00 in India.
+        Assert.Equal(new DateTime(2026, 11, 9, 12, 30, 0, DateTimeKind.Utc), view.Item.PublishAt);
+        Assert.Equal($"{topic.Id}:2026-11-09", view.Item.SlotKey);
+        Assert.Contains($"{topic.Id}:2026-10-26", topic.DismissedSlots);
+        Assert.Equal(0, await _service.PlanSlotsAsync(topic, default));
+        Assert.Equal(2, _items.All.Count);
+    }
+
+    [Fact]
+    public async Task A_late_post_swaps_days_with_a_ready_one()
+    {
+        await _service.CreateTopicAsync("u1", Weekly(), default);
+        var posts = _items.All.OrderBy(i => i.PublishAt).ToList();
+        var (late, ready) = (posts[0], posts[1]);
+        var (lateAt, lateKey, readyAt, readyKey) = (late.PublishAt, late.SlotKey, ready.PublishAt, ready.SlotKey);
+        await _service.SetStatusAsync(ready.Id, "u1", ContentPlanStatus.Ready, default);
+
+        var options = await _service.RecoveryOptionsAsync(late.Id, "u1", default);
+        Assert.Equal([ready.Id], options.SwapWith.Select(v => v.Item.Id));
+
+        await _service.SwapAsync(late.Id, ready.Id, "u1", default);
+
+        Assert.Equal((readyAt, readyKey), (late.PublishAt, late.SlotKey));
+        Assert.Equal((lateAt, lateKey), (ready.PublishAt, ready.SlotKey));
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() => _service.SwapAsync(late.Id, ready.Id, "u2", default));
+    }
+
+    [Fact]
+    public async Task Posts_of_different_topics_cannot_swap()
+    {
+        await _service.CreateTopicAsync("u1", Weekly(), default);
+        await _service.CreateTopicAsync("u1", Weekly("Friday facts") with { Days = [DayOfWeek.Friday] }, default);
+        var byTopic = _items.All.GroupBy(i => i.TopicId).Select(g => g.First()).ToList();
+
+        await Assert.ThrowsAsync<EditingException>(() => _service.SwapAsync(byTopic[0].Id, byTopic[1].Id, "u1", default));
+    }
+
     // ---------------------------------------------------------------- in-memory stores
 
     private sealed class InMemoryTopics : IContentTopicRepository

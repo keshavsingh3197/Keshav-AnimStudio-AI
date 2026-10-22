@@ -2,8 +2,8 @@ import { DatePipe } from '@angular/common';
 import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
-import { RouterLink } from '@angular/router';
-import { Observable, catchError, of } from 'rxjs';
+import { ActivatedRoute, RouterLink } from '@angular/router';
+import { Observable, catchError, map, of, switchMap } from 'rxjs';
 
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
 import {
@@ -11,7 +11,9 @@ import {
 } from '../../core/models/youtube.models';
 import { YouTubePublishService } from '../../core/services/youtube-publish.service';
 import { MAX_ANSWER_CHARS, MAX_PROMPT_VIDEOS, buildHandoffPrompt, parseHandoffAnswer } from './checkup-ai-handoff';
-import { Draft, EMPTY_STATE, HASHTAG, HASHTAGS, RowState, draftDiffers, fitTags, splitTags } from './checkup-draft';
+import {
+  Draft, EMPTY_STATE, HASHTAG, HASHTAGS, RowState, draftDiffers, fitTags, fromLocalInput, scheduleDiffers, splitTags, toLocalInput, toneLabel,
+} from './checkup-draft';
 import { CheckupVideoEditorComponent } from './checkup-video-editor.component';
 
 /** The issues the page counts and filters by, in the order they're shown. */
@@ -71,6 +73,10 @@ function loadViewMode(): ViewMode {
 export class YouTubeCheckupComponent implements OnInit {
   private readonly api = inject(YouTubePublishService);
   private readonly sanitizer = inject(DomSanitizer);
+  private readonly route = inject(ActivatedRoute);
+
+  /** A video to open once its channel's check has loaded - from "Open in checkup" on the details page. */
+  private pendingOpen: string | null = null;
 
   readonly issueLabels = ISSUE_LABELS;
   readonly maxPromptVideos = MAX_PROMPT_VIDEOS;
@@ -202,7 +208,11 @@ export class YouTubeCheckupComponent implements OnInit {
       this.configured.set(s.configured);
       this.channels.set(s.channels);
       this.categories.set(s.categories);
-      const first = s.channels.find((c) => !c.needsReconnect && c.canComment) ?? s.channels[0];
+      const query = this.route.snapshot.queryParamMap;
+      const wanted = s.channels.find((c) => c.channelId === query.get('channel'));
+      const video = query.get('video');
+      if (wanted && video && VIDEO_ID.test(video)) this.pendingOpen = video;
+      const first = wanted ?? s.channels.find((c) => !c.needsReconnect && c.canComment) ?? s.channels[0];
       if (first) this.pickChannel(first.channelId);
     });
     this.api.suggestOptions().pipe(catchError(() => of(null))).subscribe((o) => {
@@ -240,9 +250,23 @@ export class YouTubeCheckupComponent implements OnInit {
     this.page.set(0);
     this.startTimer();
     this.api.checkup(channel.channelId, this.max()).subscribe({
-      next: (c) => { this.checkup.set(c); this.loading.set(false); this.stopTimer(); },
+      next: (c) => { this.checkup.set(c); this.loading.set(false); this.stopTimer(); this.openPending(); },
       error: (e: unknown) => { this.error.set(message(e)); this.loading.set(false); this.stopTimer(); },
     });
+  }
+
+  /** Opens the video asked for in the link, or says why it can't. */
+  private openPending(): void {
+    const id = this.pendingOpen;
+    this.pendingOpen = null;
+    if (!id) return;
+    const v = this.videos().find((x) => x.videoId === id);
+    if (v) {
+      this.filter.set('all');
+      this.openEditor(v);
+    } else {
+      this.notice.set(`That video isn't among the newest ${this.max()} checked. Raise the scan depth to find it.`);
+    }
   }
 
   setFilter(filter: Filter): void {
@@ -541,20 +565,32 @@ export class YouTubeCheckupComponent implements OnInit {
       const d = this.state(v.videoId).draft;
       if (!d) { sub.next(false); sub.complete(); return; }
       this.patch(v.videoId, { busy: 'save', error: null, warnings: [] });
-      return this.api.saveVideoDetails(this.channelId(), v.videoId, {
+      const channelId = this.channelId();
+      // A schedule is set (or taken off) after the details, which leave a private video's own schedule alone.
+      const scheduleChange = scheduleDiffers(v, d);
+      const publishAt = d.scheduled ? fromLocalInput(d.publishAtLocal) : null;
+      return this.api.saveVideoDetails(channelId, v.videoId, {
         metadata: {
           title: d.title.trim(),
           description: d.description.trim(),
           tags: splitTags(d.tagsText),
           categoryId: d.categoryId,
-          privacy: d.privacy,
+          privacy: d.scheduled ? 'private' : d.privacy,
           madeForKids: d.madeForKids,
           notifySubscribers: false,
         },
         addToPlaylistIds: d.addPlaylistIds,
         currentPlaylistIds: v.playlistIds,
         playlistsKnown: !this.checkup()?.playlistError,
-      }).subscribe({
+      }).pipe(
+        switchMap((res) => !scheduleChange
+          ? of(res)
+          : this.api.scheduleVideo(channelId, v.videoId, publishAt).pipe(
+            map((s) => ({ ...res, video: { ...res.video, privacy: s.privacy, scheduledAt: s.scheduledAt } })),
+            // The details are saved; a refused schedule is reported on the row, not lost with them.
+            catchError((e: unknown) => of({ ...res, warnings: [...res.warnings, `Details saved, but the schedule wasn't: ${message(e)}`] })),
+          )),
+      ).subscribe({
         next: (res) => {
           this.checkup.update((c) => c ? { ...c, videos: c.videos.map((x) => x.videoId === v.videoId ? res.video : x) } : c);
           this.patch(v.videoId, { busy: null, saved: true, warnings: res.warnings, draft: this.draftFrom(res.video) });
@@ -580,7 +616,10 @@ export class YouTubeCheckupComponent implements OnInit {
       ? v.categoryId
       : (categories.find((c) => c.id === '22') ?? categories[0])?.id ?? '22';
     const privacy = (['public', 'unlisted', 'private'] as const).find((p) => p === v.privacy) ?? 'public';
+    const scheduled = privacy === 'private' && !!v.scheduledAt;
     return {
+      scheduled,
+      publishAtLocal: scheduled ? toLocalInput(v.scheduledAt) : '',
       title: v.title,
       description: v.description,
       tagsText: v.tags.join(', '),
@@ -632,20 +671,7 @@ export class YouTubeCheckupComponent implements OnInit {
   }
 
   toneLabel(t: string): string {
-    const labels: Record<string, string> = {
-      auto: '🎯 Auto Tone',
-      'devotional-omkr': '🕉️ OMKR 3D Devotional (Brand Rules)',
-      devotional: '🙏 Devotional',
-      funny: '😂 Funny',
-      emotional: '🥹 Emotional',
-      dramatic: '🎭 Dramatic',
-      informative: '📘 Informative',
-      energetic: '⚡ Energetic',
-      kids: '🧸 For Kids',
-      motivational: '💪 Motivational',
-      'clickbait-free': '✅ Honest / No Clickbait',
-    };
-    return labels[t] ?? t;
+    return toneLabel(t);
   }
 
   generateUrlSeo(): void {

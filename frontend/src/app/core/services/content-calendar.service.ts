@@ -5,7 +5,7 @@ import { Observable, map } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../models/api.models';
 import {
-  ContentPlanItem, ContentPlanItemRequest, ContentPlanStatus, ContentSourceLink, ContentSourceLinkRequest,
+  ContentPlanItem, ContentPlanItemRequest, ContentPlanStatus, ContentRecovery, ContentSourceLink, ContentSourceLinkRequest,
   ContentTopic, ContentTopicRequest, ContentUploadCandidate,
 } from '../models/calendar.models';
 
@@ -49,6 +49,10 @@ export class ContentCalendarService {
     return this.http.get<ApiResponse<ContentPlanItem[]>>(`${this.base}/items`, { params }).pipe(map((r) => r.data ?? []));
   }
 
+  getItem(id: string): Observable<ContentPlanItem> {
+    return this.item(this.http.get<ApiResponse<ContentPlanItem>>(`${this.base}/items/${encodeURIComponent(id)}`));
+  }
+
   createItem(body: ContentPlanItemRequest): Observable<ContentPlanItem> {
     return this.http.post<ApiResponse<ContentPlanItem>>(`${this.base}/items`, body).pipe(map((r) => r.data as ContentPlanItem));
   }
@@ -67,6 +71,27 @@ export class ContentCalendarService {
 
   deleteItem(id: string): Observable<unknown> {
     return this.http.delete(`${this.base}/items/${encodeURIComponent(id)}`);
+  }
+
+  // ---------------------------------------------------------------- when a post won't be ready
+
+  recovery(id: string): Observable<ContentRecovery> {
+    return this.http
+      .get<ApiResponse<ContentRecovery>>(`${this.base}/items/${encodeURIComponent(id)}/recovery`)
+      .pipe(map((r) => r.data ?? { nextFreeAt: null, swapWith: [] }));
+  }
+
+  /** Moves the post to `publishAt`, or to the topic's next free day when omitted. */
+  postpone(id: string, publishAt?: string): Observable<ContentPlanItem> {
+    return this.item(this.http.post<ApiResponse<ContentPlanItem>>(
+      `${this.base}/items/${encodeURIComponent(id)}/postpone`, { publishAt: publishAt ?? null }));
+  }
+
+  /** Trades days with another post of the same topic; returns both. */
+  swap(id: string, otherId: string): Observable<ContentPlanItem[]> {
+    return this.http
+      .post<ApiResponse<ContentPlanItem[]>>(`${this.base}/items/${encodeURIComponent(id)}/swap`, { otherId })
+      .pipe(map((r) => r.data ?? []));
   }
 
   // ---------------------------------------------------------------- the YouTube video

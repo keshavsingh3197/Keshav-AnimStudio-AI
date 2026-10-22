@@ -36,7 +36,8 @@ public sealed record YouTubeVideoFullDetails(
     DateTime? PublishedAt,
     double? DurationSeconds,
     string? ThumbnailUrl,
-    DateTime? ScheduledAt = null);
+    DateTime? ScheduledAt = null,
+    bool? LicensedContent = null);
 
 public sealed record YouTubePlaylist(string Id, string Title, int ItemCount);
 
@@ -332,6 +333,39 @@ public sealed partial class YouTubeChannelVideosClient : IDisposable
         }
     }
 
+    /// <summary>
+    /// Takes a private video's scheduled publish time off (50 quota units); it stays private.
+    /// Nothing is written when no time is set.
+    /// </summary>
+    /// <param name="expectedChannelId">When set, the video must be on this channel, or nothing is changed.</param>
+    public async Task ClearScheduleAsync(string accessToken, string videoId, CancellationToken ct, string? expectedChannelId = null)
+    {
+        if (!IsVideoId(videoId)) throw new YouTubePublishException("handoff-video-invalid", "That isn't a YouTube video id.");
+
+        JsonObject status;
+        using (var current = await SendAsync(HttpMethod.Get, $"videos?part=snippet,status&id={Uri.EscapeDataString(videoId)}",
+                   null, accessToken, "videos.list", ct).ConfigureAwait(false))
+        {
+            var item = FirstItem(current.RootElement)
+                ?? throw new YouTubePublishException("handoff-video-missing", "That video isn't on the channel any more.");
+            if (expectedChannelId is not null
+                && (!item.TryGetProperty("snippet", out var sn)
+                    || !string.Equals(ReadString(sn, "channelId"), expectedChannelId, StringComparison.Ordinal)))
+                throw new YouTubePublishException("handoff-video-missing", "That video isn't on this channel.");
+            status = JsonNode.Parse(item.GetProperty("status").GetRawText())!.AsObject();
+        }
+        if (status["publishAt"] is null) return;
+
+        foreach (var name in new[] { "uploadStatus", "failureReason", "rejectionReason", "madeForKids", "publishAt" })
+            status.Remove(name);
+        status["privacyStatus"] = "private";
+
+        var body = new JsonObject { ["id"] = videoId, ["status"] = status };
+        using (await SendAsync(HttpMethod.Put, "videos?part=status", body, accessToken, "videos.update", ct).ConfigureAwait(false))
+        {
+        }
+    }
+
     public static bool IsVideoId(string? value) => value is not null && VideoIdPattern().IsMatch(value);
 
     private static YouTubeChannelVideo? Describe(JsonElement item)
@@ -403,9 +437,11 @@ public sealed partial class YouTubeChannelVideosClient : IDisposable
         var kids = ReadBool(status, "selfDeclaredMadeForKids") ?? ReadBool(status, "madeForKids");
 
         var description = ReadString(snippet, "description") ?? string.Empty;
+        var details = item.TryGetProperty("contentDetails", out var cd) ? cd : default;
         return new YouTubeVideoFullDetails(basic.VideoId, ReadString(snippet, "channelId") ?? string.Empty, basic.Title,
             description.Length <= 5000 ? description : description[..5000], tags, ReadString(snippet, "categoryId"),
-            basic.PrivacyStatus, kids, basic.PublishedAt, basic.DurationSeconds, basic.ThumbnailUrl, basic.ScheduledAt);
+            basic.PrivacyStatus, kids, basic.PublishedAt, basic.DurationSeconds, basic.ThumbnailUrl, basic.ScheduledAt,
+            ReadBool(details, "licensedContent"));
     }
 
     private static bool? ReadBool(JsonElement element, string name) =>

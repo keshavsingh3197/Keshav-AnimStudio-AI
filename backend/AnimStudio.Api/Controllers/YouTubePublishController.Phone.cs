@@ -201,6 +201,10 @@ public sealed partial class YouTubePublishController
         var related = await publications.ResolveRelatedAsync(currentUser.UserId, relatedIds, ct);
         if (related.Count != relatedIds.Count)
             return HandoffBadRequest("related-not-found", "A related video is no longer in your list. Pick again.", "relatedVideoIds");
+        // The phone uploads the file itself and only the details are applied afterwards, so a
+        // publish time can't be honoured; refused rather than silently dropped.
+        if (request.Metadata?.PublishAt is not null)
+            return HandoffBadRequest("schedule-not-on-phone", "Scheduling isn't available when uploading from the phone. Pick another visibility.", "publishAt");
 
         var metadata = request.Metadata is null || related.Count == 0
             ? request.Metadata

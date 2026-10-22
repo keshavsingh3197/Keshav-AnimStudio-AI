@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using AnimStudio.Application.Ingest;
+using AnimStudio.Application.Publishing;
 using AnimStudio.Infrastructure.Ingest;
 using Microsoft.Extensions.Logging;
 
@@ -22,7 +23,23 @@ public sealed record YouTubeFetchedVideoData(
     double? DurationSeconds,
     string TranscriptText,
     string? Language,
-    bool HasTranscript);
+    bool HasTranscript)
+{
+    /// <summary>Every caption line with its start time (up to <see cref="YouTubeTranscriptFetcher.MaxSegments"/>), for chapters and the full text.</summary>
+    public IReadOnlyList<YouTubeCaptionSegment> Segments { get; init; } = [];
+
+    /// <summary>Whether the captions were YouTube's automatic ones; null when unknown (the yt-dlp fallback).</summary>
+    public bool? CaptionsAreAuto { get; init; }
+
+    /// <summary>The channel the video is on, as YouTube's player reports it; null when that wasn't read.</summary>
+    public string? ChannelId { get; init; }
+}
+
+/// <summary>What a public watch page adds: the music YouTube recognised, and when and by whom it was published.</summary>
+public sealed record YouTubeWatchPageInfo(IReadOnlyList<YouTubeDetectedSong> Songs, string? PublishedText, string? ChannelTitle)
+{
+    public static readonly YouTubeWatchPageInfo Empty = new([], null, null);
+}
 
 /// <summary>
 /// 100% Free, Zero-Key YouTube Metadata &amp; Spoken Transcript / Lyrics Extractor, plus
@@ -35,6 +52,12 @@ public sealed record YouTubeFetchedVideoData(
 /// </summary>
 public sealed partial class YouTubeTranscriptFetcher : IDisposable
 {
+    /// <summary>Caption lines kept with their timing; the transcript text itself stays at its first 120.</summary>
+    public const int MaxSegments = 3000;
+
+    /// <summary>A watch page's JSON is large but not this large; anything bigger is not read.</summary>
+    private const long MaxNextResponseBytes = 8 * 1024 * 1024;
+
     private readonly ILogger<YouTubeTranscriptFetcher> _logger;
     private readonly YtDlpCaptionDownloader? _ytDlp;
     private readonly HttpClient _http;
@@ -92,12 +115,16 @@ public sealed partial class YouTubeTranscriptFetcher : IDisposable
         double? durationSeconds = null;
         string transcriptText = string.Empty;
         string? language = null;
+        IReadOnlyList<YouTubeCaptionSegment> segments = [];
+        bool? captionsAreAuto = null;
+        string? channelId = null;
 
         // 1. Try YouTube Innertube Player API (fast, free, returns videoDetails + captionTracks)
         try
         {
-            var (itTitle, itDesc, itKeywords, itAuthor, itDur, captionTracks) =
+            var (itTitle, itDesc, itKeywords, itAuthor, itDur, captionTracks, itChannelId) =
                 await FetchInnertubePlayerAsync(videoId, ct).ConfigureAwait(false);
+            channelId = itChannelId;
 
             if (!string.IsNullOrWhiteSpace(itTitle)) title = itTitle;
             if (!string.IsNullOrWhiteSpace(itDesc)) description = itDesc;
@@ -111,7 +138,9 @@ public sealed partial class YouTubeTranscriptFetcher : IDisposable
                 if (chosen is not null)
                 {
                     language = chosen.LanguageCode;
-                    transcriptText = await DownloadCaptionTrackXmlAsync(chosen.BaseUrl, ct).ConfigureAwait(false);
+                    captionsAreAuto = chosen.IsAuto;
+                    segments = await DownloadCaptionTrackXmlAsync(chosen.BaseUrl, ct).ConfigureAwait(false);
+                    transcriptText = FormatSegments(segments, 120);
                 }
             }
         }
@@ -155,6 +184,8 @@ public sealed partial class YouTubeTranscriptFetcher : IDisposable
                         title = dl.Title;
                     language ??= dl.Language;
                     transcriptText = FormatVttAsTimestampedTranscript(dl.Content);
+                    segments = ParseVttSegments(dl.Content);
+                    captionsAreAuto = null;
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -174,7 +205,111 @@ public sealed partial class YouTubeTranscriptFetcher : IDisposable
             durationSeconds,
             transcriptText,
             language,
-            hasTranscript);
+            hasTranscript)
+        {
+            Segments = segments,
+            CaptionsAreAuto = hasTranscript ? captionsAreAuto : null,
+            ChannelId = channelId
+        };
+    }
+
+    /// <summary>
+    /// The watch page's own data (Innertube <c>next</c>, the web client): the songs in its
+    /// "Music" section, the published date as shown, and the channel name. Free and keyless,
+    /// and best effort - YouTube changes this shape without notice, so anything that fails
+    /// returns <see cref="YouTubeWatchPageInfo.Empty"/> instead of throwing.
+    /// </summary>
+    public async Task<YouTubeWatchPageInfo> FetchWatchPageInfoAsync(string videoId, CancellationToken ct)
+    {
+        if (!VideoIdOnlyPattern().IsMatch(videoId)) return YouTubeWatchPageInfo.Empty;
+        try
+        {
+            var body = new
+            {
+                context = new { client = new { hl = "en", gl = "US", clientName = "WEB", clientVersion = "2.20240726.00.00" } },
+                videoId
+            };
+            using var req = new HttpRequestMessage(HttpMethod.Post, "https://www.youtube.com/youtubei/v1/next?prettyPrint=false")
+            {
+                Content = JsonContent.Create(body)
+            };
+            req.Headers.TryAddWithoutValidation("X-YouTube-Client-Name", "1");
+            req.Headers.TryAddWithoutValidation("X-YouTube-Client-Version", "2.20240726.00.00");
+
+            using var resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode || resp.Content.Headers.ContentLength > MaxNextResponseBytes) return YouTubeWatchPageInfo.Empty;
+
+            await using var stream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct).ConfigureAwait(false);
+            var root = doc.RootElement;
+
+            var songs = YouTubeMusicDetector.FromInnertubeNext(root);
+            string? published = null, channel = null;
+            if (FindProperty(root, "videoPrimaryInfoRenderer", 0) is { } primary && primary.TryGetProperty("dateText", out var date))
+                published = InnertubeText(date);
+            if (FindProperty(root, "videoOwnerRenderer", 0) is { } owner && owner.TryGetProperty("title", out var ownerTitle))
+                channel = InnertubeText(ownerTitle);
+            return new YouTubeWatchPageInfo(songs, Clip(published, 80), Clip(channel, 120));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            _logger.LogDebug(ex, "Watch-page details for {VideoId} could not be read.", videoId);
+            return YouTubeWatchPageInfo.Empty;
+        }
+    }
+
+    /// <summary>The first object under <paramref name="name"/>, depth-limited.</summary>
+    private static JsonElement? FindProperty(JsonElement element, string name, int depth)
+    {
+        if (depth > 24) return null;
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var p in element.EnumerateObject())
+            {
+                if (p.NameEquals(name) && p.Value.ValueKind == JsonValueKind.Object) return p.Value;
+                if (FindProperty(p.Value, name, depth + 1) is { } found) return found;
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+            {
+                if (FindProperty(item, name, depth + 1) is { } found) return found;
+            }
+        }
+        return null;
+    }
+
+    private static string? InnertubeText(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.String) return element.GetString();
+        if (element.ValueKind != JsonValueKind.Object) return null;
+        if (element.TryGetProperty("simpleText", out var simple) && simple.ValueKind == JsonValueKind.String) return simple.GetString();
+        if (element.TryGetProperty("runs", out var runs) && runs.ValueKind == JsonValueKind.Array)
+            return string.Concat(runs.EnumerateArray().Take(10)
+                .Select(r => r.ValueKind == JsonValueKind.Object && r.TryGetProperty("text", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString() : null));
+        return null;
+    }
+
+    /// <summary>One line, no control characters or angle brackets, at most <paramref name="max"/> characters.</summary>
+    private static string? Clip(string? value, int max)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var clean = new string(value.Where(c => !char.IsControl(c) && c is not '<' and not '>').ToArray()).Trim();
+        if (clean.Length > max) clean = clean[..max].TrimEnd();
+        return clean.Length == 0 ? null : clean;
+    }
+
+    /// <summary>"[mm:ss] text" lines, the transcript format every caller already reads.</summary>
+    private static string FormatSegments(IReadOnlyList<YouTubeCaptionSegment> segments, int max)
+    {
+        var sb = new StringBuilder();
+        foreach (var segment in segments.Take(max))
+        {
+            var ts = TimeSpan.FromSeconds(Math.Max(0, segment.StartSeconds));
+            sb.AppendLine($"[{ts:mm\\:ss}] {segment.Text}");
+        }
+        return sb.ToString().Trim();
     }
 
     /// <summary>
@@ -231,7 +366,7 @@ public sealed partial class YouTubeTranscriptFetcher : IDisposable
 
     private sealed record CaptionTrackItem(string BaseUrl, string LanguageCode, bool IsAuto);
 
-    private async Task<(string Title, string Description, List<string> Keywords, string? Author, double? DurationSeconds, List<CaptionTrackItem> Tracks)>
+    private async Task<(string Title, string Description, List<string> Keywords, string? Author, double? DurationSeconds, List<CaptionTrackItem> Tracks, string? ChannelId)>
         FetchInnertubePlayerAsync(string videoId, CancellationToken ct)
     {
         var body = new
@@ -268,9 +403,13 @@ public sealed partial class YouTubeTranscriptFetcher : IDisposable
         var keywords = new List<string>();
         string? author = null;
         double? durationSeconds = null;
+        string? channelId = null;
 
         if (root.TryGetProperty("videoDetails", out var vd) && vd.ValueKind == JsonValueKind.Object)
         {
+            if (vd.TryGetProperty("channelId", out var ch) && ch.ValueKind == JsonValueKind.String
+                && YouTubePublishValidator.IsYouTubeChannelId(ch.GetString()))
+                channelId = ch.GetString();
             if (vd.TryGetProperty("title", out var t) && t.ValueKind == JsonValueKind.String)
                 title = t.GetString() ?? string.Empty;
             if (vd.TryGetProperty("shortDescription", out var sd) && sd.ValueKind == JsonValueKind.String)
@@ -308,7 +447,7 @@ public sealed partial class YouTubeTranscriptFetcher : IDisposable
             }
         }
 
-        return (title, description, keywords, author, durationSeconds, tracks);
+        return (title, description, keywords, author, durationSeconds, tracks, channelId);
     }
 
     private static CaptionTrackItem? ChooseBestTrack(List<CaptionTrackItem> tracks)
@@ -323,46 +462,70 @@ public sealed partial class YouTubeTranscriptFetcher : IDisposable
                ?? tracks[0];
     }
 
-    private async Task<string> DownloadCaptionTrackXmlAsync(string baseUrl, CancellationToken ct)
+    private async Task<IReadOnlyList<YouTubeCaptionSegment>> DownloadCaptionTrackXmlAsync(string baseUrl, CancellationToken ct)
     {
         using var resp = await _http.GetAsync(baseUrl, ct).ConfigureAwait(false);
-        if (!resp.IsSuccessStatusCode) return string.Empty;
+        if (!resp.IsSuccessStatusCode) return [];
 
         var xmlText = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-        if (string.IsNullOrWhiteSpace(xmlText)) return string.Empty;
+        if (string.IsNullOrWhiteSpace(xmlText)) return [];
 
         var doc = XDocument.Parse(xmlText);
-        var sb = new StringBuilder();
-        var count = 0;
+        var segments = new List<YouTubeCaptionSegment>();
 
         // Format 1: <transcript><text start="1.23" dur="2.5">...</text></transcript>
         foreach (var el in doc.Descendants("text"))
         {
             var raw = WebUtility.HtmlDecode(el.Value).Replace('\n', ' ').Trim();
             if (string.IsNullOrWhiteSpace(raw)) continue;
-            var startAttr = el.Attribute("start")?.Value;
-            double.TryParse(startAttr, NumberStyles.Any, CultureInfo.InvariantCulture, out var startSec);
-            var ts = TimeSpan.FromSeconds(Math.Max(0, startSec));
-            sb.AppendLine($"[{ts:mm\\:ss}] {raw}");
-            if (++count >= 120) break;
+            double.TryParse(el.Attribute("start")?.Value, NumberStyles.Any, CultureInfo.InvariantCulture, out var startSec);
+            segments.Add(new YouTubeCaptionSegment(Math.Max(0, startSec), raw));
+            if (segments.Count >= MaxSegments) break;
         }
 
         // Format 2: <timedtext><body><p t="1230" d="2500">...</p></body></timedtext>
-        if (count == 0)
+        if (segments.Count == 0)
         {
             foreach (var el in doc.Descendants("p"))
             {
                 var raw = WebUtility.HtmlDecode(el.Value).Replace('\n', ' ').Trim();
                 if (string.IsNullOrWhiteSpace(raw)) continue;
-                var tAttr = el.Attribute("t")?.Value;
-                double.TryParse(tAttr, NumberStyles.Any, CultureInfo.InvariantCulture, out var startMs);
-                var ts = TimeSpan.FromMilliseconds(Math.Max(0, startMs));
-                sb.AppendLine($"[{ts:mm\\:ss}] {raw}");
-                if (++count >= 120) break;
+                double.TryParse(el.Attribute("t")?.Value, NumberStyles.Any, CultureInfo.InvariantCulture, out var startMs);
+                segments.Add(new YouTubeCaptionSegment(Math.Max(0, startMs) / 1000.0, raw));
+                if (segments.Count >= MaxSegments) break;
             }
         }
 
-        return sb.ToString().Trim();
+        return segments;
+    }
+
+    /// <summary>A WebVTT file's cues as segments, repeated lines (rolling auto-captions) dropped.</summary>
+    private static IReadOnlyList<YouTubeCaptionSegment> ParseVttSegments(string vtt)
+    {
+        if (string.IsNullOrWhiteSpace(vtt)) return [];
+        var segments = new List<YouTubeCaptionSegment>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        double? start = null;
+        foreach (var line in vtt.Split('\n', StringSplitOptions.TrimEntries))
+        {
+            if (string.IsNullOrWhiteSpace(line) || line.StartsWith("WEBVTT", StringComparison.OrdinalIgnoreCase)
+                || line.StartsWith("Kind:", StringComparison.OrdinalIgnoreCase)
+                || line.StartsWith("Language:", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var arrowIdx = line.IndexOf("-->", StringComparison.Ordinal);
+            if (arrowIdx > 0)
+            {
+                start = TimeSpan.TryParse(line[..arrowIdx].Trim(), CultureInfo.InvariantCulture, out var ts) ? ts.TotalSeconds : null;
+                continue;
+            }
+
+            var cleaned = Regex.Replace(line, @"<[^>]+>", "").Trim();
+            if (start is null || string.IsNullOrWhiteSpace(cleaned) || int.TryParse(cleaned, out _) || !seen.Add(cleaned)) continue;
+            segments.Add(new YouTubeCaptionSegment(start.Value, cleaned));
+            if (segments.Count >= MaxSegments) break;
+        }
+        return segments;
     }
 
     private static string FormatVttAsTimestampedTranscript(string vtt)

@@ -1,4 +1,5 @@
 using AnimStudio.Domain.Ai;
+using AnimStudio.Domain.Effects;
 using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Planning;
 using AnimStudio.Domain.Publishing;
@@ -138,6 +139,17 @@ public sealed class MongoIndexInitializer(
                     .Ascending(l => l.UserId).Ascending(l => l.UrlHash)),
                 new CreateIndexModel<ContentSourceLink>(Builders<ContentSourceLink>.IndexKeys
                     .Ascending(l => l.UserId).Ascending(l => l.TopicId).Descending(l => l.LastCapturedAt)),
+            ], ct).ConfigureAwait(false);
+
+            // The effects library lists one owner's files newest first, and finds a project
+            // file already saved to it.
+            var effectClips = mongo.GetCollection<EffectClip>(MongoCollections.EffectClips);
+            await effectClips.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<EffectClip>(Builders<EffectClip>.IndexKeys
+                    .Ascending(e => e.UserId).Descending(e => e.CreatedAt)),
+                new CreateIndexModel<EffectClip>(Builders<EffectClip>.IndexKeys
+                    .Ascending(e => e.UserId).Ascending(e => e.SourceAssetId)),
             ], ct).ConfigureAwait(false);
 
                         // Migration / Seeder for Static Hub Data

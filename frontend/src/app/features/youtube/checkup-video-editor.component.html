@@ -79,6 +79,11 @@
                 <span class="ve-privacy-pill" [class.public]="v.privacy === 'public'" [class.private]="v.privacy === 'private'">
                   <span class="ve-dot"></span> {{ v.privacy || 'unknown' }}
                 </span>
+                @if (v.privacy === 'private' && v.scheduledAt) {
+                  <span class="ve-format-pill ve-scheduled-pill" [title]="'Goes public by itself on ' + (v.scheduledAt | date: 'full')">
+                    ⏰ Scheduled · goes public {{ v.scheduledAt | date: 'MMM d, h:mm a' }}
+                  </span>
+                }
                 @if (v.isShort) {
                   <span class="ve-format-pill">9:16 Short</span>
                 }
@@ -477,8 +482,19 @@
                     <button type="button" class="ve-tool-chip" (click)="copyField('pinned', d.pinnedComment)" [disabled]="!d.pinnedComment.trim()">
                       {{ copiedKey() === 'pinned' ? '✓ Copied!' : '📋 Copy Pinned Comment' }}
                     </button>
+                    <button type="button" class="ve-tool-chip" (click)="postPinnedComment()"
+                            [disabled]="!d.pinnedComment.trim() || commentBusy() || !canPostComment() || !!commentPostedUrl()"
+                            [title]="canPostComment() ? 'Post it as the channel now. YouTube cannot pin it through its API - pin it in Studio.' : 'Comments can only be posted on a public or unlisted video that is not made for kids.'">
+                      {{ commentBusy() ? 'Posting…' : commentPostedUrl() ? '✓ Posted' : '💬 Post as comment' }}
+                    </button>
                   </div>
                   <textarea rows="3" class="ve-textarea ve-textarea-sm" [ngModel]="d.pinnedComment" (ngModelChange)="set({ pinnedComment: $event })"></textarea>
+                  @if (commentPostedUrl(); as url) {
+                    <span class="ve-schedule-msg">Posted. <a [href]="url" target="_blank" rel="noopener noreferrer" class="ve-link-btn">Pin it in Studio ↗</a></span>
+                  }
+                  @if (commentError(); as e) {
+                    <span class="ve-schedule-msg ve-error" role="alert">{{ e }}</span>
+                  }
                 </div>
               }
               @if (d.engagementComment !== undefined) {
@@ -520,12 +536,30 @@
 
             <div class="ve-field-group">
               <label for="ve-priv" class="ve-label">Visibility</label>
-              <select id="ve-priv" class="ve-select" [ngModel]="d.privacy" (ngModelChange)="set({ privacy: $event })">
+              <select id="ve-priv" class="ve-select" [ngModel]="visibility(d)" (ngModelChange)="setVisibility($event)">
                 <option value="public">🌐 Public</option>
                 <option value="unlisted">🔗 Unlisted</option>
                 <option value="private">🔒 Private</option>
+                <option value="scheduled" [disabled]="!canSchedule()">⏰ Scheduled (private, then public)</option>
               </select>
+              @if (!canSchedule()) {
+                <span class="ve-sublabel">Already public - YouTube can only schedule a video that has never been public.</span>
+              }
             </div>
+
+            @if (d.scheduled) {
+              <div class="ve-field-group ve-schedule-group">
+                <label for="ve-publish-at" class="ve-label">Goes public at <span class="ve-sublabel">({{ zone }})</span></label>
+                <input id="ve-publish-at" type="datetime-local" class="ve-input" [min]="minSchedule()"
+                       [ngModel]="d.publishAtLocal" (ngModelChange)="set({ publishAtLocal: $event })"
+                       [class.ve-input-error]="!!scheduleError()" [attr.aria-invalid]="!!scheduleError()" />
+                @if (scheduleError(); as problem) {
+                  <span class="ve-schedule-msg ve-error" role="alert">{{ problem }}</span>
+                } @else {
+                  <span class="ve-schedule-msg">Stays private until then; YouTube makes it public by itself.</span>
+                }
+              </div>
+            }
 
             <fieldset class="ve-field-group ve-audience-group" [class.needs-attention]="d.madeForKids === null">
               <legend class="ve-label">Audience <span class="ve-sublabel">(COPPA requirement)</span></legend>

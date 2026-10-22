@@ -9,9 +9,11 @@ using AnimStudio.Application.Admin;
 using AnimStudio.Application.Ai;
 using AnimStudio.Application.Clips;
 using AnimStudio.Application.Music;
+using AnimStudio.Application.Planning;
 using AnimStudio.Application.Publishing;
 using AnimStudio.Application.Security;
 using AnimStudio.Domain.Jobs;
+using AnimStudio.Domain.Planning;
 using AnimStudio.Domain.Projects;
 using AnimStudio.Domain.Publishing;
 using AnimStudio.Infrastructure.Publishing;
@@ -56,6 +58,7 @@ public sealed partial class YouTubePublishController(
     AppDataPaths dataPaths,
     YouTubeThumbnailService thumbnails,
     YouTubeTranscriptFetcher transcriptFetcher,
+    ContentPlanningService planning,
     ILogger<YouTubePublishController> logger) : ControllerBase
 {
     /// <summary>Brand channels are studio-wide settings, so only an admin's connections change them.</summary>
@@ -269,8 +272,14 @@ public sealed partial class YouTubePublishController(
     private async Task<ActionResult<ApiResponse<YouTubeSuggestResponse>>> WriteSuggestionAsync(
         string summary, string style, YouTubeSuggestRequest? request, string? projectId,
         Func<string, string> composeDescription, string subject, CancellationToken ct,
-        string? transcriptText = null)
+        string? transcriptText = null, YouTubeSeoExtras? extras = null)
     {
+        // Real chapters and music credits go into every description, the model's or the free engine's.
+        if (extras is { IsEmpty: false })
+        {
+            var compose = composeDescription;
+            composeDescription = d => compose(YouTubeVideoInsights.AddChaptersAndCredits(d, extras));
+        }
         var brief = YouTubeMetadataSuggester.CleanBrief(request?.Brief);
         var language = request?.Language is { } lang && YouTubeMetadataSuggester.Languages.Contains(lang) ? lang : "en";
         var toneText = YouTubeMetadataSuggester.ToneText(request?.Tone);
@@ -279,7 +288,7 @@ public sealed partial class YouTubePublishController(
         // 1. Direct 100% Free Built-in Local SEO Engine (zero API key, instant, offline-ready)
         if (string.Equals(requestedProvider, YouTubeFreeSeoEngine.FreeLocalProviderId, StringComparison.OrdinalIgnoreCase))
         {
-            var localSuggestion = YouTubeFreeSeoEngine.Generate(summary, style, request?.Tone, language, brief, transcriptText);
+            var localSuggestion = YouTubeFreeSeoEngine.Generate(summary, style, request?.Tone, language, brief, transcriptText, extras);
             return Ok(ApiResponse<YouTubeSuggestResponse>.Ok(ToSuggestResponse(
                 localSuggestion, YouTubeFreeSeoEngine.FreeLocalProviderId, composeDescription)));
         }
@@ -330,13 +339,13 @@ public sealed partial class YouTubePublishController(
             var freeParsed = YouTubeMetadataSuggester.Parse(freeText);
             if (freeParsed is not null)
             {
-                var completed = YouTubeFreeSeoEngine.EnsureComplete(freeParsed, summary, style, request?.Tone, language, brief, transcriptText);
+                var completed = YouTubeFreeSeoEngine.EnsureComplete(freeParsed, summary, style, request?.Tone, language, brief, transcriptText, extras);
                 logger.LogInformation("Suggested YouTube details for {Subject} with {Provider}.", subject, YouTubeFreeSeoEngine.FreePollinationsProviderId);
                 return Ok(ApiResponse<YouTubeSuggestResponse>.Ok(ToSuggestResponse(
                     completed, YouTubeFreeSeoEngine.FreePollinationsProviderId, composeDescription)));
             }
 
-            var fallbackLocal = YouTubeFreeSeoEngine.Generate(summary, style, request?.Tone, language, brief, transcriptText);
+            var fallbackLocal = YouTubeFreeSeoEngine.Generate(summary, style, request?.Tone, language, brief, transcriptText, extras);
             logger.LogInformation("Suggested YouTube details for {Subject} with {Provider} (fallback).", subject, YouTubeFreeSeoEngine.FreeLocalProviderId);
             return Ok(ApiResponse<YouTubeSuggestResponse>.Ok(ToSuggestResponse(
                 fallbackLocal, YouTubeFreeSeoEngine.FreeLocalProviderId, composeDescription)));
@@ -344,7 +353,7 @@ public sealed partial class YouTubePublishController(
 
         if (rendered is null)
         {
-            var fallbackLocal = YouTubeFreeSeoEngine.Generate(summary, style, request?.Tone, language, brief, transcriptText);
+            var fallbackLocal = YouTubeFreeSeoEngine.Generate(summary, style, request?.Tone, language, brief, transcriptText, extras);
             return Ok(ApiResponse<YouTubeSuggestResponse>.Ok(ToSuggestResponse(
                 fallbackLocal, YouTubeFreeSeoEngine.FreeLocalProviderId, composeDescription)));
         }
@@ -386,14 +395,14 @@ public sealed partial class YouTubePublishController(
             }
 
             // Auto mode: gracefully fall back to Free Built-in SEO Engine so the user is never blocked
-            var autoFallback = YouTubeFreeSeoEngine.Generate(summary, style, request?.Tone, language, brief, transcriptText);
+            var autoFallback = YouTubeFreeSeoEngine.Generate(summary, style, request?.Tone, language, brief, transcriptText, extras);
             logger.LogInformation("Suggested YouTube details for {Subject} with {Provider} (auto fallback).",
                 subject, YouTubeFreeSeoEngine.FreeLocalProviderId);
             return Ok(ApiResponse<YouTubeSuggestResponse>.Ok(ToSuggestResponse(
                 autoFallback, YouTubeFreeSeoEngine.FreeLocalProviderId, composeDescription)));
         }
 
-        var fullSuggestion = YouTubeFreeSeoEngine.EnsureComplete(suggestion, summary, style, request?.Tone, language, brief, transcriptText);
+        var fullSuggestion = YouTubeFreeSeoEngine.EnsureComplete(suggestion, summary, style, request?.Tone, language, brief, transcriptText, extras);
         logger.LogInformation("Suggested YouTube details for {Subject} with {Provider}.",
             subject, outcome.Value!.Provenance.ProviderId);
         return Ok(ApiResponse<YouTubeSuggestResponse>.Ok(ToSuggestResponse(
@@ -471,6 +480,26 @@ public sealed partial class YouTubePublishController(
             return BadRequest(ApiResponse<YouTubeUploadStatus>.Fail("A related video is no longer in your list.",
                 new ApiError("related-not-found", "A related video is no longer in your list. Pick again.", Field: "relatedVideoIds")));
 
+        // A calendar post to link the finished video to: the caller's own, and still waiting for a video.
+        var planItemId = string.IsNullOrWhiteSpace(request.PlanItemId) ? null : request.PlanItemId.Trim();
+        if (planItemId is not null)
+        {
+            if (!IsEntityId(planItemId))
+                return BadRequest(ApiResponse<YouTubeUploadStatus>.Fail("Choose a calendar post from the list.",
+                    new ApiError("plan-item-invalid", "Choose a calendar post from the list.", Field: "planItemId")));
+
+            // Throws not-found / forbidden for a post that isn't the caller's; the middleware maps both.
+            var post = await planning.GetItemAsync(planItemId, currentUser.UserId, ct);
+            if (post.VideoId is not null
+                || post.Status is not (ContentPlanStatus.Idea or ContentPlanStatus.InProgress or ContentPlanStatus.Ready))
+                return Conflict(ApiResponse<YouTubeUploadStatus>.Fail("That calendar post already has a video.",
+                    new ApiError("plan-item-taken", "That calendar post already has a video or is finished. Pick another.", Field: "planItemId")));
+            var postChannel = post.ChannelId ?? (await planning.GetTopicAsync(post.TopicId, currentUser.UserId, ct)).ChannelId;
+            if (postChannel is not null && !string.Equals(postChannel, connection.ChannelId, StringComparison.Ordinal))
+                return BadRequest(ApiResponse<YouTubeUploadStatus>.Fail("That calendar post is for another channel.",
+                    new ApiError("plan-item-other-channel", "That calendar post is for another channel. Pick another, or change the channel.", Field: "planItemId")));
+        }
+
         var metadata = request.Metadata is null || related.Count == 0
             ? request.Metadata
             : request.Metadata with { Description = YouTubeRelatedVideos.AppendToDescription(request.Metadata.Description ?? string.Empty, related) };
@@ -519,11 +548,12 @@ public sealed partial class YouTubePublishController(
         try
         {
             var upload = buildUpload(connection, validation.Normalized!, [.. related.Select(r => r.VideoId)], firstComment)
-                with { ThumbnailJpeg = thumbnail };
+                with { ThumbnailJpeg = thumbnail, PlanItemId = planItemId };
             var status = uploads.Start(upload);
 
-            logger.LogInformation("User {UserId} queued {Source} {JobId} for YouTube channel {ChannelId} ({Privacy}, category {CategoryId})",
-                currentUser.UserId, sourceKind, upload.JobId, connection.ChannelId, upload.Metadata.Privacy, upload.Metadata.CategoryId);
+            logger.LogInformation("User {UserId} queued {Source} {JobId} for YouTube channel {ChannelId} ({Privacy}, category {CategoryId}, scheduled {Scheduled}, post {PlanItemId})",
+                currentUser.UserId, sourceKind, upload.JobId, connection.ChannelId, upload.Metadata.Privacy, upload.Metadata.CategoryId,
+                upload.Metadata.PublishAt is not null, planItemId ?? "none");
             return Accepted(ApiResponse<YouTubeUploadStatus>.Ok(status));
         }
         catch (YouTubePublishException ex)
@@ -735,7 +765,9 @@ public sealed record YouTubePublishRequest(string? ChannelId, YouTubeVideoMetada
     /// <summary>Posted as a comment once the video is on YouTube; empty posts nothing.</summary>
     string? FirstComment = null,
     /// <summary>A frame or an uploaded picture for the custom thumbnail; null leaves YouTube's own.</summary>
-    YouTubeThumbnailChoice? Thumbnail = null);
+    YouTubeThumbnailChoice? Thumbnail = null,
+    /// <summary>A calendar post of the caller's to link the finished video to; null links nothing.</summary>
+    [System.ComponentModel.DataAnnotations.MaxLength(64)] string? PlanItemId = null);
 public sealed record YouTubeVideosRefreshRequest(string? ProjectId, bool Force);
 
 public sealed record YouTubeSuggestRequest(string? Language, bool Fresh, string? Tone = null, string? Brief = null, string? ProviderId = null);

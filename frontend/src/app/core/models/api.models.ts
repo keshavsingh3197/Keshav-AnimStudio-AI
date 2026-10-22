@@ -810,6 +810,19 @@ export interface TimelineItemTransform {
   vignette?: boolean;
   grain?: boolean;
   cinemaBars?: boolean;
+  /** Image/video overlays: a backdrop colour keyed out (green screen). Mirrors ChromaKeySpec; export only. */
+  chromaKey?: TimelineChromaKey;
+}
+
+/** A colour made transparent on an overlay. The server clamps every value before ffmpeg sees it. */
+export interface TimelineChromaKey {
+  enabled: boolean;
+  /** #rrggbb */
+  color: string;
+  /** 0.01-1: how far from the colour a pixel may be and still go. */
+  similarity: number;
+  /** 0-1: how softly the edge fades. */
+  blend: number;
 }
 
 /** Camera moves over a still. Mirrors ImageMotion on the server (CinematicImage.cs). */

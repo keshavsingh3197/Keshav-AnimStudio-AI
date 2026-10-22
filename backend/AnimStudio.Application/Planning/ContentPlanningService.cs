@@ -44,6 +44,9 @@ public sealed record ContentLinkCommand(
 /// <summary>A planned post with what it needs, ready for the API to shape.</summary>
 public sealed record ContentPlanItemView(ContentPlanItem Item, DateTime PrepareBy, IReadOnlyList<ContentAttention> Attention);
 
+/// <summary>Ways out for a post that won't be ready in time.</summary>
+public sealed record ContentRecoveryOptions(DateTime? NextFreeAt, IReadOnlyList<ContentPlanItemView> SwapWith);
+
 /// <summary>
 /// The content calendar: topics with a cadence, the posts they plan, and the source links
 /// kept for each. Every call is scoped to the caller; the YouTube side (linking, schedule
@@ -296,18 +299,7 @@ public sealed partial class ContentPlanningService(
             : c.PublishAt.ToUniversalTime();
         if (publishAt < new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc) || publishAt > Now.AddYears(3))
             throw EditingException.Invalid("publish-at-invalid", "Pick a publish date within the next three years.");
-        if (item.PublishAt != publishAt && item.SlotKey is not null
-            && item.SlotKey != ContentPlanRules.SlotKeyFor(topic.Id, ContentPlanRules.LocalDate(publishAt, topic)))
-        {
-            // Moved off its cadence day: the original day counts as handled, not empty.
-            if (!topic.DismissedSlots.Contains(item.SlotKey))
-            {
-                topic.DismissedSlots.Add(item.SlotKey);
-                await topics.UpsertAsync(topic, ct);
-            }
-            item.SlotKey = null;
-        }
-        item.PublishAt = publishAt;
+        if (item.PublishAt != publishAt) await MoveAsync(item, topic, publishAt, ct);
 
         item.Checklist = c.Checklist is null
             ? item.Checklist
@@ -330,6 +322,97 @@ public sealed partial class ContentPlanningService(
 
         if (Enum.IsDefined(c.Status)) SetStatus(item, c.Status);
         item.UpdatedAt = Now;
+    }
+
+    /// <summary>
+    /// Puts the post on a new time. Leaving its cadence day marks that day handled (so the
+    /// planner doesn't refill it); landing on a cadence day takes that day's slot (so the
+    /// planner doesn't add a second post there).
+    /// </summary>
+    private async Task MoveAsync(ContentPlanItem item, ContentTopic topic, DateTime publishAtUtc, CancellationToken ct)
+    {
+        var newKey = ContentPlanRules.SlotKeyOn(topic, ContentPlanRules.LocalDate(publishAtUtc, topic));
+        if (item.SlotKey is not null && item.SlotKey != newKey && !topic.DismissedSlots.Contains(item.SlotKey))
+        {
+            topic.DismissedSlots.Add(item.SlotKey);
+            if (topic.DismissedSlots.Count > MaxDismissedSlots)
+                topic.DismissedSlots.RemoveRange(0, topic.DismissedSlots.Count - MaxDismissedSlots);
+            await topics.UpsertAsync(topic, ct);
+        }
+        item.SlotKey = newKey;
+        item.PublishAt = publishAtUtc;
+    }
+
+    // ---------------------------------------------------------------- when a post won't be ready
+
+    /// <summary>What a post that is running late can do: move to the next free day, or trade places with a ready post.</summary>
+    public async Task<ContentRecoveryOptions> RecoveryOptionsAsync(string id, string userId, CancellationToken ct)
+    {
+        var item = await GetItemAsync(id, userId, ct);
+        var topic = await GetTopicAsync(item.TopicId, userId, ct);
+        var posts = await items.ListByTopicAsync(topic.Id, MaxItemsPerList, ct);
+        return new ContentRecoveryOptions(
+            ContentPlanRules.NextFreeTime(topic, item, posts, Now),
+            [.. ContentPlanRules.SwapCandidates(item, posts, Now).Select(p => View(p, topic.LeadDays))]);
+    }
+
+    /// <summary>
+    /// Moves the post to <paramref name="toUtc"/>, or to the topic's next free day when null.
+    /// The caller re-applies the YouTube schedule of a linked video.
+    /// </summary>
+    public async Task<ContentPlanItemView> PostponeAsync(string id, string userId, DateTime? toUtc, CancellationToken ct)
+    {
+        var item = await GetItemAsync(id, userId, ct);
+        if (item.Status is ContentPlanStatus.Published or ContentPlanStatus.Skipped)
+            throw EditingException.Invalid("post-done", "This post is already live or skipped.");
+        var topic = await GetTopicAsync(item.TopicId, userId, ct);
+
+        DateTime target;
+        if (toUtc is { } explicitTime)
+        {
+            target = explicitTime.Kind == DateTimeKind.Unspecified
+                ? DateTime.SpecifyKind(explicitTime, DateTimeKind.Utc)
+                : explicitTime.ToUniversalTime();
+            if (target - Now < ContentPlanRules.MinScheduleLead || target > Now.AddYears(3))
+                throw EditingException.Invalid("publish-at-invalid", "Pick a time at least 10 minutes from now.");
+        }
+        else
+        {
+            var posts = await items.ListByTopicAsync(topic.Id, MaxItemsPerList, ct);
+            target = ContentPlanRules.NextFreeTime(topic, item, posts, Now)
+                ?? throw EditingException.Conflict("no-free-day",
+                    $"Every {topic.Name} day in the next {ContentPlanRules.MaxPlanAheadDays} days already has a post. Pick a time by hand.");
+        }
+
+        await MoveAsync(item, topic, target, ct);
+        item.UpdatedAt = Now;
+        await items.UpsertAsync(item, ct);
+        return View(item, topic.LeadDays);
+    }
+
+    /// <summary>
+    /// Trades publish times (and cadence slots) between two posts of the same topic, so a ready
+    /// post goes out on time while the late one gets the later day. The caller re-applies the
+    /// YouTube schedule of linked videos.
+    /// </summary>
+    public async Task<IReadOnlyList<ContentPlanItemView>> SwapAsync(string id, string otherId, string userId, CancellationToken ct)
+    {
+        if (string.Equals(id, otherId, StringComparison.Ordinal))
+            throw EditingException.Invalid("swap-self", "Pick a different post to swap with.");
+        var a = await GetItemAsync(id, userId, ct);
+        var b = await GetItemAsync(otherId, userId, ct);
+        if (!string.Equals(a.TopicId, b.TopicId, StringComparison.Ordinal))
+            throw EditingException.Invalid("swap-topic", "Only posts of the same topic can swap days.");
+        if (!ContentPlanRules.CanTrade(a, Now) || !ContentPlanRules.CanTrade(b, Now))
+            throw EditingException.Invalid("swap-not-allowed", "Both posts must still be upcoming (at least 10 minutes away) and not live or skipped.");
+        var topic = await GetTopicAsync(a.TopicId, userId, ct);
+
+        (a.PublishAt, b.PublishAt) = (b.PublishAt, a.PublishAt);
+        (a.SlotKey, b.SlotKey) = (b.SlotKey, a.SlotKey);
+        a.UpdatedAt = b.UpdatedAt = Now;
+        await items.UpsertAsync(a, ct);
+        await items.UpsertAsync(b, ct);
+        return [View(a, topic.LeadDays), View(b, topic.LeadDays)];
     }
 
     private void SetStatus(ContentPlanItem item, ContentPlanStatus status)

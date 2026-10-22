@@ -14,6 +14,8 @@
             title="Reuse from other projects - search this channel's (or every) project and add their files here">♻️</button>
     <button type="button" class="media-import-btn" (click)="openMusic()" [disabled]="!state.store.project()"
             title="Music library - search, listen and add royalty-free music to the timeline">🎵</button>
+    <button type="button" class="media-import-btn" [class.active]="effectsOpen()" (click)="toggleEffects()" [disabled]="!state.store.project()"
+            title="Effects - your subscribe buttons, stingers, end screens and sounds, ready to drop on the timeline">✨</button>
 
     <div class="media-search-box">
       <svg class="search-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -89,6 +91,9 @@
     }
   </div>
 
+  @if (effectsOpen()) {
+    <app-effects-panel (closed)="effectsOpen.set(false)" />
+  } @else {
   <!-- Category Pills Filter -->
   <div class="media-category-pills">
     <button type="button" class="cat-pill"
@@ -364,6 +369,8 @@
                       aria-label="Inspect and transcript">📝</button>
               <button class="clip-action-icon-btn info" type="button" (click)="$event.stopPropagation(); usageClip.set(row.clip)" title="Details and where it is used">ⓘ</button>
               <button class="clip-action-icon-btn dup" type="button" (click)="$event.stopPropagation(); state.duplicateClip(row.clip.id)" title="Duplicate clip">⧉</button>
+              <button class="clip-action-icon-btn fx-save" type="button" (click)="$event.stopPropagation(); state.saveClipToEffects(row.clip)"
+                      title="Save to effects - keep this in your effects library to reuse in any video">🌟</button>
             </div>
           </div>
         </div>
@@ -409,6 +416,7 @@
       </button>
     </div>
   </div>
+  }
 </div>
 
 @if (usageClip(); as clip) {

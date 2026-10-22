@@ -1191,9 +1191,10 @@ public sealed class ClipMergeOrchestrator(
             MediaOverlayShape.ClampBorder(tr.BorderWidth),
             EraseRegionSpec.IsHexColor(tr.BorderColor) ? tr.BorderColor![1..].ToUpperInvariant() : "FFFFFF",
             MediaOverlayShape.ClampAspect(tr.AspectRatio),
-            trim);
+            trim,
+            OverlayChromaKey.From(tr.ChromaKey));
 
-        return media is { HasCrop: false, Shape: OverlayShape.Rect, BorderWidth: 0, TrimStartSeconds: 0 } ? null : media;
+        return media is { HasCrop: false, Shape: OverlayShape.Rect, BorderWidth: 0, TrimStartSeconds: 0, Key: null } ? null : media;
     }
 
     /// <summary>

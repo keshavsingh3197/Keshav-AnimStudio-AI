@@ -243,6 +243,64 @@ public static partial class ContentPlanRules
     }
 
     /// <summary>
+    /// The slot key a post on <paramref name="localDate"/> holds: the cadence key when the topic
+    /// posts that weekday (so the planner doesn't add a second post there), otherwise null.
+    /// </summary>
+    public static string? SlotKeyOn(ContentTopic topic, DateOnly localDate) =>
+        topic.Days.Contains(localDate.DayOfWeek) ? SlotKeyFor(topic.Id, localDate) : null;
+
+    /// <summary>
+    /// Where a post that won't be ready in time can move: the first day after its current day
+    /// (and not before today) that the topic posts on and no other live post of the topic
+    /// occupies, at the topic's publish time. A topic with no fixed days takes any free day.
+    /// Null when nothing is free within <see cref="MaxPlanAheadDays"/>.
+    /// </summary>
+    public static DateTime? NextFreeTime(ContentTopic topic, ContentPlanItem item, IEnumerable<ContentPlanItem> topicPosts, DateTime nowUtc)
+    {
+        TryFindTimeZone(topic.TimeZone, out var zone);
+        if (!TryParseTime(topic.PublishTime, out var time))
+            time = TimeOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(item.PublishAt, DateTimeKind.Utc), zone));
+
+        var current = LocalDate(item.PublishAt, topic);
+        var today = LocalDate(nowUtc, topic);
+        var taken = topicPosts
+            .Where(p => p.Id != item.Id && p.Status != ContentPlanStatus.Skipped)
+            .Select(p => LocalDate(p.PublishAt, topic))
+            .ToHashSet();
+
+        var start = today > current ? today : current.AddDays(1);
+        for (var i = 0; i <= MaxPlanAheadDays; i++)
+        {
+            var date = start.AddDays(i);
+            if (topic.Days.Count > 0 && !topic.Days.Contains(date.DayOfWeek)) continue;
+            if (taken.Contains(date)) continue;
+            var at = ToUtc(date, time, zone);
+            if (at - nowUtc < MinScheduleLead) continue;
+            return at;
+        }
+        return null;
+    }
+
+    /// <summary>A post that is still being worked on and could trade places with a ready one.</summary>
+    public static bool CanTrade(ContentPlanItem item, DateTime nowUtc) =>
+        !IsDone(item.Status) && item.PublishAt - nowUtc >= MinScheduleLead;
+
+    /// <summary>
+    /// Later posts of the same topic that are already ready (or scheduled) and could go out in
+    /// <paramref name="item"/>'s place, earliest first. Empty when the post itself is ready or
+    /// its time is too close for YouTube to take a new schedule.
+    /// </summary>
+    public static IReadOnlyList<ContentPlanItem> SwapCandidates(ContentPlanItem item, IEnumerable<ContentPlanItem> topicPosts, DateTime nowUtc)
+    {
+        if (item.Status is not (ContentPlanStatus.Idea or ContentPlanStatus.InProgress) || !CanTrade(item, nowUtc)) return [];
+        return [.. topicPosts
+            .Where(p => p.Id != item.Id && p.TopicId == item.TopicId && p.PublishAt > item.PublishAt)
+            .Where(p => p.Status is ContentPlanStatus.Ready or ContentPlanStatus.Scheduled)
+            .OrderBy(p => p.PublishAt)
+            .Take(5)];
+    }
+
+    /// <summary>
     /// The one post an upload belongs to, or null when none or more than one could. A post
     /// matches when YouTube's scheduled time equals its planned time, or the titles agree.
     /// </summary>

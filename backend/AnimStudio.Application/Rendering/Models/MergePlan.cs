@@ -70,7 +70,7 @@ public sealed record MergeImageShot(CinematicImageSettings Settings, ClipFit Fit
 public sealed record MergeMediaOverlay(
     double CropLeft, double CropTop, double CropRight, double CropBottom,
     OverlayShape Shape, double BorderWidth, string BorderRgb, double? AspectRatio,
-    double TrimStartSeconds = 0)
+    double TrimStartSeconds = 0, OverlayChromaKey? Key = null)
 {
     public bool HasCrop => CropLeft > 0 || CropTop > 0 || CropRight > 0 || CropBottom > 0;
 }

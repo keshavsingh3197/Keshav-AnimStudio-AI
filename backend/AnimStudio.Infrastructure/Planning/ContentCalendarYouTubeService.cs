@@ -119,6 +119,28 @@ public sealed class ContentCalendarYouTubeService(
         return item;
     }
 
+    /// <summary>
+    /// After the plan moved a post, puts the new time on its linked private video when the topic
+    /// allows automatic scheduling. Never throws for YouTube: a refusal is written on the post.
+    /// </summary>
+    public async Task<ContentPlanItem> FollowPlanAsync(ContentPlanItem item, CancellationToken ct)
+    {
+        if (item.ChannelId is null || !ContentPlanRules.NeedsSchedule(item, Now)) return item;
+        if (await topics.GetAsync(item.TopicId, ct) is not { AutoSchedule: true }) return item;
+        try
+        {
+            var token = await connections.GetAccessTokenAsync(item.UserId, item.ChannelId, ct);
+            await TryAutoScheduleAsync(item, token, ct);
+        }
+        catch (YouTubePublishException ex)
+        {
+            item.SyncMessage = ex.Message;
+        }
+        item.UpdatedAt = Now;
+        await items.UpsertAsync(item, ct);
+        return item;
+    }
+
     /// <summary>Recent uploads on the channel not linked to another post, the likely one flagged.</summary>
     public async Task<IReadOnlyList<ContentUploadCandidate>> CandidatesAsync(ContentPlanItem item, CancellationToken ct)
     {

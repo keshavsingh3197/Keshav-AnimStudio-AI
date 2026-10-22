@@ -55,6 +55,17 @@ public sealed record ContentStatusRequest
     [Required] public ContentPlanStatus Status { get; init; }
 }
 
+public sealed record ContentPostponeRequest
+{
+    /// <summary>The new go-live time; null moves the post to the topic's next free day.</summary>
+    public DateTime? PublishAt { get; init; }
+}
+
+public sealed record ContentSwapRequest
+{
+    [Required, MaxLength(64)] public string OtherId { get; init; } = string.Empty;
+}
+
 public sealed record ContentLinkVideoRequest
 {
     /// <summary>A YouTube or YouTube Studio link, or the bare 11-character id.</summary>
@@ -146,6 +157,8 @@ public sealed record ContentSourceLinkResponse(
     DateTime CreatedAt,
     DateTime LastCapturedAt);
 
+public sealed record ContentRecoveryResponse(DateTime? NextFreeAt, IReadOnlyList<ContentPlanItemResponse> SwapWith);
+
 public sealed record ContentUploadCandidateResponse(
     string VideoId,
     string Title,
@@ -176,6 +189,9 @@ public static class ContentCalendarMappings
             [.. view.Attention.Select(a => new ContentAttentionResponse(a.Code, a.Level, a.Message))],
             i.UpdatedAt);
     }
+
+    public static ContentRecoveryResponse ToResponse(this ContentRecoveryOptions o) =>
+        new(o.NextFreeAt, [.. o.SwapWith.Select(v => v.ToResponse())]);
 
     public static ContentSourceLinkResponse ToResponse(this ContentSourceLink l) => new(
         l.Id, l.Url, l.PlatformId, l.PlatformName, l.Title, l.Note, l.TopicId, l.PlanItemId, l.ProjectId, l.AssetId,

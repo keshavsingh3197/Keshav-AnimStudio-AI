@@ -16,6 +16,9 @@ import { ApiService } from '../../../core/services/api.service';
 import { ProjectStore } from '../../../core/services/project-store';
 import { StatusService } from '../../../core/services/status.service';
 import { MediaToolsService } from '../../../core/services/media-tools.service';
+import { EffectsService } from '../../../core/services/effects.service';
+import { EffectClip } from '../../../core/models/effects.models';
+import { EffectPlacementMode, planEffectPlacement } from '../../effects/effect-placement';
 import {
   AudioOverlapRule, AudioOverlapRuleOrInherit, AudioOverlapSource,
   ClipAudioSetting, ClipColorSetting, ClipRow, ClipTextSetting, FILTER_PRESETS,
@@ -8040,6 +8043,104 @@ export class StudioStateService implements OnDestroy {
     this.setInspectorTab('audio');
     this.setAudioInspectorView('clip');
     this.markDirty();
+  }
+
+  // ---------------------------------------------------------------- effects library
+
+  private readonly effectsApi = inject(EffectsService);
+
+  /** An effect being dragged from the media panel's Effects list onto the timeline. */
+  readonly draggingEffect = signal<EffectClip | null>(null);
+
+  /** Effects being copied into this project right now, so their buttons can say so. */
+  readonly addingEffectIds = signal<ReadonlySet<string>>(new Set());
+
+  /**
+   * Adds an effect from the user's library: the server copies it into this project once (a
+   * second use reuses that copy), then it is placed - pictures full-frame on V2, sounds on
+   * A1 (or A2 when A1 is busy there), an end screen asked for "at the end" finishing with
+   * the video. `at` is a drop on the timeline: that lane and time win over the mode.
+   */
+  addEffect(effect: EffectClip, mode: EffectPlacementMode, at?: { trackId: string; time: number }): void {
+    const projectId = this.loadedProjectId;
+    if (!this.ownsCurrentProject(projectId)) {
+      this.status.notify(['Open one of your projects to add effects to it.']);
+      return;
+    }
+    if (this.addingEffectIds().has(effect.id)) return;
+    if (this.isPlaying()) this.pause();
+
+    const setAdding = (on: boolean) => this.addingEffectIds.update((ids) => {
+      const next = new Set(ids);
+      if (on) next.add(effect.id); else next.delete(effect.id);
+      return next;
+    });
+    setAdding(true);
+
+    this.effectsApi.use(effect.id, projectId).subscribe({
+      next: ({ asset }) => {
+        setAdding(false);
+        // The user may have opened another project while the copy was made.
+        if (this.loadedProjectId !== projectId) return;
+        this.placeEffectAsset(effect, asset, mode, at);
+        this.store.refreshAssets();
+      },
+      error: (err: unknown) => {
+        setAdding(false);
+        this.status.notify([err instanceof ApiFailure ? err.message : `Could not add "${effect.name}". Try again.`]);
+      },
+    });
+  }
+
+  private placeEffectAsset(effect: EffectClip, asset: Asset, mode: EffectPlacementMode, at?: { trackId: string; time: number }): void {
+    const videoEnd = this.totalSeconds() > 0 ? this.totalSeconds() : this.contentDurationSeconds();
+    const plan = planEffectPlacement(effect, mode, at?.time ?? this.currentTime(), videoEnd, this.imageDurationSeconds());
+
+    if (effect.kind === 'Audio') {
+      // Joins the studio's audio list in place, as library music does: a reload would
+      // re-apply the server draft over edits not yet saved.
+      const studio = this.studio();
+      if (studio && !(studio.musicCandidates || []).some((m) => m.id === asset.id)) {
+        this.studio.set({ ...studio, musicCandidates: [...(studio.musicCandidates || []), asset] });
+      }
+      const start = at ? Math.max(0, at.time) : plan.start;
+      const length = asset.durationSeconds ?? effect.durationSeconds ?? 1;
+      const busy = (lane: 'A1' | 'A2') => this.musicTracksForLane(lane).some((t) =>
+        start < t.startSeconds + this.musicTrackDurationSeconds(t) && start + length > t.startSeconds);
+      const lane: 'A1' | 'A2' = at?.trackId === 'A2' || at?.trackId === 'A1'
+        ? at.trackId
+        : busy('A1') && !busy('A2') ? 'A2' : 'A1';
+      this.addMusicTrackFromAsset(asset.id, start, lane);
+      this.status.notify([`Added "${effect.name}" to ${lane} at ${start.toFixed(1)}s.`]);
+      return;
+    }
+
+    const row: ClipRow = {
+      clip: {
+        id: asset.id,
+        name: asset.name,
+        fileSizeBytes: asset.fileSizeBytes,
+        durationSeconds: asset.durationSeconds ?? effect.durationSeconds ?? undefined,
+        width: asset.width,
+        height: asset.height,
+        hasAudio: effect.kind === 'Video',
+      },
+      included: false,
+    };
+    const before = this.selectedTimelineItemId();
+    this.addAssetToTrack('V2', row, at ? Math.max(0, at.time) : plan.start);
+    const added = this.selectedTimelineItemId();
+    if (added && added !== before && plan.transform) this.updateImageItemTransform(added, plan.transform);
+  }
+
+  /** Saves a file in this project to the user's effects library, for reuse in other videos. */
+  saveClipToEffects(clip: Clip): void {
+    const projectId = this.loadedProjectId;
+    if (!this.ownsCurrentProject(projectId)) return;
+    this.effectsApi.saveFromAsset(projectId, this.resolveAssetId(clip)).subscribe({
+      next: (effect) => this.status.notify([`"${effect.name}" is in your effects library - add it to any video from ✨ Effects.`]),
+      error: (err: unknown) => this.status.notify([err instanceof ApiFailure ? err.message : 'Could not save that to your effects library.']),
+    });
   }
 
   /**

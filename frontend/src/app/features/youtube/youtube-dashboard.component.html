@@ -21,6 +21,9 @@
           🩺 Video Details Checkup
         </a>
       }
+      <a routerLink="/youtube/details" class="yt-btn-checkup" title="Paste video IDs or links: captions, music, chapters and fresh SEO for each">
+        🔎 Details from IDs
+      </a>
       <button type="button" class="yt-btn-secondary" (click)="load(true)" [disabled]="refreshing() || loading()">
         <span class="yt-btn-icon" [class.spinning]="refreshing()">↻</span>
         {{ refreshing() ? 'Refreshing…' : 'Refresh Numbers' }}

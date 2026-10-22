@@ -99,6 +99,14 @@ export interface ContentPlanItemRequest {
   fileLink?: string | null;
 }
 
+/** Ways out for a post that won't be ready in time. */
+export interface ContentRecovery {
+  /** The topic's next free day at its publish time; null when none is free soon. */
+  nextFreeAt?: string | null;
+  /** Later ready (or scheduled) posts of the same topic it could trade days with. */
+  swapWith: ContentPlanItem[];
+}
+
 export type ContentLinkOrigin = 'Manual' | 'Download';
 
 export interface ContentSourceLink {

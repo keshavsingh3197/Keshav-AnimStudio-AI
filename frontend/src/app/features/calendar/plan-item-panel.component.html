@@ -18,6 +18,12 @@
         </ul>
       }
       @if (c.syncMessage) { <p class="cal-error small">YouTube: {{ c.syncMessage }}</p> }
+      @if (showRecovery()) {
+        <!-- keyed on the save time so the options reload after every change -->
+        @for (r of [c]; track r.updatedAt) {
+          <app-post-recovery [item]="r" (changed)="recovered($event)" />
+        }
+      }
     }
 
     <!-- what & when -->

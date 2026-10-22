@@ -52,7 +52,17 @@
     <div class="seg" role="tablist">
       <button type="button" role="tab" [class.on]="view() === 'agenda'" (click)="setView('agenda')">Agenda</button>
       <button type="button" role="tab" [class.on]="view() === 'month'" (click)="setView('month')">Month</button>
+      <button type="button" role="tab" [class.on]="view() === 'progress'" (click)="setView('progress')">Progress</button>
     </div>
+    @if (view() === 'progress') {
+      <div class="seg" role="radiogroup" aria-label="Period">
+        <button type="button" role="radio" [attr.aria-checked]="progressPeriod() === 'last30'" [class.on]="progressPeriod() === 'last30'" (click)="setPeriod('last30')">Last 30 days</button>
+        <button type="button" role="radio" [attr.aria-checked]="progressPeriod() === 'month'" [class.on]="progressPeriod() === 'month'" (click)="setPeriod('month')">This month</button>
+        <button type="button" role="radio" [attr.aria-checked]="progressPeriod() === 'next30'" [class.on]="progressPeriod() === 'next30'" (click)="setPeriod('next30')">Next 30 days</button>
+        <button type="button" role="radio" [attr.aria-checked]="progressPeriod() === 'quarter'" [class.on]="progressPeriod() === 'quarter'" (click)="setPeriod('quarter')">90 days</button>
+      </div>
+      <span class="muted small">{{ progressLabel() }}</span>
+    }
     @if (view() === 'month') {
       <div class="month-nav">
         <button type="button" class="secondary small" (click)="shiftMonth(-1)" aria-label="Previous month">‹</button>
@@ -84,9 +94,12 @@
       @for (g of agenda(); track g.key) {
         <section class="day" [class.today]="g.isToday">
           <h2 class="day-head">
-            <span>{{ g.date | date: 'EEEE' }}</span>
-            <span class="muted">{{ g.date | date: 'd MMM' }}</span>
-            @if (g.isToday) { <span class="today-tag">today</span> }
+            <button type="button" class="day-open" (click)="openDay(g.date)" [attr.aria-label]="'Details of ' + (g.date | date: 'EEEE d MMM')">
+              <span>{{ g.date | date: 'EEEE' }}</span>
+              <span class="muted">{{ g.date | date: 'd MMM' }}</span>
+              @if (g.isToday) { <span class="today-tag">today</span> }
+              <span class="muted small day-more">details ›</span>
+            </button>
           </h2>
           @for (item of g.items; track item.id) {
             <article class="post" [class]="'post lvl-' + level(item)" (click)="openPost(item)" tabindex="0"
@@ -111,6 +124,107 @@
         </section>
       }
     </div>
+  } @else if (view() === 'progress') {
+    @if (progressTotals(); as t) {
+      <div class="prog-tiles">
+        <div class="prog-tile"><strong>{{ t.live }}</strong><span>published</span></div>
+        <div class="prog-tile"><strong>{{ t.remaining }}</strong><span>still to publish</span></div>
+        <div class="prog-tile"><strong>{{ t.scheduled }}</strong><span>scheduled on YouTube</span></div>
+        <div class="prog-tile"><strong>{{ t.toPrepare }}</strong><span>still to prepare</span></div>
+        <div class="prog-tile" [class.alert]="t.missed > 0"><strong>{{ t.missed }}</strong><span>missed{{ t.skipped ? ' · ' + t.skipped + ' skipped' : '' }}</span></div>
+      </div>
+    }
+
+    <section class="prog card">
+      <div class="prog-head">
+        <h2>By topic</h2>
+        <ul class="prog-legend" aria-label="Legend">
+          @for (seg of segments; track seg.key) {
+            <li><span [class]="'swatch seg-' + seg.key" aria-hidden="true"></span>{{ seg.label }}</li>
+          }
+        </ul>
+      </div>
+      @if (progress().length === 0) {
+        <p class="muted">No topics to show.</p>
+      }
+      <table class="prog-table">
+        <thead>
+          <tr>
+            <th scope="col">Topic</th>
+            <th scope="col" class="bar-col">Where the posts are</th>
+            <th scope="col" class="num">Live</th>
+            <th scope="col" class="num">To publish</th>
+            <th scope="col" class="num">To prepare</th>
+            <th scope="col" class="num">Missed</th>
+            <th scope="col">Next up</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (r of progress(); track r.topic.id) {
+            <tr>
+              <th scope="row">
+                <button type="button" class="prog-topic" (click)="topicFilter.set(r.topic.id); setView('agenda')">
+                  <span class="dot" [style.background]="r.topic.color"></span>{{ r.topic.name }}
+                </button>
+                <span class="muted small">{{ cadence(r.topic) }}</span>
+              </th>
+              <td class="bar-col">
+                @if (r.total > 0) {
+                  <div class="stack" role="img"
+                       [attr.aria-label]="r.live + ' live, ' + r.scheduled + ' scheduled, ' + r.ready + ' ready, ' + r.toPrepare + ' to prepare, ' + r.missed + ' missed'">
+                    @for (seg of segments; track seg.key) {
+                      @if (r[seg.key] > 0) {
+                        <span [class]="'seg seg-' + seg.key" [style.width.%]="share(r, seg.key)" [title]="seg.label + ': ' + r[seg.key]"></span>
+                      }
+                    }
+                  </div>
+                } @else {
+                  <span class="muted small">Nothing planned in this period{{ r.topic.days.length === 0 ? ' (no fixed days)' : '' }}</span>
+                }
+              </td>
+              <td class="num">{{ r.live }}</td>
+              <td class="num">{{ r.remaining }}</td>
+              <td class="num" [class.warn-text]="r.toPrepare > 0">{{ r.toPrepare }}</td>
+              <td class="num" [class.err-text]="r.missed > 0">{{ r.missed }}</td>
+              <td>
+                @if (r.next; as n) {
+                  <button type="button" class="link-like" (click)="openPost(n)">
+                    {{ n.publishAt | date: 'EEE d MMM' }} · {{ statusLabels[n.status] }}
+                  </button>
+                } @else if (r.lastLive) {
+                  <span class="muted small">last live {{ r.lastLive | date: 'd MMM' }}</span>
+                } @else {
+                  <span class="muted small">-</span>
+                }
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </section>
+
+    <section class="prog card">
+      <h2>Prepare next</h2>
+      @if (prepQueue().length === 0) {
+        <p class="muted">Nothing waiting - every upcoming post in this period is ready, scheduled or live.</p>
+      }
+      @for (i of prepQueue(); track i.id) {
+        <article class="post" [class]="'post lvl-' + level(i)" (click)="openPost(i)" tabindex="0" (keydown.enter)="openPost(i)">
+          <span class="bar" [style.background]="topicOf(i)?.color ?? 'var(--brand)'"></span>
+          <span class="post-main">
+            <span class="post-title">{{ i.title }}</span>
+            <span class="post-meta">
+              <span>{{ topicName(i) }}</span>
+              <span>goes live {{ i.publishAt | date: 'EEE d MMM, HH:mm' }}</span>
+              <span [class.post-msg]="overdue(i)">ready by {{ i.prepareBy | date: 'EEE d MMM' }}{{ overdue(i) ? ' (late)' : '' }}</span>
+              @if (checklistProgress(i); as p) { <span>☑ {{ p }}</span> }
+            </span>
+          </span>
+          <span [class]="'status ' + statusClass(i.status)">{{ statusLabels[i.status] }}</span>
+          <button type="button" class="small ready-btn" (click)="quickStatus(i, 'Ready', $event)" title="Mark ready">✓ Ready</button>
+        </article>
+      }
+    </section>
   } @else {
     <div class="month" role="grid">
       @for (d of ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']; track d) {
@@ -119,7 +233,10 @@
       @for (c of monthCells(); track c.key) {
         <div class="cell" [class.out]="!c.inMonth" [class.today]="c.isToday" role="gridcell">
           <div class="cell-head">
-            <span>{{ c.date | date: 'd' }}</span>
+            <button type="button" class="cell-day" (click)="openDay(c.date)" [attr.aria-label]="'Details of ' + (c.date | date: 'd MMM')">{{ c.date | date: 'd' }}</button>
+            @if (c.ready) {
+              <span class="cell-ready" [class.all]="c.allReady" [title]="c.ready + ' ready, scheduled or live'">{{ c.allReady ? '✓' : '' }} {{ c.ready }}</span>
+            }
             <button type="button" class="cell-add" (click)="newPost(c.date)" [attr.aria-label]="'Add a post on ' + (c.date | date: 'd MMM')">＋</button>
           </div>
           @for (item of c.items; track item.id) {
@@ -139,6 +256,12 @@
 @if (editingTopic() !== undefined) {
   <app-topic-editor [topic]="editingTopic() ?? null" (saved)="topicSaved($event)" (deleted)="topicDeleted($event)"
                     (closed)="editingTopic.set(undefined)" />
+}
+
+@if (dayOpen(); as day) {
+  <app-day-panel [date]="day" [items]="dayItems()" [topics]="topics()"
+                 (open)="openPost($event)" (changed)="postsChanged($event)" (add)="addOnDay($event)"
+                 (markReady)="markReady($event)" (closed)="dayOpen.set(null)" />
 }
 
 @if (panelItem() !== undefined) {

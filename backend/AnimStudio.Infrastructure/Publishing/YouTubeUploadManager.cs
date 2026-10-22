@@ -1,6 +1,9 @@
 using System.Collections.Concurrent;
 using AnimStudio.Application.Abstractions.Storage;
+using AnimStudio.Application.Common;
+using AnimStudio.Application.Planning;
 using AnimStudio.Application.Publishing;
+using AnimStudio.Infrastructure.Planning;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -44,7 +47,11 @@ public sealed record YouTubeUploadStatus(
     /// <summary>The same video on music.youtube.com, for an upload in the Music category.</summary>
     string? MusicUrl = null,
     /// <summary>A custom thumbnail was sent with this upload and YouTube accepted it.</summary>
-    bool ThumbnailSet = false);
+    bool ThumbnailSet = false,
+    /// <summary>When YouTube makes this private upload public, for a scheduled upload (UTC).</summary>
+    DateTime? PublishAt = null,
+    /// <summary>The calendar post the finished video was linked to; null when none was chosen or linking failed.</summary>
+    string? LinkedPlanItemId = null);
 
 /// <summary>What the controller has already checked and resolved before an upload is queued.</summary>
 public sealed record YouTubeUploadRequest(
@@ -68,7 +75,12 @@ public sealed record YouTubeUploadRequest(
     /// The custom thumbnail, already re-encoded by <see cref="YouTubeThumbnailService"/>; null
     /// lets YouTube pick one of its own frames.
     /// </summary>
-    byte[]? ThumbnailJpeg = null);
+    byte[]? ThumbnailJpeg = null,
+    /// <summary>
+    /// A calendar post the controller has already checked belongs to <see cref="UserId"/>;
+    /// the finished video is linked to it, best effort.
+    /// </summary>
+    string? PlanItemId = null);
 
 /// <summary>
 /// Runs uploads in the background so the publish button returns at once and the dialog can
@@ -205,6 +217,7 @@ public sealed class YouTubeUploadManager : IHostedService, IDisposable
             // Before Completed too, so the dialog's last poll already says whether it went up.
             await PostFirstCommentAsync(connections, entry, video.VideoId).ConfigureAwait(false);
             await SetThumbnailAsync(connections, entry, video.VideoId).ConfigureAwait(false);
+            await LinkPlanItemAsync(scope.ServiceProvider, entry, video.VideoId).ConfigureAwait(false);
             entry.State = YouTubeUploadState.Completed;
 
             try
@@ -395,6 +408,68 @@ public sealed class YouTubeUploadManager : IHostedService, IDisposable
         }
     }
 
+    /// <summary>YouTube can take a moment to show a video it has only just accepted.</summary>
+    private static readonly TimeSpan[] LinkRetryDelays = [TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(15)];
+
+    /// <summary>
+    /// Links the finished video to the calendar post chosen in the dialog, best effort like the
+    /// first comment: the video is already on YouTube, so a post that can't be linked becomes a
+    /// warning, never a failed upload. Ownership is checked again here, not only in the controller.
+    /// </summary>
+    private async Task LinkPlanItemAsync(IServiceProvider services, Entry entry, string videoId)
+    {
+        var request = entry.Request;
+        if (request.PlanItemId is not { Length: > 0 } planItemId) return;
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_stopping.Token);
+        timeout.CancelAfter(TimeSpan.FromMinutes(1));
+        var ct = timeout.Token;
+
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                var planning = services.GetRequiredService<ContentPlanningService>();
+                var calendar = services.GetRequiredService<ContentCalendarYouTubeService>();
+                var item = await planning.GetItemAsync(planItemId, request.UserId, ct).ConfigureAwait(false);
+                // The video is on the upload's channel; a post with no channel of its own takes it.
+                item.ChannelId ??= request.ChannelId;
+                // The time chosen in the dialog wins, so an auto-scheduling topic doesn't move it back to the plan's.
+                if (request.Metadata.PublishAt is { } scheduled) item.PublishAt = scheduled;
+                await calendar.LinkAsync(item, videoId, ct).ConfigureAwait(false);
+                entry.LinkedPlanItemId = item.Id;
+                _logger.LogInformation("Linked YouTube video {VideoId} to calendar post {PlanItemId}", videoId, planItemId);
+                return;
+            }
+            catch (EditingException ex) when (ex.Code == "video-not-on-channel" && attempt < LinkRetryDelays.Length)
+            {
+                try
+                {
+                    await Task.Delay(LinkRetryDelays[attempt], _clock, ct).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    AddWarning(entry, "The video wasn't linked to the calendar post. Link it from the calendar.");
+                    return;
+                }
+            }
+            catch (EditingException ex)
+            {
+                AddWarning(entry, "The video wasn't linked to the calendar post. Link it from the calendar.");
+                _logger.LogWarning("Linking YouTube video {VideoId} to calendar post {PlanItemId} failed: {Code}", videoId, planItemId, ex.Code);
+                return;
+            }
+            catch (Exception ex)
+            {
+                // Only the post id and the error type: the exception text can carry the post's title.
+                AddWarning(entry, "The video wasn't linked to the calendar post. Link it from the calendar.");
+                _logger.LogWarning("Linking YouTube video {VideoId} to calendar post {PlanItemId} failed: {Code}",
+                    videoId, planItemId, ex is YouTubePublishException yt ? yt.Code : ex.GetType().Name);
+                return;
+            }
+        }
+    }
+
     private static void AddWarning(Entry entry, string message) =>
         entry.Warning = entry.Warning is null ? message : $"{entry.Warning} {message}";
 
@@ -449,6 +524,7 @@ public sealed class YouTubeUploadManager : IHostedService, IDisposable
         public string? CommentId { get; set; }
         public byte[]? Thumbnail { get; set; }
         public bool ThumbnailSet { get; set; }
+        public string? LinkedPlanItemId { get; set; }
 
         public bool IsFinished => State is YouTubeUploadState.Completed or YouTubeUploadState.Failed or YouTubeUploadState.Cancelled;
 
@@ -468,7 +544,9 @@ public sealed class YouTubeUploadManager : IHostedService, IDisposable
                 videoId is null ? null : $"https://studio.youtube.com/video/{videoId}/edit",
                 ErrorCode, Error, StartedAt, CompletedAt, PublicationId, Warning, CommentId,
                 videoId is null ? null : YouTubeRelatedVideos.MusicUrlFor(videoId, Request.Metadata.CategoryId),
-                ThumbnailSet);
+                ThumbnailSet,
+                Request.Metadata.PublishAt,
+                LinkedPlanItemId);
         }
     }
 }

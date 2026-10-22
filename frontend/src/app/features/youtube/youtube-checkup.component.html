@@ -14,6 +14,10 @@
       <p class="ck-subhead">
         Audit and optimize every upload on your channel. Find missing descriptions, tags, hashtags, playlists, and audience declarations, then draft and apply high-converting metadata with AI.
       </p>
+      <p class="ck-subhead">
+        Have a list of video IDs or links (yours or anyone's)?
+        <a routerLink="/youtube/details" class="ck-inline-link">Get full details from IDs</a> - captions, music, chapters and fresh SEO for each.
+      </p>
     </div>
 
     <!-- Header Controls with sleek custom dropdowns -->
@@ -545,6 +549,11 @@
                   <span class="ck-pill ck-privacy" [class.public]="v.privacy === 'public'">
                     <span class="ck-dot"></span> {{ v.privacy || 'unknown' }}
                   </span>
+                  @if (v.privacy === 'private' && v.scheduledAt) {
+                    <span class="ck-pill ck-scheduled" [title]="'Goes public by itself on ' + (v.scheduledAt | date: 'full')">
+                      ⏰ Scheduled · goes public {{ v.scheduledAt | date: 'MMM d, h:mm a' }}
+                    </span>
+                  }
                   @if (v.isShort) {
                     <span class="ck-pill ck-format-short">Short</span>
                   }
@@ -649,6 +658,9 @@
                 <div class="ck-grid-meta">
                   <span>{{ v.publishedAt | date: 'mediumDate' }}</span>
                   <span class="ck-pill ck-privacy" [class.public]="v.privacy === 'public'">{{ v.privacy || 'unknown' }}</span>
+                  @if (v.privacy === 'private' && v.scheduledAt) {
+                    <span class="ck-pill ck-scheduled" [title]="'Goes public by itself on ' + (v.scheduledAt | date: 'full')">⏰ {{ v.scheduledAt | date: 'MMM d, h:mm a' }}</span>
+                  }
                   @if (v.isShort) { <span class="ck-pill ck-format-short">Short</span> }
                 </div>
 
@@ -731,6 +743,9 @@
                   <td class="ck-td-date">{{ v.publishedAt | date: 'shortDate' }}</td>
                   <td class="ck-td-privacy">
                     <span class="ck-pill ck-privacy" [class.public]="v.privacy === 'public'">{{ v.privacy }}</span>
+                    @if (v.privacy === 'private' && v.scheduledAt) {
+                      <span class="ck-pill ck-scheduled" [title]="'Goes public by itself on ' + (v.scheduledAt | date: 'full')">⏰ {{ v.scheduledAt | date: 'MMM d, h:mm a' }}</span>
+                    }
                   </td>
                   <td class="ck-td-actions">
                     <div class="ck-compact-btns">

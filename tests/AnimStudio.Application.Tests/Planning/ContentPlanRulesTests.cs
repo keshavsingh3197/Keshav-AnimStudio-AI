@@ -30,6 +30,61 @@ public sealed class ContentPlanRulesTests
     };
 
     [Fact]
+    public void A_late_post_moves_to_the_next_cadence_day_nobody_has()
+    {
+        var topic = Topic(DayOfWeek.Monday, DayOfWeek.Thursday);
+        var late = Item(new DateTime(2026, 10, 26, 12, 30, 0, DateTimeKind.Utc));
+        var thursday = Item(new DateTime(2026, 10, 29, 12, 30, 0, DateTimeKind.Utc));
+        thursday.Id = "i2";
+
+        var next = ContentPlanRules.NextFreeTime(topic, late, [late, thursday], Now);
+
+        // Thursday is taken, so the following Monday.
+        Assert.Equal(new DateTime(2026, 11, 2, 12, 30, 0, DateTimeKind.Utc), next);
+    }
+
+    [Fact]
+    public void A_missed_post_can_still_take_todays_slot_and_a_skipped_post_leaves_its_day_free()
+    {
+        var topic = Topic(DayOfWeek.Wednesday);
+        var missed = Item(new DateTime(2026, 10, 14, 12, 30, 0, DateTimeKind.Utc));
+        var skipped = Item(new DateTime(2026, 10, 21, 12, 30, 0, DateTimeKind.Utc), ContentPlanStatus.Skipped);
+        skipped.Id = "i2";
+
+        // 15:30 in India now; today's 18:00 is still ahead.
+        Assert.Equal(new DateTime(2026, 10, 21, 12, 30, 0, DateTimeKind.Utc),
+            ContentPlanRules.NextFreeTime(topic, missed, [missed, skipped], Now));
+    }
+
+    [Fact]
+    public void A_topic_without_fixed_days_moves_to_the_next_free_day()
+    {
+        var topic = Topic();
+        var item = Item(new DateTime(2026, 10, 22, 12, 30, 0, DateTimeKind.Utc));
+
+        Assert.Equal(new DateTime(2026, 10, 23, 12, 30, 0, DateTimeKind.Utc), ContentPlanRules.NextFreeTime(topic, item, [item], Now));
+    }
+
+    [Fact]
+    public void Only_a_post_still_being_worked_on_gets_later_ready_posts_to_swap_with()
+    {
+        var late = Item(new DateTime(2026, 10, 26, 12, 30, 0, DateTimeKind.Utc), ContentPlanStatus.InProgress);
+        var ready = Item(new DateTime(2026, 11, 2, 12, 30, 0, DateTimeKind.Utc), ContentPlanStatus.Ready);
+        ready.Id = "i2";
+        var earlierReady = Item(new DateTime(2026, 10, 22, 12, 30, 0, DateTimeKind.Utc), ContentPlanStatus.Ready);
+        earlierReady.Id = "i3";
+        var idea = Item(new DateTime(2026, 11, 9, 12, 30, 0, DateTimeKind.Utc));
+        idea.Id = "i4";
+
+        Assert.Equal(["i2"], ContentPlanRules.SwapCandidates(late, [late, ready, earlierReady, idea], Now).Select(p => p.Id));
+        Assert.Empty(ContentPlanRules.SwapCandidates(ready, [late, ready], Now));
+
+        // Too close to go out for YouTube to take a new schedule.
+        var dueNow = Item(Now.AddMinutes(5), ContentPlanStatus.Idea);
+        Assert.Empty(ContentPlanRules.SwapCandidates(dueNow, [dueNow, ready], Now));
+    }
+
+    [Fact]
     public void Slots_follow_the_cadence_in_the_topic_time_zone()
     {
         var slots = ContentPlanRules.UpcomingSlots(Topic(DayOfWeek.Monday), Now);

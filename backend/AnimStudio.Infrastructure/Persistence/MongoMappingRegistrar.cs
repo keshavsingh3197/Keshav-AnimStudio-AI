@@ -1,6 +1,7 @@
 using AnimStudio.Domain.Ai;
 using AnimStudio.Domain.Assets;
 using AnimStudio.Domain.Characters;
+using AnimStudio.Domain.Effects;
 using AnimStudio.Domain.Ingest;
 using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.LiveStreams;
@@ -99,6 +100,9 @@ public static class MongoMappingRegistrar
             MapWithLiteralId<ContentTopic>();
             MapWithLiteralId<ContentPlanItem>();
             MapWithLiteralId<ContentSourceLink>();
+
+            // App-assigned GUID - one file in a user's effects library.
+            MapWithLiteralId<EffectClip>();
         }
     }
 

@@ -28,4 +28,5 @@ public static class MongoCollections
     public const string ContentTopics = "contentTopics";
     public const string ContentPlanItems = "contentPlanItems";
     public const string ContentSourceLinks = "contentSourceLinks";
+    public const string EffectClips = "effectClips";
 }

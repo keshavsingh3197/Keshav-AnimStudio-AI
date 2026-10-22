@@ -435,6 +435,27 @@ public sealed class TimelineItemTransformSpec
     /// footage however the clip is later framed, and our own watermark is drawn after.
     /// </summary>
     public List<EraseRegionSpec> EraseRegions { get; set; } = [];
+
+    /// <summary>
+    /// Image and video overlays: a backdrop colour keyed out to transparent - a green-screen
+    /// clip from the effects library. Null (or disabled) draws the source as it is.
+    /// </summary>
+    public ChromaKeySpec? ChromaKey { get; set; }
+}
+
+/// <summary>A colour made transparent on an overlay. Values are checked again before they reach ffmpeg.</summary>
+public sealed class ChromaKeySpec
+{
+    public bool Enabled { get; set; } = true;
+
+    /// <summary><c>#rrggbb</c>; pure green when missing.</summary>
+    public string? Color { get; set; } = "#00ff00";
+
+    /// <summary>0.01-1: how far from the colour a pixel may be and still go.</summary>
+    public double Similarity { get; set; } = 0.3;
+
+    /// <summary>0-1: how softly the edge fades instead of cutting.</summary>
+    public double Blend { get; set; } = 0.1;
 }
 
 /// <summary>How an erased region is filled.</summary>

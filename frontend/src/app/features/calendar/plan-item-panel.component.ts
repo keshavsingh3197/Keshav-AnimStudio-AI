@@ -12,6 +12,7 @@ import {
 import { ApiService } from '../../core/services/api.service';
 import { ContentCalendarService } from '../../core/services/content-calendar.service';
 import { copyText, errorText, fromLocalInput, safeHttps, toLocalInput } from './calendar-helpers';
+import { PostRecoveryComponent, needsRecovery } from './post-recovery.component';
 
 /**
  * One post: what it is, when it goes live, how far along it is, the YouTube video it became
@@ -19,7 +20,7 @@ import { copyText, errorText, fromLocalInput, safeHttps, toLocalInput } from './
  */
 @Component({
   selector: 'app-plan-item-panel',
-  imports: [DatePipe, FormsModule, RouterLink],
+  imports: [DatePipe, FormsModule, RouterLink, PostRecoveryComponent],
   templateUrl: './plan-item-panel.component.html',
   styleUrl: './plan-item-panel.component.css',
 })
@@ -156,6 +157,26 @@ export class PlanItemPanelComponent implements OnInit {
       return;
     }
     this.run('status', this.api.setStatus(c.id, 'Ready'), (saved) => this.apply(saved));
+  }
+
+  readonly showRecovery = computed(() => {
+    const c = this.current();
+    return !!c && needsRecovery(c);
+  });
+
+  /** A recovery action moved this post (and, for a swap, another one). */
+  recovered(list: ContentPlanItem[]): void {
+    const c = this.current();
+    for (const saved of list) {
+      if (saved.id === c?.id) this.apply(saved);
+      else this.saved.emit(saved);
+    }
+    const mine = list.find((i) => i.id === c?.id);
+    if (mine) {
+      this.notice.set(mine.status === 'Skipped'
+        ? 'Skipped.'
+        : `Moved to ${new Date(mine.publishAt).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}.`);
+    }
   }
 
   remove(): void {

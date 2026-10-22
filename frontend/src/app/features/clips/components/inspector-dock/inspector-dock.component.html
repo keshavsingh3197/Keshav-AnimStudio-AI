@@ -115,6 +115,7 @@
     <div class="inspector-content">
       @if (state.activeInspectorTab() === 'clip') {
         <app-image-shot-inspector />
+        <app-chroma-key-inspector />
         <app-transform-inspector />
       }
 
@@ -125,6 +126,7 @@
       @if (state.activeInspectorTab() === 'effects') {
         <app-celebration-inspector />
         <app-image-shot-inspector />
+        <app-chroma-key-inspector />
         <app-effects-inspector />
       }
 

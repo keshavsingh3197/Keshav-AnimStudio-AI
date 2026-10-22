@@ -1,6 +1,7 @@
 import { DecimalPipe } from '@angular/common';
 import { Component, DestroyRef, ElementRef, OnInit, computed, effect, inject, input, output, signal, untracked, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subject, catchError, debounceTime, distinctUntilChanged, forkJoin, map, of, switchMap, tap } from 'rxjs';
 
@@ -9,8 +10,10 @@ import {
   YouTubePublishStatus, YouTubeSuggestEngine, YouTubeUpload, YouTubeUploadRoute,
   isHandoffActive, isUploadFinished, isValidDriveFolderName, parseYouTubeTags, relatedVideosBlock, youTubeTagsLength,
 } from '../core/models/youtube.models';
+import { ContentPlanItem, ContentPlanStatus, ContentTopic } from '../core/models/calendar.models';
 import { ActivityService } from '../core/services/activity.service';
 import { ApiService } from '../core/services/api.service';
+import { ContentCalendarService } from '../core/services/content-calendar.service';
 import { ProjectStore } from '../core/services/project-store';
 import { YouTubePublishService } from '../core/services/youtube-publish.service';
 
@@ -42,10 +45,42 @@ const FRAME_SPOTS = [0.1, 0.26, 0.42, 0.58, 0.74, 0.9];
 
 interface FrameOption { at: number; url: string | null; failed: boolean }
 
+/** Visibility as picked in the dialog: a scheduled upload is sent as private with a publish time. */
+type Visibility = YouTubePrivacy | 'scheduled';
+
+/** YouTube refuses a publish time closer than this (the server checks the same). */
+const MIN_SCHEDULE_LEAD_MS = 10 * 60 * 1000;
+/** How far ahead a publish time may be; the server allows a day more for time-zone slack. */
+const MAX_SCHEDULE_AHEAD_MS = 365 * 24 * 60 * 60 * 1000;
+/** How far ahead the calendar-post picker looks. */
+const PLAN_LOOKAHEAD_DAYS = 60;
+/** Posts still waiting for a video; Scheduled/Published/Skipped already have one or never will. */
+const OPEN_PLAN_STATUSES: readonly ContentPlanStatus[] = ['Idea', 'InProgress', 'Ready'];
+
+/** A Date as a datetime-local value (the viewer's own time zone), e.g. 2026-10-28T18:00. */
+function toLocalInput(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/** A datetime-local value back to a Date; a string without a zone is read as local time. */
+function fromLocalInput(value: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(value)) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/** "Tue 28 Oct, 18:00" in the viewer's locale and time zone. */
+function formatWhen(date: Date): string {
+  return date.toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
 interface PublishPrefs {
   channelId?: string;
   categoryId?: string;
   privacy?: YouTubePrivacy;
+  /** The last pick was Scheduled. Only the choice is remembered, never the time. */
+  scheduled?: boolean;
   madeForKids?: boolean;
   /** Upload from here, or send to the phone for a Shorts sound. */
   route?: YouTubeUploadRoute;
@@ -67,7 +102,7 @@ interface PublishPrefs {
 @Component({
   selector: 'app-youtube-publish-dialog',
   standalone: true,
-  imports: [FormsModule, DecimalPipe],
+  imports: [FormsModule, DecimalPipe, RouterLink],
   host: { '(document:keydown.escape)': 'closed.emit()' },
   template: `
     <div class="yt-backdrop" (click)="closed.emit()">
@@ -121,6 +156,10 @@ interface PublishPrefs {
                       }
                       <div><dt>Channel</dt><dd>{{ selectedChannel()?.channelTitle }}</dd></div>
                       <div><dt>Visibility</dt><dd>{{ privacyLabel() }}{{ notify() && privacy() === 'public' ? ' · subscribers notified' : '' }}</dd></div>
+                      @if (route() !== 'phone' && selectedPlan(); as post) {
+                        <div><dt>Calendar post</dt><dd><span class="yt-plan-dot" [style.background]="planTopic(post)?.color ?? null" aria-hidden="true"></span>
+                          {{ post.title }}{{ planTopic(post) ? ' · ' + planTopic(post)!.name : '' }}</dd></div>
+                      }
                       <div><dt>Audience</dt><dd>{{ madeForKids() ? 'Made for kids' : 'Not made for kids' }}</dd></div>
                       <div><dt>Category</dt><dd>{{ categoryName() }}</dd></div>
                       @if (relatedSelected().length) {
@@ -133,6 +172,8 @@ interface PublishPrefs {
                         the Short once you upload it from the YouTube app.</p>
                     } @else if (privacy() === 'public') {
                       <p class="yt-warn">This goes live publicly as soon as YouTube finishes processing it.</p>
+                    } @else if (scheduled() && scheduleDate(); as at) {
+                      <p class="yt-muted">Uploads as private now. YouTube makes it public on {{ when(at) }} ({{ timeZone }}).</p>
                     }
                   </section>
 
@@ -440,20 +481,45 @@ interface PublishPrefs {
                       </select>
                     </label>
                     <label>Visibility
-                      <select [ngModel]="privacy()" (ngModelChange)="privacy.set($event)" [disabled]="uploading()">
+                      <select [ngModel]="visibility()" (ngModelChange)="setVisibility($event)" [disabled]="uploading()">
                         <option value="public">Public</option>
                         <option value="unlisted">Unlisted</option>
                         <option value="private">Private</option>
+                        <option value="scheduled" [disabled]="route() === 'phone'">Scheduled</option>
                       </select>
                     </label>
                   </div>
+                  @if (route() === 'phone') {
+                    <p class="yt-muted">Scheduled is not available for a phone upload; set a time in the YouTube app instead.</p>
+                  } @else if (scheduled()) {
+                    <label class="yt-schedule">Goes public at
+                      <input type="datetime-local" [ngModel]="publishAtLocal()" (ngModelChange)="publishAtLocal.set($event)"
+                             [min]="scheduleMin()" [max]="scheduleMax()" [class.invalid]="fieldError('publishAt')" [disabled]="uploading()" />
+                      <small class="yt-muted">Your time ({{ timeZone }}). Uploads as private now; YouTube makes it public then.</small>
+                    </label>
+                    @if (scheduleProblem(); as p) { <p class="yt-err">{{ p }}</p> }
+                  }
+                  @if (route() !== 'phone' && planOptions().length) {
+                    <label class="yt-plan">Calendar post
+                      <select [ngModel]="selectedPlan()?.id ?? ''" (ngModelChange)="choosePlan($event)" [disabled]="uploading()">
+                        <option value="">None</option>
+                        @for (p of planOptions(); track p.id) {
+                          <option [value]="p.id">{{ when(p.publishAt) }} · {{ p.title }}{{ planTopic(p) ? ' (' + planTopic(p)!.name + ')' : '' }}</option>
+                        }
+                      </select>
+                    </label>
+                    @if (selectedPlan(); as post) {
+                      <p class="yt-muted"><span class="yt-plan-dot" [style.background]="planTopic(post)?.color ?? null" aria-hidden="true"></span>
+                        {{ planTopic(post)?.name ?? 'No topic' }} · planned for {{ when(post.publishAt) }}. The video is linked to this post once it is up.</p>
+                    }
+                  }
                   <fieldset class="yt-audience" [disabled]="uploading()">
                     <legend>Audience</legend>
                     <label class="inline"><input type="radio" name="kids" [checked]="madeForKids() === false" (change)="madeForKids.set(false)" /> Not made for kids</label>
                     <label class="inline"><input type="radio" name="kids" [checked]="madeForKids() === true" (change)="madeForKids.set(true)" /> Made for kids</label>
                   </fieldset>
                   <label class="inline"><input type="checkbox" [ngModel]="notify()" (ngModelChange)="notify.set($event)" [disabled]="uploading()" /> Notify subscribers</label>
-                  @if (privacy() === 'private') {
+                  @if (visibility() === 'private') {
                     <p class="yt-muted">Private works as a draft: only you can see it until you change its visibility in YouTube Studio,
                       where you can also add an end screen and playlists.</p>
                   }
@@ -733,7 +799,8 @@ interface PublishPrefs {
               } @else if (upload(); as u) {
                 @switch (u.state) {
                   @case ('Completed') {
-                    <p class="ok">✓ Published to {{ u.channelTitle }} ({{ u.privacy }}).
+                    <p class="ok">@if (u.publishAt) { ✓ Uploaded to {{ u.channelTitle }} as private - goes public {{ when(u.publishAt) }} ({{ timeZone }}). }
+                      @else { ✓ Published to {{ u.channelTitle }} ({{ u.privacy }}). }
                       <a [href]="u.videoUrl" target="_blank" rel="noopener noreferrer">Watch on YouTube ↗</a> ·
                       @if (u.musicUrl) { <a [href]="u.musicUrl" target="_blank" rel="noopener noreferrer">Play on YouTube Music ↗</a> · }
                       <a [href]="u.studioUrl" target="_blank" rel="noopener noreferrer">Open in YouTube Studio ↗</a></p>
@@ -741,7 +808,11 @@ interface PublishPrefs {
                       <p class="yt-muted">Both links open the same video. YouTube Music may take a while to list it under the channel.</p>
                     }
                     <p class="yt-muted">YouTube may still be processing HD versions for a few minutes.
-                      @if (u.privacy === 'private') { Finish the details and publish it from YouTube Studio. }</p>
+                      @if (u.privacy === 'private' && !u.publishAt) { Finish the details and publish it from YouTube Studio. }</p>
+                    @if (u.linkedPlanItemId) {
+                      <p class="yt-muted">📅 Linked to calendar post{{ linkedPlan() ? ' "' + linkedPlan()!.title + '"' : '' }}.
+                        <a routerLink="/calendar" [queryParams]="{ post: u.linkedPlanItemId }" (click)="closed.emit()">Open in calendar</a></p>
+                    }
                     @if (u.commentId) { <p class="yt-muted">💬 First comment posted. Pin it from YouTube Studio if you want it on top.</p> }
                     @if (u.thumbnailSet) { <p class="yt-muted">🖼 Custom thumbnail set.</p> }
                     @if (u.warning) { <p class="yt-warn">⚠ {{ u.warning }}</p> }
@@ -765,7 +836,7 @@ interface PublishPrefs {
               @if (reviewing()) {
                 <button type="button" class="secondary" (click)="reviewing.set(false)" [disabled]="busy()">Back to edit</button>
                 <button type="button" (click)="publish()" [disabled]="!canPublish()">
-                  {{ busy() ? 'Starting…' : route() === 'phone' ? 'Confirm & send to Drive' : privacy() === 'private' ? 'Confirm & upload as draft' : 'Confirm & upload' }}
+                  {{ busy() ? 'Starting…' : route() === 'phone' ? 'Confirm & send to Drive' : scheduled() ? 'Confirm & schedule' : privacy() === 'private' ? 'Confirm & upload as draft' : 'Confirm & upload' }}
                 </button>
               } @else if (route() === 'phone' && handoff() && sendingToDrive()) {
                 <button type="button" class="secondary" (click)="cancelHandoff()">Stop copying</button>
@@ -783,7 +854,7 @@ interface PublishPrefs {
                 <button type="button" class="secondary" (click)="closed.emit()">{{ upload()?.state === 'Completed' ? 'Close' : 'Cancel' }}</button>
                 <button type="button" (click)="review()" [disabled]="!canPublish()">
                   @if (route() === 'phone') { {{ handoff()?.state === 'Applied' ? 'Send another to phone…' : 'Review & send to phone…' }} }
-                  @else { {{ upload()?.state === 'Completed' ? 'Publish again…' : privacy() === 'private' ? 'Review & upload as draft…' : 'Review & publish…' }} }
+                  @else { {{ upload()?.state === 'Completed' ? 'Publish again…' : scheduled() ? 'Review & schedule…' : privacy() === 'private' ? 'Review & upload as draft…' : 'Review & publish…' }} }
                 </button>
               }
             </div>
@@ -858,6 +929,10 @@ interface PublishPrefs {
     /* Send to phone */
     .yt-route .yt-dest-icon { font-size: 1rem; }
     .yt-phone { margin-bottom: .9rem; }
+    /* Scheduled upload and calendar post */
+    .yt-schedule, .yt-plan { display: flex; flex-direction: column; gap: .25rem; margin-top: .6rem; }
+    .yt-schedule input.invalid { border-color: #f87171; }
+    .yt-plan-dot { display: inline-block; width: .65rem; height: .65rem; border-radius: 50%; background: #64748b; vertical-align: middle; margin-right: .25rem; }
     .yt-phone .yt-dest-note { margin: 0; }
     .yt-phone-row { display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap; font-size: .86rem; }
     .yt-phone-actions { display: inline-flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
@@ -1162,6 +1237,7 @@ interface PublishPrefs {
 export class YouTubePublishDialogComponent implements OnInit {
   private readonly api = inject(YouTubePublishService);
   private readonly activity = inject(ActivityService);
+  private readonly calendar = inject(ContentCalendarService);
 
   readonly jobId = input.required<string>();
   /** A render (the default) or a release kit's visualizer. */
@@ -1275,6 +1351,12 @@ export class YouTubePublishDialogComponent implements OnInit {
   readonly tagsText = signal('');
   readonly categoryId = signal('1');
   readonly privacy = signal<YouTubePrivacy>('public');
+  /** Private now, public at {@link publishAtLocal}: sent as privacy "private" plus publishAt. */
+  readonly scheduled = signal(false);
+  /** The datetime-local value, in the viewer's time zone. Never restored from an earlier publish. */
+  readonly publishAtLocal = signal('');
+  readonly visibility = computed<Visibility>(() => (this.scheduled() ? 'scheduled' : this.privacy()));
+  readonly timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'local time';
   readonly madeForKids = signal<boolean | null>(false);
   readonly notify = signal(true);
   readonly firstComment = signal('');
@@ -1328,8 +1410,46 @@ export class YouTubePublishDialogComponent implements OnInit {
   });
   readonly categoryName = computed(() =>
     this.status()?.categories.find((c) => c.id === this.categoryId())?.name ?? this.categoryId());
-  readonly privacyLabel = computed(() =>
-    ({ public: 'Public', unlisted: 'Unlisted', private: 'Private (draft)' })[this.privacy()]);
+  readonly privacyLabel = computed(() => {
+    const at = this.scheduleDate();
+    if (this.scheduled()) return at ? `Scheduled - goes public ${formatWhen(at)} (${this.timeZone})` : 'Scheduled';
+    return ({ public: 'Public', unlisted: 'Unlisted', private: 'Private (draft)' })[this.privacy()];
+  });
+
+  // --- scheduled upload ---
+
+  readonly scheduleDate = computed(() => (this.scheduled() ? fromLocalInput(this.publishAtLocal()) : null));
+  /** Bounds for the picker; the real check is {@link scheduleProblem}, and the server checks again. */
+  readonly scheduleMin = computed(() => (this.scheduled() ? toLocalInput(new Date(Date.now() + MIN_SCHEDULE_LEAD_MS)) : ''));
+  readonly scheduleMax = computed(() => (this.scheduled() ? toLocalInput(new Date(Date.now() + MAX_SCHEDULE_AHEAD_MS)) : ''));
+  readonly scheduleProblem = computed(() => (this.scheduled() ? this.checkSchedule(this.scheduleDate(), Date.now()) : null));
+
+  // --- calendar post ---
+
+  private readonly planTopics = signal<ContentTopic[]>([]);
+  private readonly planItems = signal<ContentPlanItem[]>([]);
+  readonly planItemId = signal<string | null>(null);
+  private readonly topicsById = computed(() => new Map(this.planTopics().map((t) => [t.id, t] as const)));
+  /** Upcoming posts still waiting for a video, on the chosen channel or on no channel yet. */
+  readonly planOptions = computed(() => {
+    const channel = this.channelId();
+    const topics = this.topicsById();
+    const now = Date.now();
+    return this.planItems()
+      .filter((p) => OPEN_PLAN_STATUSES.includes(p.status) && !p.videoId && Date.parse(p.publishAt) > now)
+      .filter((p) => {
+        const postChannel = p.channelId ?? topics.get(p.topicId)?.channelId ?? null;
+        return !postChannel || postChannel === channel;
+      })
+      .sort((a, b) => Date.parse(a.publishAt) - Date.parse(b.publishAt));
+  });
+  /** Null once the post no longer fits (another channel picked), so it is never sent by mistake. */
+  readonly selectedPlan = computed(() => this.planOptions().find((p) => p.id === this.planItemId()) ?? null);
+  /** The post the finished upload was linked to, for the success message. */
+  readonly linkedPlan = computed(() => {
+    const id = this.upload()?.linkedPlanItemId;
+    return id ? this.planItems().find((p) => p.id === id) ?? null : null;
+  });
   readonly tagsLength = computed(() => youTubeTagsLength(this.tags()));
   /** Not removed from YouTube; one entry per video even if it was recorded twice. */
   readonly videosAvailable = computed(() => {
@@ -1391,6 +1511,10 @@ export class YouTubePublishDialogComponent implements OnInit {
       if (!isValidDriveFolderName(this.folderName().trim())) list.push({ field: 'folderName', code: 'drive-folder-invalid', message: 'Use a Drive folder name of letters, digits, spaces and - _ . ( ) &.' });
       // Putting the details on the phone upload needs the same permission as comments.
       if (this.selectedChannel() && !this.selectedChannel()!.canComment) list.push({ field: 'channelId', code: 'youtube-edit-scope', message: 'Reconnect the channel so AnimStudio can fill in the phone upload\'s details.' });
+    }
+    if (this.scheduled()) {
+      if (this.route() === 'phone') list.push({ field: 'publishAt', code: 'schedule-not-on-phone', message: 'Scheduling is not available for a phone upload. Pick another visibility.' });
+      else if (this.scheduleProblem()) list.push({ field: 'publishAt', code: 'schedule-invalid', message: this.scheduleProblem()! });
     }
     for (const e of this.serverErrors()) if (!list.some((x) => x.code === e.code)) list.push(e);
     return list;
@@ -1465,6 +1589,16 @@ export class YouTubePublishDialogComponent implements OnInit {
   }
 
   ngOnInit(): void {
+    // Optional: without the calendar the dialog simply offers no post to link.
+    const from = new Date();
+    const to = new Date(from.getTime() + PLAN_LOOKAHEAD_DAYS * 24 * 60 * 60 * 1000);
+    forkJoin({ topics: this.calendar.listTopics(), items: this.calendar.listItems(from, to) })
+      .pipe(catchError(() => of(null)))
+      .subscribe((r) => {
+        if (!r) return;
+        this.planTopics.set(r.topics);
+        this.planItems.set(r.items);
+      });
     // Optional: without it the pickers just offer Auto and "any tone".
     this.api.suggestOptions().pipe(catchError(() => of(null))).subscribe((o) => {
       if (!o) return;
@@ -1520,6 +1654,8 @@ export class YouTubePublishDialogComponent implements OnInit {
         } else {
           this.categoryId.set(status.categories.some((c) => c.id === prefs.categoryId) ? prefs.categoryId! : draft.categoryId);
           this.privacy.set(prefs.privacy ?? draft.privacy);
+          // The choice comes back, the time does not: an old time would be in the past or wrong.
+          if (prefs.scheduled && this.route() !== 'phone') this.setVisibility('scheduled');
           this.madeForKids.set(prefs.madeForKids ?? draft.madeForKids);
           const remembered = status.channels.find((c) => c.channelId === prefs.channelId);
           this.channelId.set(remembered?.channelId ?? status.channels[0]?.channelId ?? '');
@@ -1527,6 +1663,7 @@ export class YouTubePublishDialogComponent implements OnInit {
         // A song or a music project goes to YouTube Music, whatever was last picked for a video.
         if (this.isRelease() || draft.isMusic) this.setDestination('music');
         if (this.asDraft()) {
+          this.scheduled.set(false);
           this.privacy.set('private');
           this.notify.set(false);
         }
@@ -1917,17 +2054,29 @@ export class YouTubePublishDialogComponent implements OnInit {
       return;
     }
 
+    // Checked again now: the time may have slipped under the 10-minute lead while reviewing.
+    const publishAt = this.scheduled() ? this.scheduleDate() : null;
+    const late = this.scheduled() ? this.checkSchedule(publishAt, Date.now()) : null;
+    if (late) {
+      this.error.set(late);
+      this.busy.set(false);
+      return;
+    }
+
     this.api.publish(this.jobId(), this.channelId(), {
       title: this.title().trim(),
       description: this.description().trim(),
       tags: this.tags(),
       categoryId: this.categoryId(),
-      privacy: this.privacy(),
+      privacy: this.scheduled() ? 'private' : this.privacy(),
       madeForKids: this.madeForKids(),
       notifySubscribers: this.notify(),
-    }, this.relatedSelected().map((v) => v.videoId), this.firstComment().trim(), this.source(), this.thumbnailChoice()).subscribe({
+      publishAt: publishAt ? publishAt.toISOString() : null,
+    }, this.relatedSelected().map((v) => v.videoId), this.firstComment().trim(), this.source(), this.thumbnailChoice(),
+    this.selectedPlan()?.id ?? null).subscribe({
       next: (upload) => {
         this.upload.set(upload);
+        this.noteLinked(upload);
         // The dialog can be closed mid-upload; the activity panel keeps following it.
         this.activity.trackYouTubeUpload(upload);
         this.reviewing.set(false);
@@ -1948,6 +2097,8 @@ export class YouTubePublishDialogComponent implements OnInit {
   setRoute(route: YouTubeUploadRoute): void {
     if (this.uploading() || this.sendingToDrive() || this.isRelease()) return;
     this.route.set(route);
+    // The phone upload can't carry a publish time; it stays private rather than going public.
+    if (route === 'phone' && this.scheduled()) this.scheduled.set(false);
     this.error.set(null);
     this.serverErrors.set([]);
   }
@@ -2194,6 +2345,7 @@ export class YouTubePublishDialogComponent implements OnInit {
       this.api.upload(uploadId).subscribe({
         next: (u) => {
           this.upload.set(u);
+          this.noteLinked(u);
           if (u.errorCode === 'youtube-reconnect') this.markNeedsReconnect();
           if (!isUploadFinished(u)) this.poll(uploadId);
           else if (u.state === 'Completed') this.published.emit(u);
@@ -2216,6 +2368,51 @@ export class YouTubePublishDialogComponent implements OnInit {
     });
   }
 
+  setVisibility(value: Visibility): void {
+    if (value === 'scheduled') {
+      if (this.route() === 'phone') return;
+      this.privacy.set('private');
+      this.scheduled.set(true);
+      return;
+    }
+    this.scheduled.set(false);
+    this.privacy.set(value);
+  }
+
+  /** Links the upload to a calendar post; the post's time becomes the schedule (still editable). */
+  choosePlan(id: string): void {
+    const post = this.planOptions().find((p) => p.id === id) ?? null;
+    this.planItemId.set(post?.id ?? null);
+    if (!post) return;
+    this.setVisibility('scheduled');
+    this.publishAtLocal.set(toLocalInput(new Date(post.publishAt)));
+    if (!this.title().trim()) this.title.set(post.title);
+  }
+
+  planTopic(post: ContentPlanItem): ContentTopic | null {
+    return this.topicsById().get(post.topicId) ?? null;
+  }
+
+  when(value: string | Date): string {
+    const date = typeof value === 'string' ? new Date(value) : value;
+    return Number.isNaN(date.getTime()) ? '' : formatWhen(date);
+  }
+
+  private checkSchedule(at: Date | null, now: number): string | null {
+    if (!at) return 'Pick the date and time it goes public.';
+    if (at.getTime() - now < MIN_SCHEDULE_LEAD_MS) return 'Pick a time at least 10 minutes from now.';
+    if (at.getTime() - now > MAX_SCHEDULE_AHEAD_MS) return 'Pick a time at most a year ahead.';
+    return null;
+  }
+
+  /** A post that now has its video drops out of the picker. */
+  private noteLinked(upload: YouTubeUpload): void {
+    const id = upload.linkedPlanItemId;
+    if (!id || !upload.videoId) return;
+    this.planItems.update((list) => list.map((p) => (p.id === id && !p.videoId ? { ...p, videoId: upload.videoId } : p)));
+    if (this.planItemId() === id) this.planItemId.set(null);
+  }
+
   private readPrefs(): PublishPrefs {
     try {
       return JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') as PublishPrefs;
@@ -2231,6 +2428,7 @@ export class YouTubePublishDialogComponent implements OnInit {
         // Music is decided per upload, so the next ordinary video keeps the category picked for videos.
         categoryId: this.isMusic() ? this.videoCategory() : this.categoryId(),
         privacy: this.privacy(),
+        scheduled: this.scheduled(),
         madeForKids: this.madeForKids() ?? undefined,
         route: this.route(),
         muteAudio: this.muteAudio(),

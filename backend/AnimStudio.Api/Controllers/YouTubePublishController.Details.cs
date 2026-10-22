@@ -139,6 +139,7 @@ public sealed partial class YouTubePublishController
 
         // Also fetch the video's spoken captions / transcript directly from YouTube (100% free)
         string? transcriptText = null;
+        IReadOnlyList<YouTubeChapter> chapters = [];
         try
         {
             var fetched = await transcriptFetcher.FetchAsync(video.VideoId, ct);
@@ -147,6 +148,7 @@ public sealed partial class YouTubePublishController
                 transcriptText = fetched.TranscriptText.Length > 3500
                     ? fetched.TranscriptText[..3500]
                     : fetched.TranscriptText;
+                chapters = YouTubeChapterBuilder.FromSegments(fetched.Segments, video.DurationSeconds ?? fetched.DurationSeconds);
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -165,6 +167,8 @@ public sealed partial class YouTubePublishController
             video.Tags.Count > 0 ? "Current tags: " + string.Join(", ", video.Tags.Take(30)) : "Current tags: (none)",
             !string.IsNullOrWhiteSpace(transcriptText) ? "Spoken transcript / lyrics:\n" + transcriptText : string.Empty,
         }.Where(s => s.Length > 0));
+        var extras = new YouTubeSeoExtras(YouTubeMusicDetector.FromDescription(video.Description), chapters);
+        if (YouTubeVideoInsights.PromptLines(extras) is { Length: > 0 } extraLines) summary += "\n" + extraLines;
 
         var style = video.DurationSeconds is <= ShortMaxSeconds
             ? "a YouTube Short - end the description with #shorts and two or three topic hashtags"
@@ -174,7 +178,7 @@ public sealed partial class YouTubePublishController
         var footer = BrandFor(settings, connection.ChannelId).Publishing?.DescriptionFooter;
 
         return await WriteSuggestionAsync(summary, style, request, projectId,
-            d => YouTubePublishValidator.WithFooter(d.Trim(), footer), "video " + video.VideoId, ct, transcriptText);
+            d => YouTubePublishValidator.WithFooter(d.Trim(), footer), "video " + video.VideoId, ct, transcriptText, extras);
     }
 
     /// <summary>
@@ -238,6 +242,9 @@ public sealed partial class YouTubePublishController
                 ? "Spoken transcript / lyrics:\n" + transcriptSnippet
                 : "Spoken transcript / lyrics: (No caption track found on this video; generate from title and channel context.)",
         }.Where(s => s.Length > 0));
+        var extras = new YouTubeSeoExtras(YouTubeMusicDetector.FromDescription(fetched.Description),
+            YouTubeChapterBuilder.FromSegments(fetched.Segments, fetched.DurationSeconds));
+        if (YouTubeVideoInsights.PromptLines(extras) is { Length: > 0 } extraLines) summary += "\n" + extraLines;
 
         var style = isShort
             ? "a YouTube Short (9:16 vertical) - end the description with #shorts and topic hashtags"
@@ -255,26 +262,9 @@ public sealed partial class YouTubePublishController
             Brief: request?.Brief,
             ProviderId: request?.ProviderId);
 
-        var suggestAction = await WriteSuggestionAsync(summary, style, suggestReq, projectId,
-            d => YouTubePublishValidator.WithFooter(d.Trim(), footer), "url-video " + videoId, ct, transcriptSnippet);
+        var suggestion = await SuggestWithFallbackAsync(summary, style, suggestReq, projectId,
+            d => YouTubePublishValidator.WithFooter(d.Trim(), footer), "url-video " + videoId, transcriptSnippet, extras, ct);
 
-        if (suggestAction.Result is ObjectResult obj && obj.Value is ApiResponse<YouTubeSuggestResponse> apiResp && apiResp.Success && apiResp.Data is { } suggestion)
-        {
-            return Ok(ApiResponse<YouTubeUrlSeoResponse>.Ok(new YouTubeUrlSeoResponse(
-                videoId,
-                isShort ? $"https://youtube.com/shorts/{videoId}" : canonicalUrl,
-                fetched.Title,
-                fetched.Author,
-                fetched.DurationSeconds,
-                isShort,
-                fetched.HasTranscript,
-                fetched.TranscriptText,
-                suggestion)));
-        }
-
-        // Fallback direct local generation so URL SEO never fails
-        var direct = YouTubeFreeSeoEngine.Generate(summary, style, suggestReq.Tone, suggestReq.Language ?? "hi", suggestReq.Brief, transcriptSnippet);
-        var fallbackSuggestion = ToSuggestResponse(direct, YouTubeFreeSeoEngine.FreeLocalProviderId, d => YouTubePublishValidator.WithFooter(d.Trim(), footer));
         return Ok(ApiResponse<YouTubeUrlSeoResponse>.Ok(new YouTubeUrlSeoResponse(
             videoId,
             isShort ? $"https://youtube.com/shorts/{videoId}" : canonicalUrl,
@@ -284,7 +274,26 @@ public sealed partial class YouTubePublishController
             isShort,
             fetched.HasTranscript,
             fetched.TranscriptText,
-            fallbackSuggestion)));
+            suggestion)));
+    }
+
+    /// <summary>
+    /// <see cref="WriteSuggestionAsync"/>, and when that can't answer (busy, the chosen engine
+    /// failed) the free local engine's draft instead - for pages that must always show one.
+    /// </summary>
+    private async Task<YouTubeSuggestResponse> SuggestWithFallbackAsync(
+        string summary, string style, YouTubeSuggestRequest request, string? projectId,
+        Func<string, string> composeDescription, string subject, string? transcriptText, YouTubeSeoExtras extras, CancellationToken ct)
+    {
+        var action = await WriteSuggestionAsync(summary, style, request, projectId, composeDescription, subject, ct, transcriptText, extras);
+        if (action.Result is ObjectResult { Value: ApiResponse<YouTubeSuggestResponse> { Success: true, Data: { } suggestion } })
+            return suggestion;
+
+        var language = request.Language is { } lang && YouTubeMetadataSuggester.Languages.Contains(lang) ? lang : "en";
+        var direct = YouTubeFreeSeoEngine.Generate(summary, style, request.Tone, language,
+            YouTubeMetadataSuggester.CleanBrief(request.Brief), transcriptText, extras);
+        return ToSuggestResponse(direct, YouTubeFreeSeoEngine.FreeLocalProviderId,
+            d => composeDescription(YouTubeVideoInsights.AddChaptersAndCredits(d, extras)));
     }
 
     /// <summary>
@@ -515,7 +524,8 @@ public sealed partial class YouTubePublishController
             v.DurationSeconds, v.ThumbnailUrl, isShort, playlistIds, issues,
             isShort ? $"https://youtube.com/shorts/{v.VideoId}" : $"https://youtu.be/{v.VideoId}",
             $"https://studio.youtube.com/video/{v.VideoId}/edit",
-            projectId);
+            projectId,
+            v.PrivacyStatus == "private" ? v.ScheduledAt : null);
     }
 }
 
@@ -538,7 +548,9 @@ public sealed record YouTubeCheckupVideo(
     string VideoUrl,
     string StudioUrl,
     /// <summary>The AnimStudio project it was published from, if any.</summary>
-    string? ProjectId);
+    string? ProjectId,
+    /// <summary>When a private video is set to go public by itself (UTC); null when it isn't scheduled.</summary>
+    DateTime? ScheduledAt = null);
 
 public sealed record YouTubeCheckupResponse(
     string ChannelId,

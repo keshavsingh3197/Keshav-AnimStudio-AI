@@ -503,6 +503,19 @@ public sealed class SqlDatabaseInitializer(
             CREATE INDEX IX_ContentSourceLinks_User ON ContentSourceLinks (UserId, TopicId, LastCapturedAt DESC);
         END;
 
+        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'EffectClips')
+        BEGIN
+            CREATE TABLE EffectClips (
+                Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+                UserId NVARCHAR(200) NOT NULL,
+                SourceAssetId NVARCHAR(128) NULL,
+                CreatedAt DATETIME2 NOT NULL,
+                DataJson NVARCHAR(MAX) NOT NULL
+            );
+            CREATE INDEX IX_EffectClips_User ON EffectClips (UserId, CreatedAt DESC);
+            CREATE INDEX IX_EffectClips_Source ON EffectClips (UserId, SourceAssetId);
+        END;
+
         IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'VoiceProfiles')
         BEGIN
             CREATE TABLE VoiceProfiles (

@@ -63,7 +63,7 @@ public sealed class FfprobeMediaProbeService(
                 [
                     "-v", "error",
                     "-show_entries",
-                    "stream=codec_type,codec_name,width,height,pix_fmt,channels,sample_rate,duration",
+                    "stream=codec_type,codec_name,width,height,pix_fmt,channels,sample_rate,duration:stream_tags",
                     "-show_entries", "format=duration",
                     "-of", "json",
                     fileName
@@ -113,6 +113,20 @@ public sealed class FfprobeMediaProbeService(
                 probe.HasAlpha = probe.PixelFormat is not null
                                  && Array.Exists(AlphaFormats, f =>
                                      string.Equals(f, probe.PixelFormat, StringComparison.Ordinal));
+
+                // A VP8/VP9 WebM keeps its alpha in a side stream, so its pixel format reads
+                // as plain yuv420p; the container's ALPHA_MODE tag is what says it is there.
+                if (!probe.HasAlpha
+                    && stream.TryGetProperty("tags", out var tags)
+                    && tags.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var tag in tags.EnumerateObject())
+                    {
+                        if (string.Equals(tag.Name, "alpha_mode", StringComparison.OrdinalIgnoreCase)
+                            && string.Equals(tag.Value.GetString(), "1", StringComparison.Ordinal))
+                            probe.HasAlpha = true;
+                    }
+                }
             }
             else if (string.Equals(type, "audio", StringComparison.Ordinal))
             {

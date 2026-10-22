@@ -94,6 +94,12 @@ internal static class MediaOverlayFilters
                  .Append($":x=iw*{FilterExpr.N(media.CropLeft / 100)}:y=ih*{FilterExpr.N(media.CropTop / 100)}");
         }
 
+        // Keyed at the source's own size, before scaling blurs the backdrop into the subject.
+        if (media?.Key is { } key)
+        {
+            chain.Append(',').Append(key.Filter());
+        }
+
         if (width is { } targetW)
         {
             chain.Append(height is { } targetH ? $",scale={targetW}:{targetH},setsar=1" : $",scale={targetW}:-2");

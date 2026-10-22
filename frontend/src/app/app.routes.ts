@@ -118,6 +118,14 @@ export const routes: Routes = [
   },
 
   {
+    path: 'effects',
+    title: 'Effects & overlays - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/effects/effects-library.component')
+        .then((m) => m.EffectsLibraryComponent),
+  },
+
+  {
     path: 'calendar',
     title: 'Content calendar - AnimStudio AI',
     loadComponent: () =>
@@ -163,6 +171,14 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./features/youtube/youtube-checkup.component')
         .then((m) => m.YouTubeCheckupComponent),
+  },
+
+  {
+    path: 'youtube/details',
+    title: 'Video details from IDs - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/youtube/video-details.component')
+        .then((m) => m.VideoDetailsComponent),
   },
 
   {

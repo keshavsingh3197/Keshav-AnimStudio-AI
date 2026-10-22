@@ -1069,3 +1069,9 @@
   text-overflow: ellipsis;
   max-width: 100%;
 }
+
+/* The Effects tab button while the effects library is showing. */
+.media-import-btn.active {
+  border-color: var(--brand);
+  background: var(--brand-subtle);
+}

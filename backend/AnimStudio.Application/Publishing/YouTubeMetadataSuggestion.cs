@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -300,9 +301,10 @@ public static class YouTubeFreeSeoEngine
         string? toneId,
         string language,
         string? brief,
-        string? transcriptText = null)
+        string? transcriptText = null,
+        YouTubeSeoExtras? extras = null)
     {
-        var fallback = Generate(summary, style, toneId, language, brief, transcriptText);
+        var fallback = Generate(summary, style, toneId, language, brief, transcriptText, extras);
         return parsed with
         {
             TitleOptions = parsed.TitleOptions.Count > 0 ? parsed.TitleOptions : fallback.TitleOptions,
@@ -321,8 +323,10 @@ public static class YouTubeFreeSeoEngine
         string? toneId,
         string language,
         string? brief,
-        string? transcriptText = null)
+        string? transcriptText = null,
+        YouTubeSeoExtras? extras = null)
     {
+        extras ??= YouTubeSeoExtras.None;
         var isHindi = string.Equals(language, "hi", StringComparison.OrdinalIgnoreCase);
         var isShort = style.Contains("Short", StringComparison.OrdinalIgnoreCase);
         var isOmkr = string.Equals(toneId, "devotional-omkr", StringComparison.OrdinalIgnoreCase)
@@ -336,15 +340,20 @@ public static class YouTubeFreeSeoEngine
         var cleanSubject = CleanTitleSubject(rawSubject);
         var lyricsSnippet = ExtractCleanLyricsBlock(summary, transcriptText);
         var firstLyricLine = ExtractFirstLyricLine(lyricsSnippet);
+
+        // Content that isn't devotional gets plain, topic-led details - not OMKR's bhajan template.
+        if (!isDevotional)
+            return GenericSeo.Generate(summary, cleanSubject, firstLyricLine, lyricsSnippet, transcriptText, isHindi, isShort, extras);
+
         var deity = DetectDeity(summary + " " + brief + " " + transcriptText + " " + cleanSubject);
 
         var titles = BuildTitles(cleanSubject, firstLyricLine, deity, isHindi, isDevotional, isOmkr, isShort);
         var primaryTitle = titles[0];
         var titleOptions = titles.Skip(1).Take(4).ToList();
 
-        var mainDesc = BuildDescription(cleanSubject, lyricsSnippet, deity, isHindi, isDevotional, isOmkr, isShort, variant: 0);
-        var shortDesc = BuildDescription(cleanSubject, lyricsSnippet, deity, isHindi, isDevotional, isOmkr, isShort, variant: 1);
-        var detailedDesc = BuildDescription(cleanSubject, lyricsSnippet, deity, isHindi, isDevotional, isOmkr, isShort, variant: 2);
+        var mainDesc = WithMusicCredits(BuildDescription(cleanSubject, lyricsSnippet, deity, isHindi, isDevotional, isOmkr, isShort, variant: 0, extras), extras);
+        var shortDesc = WithMusicCredits(BuildDescription(cleanSubject, lyricsSnippet, deity, isHindi, isDevotional, isOmkr, isShort, variant: 1, extras), extras);
+        var detailedDesc = WithMusicCredits(BuildDescription(cleanSubject, lyricsSnippet, deity, isHindi, isDevotional, isOmkr, isShort, variant: 2, extras), extras);
 
         var (tags, tagIdeas) = BuildTags(cleanSubject, deity, isHindi, isDevotional, isOmkr, isShort);
         var (pinnedComment, engagementComment) = BuildComments(cleanSubject, deity, isHindi, isDevotional, isOmkr);
@@ -360,6 +369,14 @@ public static class YouTubeFreeSeoEngine
         };
     }
 
+    /// <summary>The detected music credited at the end of a description, when it isn't already.</summary>
+    private static string WithMusicCredits(string description, YouTubeSeoExtras extras) =>
+        extras.Songs.Count == 0 ? description : YouTubeVideoInsights.AddChaptersAndCredits(description, extras with { Chapters = [] });
+
+    /// <summary>
+    /// Whether the text is about devotion. "ram" and "mata" must be whole words: "ram" in
+    /// "program" or "mata" in "automatic" is not a bhajan.
+    /// </summary>
     private static bool ContainsDevotionalKeywords(string text)
     {
         string[] keywords =
@@ -367,9 +384,15 @@ public static class YouTubeFreeSeoEngine
             "shiv", "mahadev", "bholenath", "shankar", "om namah", "khatu", "shyam", "mata", "durga",
             "bhavani", "navratri", "hanuman", "bajrangbali", "ram", "krishna", "radha", "ganesh",
             "bhajan", "aarti", "mantra", "chalisa", "stotra", "devotional", "bhakti", "omkr",
+        ];
+        string[] devanagari =
+        [
             "शिव", "महादेव", "भोलेनाथ", "श्याम", "खाटू", "माता", "दुर्गा", "हनुमान", "राम", "कृष्ण", "भजन", "आरती", "भक्ति"
         ];
-        return keywords.Any(k => text.Contains(k, StringComparison.OrdinalIgnoreCase));
+        return keywords.Any(k => k is "ram" or "mata"
+                   ? Regex.IsMatch(text, $@"(?<![\p{{L}}\p{{N}}]){k}(ji)?(?![\p{{L}}\p{{N}}])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+                   : text.Contains(k, StringComparison.OrdinalIgnoreCase))
+               || devanagari.Any(k => text.Contains(k, StringComparison.Ordinal));
     }
 
     private sealed record DeityProfile(
@@ -597,7 +620,7 @@ public static class YouTubeFreeSeoEngine
 
     private static string BuildDescription(
         string subject, string lyricsBlock, DeityProfile deity,
-        bool isHindi, bool isDevotional, bool isOmkr, bool isShort, int variant)
+        bool isHindi, bool isDevotional, bool isOmkr, bool isShort, int variant, YouTubeSeoExtras extras)
     {
         var sb = new StringBuilder();
         if (isHindi)
@@ -625,13 +648,12 @@ public static class YouTubeFreeSeoEngine
                     sb.AppendLine(lyricsBlock);
                 }
 
-                if (variant == 2)
+                // Only real chapters, from the captions' timing; made-up timestamps mislead viewers and YouTube.
+                if (variant == 2 && extras.Chapters.Count >= YouTubeChapterBuilder.MinChapters)
                 {
                     sb.AppendLine();
                     sb.AppendLine("⏱️ वीडियो के मुख्य भाग (Chapters):");
-                    sb.AppendLine("0:00 पावन आरंभ और दिव्य दर्शन (Divine Hook)");
-                    sb.AppendLine("0:10 मुख्य भजन एवं आध्यात्मिक भाव (Devotional Core)");
-                    sb.AppendLine("0:25 आशीर्वाद एवं प्रार्थना (Blessings & Prayer)");
+                    foreach (var chapter in extras.Chapters) sb.AppendLine($"{chapter.Stamp} {chapter.Title}");
                 }
 
                 sb.AppendLine();
@@ -788,4 +810,205 @@ public static class YouTubeFreeSeoEngine
         if (value.Length <= maxLength) return value;
         return value[..maxLength].TrimEnd();
     }
+}
+
+/// <summary>
+/// The free engine's details for anything that isn't devotional: led by the video's own topic
+/// (its title, tags and the words spoken in it), with real chapters and music credits when
+/// they were found, and no channel branding the video didn't ask for.
+/// </summary>
+internal static partial class GenericSeo
+{
+    private static readonly HashSet<string> StopWords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "the", "and", "for", "with", "this", "that", "from", "your", "you", "are", "was", "were", "have", "has", "had",
+        "will", "what", "when", "where", "which", "who", "how", "why", "about", "into", "they", "them", "their", "there",
+        "then", "than", "just", "like", "also", "but", "not", "all", "can", "our", "out", "its", "it's", "get", "got",
+        "one", "two", "very", "more", "most", "some", "any", "here", "now", "only", "over", "such", "these", "those",
+        "been", "being", "would", "could", "should", "let", "lets", "let's", "i'm", "don't", "video", "videos",
+        "watch", "subscribe", "channel", "share", "comment", "official", "full", "new", "shorts", "short",
+        "music", "song", "none", "current", "title", "description", "tags", "http", "https", "www", "com",
+        "है", "हैं", "के", "की", "का", "में", "और", "को", "से", "यह", "पर", "भी", "तो", "ही", "कि", "ना", "जो", "था",
+        "थी", "एक", "वो", "वह", "हम", "तुम", "आप", "मैं", "मेरे", "मेरी", "क्या", "नहीं", "कर", "रहा", "रही", "गया",
+    };
+
+    public static YouTubeMetadataSuggestion Generate(
+        string summary, string subject, string firstLyric, string lyricsBlock, string? transcript,
+        bool isHindi, bool isShort, YouTubeSeoExtras extras)
+    {
+        var currentTags = ReadLine(summary, "Current tags:")?
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(t => t.Length is > 1 and <= 40)
+            .ToList() ?? [];
+        var currentDescription = ReadLine(summary, "Current description:");
+        var madeInAnimStudio = summary.Contains("Project name:", StringComparison.Ordinal);
+
+        var keywords = Keywords(subject, currentTags, transcript ?? lyricsBlock);
+        var hashtags = Hashtags(keywords, isShort);
+
+        var titles = Titles(subject, firstLyric, keywords, isHindi, isShort);
+        var lead = Lead(subject, currentDescription, isHindi);
+
+        string Describe(int variant)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine(lead);
+            var lines = KeyLines(lyricsBlock, variant == 1 ? 0 : variant == 2 ? 12 : 6);
+            if (lines.Length > 0)
+            {
+                sb.AppendLine();
+                sb.AppendLine(isHindi ? "📝 इस वीडियो में:" : "📝 In this video:");
+                sb.AppendLine(lines);
+            }
+            var withExtras = YouTubeVideoInsights.AddChaptersAndCredits(sb.ToString().Trim(),
+                variant == 1 ? extras with { Chapters = [] } : extras);
+            sb.Clear().Append(withExtras).AppendLine().AppendLine();
+            sb.AppendLine(isHindi
+                ? "👍 वीडियो अच्छा लगे तो Like, Share और Subscribe ज़रूर करें।"
+                : "👍 If you enjoyed this, like, share and subscribe for more.");
+            if (madeInAnimStudio) sb.AppendLine(isHindi ? "🎬 AnimStudio में बनाया गया" : "🎬 Made with AnimStudio");
+            if (hashtags.Count > 0)
+            {
+                sb.AppendLine();
+                sb.Append(string.Join(' ', hashtags));
+            }
+            return sb.ToString().Trim();
+        }
+
+        var tags = new List<string>();
+        var ideas = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void Add(List<string> list, string? raw)
+        {
+            var tag = raw?.Trim().TrimStart('#').Trim();
+            if (string.IsNullOrEmpty(tag) || tag.Length > 40 || tag.IndexOfAny(['<', '>', ',', '"']) >= 0 || !seen.Add(tag)) return;
+            list.Add(tag);
+        }
+        if (subject.Length <= 40) Add(tags, subject.ToLowerInvariant());
+        foreach (var t in currentTags.Take(12)) Add(tags, t);
+        foreach (var s in extras.Songs.Take(4))
+        {
+            if (s.Title != YouTubeMusicDetector.UntitledCredits) Add(tags, s.Title.ToLowerInvariant());
+            if (!string.IsNullOrWhiteSpace(s.Artist)) Add(tags, s.Artist.ToLowerInvariant());
+        }
+        foreach (var k in keywords.Take(8)) Add(tags, k);
+        if (isShort) Add(tags, "shorts");
+        foreach (var k in keywords.Skip(8).Take(8)) Add(ideas, k);
+        for (var i = 0; i + 1 < Math.Min(keywords.Count, 6); i += 2) Add(ideas, $"{keywords[i]} {keywords[i + 1]}");
+        if (madeInAnimStudio) Add(ideas, "AnimStudio");
+
+        var pinned = isHindi
+            ? $"🙏 देखने के लिए धन्यवाद! \"{subject}\" में आपको सबसे अच्छा क्या लगा? कमेंट में बताएं और ऐसे और वीडियो के लिए Subscribe करें 🔔"
+            : $"🙏 Thanks for watching! What did you like most about \"{subject}\"? Tell us below and subscribe for more 🔔";
+        var engage = isHindi
+            ? "💬 आप अगला वीडियो किस बारे में देखना चाहेंगे? नीचे कमेंट करें 👇"
+            : "💬 What should the next video be about? Drop your ideas below 👇";
+
+        return new YouTubeMetadataSuggestion(titles[0], Describe(0), tags)
+        {
+            TitleOptions = [.. titles.Skip(1).Take(4)],
+            DescriptionOptions = [Describe(1), Describe(2)],
+            TagIdeas = ideas,
+            PinnedComment = pinned,
+            EngagementComment = engage,
+            TranscriptText = transcript,
+        };
+    }
+
+    /// <summary>Topic words, most telling first: the title's own words, then the existing tags', then what is said most.</summary>
+    private static List<string> Keywords(string subject, IReadOnlyList<string> currentTags, string? spoken)
+    {
+        var score = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        var order = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        void Count(string? text, double weight)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return;
+            foreach (Match m in Word().Matches(StampPrefix().Replace(text, " ")))
+            {
+                var w = m.Value.Trim('\'').ToLowerInvariant();
+                if (w.Length < 3 || StopWords.Contains(w)) continue;
+                score[w] = score.GetValueOrDefault(w) + weight;
+                order.TryAdd(w, order.Count);
+            }
+        }
+        Count(subject, 4);
+        Count(string.Join(' ', currentTags), 2);
+        Count(spoken is { Length: > 6000 } ? spoken[..6000] : spoken, 1);
+        return [.. score
+            .Where(kv => kv.Value >= 2)
+            .OrderByDescending(kv => kv.Value)
+            .ThenBy(kv => order[kv.Key])
+            .Select(kv => kv.Key)
+            .Take(20)];
+    }
+
+    private static List<string> Hashtags(IReadOnlyList<string> keywords, bool isShort)
+    {
+        var tags = keywords.Take(3)
+            .Select(k => new string(k.Where(c => char.IsLetterOrDigit(c)
+                || CharUnicodeInfo.GetUnicodeCategory(c) is UnicodeCategory.NonSpacingMark or UnicodeCategory.SpacingCombiningMark).ToArray()))
+            .Where(k => k.Length > 1)
+            .Select(k => "#" + (char.IsLower(k[0]) ? char.ToUpperInvariant(k[0]) + k[1..] : k))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (isShort) tags.Insert(0, "#Shorts");
+        return tags;
+    }
+
+    private static List<string> Titles(string subject, string firstLyric, IReadOnlyList<string> keywords, bool isHindi, bool isShort)
+    {
+        var suffix = isShort ? " #Shorts" : string.Empty;
+        var hook = !string.IsNullOrWhiteSpace(firstLyric) && !firstLyric.Equals(subject, StringComparison.OrdinalIgnoreCase) ? firstLyric : null;
+        var topic = keywords.FirstOrDefault(k => !subject.Contains(k, StringComparison.OrdinalIgnoreCase));
+        var raw = new List<string> { subject + suffix };
+        if (hook is not null) raw.Add($"{subject} | {hook}{suffix}");
+        if (topic is not null) raw.Add($"{subject} - {Capitalize(topic)}{suffix}");
+        raw.Add(isHindi ? $"{subject} | पूरा वीडियो ज़रूर देखें{suffix}" : $"{subject} | Watch Till the End{suffix}");
+        if (hook is not null) raw.Add($"\"{hook}\" - {subject}");
+        return [.. raw.Select(t => t.Length <= YouTubePublishValidator.MaxTitleLength ? t : t[..YouTubePublishValidator.MaxTitleLength].TrimEnd())
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+    }
+
+    /// <summary>The opening line: the video's own first line when it has a real one, else a plain one about the subject.</summary>
+    private static string Lead(string subject, string? currentDescription, bool isHindi)
+    {
+        var own = currentDescription?.Split(['\n', '|'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .FirstOrDefault(l => l.Length >= 25 && !l.Contains("http", StringComparison.OrdinalIgnoreCase) && !l.StartsWith('#'));
+        if (own is not null) return (own.Length > 200 ? own[..200].TrimEnd() + "…" : own).Replace("<", "").Replace(">", "");
+        return isHindi ? $"✨ {subject} - पूरा वीडियो देखें।" : $"✨ {subject} - watch the full video.";
+    }
+
+    /// <summary>A few spoken lines without timestamps, as a peek at what the video says.</summary>
+    private static string KeyLines(string lyricsBlock, int max)
+    {
+        if (max <= 0 || string.IsNullOrWhiteSpace(lyricsBlock)) return string.Empty;
+        var lines = lyricsBlock.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(l => StampPrefix().Replace(l, string.Empty).Trim())
+            .Where(l => l.Length >= 6 && !l.StartsWith('['))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(max)
+            .Select(l => "• " + l.Replace("<", "").Replace(">", ""));
+        return string.Join('\n', lines);
+    }
+
+    private static string? ReadLine(string summary, string prefix)
+    {
+        foreach (var line in summary.Split('\n'))
+        {
+            var t = line.Trim();
+            if (!t.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
+            var v = t[prefix.Length..].Trim();
+            return v.Length == 0 || v.Equals("(none)", StringComparison.OrdinalIgnoreCase) ? null : v;
+        }
+        return null;
+    }
+
+    private static string Capitalize(string word) =>
+        word.Length == 0 ? word : char.ToUpperInvariant(word[0]) + word[1..];
+
+    [GeneratedRegex(@"[\p{L}\p{M}][\p{L}\p{M}\p{N}']*", RegexOptions.CultureInvariant)]
+    private static partial Regex Word();
+
+    [GeneratedRegex(@"^\s*\[[0-9:\.]+\]\s*", RegexOptions.Multiline | RegexOptions.CultureInvariant)]
+    private static partial Regex StampPrefix();
 }

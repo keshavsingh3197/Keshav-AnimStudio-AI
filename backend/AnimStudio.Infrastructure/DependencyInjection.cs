@@ -13,6 +13,7 @@ using AnimStudio.Application.Ai;
 using AnimStudio.Application.Assets;
 using AnimStudio.Application.Characters;
 using AnimStudio.Application.Clips;
+using AnimStudio.Application.Effects;
 using AnimStudio.Application.Ingest;
 using AnimStudio.Application.Options;
 using AnimStudio.Application.Planning;
@@ -144,6 +145,7 @@ public static class DependencyInjection
             services.AddScoped<IContentTopicRepository, SqlContentTopicRepository>();
             services.AddScoped<IContentPlanItemRepository, SqlContentPlanItemRepository>();
             services.AddScoped<IContentSourceLinkRepository, SqlContentSourceLinkRepository>();
+            services.AddScoped<IEffectClipRepository, SqlEffectClipRepository>();
             services.AddHostedService<SqlDatabaseInitializer>();
 
             if (hasMongoConfig)
@@ -184,6 +186,7 @@ public static class DependencyInjection
             services.AddScoped<IContentTopicRepository, MongoContentTopicRepository>();
             services.AddScoped<IContentPlanItemRepository, MongoContentPlanItemRepository>();
             services.AddScoped<IContentSourceLinkRepository, MongoContentSourceLinkRepository>();
+            services.AddScoped<IEffectClipRepository, MongoEffectClipRepository>();
             services.AddHostedService<MongoIndexInitializer>();
         }
 
@@ -274,6 +277,10 @@ public static class DependencyInjection
         services.AddScoped<IVideoRenderingService, FfmpegVideoRenderingService>();
         services.AddScoped<IOutroPreviewRenderer, OutroPreviewRenderer>();
         services.AddScoped<IMediaProbeService, FfprobeMediaProbeService>();
+
+        // The user's effects library: clips, stills and sounds reused across every project.
+        services.AddScoped<IEffectThumbnailer, AnimStudio.Infrastructure.Effects.FfmpegEffectThumbnailer>();
+        services.AddScoped<AnimStudio.Application.Effects.EffectLibraryService>();
         services.AddSingleton<SunoSongResolver>();
         services.AddSingleton<YtDlpMediaDownloader>();
         services.AddSingleton<FfmpegVideoChunker>();

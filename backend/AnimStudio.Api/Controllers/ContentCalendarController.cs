@@ -88,7 +88,31 @@ public sealed class ContentCalendarController(
     public async Task<ActionResult<ApiResponse<ContentPlanItemResponse>>> UpdateItem(string id, [FromBody] ContentPlanItemRequest request, CancellationToken ct)
     {
         var view = await planning.UpdateItemAsync(id, currentUser.UserId, request.ToCommand(), ct);
-        return Ok(ApiResponse<ContentPlanItemResponse>.Ok(view.ToResponse()));
+        return Ok(ApiResponse<ContentPlanItemResponse>.Ok(await FollowPlanAsync(view, ct)));
+    }
+
+    // ---------------------------------------------------------------- when a post won't be ready
+
+    /// <summary>The next free day for the post and the ready posts it could trade places with.</summary>
+    [HttpGet("items/{id}/recovery")]
+    public async Task<ActionResult<ApiResponse<ContentRecoveryResponse>>> Recovery(string id, CancellationToken ct) =>
+        Ok(ApiResponse<ContentRecoveryResponse>.Ok((await planning.RecoveryOptionsAsync(id, currentUser.UserId, ct)).ToResponse()));
+
+    [HttpPost("items/{id}/postpone")]
+    public async Task<ActionResult<ApiResponse<ContentPlanItemResponse>>> Postpone(string id, [FromBody] ContentPostponeRequest request, CancellationToken ct)
+    {
+        var view = await planning.PostponeAsync(id, currentUser.UserId, request.PublishAt, ct);
+        return Ok(ApiResponse<ContentPlanItemResponse>.Ok(await FollowPlanAsync(view, ct)));
+    }
+
+    /// <summary>Trades days with another post of the same topic; returns both.</summary>
+    [HttpPost("items/{id}/swap")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<ContentPlanItemResponse>>>> Swap(string id, [FromBody] ContentSwapRequest request, CancellationToken ct)
+    {
+        var views = await planning.SwapAsync(id, request.OtherId, currentUser.UserId, ct);
+        var list = new List<ContentPlanItemResponse>(views.Count);
+        foreach (var view in views) list.Add(await FollowPlanAsync(view, ct));
+        return Ok(ApiResponse<IReadOnlyList<ContentPlanItemResponse>>.Ok(list));
     }
 
     /// <summary>Quick status change from the calendar (e.g. "mark ready").</summary>
@@ -179,6 +203,14 @@ public sealed class ContentCalendarController(
     }
 
     // ---------------------------------------------------------------- helpers
+
+    /// <summary>A moved post's linked video follows the new time on YouTube (when the topic allows).</summary>
+    private async Task<ContentPlanItemResponse> FollowPlanAsync(ContentPlanItemView view, CancellationToken ct)
+    {
+        if (view.Item.VideoId is null) return view.ToResponse();
+        var item = await youTube.FollowPlanAsync(view.Item, ct);
+        return (await planning.ViewAsync(item, ct)).ToResponse();
+    }
 
     private async Task<ActionResult<ApiResponse<ContentPlanItemResponse>>> OnYouTubeAsync(
         string id, Func<Domain.Planning.ContentPlanItem, CancellationToken, Task<Domain.Planning.ContentPlanItem>> action, CancellationToken ct)

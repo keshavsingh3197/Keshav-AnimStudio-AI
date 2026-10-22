@@ -8,11 +8,12 @@ import { UrlImportDialogComponent } from '../../../../shared/url-import-dialog.c
 import { AssetReuseDialogComponent } from '../../../../shared/asset-reuse-dialog.component';
 import { MediaUsageDialogComponent } from '../media-usage-dialog/media-usage-dialog.component';
 import { MusicPickerDialogComponent } from '../../../music/music-picker-dialog.component';
+import { EffectsPanelComponent } from './effects-panel.component';
 
 @Component({
   selector: 'app-media-dock',
   standalone: true,
-  imports: [CommonModule, FormsModule, UrlImportDialogComponent, AssetReuseDialogComponent, MediaUsageDialogComponent, MusicPickerDialogComponent],
+  imports: [CommonModule, FormsModule, UrlImportDialogComponent, AssetReuseDialogComponent, MediaUsageDialogComponent, MusicPickerDialogComponent, EffectsPanelComponent],
   templateUrl: './media-dock.component.html',
   styleUrls: ['./media-dock.component.css'],
 })
@@ -41,6 +42,15 @@ export class MediaDockComponent implements OnDestroy {
     this.previewAudioEl?.pause();
     this.previewingAudioId.set(null);
     this.musicOpen.set(true);
+  }
+
+  /** The Effects tab: the user's effects library in place of this project's files. */
+  readonly effectsOpen = signal(false);
+
+  toggleEffects(): void {
+    this.previewAudioEl?.pause();
+    this.previewingAudioId.set(null);
+    this.effectsOpen.update((v) => !v);
   }
 
   /** The file whose details-and-usage dialog is open. */

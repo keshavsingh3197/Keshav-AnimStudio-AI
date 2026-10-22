@@ -1,0 +1,173 @@
+<section class="fx studio-wide-page">
+  <header class="fx-head">
+    <div class="fx-head-left">
+      <div class="studio-icon-badge">✨</div>
+      <div>
+        <h2>Effects &amp; overlays</h2>
+        <p class="muted">Your own kit of subscribe buttons, stingers, end screens, lower thirds, sound effects and green-screen clips.
+          Upload each once here, then add it to any video from the <strong>✨ Effects</strong> button in the editor's media panel.</p>
+      </div>
+    </div>
+  </header>
+
+  <!-- Upload: drop, paste or pick; the category and green-screen flag apply to this batch. -->
+  <div class="fx-upload" [appFileDrop]="accept" [fileDropMultiple]="true" [fileDropDisabled]="uploading()"
+       (filesDropped)="uploadFiles($event)">
+    <div class="fx-upload-main">
+      <span class="fx-upload-icon" aria-hidden="true">⬆</span>
+      <div>
+        <strong>Drop clips, stills or sounds here</strong>
+        <span class="muted fx-upload-sub">MP4, WebM, MOV, PNG, JPG, WEBP, MP3, WAV or M4A. Videos up to 200MB, stills and sounds up to 25MB.
+          WebM/MOV with transparency and PNGs keep their see-through parts.</span>
+      </div>
+    </div>
+    <div class="fx-upload-opts">
+      <select class="form-select" [ngModel]="uploadCategory()" (ngModelChange)="uploadCategory.set($event)" aria-label="Category for new uploads">
+        <option value="">File by type</option>
+        @for (c of categories; track c.id) { <option [value]="c.id">{{ c.icon }} {{ c.label }}</option> }
+      </select>
+      <label class="fx-check" title="Shot on a green screen: the green is keyed out when you add it to a video">
+        <input type="checkbox" [ngModel]="uploadGreen()" (ngModelChange)="uploadGreen.set($event)" /> Green screen
+      </label>
+      <label class="fx-btn primary" [class.disabled]="uploading()">
+        <input type="file" multiple [accept]="accept" (change)="onPick($event)" [disabled]="uploading()" hidden />
+        Choose files
+      </label>
+    </div>
+    @if (uploading()) {
+      <div class="fx-progress" role="status">
+        <span>Uploading {{ uploadDone() + 1 }} of {{ uploadTotal() }}… {{ uploadPercent() }}%</span>
+        <div class="fx-progress-track"><div class="fx-progress-bar" [style.width.%]="uploadPercent()"></div></div>
+      </div>
+    }
+  </div>
+
+  <!-- Filters -->
+  <nav class="fx-chips" aria-label="Categories">
+    <button type="button" [class.active]="category() === 'all'" (click)="category.set('all')">All ({{ effects().length }})</button>
+    @for (c of categories; track c.id) {
+      @if (counts().get(c.id); as n) {
+        <button type="button" [class.active]="category() === c.id" [title]="c.hint" (click)="category.set(c.id)">{{ c.icon }} {{ c.label }} ({{ n }})</button>
+      }
+    }
+  </nav>
+
+  <div class="fx-filters">
+    <input type="search" class="fx-search" placeholder="Search names and tags…" maxlength="100"
+           [ngModel]="query()" (ngModelChange)="query.set($event)" aria-label="Search effects" />
+    <select class="form-select" [ngModel]="kind()" (ngModelChange)="kind.set($event)" aria-label="Type">
+      <option value="">Any type</option>
+      <option value="Video">Videos</option>
+      <option value="Image">Stills</option>
+      <option value="Audio">Sounds</option>
+    </select>
+    <label class="fx-check"><input type="checkbox" [ngModel]="favoritesOnly()" (ngModelChange)="favoritesOnly.set($event)" /> ★ Favourites only</label>
+    @if (filtersActive()) {
+      <button type="button" class="link" (click)="clearFilters()">Clear filters</button>
+    }
+  </div>
+
+  @if (loading()) {
+    <p class="muted">Loading your effects…</p>
+  } @else if (loadError(); as err) {
+    <div class="card fx-error"><p>{{ err }}</p><button type="button" (click)="load()">Try again</button></div>
+  } @else if (effects().length === 0) {
+    <div class="card fx-empty">
+      <h3>Build your effects kit</h3>
+      <p class="muted">Anything you put on top of videos again and again belongs here. A few ideas:</p>
+      <ul>
+        <li><strong>🔔 Subscribe &amp; like</strong> - a button animation on a transparent (WebM/MOV) or green background</li>
+        <li><strong>⚡ Transitions</strong> - a whoosh stinger between two scenes</li>
+        <li><strong>🏁 End screens</strong> - your outro card; "Add at end" lines it up with the last second</li>
+        <li><strong>🏷 Lower thirds</strong> - a name bar or a PNG title strip</li>
+        <li><strong>🔊 Sound effects</strong> - whoosh, ding, pop, camera shutter</li>
+        <li><strong>🟩 Green screen</strong> - reaction or meme clips; the green is keyed out in the export</li>
+      </ul>
+      <p class="muted">Already have one in a project? Use <strong>Save to effects</strong> on it in the editor's media panel.</p>
+    </div>
+  } @else if (visible().length === 0) {
+    <p class="muted">Nothing matches those filters. <button type="button" class="link" (click)="clearFilters()">Clear filters</button></p>
+  } @else {
+    <ul class="fx-grid">
+      @for (e of visible(); track e.id) {
+        <li class="fx-card" [class.busy]="busyId() === e.id">
+          <div class="fx-thumb" [attr.data-kind]="e.kind"
+               (mouseenter)="startPreview(e)" (mouseleave)="stopPreview(e)" (click)="togglePreview(e)">
+            @if (e.kind === 'Video') {
+              @if (previewId() === e.id) {
+                <video [src]="contentUrl(e)" muted loop autoplay playsinline preload="auto"></video>
+              } @else if (thumbUrl(e); as t) {
+                <img [src]="t" loading="lazy" alt="" />
+              } @else {
+                <span class="fx-thumb-icon">🎬</span>
+              }
+            } @else if (e.kind === 'Image') {
+              <img [src]="thumbUrl(e) ?? contentUrl(e)" loading="lazy" alt="" />
+            } @else {
+              <button type="button" class="fx-play" (click)="toggleAudio(e, $event)"
+                      [attr.aria-label]="previewId() === e.id ? 'Stop' : 'Play ' + e.name">
+                {{ previewId() === e.id ? '⏸' : '▶' }}
+              </button>
+            }
+            <span class="fx-badge cat">{{ categoryIcon(e.category) }} {{ categoryLabel(e.category) }}</span>
+            @if (e.durationSeconds) { <span class="fx-badge dur">{{ e.durationSeconds | number:'1.1-1' }}s</span> }
+            <span class="fx-flags">
+              @if (e.hasAlpha) { <span class="fx-flag" title="Has transparency">α</span> }
+              @if (e.isGreenScreen) { <span class="fx-flag green" title="Green screen - keyed out when added">GS</span> }
+            </span>
+          </div>
+
+          @if (draft()?.id === e.id) {
+            @let d = draft()!;
+            <form class="fx-edit" (ngSubmit)="saveDraft()">
+              <label>Name
+                <input type="text" maxlength="80" required name="name" [ngModel]="d.name" (ngModelChange)="patchDraft({ name: $event })" />
+              </label>
+              <label>Category
+                <select class="form-select" name="category" [ngModel]="d.category" (ngModelChange)="patchDraft({ category: $event })">
+                  @for (c of categories; track c.id) { <option [value]="c.id">{{ c.icon }} {{ c.label }}</option> }
+                </select>
+              </label>
+              <label>Tags <span class="muted">(comma separated)</span>
+                <input type="text" maxlength="400" name="tags" placeholder="bell, red, short" [ngModel]="d.tags" (ngModelChange)="patchDraft({ tags: $event })" />
+              </label>
+              @if (e.kind !== 'Audio') {
+                <label class="fx-check"><input type="checkbox" name="green" [ngModel]="d.isGreenScreen" (ngModelChange)="patchDraft({ isGreenScreen: $event })" /> Green screen (key out the green when added)</label>
+              }
+              <div class="fx-edit-actions">
+                <button type="submit" class="primary" [disabled]="busyId() === e.id">Save</button>
+                <button type="button" class="secondary" (click)="draft.set(null)">Cancel</button>
+              </div>
+            </form>
+          } @else {
+            <div class="fx-body">
+              <div class="fx-title-row">
+                <span class="fx-name" [title]="e.name">{{ e.name }}</span>
+                <button type="button" class="fx-icon-btn star" [class.on]="e.favorite" (click)="toggleFavorite(e)"
+                        [attr.aria-label]="e.favorite ? 'Remove from favourites' : 'Add to favourites'"
+                        [title]="e.favorite ? 'Favourite - shown first' : 'Mark as favourite'">{{ e.favorite ? '★' : '☆' }}</button>
+              </div>
+              @if (e.tags.length) {
+                <div class="fx-tags">@for (t of e.tags; track t) { <span>#{{ t }}</span> }</div>
+              }
+              <div class="fx-meta muted">
+                {{ sizeLabel(e.sizeBytes) }}@if (e.width && e.height) { · {{ e.width }}×{{ e.height }} }
+                · used {{ e.useCount }}×
+              </div>
+              <div class="fx-actions">
+                @if (confirmDeleteId() === e.id) {
+                  <span class="fx-confirm">Delete for good?</span>
+                  <button type="button" class="danger" (click)="remove(e)" [disabled]="busyId() === e.id">Delete</button>
+                  <button type="button" class="secondary" (click)="confirmDeleteId.set(null)">Keep</button>
+                } @else {
+                  <button type="button" class="secondary" (click)="startEdit(e)">Edit</button>
+                  <button type="button" class="secondary" (click)="confirmDeleteId.set(e.id)" title="Videos it was already added to keep their copy">Delete</button>
+                }
+              </div>
+            </div>
+          }
+        </li>
+      }
+    </ul>
+  }
+</section>

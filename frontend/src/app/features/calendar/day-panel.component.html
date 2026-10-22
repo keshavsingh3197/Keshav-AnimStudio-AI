@@ -1,0 +1,112 @@
+<div class="panel-backdrop" (click)="closed.emit()"></div>
+<aside class="panel" role="dialog" aria-modal="true" aria-labelledby="day-title">
+  <header class="panel-head">
+    <h2 id="day-title">{{ date() | date: 'EEEE d MMMM' }}</h2>
+    <span class="spacer"></span>
+    <button type="button" class="secondary small" (click)="closed.emit()" aria-label="Close">✕</button>
+  </header>
+
+  <div class="panel-body">
+    @if (summary(); as s) {
+      <p class="day-summary">
+        <strong>{{ s.total }} {{ s.total === 1 ? 'post' : 'posts' }}</strong>
+        @if (s.live) { <span class="pill st-published">{{ s.live }} live</span> }
+        @if (s.onTrack) { <span class="pill st-ready">{{ s.onTrack }} ready / scheduled</span> }
+        @if (s.toDo) { <span class="pill st-todo">{{ s.toDo }} still to prepare</span> }
+        @if (s.skipped) { <span class="pill">{{ s.skipped }} skipped</span> }
+      </p>
+    }
+
+    @for (t of uncovered(); track t.id) {
+      <p class="gap-note">
+        <span class="topic-dot" [style.background]="t.color"></span>
+        <span><strong>{{ t.name }}</strong> usually posts on this day, but nothing is planned.</span>
+        <button type="button" class="link-btn small" (click)="add.emit(date())">Add a post</button>
+      </p>
+    }
+
+    @if (sorted().length === 0) {
+      <p class="muted">Nothing goes out on this day.</p>
+    }
+
+    @for (item of sorted(); track item.id) {
+      <article class="day-post" [class]="'day-post lvl-' + level(item)">
+        <header class="dp-head">
+          <span class="topic-dot" [style.background]="topicOf(item)?.color ?? 'var(--brand)'"></span>
+          <span class="dp-time">{{ item.publishAt | date: 'HH:mm' }}</span>
+          <button type="button" class="dp-title" (click)="open.emit(item)">{{ item.title }}</button>
+          <span [class]="statusClass(item)">{{ statusLabels[item.status] }}</span>
+        </header>
+        <p class="muted small dp-sub">
+          {{ topicOf(item)?.name ?? 'Unknown topic' }}
+          @if (topicOf(item)?.channelTitle; as ch) { · {{ ch }} }
+          @if (item.status === 'Idea' || item.status === 'InProgress') { · ready by {{ item.prepareBy | date: 'EEE d MMM, HH:mm' }} }
+        </p>
+
+        @if (item.status !== 'Skipped') {
+          <ol class="steps" aria-label="Progress">
+            @for (s of steps(item); track s.label) {
+              <li [class.done]="s.done" [title]="s.hint">
+                <span class="step-mark" aria-hidden="true">{{ s.done ? '✓' : '○' }}</span>{{ s.label }}
+                <span class="visually-hidden">: {{ s.hint }}</span>
+              </li>
+            }
+          </ol>
+        }
+
+        @if (item.checklist.length) {
+          <ul class="dp-checklist">
+            @for (c of item.checklist; track $index) {
+              <li [class.done]="c.done">{{ c.done ? '☑' : '☐' }} {{ c.text }}</li>
+            }
+          </ul>
+        }
+
+        @if (item.videoId) {
+          <div class="video">
+            @if (href(item.youTube?.thumbnailUrl); as thumb) { <img [src]="thumb" alt="" width="96" height="54" /> }
+            <div class="video-meta">
+              <strong class="small">{{ item.youTube?.title || item.videoId }}</strong>
+              <span class="muted small">
+                {{ item.youTube?.privacy ?? 'not checked yet' }}
+                @if (item.youTube?.scheduledAt) { · goes public {{ item.youTube!.scheduledAt | date: 'EEE d MMM, HH:mm' }} }
+                @if (item.youTube?.publishedAt && item.status === 'Published') { · live since {{ item.youTube!.publishedAt | date: 'd MMM, HH:mm' }} }
+              </span>
+            </div>
+          </div>
+        }
+
+        @if (item.notes) { <p class="dp-notes small">{{ item.notes }}</p> }
+
+        @for (a of item.attention; track a.code) {
+          <p [class]="'dp-attention small lvl-' + a.level.toLowerCase()">{{ a.message }}</p>
+        }
+        @if (item.syncMessage) { <p class="dp-attention small lvl-problem">YouTube: {{ item.syncMessage }}</p> }
+
+        <div class="actions">
+          <button type="button" class="secondary small" (click)="open.emit(item)">Open</button>
+          @if (item.status === 'Idea' || item.status === 'InProgress') {
+            <button type="button" class="small ready-btn" (click)="markReady.emit(item)">✓ Mark ready</button>
+          }
+          @if (canFix(item)) {
+            <button type="button" class="small secondary" (click)="toggleFix(item)" [attr.aria-expanded]="fixing().has(item.id)">
+              {{ fixing().has(item.id) ? 'Hide options' : 'Won’t be ready?' }}
+            </button>
+          }
+          @if (item.projectId) { <a class="button-like small" [routerLink]="['/projects', item.projectId]">Project</a> }
+          @if (href(item.fileLink); as f) { <a class="button-like small" [href]="f" target="_blank" rel="noopener noreferrer">File</a> }
+          @if (href(item.studioUrl); as s) { <a class="button-like small" [href]="s" target="_blank" rel="noopener noreferrer">Studio</a> }
+        </div>
+
+        @if (fixing().has(item.id)) {
+          <app-post-recovery [item]="item" (changed)="recovered($event)" />
+        }
+      </article>
+    }
+  </div>
+
+  <footer class="panel-foot">
+    <span class="spacer"></span>
+    <button type="button" (click)="add.emit(date())">＋ Post on this day</button>
+  </footer>
+</aside>

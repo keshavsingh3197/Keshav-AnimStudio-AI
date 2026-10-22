@@ -7,11 +7,14 @@ import { Subscription } from 'rxjs';
 
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
 import {
-  MAX_THUMBNAIL_UPLOAD_BYTES, YouTubeCategory, YouTubeCheckupPlaylist, YouTubeCheckupVideo, YouTubeThumbnailChoice,
+  MAX_THUMBNAIL_UPLOAD_BYTES, YouTubeCategory, YouTubeCheckupPlaylist, YouTubeCheckupVideo, YouTubePrivacy, YouTubeThumbnailChoice,
   YouTubeVideoEditContext,
 } from '../../core/models/youtube.models';
 import { YouTubePublishService } from '../../core/services/youtube-publish.service';
-import { Draft, RowState, draftChecklist, draftDiffers, fitTags, hasFooter, insertAboveFooter, splitTags, trimUtf8Bytes, withFooter } from './checkup-draft';
+import {
+  Draft, RowState, draftChecklist, draftDiffers, earliestScheduleLocal, fitTags, hasFooter, insertAboveFooter, scheduleDiffers, scheduleProblem,
+  splitTags, trimUtf8Bytes, viewerZone, withFooter,
+} from './checkup-draft';
 
 /** Where the frame picker samples the render, as fractions of its length; "Other moments" shifts them. */
 const FRAME_SPOTS = [0.1, 0.26, 0.42, 0.58, 0.74, 0.9];
@@ -64,6 +67,23 @@ export class CheckupVideoEditorComponent {
   readonly closed = output<void>();
   /** The thumbnail on YouTube changed (the video's id); the page refreshes its row's picture. */
   readonly thumbnailChanged = output<string>();
+
+  // Scheduling: private now, public by itself at a time picked in the viewer's own zone.
+  readonly zone = viewerZone();
+  readonly minSchedule = signal(earliestScheduleLocal());
+  /** YouTube refuses to schedule a video that is already public. */
+  readonly canSchedule = computed(() => this.video().privacy !== 'public');
+  readonly scheduleError = computed(() => {
+    const d = this.draft();
+    // An unchanged schedule is YouTube's already; only a new time has to be ten minutes ahead.
+    return d?.scheduled && scheduleDiffers(this.video(), d) ? scheduleProblem(d.publishAtLocal) : null;
+  });
+
+  // Posting the suggested pinned comment as the channel.
+  readonly commentBusy = signal(false);
+  readonly commentPostedUrl = signal<string | null>(null);
+  readonly commentError = signal<string | null>(null);
+  readonly canPostComment = computed(() => this.video().privacy !== 'private' && this.video().madeForKids !== true);
 
   readonly context = signal<YouTubeVideoEditContext | null>(null);
   readonly contextError = signal<string | null>(null);
@@ -179,6 +199,10 @@ export class CheckupVideoEditorComponent {
 
   private startVideo(channelId: string, videoId: string): void {
     this.generation++;
+    this.commentBusy.set(false);
+    this.commentPostedUrl.set(null);
+    this.commentError.set(null);
+    this.minSchedule.set(earliestScheduleLocal());
     this.playing.set(false);
     this.thumbMode.set('current');
     this.frameAt.set(null);
@@ -218,6 +242,7 @@ export class CheckupVideoEditorComponent {
   canSave(): boolean {
     const d = this.draft();
     return !!d && !this.state().busy && d.madeForKids !== null
+      && !this.scheduleError()
       && this.descriptionBytes(d.description) <= 5000
       && this.tagsLength(d.tagsText) <= 500
       && d.title.trim().length > 0 && d.title.length <= 100;
@@ -225,6 +250,43 @@ export class CheckupVideoEditorComponent {
 
   set(change: Partial<Draft>): void {
     this.draftChange.emit(change);
+  }
+
+  /** The visibility select's value: a scheduled draft is private with a time. */
+  visibility(d: Draft): string {
+    return d.scheduled ? 'scheduled' : d.privacy;
+  }
+
+  setVisibility(value: string): void {
+    if (value === 'scheduled') {
+      this.minSchedule.set(earliestScheduleLocal());
+      // About an hour ahead to start with; the creator picks the real time.
+      const start = this.draft()?.publishAtLocal || earliestScheduleLocal(Date.now() + 50 * 60 * 1000);
+      this.set({ scheduled: true, privacy: 'private', publishAtLocal: start });
+    } else if (value === 'public' || value === 'unlisted' || value === 'private') {
+      this.set({ scheduled: false, privacy: value as YouTubePrivacy });
+    }
+  }
+
+  /** Posts the pinned-comment draft as the channel; pinning itself is one click in Studio. */
+  postPinnedComment(): void {
+    const text = this.draft()?.pinnedComment?.trim();
+    if (!text || this.commentBusy() || !this.canPostComment()) return;
+    const generation = this.generation;
+    this.commentBusy.set(true);
+    this.commentError.set(null);
+    this.api.postVideoComment(this.channelId(), this.video().videoId, text).subscribe({
+      next: (res) => {
+        if (generation !== this.generation) return;
+        this.commentBusy.set(false);
+        this.commentPostedUrl.set(res.studioCommentsUrl);
+      },
+      error: (e: unknown) => {
+        if (generation !== this.generation) return;
+        this.commentBusy.set(false);
+        this.commentError.set(message(e));
+      },
+    });
   }
 
   // --- details helpers
