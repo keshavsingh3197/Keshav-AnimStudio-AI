@@ -1,4 +1,5 @@
 import { DatePipe } from '@angular/common';
+import { firstValueFrom } from 'rxjs';
 import { Component, HostListener, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
@@ -10,12 +11,13 @@ import { ApiService } from '../../core/services/api.service';
 import { StatusService } from '../../core/services/status.service';
 import { FileDropDirective } from '../../shared/file-drop.directive';
 import { optimizeThumbnailImage } from '../../core/utils/image-utils';
+import { AssetThumbnailPickerComponent } from '../../shared/asset-thumbnail-picker.component';
 
 export type StartingPoint = 'prompt' | 'bundle' | 'import' | 'clips' | 'scenes';
 
 @Component({
   selector: 'app-project-list',
-  imports: [DatePipe, FormsModule, RouterLink, FileDropDirective],
+  imports: [DatePipe, FormsModule, RouterLink, FileDropDirective, AssetThumbnailPickerComponent],
   templateUrl: './project-list.component.html',
   styleUrl: './project-list.component.css'
 })
@@ -520,6 +522,27 @@ export class ProjectListComponent {
       );
     } catch {
       this.status.notify(['Failed to process image for thumbnail.']);
+    }
+  }
+
+  /** Project whose thumbnail is currently being picked from its assets. */
+  readonly thumbPickerProject = signal<Project | null>(null);
+
+  openThumbnailPicker(p: Project, event?: Event): void {
+    event?.stopPropagation();
+    this.closeMenus();
+    this.thumbPickerProject.set(p);
+  }
+
+  async setThumbnailFromAsset(assetId: string): Promise<void> {
+    const p = this.thumbPickerProject();
+    this.thumbPickerProject.set(null);
+    if (!p) return;
+    try {
+      const blob = await firstValueFrom(this.api.assetContent(assetId));
+      await this.setThumbnail(new File([blob], 'asset', { type: blob.type || 'image/png' }), p);
+    } catch {
+      this.status.notify(['Failed to use that asset as thumbnail.']);
     }
   }
 

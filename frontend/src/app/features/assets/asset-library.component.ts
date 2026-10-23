@@ -10,6 +10,8 @@ import { UrlImportDialogComponent } from '../../shared/url-import-dialog.compone
 import { AssetReuseDialogComponent } from '../../shared/asset-reuse-dialog.component';
 import { InspectTarget, MediaInspectorDialogComponent } from '../../shared/transcript/media-inspector-dialog.component';
 import { FormsModule } from '@angular/forms';
+import { firstValueFrom } from 'rxjs';
+import { optimizeThumbnailImage } from '../../core/utils/image-utils';
 import { RouterLink } from '@angular/router';
 
 @Component({
@@ -457,8 +459,37 @@ export class AssetLibraryComponent {
     this.previewAsset.set(null);
   }
 
-  copyAssetId(id: string): void {
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+  /** Uses an image asset as this project's thumbnail on the Productions page. */
+  async setAsProjectThumbnail(asset: Asset): Promise<void> {
+    const project = this.store.project();
+    if (!project) return;
+    try {
+      const blob = await firstValueFrom(this.api.assetContent(asset.id));
+      const dataUrl = await optimizeThumbnailImage(new File([blob], asset.name, { type: blob.type || asset.mimeType }));
+      this.status.run(
+        this.api.updateProject(project.id, {
+          name: project.name,
+          description: project.description,
+          width: project.width,
+          height: project.height,
+          fps: project.fps,
+          isPinned: project.isPinned,
+          customThumbnail: dataUrl,
+          distributionIntent: (project.distributionIntent && project.distributionIntent !== 'Social Media') ? project.distributionIntent : 'Public',
+          acceptShareAlikeObligation: project.acceptShareAlikeObligation,
+          backgroundMusicVolume: project.backgroundMusicVolume
+        }),
+        (updated) => {
+          this.store.project.set(updated);
+          this.status.notify([`"${asset.name}" is now the project thumbnail.`]);
+        }
+      );
+    } catch {
+      this.status.notify(['Failed to set the project thumbnail.']);
+    }
+  }
+
+  copyAssetId(id: string): void {    if (typeof navigator !== 'undefined' && navigator.clipboard) {
       navigator.clipboard.writeText(id);
       this.copiedAssetId.set(id);
       setTimeout(() => this.copiedAssetId.set(null), 2000);

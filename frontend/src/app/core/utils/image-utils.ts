@@ -69,3 +69,12 @@ export function optimizeThumbnailImage(
     reader.readAsDataURL(file);
   });
 }
+
+/**
+ * Downloads an image asset and turns it into an optimized thumbnail Data URL,
+ * ready to store as a project's custom thumbnail.
+ */
+export async function assetToThumbnailDataUrl(blob: Blob, name = 'asset'): Promise<string> {
+  const file = new File([blob], name, { type: blob.type || 'image/png' });
+  return optimizeThumbnailImage(file);
+}
