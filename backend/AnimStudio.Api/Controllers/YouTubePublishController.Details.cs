@@ -360,6 +360,16 @@ public sealed partial class YouTubePublishController
 
             var fresh = await channelVideos.GetVideoAsync(token, videoId, ct)
                 ?? throw new YouTubePublishException("handoff-video-missing", "That video isn't on the channel any more.");
+            // YouTube can serve the previous snippet for a moment after an update; the row must show what was just saved.
+            fresh = fresh with
+            {
+                Title = details.Title,
+                Description = details.Description,
+                Tags = details.Tags,
+                CategoryId = details.CategoryId,
+                PrivacyStatus = details.Privacy,
+                MadeForKids = details.MadeForKids,
+            };
             var inLists = (request.CurrentPlaylistIds ?? []).Where(YouTubeChannelVideosClient.IsPlaylistId).Concat(added)
                 .Distinct(StringComparer.Ordinal).ToList();
             var projectId = (await publicationRecords.ListByVideoIdsAsync(currentUser.UserId, [videoId], ct)).FirstOrDefault()?.ProjectId;
