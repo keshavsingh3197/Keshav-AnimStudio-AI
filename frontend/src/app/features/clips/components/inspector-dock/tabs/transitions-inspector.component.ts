@@ -39,7 +39,6 @@ export class TransitionsInspectorComponent {
 
   // --- Auto transitions ---------------------------------------------------------------
 
-  readonly autoScope = signal<'selected' | 'all'>('all');
   readonly autoMode = signal<'fixed' | 'cycle' | 'random'>('cycle');
 
   readonly cutChoices: readonly string[] = this.state.transitions.filter((t) => t !== 'None');
@@ -56,30 +55,29 @@ export class TransitionsInspectorComponent {
 
   readonly autoMessage = signal<string | null>(null);
 
-  readonly cutTargetCount = computed(() => this.state.autoTargetJunctions(this.autoScope()).length);
-  readonly imageTargetCount = computed(() => { this.state.timelineItems(); this.state.selectedTimelineItemIds(); this.state.selectedTimelineItemId(); return this.state.autoTargetItems('image', this.autoScope()).length; });
-  readonly textTargetCount = computed(() => { this.state.timelineItems(); this.state.selectedTimelineItemIds(); this.state.selectedTimelineItemId(); return this.state.autoTargetItems('text', this.autoScope()).length; });
+  readonly cutTargetCount = computed(() => this.state.autoTargetJunctions().length);
+  readonly imageTargetCount = computed(() => { this.state.timelineItems(); this.state.selectedTimelineItemIds(); this.state.selectedTimelineItemId(); return this.state.autoTargetItems('image').length; });
+  readonly textTargetCount = computed(() => { this.state.timelineItems(); this.state.selectedTimelineItemIds(); this.state.selectedTimelineItemId(); return this.state.autoTargetItems('text').length; });
 
   togglePool(pool: ReturnType<typeof signal<string[]>>, choice: string): void {
     pool.update((p) => p.includes(choice) ? (p.length > 1 ? p.filter((x) => x !== choice) : p) : [...p, choice]);
   }
 
   applyAuto(group: 'cuts' | 'images' | 'text' | 'all'): void {
-    const scope = this.autoScope();
     const mode = this.autoMode();
     let changed = 0;
     if (group === 'cuts' || group === 'all') {
-      changed += this.state.applyAutoCutTransitions({ scope, mode, pool: this.cutPool(), seconds: this.cutSeconds() });
+      changed += this.state.applyAutoCutTransitions({ mode, pool: this.cutPool(), seconds: this.cutSeconds() });
     }
     if (group === 'images' || group === 'all') {
-      changed += this.state.applyAutoItemMotions('image', { scope, mode, pool: this.imagePool(), inSeconds: this.imageSeconds(), outSeconds: this.imageSeconds(), outMatchesIn: false });
+      changed += this.state.applyAutoItemMotions('image', { mode, pool: this.imagePool(), inSeconds: this.imageSeconds(), outSeconds: this.imageSeconds(), outMatchesIn: false });
     }
     if (group === 'text' || group === 'all') {
-      changed += this.state.applyAutoItemMotions('text', { scope, mode, pool: this.textPool(), inSeconds: this.textSeconds(), outSeconds: this.textSeconds(), outMatchesIn: false });
+      changed += this.state.applyAutoItemMotions('text', { mode, pool: this.textPool(), inSeconds: this.textSeconds(), outSeconds: this.textSeconds(), outMatchesIn: false });
     }
     this.autoMessage.set(changed > 0
       ? `Auto-picked transitions for ${changed} item${changed === 1 ? '' : 's'}.`
-      : scope === 'selected' ? 'Nothing selected of that kind - select clips or items on the timeline, or switch to All.' : 'Nothing of that kind on the timeline yet.');
+      : 'Nothing of that kind matches the Apply to choice above - select some on the timeline or change it.');
   }
 
   label(value: string): string {

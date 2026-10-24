@@ -7233,29 +7233,41 @@ export class StudioStateService implements OnDestroy {
     return pick;
   }
 
-  /** The timeline items of a media group an auto-pick should touch: the selected ones, or all. */
-  autoTargetItems(group: 'image' | 'text', scope: 'selected' | 'all'): TimelineItem[] {
+  /**
+   * The timeline items of a media group an auto-pick should touch, following the shared
+   * "Apply to" chooser: every item for All, the item under the playhead for Current, the
+   * selected items otherwise.
+   */
+  autoTargetItems(group: 'image' | 'text'): TimelineItem[] {
     const matches = (it: TimelineItem) => group === 'text' ? it.type === 'text' : it.type === 'image' || it.type === 'video';
     const items = this.timelineItems().filter(matches);
-    if (scope === 'all') return items;
+    const scope = this.targetScope();
+    if (scope === 'all' || scope === 'under_music' || scope === 'under_selected_music') return items;
+    if (scope === 'current') {
+      const t = this.currentTime();
+      return items.filter((it) => t >= it.startTime && t < it.startTime + it.duration);
+    }
     const ids = new Set(this.selectedTimelineItemIds());
     const single = this.selectedTimelineItemId();
     if (single) ids.add(single);
     return items.filter((it) => ids.has(it.id));
   }
 
-  /** The video cuts an auto-pick should touch: cuts around the selected clip / the open cut, or every cut. */
-  autoTargetJunctions(scope: 'selected' | 'all'): JunctionView[] {
+  /** The video cuts an auto-pick should touch, following the shared "Apply to" chooser. */
+  autoTargetJunctions(): JunctionView[] {
     const all = this.junctionsList().filter((j) => !j.slotted);
+    const scope = this.targetScope();
     if (scope === 'all') return all;
-    const clipId = this.selectedClipId();
+    const ids = new Set(this.getTargetClipIds());
+    if (scope === 'under_music' || scope === 'under_selected_music') {
+      return all.filter((j) => ids.has(j.left.id) && ids.has(j.right.id));
+    }
     const openKey = this.selectedJunctionKey();
-    return all.filter((j) => j.key === openKey || (!!clipId && (j.left.id === clipId || j.right.id === clipId)));
+    return all.filter((j) => j.key === openKey || ids.has(j.left.id) || ids.has(j.right.id));
   }
-
   /** Gives each target video cut a style from the pool. Returns how many cuts changed. */
-  applyAutoCutTransitions(opts: { scope: 'selected' | 'all'; mode: 'fixed' | 'cycle' | 'random'; pool: readonly string[]; seconds: number }): number {
-    const targets = this.autoTargetJunctions(opts.scope);
+  applyAutoCutTransitions(opts: { mode: 'fixed' | 'cycle' | 'random'; pool: readonly string[]; seconds: number }): number {
+    const targets = this.autoTargetJunctions();
     if (targets.length === 0 || opts.pool.length === 0) return 0;
     const secs = Math.max(0.1, Math.min(3, Number(opts.seconds) || 0.5));
     let previous: string | null = null;
@@ -7274,10 +7286,10 @@ export class StudioStateService implements OnDestroy {
 
   /** Gives each target image / overlay video / text item an in-style (and out-style) from the pool. */
   applyAutoItemMotions(group: 'image' | 'text', opts: {
-    scope: 'selected' | 'all'; mode: 'fixed' | 'cycle' | 'random'; pool: readonly string[];
+    mode: 'fixed' | 'cycle' | 'random'; pool: readonly string[];
     inSeconds: number; outSeconds: number; outMatchesIn: boolean;
   }): number {
-    const targets = this.autoTargetItems(group, opts.scope);
+    const targets = this.autoTargetItems(group);
     if (targets.length === 0 || opts.pool.length === 0) return 0;
     let previous: string | null = null;
     targets.forEach((item, i) => {

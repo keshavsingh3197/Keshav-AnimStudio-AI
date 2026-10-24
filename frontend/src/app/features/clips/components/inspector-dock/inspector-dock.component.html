@@ -71,9 +71,9 @@
         Apply-to chooser. It belongs to the dock rather than to any one tab, because every
         clip-scoped tab reads the same targetScope - and because putting it inside a card
         that unmounts on selection change made it reachable exactly once.
-        Transitions is excluded: it edits cut seams, not clips.
+        Transitions uses it too: it picks which cuts / items Auto Transitions changes.
       -->
-      @if (state.activeInspectorTab() !== 'transitions' && state.activeInspectorTab() !== 'layout') {
+      @if (state.activeInspectorTab() !== 'layout') {
         <div class="scope-dropdown-wrap">
           <button type="button" class="modern-scope-btn" (click)="state.toggleScopeDropdown($event)"
                   title="Choose which clips this panel changes">

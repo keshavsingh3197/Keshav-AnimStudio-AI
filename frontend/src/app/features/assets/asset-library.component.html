@@ -335,7 +335,7 @@
                   ▶ Inspect
                 </button>
                 @if (isImage(asset)) {
-                  <button type="button" class="action-btn" (click)="setAsProjectThumbnail(asset)" title="Use as project thumbnail">?? Thumbnail</button>
+                  <button type="button" class="action-btn" (click)="setAsProjectThumbnail(asset)" title="Use as project thumbnail">🖼 Thumbnail</button>
                 }
                 <button type="button" class="action-btn" (click)="copyAssetId(asset.id)" [title]="copiedAssetId() === asset.id ? 'Copied!' : 'Copy Asset ID'">
                   {{ copiedAssetId() === asset.id ? '✓ Copied' : '# ID' }}
@@ -420,7 +420,7 @@
                   } @else {
                     <button class="action-btn btn-sm" type="button" (click)="openPreview(asset)" title="Inspect">▶</button>
                     @if (isImage(asset)) {
-                      <button class="action-btn btn-sm" type="button" (click)="setAsProjectThumbnail(asset)" title="Use as project thumbnail">??</button>
+                      <button class="action-btn btn-sm" type="button" (click)="setAsProjectThumbnail(asset)" title="Use as project thumbnail">🖼</button>
                     }
                     <button class="action-btn btn-sm" type="button" (click)="copyAssetId(asset.id)" title="Copy ID">#</button>
                     <button class="action-btn danger btn-sm" type="button" (click)="confirming.set(asset.id)" title="Delete">
