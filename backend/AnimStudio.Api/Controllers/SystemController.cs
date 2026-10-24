@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using AnimStudio.Api.Common;
 using AnimStudio.Api.Contracts;
 using AnimStudio.Api.Security;
@@ -7,6 +8,7 @@ using AnimStudio.Application.Abstractions.Storage;
 using AnimStudio.Application.Abstractions.Transcripts;
 using AnimStudio.Application.Options;
 using AnimStudio.Domain.Projects;
+using AnimStudio.Application.Security;
 using AnimStudio.Infrastructure.Ingest;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -29,6 +31,7 @@ public sealed class SystemController(
     /// How full the media store is, for the project hub's storage bar. Measured from the
     /// store itself (cached for a minute) against the quota set in server settings.
     /// </summary>
+    [AllowAnonymous]
     [HttpGet("storage")]
     public async Task<ActionResult<ApiResponse<StorageSummaryResponse>>> GetStorage(CancellationToken ct)
     {
@@ -47,6 +50,7 @@ public sealed class SystemController(
     /// and the server can never disagree about who is admitted.
     /// </para>
     /// </summary>
+    [AllowAnonymous]
     [HttpGet("admin-access")]
     public ActionResult<ApiResponse<AdminAccessResponse>> AdminAccess()
     {
@@ -75,9 +79,28 @@ public sealed class SystemController(
     }
 
     /// <summary>
+    /// Current caller identity, active roles, and guest access policy.
+    /// </summary>
+    [HttpGet("session")]
+    [Microsoft.AspNetCore.Authorization.AllowAnonymous]
+    public ActionResult<ApiResponse<StudioSessionResponse>> Session([FromServices] ICurrentUser currentUser)
+    {
+        var options = adminOptions.CurrentValue;
+        return Ok(ApiResponse<StudioSessionResponse>.Ok(new StudioSessionResponse(
+            currentUser.IsAuthenticated,
+            currentUser.UserId,
+            currentUser.DisplayName,
+            currentUser.Email,
+            currentUser.IsAdmin,
+            currentUser.Roles,
+            options.AnonymousPolicy)));
+    }
+
+    /// <summary>
     /// Lets the UI show why rendering is unavailable instead of letting the user queue a
     /// job that cannot succeed.
     /// </summary>
+    [AllowAnonymous]
     [HttpGet("renderer")]
     public ActionResult<ApiResponse<RendererStatusResponse>> Renderer() =>
         Ok(ApiResponse<RendererStatusResponse>.Ok(new RendererStatusResponse(
@@ -92,6 +115,7 @@ public sealed class SystemController(
     /// Which transcript sources this server can actually use, so the UI can disable the
     /// ones that are not configured rather than offering an option that fails on submit.
     /// </summary>
+    [AllowAnonymous]
     [HttpGet("/api/ingest/capabilities")]
     public async Task<ActionResult<ApiResponse<IngestCapabilitiesResponse>>> IngestCapabilities(
         CancellationToken ct)
@@ -122,6 +146,7 @@ public sealed class SystemController(
     /// Publicly readable so any project or client can inspect or inherit default branding.
     /// </summary>
     /// <param name="channel">A brand channel id; omitted (or unknown) means the default channel.</param>
+    [AllowAnonymous]
     [HttpGet("branding")]
     public async Task<ActionResult<ApiResponse<WatermarkResponse?>>> GetBranding(
         [FromQuery] string? channel, CancellationToken ct)
@@ -134,6 +159,7 @@ public sealed class SystemController(
     /// The studio's brand channels (one per YouTube channel), default first - for a project
     /// to pick which channel's watermark and end card it uses.
     /// </summary>
+    [AllowAnonymous]
     [HttpGet("branding/channels")]
     public async Task<ActionResult<ApiResponse<IReadOnlyList<BrandChannelResponse>>>> GetBrandChannels(CancellationToken ct)
     {
@@ -144,6 +170,7 @@ public sealed class SystemController(
     /// <summary>
     /// Serves the global branding logo image file.
     /// </summary>
+    [AllowAnonymous]
     [HttpGet("branding/logo")]
     public async Task<IActionResult> GetBrandingLogo([FromQuery] string? channel, CancellationToken ct)
     {
@@ -173,6 +200,7 @@ public sealed class SystemController(
     /// <summary>
     /// Global branding &amp; channel outro bumper configuration.
     /// </summary>
+    [AllowAnonymous]
     [HttpGet("branding/outro")]
     public async Task<ActionResult<ApiResponse<OutroResponse?>>> GetBrandingOutro(
         [FromQuery] string? channel, CancellationToken ct)
@@ -185,6 +213,7 @@ public sealed class SystemController(
     /// A channel's support-card QR image, for Camera Studio to put on air. Only an image
     /// asset is served, whatever the stored id points at.
     /// </summary>
+    [AllowAnonymous]
     [HttpGet("branding/outro/qr")]
     public async Task<IActionResult> GetBrandingOutroQr([FromQuery] string? channel, CancellationToken ct)
     {
@@ -205,6 +234,7 @@ public sealed class SystemController(
     /// <summary>
     /// Serves or streams the global outro video or image file.
     /// </summary>
+    [AllowAnonymous]
     [HttpGet("branding/outro/media")]
     public async Task<IActionResult> GetBrandingOutroMedia([FromQuery] string? channel, CancellationToken ct)
     {
@@ -294,6 +324,7 @@ public sealed class SystemController(
     /// Returns the Project Hub configuration (aspect ratio presets, studio templates,
     /// quick-start actions, and current storage usage) so the Project Hub modal never 404s.
     /// </summary>
+    [AllowAnonymous]
     [HttpGet("hub-config")]
     public async Task<ActionResult<ApiResponse<AnimStudio.Domain.System.HubConfig>>> GetHubConfig(CancellationToken ct)
     {
@@ -330,10 +361,10 @@ public sealed class SystemController(
             ],
             QuickStarts =
             [
-                new() { Id = "qs-blank", Icon = "✨", Label = "Blank Project", Tooltip = "Start a clean project on a 1080p canvas" },
-                new() { Id = "qs-script", Icon = "📝", Label = "From Script / SRT", Tooltip = "Generate timed scenes from a transcript or subtitle file" },
-                new() { Id = "qs-shorts", Icon = "⚡", Label = "Auto Shorts Batch", Tooltip = "Cut vertical shorts from existing clips and hooks" },
-                new() { Id = "qs-bundle", Icon = "📦", Label = "Import ZIP Bundle", Tooltip = "Build an entire project from a single ZIP bundle" }
+                new() { Id = "qs-blank", Icon = "âœ¨", Label = "Blank Project", Tooltip = "Start a clean project on a 1080p canvas" },
+                new() { Id = "qs-script", Icon = "ðŸ“", Label = "From Script / SRT", Tooltip = "Generate timed scenes from a transcript or subtitle file" },
+                new() { Id = "qs-shorts", Icon = "âš¡", Label = "Auto Shorts Batch", Tooltip = "Cut vertical shorts from existing clips and hooks" },
+                new() { Id = "qs-bundle", Icon = "ðŸ“¦", Label = "Import ZIP Bundle", Tooltip = "Build an entire project from a single ZIP bundle" }
             ]
         };
 

@@ -19,7 +19,7 @@ export interface SettingsPage {
   keywords: readonly string[];
 }
 
-export const SETTINGS_GROUPS = ['Branding', 'Media', 'AI', 'System'] as const;
+export const SETTINGS_GROUPS = ['Branding', 'Media', 'AI', 'Security', 'System'] as const;
 export type SettingsGroup = (typeof SETTINGS_GROUPS)[number];
 
 export const SETTINGS_PAGES: readonly SettingsPage[] = [
@@ -62,6 +62,11 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
     id: 'usage', group: 'AI', label: 'AI usage', icon: '📊', route: 'usage',
     description: 'Requests and spend per provider over recent days.',
     keywords: ['cost', 'tokens', 'limit', 'quota', 'requests', 'daily'],
+  },
+  {
+    id: 'access', group: 'Security', label: 'Access & Quotas', icon: '🔐', route: 'access',
+    description: 'Anonymous visitor policy, guest quotas, central identity app-boundary, and master YouTube channel supervision.',
+    keywords: ['access', 'auth', 'roles', 'permissions', 'anonymous', 'guest', 'quota', 'channels', 'security', 'rbac', 'users', 'free tier'],
   },
   {
     id: 'app-settings', group: 'System', label: 'Application settings', icon: '⚙️', route: 'settings',

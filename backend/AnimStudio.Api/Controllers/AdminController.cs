@@ -8,6 +8,8 @@ using AnimStudio.Application.Admin;
 using AnimStudio.Application.Ai;
 using AnimStudio.Application.Options;
 using AnimStudio.Application.Publishing;
+using AnimStudio.Domain.Publishing;
+using AnimStudio.Infrastructure.Publishing;
 using AnimStudio.Application.Security;
 using AnimStudio.Application.Uploads;
 using AnimStudio.Domain.Ai;
@@ -1122,6 +1124,49 @@ public sealed class AdminController(
     /// Resolves <c>?channel=</c>: true with null for the default channel, true with the
     /// channel for a known id, false for an id that names nothing.
     /// </summary>
+    // --- access control & channels --------------------------------------------------------
+
+    [HttpGet("channels")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<YouTubeConnectionStatus>>>> GetAllChannels(
+        [FromServices] YouTubeConnectionStore connectionStore, CancellationToken ct) =>
+        Ok(ApiResponse<IReadOnlyList<YouTubeConnectionStatus>>.Ok(await connectionStore.ListAllAsync(ct)));
+
+    [HttpGet("access-control")]
+    public ActionResult<ApiResponse<AdminAccessControlResponse>> GetAccessControl(
+        [FromServices] IOptionsMonitor<AdminOptions> adminOpts)
+    {
+        var options = adminOpts.CurrentValue;
+        return Ok(ApiResponse<AdminAccessControlResponse>.Ok(new AdminAccessControlResponse(
+            options.Mode.ToString(),
+            options.AnonymousPolicy,
+            new[] { "Admin", "StudioUser", "Editor", "Viewer", "Anonymous" })));
+    }
+
+    [HttpPut("access-control")]
+    public async Task<ActionResult<ApiResponse<AdminAccessControlResponse>>> UpdateAccessControl(
+        [FromBody] UpdateAccessControlRequest request,
+        [FromServices] AnimStudio.Infrastructure.Settings.WebSettingsService webSettings,
+        [FromServices] IOptionsMonitor<AdminOptions> adminOpts,
+        CancellationToken ct)
+    {
+        if (request.AnonymousPolicy is not null)
+        {
+            await webSettings.SetAsync("Admin:AnonymousPolicy:Enabled", request.AnonymousPolicy.Enabled ? "true" : "false", currentUser.UserId, ct);
+            await webSettings.SetAsync("Admin:AnonymousPolicy:AllowRender", request.AnonymousPolicy.AllowRender ? "true" : "false", currentUser.UserId, ct);
+            await webSettings.SetAsync("Admin:AnonymousPolicy:MaxRenderDurationSeconds", request.AnonymousPolicy.MaxRenderDurationSeconds.ToString(), currentUser.UserId, ct);
+            await webSettings.SetAsync("Admin:AnonymousPolicy:MaxAiCallsPerDay", request.AnonymousPolicy.MaxAiCallsPerDay.ToString(), currentUser.UserId, ct);
+            await webSettings.SetAsync("Admin:AnonymousPolicy:AllowYouTubePublish", request.AnonymousPolicy.AllowYouTubePublish ? "true" : "false", currentUser.UserId, ct);
+            await webSettings.SetAsync("Admin:AnonymousPolicy:AllowCloudSave", request.AnonymousPolicy.AllowCloudSave ? "true" : "false", currentUser.UserId, ct);
+            await audit.RecordAsync("access-control.updated", "anonymous-policy", null, "Updated guest quotas and access rules", RemoteAddress(), ct);
+        }
+
+        var options = adminOpts.CurrentValue;
+        return Ok(ApiResponse<AdminAccessControlResponse>.Ok(new AdminAccessControlResponse(
+            options.Mode.ToString(),
+            options.AnonymousPolicy,
+            new[] { "Admin", "StudioUser", "Editor", "Viewer", "Anonymous" })));
+    }
+
     private static bool TryChannel(AiSettings settings, string? channelId, out BrandChannel? channel)
     {
         channel = settings.FindChannel(channelId);

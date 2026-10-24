@@ -7,6 +7,7 @@ public interface IYouTubeConnectionRepository
 {
     Task<YouTubeChannelConnection?> GetAsync(string id, CancellationToken ct);
     Task<IReadOnlyList<YouTubeChannelConnection>> ListByUserAsync(string userId, CancellationToken ct);
+    Task<IReadOnlyList<YouTubeChannelConnection>> ListAllAsync(CancellationToken ct);
 
     /// <summary>Insert or replace by <see cref="YouTubeChannelConnection.Id"/>.</summary>
     Task UpsertAsync(YouTubeChannelConnection connection, CancellationToken ct);

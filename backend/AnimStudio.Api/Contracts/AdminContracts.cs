@@ -167,3 +167,22 @@ public sealed record SaveChainRequest
     /// <summary>An empty list restores the order from configuration.</summary>
     public IReadOnlyList<string>? ProviderIds { get; init; }
 }
+
+// --- access control & anonymous tier ---------------------------------------------------
+
+public sealed record AdminAccessControlResponse(
+    string Mode,
+    AnimStudio.Application.Options.AnonymousAccessPolicy AnonymousPolicy,
+    IReadOnlyList<string> AvailableRoles);
+
+public sealed record UpdateAccessControlRequest(
+    AnimStudio.Application.Options.AnonymousAccessPolicy? AnonymousPolicy);
+
+public sealed record StudioSessionResponse(
+    bool IsAuthenticated,
+    string UserId,
+    string? DisplayName,
+    string? Email,
+    bool IsAdmin,
+    IReadOnlyList<string> Roles,
+    AnimStudio.Application.Options.AnonymousAccessPolicy AnonymousPolicy);

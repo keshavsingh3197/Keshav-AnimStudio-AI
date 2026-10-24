@@ -56,6 +56,34 @@ public sealed class AdminJwtOptions
     public string SubjectClaim { get; set; } = "sub";
 }
 
+public sealed class AnonymousAccessPolicy
+{
+    public bool Enabled { get; set; } = true;
+    public bool AllowRender { get; set; } = true;
+    public int MaxRenderDurationSeconds { get; set; } = 30;
+    public int MaxAiCallsPerDay { get; set; } = 3;
+    public bool AllowYouTubePublish { get; set; } = false;
+    public bool AllowCloudSave { get; set; } = false;
+    public List<string> AllowedFeatures { get; set; } = new()
+    {
+        "camera-studio",
+        "motion-copy",
+        "media-tools",
+        "demo-projects"
+    };
+}
+
+/// <summary>
+/// Server profile configuration for deployment environments (e.g. lightweight free servers).
+/// </summary>
+public sealed class ServerProfileOptions
+{
+    public const string Section = "ServerProfile";
+
+    public bool FreeTier { get; set; }
+    public bool SkipMissingDependencies { get; set; }
+}
+
 /// <summary>
 /// Who may administer this server.
 /// </summary>
@@ -72,4 +100,6 @@ public sealed class AdminOptions
     public AdminAccessMode Mode { get; set; } = AdminAccessMode.LocalOnly;
 
     public AdminJwtOptions Jwt { get; set; } = new();
+
+    public AnonymousAccessPolicy AnonymousPolicy { get; set; } = new();
 }

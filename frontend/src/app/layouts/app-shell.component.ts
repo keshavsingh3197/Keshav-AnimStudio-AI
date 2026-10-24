@@ -3,9 +3,11 @@ import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/rou
 
 import { AdminAccess } from '../core/models/api.models';
 import { ActivityPanelComponent } from './activity-panel.component';
+import { LoginModalComponent } from '../shared/login-modal.component';
 import { ProjectHubModalComponent } from './project-hub-modal.component';
 import { ActivityService } from '../core/services/activity.service';
 import { ApiService } from '../core/services/api.service';
+import { AuthService } from '../core/services/auth.service';
 import { ShortsService } from '../core/services/shorts.service';
 import { StatusService } from '../core/services/status.service';
 
@@ -23,7 +25,7 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
  */
 @Component({
   selector: 'app-shell',
-  imports: [RouterLink, RouterLinkActive, RouterOutlet, ProjectHubModalComponent, ActivityPanelComponent],
+  imports: [RouterLink, RouterLinkActive, RouterOutlet, ProjectHubModalComponent, ActivityPanelComponent, LoginModalComponent],
   template: `
     <header class="topbar">
       <div class="wrap topbar-inner">
@@ -121,7 +123,28 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
               <span>Working&hellip;</span>
             </span>
           }
-          @if (access()?.canAdminister) {
+          @if (auth.isAuthenticated()) {
+            <div class="user-pill">
+              <span class="user-avatar" [title]="auth.user()?.email || 'User'">{{ (auth.user()?.displayName || auth.user()?.email || 'U')[0].toUpperCase() }}</span>
+              <span class="user-name" [title]="auth.user()?.email || 'User'">{{ auth.user()?.displayName || auth.user()?.email }}</span>
+              @if (auth.isAdmin()) {
+                <span class="user-role-badge">Admin</span>
+              }
+              <button type="button" class="btn-logout" (click)="auth.logout()" title="Sign out">
+                <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+              </button>
+            </div>
+          } @else {
+            <div class="guest-pill" title="You are browsing as Guest. Actions and renders are governed by the studio guest quota.">
+              <span class="guest-dot"></span>
+              <span class="guest-label">Guest</span>
+              <button type="button" class="topbar-signin-btn" (click)="auth.openAuthModal()">
+                Sign In
+              </button>
+            </div>
+          }
+
+          @if (auth.isAdmin() || access()?.canAdminister) {
             <a routerLink="/admin" routerLinkActive="active" class="topbar-navlink topbar-settings" title="Server & Studio Settings">
               <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
               <span>Settings</span>
@@ -132,6 +155,7 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
     </header>
 
     <main class="wrap">
+      <app-login-modal></app-login-modal>
       <!--
         Both banners share one wrapper so there is a single thing to scroll to, and it
         exists only while there is something to say - which is what lets the effect below
@@ -454,12 +478,119 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
     .notice-info {
       border-left-color: var(--brand);
     }
+
+    .guest-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.22rem 0.55rem;
+      border-radius: 99px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 0.78rem;
+    }
+
+    .guest-dot {
+      width: 0.45rem;
+      height: 0.45rem;
+      border-radius: 50%;
+      background: #94a3b8;
+    }
+
+    .guest-label {
+      color: #94a3b8;
+      font-weight: 600;
+    }
+
+    .topbar-signin-btn {
+      background: linear-gradient(135deg, rgba(79, 70, 229, 0.4) 0%, rgba(59, 130, 246, 0.4) 100%);
+      border: 1px solid rgba(108, 140, 255, 0.4);
+      color: #c7d2fe;
+      border-radius: 99px;
+      padding: 0.16rem 0.58rem;
+      font-size: 0.76rem;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: none;
+      transition: all 0.15s ease;
+    }
+
+    .topbar-signin-btn:hover {
+      background: linear-gradient(135deg, rgba(79, 70, 229, 0.65) 0%, rgba(59, 130, 246, 0.65) 100%);
+      color: #fff;
+      box-shadow: 0 0 10px rgba(108, 140, 255, 0.25);
+    }
+
+    .user-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.18rem 0.5rem 0.18rem 0.22rem;
+      border-radius: 99px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(108, 140, 255, 0.25);
+      font-size: 0.78rem;
+    }
+
+    .user-avatar {
+      width: 1.45rem;
+      height: 1.45rem;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%);
+      color: #fff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 0.72rem;
+    }
+
+    .user-name {
+      color: #e2e8f0;
+      font-weight: 600;
+      max-width: 130px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .user-role-badge {
+      font-size: 0.62rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      padding: 0.1rem 0.35rem;
+      background: rgba(108, 140, 255, 0.2);
+      border: 1px solid rgba(108, 140, 255, 0.45);
+      color: #8bb0ff;
+      border-radius: 4px;
+    }
+
+    .btn-logout {
+      background: none;
+      border: none;
+      color: var(--muted, #8a99ad);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.2rem;
+      margin-left: 0.15rem;
+      border-radius: 4px;
+      transition: color 0.15s ease, background 0.15s ease;
+      box-shadow: none;
+    }
+
+    .btn-logout:hover {
+      color: #f87171;
+      background: rgba(239, 68, 68, 0.12);
+    }
   `],
 })
 
 export class AppShellComponent {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
+  readonly auth = inject(AuthService);
 
   readonly status = inject(StatusService);
   readonly activity = inject(ActivityService);

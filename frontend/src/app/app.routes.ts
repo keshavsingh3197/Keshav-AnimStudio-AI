@@ -1,4 +1,5 @@
 import { Routes } from '@angular/router';
+import { adminGuard } from './core/guards/auth.guard';
 
 /**
  * Feature areas are lazy: the dashboard is the only thing most visits need, and the scene
@@ -230,6 +231,7 @@ export const routes: Routes = [
   {
     path: 'admin',
     title: 'Server settings - AnimStudio AI',
+    canActivate: [adminGuard],
     loadComponent: () =>
       import('./features/admin/admin-shell.component').then((m) => m.AdminShellComponent),
     children: [
@@ -271,6 +273,13 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./features/admin/admin-publishing.component')
             .then((m) => m.AdminPublishingComponent),
+      },
+      {
+        path: 'access',
+        title: 'Access & Quotas - AnimStudio AI',
+        loadComponent: () =>
+          import('./features/admin/admin-access-control.component')
+            .then((m) => m.AdminAccessControlComponent),
       },
       {
         path: 'settings',

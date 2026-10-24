@@ -16,6 +16,7 @@ import {
   WatermarkBody, OutroBody, BrandChannel, BrandChannelSyncResult, DEFAULT_BRAND_CHANNEL, StorageSummary, StorageDetail,
   ProjectEdit, CreateEditBody, UpdateEditBody, SaveEditDraftBody,
 } from '../models/api.models';
+import { AdminAccessControl, AdminYouTubeChannelItem, UpdateAccessControlRequest } from '../models/auth.models';
 
 /**
  * Typed wrapper over the API.
@@ -687,6 +688,18 @@ export class ApiService {
   // message rather than a blank screen.
 
   private readonly admin = `${this.base}/api/admin`;
+
+  adminAccessControl(): Observable<AdminAccessControl> {
+    return this.unwrap(this.http.get<ApiResponse<AdminAccessControl>>(`${this.admin}/access-control`));
+  }
+
+  updateAdminAccessControl(body: UpdateAccessControlRequest): Observable<AdminAccessControl> {
+    return this.unwrap(this.http.put<ApiResponse<AdminAccessControl>>(`${this.admin}/access-control`, body));
+  }
+
+  adminAllYouTubeChannels(): Observable<AdminYouTubeChannelItem[]> {
+    return this.unwrap(this.http.get<ApiResponse<AdminYouTubeChannelItem[]>>(`${this.admin}/channels`));
+  }
 
   adminStorage(refresh = false): Observable<StorageDetail> {
     return this.unwrap(this.http.get<ApiResponse<StorageDetail>>(

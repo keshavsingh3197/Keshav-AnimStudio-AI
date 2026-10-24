@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using AnimStudio.Application.Options;
 using AnimStudio.Application.Security;
 using Microsoft.Extensions.Options;
@@ -5,25 +6,9 @@ using Microsoft.Extensions.Options;
 namespace AnimStudio.Api.Security;
 
 /// <summary>
-/// Who is making the request: the JWT subject when the server validates tokens, and the
-/// single local user when it does not.
+/// Who is making the request: the JWT subject when authenticated, a guest identifier when anonymous,
+/// and the single local user when running in LocalOnly mode.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Both cases are decided by <see cref="AdminOptions.Mode"/> rather than by whether a
-/// token happens to be present, which matters: "use the subject if there is one, otherwise
-/// fall back to the local user" would let an unauthenticated request quietly acquire the
-/// local user's projects. In JWT mode every endpoint requires an authenticated caller
-/// (the fallback policy in <see cref="AdminAccessSetup"/>), so a missing subject there is a
-/// server misconfiguration and is refused rather than substituted.
-/// </para>
-/// <para>
-/// Ownership checks throughout the application already compare against
-/// <see cref="ICurrentUser.UserId"/>, so switching a server to JWT mode changes who owns
-/// what without any of those checks being touched - which is exactly why the interface was
-/// introduced before there was anything to put behind it.
-/// </para>
-/// </remarks>
 public sealed class HttpContextCurrentUser(
     IHttpContextAccessor accessor,
     IOptionsMonitor<AdminOptions> options) : ICurrentUser
@@ -37,10 +22,18 @@ public sealed class HttpContextCurrentUser(
             if (settings.Mode != AdminAccessMode.Jwt) return LocalSingleUserProvider.LocalUserId;
 
             var subject = accessor.HttpContext?.User.FindFirst(settings.Jwt.SubjectClaim)?.Value;
+            if (!string.IsNullOrWhiteSpace(subject)) return subject;
 
-            return string.IsNullOrWhiteSpace(subject)
-                ? throw new UnauthorizedAccessException()
-                : subject;
+            // Anonymous / guest identifier (from guest header or remote peer)
+            var http = accessor.HttpContext;
+            var guestHeader = http?.Request.Headers["X-Guest-Id"].ToString();
+            if (!string.IsNullOrWhiteSpace(guestHeader) && guestHeader.Length <= 64)
+            {
+                return "guest_" + guestHeader.Trim();
+            }
+
+            var remoteIp = http?.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            return "guest_" + remoteIp.Replace(":", "_");
         }
     }
 
@@ -53,7 +46,40 @@ public sealed class HttpContextCurrentUser(
             var user = accessor.HttpContext?.User;
 
             return user?.FindFirst("name")?.Value
-                   ?? user?.FindFirst("preferred_username")?.Value;
+                   ?? user?.FindFirst("preferred_username")?.Value
+                   ?? (IsAuthenticated ? "Member" : "Guest Visitor");
+        }
+    }
+
+    public string? Email =>
+        accessor.HttpContext?.User?.FindFirst(ClaimTypes.Email)?.Value
+        ?? accessor.HttpContext?.User?.FindFirst("email")?.Value;
+
+    public bool IsAuthenticated =>
+        options.CurrentValue.Mode != AdminAccessMode.Jwt ||
+        (accessor.HttpContext?.User?.Identity?.IsAuthenticated == true &&
+         !string.IsNullOrWhiteSpace(accessor.HttpContext?.User.FindFirst(options.CurrentValue.Jwt.SubjectClaim)?.Value));
+
+    public bool IsAdmin =>
+        AdminAccessRules.IsAdmitted(options.CurrentValue, accessor.HttpContext, accessor.HttpContext?.User);
+
+    public IReadOnlyList<string> Roles
+    {
+        get
+        {
+            if (options.CurrentValue.Mode != AdminAccessMode.Jwt)
+                return new[] { KeshavSingh.Core.Roles.Admin };
+
+            var user = accessor.HttpContext?.User;
+            if (user?.Identity?.IsAuthenticated != true)
+                return new[] { "Anonymous" };
+
+            var roleClaim = options.CurrentValue.Jwt.RoleClaim;
+            return user.Claims
+                .Where(c => c.Type == roleClaim || c.Type == ClaimTypes.Role)
+                .Select(c => c.Value)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
         }
     }
 }
