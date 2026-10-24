@@ -499,6 +499,9 @@
                 <a [href]="pv.videoUrl" target="_blank" rel="noopener noreferrer" class="yt-btn-outline">
                   Watch on YouTube ↗
                 </a>
+                <button type="button" class="yt-btn-outline" (click)="copy(pv)" title="Copy video URL">
+                  {{ copiedId() === pv.id ? '✓ Copied' : '🔗 Copy URL' }}
+                </button>
                 <a [href]="pv.studioUrl" target="_blank" rel="noopener noreferrer" class="yt-btn-outline yt-btn-studio">
                   Studio ↗
                 </a>

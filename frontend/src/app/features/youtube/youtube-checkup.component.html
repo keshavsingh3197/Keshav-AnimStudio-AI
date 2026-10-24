@@ -828,6 +828,7 @@
                 <a [href]="pv.videoUrl" target="_blank" rel="noopener noreferrer" class="ck-btn-outline">
                   Watch on YouTube ↗
                 </a>
+                <button type="button" class="ck-btn-outline" (click)="copyUrlField('preview-' + pv.videoId, pv.videoUrl)" title="Copy video URL">{{ urlCopiedKey() === 'preview-' + pv.videoId ? '✓ Copied' : '🔗 Copy URL' }}</button>
                 <a [href]="pv.studioUrl" target="_blank" rel="noopener noreferrer" class="ck-btn-studio">
                   Studio ↗
                 </a>
