@@ -7215,6 +7215,90 @@ export class StudioStateService implements OnDestroy {
     this.markDirty();
   }
 
+  // --- Auto transitions: pick styles for video cuts, images and text in one go ---
+
+  /**
+   * Chooses the n-th style from a pool. Fixed always takes the first; Cycle walks the pool
+   * in order; Random is shuffled but repeatable (the same edit picks the same styles) and
+   * never repeats the style just used when the pool has a choice.
+   */
+  private pickAuto(pool: readonly string[], mode: 'fixed' | 'cycle' | 'random', index: number, previous: string | null): string {
+    if (pool.length === 0) return 'None';
+    if (mode === 'fixed' || pool.length === 1) return pool[0];
+    if (mode === 'cycle') return pool[index % pool.length];
+    let h = (index + 1) * 2654435761 >>> 0;
+    h = (h ^ (h >>> 15)) * 2246822519 >>> 0;
+    let pick = pool[h % pool.length];
+    if (pick === previous) pick = pool[(h + 1) % pool.length];
+    return pick;
+  }
+
+  /** The timeline items of a media group an auto-pick should touch: the selected ones, or all. */
+  autoTargetItems(group: 'image' | 'text', scope: 'selected' | 'all'): TimelineItem[] {
+    const matches = (it: TimelineItem) => group === 'text' ? it.type === 'text' : it.type === 'image' || it.type === 'video';
+    const items = this.timelineItems().filter(matches);
+    if (scope === 'all') return items;
+    const ids = new Set(this.selectedTimelineItemIds());
+    const single = this.selectedTimelineItemId();
+    if (single) ids.add(single);
+    return items.filter((it) => ids.has(it.id));
+  }
+
+  /** The video cuts an auto-pick should touch: cuts around the selected clip / the open cut, or every cut. */
+  autoTargetJunctions(scope: 'selected' | 'all'): JunctionView[] {
+    const all = this.junctionsList().filter((j) => !j.slotted);
+    if (scope === 'all') return all;
+    const clipId = this.selectedClipId();
+    const openKey = this.selectedJunctionKey();
+    return all.filter((j) => j.key === openKey || (!!clipId && (j.left.id === clipId || j.right.id === clipId)));
+  }
+
+  /** Gives each target video cut a style from the pool. Returns how many cuts changed. */
+  applyAutoCutTransitions(opts: { scope: 'selected' | 'all'; mode: 'fixed' | 'cycle' | 'random'; pool: readonly string[]; seconds: number }): number {
+    const targets = this.autoTargetJunctions(opts.scope);
+    if (targets.length === 0 || opts.pool.length === 0) return 0;
+    const secs = Math.max(0.1, Math.min(3, Number(opts.seconds) || 0.5));
+    let previous: string | null = null;
+    this.junctionOverrides.update((map) => {
+      const next = new Map(map);
+      targets.forEach((j, i) => {
+        const kind = this.pickAuto(opts.pool, opts.mode, i, previous);
+        previous = kind;
+        next.set(j.key, kind === 'None' ? { transition: 'None', seconds: 0 } : { transition: kind, seconds: secs });
+      });
+      return next;
+    });
+    this.markDirty();
+    return targets.length;
+  }
+
+  /** Gives each target image / overlay video / text item an in-style (and out-style) from the pool. */
+  applyAutoItemMotions(group: 'image' | 'text', opts: {
+    scope: 'selected' | 'all'; mode: 'fixed' | 'cycle' | 'random'; pool: readonly string[];
+    inSeconds: number; outSeconds: number; outMatchesIn: boolean;
+  }): number {
+    const targets = this.autoTargetItems(group, opts.scope);
+    if (targets.length === 0 || opts.pool.length === 0) return 0;
+    let previous: string | null = null;
+    targets.forEach((item, i) => {
+      const motion = this.pickAuto(opts.pool, opts.mode, i, previous);
+      previous = motion;
+      const out = opts.outMatchesIn ? motion : 'fade';
+      if (group === 'text') {
+        this.updateTextItemStyle(item.id, {
+          transitionIn: motion as TimelineItemTextStyle['transitionIn'], transitionInDuration: opts.inSeconds,
+          transitionOut: (out === 'none' || out === 'fade' || out.startsWith('slide') || out.startsWith('zoom') ? out : 'fade') as TimelineItemTextStyle['transitionOut'],
+          transitionOutDuration: opts.outSeconds,
+        });
+      } else {
+        this.updateImageItemTransform(item.id, {
+          transitionIn: motion as TimelineItemTransform['transitionIn'], transitionInDuration: opts.inSeconds,
+          transitionOut: (out === 'pop' ? 'zoom' : out) as TimelineItemTransform['transitionOut'], transitionOutDuration: opts.outSeconds,
+        });
+      }
+    });
+    return targets.length;
+  }
   private previewVideoA: HTMLVideoElement | null = null;
   private previewVideoB: HTMLVideoElement | null = null;
   private previewRafId: number | null = null;
@@ -7577,6 +7661,8 @@ export class StudioStateService implements OnDestroy {
     const trans = this.previewJunction()?.transition;
     if (trans === 'SlideLeft') return `translateX(${(-100 * p).toFixed(2)}%)`;
     if (trans === 'SlideRight') return `translateX(${(100 * p).toFixed(2)}%)`;
+    if (trans === 'SlideUp') return `translateY(${(-100 * p).toFixed(2)}%)`;
+    if (trans === 'SlideDown') return `translateY(${(100 * p).toFixed(2)}%)`;
     return 'none';
   }
 
@@ -7587,6 +7673,8 @@ export class StudioStateService implements OnDestroy {
     const trans = this.previewJunction()?.transition;
     if (trans === 'SlideLeft') return `translateX(${(100 * (1 - p)).toFixed(2)}%)`;
     if (trans === 'SlideRight') return `translateX(${(-100 * (1 - p)).toFixed(2)}%)`;
+    if (trans === 'SlideUp') return `translateY(${(100 * (1 - p)).toFixed(2)}%)`;
+    if (trans === 'SlideDown') return `translateY(${(-100 * (1 - p)).toFixed(2)}%)`;
     return 'none';
   }
 

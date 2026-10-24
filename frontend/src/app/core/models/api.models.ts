@@ -1133,6 +1133,7 @@ export const EASINGS = ['Linear', 'EaseInOut'] as const;
 export const TRANSITIONS = [
   'None', 'Fade', 'Dissolve', 'WipeLeft', 'WipeRight',
   'SlideLeft', 'SlideRight', 'CircleOpen', 'CircleClose',
+  'SlideUp', 'SlideDown', 'ZoomIn',
 ] as const;
 
 export const ANCHORS = [
