@@ -473,22 +473,22 @@
           </div>
 
           <!-- Pinned Comment & Engagement Comment (Ready-to-Copy SEO Package) -->
-          @if (d.pinnedComment || d.engagementComment) {
+          @if (true) {
             <div class="ve-comments-seo-grid">
-              @if (d.pinnedComment !== undefined) {
+              @if (true) {
                 <div class="ve-field-group">
                   <div class="ve-field-header">
                     <label class="ve-label">📌 Pinned Comment <span class="ve-sublabel">(1-click copy)</span></label>
-                    <button type="button" class="ve-tool-chip" (click)="copyField('pinned', d.pinnedComment)" [disabled]="!d.pinnedComment.trim()">
+                    <button type="button" class="ve-tool-chip" (click)="copyField('pinned', d.pinnedComment ?? '')" [disabled]="!d.pinnedComment?.trim()">
                       {{ copiedKey() === 'pinned' ? '✓ Copied!' : '📋 Copy Pinned Comment' }}
                     </button>
                     <button type="button" class="ve-tool-chip" (click)="postPinnedComment()"
-                            [disabled]="!d.pinnedComment.trim() || commentBusy() || !canPostComment() || !!commentPostedUrl()"
+                            [disabled]="!d.pinnedComment?.trim() || commentBusy() || !canPostComment() || !!commentPostedUrl()"
                             [title]="canPostComment() ? 'Post it as the channel now. YouTube cannot pin it through its API - pin it in Studio.' : 'Comments can only be posted on a public or unlisted video that is not made for kids.'">
                       {{ commentBusy() ? 'Posting…' : commentPostedUrl() ? '✓ Posted' : '💬 Post as comment' }}
                     </button>
                   </div>
-                  <textarea rows="3" class="ve-textarea ve-textarea-sm" [ngModel]="d.pinnedComment" (ngModelChange)="set({ pinnedComment: $event })"></textarea>
+                  <textarea rows="3" class="ve-textarea ve-textarea-sm" [ngModel]="d.pinnedComment ?? ''" placeholder="Write a comment to post on this video as the channel…" (ngModelChange)="set({ pinnedComment: $event })"></textarea>
                   @if (commentPostedUrl(); as url) {
                     <span class="ve-schedule-msg">Posted. <a [href]="url" target="_blank" rel="noopener noreferrer" class="ve-link-btn">Pin it in Studio ↗</a></span>
                   }
