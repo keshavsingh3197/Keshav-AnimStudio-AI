@@ -151,21 +151,25 @@
 .icon-purple {
   background: rgba(147, 51, 234, 0.16);
   border: 1px solid rgba(147, 51, 234, 0.35);
+  color: #c084fc;
 }
 
 .icon-blue {
   background: rgba(59, 130, 246, 0.16);
   border: 1px solid rgba(59, 130, 246, 0.35);
+  color: #60a5fa;
 }
 
 .icon-emerald {
   background: rgba(16, 185, 129, 0.16);
   border: 1px solid rgba(16, 185, 129, 0.35);
+  color: #34d399;
 }
 
 .icon-amber {
   background: rgba(245, 158, 11, 0.16);
   border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #fbbf24;
 }
 
 .card-tag {

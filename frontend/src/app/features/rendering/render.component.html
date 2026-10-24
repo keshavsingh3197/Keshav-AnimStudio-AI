@@ -3,32 +3,41 @@
 <!-- ============================================================ -->
 <header class="rp-head">
   <div class="rp-head-text">
-    <h2>
-      Render
-      @if (store.project(); as project) {
-        <span [class]="formatClass(project.width, project.height)">
-          {{ format(project.width, project.height) }} &middot; {{ aspect(project.width, project.height) }}
-        </span>
-      }
-    </h2>
-    @if (store.project()) {
-      <!-- What the export is for: Music sends its renders to YouTube Music (the Music category). -->
-      <div class="rp-kind" role="radiogroup" aria-label="This project makes">
-        <span class="muted small">Made for</span>
-        <button type="button" role="radio" class="secondary small" [class.active]="!isMusicProject()" [attr.aria-checked]="!isMusicProject()"
-                (click)="setContentType('video')" [disabled]="status.busy()">🎬 Video</button>
-        <button type="button" role="radio" class="secondary small" [class.active]="isMusicProject()" [attr.aria-checked]="isMusicProject()"
-                (click)="setContentType('music')" [disabled]="status.busy()"
-                title="Publish renders to YouTube Music: Music category, listed in the YouTube Music app and on YouTube">♪ Music</button>
-        @if (isMusicProject()) {
-          <span class="muted small">Publishes to YouTube + YouTube Music</span>
-        }
+    <div class="row" style="gap: 12px; align-items: flex-start;">
+      <div class="studio-icon-badge" style="margin-top: 2px;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="5 3 19 12 5 21 5 3"/>
+        </svg>
       </div>
-    }
-    <p class="muted">
-      Scenes are rendered one by one, then merged with transitions, music and subtitles into one MP4.
-      Each render gets a name you can change, and videos you publish keep their YouTube link here.
-    </p>
+      <div>
+        <h2>
+          Render &amp; Publish Studio
+          @if (store.project(); as project) {
+            <span [class]="formatClass(project.width, project.height)">
+              {{ format(project.width, project.height) }} &middot; {{ aspect(project.width, project.height) }}
+            </span>
+          }
+        </h2>
+        @if (store.project()) {
+          <!-- What the export is for: Music sends its renders to YouTube Music (the Music category). -->
+          <div class="rp-kind" role="radiogroup" aria-label="This project makes">
+            <span class="muted small">Made for</span>
+            <button type="button" role="radio" class="secondary small" [class.active]="!isMusicProject()" [attr.aria-checked]="!isMusicProject()"
+                    (click)="setContentType('video')" [disabled]="status.busy()">Video</button>
+            <button type="button" role="radio" class="secondary small" [class.active]="isMusicProject()" [attr.aria-checked]="isMusicProject()"
+                    (click)="setContentType('music')" [disabled]="status.busy()"
+                    title="Publish renders to YouTube Music: Music category, listed in the YouTube Music app and on YouTube">♪ Music</button>
+            @if (isMusicProject()) {
+              <span class="muted small">Publishes to YouTube + YouTube Music</span>
+            }
+          </div>
+        }
+        <p class="muted">
+          Scenes are rendered one by one, then merged with transitions, music and subtitles into one MP4.
+          Each render gets a name you can change, and videos you publish keep their YouTube link here.
+        </p>
+      </div>
+    </div>
   </div>
 
   <div class="rp-head-actions">
@@ -37,12 +46,20 @@
     }
     <button class="secondary" type="button" (click)="renderAsShort()"
             [disabled]="status.busy() || running() || blockedReason() !== null"
-            title="Switch the project canvas to vertical 9:16 and render a Short">
-      📱 Render as Short
+            title="Switch the project canvas to vertical 9:16 and render a Short"
+            style="display: inline-flex; align-items: center; gap: 6px;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/>
+      </svg>
+      Render as Short
     </button>
     <button type="button" (click)="render()"
-            [disabled]="status.busy() || running() || blockedReason() !== null">
-      🎬 Render video ({{ aspect(store.project()?.width ?? 1920, store.project()?.height ?? 1080) }})
+            [disabled]="status.busy() || running() || blockedReason() !== null"
+            style="display: inline-flex; align-items: center; gap: 6px;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="5 3 19 12 5 21 5 3"/>
+      </svg>
+      Render video ({{ aspect(store.project()?.width ?? 1920, store.project()?.height ?? 1080) }})
     </button>
   </div>
 </header>
@@ -68,7 +85,7 @@
     </p>
     <div class="row">
       <a routerLink="../clips"><button type="button">Go to Video Studio &rarr;</button></a>
-      <a routerLink="../storyboard"><button class="secondary" type="button">Create storyboard scenes</button></a>
+      <a routerLink="../scenes"><button class="secondary" type="button">Create storyboard scenes</button></a>
     </div>
   </div>
 }
@@ -79,7 +96,7 @@
 @if (youtubeIssues().length > 0) {
   <section class="rp-issues" role="alert">
     <div class="rp-issues-head">
-      <strong>⚠ {{ youtubeIssues().length }} {{ youtubeIssues().length === 1 ? 'video has' : 'videos have' }} an issue on YouTube. Please check {{ youtubeIssues().length === 1 ? 'it' : 'them' }}.</strong>
+      <strong>! {{ youtubeIssues().length }} {{ youtubeIssues().length === 1 ? 'video has' : 'videos have' }} an issue on YouTube. Please check {{ youtubeIssues().length === 1 ? 'it' : 'them' }}.</strong>
       <button class="secondary small" type="button" (click)="loadPublications(true)" [disabled]="checkingYouTube()">
         {{ checkingYouTube() ? 'Checking…' : '↻ Check again' }}
       </button>
@@ -130,7 +147,7 @@
         <span [class]="jobFormatClass(current)">{{ jobFormat(current) }} &middot; {{ jobAspect(current) }}</span>
         <span class="muted mono">{{ jobResolution(current) }}</span>
         @if (current.outputDurationSeconds) {
-          <span class="muted mono">⏱ {{ current.outputDurationSeconds | number: '1.1-1' }}s</span>
+          <span class="muted mono">{{ current.outputDurationSeconds | number: '1.1-1' }}s</span>
         }
         <span class="muted">{{ current.createdAt | date: 'medium' }}</span>
       </div>
@@ -211,7 +228,12 @@
         <div class="rp-side">
           <div class="rp-primary-actions">
             <a [href]="downloadUrl(current.jobId)" download class="rp-btn-link">
-              <button type="button">⬇ Download MP4</button>
+              <button type="button" style="display: inline-flex; align-items: center; gap: 6px; justify-content: center;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                Download MP4
+              </button>
             </a>
             <button type="button" class="rp-yt-btn" (click)="openPublish(current.jobId)"
                     [title]="isMusicProject() ? 'Upload to your channel in the Music category, so it is on YouTube and YouTube Music' : 'Upload this video to your YouTube channel'">
@@ -269,7 +291,7 @@
 
           <div class="rp-more-actions">
             <a routerLink="/live" [queryParams]="{ renderJobId: current.jobId }" class="rp-btn-link">
-              <button class="secondary small" type="button" title="Stream this video to YouTube Live">🔴 Go live</button>
+              <button class="secondary small" type="button" title="Stream this video to YouTube Live">● Go live</button>
             </a>
             @if (subtitlesUrl(); as srtUrl) {
               <a [href]="srtUrl" download="subtitles.srt" class="rp-btn-link">
@@ -279,7 +301,7 @@
             @if (jobFormat(current) !== 'Short') {
               <button class="secondary small" type="button" (click)="renderAsShort()"
                       [disabled]="status.busy() || running() || blockedReason() !== null"
-                      title="Render a vertical 9:16 version of this project">📱 Short version</button>
+                      title="Render a vertical 9:16 version of this project">Short version</button>
             }
           </div>
         </div>
@@ -294,7 +316,14 @@
 @if (jobs().length > 0) {
   <section class="card rp-history">
     <div class="rp-history-head">
-      <h3>All renders <span class="muted">({{ jobs().length }})</span></h3>
+      <div class="studio-card-title-group">
+        <div class="studio-icon-badge purple">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+          </svg>
+        </div>
+        <h3>All renders <span class="muted">({{ jobs().length }})</span></h3>
+      </div>
       <div class="rp-status-tabs" role="tablist" aria-label="Filter by status">
         @for (tab of statusTabs; track tab.key) {
           <button type="button" role="tab" [attr.aria-selected]="statusFilter() === tab.key"
@@ -306,8 +335,13 @@
     </div>
 
     <div class="rp-toolbar">
-      <input type="search" class="rp-search" [ngModel]="query()" (ngModelChange)="setQuery($event)"
-             placeholder="Search by name, format, status or YouTube title…" aria-label="Search renders" />
+      <div class="studio-search-wrap" style="flex: 1 1 240px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <input type="search" class="rp-search" [ngModel]="query()" (ngModelChange)="setQuery($event)"
+               placeholder="Search by name, format, status or YouTube title…" aria-label="Search renders" />
+      </div>
       <select [ngModel]="formatFilter()" (ngModelChange)="setFormatFilter($event)" aria-label="Format">
         <option value="all">All formats</option>
         <option value="Video">Video (landscape)</option>
@@ -388,21 +422,21 @@
                         [attr.aria-expanded]="menuFor() === item.jobId" aria-haspopup="menu" aria-label="More actions">⋯</button>
                 @if (menuFor() === item.jobId) {
                   <div class="rp-menu" role="menu" (click)="$event.stopPropagation()">
-                    <button type="button" role="menuitem" (click)="menuFor.set(null); watch(item)">👁 Show</button>
+                    <button type="button" role="menuitem" (click)="menuFor.set(null); watch(item)">▶ Show</button>
                     @if (isTerminalStatus(item.status)) {
                       <button type="button" role="menuitem" (click)="startRename(item)">✎ Rename</button>
                     }
                     @if (item.hasOutput) {
                       <button type="button" role="menuitem" (click)="openPublish(item.jobId)">{{ isMusicProject() ? '♪ Publish to YouTube Music' : '▶ Publish to YouTube' }}</button>
                       @for (p of jobPublications(item.jobId); track p.id) {
-                        <button type="button" role="menuitem" (click)="copyLink(p.videoUrl)">🔗 Copy YouTube link{{ jobPublications(item.jobId).length > 1 ? ' (' + p.channelTitle + ')' : '' }}</button>
+                        <button type="button" role="menuitem" (click)="copyLink(p.videoUrl)"># Copy YouTube link{{ jobPublications(item.jobId).length > 1 ? ' (' + p.channelTitle + ')' : '' }}</button>
                         @if (p.musicUrl) {
                           <button type="button" role="menuitem" (click)="copyLink(p.musicUrl)">♪ Copy YouTube Music link{{ jobPublications(item.jobId).length > 1 ? ' (' + p.channelTitle + ')' : '' }}</button>
                         }
                       }
-                      <a role="menuitem" routerLink="/live" [queryParams]="{ renderJobId: item.jobId }">🔴 Go live</a>
+                      <a role="menuitem" routerLink="/live" [queryParams]="{ renderJobId: item.jobId }">● Go live</a>
                     }
-                    <button type="button" role="menuitem" (click)="menuFor.set(null); openDiagnostics(item)">📊 Diagnostics</button>
+                    <button type="button" role="menuitem" (click)="menuFor.set(null); openDiagnostics(item)">⚙ Diagnostics</button>
                   </div>
                 }
               </div>

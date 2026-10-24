@@ -1,239 +1,515 @@
-<section class="yt">
+<section class="yt studio-wide-page">
+  <!-- Page Header -->
   <header class="yt-head">
-    <div>
-      <p class="yt-eyebrow"><span class="yt-logo" aria-hidden="true">▶</span> YouTube</p>
-      <h1>Your channel at a glance</h1>
-      <p class="muted">
-        Subscribers, views and every video you've published from AnimStudio, with their links.
+    <div class="yt-head-left">
+      <p class="yt-eyebrow">
+        <span class="yt-logo-badge" aria-hidden="true">▶</span>
+        <span>YouTube Studio Hub</span>
+      </p>
+      <h1>Your Channel at a Glance</h1>
+      <p class="yt-subhead">
+        Track real-time performance, subscriber metrics, and manage every video published through AnimStudio.
         @if (data()?.statsFetchedAt; as at) {
-          <span class="yt-fetched">Numbers from YouTube at {{ at | date: 'shortTime' }}.</span>
+          <span class="yt-fetched-badge">Synced at {{ at | date: 'shortTime' }}</span>
         }
       </p>
     </div>
-    <div class="row">
+
+    <div class="yt-head-actions">
       @if (channels().length > 0) {
-        <a routerLink="/youtube/checkup" class="yt-btn" title="Find videos missing a description, tags, hashtags, playlist or audience - and fix them with AI">🩺 Details checkup</a>
+        <a routerLink="/youtube/checkup" class="yt-btn-checkup" title="Audit and fix missing descriptions, tags, playlists, and audience with AI">
+          🩺 Video Details Checkup
+        </a>
       }
-      <button type="button" class="secondary" (click)="load(true)" [disabled]="refreshing() || loading()">
-        {{ refreshing() ? 'Refreshing…' : '↻ Refresh numbers' }}
+      <a routerLink="/youtube/details" class="yt-btn-checkup" title="Paste video IDs or links: captions, music, chapters and fresh SEO for each">
+        🔎 Details from IDs
+      </a>
+      <button type="button" class="yt-btn-secondary" (click)="load(true)" [disabled]="refreshing() || loading()">
+        <span class="yt-btn-icon" [class.spinning]="refreshing()">↻</span>
+        {{ refreshing() ? 'Refreshing…' : 'Refresh Numbers' }}
       </button>
       @if (data()?.configured) {
-        <button type="button" (click)="connect()" [disabled]="connecting()">
-          {{ connecting() ? 'Opening Google…' : '+ Connect channel' }}
+        <button type="button" class="yt-btn-primary" (click)="connect()" [disabled]="connecting()">
+          {{ connecting() ? 'Opening Google…' : '+ Connect Channel' }}
         </button>
       }
     </div>
   </header>
 
   @if (error(); as e) {
-    <div class="notice error">{{ e }}</div>
+    <div class="yt-alert-error" role="alert">
+      <span>⚠️ {{ e }}</span>
+    </div>
   }
 
   @if (loading()) {
-    <div class="yt-skeleton">
-      <div class="card yt-shimmer"></div>
+    <div class="yt-skeleton-grid">
+      <div class="yt-skeleton-card yt-shimmer"></div>
       <div class="yt-kpis">
-        @for (i of [1, 2, 3, 4]; track i) { <div class="yt-kpi yt-shimmer"></div> }
+        @for (i of [1, 2, 3, 4]; track i) {
+          <div class="yt-kpi yt-shimmer"></div>
+        }
       </div>
     </div>
   } @else if (data(); as d) {
     @if (!d.configured) {
-      <div class="empty">
-        <h3>Publishing to YouTube isn't set up on this server</h3>
-        <p>An admin needs to set <span class="mono">YouTube:Publish:ClientId</span>, <span class="mono">ClientSecret</span>
-          and <span class="mono">RedirectUri</span>. Videos already uploaded are still listed below.</p>
+      <div class="yt-empty-card">
+        <div class="yt-empty-icon">⚙️</div>
+        <h3>YouTube Publishing Not Configured</h3>
+        <p>An administrator must set <span class="mono">YouTube:Publish:ClientId</span>, <span class="mono">ClientSecret</span>, and <span class="mono">RedirectUri</span>.</p>
       </div>
     }
 
-    <!-- Channels -->
+    <!-- Channel Connect Empty State -->
     @if (channels().length === 0 && d.configured) {
-      <div class="empty yt-connect">
+      <div class="yt-connect-card">
         <div class="yt-connect-icon" aria-hidden="true">▶</div>
-        <h3>Connect your YouTube channel</h3>
-        <p>Sign in with Google once to publish renders in one click and see your subscribers and views here.</p>
-        <button type="button" (click)="connect()" [disabled]="connecting()">Connect channel</button>
-      </div>
-    }
-
-    @for (c of channels(); track c.channelId) {
-      <article class="card yt-channel">
-        <div class="yt-channel-id">
-          @if (c.thumbnailUrl) {
-            <img class="yt-avatar" [src]="c.thumbnailUrl" alt="" referrerpolicy="no-referrer" />
-          } @else {
-            <div class="yt-avatar yt-avatar-fallback" aria-hidden="true">{{ c.channelTitle.charAt(0) }}</div>
-          }
-          <div class="yt-channel-name">
-            <h2>{{ c.channelTitle }}</h2>
-            <p class="muted">
-              @if (c.channelHandle) { <span>{{ c.channelHandle }}</span> · }
-              Connected {{ c.connectedAt | date: 'mediumDate' }}
-              @if (c.lastUploadAt) { · last upload {{ c.lastUploadAt | date: 'mediumDate' }} }
-            </p>
-          </div>
-          <div class="row yt-channel-links">
-            <a class="yt-btn" [href]="c.channelUrl" target="_blank" rel="noopener noreferrer">View channel ↗</a>
-            <a class="yt-btn" [href]="c.studioUrl" target="_blank" rel="noopener noreferrer">YouTube Studio ↗</a>
-          </div>
-        </div>
-
-        <div class="yt-channel-stats">
-          <div class="yt-stat yt-stat-hero">
-            <span class="yt-stat-value" [title]="c.subscribersHidden ? 'The channel hides its subscriber count' : full(c.subscribers)">{{ subscriberText(c) }}</span>
-            <span class="yt-stat-label">Subscribers</span>
-          </div>
-          <div class="yt-stat">
-            <span class="yt-stat-value" [title]="full(c.totalViews)">{{ compact(c.totalViews) }}</span>
-            <span class="yt-stat-label">Channel views</span>
-          </div>
-          <div class="yt-stat">
-            <span class="yt-stat-value" [title]="full(c.totalVideos)">{{ compact(c.totalVideos) }}</span>
-            <span class="yt-stat-label">Videos on channel</span>
-          </div>
-          <div class="yt-stat">
-            <span class="yt-stat-value">{{ c.appUploads }}</span>
-            <span class="yt-stat-label">Uploaded from AnimStudio</span>
-          </div>
-        </div>
-
-        @if (c.needsReconnect) {
-          <div class="notice error yt-channel-notice">
-            YouTube access for this channel expired or was removed.
-            <button type="button" class="link" (click)="connect()">Reconnect</button>
-          </div>
-        } @else if (c.statsError) {
-          <div class="notice yt-channel-notice">{{ c.statsError }}</div>
-        }
-      </article>
-    }
-
-    <!-- Totals across app uploads -->
-    @if (videos().length > 0) {
-      <div class="yt-kpis">
-        <div class="yt-kpi">
-          <span class="yt-kpi-label">Uploaded from AnimStudio</span>
-          <span class="yt-kpi-value">{{ totals().uploaded }}</span>
-          <span class="yt-kpi-sub">{{ totals().live }} public &amp; live</span>
-        </div>
-        <div class="yt-kpi">
-          <span class="yt-kpi-label">Views on these videos</span>
-          <span class="yt-kpi-value" [title]="full(totals().views)">{{ compact(totals().views) }}</span>
-          @if (topVideo(); as top) {
-            <span class="yt-kpi-sub" [title]="top.video.title">Top: {{ top.video.title }}</span>
-          }
-        </div>
-        <div class="yt-kpi">
-          <span class="yt-kpi-label">Likes · Comments</span>
-          <span class="yt-kpi-value">{{ compact(totals().likes) }} <small>·</small> {{ compact(totals().comments) }}</span>
-          <span class="yt-kpi-sub">across all uploads</span>
-        </div>
-        <button type="button" class="yt-kpi yt-kpi-button" [class.yt-kpi-alert]="totals().attention > 0"
-                (click)="filter.set('attention')" [disabled]="totals().attention === 0">
-          <span class="yt-kpi-label">Need attention</span>
-          <span class="yt-kpi-value">{{ totals().attention }}</span>
-          <span class="yt-kpi-sub">{{ totals().attention > 0 ? 'Rejected, failed or removed — show them' : 'All good' }}</span>
+        <h3>Connect Your YouTube Channel</h3>
+        <p>Authorize AnimStudio to publish renders directly, track views and likes, and audit your metadata with AI.</p>
+        <button type="button" class="yt-btn-primary yt-btn-lg" (click)="connect()" [disabled]="connecting()">
+          Connect with Google
         </button>
       </div>
     }
 
-    <!-- Uploading now -->
-    @if (activeUploads().length > 0) {
-      <div class="card yt-uploading">
-        <h3>Uploading now</h3>
-        @for (u of activeUploads(); track u.uploadId) {
-          <div class="yt-upload">
-            <div class="yt-upload-text">
-              <strong>{{ u.title }}</strong>
-              <span class="muted">to {{ u.channelTitle }} · {{ u.state === 'Queued' ? 'waiting to start' : u.percent + '%' }}</span>
+    <!-- Channel Hero Cards -->
+    @for (c of channels(); track c.channelId) {
+      <article class="yt-channel-hero">
+        <div class="yt-channel-banner">
+          <div class="yt-channel-profile">
+            @if (c.thumbnailUrl) {
+              <img class="yt-avatar" [src]="c.thumbnailUrl" alt="" referrerpolicy="no-referrer" />
+            } @else {
+              <div class="yt-avatar yt-avatar-fallback" aria-hidden="true">{{ c.channelTitle.charAt(0) }}</div>
+            }
+
+            <div class="yt-channel-details">
+              <div class="yt-channel-title-row">
+                <h2>{{ c.channelTitle }}</h2>
+                <span class="yt-channel-connected-pill">● Connected</span>
+              </div>
+              <p class="yt-channel-meta">
+                @if (c.channelHandle) {
+                  <span class="yt-handle">{{ c.channelHandle }}</span>
+                  <span class="yt-sep">·</span>
+                }
+                <span>Connected {{ c.connectedAt | date: 'mediumDate' }}</span>
+                @if (c.lastUploadAt) {
+                  <span class="yt-sep">·</span>
+                  <span>Last upload {{ c.lastUploadAt | date: 'mediumDate' }}</span>
+                }
+              </p>
             </div>
-            <div class="bar"><i [style.width.%]="u.percent"></i></div>
+          </div>
+
+          <div class="yt-channel-quick-links">
+            <a class="yt-btn-outline" [href]="c.channelUrl" target="_blank" rel="noopener noreferrer">
+              View Channel ↗
+            </a>
+            <a class="yt-btn-outline yt-btn-studio" [href]="c.studioUrl" target="_blank" rel="noopener noreferrer">
+              YouTube Studio ↗
+            </a>
+          </div>
+        </div>
+
+        <div class="yt-channel-stats-grid">
+          <div class="yt-stat-card yt-stat-subscribers">
+            <span class="yt-stat-label">Subscribers</span>
+            <span class="yt-stat-number" [title]="c.subscribersHidden ? 'Channel hides its subscriber count' : full(c.subscribers)">
+              {{ subscriberText(c) }}
+            </span>
+            <span class="yt-stat-hint">Total audience reach</span>
+          </div>
+
+          <div class="yt-stat-card">
+            <span class="yt-stat-label">Channel Views</span>
+            <span class="yt-stat-number" [title]="full(c.totalViews)">{{ compact(c.totalViews) }}</span>
+            <span class="yt-stat-hint">Across entire channel</span>
+          </div>
+
+          <div class="yt-stat-card">
+            <span class="yt-stat-label">Total Videos</span>
+            <span class="yt-stat-number" [title]="full(c.totalVideos)">{{ compact(c.totalVideos) }}</span>
+            <span class="yt-stat-hint">Published on channel</span>
+          </div>
+
+          <div class="yt-stat-card">
+            <span class="yt-stat-label">AnimStudio Uploads</span>
+            <span class="yt-stat-number">{{ c.appUploads }}</span>
+            <span class="yt-stat-hint">Managed via app</span>
+          </div>
+        </div>
+
+        @if (c.needsReconnect) {
+          <div class="yt-channel-alert yt-alert-warn">
+            <span>⚠️ YouTube access for this channel has expired or permissions were revoked.</span>
+            <button type="button" class="yt-btn-reconnect" (click)="connect()">Reconnect Channel</button>
+          </div>
+        } @else if (c.statsError) {
+          <div class="yt-channel-alert yt-alert-info">
+            <span>ℹ️ {{ c.statsError }}</span>
+          </div>
+        }
+      </article>
+    }
+
+    <!-- App Upload Totals KPIs -->
+    @if (videos().length > 0) {
+      <div class="yt-kpis">
+        <div class="yt-kpi">
+          <span class="yt-kpi-label">AnimStudio Uploads</span>
+          <span class="yt-kpi-value">{{ totals().uploaded }}</span>
+          <span class="yt-kpi-sub">{{ totals().live }} public &amp; live</span>
+        </div>
+
+        <div class="yt-kpi">
+          <span class="yt-kpi-label">Views on These Videos</span>
+          <span class="yt-kpi-value" [title]="full(totals().views)">{{ compact(totals().views) }}</span>
+          @if (topVideo(); as top) {
+            <span class="yt-kpi-sub" [title]="top.video.title">🔥 Top: {{ top.video.title }}</span>
+          } @else {
+            <span class="yt-kpi-sub">Total views generated</span>
+          }
+        </div>
+
+        <div class="yt-kpi">
+          <span class="yt-kpi-label">Engagement (Likes &amp; Comments)</span>
+          <div class="yt-kpi-engagement">
+            <span>👍 {{ compact(totals().likes) }}</span>
+            <span class="yt-sep">·</span>
+            <span>💬 {{ compact(totals().comments) }}</span>
+          </div>
+          <span class="yt-kpi-sub">Across all uploaded videos</span>
+        </div>
+
+        <button type="button" class="yt-kpi yt-kpi-button" [class.yt-kpi-alert]="totals().attention > 0"
+                (click)="filter.set('attention')" [disabled]="totals().attention === 0">
+          <span class="yt-kpi-label">Needs Attention</span>
+          <span class="yt-kpi-value" [class.yt-val-alert]="totals().attention > 0">{{ totals().attention }}</span>
+          <span class="yt-kpi-sub">{{ totals().attention > 0 ? '⚠️ Issues found — click to filter' : '✓ All uploads healthy' }}</span>
+        </button>
+      </div>
+    }
+
+    <!-- Active Uploads Progress -->
+    @if (activeUploads().length > 0) {
+      <div class="yt-uploading-card">
+        <h3>Uploading in Progress</h3>
+        @for (u of activeUploads(); track u.uploadId) {
+          <div class="yt-upload-item">
+            <div class="yt-upload-meta">
+              <strong>{{ u.title }}</strong>
+              <span class="yt-upload-status">to {{ u.channelTitle }} · {{ u.state === 'Queued' ? 'Waiting to start…' : u.percent + '%' }}</span>
+            </div>
+            <div class="yt-progress-track">
+              <div class="yt-progress-fill" [style.width.%]="u.percent"></div>
+            </div>
           </div>
         }
       </div>
     }
 
-    <!-- Videos -->
-    <div class="section-head yt-videos-head">
-      <h3>Published videos</h3>
-      <span class="muted">{{ rows().length }} of {{ videos().length }}</span>
+    <!-- Videos Section -->
+    <div class="yt-section-header">
+      <div class="yt-section-title-wrap">
+        <h3>Published Videos</h3>
+        <span class="yt-count-pill">{{ rows().length }} of {{ videos().length }}</span>
+      </div>
+      <a routerLink="/youtube/checkup" class="yt-section-link">
+        🩺 Open Video Checkup &amp; AI Optimizer →
+      </a>
     </div>
 
     @if (videos().length === 0) {
-      <div class="empty">
-        <h3>Nothing published yet</h3>
-        <p>Finish a render, then use <strong>Publish to YouTube</strong> on the project's Render page.
-          Every upload shows up here with its link and numbers.</p>
-        <a routerLink="/projects"><button type="button" class="secondary">Go to projects</button></a>
+      <div class="yt-empty-card">
+        <div class="yt-empty-icon">🎬</div>
+        <h3>No Videos Published Yet</h3>
+        <p>Render an animation project and choose <strong>Publish to YouTube</strong>. Every upload will appear here with analytics and links.</p>
+        <a routerLink="/projects" class="yt-btn-primary">Browse Projects</a>
       </div>
     } @else {
-      <div class="toolbar yt-toolbar">
-        <div class="yt-segments" role="tablist" aria-label="Filter videos">
+      <!-- Filter & Search Toolbar -->
+      <div class="yt-toolbar">
+        <div class="yt-tabs" role="tablist" aria-label="Filter videos">
           @for (f of filters(); track f.key) {
-            <button type="button" role="tab" class="yt-segment" [class.active]="filter() === f.key"
+            <button type="button" role="tab" class="yt-tab" [class.is-active]="filter() === f.key"
                     [attr.aria-selected]="filter() === f.key" (click)="filter.set(f.key)">
-              {{ f.label }} <span class="yt-segment-n">{{ f.n }}</span>
+              {{ f.label }} <span class="yt-tab-count">{{ f.n }}</span>
             </button>
           }
         </div>
-        <span class="yt-spacer"></span>
-        <input type="text" class="yt-search" placeholder="Search titles…" maxlength="100"
-               [ngModel]="query()" (ngModelChange)="query.set($event)" aria-label="Search videos" />
-        @if (filterChannels().length > 1) {
-          <select class="yt-select" [ngModel]="channelFilter()" (ngModelChange)="channelFilter.set($event)" aria-label="Channel">
-            <option value="all">All channels</option>
-            @for (c of filterChannels(); track c.id) { <option [value]="c.id">{{ c.title }}</option> }
-          </select>
-        }
-        <select class="yt-select" [ngModel]="sort()" (ngModelChange)="sort.set($event)" aria-label="Sort">
-          <option value="newest">Newest first</option>
-          <option value="views">Most viewed</option>
-          <option value="likes">Most liked</option>
-        </select>
+
+        <div class="yt-toolbar-right">
+          <!-- Search Field -->
+          <div class="yt-search-wrap">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="yt-search-icon" aria-hidden="true">
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+            </svg>
+            <input type="text" class="yt-search-input" placeholder="Search videos…" maxlength="100"
+                   [ngModel]="query()" (ngModelChange)="query.set($event)" aria-label="Search videos" />
+            @if (query()) {
+              <button type="button" class="yt-search-clear" (click)="query.set('')" aria-label="Clear search">✕</button>
+            }
+          </div>
+
+          @if (filterChannels().length > 1) {
+            <div class="yt-select-box">
+              <select class="yt-select" [ngModel]="channelFilter()" (ngModelChange)="channelFilter.set($event)" aria-label="Filter by channel">
+                <option value="all">All Channels</option>
+                @for (c of filterChannels(); track c.id) {
+                  <option [value]="c.id">{{ c.title }}</option>
+                }
+              </select>
+              <span class="yt-select-chevron">▾</span>
+            </div>
+          }
+
+          <div class="yt-select-box">
+            <select class="yt-select" [ngModel]="sort()" (ngModelChange)="sort.set($event)" aria-label="Sort videos">
+              <option value="newest">🕒 Newest First</option>
+              <option value="views">👁 Most Viewed</option>
+              <option value="likes">👍 Most Liked</option>
+            </select>
+            <span class="yt-select-chevron">▾</span>
+          </div>
+
+          <!-- View Mode Switcher -->
+          <div class="yt-view-switcher" role="group" aria-label="View format">
+            <button type="button" class="yt-view-btn" [class.is-active]="viewMode() === 'list'" (click)="setViewMode('list')" title="List view">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/></svg>
+            </button>
+            <button type="button" class="yt-view-btn" [class.is-active]="viewMode() === 'grid'" (click)="setViewMode('grid')" title="Cards / Grid view">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
+            </button>
+          </div>
+        </div>
       </div>
 
       @if (rows().length === 0) {
-        <div class="empty">No videos match. <button type="button" class="link" (click)="filter.set('all'); query.set('')">Clear filters</button></div>
+        <div class="yt-empty-filter">
+          <p>No videos match your search or filter.</p>
+          <button type="button" class="yt-btn-outline" (click)="filter.set('all'); query.set('')">Reset Filters</button>
+        </div>
       }
 
-      <ul class="yt-list">
-        @for (r of rows(); track r.video.id) {
-          <li class="yt-video" [class.yt-video-issue]="needsAttention(r.video)">
-            <a class="yt-thumb" [href]="r.video.videoUrl" target="_blank" rel="noopener noreferrer" [attr.aria-label]="'Watch ' + r.video.title">
-              @if (r.video.thumbnailUrl) {
-                <img [src]="r.video.thumbnailUrl" alt="" loading="lazy" referrerpolicy="no-referrer" />
-              } @else {
-                <span class="yt-thumb-fallback" aria-hidden="true">▶</span>
-              }
-            </a>
-
-            <div class="yt-video-main">
-              <a class="yt-video-title" [href]="r.video.videoUrl" target="_blank" rel="noopener noreferrer">{{ r.video.title }}</a>
-              <div class="yt-video-meta">
-                <span>{{ r.video.publishedAt | date: 'mediumDate' }}</span>
-                @if (filterChannels().length > 1) { <span>{{ r.video.channelTitle }}</span> }
-                <span class="pill yt-privacy">{{ r.privacy || 'unknown' }}</span>
-                @if (healthLabel(r.video); as h) { <span [class]="'pill ' + h.tone">{{ h.text }}</span> }
+      <!-- VIEW MODE 1: LIST VIEW -->
+      @if (viewMode() === 'list') {
+        <ul class="yt-list">
+          @for (r of rows(); track r.video.id) {
+            <li class="yt-video-card" [class.has-issue]="needsAttention(r.video)">
+              <!-- Thumbnail with Play Trigger -->
+              <div class="yt-thumb" [class.is-short]="isShortVideo(r.video)" (click)="openPreview(r.video)" role="button" tabindex="0" title="Click to play video preview">
+                @if (r.video.thumbnailUrl) {
+                  <img [src]="r.video.thumbnailUrl" alt="" loading="lazy" referrerpolicy="no-referrer" />
+                } @else {
+                  <span class="yt-thumb-fallback" aria-hidden="true">▶</span>
+                }
+                <div class="yt-thumb-overlay">
+                  <span class="yt-play-bubble">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  </span>
+                  <span class="yt-play-text">Preview</span>
+                </div>
+                @if (isShortVideo(r.video)) {
+                  <span class="yt-short-badge">⚡ Short</span>
+                }
               </div>
-              @if (r.video.issueMessage) {
-                <p class="yt-issue">{{ r.video.issueMessage }}</p>
-              }
-              <div class="yt-video-actions">
-                <a [href]="r.video.videoUrl" target="_blank" rel="noopener noreferrer">Watch ↗</a>
-                <a routerLink="/youtube/checkup">Fix details</a>
-                <a [href]="r.video.studioUrl" target="_blank" rel="noopener noreferrer">Edit in Studio ↗</a>
-                <button type="button" class="link" (click)="copy(r.video)">{{ copiedId() === r.video.id ? 'Copied ✓' : 'Copy link' }}</button>
-                <a [routerLink]="['/projects', r.video.projectId, 'render']">Open project</a>
+
+              <!-- Video Info & Actions -->
+              <div class="yt-video-main">
+                <button type="button" class="yt-video-title-btn" (click)="openPreview(r.video)" [title]="r.video.title">
+                  {{ r.video.title }}
+                </button>
+
+                <div class="yt-video-meta">
+                  <span class="yt-meta-date">{{ r.video.publishedAt | date: 'mediumDate' }}</span>
+                  @if (filterChannels().length > 1) {
+                    <span class="yt-channel-tag">{{ r.video.channelTitle }}</span>
+                  }
+                  <span class="yt-pill yt-privacy" [class.public]="r.privacy === 'public'">
+                    <span class="yt-dot"></span> {{ r.privacy || 'unknown' }}
+                  </span>
+                  @if (healthLabel(r.video); as h) {
+                    <span class="yt-pill" [class.is-ok]="h.tone === 'ok'" [class.is-warn]="h.tone === 'warn'" [class.is-err]="h.tone === 'err'">
+                      {{ h.text }}
+                    </span>
+                  }
+                  @if (isShortVideo(r.video)) {
+                    <span class="yt-pill yt-format-short">Short</span>
+                  }
+                </div>
+
+                @if (r.video.issueMessage) {
+                  <p class="yt-issue-message">⚠️ {{ r.video.issueMessage }}</p>
+                }
+
+                <!-- Action Toolbar -->
+                <div class="yt-video-actions">
+                  <button type="button" class="yt-action-btn yt-action-play" (click)="openPreview(r.video)" title="Play preview in app">
+                    ▶ Play
+                  </button>
+                  <a routerLink="/youtube/checkup" class="yt-action-link yt-action-checkup" title="Open Details Checkup &amp; AI Optimizer">
+                    🩺 Fix Details
+                  </a>
+                  <a [href]="r.video.videoUrl" target="_blank" rel="noopener noreferrer" class="yt-action-link" title="Open on YouTube">
+                    Watch ↗
+                  </a>
+                  <a [href]="r.video.studioUrl" target="_blank" rel="noopener noreferrer" class="yt-action-link" title="Open in YouTube Studio">
+                    Studio ↗
+                  </a>
+                  <button type="button" class="yt-action-btn" (click)="copy(r.video)" title="Copy video URL to clipboard">
+                    {{ copiedId() === r.video.id ? 'Copied ✓' : 'Copy link' }}
+                  </button>
+                  <a [routerLink]="['/projects', r.video.projectId, 'render']" class="yt-action-link yt-action-project" title="Open AnimStudio project">
+                    📁 Project
+                  </a>
+                </div>
+              </div>
+
+              <!-- Stats Analytics Column -->
+              <div class="yt-video-stats-panel">
+                <div class="yt-stat-item" [title]="full(r.stats?.views) + ' views'">
+                  <span class="yt-stat-icon">👁</span>
+                  <div class="yt-stat-data">
+                    <span class="yt-stat-val">{{ compact(r.stats?.views) }}</span>
+                    <span class="yt-stat-tag">Views</span>
+                  </div>
+                </div>
+
+                <div class="yt-stat-item" [title]="full(r.stats?.likes) + ' likes'">
+                  <span class="yt-stat-icon">👍</span>
+                  <div class="yt-stat-data">
+                    <span class="yt-stat-val">{{ compact(r.stats?.likes) }}</span>
+                    <span class="yt-stat-tag">Likes</span>
+                  </div>
+                </div>
+
+                <div class="yt-stat-item" [title]="full(r.stats?.comments) + ' comments'">
+                  <span class="yt-stat-icon">💬</span>
+                  <div class="yt-stat-data">
+                    <span class="yt-stat-val">{{ compact(r.stats?.comments) }}</span>
+                    <span class="yt-stat-tag">Comments</span>
+                  </div>
+                </div>
+              </div>
+            </li>
+          }
+        </ul>
+      }
+
+      <!-- VIEW MODE 2: CARDS / GRID VIEW -->
+      @if (viewMode() === 'grid') {
+        <div class="yt-grid-container">
+          @for (r of rows(); track r.video.id) {
+            <div class="yt-grid-card" [class.has-issue]="needsAttention(r.video)">
+              <!-- Thumbnail -->
+              <div class="yt-grid-thumb-stage" [class.is-short]="isShortVideo(r.video)">
+                @if (r.video.thumbnailUrl) {
+                  <img [src]="r.video.thumbnailUrl" alt="" loading="lazy" referrerpolicy="no-referrer" />
+                } @else {
+                  <span class="yt-thumb-fallback">▶</span>
+                }
+                <button type="button" class="yt-grid-play-overlay" (click)="openPreview(r.video)" [attr.aria-label]="'Play ' + r.video.title">
+                  <span class="yt-grid-play-bubble">▶</span>
+                  <span class="yt-grid-play-hint">Watch Preview</span>
+                </button>
+                @if (isShortVideo(r.video)) {
+                  <span class="yt-short-badge">⚡ Short</span>
+                }
+              </div>
+
+              <!-- Content -->
+              <div class="yt-grid-body">
+                <button type="button" class="yt-grid-title" (click)="openPreview(r.video)" [title]="r.video.title">
+                  {{ r.video.title }}
+                </button>
+
+                <div class="yt-grid-meta">
+                  <span>{{ r.video.publishedAt | date: 'mediumDate' }}</span>
+                  <span class="yt-pill yt-privacy" [class.public]="r.privacy === 'public'">{{ r.privacy }}</span>
+                  @if (healthLabel(r.video); as h) {
+                    <span class="yt-pill" [class.is-ok]="h.tone === 'ok'" [class.is-warn]="h.tone === 'warn'">{{ h.text }}</span>
+                  }
+                </div>
+
+                <!-- Stats summary -->
+                <div class="yt-grid-stats-row">
+                  <span title="Views">👁 {{ compact(r.stats?.views) }}</span>
+                  <span class="yt-sep">·</span>
+                  <span title="Likes">👍 {{ compact(r.stats?.likes) }}</span>
+                  <span class="yt-sep">·</span>
+                  <span title="Comments">💬 {{ compact(r.stats?.comments) }}</span>
+                </div>
+
+                <!-- Footer buttons -->
+                <div class="yt-grid-card-foot">
+                  <a routerLink="/youtube/checkup" class="yt-action-link yt-action-checkup yt-flex-btn">
+                    🩺 Fix Details
+                  </a>
+                  <button type="button" class="yt-action-btn" (click)="openPreview(r.video)">
+                    ▶ Play
+                  </button>
+                  <a [href]="r.video.studioUrl" target="_blank" rel="noopener noreferrer" class="yt-action-link">
+                    Studio ↗
+                  </a>
+                </div>
               </div>
             </div>
+          }
+        </div>
+      }
 
-            <dl class="yt-video-stats">
-              <div><dt>Views</dt><dd [title]="full(r.stats?.views)">{{ compact(r.stats?.views) }}</dd></div>
-              <div><dt>Likes</dt><dd [title]="full(r.stats?.likes)">{{ compact(r.stats?.likes) }}</dd></div>
-              <div><dt>Comments</dt><dd [title]="full(r.stats?.comments)">{{ compact(r.stats?.comments) }}</dd></div>
-            </dl>
-          </li>
-        }
-      </ul>
+      <!-- VIDEO PREVIEW & PLAY MODAL -->
+      @if (previewVideo(); as pv) {
+        <div class="yt-preview-backdrop" (click)="closePreview()">
+          <div class="yt-preview-modal" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+            <header class="yt-preview-head">
+              <div class="yt-preview-title-wrap">
+                @if (isShortVideo(pv)) {
+                  <span class="yt-short-badge">⚡ Short</span>
+                }
+                <h3>{{ pv.title || '(Untitled Video)' }}</h3>
+              </div>
+              <button type="button" class="yt-preview-close-btn" (click)="closePreview()" aria-label="Close player">✕</button>
+            </header>
+
+            <div class="yt-preview-stage" [class.is-vertical]="isShortVideo(pv)">
+              @if (previewEmbedUrl(); as embedSrc) {
+                <iframe [src]="embedSrc" title="YouTube video player preview"
+                        allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen
+                        referrerpolicy="strict-origin-when-cross-origin"></iframe>
+              } @else {
+                <div class="yt-preview-error">
+                  <p>Unable to load video player for ID {{ pv.videoId }}</p>
+                </div>
+              }
+            </div>
+
+            <footer class="yt-preview-foot">
+              <div class="yt-preview-meta">
+                <span>Published {{ pv.publishedAt | date: 'mediumDate' }}</span>
+                <span class="yt-pill">{{ pv.privacy }}</span>
+                <span>{{ pv.channelTitle }}</span>
+              </div>
+
+              <div class="yt-preview-actions">
+                <a routerLink="/youtube/checkup" class="yt-btn-primary" (click)="closePreview()">
+                  🩺 Open in Details Optimizer
+                </a>
+                <a [href]="pv.videoUrl" target="_blank" rel="noopener noreferrer" class="yt-btn-outline">
+                  Watch on YouTube ↗
+                </a>
+                <button type="button" class="yt-btn-outline" (click)="copy(pv)" title="Copy video URL">
+                  {{ copiedId() === pv.id ? '✓ Copied' : '🔗 Copy URL' }}
+                </button>
+                <a [href]="pv.studioUrl" target="_blank" rel="noopener noreferrer" class="yt-btn-outline yt-btn-studio">
+                  Studio ↗
+                </a>
+              </div>
+            </footer>
+          </div>
+        </div>
+      }
     }
   }
 </section>

@@ -3,7 +3,12 @@
   <!-- ── Studio Header ────────────────────────────────────────────── -->
   <div class="studio-header">
     <div class="header-title-group">
-      <div class="studio-icon-badge">🎭</div>
+      <div class="studio-icon-badge">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+        </svg>
+      </div>
       <div>
         <h2>Cast &amp; Character Studio</h2>
         <p class="header-subtitle">
@@ -15,7 +20,10 @@
 
     <div class="header-actions">
       <button type="button" class="btn-primary-glow" (click)="scrollToForm()">
-        <span>+</span> Add Character
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+        Add Character
       </button>
     </div>
   </div>
@@ -23,7 +31,12 @@
   <!-- ── Quick Statistics Strip ────────────────────────────────────── -->
   <div class="stats-strip">
     <div class="stat-card">
-      <div class="stat-icon">👥</div>
+      <div class="stat-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+        </svg>
+      </div>
       <div>
         <div class="stat-value">{{ store.characters().length }}</div>
         <div class="stat-label">Total Characters</div>
@@ -31,7 +44,11 @@
     </div>
 
     <div class="stat-card">
-      <div class="stat-icon">🗣️</div>
+      <div class="stat-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#c084fc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+      </div>
       <div>
         <div class="stat-value">{{ castCount() }}</div>
         <div class="stat-label">Speaking Cast</div>
@@ -39,7 +56,12 @@
     </div>
 
     <div class="stat-card">
-      <div class="stat-icon">👄</div>
+      <div class="stat-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+          <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+        </svg>
+      </div>
       <div>
         <div class="stat-value">{{ animatedCount() }}</div>
         <div class="stat-label">Lip-Flap Animated</div>
@@ -47,7 +69,12 @@
     </div>
 
     <div class="stat-card">
-      <div class="stat-icon">🎙️</div>
+      <div class="stat-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>
+        </svg>
+      </div>
       <div>
         <div class="stat-value">{{ narratorCount() > 0 ? narratorCount() : 'Auto' }}</div>
         <div class="stat-label">Narrator Assigned</div>
@@ -59,14 +86,22 @@
   <div class="studio-card">
     <div class="card-topbar">
       <h3>
-        <span>👥</span>
+        <span class="studio-icon-badge" style="width: 1.9rem; height: 1.9rem; border-radius: 8px;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+          </svg>
+        </span>
         <span>Cast Directory ({{ filteredCharacters().length }})</span>
       </h3>
 
       <div class="toolbar-controls">
         <!-- Search bar -->
         <div class="search-box">
-          <span class="search-icon">🔍</span>
+          <span class="search-icon" style="display: flex; align-items: center;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+          </span>
           <input
             type="text"
             class="search-input"
@@ -121,7 +156,11 @@
             (click)="viewMode.set('grid')"
             title="Card Grid View"
           >
-            🎴 Cards
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -1px; margin-right: 4px;">
+              <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+              <rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>
+            </svg>
+            Cards
           </button>
           <button
             type="button"
@@ -130,7 +169,11 @@
             (click)="viewMode.set('table')"
             title="Table List View"
           >
-            📋 Table
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -1px; margin-right: 4px;">
+              <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
+              <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+            </svg>
+            Table
           </button>
         </div>
       </div>
@@ -139,7 +182,12 @@
     <!-- Empty State -->
     @if (filteredCharacters().length === 0) {
       <div class="empty-cast-state">
-        <div class="empty-icon">🎭</div>
+        <div class="studio-icon-badge" style="width: 3.25rem; height: 3.25rem; border-radius: 14px; margin: 0 auto 0.75rem;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+          </svg>
+        </div>
         @if (store.characters().length === 0) {
           <h4>No Characters in this Project Yet</h4>
           <p>
@@ -171,12 +219,12 @@
               <!-- Top Badges -->
               <div class="hero-badges-top">
                 @if (character.isNarrator) {
-                  <span class="badge-tag badge-narrator">🎙️ Narrator</span>
+                  <span class="badge-tag badge-narrator">Narrator</span>
                 }
                 @if (character.closedMouthAssetId && character.openMouthAssetId) {
-                  <span class="badge-tag badge-animated">👄 Lip-Flap</span>
+                  <span class="badge-tag badge-animated">Lip-Flap</span>
                 } @else if (character.closedMouthAssetId || character.openMouthAssetId) {
-                  <span class="badge-tag badge-static">🖼️ Static</span>
+                  <span class="badge-tag badge-static">Static</span>
                 }
               </div>
 
@@ -199,7 +247,7 @@
                     (click)="toggleFlap(character)"
                     [title]="testingFlapCharacterId() === character.id ? 'Stop mouth flap test' : 'Test live mouth-flap animation'"
                   >
-                    <span>{{ testingFlapCharacterId() === character.id ? '⏹' : '👄' }}</span>
+                    <span>{{ testingFlapCharacterId() === character.id ? '⏹' : '▶' }}</span>
                     <span>{{ testingFlapCharacterId() === character.id ? 'Stop' : 'Test Flap' }}</span>
                   </button>
                 </div>
@@ -229,7 +277,7 @@
 
               @if (character.voice) {
                 <div class="appearance-chips">
-                  <span class="look-chip">🗣️ {{ describeVoice(character.voice) }}</span>
+                  <span class="look-chip">{{ describeVoice(character.voice) }}</span>
                 </div>
               }
 
@@ -247,16 +295,16 @@
               @if (appearanceOf(character); as look) {
                 <div class="appearance-chips">
                   @if (character.appearance.age) {
-                    <span class="look-chip">🎂 {{ character.appearance.age }} yrs</span>
+                    <span class="look-chip">{{ character.appearance.age }} yrs</span>
                   }
                   @if (character.appearance.gender) {
-                    <span class="look-chip">👤 {{ character.appearance.gender }}</span>
+                    <span class="look-chip">{{ character.appearance.gender }}</span>
                   }
                   @if (character.appearance.hair) {
-                    <span class="look-chip">✂️ {{ character.appearance.hair }}</span>
+                    <span class="look-chip">{{ character.appearance.hair }}</span>
                   }
                   @if (character.appearance.clothes) {
-                    <span class="look-chip">👔 {{ character.appearance.clothes }}</span>
+                    <span class="look-chip">{{ character.appearance.clothes }}</span>
                   }
                 </div>
               }
@@ -270,7 +318,7 @@
               <!-- Non-alpha warning -->
               @if (isFlatSprite(character.closedMouthAssetId)) {
                 <div class="non-alpha-warning">
-                  <span>⚠️</span>
+                  <span>!</span>
                   <span>Closed-mouth sprite has no transparency (solid backdrop).</span>
                 </div>
               }
@@ -283,7 +331,7 @@
                   (click)="duplicate(character)"
                   title="Duplicate character settings"
                 >
-                  📋 Duplicate
+                  Duplicate
                 </button>
 
                 <button
@@ -292,7 +340,7 @@
                   (click)="edit(character)"
                   title="Edit character details"
                 >
-                  ✏️ Edit
+                  Edit
                 </button>
 
                 @if (!character.isNarrator) {
@@ -318,7 +366,9 @@
                       (click)="confirming.set(character.id)"
                       title="Delete character"
                     >
-                      🗑️
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                      </svg>
                     </button>
                   }
                 }
@@ -329,7 +379,7 @@
       </div>
     } @else {
       <!-- Table View -->
-      <div class="table-wrapper">
+      <div class="table-wrapper studio-table-wrap">
         <table class="studio-table">
           <thead>
             <tr>
@@ -360,7 +410,7 @@
                       [class.active]="testingFlapCharacterId() === character.id"
                       (click)="toggleFlap(character)"
                     >
-                      {{ testingFlapCharacterId() === character.id ? '⏹' : '👄' }}
+                      {{ testingFlapCharacterId() === character.id ? '⏹' : '▶' }}
                     </button>
                   }
                 </td>
@@ -399,14 +449,18 @@
                   </span>
                 </td>
                 <td style="text-align: right; white-space: nowrap;">
-                  <button type="button" class="btn-secondary btn-sm" (click)="duplicate(character)">📋 Copy</button>
-                  <button type="button" class="btn-secondary btn-sm" (click)="edit(character)" style="margin-left: 6px;">✏️ Edit</button>
+                  <button type="button" class="btn-secondary btn-sm" (click)="duplicate(character)">Copy</button>
+                  <button type="button" class="btn-secondary btn-sm" (click)="edit(character)" style="margin-left: 6px;">Edit</button>
                   @if (!character.isNarrator) {
                     @if (confirming() === character.id) {
                       <button type="button" class="btn-danger btn-sm" (click)="remove(character.id)" style="margin-left: 6px;">Delete</button>
                       <button type="button" class="btn-secondary btn-sm" (click)="confirming.set(null)" style="margin-left: 4px;">Keep</button>
                     } @else {
-                      <button type="button" class="btn-secondary btn-sm" (click)="confirming.set(character.id)" style="margin-left: 6px;">🗑️</button>
+                      <button type="button" class="btn-secondary btn-sm" (click)="confirming.set(character.id)" style="margin-left: 6px;">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                        </svg>
+                      </button>
                     }
                   }
                 </td>
@@ -422,7 +476,11 @@
   <div class="studio-card" id="character-editor-form">
     <div class="card-topbar">
       <h3>
-        <span>{{ editing() === null ? '✨' : '✏️' }}</span>
+        <span class="studio-icon-badge purple" style="width: 1.9rem; height: 1.9rem; border-radius: 8px;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+          </svg>
+        </span>
         <span>{{ editing() === null ? 'Add New Cast Member' : 'Edit Cast Member: ' + form.name }}</span>
       </h3>
       @if (editing() !== null) {
@@ -435,7 +493,7 @@
     <!-- AI Archetype Presets Bar -->
     <div class="presets-section">
       <div class="presets-title">
-        <span>⚡ Quick Persona &amp; Archetype Presets (Click to autofill styling &amp; appearance)</span>
+        <span>Quick Persona &amp; Archetype Presets (Click to autofill styling &amp; appearance)</span>
       </div>
       <div class="presets-chips-grid">
         @for (preset of archetypes; track preset.id) {
@@ -459,7 +517,9 @@
       <!-- Column 1: Identity, Sprites & Lip-Flap Tester -->
       <div class="form-column-card">
         <div class="column-section-title">
-          <span>🎭</span>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+          </svg>
           <span>Character Identity &amp; Sprites</span>
         </div>
 
@@ -494,7 +554,9 @@
                 @if (form.closedMouthAssetId) {
                   <img [src]="assetUrl(form.closedMouthAssetId)" alt="Closed Mouth" />
                 } @else {
-                  <span style="font-size: 1.4rem; opacity: 0.5;">😐</span>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"/><line x1="8" y1="15" x2="16" y2="15"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/>
+                  </svg>
                 }
               </div>
 
@@ -510,7 +572,10 @@
                      appFileDrop="image/*" [fileDropDisabled]="isUploadingClosed()"
                      (filesDropped)="uploadClosedSprite($event[0])">
                   <label class="btn-upload">
-                    <span>📁 Upload Image</span>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    <span>Upload Image</span>
                     <input
                       type="file"
                       class="hidden-file-input"
@@ -543,7 +608,9 @@
                 @if (form.openMouthAssetId) {
                   <img [src]="assetUrl(form.openMouthAssetId)" alt="Open Mouth" />
                 } @else {
-                  <span style="font-size: 1.4rem; opacity: 0.5;">🗣️</span>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/>
+                  </svg>
                 }
               </div>
 
@@ -559,7 +626,10 @@
                      appFileDrop="image/*" [fileDropDisabled]="isUploadingOpen()"
                      (filesDropped)="uploadOpenSprite($event[0])">
                   <label class="btn-upload">
-                    <span>📁 Upload Image</span>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    <span>Upload Image</span>
                     <input
                       type="file"
                       class="hidden-file-input"
@@ -586,7 +656,7 @@
         <!-- Live Lip-Flap Tester Viewport -->
         <div class="live-flap-viewport-card">
           <div class="viewport-header">
-            <span>👄 Live Lip-Flap Motion Tester</span>
+            <span>Live Lip-Flap Motion Tester</span>
             @if (form.closedMouthAssetId && form.openMouthAssetId) {
               <span style="color: #6ee7b7; font-size: 0.78rem;">✓ 2 Sprites Ready</span>
             } @else if (form.closedMouthAssetId || form.openMouthAssetId) {
@@ -630,7 +700,10 @@
       <!-- Column 2: Subtitles & Appearance Prompt Notes -->
       <div class="form-column-card">
         <div class="column-section-title">
-          <span>🎨</span>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/>
+            <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/>
+          </svg>
           <span>Subtitles &amp; AI Appearance Spec</span>
         </div>
 
@@ -695,13 +768,13 @@
 
         <!-- Character Voice -->
         <div class="form-field voice-field">
-          <label>🗣️ Character Voice</label>
+          <label>Character Voice</label>
           <p class="field-hint">
             Speak as this character: when you record in Collab Studio or Camera Studio, your own voice is changed to this one as you talk.
           </p>
           <div class="voice-chips">
             <button type="button" class="voice-chip" [class.selected]="!form.voice" (click)="setVoicePreset(null)" title="Your voice, unchanged">
-              🙂 Own voice
+              Own voice
             </button>
             @for (preset of voicePresets; track preset.id) {
               <button
@@ -754,7 +827,7 @@
 
             @if (aiAvailable() || voice.aiSampleAssetId) {
               <div class="voice-ai">
-                <label for="voice-sample">🤖 AI voice: sound like a real person</label>
+                <label for="voice-sample">AI voice: sound like a real person</label>
                 <p class="field-hint">
                   Pick a clear 10&ndash;25 second recording of one person speaking. Studio voice then turns your performance into their voice
                   with local AI on this computer: your timing and acting stay, the voice becomes theirs. Pitch and Size come from their recording.
@@ -789,7 +862,7 @@
 
           <div class="voice-tester">
             <button type="button" class="btn-secondary" (click)="recordTestLine()">
-              {{ testerState() === 'recording' ? '⏹ Stop recording' : '🎤 Record a test line' }}
+              {{ testerState() === 'recording' ? '⏹ Stop recording' : '● Record a test line' }}
             </button>
             <button
               type="button"
@@ -804,7 +877,7 @@
                 (click)="hearStudioQuality()"
                 [disabled]="testerState() === 'idle' || testerState() === 'recording' || studioBusy()"
                 title="The server re-voices the line the way Studio voice will: more like a real person"
-              >{{ studioBusy() ? 'Making it…' : '✨ Hear studio quality' }}</button>
+              >{{ studioBusy() ? 'Making it…' : 'Hear studio quality' }}</button>
             }
           </div>
           <p class="field-hint">
@@ -915,7 +988,10 @@
         (click)="save()"
         [disabled]="status.busy() || !form.name.trim()"
       >
-        <span>{{ editing() === null ? '✨ Add Character to Cast' : '💾 Save Character Changes' }}</span>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"/>
+        </svg>
+        <span>{{ editing() === null ? 'Add Character to Cast' : 'Save Character Changes' }}</span>
       </button>
     </div>
 

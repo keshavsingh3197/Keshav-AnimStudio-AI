@@ -82,7 +82,7 @@ public static class AdminAccessSetup
             // record ownership is read from the token's subject, so an anonymous request
             // has no owner to check against. The local modes have exactly one user and no
             // sign-in, so they keep the open API they have always had.
-            if (options.Mode == AdminAccessMode.Jwt)
+            if (options.Mode == AdminAccessMode.Jwt && !options.AnonymousPolicy.Enabled)
             {
                 auth.FallbackPolicy = new AuthorizationPolicyBuilder()
                     .RequireAuthenticatedUser()

@@ -1,7 +1,7 @@
 import html2canvas from 'html2canvas';
 import { ApiService } from '../../core/services/api.service';
 import { StatusService } from '../../core/services/status.service';
-import { Component, effect, inject, input } from '@angular/core';
+import { Component, computed, effect, inject, input } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
 import { aspectRatioLabel, videoFormat } from '../../core/models/api.models';
@@ -28,6 +28,18 @@ export class ProjectEditorComponent {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
   private readonly status = inject(StatusService);
+
+  readonly totalDurationSeconds = computed(() =>
+    this.store.scenes().reduce((acc, s) => acc + (s.durationSeconds || 0), 0)
+  );
+
+  readonly totalDurationFormatted = computed(() => {
+    const total = Math.round(this.totalDurationSeconds());
+    if (total <= 0) return '0s';
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    return m > 0 ? `${m}m ${s}s` : `${s}s`;
+  });
 
   get isVideoEditor(): boolean {
     return this.router.url.includes('/clips');
@@ -61,21 +73,61 @@ export class ProjectEditorComponent {
     if (status === 'Ready') return 'pill ok';
     return 'pill';
   }
+
+  renameProject(): void {
+    const p = this.store.project();
+    if (!p) return;
+    const next = prompt('Rename project:', p.name);
+    if (!next || !next.trim() || next.trim() === p.name) return;
+
+    const intent = (p.distributionIntent && p.distributionIntent !== 'Social Media')
+      ? p.distributionIntent
+      : 'Public';
+
+    this.status.run(
+      this.api.updateProject(p.id, {
+        name: next.trim(),
+        description: p.description,
+        width: p.width,
+        height: p.height,
+        fps: p.fps,
+        isPinned: p.isPinned,
+        distributionIntent: intent,
+        acceptShareAlikeObligation: p.acceptShareAlikeObligation,
+        backgroundMusicAssetId: p.backgroundMusicAssetId,
+        backgroundMusicVolume: p.backgroundMusicVolume,
+        customThumbnail: p.customThumbnail,
+        brandChannelId: p.brandChannelId ?? null,
+      }),
+      (updated) => {
+        this.store.project.set(updated);
+        this.status.notify([`Project renamed to "${updated.name}".`]);
+      }
+    );
+  }
+
+  exportBundle(): void {
+    const p = this.store.project();
+    if (!p) return;
+    window.open(this.api.bundleExportUrl(p.id, false), '_blank');
+  }
+
   captureScreenshot(): void {
     this.status.notify(['Capturing screenshot...']);
-    html2canvas(document.body, { 
-      useCORS: true, 
+    html2canvas(document.body, {
+      useCORS: true,
       windowWidth: document.body.scrollWidth,
-      windowHeight: document.body.scrollHeight
+      windowHeight: document.body.scrollHeight,
     }).then(canvas => {
       const base64Image = canvas.toDataURL('image/jpeg', 0.8);
       const viewName = window.location.pathname.split('/').pop() || 'screenshot';
-      
+
       this.status.run(this.api.saveDebugScreenshot(base64Image, viewName), () => {
-        this.status.notify(['Screenshot saved to D:\\AI_STUDIO']);
+        this.status.notify(['Screenshot saved to App_Data/screenshots']);
       });
     }).catch(err => {
       this.status.error.set('Capture failed: ' + err.message);
     });
   }
 }
+

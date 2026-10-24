@@ -456,3 +456,15 @@
   flex-shrink: 0;
 }
 
+
+/* Auto transitions card */
+.auto-card { margin-bottom: 10px; }
+.auto-row { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
+.auto-k { width: 56px; flex-shrink: 0; font-size: 0.7rem; color: var(--text-muted, #8892a4); }
+.auto-v { width: 32px; text-align: right; font-size: 0.7rem; color: var(--text-muted, #8892a4); font-variant-numeric: tabular-nums; }
+.auto-row .trans-range { flex: 1; min-width: 0; }
+.auto-group { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border, #1e2433); }
+.auto-group-head { display: flex; justify-content: space-between; align-items: center; font-size: 0.74rem; }
+.auto-count { font-size: 0.66rem; color: var(--text-muted, #8892a4); }
+.auto-chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+.auto-msg { font-size: 0.7rem; color: var(--text-muted, #8892a4); margin: 6px 0 0; }

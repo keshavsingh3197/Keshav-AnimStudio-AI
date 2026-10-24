@@ -34,7 +34,10 @@ public sealed record MediaDownloadRequest(
     bool AddToClipOrder = true,
     // Files the asset in a top-level folder named after the website (YouTube, Instagram…),
     // created on first use. Ignored when FolderId or FolderName is given.
-    bool FolderBySource = false);
+    bool FolderBySource = false,
+    // Content calendar: the link is saved under this topic (and post) for finding it again later.
+    string? TopicId = null,
+    string? PlanItemId = null);
 
 public sealed record MediaDownloadResult(
     string Ticket,
@@ -49,7 +52,9 @@ public sealed record MediaDownloadResult(
     string? FolderId = null,
     string? FolderName = null,
     // The library name the asset got (the video's title unless one was given).
-    string? AssetName = null);
+    string? AssetName = null,
+    // The saved-links record this download was captured into; null if saving it failed.
+    string? SourceLinkId = null);
 
 /// <summary>One downloadable source, for the "where can I download from" list.</summary>
 public sealed record SupportedPlatformInfo(
@@ -75,7 +80,11 @@ public sealed record VideoChunkRequest(
     string? ProjectId = null,
     bool ImportAsClips = false,
     bool ConvertTo916 = false,
-    string CompressionPreset = "original"); // "original", "balanced", "high", "ultracompact"
+    string CompressionPreset = "original", // "original", "balanced", "high", "ultracompact"
+    string ChunkStyle = "original", // "original", "blur_916", "direct_response", "viral_pop", "split_header", "cosmic_card"
+    string? HookText = null,
+    bool ShowPartBadge = false,
+    bool SubtleZoom = false);
 
 public sealed record ChunkItemResponse(
     int Index,

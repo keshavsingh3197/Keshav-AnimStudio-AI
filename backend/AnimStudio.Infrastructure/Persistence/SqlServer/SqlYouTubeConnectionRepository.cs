@@ -34,6 +34,22 @@ public sealed class SqlYouTubeConnectionRepository(ISqlConnectionFactory factory
         return [.. list.OrderBy(c => c.ConnectedAt)];
     }
 
+    public async Task<IReadOnlyList<YouTubeChannelConnection>> ListAllAsync(CancellationToken ct)
+    {
+        await using var conn = await factory.OpenConnectionAsync(ct).ConfigureAwait(false);
+        const string sql = "SELECT DataJson FROM YouTubeConnections ORDER BY Id ASC";
+        await using var cmd = new SqlCommand(sql, conn);
+
+        var list = new List<YouTubeChannelConnection>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
+        {
+            var item = SqlJson.Deserialize<YouTubeChannelConnection>(reader.GetString(0));
+            if (item != null) list.Add(item);
+        }
+        return [.. list.OrderBy(c => c.ConnectedAt)];
+    }
+
     public async Task UpsertAsync(YouTubeChannelConnection connection, CancellationToken ct)
     {
         await using var conn = await factory.OpenConnectionAsync(ct).ConfigureAwait(false);

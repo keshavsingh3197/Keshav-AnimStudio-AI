@@ -13,6 +13,10 @@ public interface ICurrentUser
 {
     string UserId { get; }
     string? DisplayName { get; }
+    string? Email { get; }
+    bool IsAuthenticated { get; }
+    bool IsAdmin { get; }
+    IReadOnlyList<string> Roles { get; }
 }
 
 /// <summary>The local development identity, used until real authentication is added.</summary>
@@ -22,4 +26,8 @@ public sealed class LocalSingleUserProvider : ICurrentUser
 
     public string UserId => LocalUserId;
     public string? DisplayName => "Local user";
+    public string? Email => "admin@keshavsingh.in";
+    public bool IsAuthenticated => true;
+    public bool IsAdmin => true;
+    public IReadOnlyList<string> Roles => new[] { "Admin" };
 }

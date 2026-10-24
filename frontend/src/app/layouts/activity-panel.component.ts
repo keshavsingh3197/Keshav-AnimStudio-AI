@@ -91,31 +91,34 @@ const KIND_ICON: Record<ActivityKind, string> = {
   styles: [`
     .ap {
       position: fixed;
-      right: 1rem;
-      bottom: 1rem;
+      right: 1.25rem;
+      bottom: 1.25rem;
       z-index: 1200;
-      width: min(360px, calc(100vw - 2rem));
-      background: var(--surface);
+      width: min(380px, calc(100vw - 2rem));
+      background: color-mix(in srgb, var(--surface) 94%, transparent);
+      backdrop-filter: blur(20px) saturate(1.4);
+      -webkit-backdrop-filter: blur(20px) saturate(1.4);
       border: 1px solid var(--border-bright, var(--border));
-      border-radius: var(--radius, 10px);
-      box-shadow: 0 12px 32px rgba(0, 0, 0, .45);
+      border-radius: 13px;
+      box-shadow: 0 16px 44px rgba(0, 0, 0, .6), inset 0 1px 0 rgba(255, 255, 255, 0.06);
       overflow: hidden;
-      font-size: .85rem;
+      font-size: .84rem;
     }
 
     .ap-head {
       display: flex;
       align-items: center;
       gap: .25rem;
-      padding: .45rem .5rem .45rem .75rem;
-      background: var(--surface-2);
+      padding: .55rem .55rem .55rem .85rem;
+      background: linear-gradient(180deg, var(--surface-3) 0%, var(--surface-2) 100%);
+      border-bottom: 1px solid var(--border);
     }
 
     .ap-title {
       flex: 1 1 auto;
       display: inline-flex;
       align-items: center;
-      gap: .5rem;
+      gap: .55rem;
       min-width: 0;
       background: none;
       border: 0;
@@ -125,27 +128,39 @@ const KIND_ICON: Record<ActivityKind, string> = {
       font-weight: 700;
       text-align: left;
       cursor: pointer;
+      box-shadow: none;
+    }
+
+    .ap-title:hover:not(:disabled) {
+      transform: none;
+      box-shadow: none;
+      color: #fff;
     }
 
     .ap-icon {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 1.75rem;
-      height: 1.75rem;
+      width: 1.8rem;
+      height: 1.8rem;
+      padding: 0;
       flex: 0 0 auto;
-      background: none;
-      border: 0;
-      border-radius: 50%;
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 7px;
       color: var(--muted);
       font-size: .85rem;
       text-decoration: none;
       cursor: pointer;
+      box-shadow: none;
     }
 
     .ap-icon:hover:not(:disabled) {
-      background: color-mix(in srgb, var(--text) 10%, transparent);
+      background: rgba(255, 255, 255, 0.06);
+      border-color: var(--border);
       color: var(--text);
+      transform: none;
+      box-shadow: none;
     }
 
     .ap-icon:disabled {
@@ -163,10 +178,10 @@ const KIND_ICON: Record<ActivityKind, string> = {
     }
 
     .ap-spinner {
-      width: .85rem;
-      height: .85rem;
+      width: .9rem;
+      height: .9rem;
       flex: 0 0 auto;
-      border: 2px solid color-mix(in srgb, var(--brand) 30%, transparent);
+      border: 2px solid color-mix(in srgb, var(--brand) 28%, transparent);
       border-top-color: var(--brand);
       border-radius: 50%;
       animation: apSpin .8s linear infinite;
@@ -183,14 +198,29 @@ const KIND_ICON: Record<ActivityKind, string> = {
     .ap-row {
       display: flex;
       align-items: flex-start;
-      gap: .6rem;
-      padding: .55rem .5rem .55rem .75rem;
-      border-top: 1px solid var(--border);
+      gap: .65rem;
+      padding: .65rem .6rem .65rem .85rem;
+      border-top: 1px solid var(--border-subtle);
+      transition: background-color 0.12s ease;
+    }
+
+    .ap-row:first-child {
+      border-top: none;
+    }
+
+    .ap-row:hover {
+      background: rgba(255, 255, 255, 0.025);
     }
 
     .ap-kind {
-      flex: 0 0 auto;
-      line-height: 1.4;
+      flex: 0 0 1.85rem;
+      height: 1.85rem;
+      border-radius: 8px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      display: grid;
+      place-items: center;
+      font-size: 0.9rem;
     }
 
     .ap-body {
@@ -200,7 +230,8 @@ const KIND_ICON: Record<ActivityKind, string> = {
 
     .ap-line {
       display: flex;
-      align-items: baseline;
+      align-items: center;
+      justify-content: space-between;
       gap: .5rem;
     }
 
@@ -216,22 +247,40 @@ const KIND_ICON: Record<ActivityKind, string> = {
     }
 
     a.ap-name:hover {
+      color: var(--brand-bright);
       text-decoration: underline;
     }
 
     .ap-state {
       flex: 0 0 auto;
       color: var(--muted);
-      font-size: .75rem;
+      font-size: .72rem;
+      font-weight: 700;
+      padding: 0.1rem 0.42rem;
+      border-radius: 99px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border);
       font-variant-numeric: tabular-nums;
     }
 
-    .is-done .ap-state { color: var(--ok); }
-    .is-warning .ap-state { color: var(--warn); }
-    .is-failed .ap-state { color: var(--err); }
+    .is-done .ap-state {
+      color: var(--ok);
+      background: var(--ok-dim);
+      border-color: color-mix(in oklab, var(--ok) 40%, transparent);
+    }
+    .is-warning .ap-state {
+      color: var(--warn);
+      background: var(--warn-dim);
+      border-color: color-mix(in oklab, var(--warn) 40%, transparent);
+    }
+    .is-failed .ap-state {
+      color: var(--err);
+      background: var(--err-dim);
+      border-color: color-mix(in oklab, var(--err) 40%, transparent);
+    }
 
     .ap-detail {
-      margin-top: .1rem;
+      margin-top: .18rem;
       overflow: hidden;
       white-space: nowrap;
       text-overflow: ellipsis;
@@ -243,10 +292,10 @@ const KIND_ICON: Record<ActivityKind, string> = {
 
     .ap-bar {
       position: relative;
-      height: 4px;
-      margin-top: .4rem;
+      height: 5px;
+      margin-top: .45rem;
       border-radius: 99px;
-      background: color-mix(in srgb, var(--brand) 18%, transparent);
+      background: color-mix(in srgb, var(--brand) 16%, transparent);
       overflow: hidden;
     }
 
@@ -254,7 +303,8 @@ const KIND_ICON: Record<ActivityKind, string> = {
       display: block;
       height: 100%;
       border-radius: inherit;
-      background: var(--brand);
+      background: linear-gradient(90deg, var(--brand-dim), var(--brand));
+      box-shadow: 0 0 8px var(--brand-glow);
       transition: width .4s ease;
     }
 
@@ -266,13 +316,15 @@ const KIND_ICON: Record<ActivityKind, string> = {
     .ap-actions {
       display: flex;
       flex: 0 0 auto;
+      gap: 2px;
     }
 
     .ap-foot {
       display: flex;
       justify-content: flex-end;
-      padding: .35rem .75rem;
+      padding: .45rem .85rem;
       border-top: 1px solid var(--border);
+      background: rgba(14, 17, 24, 0.6);
       font-size: .78rem;
     }
 

@@ -42,9 +42,12 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 # ffmpeg/ffprobe do every render (the app requires 6.0+). DejaVu is the subtitle font named in
 # appsettings and the face the watermark auto-detect finds; fontconfig lets drawtext resolve it.
 # setpriv (util-linux, already in the base image) drops root in the entrypoint.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core fontconfig \
-    && rm -rf /var/lib/apt/lists/*
+ARG SKIP_OPTIONAL_TOOLS=false
+RUN if [ "$SKIP_OPTIONAL_TOOLS" != "true" ]; then \
+        apt-get update \
+        && (apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core fontconfig || true) \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
 
 WORKDIR /app
 COPY --from=build /app/publish .

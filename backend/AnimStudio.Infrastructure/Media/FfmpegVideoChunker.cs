@@ -50,6 +50,10 @@ public sealed class FfmpegVideoChunker(
         string jobId,
         string workDirectory,
         string compressionPreset = "original",
+        string chunkStyle = "original",
+        string? hookText = null,
+        bool showPartBadge = false,
+        bool subtleZoom = false,
         CancellationToken ct = default)
     {
         if (chunkDurationSeconds <= 0) chunkDurationSeconds = 10.0;
@@ -103,14 +107,83 @@ public sealed class FfmpegVideoChunker(
                 "-t", durStr
             };
 
-            if (convertTo916)
+            var normalizedStyle = (chunkStyle ?? "original").Trim().ToLowerInvariant();
+            var use916Layout = convertTo916 || normalizedStyle is "blur_916" or "direct_response" or "viral_pop" or "split_header" or "cosmic_card";
+            var hasOverlayText = !string.IsNullOrWhiteSpace(hookText) || showPartBadge;
+
+            if (use916Layout || hasOverlayText || subtleZoom)
             {
-                var scaleFilter = isCompressed && compressionPreset == "ultracompact"
-                    ? "[0:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,boxblur=20:5[bg];[0:v]scale=720:1280:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2[v]"
-                    : "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:5[bg];[0:v]scale=1080:1920:force_original_aspect_ratio=decrease[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2[v]";
+                var (w, h) = isCompressed && compressionPreset == "ultracompact" ? (720, 1280) : (1080, 1920);
+                var fgScaleW = subtleZoom ? (int)Math.Round(w * 1.06) : w;
+                var fgScaleH = subtleZoom ? (int)Math.Round(h * 1.06) : h;
+                var fgChain = subtleZoom
+                    ? $"scale={fgScaleW}:{fgScaleH}:force_original_aspect_ratio=decrease,crop='min(iw,{w})':'min(ih,{h})'"
+                    : $"scale={w}:{h}:force_original_aspect_ratio=decrease";
+
+                string filterGraph;
+                if (normalizedStyle is "direct_response" or "cosmic_card")
+                {
+                    var cardW = w - 80;
+                    var cardH = h - 340;
+                    filterGraph =
+                        $"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},boxblur=28:5,eq=brightness=-0.28:saturation=1.25[bg];" +
+                        $"[0:v]scale={cardW}:{cardH}:force_original_aspect_ratio=decrease,pad=iw+8:ih+8:4:4:color=0x38bdf8@0.9[fg];" +
+                        $"[bg][fg]overlay=(W-w)/2:(H-h)/2[v0]";
+                }
+                else if (normalizedStyle == "split_header")
+                {
+                    var cardH = (int)Math.Round(h * 0.72);
+                    filterGraph =
+                        $"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},boxblur=24:5,eq=brightness=-0.22[bg0];" +
+                        $"[bg0]drawbox=x=0:y=0:w={w}:h={(int)Math.Round(h * 0.18)}:color=0x0f172a@0.88:t=fill[bg];" +
+                        $"[0:v]scale={w}:{cardH}:force_original_aspect_ratio=decrease[fg];" +
+                        $"[bg][fg]overlay=(W-w)/2:(H-h)*0.62[v0]";
+                }
+                else if (use916Layout)
+                {
+                    filterGraph =
+                        $"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},boxblur=20:5[bg];" +
+                        $"[0:v]{fgChain}[fg];" +
+                        $"[bg][fg]overlay=(W-w)/2:(H-h)/2[v0]";
+                }
+                else
+                {
+                    filterGraph = subtleZoom
+                        ? $"[0:v]scale=iw*1.06:ih*1.06,crop=iw/1.06:ih/1.06[v0]"
+                        : "[0:v]null[v0]";
+                }
+
+                var currentLabel = "v0";
+                var fontFile = WatermarkFontResolver.FindSystemFont();
+                if (fontFile is not null && hasOverlayText)
+                {
+                    var escapedFont = fontFile.Replace("\\", "/").Replace(":", "\\:");
+                    if (!string.IsNullOrWhiteSpace(hookText))
+                    {
+                        var hookRel = $"hook_{chunkIndex:D3}.txt";
+                        await File.WriteAllTextAsync(Path.Combine(workDirectory, hookRel), hookText.Trim(), ct).ConfigureAwait(false);
+                        var boxColor = normalizedStyle == "viral_pop" ? "0xfacc15@0.95" : "0x0f172a@0.85";
+                        var fontColor = normalizedStyle == "viral_pop" ? "0x0f172a" : "0xffffff";
+                        var fontSize = w >= 1080 ? 48 : 32;
+                        filterGraph += $";[{currentLabel}]drawtext=textfile='{hookRel}':fontfile='{escapedFont}':reload=0:expansion=none:fontsize={fontSize}:fontcolor={fontColor}:box=1:boxcolor={boxColor}:boxborderw=16:x=(w-text_w)/2:y=96[v1]";
+                        currentLabel = "v1";
+                    }
+
+                    if (showPartBadge)
+                    {
+                        var partRel = $"part_{chunkIndex:D3}.txt";
+                        await File.WriteAllTextAsync(Path.Combine(workDirectory, partRel), $"PART {chunkIndex} OF {totalChunks}", ct).ConfigureAwait(false);
+                        var fontSize = w >= 1080 ? 36 : 24;
+                        var yPos = !string.IsNullOrWhiteSpace(hookText) ? "h-150" : "96";
+                        filterGraph += $";[{currentLabel}]drawtext=textfile='{partRel}':fontfile='{escapedFont}':reload=0:expansion=none:fontsize={fontSize}:fontcolor=0xfacc15:box=1:boxcolor=0x090d16@0.85:boxborderw=12:x=(w-text_w)/2:y={yPos}[v2]";
+                        currentLabel = "v2";
+                    }
+                }
+
+                filterGraph += $";[{currentLabel}]null[v]";
 
                 arguments.AddRange([
-                    "-filter_complex", scaleFilter,
+                    "-filter_complex", filterGraph,
                     "-map", "[v]",
                     "-map", "0:a?",
                     "-c:v", "libx264",

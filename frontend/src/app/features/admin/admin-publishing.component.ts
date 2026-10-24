@@ -17,9 +17,21 @@ import { YouTubePublishService } from '../../core/services/youtube-publish.servi
   selector: 'app-admin-publishing',
   template: `
     <section class="pb">
-      <header>
-        <h2>YouTube publishing</h2>
-        <p class="muted">Which YouTube channel each brand channel uploads to, and the details every upload starts with.</p>
+      <header class="page-head" style="margin-top: 0">
+        <div style="display: flex; align-items: flex-start; gap: 0.85rem">
+          <div class="studio-icon-badge red" style="width: 2.6rem; height: 2.6rem; margin-top: 2px">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+            </svg>
+          </div>
+          <div>
+            <div class="row" style="gap: 0.5rem; margin-bottom: 0.15rem">
+              <h2 style="margin: 0">YouTube publishing</h2>
+              <span class="pill brand">{{ brandChannels().length }} channels</span>
+            </div>
+            <p class="muted">Which YouTube channel each brand channel uploads to, and the details every upload starts with.</p>
+          </div>
+        </div>
       </header>
 
       <div class="pb-brands" role="radiogroup" aria-label="Brand channel">
@@ -42,12 +54,17 @@ import { YouTubePublishService } from '../../core/services/youtube-publish.servi
         }
       </div>
 
-      @if (error()) { <p class="err">{{ error() }}</p> }
-      @if (saved()) { <p class="ok">✓ Saved. New publishes for this channel start with these details.</p> }
+      @if (error()) { <div class="notice error">{{ error() }}</div> }
+      @if (saved()) { <div class="notice" style="border-left-color: var(--ok); color: var(--ok)">✓ Saved. New publishes for this channel start with these details.</div> }
 
       @if (form(); as f) {
-        <div class="pb-card">
-          <h3>Upload to</h3>
+        <div class="card pb-card">
+          <div class="studio-card-head">
+            <div class="studio-card-title-group">
+              <h3>Upload to</h3>
+              <span class="pill brand">{{ currentBrand()?.name }}</span>
+            </div>
+          </div>
           <p class="muted small">The YouTube channel videos from <strong>{{ currentBrand()?.name }}</strong> are uploaded to.</p>
           @if (yt(); as st) {
             @if (!st.configured) {
@@ -66,7 +83,7 @@ import { YouTubePublishService } from '../../core/services/youtube-publish.servi
                   @if (connectedHere()) { <span class="ok small">✓ Connected by you</span> }
                   @else { <span class="warn small">Not connected by you: whoever publishes must connect it</span> }
                 </span>
-                <button type="button" class="btn-outline" (click)="pickYouTube('')">Unlink</button>
+                <button type="button" class="secondary small" (click)="pickYouTube('')">Unlink</button>
               </div>
               @if (linkedElsewhere().get(f.youTubeChannelId); as owner) {
                 <p class="err small">This YouTube channel is also linked to "{{ owner }}". Each YouTube channel can only feed one brand channel: unlink it here or there.</p>
@@ -91,7 +108,7 @@ import { YouTubePublishService } from '../../core/services/youtube-publish.servi
                 </select>
               </label>
               @if (st.configured) {
-                <button type="button" class="btn-outline" (click)="connect()" [disabled]="busy()">＋ Connect another YouTube channel</button>
+                <button type="button" class="secondary" (click)="connect()" [disabled]="busy()">＋ Connect another YouTube channel</button>
               }
             </div>
             @if (!st.channels.length) {
@@ -104,8 +121,13 @@ import { YouTubePublishService } from '../../core/services/youtube-publish.servi
           }
         </div>
 
-        <div class="pb-card">
-          <h3>Every upload starts with</h3>
+        <div class="card pb-card">
+          <div class="studio-card-head">
+            <div class="studio-card-title-group">
+              <h3>Every upload starts with</h3>
+              <span class="pill">Defaults</span>
+            </div>
+          </div>
           <div class="pb-grid">
             <label>Visibility
               <select (change)="patch({ privacy: $any($event.target).value })">
@@ -141,41 +163,44 @@ import { YouTubePublishService } from '../../core/services/youtube-publish.servi
         </div>
 
         <div class="pb-actions">
-          <button type="button" class="btn-primary-glow" (click)="save()" [disabled]="busy() || tagsLength() > 500 || footerBytes() > 2500">Save</button>
+          <button type="button" (click)="save()" [disabled]="busy() || tagsLength() > 500 || footerBytes() > 2500">💾 Save</button>
         </div>
       }
     </section>
   `,
   styles: [`
-    header h2 { margin: 0 0 .25rem; }
-    .pb-brands { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: .5rem; margin: .75rem 0 1rem; }
-    .pb-brand { display: flex; align-items: center; gap: .6rem; padding: .55rem .7rem; text-align: left; cursor: pointer;
-      background: transparent; color: inherit; border: 1px solid var(--border, rgba(148, 163, 184, .2)); border-radius: 10px; }
-    .pb-brand:hover { border-color: rgba(129, 140, 248, .6); }
-    .pb-brand.active { border-color: #818cf8; background: rgba(99, 102, 241, .12); box-shadow: 0 0 0 1px #818cf8 inset; }
+    .pb-brands { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: .6rem; margin: .75rem 0 1.15rem; }
+    .pb-brand {
+      display: flex; align-items: center; gap: .65rem; padding: .6rem .8rem; text-align: left; cursor: pointer;
+      background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: 10px;
+      box-shadow: none; font-weight: 500;
+    }
+    .pb-brand:hover:not(:disabled) { border-color: var(--border-bright); background: var(--surface-3); transform: none; box-shadow: none; }
+    .pb-brand.active { border-color: var(--brand); background: rgba(108, 140, 255, .14); box-shadow: 0 0 0 1px var(--brand) inset; }
     .pb-brand-text { display: grid; gap: .1rem; min-width: 0; }
     .pb-brand-text > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .badge { font-size: .65rem; font-weight: 600; padding: .05rem .4rem; border-radius: 999px; background: rgba(148, 163, 184, .2); margin-left: .25rem; }
-    .pb-linked { display: flex; align-items: center; gap: .75rem; padding: .6rem .75rem; border-radius: 10px; background: rgba(148, 163, 184, .08); }
+    .badge { font-size: .65rem; font-weight: 700; padding: .05rem .45rem; border-radius: 999px; background: rgba(108, 140, 255, .2); color: var(--brand-bright); margin-left: .25rem; }
+    .pb-linked { display: flex; align-items: center; gap: .75rem; padding: .7rem .85rem; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border); }
     .pb-linked .pb-brand-text { flex: 1; }
     .grow { flex: 1; min-width: 260px; }
-    .warn { color: #fbbf24; }
-    .pb-card { border: 1px solid var(--border, rgba(148, 163, 184, .2)); border-radius: 12px; padding: .75rem 1rem; margin-bottom: 1rem; display: grid; gap: .5rem; }
-    .pb-card h3 { margin: .25rem 0; font-size: 1rem; }
-    .pb-card label { display: grid; gap: .25rem; }
+    .warn { color: var(--warn); }
+    .err { color: var(--err); }
+    .pb-card { display: grid; gap: .55rem; }
+    .pb-card h3 { margin: 0; font-size: 1.02rem; }
+    .pb-card label { display: grid; gap: .28rem; }
     .pb-card label.inline { display: inline-flex; align-items: center; gap: .4rem; }
-    .pb-row { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; }
+    .pb-row { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: flex-end; }
     .pb-row select { min-width: 260px; }
-    .pb-avatar { flex: none; width: 32px; height: 32px; border-radius: 50%; overflow: hidden; display: grid; place-items: center;
-      background: rgba(99, 102, 241, .25); font-weight: 700; font-size: .85rem; }
+    .pb-avatar { flex: none; width: 34px; height: 34px; border-radius: 50%; overflow: hidden; display: grid; place-items: center;
+      background: rgba(108, 140, 255, .22); border: 1px solid rgba(108, 140, 255, .35); font-weight: 700; font-size: .85rem; }
     .pb-avatar.lg { width: 44px; height: 44px; font-size: 1.05rem; }
     .pb-avatar img { width: 100%; height: 100%; object-fit: cover; }
-    .pb-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: .75rem; }
-    .count { font-size: .75rem; text-align: right; color: var(--muted, #94a3b8); }
-    .count.over { color: #f87171; font-weight: 600; }
-    .pb-actions { display: flex; justify-content: flex-end; }
+    .pb-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: .85rem; }
+    .count { font-size: .75rem; text-align: right; color: var(--muted); font-family: ui-monospace, monospace; }
+    .count.over { color: var(--err); font-weight: 700; }
+    .pb-actions { display: flex; justify-content: flex-end; margin-top: 0.5rem; }
     .small { font-size: .78rem; }
-    .ok { color: #86efac; }
+    .ok { color: var(--ok); }
   `],
 })
 export class AdminPublishingComponent implements OnInit {

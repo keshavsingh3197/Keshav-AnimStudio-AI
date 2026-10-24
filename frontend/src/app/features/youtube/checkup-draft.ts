@@ -12,6 +12,12 @@ export interface Draft {
   titleOptions: string[];
   descriptionOptions: string[];
   tagIdeas: string[];
+  pinnedComment?: string;
+  engagementComment?: string;
+  transcriptText?: string | null;
+  /** Private now, public by itself at `publishAtLocal` (a datetime-local value in the viewer's zone). */
+  scheduled?: boolean;
+  publishAtLocal?: string;
 }
 
 export interface RowState {
@@ -62,7 +68,11 @@ export function fitTags(tags: string[]): string[] {
 }
 
 export function hasFooter(description: string, footer: string | null): boolean {
-  return !!footer && description.includes(footer.trim());
+  if (!footer?.trim()) return false;
+  const f = footer.trim();
+  if (description.includes(f)) return true;
+  const lines = f.split('\n').map((l) => l.trim()).filter(Boolean);
+  return lines.length > 0 && description.includes(lines[0]);
 }
 
 /** Adds the channel footer at the very end, once. */
@@ -83,9 +93,104 @@ export function insertAboveFooter(description: string, block: string, footer: st
   return `${description.trimEnd()}\n\n${text}`;
 }
 
+/**
+ * Safely truncates a string so its UTF-8 byte count is at most maxBytes.
+ * Tries to cleanly cut at a paragraph, sentence or word boundary without breaking multi-byte characters.
+ */
+export function trimUtf8Bytes(text: string, maxBytes: number): string {
+  const encoder = new TextEncoder();
+  if (encoder.encode(text).length <= maxBytes) return text;
+
+  let low = 0;
+  let high = text.length;
+  let best = 0;
+
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    const sub = text.slice(0, mid);
+    if (encoder.encode(sub).length <= maxBytes) {
+      best = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  let result = text.slice(0, best);
+  const lastNewline = result.lastIndexOf('\n');
+  if (lastNewline > best * 0.85) {
+    result = result.slice(0, lastNewline);
+  } else {
+    const lastSpace = result.lastIndexOf(' ');
+    if (lastSpace > best * 0.9) {
+      result = result.slice(0, lastSpace);
+    }
+  }
+  return result.trimEnd();
+}
+
+/** YouTube wants a scheduled time comfortably ahead; ten minutes is what the page asks for. */
+export const MIN_SCHEDULE_LEAD_MS = 10 * 60 * 1000;
+const MAX_SCHEDULE_LEAD_MS = 365 * 24 * 60 * 60 * 1000;
+
+/** An ISO time as a `datetime-local` value in the viewer's own zone ("2026-10-22T18:30"). */
+export function toLocalInput(iso: string | null | undefined): string {
+  const t = iso ? Date.parse(iso) : NaN;
+  if (!Number.isFinite(t)) return '';
+  const d = new Date(t);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** A `datetime-local` value (viewer's zone) as ISO UTC, or null when it isn't a time. */
+export function fromLocalInput(value: string | null | undefined): string | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return null;
+  const t = new Date(value).getTime();
+  return Number.isFinite(t) ? new Date(t).toISOString() : null;
+}
+
+/** The earliest time the picker offers: ten minutes from now, rounded up to the next five. */
+export function earliestScheduleLocal(now = Date.now()): string {
+  const step = 5 * 60 * 1000;
+  return toLocalInput(new Date(Math.ceil((now + MIN_SCHEDULE_LEAD_MS) / step) * step).toISOString());
+}
+
+/** Why a scheduled time can't be used, or null when it can. */
+export function scheduleProblem(value: string | null | undefined, now = Date.now()): string | null {
+  const iso = fromLocalInput(value);
+  if (!iso) return 'Pick a date and time.';
+  const t = Date.parse(iso);
+  if (t < now + MIN_SCHEDULE_LEAD_MS) return 'Pick a time at least 10 minutes from now.';
+  if (t > now + MAX_SCHEDULE_LEAD_MS) return 'Pick a time within the next year.';
+  return null;
+}
+
+/** The viewer's time zone, for the label next to the picker ("Asia/Kolkata, UTC+5:30"). */
+export function viewerZone(): string {
+  const offset = -new Date().getTimezoneOffset();
+  const sign = offset >= 0 ? '+' : '-';
+  const abs = Math.abs(offset);
+  const utc = `UTC${sign}${Math.floor(abs / 60)}${abs % 60 ? ':' + String(abs % 60).padStart(2, '0') : ''}`;
+  try {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return zone ? `${zone}, ${utc}` : utc;
+  } catch {
+    return utc;
+  }
+}
+
+/** Whether saving would change the video's scheduled publish time. */
+export function scheduleDiffers(v: YouTubeCheckupVideo, d: Draft): boolean {
+  const current = v.privacy === 'private' && v.scheduledAt ? Date.parse(v.scheduledAt) : null;
+  if (!d.scheduled) return current !== null && d.privacy === 'private';
+  const wanted = fromLocalInput(d.publishAtLocal);
+  return wanted === null || current === null || Math.abs(Date.parse(wanted) - current) >= 60_000;
+}
+
 /** Whether saving the draft would change anything on YouTube. */
 export function draftDiffers(v: YouTubeCheckupVideo, d: Draft): boolean {
-  return d.title !== v.title
+  return scheduleDiffers(v, d)
+    || d.title !== v.title
     || d.description !== v.description
     || splitTags(d.tagsText).join(',') !== v.tags.join(',')
     || d.madeForKids !== v.madeForKids
@@ -112,7 +217,25 @@ export function draftChecklist(v: YouTubeCheckupVideo, d: Draft, footer: string 
     { label: v.isShort ? 'Hashtags (#shorts and a few topics)' : 'Hashtags', ok: HASHTAG.test(`${title}\n${description}`) },
     { label: 'Audience declared', ok: d.madeForKids !== null },
   ];
-  if (playlistsKnown) items.push({ label: 'In a playlist', ok: v.playlistIds.length > 0 || d.addPlaylistIds.length > 0 });
+  if (playlistsKnown) items.push({ label: 'In a playlist (recommended)', ok: v.playlistIds.length > 0 || d.addPlaylistIds.length > 0, optional: true });
   if (footer) items.push({ label: 'Channel footer (links, credits)', ok: hasFooter(d.description, footer), optional: true });
   return items;
+}
+
+/** A tone id as the pickers show it. */
+export function toneLabel(t: string): string {
+  const labels: Record<string, string> = {
+    auto: '🎯 Auto Tone',
+    'devotional-omkr': '🕉️ OMKR 3D Devotional (Brand Rules)',
+    devotional: '🙏 Devotional',
+    funny: '😂 Funny',
+    emotional: '🥹 Emotional',
+    dramatic: '🎭 Dramatic',
+    informative: '📘 Informative',
+    energetic: '⚡ Energetic',
+    kids: '🧸 For Kids',
+    motivational: '💪 Motivational',
+    'clickbait-free': '✅ Honest / No Clickbait',
+  };
+  return labels[t] ?? t;
 }

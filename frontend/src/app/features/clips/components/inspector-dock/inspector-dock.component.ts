@@ -1,6 +1,7 @@
 import { Component, inject } from '@angular/core';
 import { StudioStateService } from '../../services/studio-state.service';
 import { TransformInspectorComponent } from './tabs/transform-inspector.component';
+import { ChromaKeyInspectorComponent } from './tabs/chroma-key-inspector.component';
 import { ClipAudioInspectorComponent } from './tabs/clip-audio-inspector.component';
 import { MasterAudioMixerComponent } from './tabs/master-audio-mixer.component';
 import { ColorInspectorComponent } from './tabs/color-inspector.component';
@@ -19,6 +20,7 @@ import { CelebrationInspectorComponent } from './tabs/celebration-inspector.comp
     CelebrationInspectorComponent,
     ImageShotInspectorComponent,
     TransformInspectorComponent,
+    ChromaKeyInspectorComponent,
     ClipAudioInspectorComponent,
     MasterAudioMixerComponent,
     ColorInspectorComponent,

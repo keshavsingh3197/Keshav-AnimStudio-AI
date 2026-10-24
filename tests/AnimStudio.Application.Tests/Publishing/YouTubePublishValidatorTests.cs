@@ -203,4 +203,95 @@ public class YouTubePublishValidatorTests
 
         Assert.Empty(YouTubePublishValidator.Validate(Valid(), vertical).Warnings);
     }
+
+    private static readonly DateTime Now = new(2026, 10, 22, 12, 0, 0, DateTimeKind.Utc);
+
+    [Fact]
+    public void Leaves_publish_at_empty_when_not_scheduled()
+    {
+        var result = YouTubePublishValidator.Validate(Valid() with { Privacy = "private" }, Landscape, Now);
+
+        Assert.True(result.IsValid);
+        Assert.Null(result.Normalized!.PublishAt);
+    }
+
+    [Theory]
+    [InlineData("public")]
+    [InlineData("unlisted")]
+    public void Refuses_a_publish_time_unless_private(string privacy)
+    {
+        var result = YouTubePublishValidator.Validate(
+            Valid() with { Privacy = privacy, PublishAt = Now.AddDays(2) }, Landscape, Now);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, e => e.Code == "schedule-needs-private" && e.Field == "publishAt");
+    }
+
+    [Fact]
+    public void Refuses_a_publish_time_less_than_10_minutes_ahead()
+    {
+        var result = YouTubePublishValidator.Validate(
+            Valid() with { Privacy = "private", PublishAt = Now.AddMinutes(9) }, Landscape, Now);
+
+        Assert.Contains(result.Errors, e => e.Code == "schedule-too-soon");
+    }
+
+    [Fact]
+    public void Refuses_a_publish_time_in_the_past()
+    {
+        var result = YouTubePublishValidator.Validate(
+            Valid() with { Privacy = "private", PublishAt = Now.AddHours(-1) }, Landscape, Now);
+
+        Assert.Contains(result.Errors, e => e.Code == "schedule-too-soon");
+    }
+
+    [Fact]
+    public void Refuses_a_publish_time_more_than_a_year_ahead()
+    {
+        var result = YouTubePublishValidator.Validate(
+            Valid() with { Privacy = "private", PublishAt = Now.AddDays(400) }, Landscape, Now);
+
+        Assert.Contains(result.Errors, e => e.Code == "schedule-too-far");
+    }
+
+    [Fact]
+    public void Accepts_a_publish_time_exactly_10_minutes_ahead()
+    {
+        var at = Now.AddMinutes(10);
+        var result = YouTubePublishValidator.Validate(Valid() with { Privacy = "Private", PublishAt = at }, Landscape, Now);
+
+        Assert.True(result.IsValid);
+        Assert.Equal(at, result.Normalized!.PublishAt);
+    }
+
+    [Fact]
+    public void Normalizes_the_publish_time_to_utc()
+    {
+        var offset = new DateTimeOffset(2026, 10, 28, 18, 0, 0, TimeSpan.FromHours(5.5));
+        var result = YouTubePublishValidator.Validate(
+            Valid() with { Privacy = "private", PublishAt = offset.LocalDateTime }, Landscape, Now);
+
+        Assert.True(result.IsValid);
+        Assert.Equal(DateTimeKind.Utc, result.Normalized!.PublishAt!.Value.Kind);
+        Assert.Equal(new DateTime(2026, 10, 28, 12, 30, 0, DateTimeKind.Utc), result.Normalized.PublishAt);
+    }
+
+    [Fact]
+    public void Reads_a_publish_time_with_no_zone_as_utc()
+    {
+        var at = new DateTime(2026, 10, 28, 18, 0, 0, DateTimeKind.Unspecified);
+        var result = YouTubePublishValidator.Validate(Valid() with { Privacy = "private", PublishAt = at }, Landscape, Now);
+
+        Assert.Equal(new DateTime(2026, 10, 28, 18, 0, 0, DateTimeKind.Utc), result.Normalized!.PublishAt);
+        Assert.Equal(DateTimeKind.Utc, result.Normalized.PublishAt!.Value.Kind);
+    }
+
+    [Fact]
+    public void The_details_only_check_ignores_a_publish_time()
+    {
+        var result = YouTubePublishValidator.ValidateDetails(Valid() with { Privacy = "public", PublishAt = Now.AddMinutes(1) });
+
+        Assert.True(result.IsValid);
+        Assert.Null(result.Normalized!.PublishAt);
+    }
 }

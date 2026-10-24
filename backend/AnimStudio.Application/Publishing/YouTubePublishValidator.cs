@@ -1,4 +1,5 @@
 using System.Text;
+using AnimStudio.Application.Planning;
 using AnimStudio.Domain.Publishing;
 
 namespace AnimStudio.Application.Publishing;
@@ -18,6 +19,12 @@ public sealed record YouTubeVideoMetadata
     public bool? MadeForKids { get; init; }
 
     public bool NotifySubscribers { get; init; } = true;
+
+    /// <summary>
+    /// When YouTube should make a private upload public. Only an upload (<see cref="YouTubePublishValidator.Validate"/>)
+    /// honours it; the details-only check ignores it.
+    /// </summary>
+    public DateTime? PublishAt { get; init; }
 }
 
 /// <summary>The metadata after trimming and normalizing, exactly as it will be sent.</summary>
@@ -28,7 +35,8 @@ public sealed record NormalizedYouTubeMetadata(
     string CategoryId,
     string Privacy,
     bool MadeForKids,
-    bool NotifySubscribers);
+    bool NotifySubscribers,
+    DateTime? PublishAt = null);
 
 /// <summary>The facts about the file that YouTube's own limits depend on.</summary>
 public sealed record YouTubeVideoFacts(
@@ -75,6 +83,9 @@ public static class YouTubePublishValidator
 
     public static readonly IReadOnlyList<string> Privacies = ["public", "unlisted", "private"];
 
+    /// <summary>Not a YouTube limit: how far ahead an upload may be scheduled from here.</summary>
+    public static readonly TimeSpan MaxScheduleAhead = TimeSpan.FromDays(366);
+
     /// <summary>The categories YouTube lets an upload be assigned to (videoCategories.list, assignable=true).</summary>
     public static readonly IReadOnlyDictionary<string, string> Categories = new Dictionary<string, string>
     {
@@ -95,13 +106,55 @@ public static class YouTubePublishValidator
         ["29"] = "Nonprofits & Activism"
     };
 
-    public static YouTubePublishValidation Validate(YouTubeVideoMetadata? input, YouTubeVideoFacts video)
+    public static YouTubePublishValidation Validate(YouTubeVideoMetadata? input, YouTubeVideoFacts video, DateTime? nowUtc = null)
     {
         var errors = new List<YouTubeCheck>();
         var warnings = new List<YouTubeCheck>();
 
         CheckVideo(video, errors, warnings);
-        return ValidateDetails(input, errors, warnings);
+        var publishAt = CheckPublishAt(input, nowUtc ?? DateTime.UtcNow, errors);
+        var result = ValidateDetails(input, errors, warnings);
+        return result.Normalized is { } normalized && publishAt is not null
+            ? result with { Normalized = normalized with { PublishAt = publishAt } }
+            : result;
+    }
+
+    /// <summary>
+    /// A scheduled upload: YouTube only accepts publishAt on a private video, and refuses one
+    /// that isn't comfortably in the future. Returned in UTC; a time with no zone is read as UTC.
+    /// </summary>
+    private static DateTime? CheckPublishAt(YouTubeVideoMetadata? input, DateTime nowUtc, List<YouTubeCheck> errors)
+    {
+        if (input?.PublishAt is not { } raw) return null;
+
+        var at = raw.Kind switch
+        {
+            DateTimeKind.Utc => raw,
+            DateTimeKind.Local => raw.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(raw, DateTimeKind.Utc)
+        };
+
+        var privacy = (input.Privacy ?? string.Empty).Trim().ToLowerInvariant();
+        if (privacy != "private")
+        {
+            errors.Add(new("publishAt", "schedule-needs-private", "Only a private upload can be scheduled to go public."));
+            return null;
+        }
+
+        if (at - nowUtc < ContentPlanRules.MinScheduleLead)
+        {
+            errors.Add(new("publishAt", "schedule-too-soon",
+                $"Schedule at least {ContentPlanRules.MinScheduleLead.TotalMinutes:0} minutes from now."));
+            return null;
+        }
+
+        if (at - nowUtc > MaxScheduleAhead)
+        {
+            errors.Add(new("publishAt", "schedule-too-far", "Schedule at most a year ahead."));
+            return null;
+        }
+
+        return at;
     }
 
     /// <summary>

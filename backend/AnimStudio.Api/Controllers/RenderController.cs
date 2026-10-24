@@ -3,6 +3,7 @@ using AnimStudio.Api.Contracts;
 using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Abstractions.Rendering;
 using AnimStudio.Application.Abstractions.Storage;
+using AnimStudio.Infrastructure.Storage;
 using AnimStudio.Application.Clips;
 using AnimStudio.Application.Projects;
 using AnimStudio.Application.Rendering;
@@ -22,6 +23,7 @@ public sealed class RenderController(
     IProjectRepository projects,
     ISceneRepository scenes,
     IObjectStore store,
+    AppDataPaths dataPaths,
     IRenderCapabilities capabilities,
     ProjectStatusService status,
     ICurrentUser currentUser,
@@ -325,7 +327,7 @@ public sealed class RenderController(
     {
         var job = await LoadOwnedJobAsync(jobId, ct);
 
-        var cached = await RenderPreviewFile.EnsureAsync(store, job, ct);
+        var cached = await RenderPreviewFile.EnsureAsync(store, dataPaths, job, ct);
         return PhysicalFile(cached, "video/mp4", enableRangeProcessing: true);
     }
 

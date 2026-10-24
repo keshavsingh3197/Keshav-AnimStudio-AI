@@ -315,6 +315,22 @@ public sealed record AssignAssetRequest
     [Required, StringLength(64)] public string AssetId { get; init; } = string.Empty;
 }
 
+public sealed record DuplicateProjectRequest
+{
+    [StringLength(120)] public string? Name { get; init; }
+}
+
+public sealed record BatchSceneStyleRequest
+{
+    public BackgroundEffect? BackgroundEffect { get; init; }
+    public bool RandomizeMotion { get; init; }
+    [Range(0, 1)] public double? Intensity { get; init; }
+    public Easing? Easing { get; init; }
+    public SceneTransition? Transition { get; init; }
+    [Range(0, 60)] public double? TransitionDurationSeconds { get; init; }
+    [Range(0.5, 3600)] public double? DurationSeconds { get; init; }
+}
+
 /// <summary>
 /// A watermark, as the client describes it.
 /// <para>
@@ -652,6 +668,12 @@ public sealed record AutoShortsRequest
     [Range(AutoShortPlanner.MinShotSeconds, AutoShortPlanner.MaxTargetSeconds)]
     public double? MaxClipSeconds { get; init; }
 
+    /// <summary>Every short runs exactly TargetSeconds with Spread and AllInEach too; FitLength always does.</summary>
+    public bool ExactLength { get; init; }
+
+    /// <summary>Where each short's videos go: anywhere, one to open on, or all of them first.</summary>
+    [EnumDataType(typeof(AutoShortOrder))] public AutoShortOrder Order { get; init; } = AutoShortOrder.Shuffle;
+
     [EnumDataType(typeof(AutoShortStyle))] public AutoShortStyle Style { get; init; } = AutoShortStyle.Mixed;
     [EnumDataType(typeof(AutoShortTextMode))] public AutoShortTextMode TextMode { get; init; } = AutoShortTextMode.Hook;
 
@@ -689,6 +711,7 @@ public sealed record TimelineItemTextStyleRequest
     [Range(TextOverlayLayout.MinFontSize, TextOverlayLayout.MaxFontSize)]
     public double FontSize { get; init; } = 36;
     [StringLength(32)] public string Color { get; init; } = "#ffffff";
+    [RegularExpression("^#[0-9a-fA-F]{6}$")] public string? AccentColor { get; init; }
     [StringLength(32)] public string BackgroundColor { get; init; } = "rgba(0,0,0,0.6)";
     [RegularExpression("^(top|center|bottom|custom)$")]
     [StringLength(16)] public string Position { get; init; } = "bottom";

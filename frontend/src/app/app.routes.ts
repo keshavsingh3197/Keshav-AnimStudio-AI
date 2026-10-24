@@ -1,4 +1,5 @@
 import { Routes } from '@angular/router';
+import { adminGuard } from './core/guards/auth.guard';
 
 /**
  * Feature areas are lazy: the dashboard is the only thing most visits need, and the scene
@@ -61,10 +62,18 @@ export const routes: Routes = [
       },
       {
         path: 'import',
-        title: 'Import - AnimStudio AI',
+        title: 'Import & Script Studio - AnimStudio AI',
         loadComponent: () =>
           import('./features/ingest/import.component').then((m) => m.ImportComponent),
       },
+      {
+        path: 'prompt',
+        title: 'AI Prompt & Script Studio - AnimStudio AI',
+        data: { mode: 'ai' },
+        loadComponent: () =>
+          import('./features/ingest/import.component').then((m) => m.ImportComponent),
+      },
+      { path: 'storyboard', pathMatch: 'full', redirectTo: 'scenes' },
       {
         path: 'bundle',
         title: 'Bundle - AnimStudio AI',
@@ -110,6 +119,30 @@ export const routes: Routes = [
   },
 
   {
+    path: 'effects',
+    title: 'Effects & overlays - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/effects/effects-library.component')
+        .then((m) => m.EffectsLibraryComponent),
+  },
+
+  {
+    path: 'calendar',
+    title: 'Content calendar - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/calendar/content-calendar.component')
+        .then((m) => m.ContentCalendarComponent),
+  },
+
+  {
+    path: 'calendar/links',
+    title: 'Saved links - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/calendar/source-links.component')
+        .then((m) => m.SourceLinksComponent),
+  },
+
+  {
     path: 'tools',
     title: 'Media Tools & Chunker - AnimStudio AI',
     loadComponent: () =>
@@ -142,6 +175,14 @@ export const routes: Routes = [
   },
 
   {
+    path: 'youtube/details',
+    title: 'Video details from IDs - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/youtube/video-details.component')
+        .then((m) => m.VideoDetailsComponent),
+  },
+
+  {
     path: 'youtube/callback',
     title: 'Connecting YouTube - AnimStudio AI',
     loadComponent: () =>
@@ -166,6 +207,13 @@ export const routes: Routes = [
   },
 
   {
+    path: 'motion-copy',
+    title: 'Motion Copy - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/motion-copy/motion-copy.component').then((m) => m.MotionCopyComponent),
+  },
+
+  {
     path: 'collab',
     title: 'Collab Studio - AnimStudio AI',
     loadComponent: () =>
@@ -183,6 +231,7 @@ export const routes: Routes = [
   {
     path: 'admin',
     title: 'Server settings - AnimStudio AI',
+    canActivate: [adminGuard],
     loadComponent: () =>
       import('./features/admin/admin-shell.component').then((m) => m.AdminShellComponent),
     children: [
@@ -224,6 +273,13 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./features/admin/admin-publishing.component')
             .then((m) => m.AdminPublishingComponent),
+      },
+      {
+        path: 'access',
+        title: 'Access & Quotas - AnimStudio AI',
+        loadComponent: () =>
+          import('./features/admin/admin-access-control.component')
+            .then((m) => m.AdminAccessControlComponent),
       },
       {
         path: 'settings',

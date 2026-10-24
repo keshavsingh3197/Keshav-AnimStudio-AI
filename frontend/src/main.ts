@@ -6,13 +6,14 @@ import { RouteReuseStrategy, provideRouter, withComponentInputBinding } from '@a
 import { AppComponent } from './app/app.component';
 import { routes } from './app/app.routes';
 import { apiErrorInterceptor } from './app/core/interceptors/api-error.interceptor';
+import { authInterceptor } from './app/core/interceptors/auth.interceptor';
 import { ProjectRouteReuseStrategy } from './app/core/services/project-route-reuse.strategy';
 
 bootstrapApplication(AppComponent, {
   providers: [
     provideBrowserGlobalErrorListeners(),
     provideZonelessChangeDetection(),
-    provideHttpClient(withFetch(), withInterceptors([apiErrorInterceptor])),
+    provideHttpClient(withFetch(), withInterceptors([authInterceptor, apiErrorInterceptor])),
     // Route parameters arrive as component inputs, so a screen declares what it needs.
     provideRouter(routes, withComponentInputBinding()),
     // A different project is a different screen: nothing per-project survives the switch.

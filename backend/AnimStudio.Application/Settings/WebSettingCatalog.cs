@@ -106,6 +106,18 @@ public static class WebSettingCatalog
         new("YouTube:Publish:MaxUploadsPerUser", "YouTube", "Uploads per user", "How many uploads one user can run at once.", WebSettingType.Integer, true, 1, 20),
         new("YouTube:Publish:KeepFinishedHours", "YouTube", "Keep finished uploads (hours)", "How long a finished upload stays in the list.", WebSettingType.Integer, true, 1, 168),
         new("YouTube:Publish:MaxConcurrentUploads", "YouTube", "Uploads at once", "How many uploads run in parallel on the server.", WebSettingType.Integer, false, 1, 8),
+
+        // --- Access Control & Anonymous Policy
+        new("Admin:AnonymousPolicy:Enabled", "Access Control", "Allow Anonymous Visitors", "Whether unauthenticated visitors can view and explore the studio.", WebSettingType.Boolean, true),
+        new("Admin:AnonymousPolicy:AllowRender", "Access Control", "Allow Anonymous Renders", "Let anonymous visitors run test renders within duration limits.", WebSettingType.Boolean, true),
+        new("Admin:AnonymousPolicy:MaxRenderDurationSeconds", "Access Control", "Max Guest Render Duration (s)", "Maximum video length allowed for unauthenticated renders.", WebSettingType.Integer, true, 5, 120),
+        new("Admin:AnonymousPolicy:MaxAiCallsPerDay", "Access Control", "Guest AI Quota", "How many AI requests unauthenticated visitors can run per day.", WebSettingType.Integer, true, 0, 50),
+        new("Admin:AnonymousPolicy:AllowYouTubePublish", "Access Control", "Guest YouTube Publishing", "Allow anonymous visitors to connect or publish to YouTube channels (strictly discouraged).", WebSettingType.Boolean, true),
+        new("Admin:AnonymousPolicy:AllowCloudSave", "Access Control", "Guest Cloud Project Save", "Allow saving projects to the central database without signing in.", WebSettingType.Boolean, true),
+
+        // --- Server Profile & Free-Tier Resilience
+        new("ServerProfile:FreeTier", "Server Profile", "Free-tier hosting profile", "Optimizes timeouts and caches for constrained free hosting environments.", WebSettingType.Boolean, true),
+        new("ServerProfile:SkipMissingDependencies", "Server Profile", "Skip missing external tools", "Bypasses missing external binaries gracefully without server errors.", WebSettingType.Boolean, true),
     ];
 
     private static readonly Dictionary<string, WebSettingDefinition> ByKey =

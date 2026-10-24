@@ -3,8 +3,10 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { map } from 'rxjs';
+import { catchError, map, of } from 'rxjs';
 import { Clip, DEFAULT_BRAND_CHANNEL } from '../../core/models/api.models';
+import { GoogleDriveStatus, PhoneHandoff, isValidDriveFolderName } from '../../core/models/youtube.models';
+import { YouTubePublishService } from '../../core/services/youtube-publish.service';
 import { StudioStateService } from './services/studio-state.service';
 import { StudioHeaderComponent } from './components/studio-header/studio-header.component';
 import { MediaDockComponent } from './components/media-dock/media-dock.component';
@@ -15,6 +17,7 @@ import { TransferDialogComponent } from './components/transfer-dialog/transfer-d
 import { FrameCropDialogComponent } from './components/frame-crop-dialog/frame-crop-dialog.component';
 import { PhotoStoryComponent } from './components/photo-story/photo-story.component';
 import { AutoShortsComponent } from './components/auto-shorts/auto-shorts.component';
+import { StyleStudioDialogComponent } from './components/style-studio-dialog/style-studio-dialog.component';
 import { clipboardFiles } from '../../shared/file-drop.directive';
 import { YouTubePublishDialogComponent } from '../../shared/youtube-publish-dialog.component';
 import { MediaInspectorDialogComponent } from '../../shared/transcript/media-inspector-dialog.component';
@@ -36,6 +39,7 @@ import { lastApplied, loadStoredLibrary, spokenText } from './components/inspect
     FrameCropDialogComponent,
     PhotoStoryComponent,
     AutoShortsComponent,
+    StyleStudioDialogComponent,
     RouterLink,
     YouTubePublishDialogComponent,
     MediaInspectorDialogComponent,
@@ -131,6 +135,115 @@ export class ClipStudioComponent implements OnDestroy {
   readonly publishJobId = signal<string | null>(null);
   readonly descriptionCopy = signal<'idle' | 'busy' | 'copied' | 'failed'>('idle');
 
+  // --- Save finished export directly to Google Drive ---
+  private readonly youtube = inject(YouTubePublishService);
+  readonly drivePanelOpen = signal(false);
+  readonly drives = signal<GoogleDriveStatus[] | null>(null);
+  readonly driveChannelId = signal('');
+  readonly driveTarget = computed(() =>
+    (this.drives() ?? []).find((d) => (d.channelId ?? '') === this.driveChannelId()) ?? null);
+  readonly driveFolder = signal('');
+  readonly driveFolders = signal<string[]>([]);
+  readonly driveCopy = signal<PhoneHandoff | null>(null);
+  readonly driveError = signal<string | null>(null);
+  readonly driveConnectBusy = signal(false);
+  readonly driveSaving = computed(() => this.driveCopy()?.state === 'Sending');
+  readonly anyDriveConnected = computed(() => (this.drives() ?? []).some((d) => d.connected && !d.needsReconnect));
+  readonly driveFolderError = computed<string | null>(() => {
+    const name = this.driveFolder().trim();
+    return name && !isValidDriveFolderName(name)
+      ? 'Use up to 100 letters, digits, spaces and - _ . ( ) &.'
+      : null;
+  });
+  private drivePollTimer: ReturnType<typeof setTimeout> | null = null;
+
+  toggleDrivePanel(jobId: string): void {
+    const next = !this.drivePanelOpen();
+    this.drivePanelOpen.set(next);
+    this.driveError.set(null);
+    if (!next) return;
+
+    if (this.drives() === null) {
+      this.youtube.driveConnections().pipe(catchError(() => of([] as GoogleDriveStatus[]))).subscribe((list) => {
+        this.drives.set(list);
+        const first = list.find((d) => d.connected && !d.needsReconnect) ?? list[0];
+        if (first) this.pickDriveChannel(first.channelId ?? '');
+      });
+    }
+    this.youtube.handoffs(jobId).pipe(catchError(() => of([] as PhoneHandoff[]))).subscribe((list) => {
+      const latest = list.find((h) => h.saveOnly) ?? list[0];
+      if (latest) {
+        this.driveCopy.set(latest);
+        if (latest.state === 'Sending') this.pollDriveCopy(latest.id);
+      }
+    });
+  }
+
+  pickDriveChannel(channelId: string): void {
+    this.driveChannelId.set(channelId);
+    const target = (this.drives() ?? []).find((d) => (d.channelId ?? '') === channelId);
+    this.driveFolder.set(target?.folderName || 'AnimStudio Shorts');
+    this.driveFolders.set([]);
+    if (target?.connected && !target.needsReconnect) {
+      this.youtube.driveFolders(channelId || null).pipe(catchError(() => of([] as string[]))).subscribe((folders) => {
+        if (this.driveChannelId() === channelId) this.driveFolders.set(folders);
+      });
+    }
+  }
+
+  saveExportToDrive(jobId: string): void {
+    if (this.driveSaving() || this.driveFolderError()) return;
+    const folder = this.driveFolder().trim() || this.driveTarget()?.folderName || 'AnimStudio Shorts';
+    if (!isValidDriveFolderName(folder)) return;
+    this.driveError.set(null);
+    this.youtube.saveToDrive(jobId, {
+      channelId: this.driveChannelId() || null,
+      folderName: folder,
+    }).subscribe({
+      next: (copy) => {
+        this.driveCopy.set(copy);
+        this.pollDriveCopy(copy.id);
+      },
+      error: (e: Error) => {
+        this.driveError.set(e.message || 'Could not start Google Drive upload.');
+      },
+    });
+  }
+
+  connectGoogleDrive(jobId: string): void {
+    this.driveConnectBusy.set(true);
+    this.driveError.set(null);
+    this.youtube.startDriveConnect(this.publishReturnPath(jobId), this.driveChannelId() || null).subscribe({
+      next: (url) => {
+        if (!url.startsWith('https://accounts.google.com/')) {
+          this.driveError.set('Unexpected Google sign-in URL.');
+          this.driveConnectBusy.set(false);
+          return;
+        }
+        window.location.assign(url);
+      },
+      error: (e: Error) => {
+        this.driveError.set(e.message || 'Could not connect Google Drive.');
+        this.driveConnectBusy.set(false);
+      },
+    });
+  }
+
+  private pollDriveCopy(handoffId: string): void {
+    if (this.drivePollTimer !== null) clearTimeout(this.drivePollTimer);
+    this.drivePollTimer = null;
+    if (this.driveCopy()?.state !== 'Sending') return;
+    this.drivePollTimer = setTimeout(() => {
+      this.youtube.handoff(handoffId).subscribe({
+        next: (updated) => {
+          this.driveCopy.set(updated);
+          this.pollDriveCopy(handoffId);
+        },
+        error: () => this.pollDriveCopy(handoffId),
+      });
+    }, 1500);
+  }
+
   /** Where Google sign-in returns to: this cut, with the dialog reopened for the same render. */
   publishReturnPath(jobId: string): string {
     const tree = this.router.createUrlTree([], {
@@ -176,6 +289,7 @@ export class ClipStudioComponent implements OnDestroy {
 
   ngOnDestroy(): void {
     this.setEndCardPreview(null);
+    if (this.drivePollTimer !== null) clearTimeout(this.drivePollTimer);
   }
 
   // --- Export dialog: which end card the export appends, and a rendered preview of it ---

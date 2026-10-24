@@ -129,6 +129,8 @@ public sealed record AutoShortsCommand
     public AutoShortLayout Layout { get; init; } = AutoShortLayout.FitLength;
     public double ImageSeconds { get; init; } = AutoShortPlanner.DefaultImageSeconds;
     public double? MaxClipSeconds { get; init; }
+    public bool ExactLength { get; init; }
+    public AutoShortOrder Order { get; init; } = AutoShortOrder.Shuffle;
     public AutoShortStyle Style { get; init; } = AutoShortStyle.Mixed;
     public AutoShortTextMode TextMode { get; init; } = AutoShortTextMode.Hook;
     public bool Transitions { get; init; } = true;
@@ -785,6 +787,7 @@ public sealed class ClipMergeService(
             {
                 Id = batch.Id, Name = batch.Name, Index = k, Count = batch.Count,
                 CreatedAt = batch.CreatedAt, Layout = batch.Layout, SourceAssetIds = batch.SourceAssetIds,
+                Style = plan.Styles is { } styles && k < styles.Count ? styles[k].ToString() : null,
             };
             queued.Add(await QueueAsync(projectId, plan.Shorts[k] with { Batch = place }, ct).ConfigureAwait(false));
         }
@@ -854,6 +857,8 @@ public sealed class ClipMergeService(
                 Layout = command.Layout,
                 ImageSeconds = command.ImageSeconds,
                 MaxClipSeconds = command.MaxClipSeconds,
+                ExactLength = command.ExactLength,
+                Order = command.Order,
                 Style = command.Style,
                 TextMode = command.TextMode,
                 // A renderer without xfade cuts hard rather than refusing the batch.

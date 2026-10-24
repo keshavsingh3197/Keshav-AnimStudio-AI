@@ -30,33 +30,53 @@ const MAX_CHANNELS = 1000;
   imports: [RouterLink, DatePipe],
   template: `
     <section class="ch">
-      <header class="ch-head">
-        <div>
-          <h2>Channels</h2>
-          <p class="muted">
-            Your YouTube channels and the look of their videos (watermark and end card). Names and pictures come from YouTube:
-            connect a channel and it appears here; rename it on YouTube, then press <em>↻</em> to refresh.
-          </p>
+      <header class="page-head" style="margin-top: 0">
+        <div style="display: flex; align-items: flex-start; gap: 0.85rem">
+          <div class="studio-icon-badge" style="width: 2.6rem; height: 2.6rem; margin-top: 2px">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="7" width="20" height="15" rx="2" ry="2"/><polyline points="17 2 12 7 7 2"/>
+            </svg>
+          </div>
+          <div>
+            <div class="row" style="gap: 0.5rem; margin-bottom: 0.15rem">
+              <h2 style="margin: 0">Channels</h2>
+              <span class="pill brand">{{ channels().length }} / {{ max }}</span>
+            </div>
+            <p class="muted">
+              Your YouTube channels and the look of their videos (watermark and end card). Names and pictures come from YouTube:
+              connect a channel and it appears here; rename it on YouTube, then press <em>↻</em> to refresh.
+            </p>
+          </div>
         </div>
-        <span class="ch-count">{{ channels().length }} / {{ max }}</span>
+        <div class="ch-yt">
+          <button type="button" class="btn-primary-glow" (click)="connectYouTube()"
+                  [disabled]="connecting() || yt()?.configured === false">＋ Connect a YouTube channel</button>
+          <button type="button" class="btn-outline icon" (click)="syncFromYouTube()"
+                  [disabled]="syncing() || yt()?.configured === false || !yt()?.channels?.length"
+                  title="Refresh names and pictures from YouTube" aria-label="Refresh from YouTube">
+            <span [class.spin]="syncing()">↻</span>
+          </button>
+        </div>
       </header>
 
-      <div class="ch-yt">
-        <button type="button" class="btn-primary-glow" (click)="connectYouTube()"
-                [disabled]="connecting() || yt()?.configured === false">＋ Connect a YouTube channel</button>
-        <button type="button" class="btn-outline icon" (click)="syncFromYouTube()"
-                [disabled]="syncing() || yt()?.configured === false || !yt()?.channels?.length"
-                title="Refresh names and pictures from YouTube" aria-label="Refresh from YouTube">
-          <span [class.spin]="syncing()">↻</span>
-        </button>
-        @if (yt(); as st) {
-          @if (!st.configured) {
-            <span class="muted small">YouTube sign-in isn't set up on this server yet (Application settings → YouTube).</span>
-          } @else {
-            <span class="muted small">{{ st.channels.length }} YouTube channel{{ st.channels.length === 1 ? '' : 's' }} connected by you</span>
-          }
-        }
-      </div>
+      @if (yt(); as st) {
+        <div class="sb-kpi-strip">
+          <div class="sb-kpi-card">
+            <span class="sb-kpi-label">Brand Channels</span>
+            <strong class="sb-kpi-val mono">{{ channels().length }}</strong>
+          </div>
+          <div class="sb-kpi-card">
+            <span class="sb-kpi-label">YouTube Connected</span>
+            <strong class="sb-kpi-val mono" style="color: var(--ok)">{{ st.channels.length }}</strong>
+          </div>
+          <div class="sb-kpi-card">
+            <span class="sb-kpi-label">OAuth Status</span>
+            <strong class="sb-kpi-val" [style.color]="st.configured ? 'var(--ok)' : 'var(--warn)'">
+              {{ st.configured ? 'Configured' : 'Not Configured' }}
+            </strong>
+          </div>
+        </div>
+      }
 
       @if (syncFailures().length > 0) {
         <div class="ch-alert" role="alert">
@@ -74,8 +94,8 @@ const MAX_CHANNELS = 1000;
         </div>
       }
 
-      <details class="ch-manual">
-        <summary>Add a brand that isn't a YouTube channel</summary>
+      <details class="card ch-manual" style="padding: 0.85rem 1.15rem">
+        <summary>➕ Add a brand that isn't a YouTube channel</summary>
         <form class="ch-new" (submit)="$event.preventDefault(); create()">
           <input #newName type="text" maxlength="60" placeholder="Brand name, e.g. Bhakti Kids"
                  [value]="newChannelName()" (input)="newChannelName.set(newName.value)" aria-label="New brand name" />
@@ -89,9 +109,14 @@ const MAX_CHANNELS = 1000;
         </form>
       </details>
 
-      <div class="ch-toolbar">
-        <input type="search" placeholder="Search channels…" [value]="query()"
-               (input)="query.set($any($event.target).value); page.set(0)" aria-label="Search channels" />
+      <div class="card ch-toolbar" style="padding: 0.85rem 1.1rem">
+        <div class="studio-search-wrap">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+          </svg>
+          <input type="search" placeholder="Search channels…" [value]="query()"
+                 (input)="query.set($any($event.target).value); page.set(0)" aria-label="Search channels" />
+        </div>
         <div class="ch-filters" role="group" aria-label="Filter">
           @for (f of filters; track f.id) {
             <button type="button" [class.active]="filter() === f.id" (click)="filter.set(f.id); page.set(0)">
@@ -134,7 +159,7 @@ const MAX_CHANNELS = 1000;
                 </form>
               } @else {
                 <span class="ch-name">
-                  {{ c.name }} @if (c.isDefault) { <span class="ch-tag">default</span> }
+                  {{ c.name }} @if (c.isDefault) { <span class="pill brand" style="margin-left: 6px; padding: 0.08rem 0.45rem; font-size: 0.65rem">default</span> }
                   @if (youTubeUrl(c); as url) {
                     <a class="ch-yt-link" [href]="url" target="_blank" rel="noopener noreferrer"
                        title="Open on YouTube">{{ c.youTubeChannelHandle || 'YouTube' }} ↗</a>
@@ -250,7 +275,7 @@ const MAX_CHANNELS = 1000;
             }
           </div>
         } @empty {
-          <div class="ch-empty muted">
+          <div class="empty">
             @if (!loaded()) { Loading channels… } @else { No channel matches. }
           </div>
         }
@@ -267,84 +292,84 @@ const MAX_CHANNELS = 1000;
   `,
   styles: [`
     .ch-thumb {
-      width: 64px; height: 40px; border-radius: 6px; display: grid; place-items: center; overflow: hidden;
+      width: 64px; height: 42px; border-radius: 8px; display: grid; place-items: center; overflow: hidden;
       background: repeating-conic-gradient(#1f2937 0% 25%, #111827 0% 50%) 50% / 12px 12px;
-      border: 1px solid var(--border, #1e2433);
+      border: 1px solid var(--border);
     }
     .ch-thumb img { max-width: 100%; max-height: 100%; object-fit: contain; }
-    .ch-thumb.avatar { width: 40px; margin-inline: 12px; border-radius: 50%; background: var(--surface, #111827); }
+    .ch-thumb.avatar { width: 42px; height: 42px; margin-inline: 11px; border-radius: 50%; background: var(--surface-2); border: 2px solid color-mix(in srgb, var(--brand) 45%, var(--border)); }
     .ch-thumb.avatar img { width: 100%; height: 100%; object-fit: cover; }
-    .ch-yt { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+    .ch-yt { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .ch-yt .small, .small { font-size: .78rem; }
-    .ch-yt-link { font-size: .74rem; font-weight: 400; margin-left: 6px; color: var(--brand, #6c8cff); text-decoration: none; }
+    .ch-yt-link { font-size: .75rem; font-weight: 500; margin-left: 6px; color: var(--brand); text-decoration: none; }
     .ch-yt-link:hover { text-decoration: underline; }
-    .ch-meta .ok { color: #86efac; }
-    .ch-manual { margin-bottom: 12px; font-size: .82rem; }
-    .ch-manual summary { cursor: pointer; color: var(--muted, #8b9bb4); margin-bottom: 8px; }
-    .ch-thumb-text { font-size: .62rem; font-weight: 700; padding: 0 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-    .ch-thumb-none { color: var(--muted, #6b7280); }
-    input[type=search], input[type=text] {
-      padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border, #1e2433);
-      background: var(--bg, #0b0f19); color: inherit; font-size: .84rem;
+    .ch-meta .ok { color: var(--ok); font-weight: 600; }
+    .ch-manual { margin-bottom: 1rem; font-size: .84rem; }
+    .ch-manual summary { cursor: pointer; color: var(--text-dim); font-weight: 600; }
+    .ch-manual[open] summary { margin-bottom: 0.75rem; }
+    .ch-thumb-text { font-size: .64rem; font-weight: 700; padding: 0 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+    .ch-thumb-none { color: var(--muted); }
+    .btn-primary-glow {
+      background: linear-gradient(135deg, var(--brand) 0%, var(--brand-dim) 100%);
+      color: #fff; font-size: 0.85rem; font-weight: 600; padding: 0.5rem 1rem; border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.14); cursor: pointer;
     }
-    input:focus { outline: none; border-color: var(--brand, #6c8cff); }
     .btn-outline {
       display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; border-radius: 7px; cursor: pointer;
-      background: transparent; border: 1px solid var(--border, #1e2433); color: var(--text, #d1d5db); font-size: .78rem;
+      background: var(--surface-2); border: 1px solid var(--border); color: var(--text-dim); font-size: .78rem; font-weight: 600;
+      box-shadow: none;
     }
-    .btn-outline:hover:not([disabled]) { border-color: var(--brand, #6c8cff); color: #fff; }
+    .btn-outline:hover:not([disabled]) { border-color: var(--brand); color: #fff; background: var(--surface-3); transform: none; box-shadow: none; }
     .btn-outline[disabled] { opacity: .45; cursor: default; }
-    .ch-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1rem; }
-    .ch-head h2 { margin: 0 0 4px; }
-    .ch-head p { margin: 0; font-size: .85rem; max-width: 640px; }
-    .ch-count { font-size: .75rem; color: var(--muted, #8b9bb4); border: 1px solid var(--border, #1e2433); padding: 2px 10px; border-radius: 999px; white-space: nowrap; }
-    .ch-new, .ch-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+    .ch-new, .ch-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
+    .ch-new { margin-bottom: 0; }
     .ch-new input[type=text] { flex: 1 1 260px; min-width: 200px; }
     .ch-new select, .ch-sort select { width: auto; max-width: 220px; }
-    .ch-from, .ch-sort { display: flex; align-items: center; gap: 6px; font-size: .8rem; color: var(--muted, #8b9bb4); white-space: nowrap; }
-    .ch-toolbar input[type=search] { flex: 1 1 220px; min-width: 180px; max-width: 360px; }
-    .ch-filters { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--border, #1e2433); border-radius: 8px; overflow: hidden; }
-    .ch-filters button { background: transparent; border: none; color: var(--muted, #8b9bb4); font-size: .76rem; padding: 5px 10px; cursor: pointer; }
-    .ch-filters button small { opacity: .7; margin-left: 2px; }
-    .ch-filters button.active { background: var(--brand, #6c8cff); color: #fff; }
-    .ch-table { display: grid; gap: 6px; }
+    .ch-from, .ch-sort { display: flex; align-items: center; gap: 6px; font-size: .8rem; color: var(--muted); white-space: nowrap; margin: 0; }
+    .ch-filters { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 3px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }
+    .ch-filters button { background: transparent; border: none; border-radius: 6px; color: var(--muted); font-size: .76rem; font-weight: 600; padding: 4px 10px; cursor: pointer; box-shadow: none; }
+    .ch-filters button:hover:not(:disabled) { color: var(--text); transform: none; box-shadow: none; }
+    .ch-filters button small { opacity: .75; margin-left: 2px; }
+    .ch-filters button.active { background: linear-gradient(135deg, var(--brand) 0%, var(--brand-dim) 100%); color: #fff; }
+    .ch-table { display: grid; gap: 0.55rem; }
     .ch-row {
       display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 14px; align-items: center;
-      padding: 8px 12px; border-radius: 10px; background: var(--surface, #111827); border: 1px solid var(--border, #1e2433);
+      padding: 0.75rem 1rem; border-radius: var(--radius);
+      background: linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 45%, var(--surface)) 0%, var(--glass) 100%);
+      border: 1px solid var(--border); box-shadow: var(--shadow-sm), var(--inner-highlight);
+      transition: border-color 0.15s ease;
     }
-    .ch-row:hover, .ch-row.editing { border-color: color-mix(in srgb, var(--brand, #6c8cff) 45%, transparent); }
-    .ch-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-    .ch-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .ch-tag { font-size: .62rem; text-transform: uppercase; letter-spacing: .06em; color: var(--brand, #6c8cff); margin-left: 4px; }
-    .ch-meta { display: flex; gap: 14px; flex-wrap: wrap; font-size: .74rem; color: #cbd5e1; }
-    .ch-meta .off { color: var(--muted, #6b7280); }
+    .ch-row:hover, .ch-row.editing { border-color: color-mix(in srgb, var(--brand) 50%, var(--border)); }
+    .ch-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+    .ch-name { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; }
+    .ch-meta { display: flex; gap: 14px; flex-wrap: wrap; font-size: .76rem; color: var(--text-dim); }
+    .ch-meta .off { color: var(--muted); }
     .ch-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
     .ch-actions a.btn-outline { text-decoration: none; }
     .btn-outline.icon { padding-inline: 8px; }
     .spin { display: inline-block; animation: spin 1s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .btn-outline.danger { color: #f87171; }
+    .btn-outline.danger { color: var(--err); border-color: color-mix(in oklab, var(--err) 35%, var(--border)); }
     .ch-rename { display: flex; gap: 6px; align-items: center; }
     .ch-rename input { max-width: 280px; }
     .ch-delete { grid-column: 1 / -1; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: .82rem;
-      padding-top: 8px; border-top: 1px dashed var(--border, #1e2433); }
+      padding-top: 10px; border-top: 1px dashed var(--border-bright); }
     .ch-delete select { width: auto; max-width: 240px; }
-    .ch-meta .warn, .btn-outline.warn { color: #fbbf24; }
-    .ch-alert { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; padding: 8px 12px;
-      border: 1px solid #fbbf24; border-left-width: 3px; border-radius: 8px; font-size: .82rem;
-      background: color-mix(in srgb, #fbbf24 8%, transparent); }
-    .ch-keys { grid-column: 1 / -1; display: grid; gap: 8px; padding-top: 8px; border-top: 1px dashed var(--border, #1e2433); font-size: .82rem; }
+    .ch-meta .warn, .btn-outline.warn { color: var(--warn); }
+    .ch-alert { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; padding: 10px 14px;
+      border: 1px solid color-mix(in oklab, var(--warn) 45%, var(--border)); border-left: 4px solid var(--warn); border-radius: 8px; font-size: .84rem;
+      background: linear-gradient(90deg, rgba(245, 158, 11, 0.12) 0%, var(--surface-2) 100%); }
+    .ch-keys { grid-column: 1 / -1; display: grid; gap: 10px; padding-top: 10px; border-top: 1px dashed var(--border-bright); font-size: .82rem; }
     .ch-keys p { margin: 0; }
     .ch-key-row { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 4px 12px; align-items: center; }
     .ch-key-dest { font-weight: 600; }
-    .ch-key-state[data-state='Rejected'] { color: #fbbf24; }
-    .ch-key-state[data-state='Missing'] { color: var(--muted, #8b9bb4); }
+    .ch-key-state[data-state='Rejected'] { color: var(--warn); }
+    .ch-key-state[data-state='Missing'] { color: var(--muted); }
     .ch-key-form { grid-column: 2; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
     .ch-key-form input { flex: 1 1 240px; max-width: 360px; font-family: var(--mono, monospace); }
     .ch-help { font-size: .76rem; }
     @media (max-width: 560px) { .ch-key-row { grid-template-columns: minmax(0, 1fr); } .ch-key-form { grid-column: 1; } }
-    .ch-empty { padding: 1.5rem; text-align: center; border: 1px dashed var(--border, #1e2433); border-radius: 10px; }
-    .ch-pages { display: flex; gap: 12px; align-items: center; justify-content: flex-end; margin-top: 12px; font-size: .8rem; }
+    .ch-pages { display: flex; gap: 12px; align-items: center; justify-content: flex-end; margin-top: 12px; font-size: .82rem; }
     @media (max-width: 760px) { .ch-row { grid-template-columns: auto minmax(0, 1fr); } .ch-actions { grid-column: 1 / -1; justify-content: flex-start; } }
   `],
 })

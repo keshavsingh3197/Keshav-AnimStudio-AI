@@ -1,6 +1,7 @@
 import { DecimalPipe } from '@angular/common';
 import { Component, DestroyRef, ElementRef, OnInit, computed, effect, inject, input, output, signal, untracked, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subject, catchError, debounceTime, distinctUntilChanged, forkJoin, map, of, switchMap, tap } from 'rxjs';
 
@@ -9,8 +10,10 @@ import {
   YouTubePublishStatus, YouTubeSuggestEngine, YouTubeUpload, YouTubeUploadRoute,
   isHandoffActive, isUploadFinished, isValidDriveFolderName, parseYouTubeTags, relatedVideosBlock, youTubeTagsLength,
 } from '../core/models/youtube.models';
+import { ContentPlanItem, ContentPlanStatus, ContentTopic } from '../core/models/calendar.models';
 import { ActivityService } from '../core/services/activity.service';
 import { ApiService } from '../core/services/api.service';
+import { ContentCalendarService } from '../core/services/content-calendar.service';
 import { ProjectStore } from '../core/services/project-store';
 import { YouTubePublishService } from '../core/services/youtube-publish.service';
 
@@ -42,10 +45,42 @@ const FRAME_SPOTS = [0.1, 0.26, 0.42, 0.58, 0.74, 0.9];
 
 interface FrameOption { at: number; url: string | null; failed: boolean }
 
+/** Visibility as picked in the dialog: a scheduled upload is sent as private with a publish time. */
+type Visibility = YouTubePrivacy | 'scheduled';
+
+/** YouTube refuses a publish time closer than this (the server checks the same). */
+const MIN_SCHEDULE_LEAD_MS = 10 * 60 * 1000;
+/** How far ahead a publish time may be; the server allows a day more for time-zone slack. */
+const MAX_SCHEDULE_AHEAD_MS = 365 * 24 * 60 * 60 * 1000;
+/** How far ahead the calendar-post picker looks. */
+const PLAN_LOOKAHEAD_DAYS = 60;
+/** Posts still waiting for a video; Scheduled/Published/Skipped already have one or never will. */
+const OPEN_PLAN_STATUSES: readonly ContentPlanStatus[] = ['Idea', 'InProgress', 'Ready'];
+
+/** A Date as a datetime-local value (the viewer's own time zone), e.g. 2026-10-28T18:00. */
+function toLocalInput(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/** A datetime-local value back to a Date; a string without a zone is read as local time. */
+function fromLocalInput(value: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(value)) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/** "Tue 28 Oct, 18:00" in the viewer's locale and time zone. */
+function formatWhen(date: Date): string {
+  return date.toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
 interface PublishPrefs {
   channelId?: string;
   categoryId?: string;
   privacy?: YouTubePrivacy;
+  /** The last pick was Scheduled. Only the choice is remembered, never the time. */
+  scheduled?: boolean;
   madeForKids?: boolean;
   /** Upload from here, or send to the phone for a Shorts sound. */
   route?: YouTubeUploadRoute;
@@ -67,7 +102,7 @@ interface PublishPrefs {
 @Component({
   selector: 'app-youtube-publish-dialog',
   standalone: true,
-  imports: [FormsModule, DecimalPipe],
+  imports: [FormsModule, DecimalPipe, RouterLink],
   host: { '(document:keydown.escape)': 'closed.emit()' },
   template: `
     <div class="yt-backdrop" (click)="closed.emit()">
@@ -121,6 +156,10 @@ interface PublishPrefs {
                       }
                       <div><dt>Channel</dt><dd>{{ selectedChannel()?.channelTitle }}</dd></div>
                       <div><dt>Visibility</dt><dd>{{ privacyLabel() }}{{ notify() && privacy() === 'public' ? ' · subscribers notified' : '' }}</dd></div>
+                      @if (route() !== 'phone' && selectedPlan(); as post) {
+                        <div><dt>Calendar post</dt><dd><span class="yt-plan-dot" [style.background]="planTopic(post)?.color ?? null" aria-hidden="true"></span>
+                          {{ post.title }}{{ planTopic(post) ? ' · ' + planTopic(post)!.name : '' }}</dd></div>
+                      }
                       <div><dt>Audience</dt><dd>{{ madeForKids() ? 'Made for kids' : 'Not made for kids' }}</dd></div>
                       <div><dt>Category</dt><dd>{{ categoryName() }}</dd></div>
                       @if (relatedSelected().length) {
@@ -133,6 +172,8 @@ interface PublishPrefs {
                         the Short once you upload it from the YouTube app.</p>
                     } @else if (privacy() === 'public') {
                       <p class="yt-warn">This goes live publicly as soon as YouTube finishes processing it.</p>
+                    } @else if (scheduled() && scheduleDate(); as at) {
+                      <p class="yt-muted">Uploads as private now. YouTube makes it public on {{ when(at) }} ({{ timeZone }}).</p>
                     }
                   </section>
 
@@ -440,20 +481,45 @@ interface PublishPrefs {
                       </select>
                     </label>
                     <label>Visibility
-                      <select [ngModel]="privacy()" (ngModelChange)="privacy.set($event)" [disabled]="uploading()">
+                      <select [ngModel]="visibility()" (ngModelChange)="setVisibility($event)" [disabled]="uploading()">
                         <option value="public">Public</option>
                         <option value="unlisted">Unlisted</option>
                         <option value="private">Private</option>
+                        <option value="scheduled" [disabled]="route() === 'phone'">Scheduled</option>
                       </select>
                     </label>
                   </div>
+                  @if (route() === 'phone') {
+                    <p class="yt-muted">Scheduled is not available for a phone upload; set a time in the YouTube app instead.</p>
+                  } @else if (scheduled()) {
+                    <label class="yt-schedule">Goes public at
+                      <input type="datetime-local" [ngModel]="publishAtLocal()" (ngModelChange)="publishAtLocal.set($event)"
+                             [min]="scheduleMin()" [max]="scheduleMax()" [class.invalid]="fieldError('publishAt')" [disabled]="uploading()" />
+                      <small class="yt-muted">Your time ({{ timeZone }}). Uploads as private now; YouTube makes it public then.</small>
+                    </label>
+                    @if (scheduleProblem(); as p) { <p class="yt-err">{{ p }}</p> }
+                  }
+                  @if (route() !== 'phone' && planOptions().length) {
+                    <label class="yt-plan">Calendar post
+                      <select [ngModel]="selectedPlan()?.id ?? ''" (ngModelChange)="choosePlan($event)" [disabled]="uploading()">
+                        <option value="">None</option>
+                        @for (p of planOptions(); track p.id) {
+                          <option [value]="p.id">{{ when(p.publishAt) }} · {{ p.title }}{{ planTopic(p) ? ' (' + planTopic(p)!.name + ')' : '' }}</option>
+                        }
+                      </select>
+                    </label>
+                    @if (selectedPlan(); as post) {
+                      <p class="yt-muted"><span class="yt-plan-dot" [style.background]="planTopic(post)?.color ?? null" aria-hidden="true"></span>
+                        {{ planTopic(post)?.name ?? 'No topic' }} · planned for {{ when(post.publishAt) }}. The video is linked to this post once it is up.</p>
+                    }
+                  }
                   <fieldset class="yt-audience" [disabled]="uploading()">
                     <legend>Audience</legend>
                     <label class="inline"><input type="radio" name="kids" [checked]="madeForKids() === false" (change)="madeForKids.set(false)" /> Not made for kids</label>
                     <label class="inline"><input type="radio" name="kids" [checked]="madeForKids() === true" (change)="madeForKids.set(true)" /> Made for kids</label>
                   </fieldset>
                   <label class="inline"><input type="checkbox" [ngModel]="notify()" (ngModelChange)="notify.set($event)" [disabled]="uploading()" /> Notify subscribers</label>
-                  @if (privacy() === 'private') {
+                  @if (visibility() === 'private') {
                     <p class="yt-muted">Private works as a draft: only you can see it until you change its visibility in YouTube Studio,
                       where you can also add an end screen and playlists.</p>
                   }
@@ -579,6 +645,21 @@ interface PublishPrefs {
                   <textarea id="yt-first-comment" rows="3" [ngModel]="firstComment()" (ngModelChange)="firstComment.set($event)"
                             [disabled]="uploading()" [class.invalid]="fieldError('firstComment')"
                             placeholder="Thanks for watching! Which part was your favourite? 👇"></textarea>
+                  @if (pinnedCommentIdea() || engagementCommentIdea()) {
+                    <div class="yt-ideas" role="group" aria-label="AI Comment Suggestions">
+                      <span class="yt-ideas-label">Comment ideas</span>
+                      @if (pinnedCommentIdea(); as pc) {
+                        <button type="button" class="yt-chip" [class.active]="firstComment() === pc" (click)="firstComment.set(pc)" [disabled]="uploading()" [title]="pc">
+                          📌 Use Pinned Comment
+                        </button>
+                      }
+                      @if (engagementCommentIdea(); as ec) {
+                        <button type="button" class="yt-chip" [class.active]="firstComment() === ec" (click)="firstComment.set(ec)" [disabled]="uploading()" [title]="ec">
+                          💬 Use Engagement Question
+                        </button>
+                      }
+                    </div>
+                  }
                   @if (firstComment().trim() && selectedChannel(); as ch) {
                     @if (!ch.canComment) {
                       <p class="yt-warn">{{ ch.channelTitle }} was connected before AnimStudio could post comments.
@@ -718,7 +799,8 @@ interface PublishPrefs {
               } @else if (upload(); as u) {
                 @switch (u.state) {
                   @case ('Completed') {
-                    <p class="ok">✓ Published to {{ u.channelTitle }} ({{ u.privacy }}).
+                    <p class="ok">@if (u.publishAt) { ✓ Uploaded to {{ u.channelTitle }} as private - goes public {{ when(u.publishAt) }} ({{ timeZone }}). }
+                      @else { ✓ Published to {{ u.channelTitle }} ({{ u.privacy }}). }
                       <a [href]="u.videoUrl" target="_blank" rel="noopener noreferrer">Watch on YouTube ↗</a> ·
                       @if (u.musicUrl) { <a [href]="u.musicUrl" target="_blank" rel="noopener noreferrer">Play on YouTube Music ↗</a> · }
                       <a [href]="u.studioUrl" target="_blank" rel="noopener noreferrer">Open in YouTube Studio ↗</a></p>
@@ -726,7 +808,11 @@ interface PublishPrefs {
                       <p class="yt-muted">Both links open the same video. YouTube Music may take a while to list it under the channel.</p>
                     }
                     <p class="yt-muted">YouTube may still be processing HD versions for a few minutes.
-                      @if (u.privacy === 'private') { Finish the details and publish it from YouTube Studio. }</p>
+                      @if (u.privacy === 'private' && !u.publishAt) { Finish the details and publish it from YouTube Studio. }</p>
+                    @if (u.linkedPlanItemId) {
+                      <p class="yt-muted">📅 Linked to calendar post{{ linkedPlan() ? ' "' + linkedPlan()!.title + '"' : '' }}.
+                        <a routerLink="/calendar" [queryParams]="{ post: u.linkedPlanItemId }" (click)="closed.emit()">Open in calendar</a></p>
+                    }
                     @if (u.commentId) { <p class="yt-muted">💬 First comment posted. Pin it from YouTube Studio if you want it on top.</p> }
                     @if (u.thumbnailSet) { <p class="yt-muted">🖼 Custom thumbnail set.</p> }
                     @if (u.warning) { <p class="yt-warn">⚠ {{ u.warning }}</p> }
@@ -750,7 +836,7 @@ interface PublishPrefs {
               @if (reviewing()) {
                 <button type="button" class="secondary" (click)="reviewing.set(false)" [disabled]="busy()">Back to edit</button>
                 <button type="button" (click)="publish()" [disabled]="!canPublish()">
-                  {{ busy() ? 'Starting…' : route() === 'phone' ? 'Confirm & send to Drive' : privacy() === 'private' ? 'Confirm & upload as draft' : 'Confirm & upload' }}
+                  {{ busy() ? 'Starting…' : route() === 'phone' ? 'Confirm & send to Drive' : scheduled() ? 'Confirm & schedule' : privacy() === 'private' ? 'Confirm & upload as draft' : 'Confirm & upload' }}
                 </button>
               } @else if (route() === 'phone' && handoff() && sendingToDrive()) {
                 <button type="button" class="secondary" (click)="cancelHandoff()">Stop copying</button>
@@ -768,7 +854,7 @@ interface PublishPrefs {
                 <button type="button" class="secondary" (click)="closed.emit()">{{ upload()?.state === 'Completed' ? 'Close' : 'Cancel' }}</button>
                 <button type="button" (click)="review()" [disabled]="!canPublish()">
                   @if (route() === 'phone') { {{ handoff()?.state === 'Applied' ? 'Send another to phone…' : 'Review & send to phone…' }} }
-                  @else { {{ upload()?.state === 'Completed' ? 'Publish again…' : privacy() === 'private' ? 'Review & upload as draft…' : 'Review & publish…' }} }
+                  @else { {{ upload()?.state === 'Completed' ? 'Publish again…' : scheduled() ? 'Review & schedule…' : privacy() === 'private' ? 'Review & upload as draft…' : 'Review & publish…' }} }
                 </button>
               }
             </div>
@@ -778,40 +864,75 @@ interface PublishPrefs {
     </div>
   `,
   styles: [`
-    .yt-backdrop { position: fixed; inset: 0; z-index: 1000; background: rgba(2, 6, 23, 0.78);
-      display: flex; align-items: center; justify-content: center; padding: 16px; }
-    .yt-dialog { background: var(--surface, #0f172a); border: 1px solid var(--border, rgba(148, 163, 184, 0.2));
-      border-radius: 14px; width: min(1240px, 100%); height: calc(100vh - 32px); max-height: 980px;
+    .yt-backdrop {
+      position: fixed; inset: 0; z-index: 1000;
+      background: rgba(3, 6, 14, 0.82); backdrop-filter: blur(8px);
+      display: flex; align-items: center; justify-content: center; padding: 16px;
+    }
+    .yt-dialog {
+      background: linear-gradient(180deg, rgba(19, 24, 38, 0.98) 0%, rgba(11, 15, 25, 0.99) 100%);
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      border-radius: 16px; width: min(1240px, 100%); height: calc(100vh - 32px); max-height: 980px;
       display: flex; flex-direction: column; overflow: hidden;
-      color: var(--text, #e2e8f0); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); }
+      color: var(--text, #e2e8f0);
+      box-shadow: 0 28px 80px rgba(0, 0, 0, 0.72), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+    }
 
-    .yt-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem;
-      padding: .8rem 1.25rem; border-bottom: 1px solid var(--border, rgba(148, 163, 184, .2)); flex: none; }
-    .yt-head h4 { margin: 0; font-size: 1.05rem; display: flex; align-items: center; gap: .55rem; }
-    .yt-logo { display: inline-grid; place-items: center; width: 1.6rem; height: 1.1rem; border-radius: 5px;
-      background: #ff3d3d; color: #fff; font-size: .6rem; }
-    .yt-logo.music { border-radius: 50%; width: 1.25rem; height: 1.25rem; font-size: .75rem; }
-    .yt-x { background: transparent; border: 0; color: inherit; font-size: 1.1rem; cursor: pointer; }
+    .yt-head {
+      display: flex; justify-content: space-between; align-items: center; gap: 1rem;
+      padding: .9rem 1.35rem; border-bottom: 1px solid rgba(148, 163, 184, .16);
+      background: linear-gradient(180deg, rgba(255, 61, 61, 0.06), transparent); flex: none;
+    }
+    .yt-head h4 { margin: 0; font-size: 1.05rem; font-weight: 700; letter-spacing: -0.01em; display: flex; align-items: center; gap: .6rem; }
+    .yt-logo {
+      display: inline-grid; place-items: center; width: 1.75rem; height: 1.25rem; border-radius: 6px;
+      background: linear-gradient(135deg, #ff4b4b, #dc2626); color: #fff; font-size: .65rem;
+      box-shadow: 0 2px 10px rgba(239, 68, 68, 0.4);
+    }
+    .yt-logo.music { border-radius: 50%; width: 1.4rem; height: 1.4rem; font-size: .8rem; }
+    .yt-x {
+      background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(148, 163, 184, 0.16);
+      border-radius: 8px; width: 30px; height: 30px; display: inline-grid; place-items: center;
+      color: var(--muted); font-size: 0.95rem; cursor: pointer; transition: all 0.15s ease;
+    }
+    .yt-x:hover { color: #fff; background: rgba(255, 255, 255, 0.1); border-color: rgba(148, 163, 184, 0.3); }
 
-    .yt-dest { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; margin-bottom: .75rem; }
+    .yt-dest { display: grid; grid-template-columns: 1fr 1fr; gap: .65rem; margin-bottom: .85rem; }
     @media (max-width: 560px) { .yt-dest { grid-template-columns: 1fr; } }
-    .yt-dest-opt { display: flex; align-items: center; gap: .65rem; text-align: left; padding: .6rem .8rem; border-radius: 10px;
-      border: 1px solid rgba(148, 163, 184, .2); background: rgba(148, 163, 184, .06); color: inherit; cursor: pointer; }
-    .yt-dest-opt:hover:not(:disabled) { border-color: rgba(148, 163, 184, .45); box-shadow: none; }
+    .yt-dest-opt {
+      display: flex; align-items: center; gap: .75rem; text-align: left; padding: .7rem .9rem; border-radius: 12px;
+      border: 1px solid rgba(148, 163, 184, .18); background: rgba(19, 24, 38, .65); color: inherit; cursor: pointer;
+      transition: all 0.16s ease;
+    }
+    .yt-dest-opt:hover:not(:disabled) { border-color: rgba(148, 163, 184, .4); background: rgba(25, 31, 48, .85); box-shadow: none; transform: translateY(-1px); }
     .yt-dest-opt:disabled { cursor: default; opacity: .55; }
-    .yt-dest-opt.active { border-color: #ff3d3d; background: rgba(255, 61, 61, .1); opacity: 1; }
-    .yt-dest-opt span:last-child { display: grid; gap: .1rem; }
+    .yt-dest-opt.active {
+      border-color: rgba(255, 61, 61, 0.65);
+      background: linear-gradient(135deg, rgba(255, 61, 61, .14), rgba(255, 61, 61, .05));
+      box-shadow: 0 4px 16px rgba(255, 61, 61, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      opacity: 1;
+    }
+    .yt-dest-opt span:last-child { display: grid; gap: .12rem; }
     .yt-dest-opt small { color: var(--muted, #94a3b8); font-size: .76rem; font-weight: 400; }
-    .yt-dest-icon { display: inline-grid; place-items: center; flex: none; width: 2rem; height: 2rem; border-radius: 8px;
-      background: #ff3d3d; color: #fff; font-size: .8rem; }
+    .yt-dest-icon {
+      display: inline-grid; place-items: center; flex: none; width: 2.1rem; height: 2.1rem; border-radius: 9px;
+      background: linear-gradient(135deg, #ff4b4b, #dc2626); color: #fff; font-size: .85rem;
+      box-shadow: 0 2px 8px rgba(239, 68, 68, 0.35);
+    }
     .yt-dest-opt.music .yt-dest-icon { border-radius: 50%; font-size: 1rem; }
-    .yt-dest-note { margin: 0 0 .9rem; padding: .6rem .8rem; border-radius: 10px; font-size: .84rem; line-height: 1.45;
-      background: rgba(255, 61, 61, .07); border: 1px solid rgba(255, 61, 61, .2); }
+    .yt-dest-note {
+      margin: 0 0 .9rem; padding: .65rem .9rem; border-radius: 10px; font-size: .84rem; line-height: 1.45;
+      background: rgba(255, 61, 61, .07); border: 1px solid rgba(255, 61, 61, .22);
+    }
     .yt-dest-note code { font-size: .8rem; }
 
     /* Send to phone */
     .yt-route .yt-dest-icon { font-size: 1rem; }
     .yt-phone { margin-bottom: .9rem; }
+    /* Scheduled upload and calendar post */
+    .yt-schedule, .yt-plan { display: flex; flex-direction: column; gap: .25rem; margin-top: .6rem; }
+    .yt-schedule input.invalid { border-color: #f87171; }
+    .yt-plan-dot { display: inline-block; width: .65rem; height: .65rem; border-radius: 50%; background: #64748b; vertical-align: middle; margin-right: .25rem; }
     .yt-phone .yt-dest-note { margin: 0; }
     .yt-phone-row { display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap; font-size: .86rem; }
     .yt-phone-actions { display: inline-flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
@@ -824,32 +945,44 @@ interface PublishPrefs {
     .yt-steps { margin: .1rem 0 .2rem; padding-left: 1.3rem; display: grid; gap: .15rem; font-size: .85rem; }
     .yt-candidates { max-height: 180px; }
 
-    .yt-body { flex: 1 1 auto; overflow: auto; padding: 1rem 1.25rem; }
-    .yt-foot { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 1rem;
-      padding: .75rem 1.25rem; border-top: 1px solid var(--border, rgba(148, 163, 184, .2));
-      background: color-mix(in srgb, var(--surface-2, #1e293b) 55%, var(--surface, #0f172a)); }
+    .yt-body { flex: 1 1 auto; overflow: auto; padding: 1.1rem 1.35rem; }
+    .yt-foot {
+      flex: none; display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+      padding: .85rem 1.35rem; border-top: 1px solid rgba(148, 163, 184, .16);
+      background: rgba(11, 15, 25, 0.85); backdrop-filter: blur(10px);
+    }
     .yt-foot-status { min-width: 0; flex: 1 1 auto; display: grid; gap: .25rem; }
     .yt-foot-status p { margin: 0; }
     .yt-foot-status { max-height: 40vh; overflow: auto; }
-    .yt-actions { display: flex; gap: .5rem; flex: none; }
+    .yt-actions { display: flex; gap: .55rem; flex: none; }
 
     .yt-grid { display: grid; grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); gap: 1.4rem; align-items: start; }
     @media (max-width: 860px) { .yt-grid { grid-template-columns: 1fr; } }
 
     /* Left column */
-    .yt-side { display: grid; gap: .75rem; align-content: start; }
-    .yt-stage { background: #000; border-radius: 10px; overflow: hidden; display: grid; place-items: center; }
+    .yt-side { display: grid; gap: .8rem; align-content: start; }
+    .yt-stage {
+      background: #000; border-radius: 12px; overflow: hidden; display: grid; place-items: center;
+      border: 1px solid rgba(148, 163, 184, 0.18); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    }
     .yt-stage video { display: block; width: 100%; max-height: 34vh; background: #000; }
     .yt-stage.vertical video { max-height: 44vh; }
-    .yt-facts { display: flex; flex-wrap: wrap; gap: .3rem 1rem; margin: 0; font-size: .82rem; }
-    .yt-facts div { display: flex; gap: .3rem; }
+    .yt-facts { display: flex; flex-wrap: wrap; gap: .35rem .8rem; margin: 0; font-size: .8rem; }
+    .yt-facts div {
+      display: inline-flex; gap: .35rem; padding: 3px 9px; border-radius: 999px;
+      background: rgba(19, 24, 38, 0.75); border: 1px solid rgba(148, 163, 184, 0.14);
+    }
     .yt-facts dt { color: var(--muted, #94a3b8); }
-    .yt-facts dd { margin: 0; font-variant-numeric: tabular-nums; }
+    .yt-facts dd { margin: 0; font-variant-numeric: tabular-nums; font-weight: 600; }
     .yt-checks { list-style: none; padding: 0; margin: 0; display: grid; gap: .3rem; font-size: .85rem; }
     .yt-checks .err { color: #fca5a5; }
     .yt-checks .warn { color: #fcd34d; }
-    .yt-card { display: grid; gap: .5rem; padding: .75rem .85rem; border-radius: 10px;
-      background: rgba(148, 163, 184, .07); border: 1px solid rgba(148, 163, 184, .12); }
+    .yt-card {
+      display: grid; gap: .55rem; padding: .85rem .95rem; border-radius: 12px;
+      background: linear-gradient(180deg, rgba(25, 31, 48, 0.55), rgba(15, 19, 32, 0.72));
+      border: 1px solid rgba(148, 163, 184, .15);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
     .yt-card label { display: grid; gap: .25rem; font-size: .82rem; color: var(--muted, #94a3b8); margin: 0; }
     .yt-card label.inline { display: flex; align-items: center; gap: .4rem; color: inherit; font-size: .88rem; }
     .yt-card select { width: 100%; box-sizing: border-box; }
@@ -1104,6 +1237,7 @@ interface PublishPrefs {
 export class YouTubePublishDialogComponent implements OnInit {
   private readonly api = inject(YouTubePublishService);
   private readonly activity = inject(ActivityService);
+  private readonly calendar = inject(ContentCalendarService);
 
   readonly jobId = input.required<string>();
   /** A render (the default) or a release kit's visualizer. */
@@ -1217,6 +1351,12 @@ export class YouTubePublishDialogComponent implements OnInit {
   readonly tagsText = signal('');
   readonly categoryId = signal('1');
   readonly privacy = signal<YouTubePrivacy>('public');
+  /** Private now, public at {@link publishAtLocal}: sent as privacy "private" plus publishAt. */
+  readonly scheduled = signal(false);
+  /** The datetime-local value, in the viewer's time zone. Never restored from an earlier publish. */
+  readonly publishAtLocal = signal('');
+  readonly visibility = computed<Visibility>(() => (this.scheduled() ? 'scheduled' : this.privacy()));
+  readonly timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'local time';
   readonly madeForKids = signal<boolean | null>(false);
   readonly notify = signal(true);
   readonly firstComment = signal('');
@@ -1242,6 +1382,8 @@ export class YouTubePublishDialogComponent implements OnInit {
   readonly descriptionOptions = signal<string[]>([]);
   /** Extra tags the last suggestion offered, to add with a click. */
   readonly tagIdeas = signal<string[]>([]);
+  readonly pinnedCommentIdea = signal<string | null>(null);
+  readonly engagementCommentIdea = signal<string | null>(null);
   /** Ideas not already among the tags. */
   readonly tagIdeasLeft = computed(() => {
     const have = new Set(this.tags().map((t) => t.toLowerCase()));
@@ -1249,7 +1391,8 @@ export class YouTubePublishDialogComponent implements OnInit {
   });
 
   private static readonly ToneLabels: Record<string, string> = {
-    auto: '🎯 Any tone', funny: '😂 Funny', devotional: '🙏 Devotional', emotional: '🥹 Emotional',
+    auto: '🎯 Any tone', 'devotional-omkr': '🕉️ OMKR 3D Devotional (Brand Rules)',
+    funny: '😂 Funny', devotional: '🙏 Devotional', emotional: '🥹 Emotional',
     dramatic: '🎭 Dramatic', informative: '📘 Informative', energetic: '⚡ Energetic', kids: '🧸 For kids',
     motivational: '💪 Motivational', 'clickbait-free': '✅ Honest / no clickbait',
   };
@@ -1267,8 +1410,46 @@ export class YouTubePublishDialogComponent implements OnInit {
   });
   readonly categoryName = computed(() =>
     this.status()?.categories.find((c) => c.id === this.categoryId())?.name ?? this.categoryId());
-  readonly privacyLabel = computed(() =>
-    ({ public: 'Public', unlisted: 'Unlisted', private: 'Private (draft)' })[this.privacy()]);
+  readonly privacyLabel = computed(() => {
+    const at = this.scheduleDate();
+    if (this.scheduled()) return at ? `Scheduled - goes public ${formatWhen(at)} (${this.timeZone})` : 'Scheduled';
+    return ({ public: 'Public', unlisted: 'Unlisted', private: 'Private (draft)' })[this.privacy()];
+  });
+
+  // --- scheduled upload ---
+
+  readonly scheduleDate = computed(() => (this.scheduled() ? fromLocalInput(this.publishAtLocal()) : null));
+  /** Bounds for the picker; the real check is {@link scheduleProblem}, and the server checks again. */
+  readonly scheduleMin = computed(() => (this.scheduled() ? toLocalInput(new Date(Date.now() + MIN_SCHEDULE_LEAD_MS)) : ''));
+  readonly scheduleMax = computed(() => (this.scheduled() ? toLocalInput(new Date(Date.now() + MAX_SCHEDULE_AHEAD_MS)) : ''));
+  readonly scheduleProblem = computed(() => (this.scheduled() ? this.checkSchedule(this.scheduleDate(), Date.now()) : null));
+
+  // --- calendar post ---
+
+  private readonly planTopics = signal<ContentTopic[]>([]);
+  private readonly planItems = signal<ContentPlanItem[]>([]);
+  readonly planItemId = signal<string | null>(null);
+  private readonly topicsById = computed(() => new Map(this.planTopics().map((t) => [t.id, t] as const)));
+  /** Upcoming posts still waiting for a video, on the chosen channel or on no channel yet. */
+  readonly planOptions = computed(() => {
+    const channel = this.channelId();
+    const topics = this.topicsById();
+    const now = Date.now();
+    return this.planItems()
+      .filter((p) => OPEN_PLAN_STATUSES.includes(p.status) && !p.videoId && Date.parse(p.publishAt) > now)
+      .filter((p) => {
+        const postChannel = p.channelId ?? topics.get(p.topicId)?.channelId ?? null;
+        return !postChannel || postChannel === channel;
+      })
+      .sort((a, b) => Date.parse(a.publishAt) - Date.parse(b.publishAt));
+  });
+  /** Null once the post no longer fits (another channel picked), so it is never sent by mistake. */
+  readonly selectedPlan = computed(() => this.planOptions().find((p) => p.id === this.planItemId()) ?? null);
+  /** The post the finished upload was linked to, for the success message. */
+  readonly linkedPlan = computed(() => {
+    const id = this.upload()?.linkedPlanItemId;
+    return id ? this.planItems().find((p) => p.id === id) ?? null : null;
+  });
   readonly tagsLength = computed(() => youTubeTagsLength(this.tags()));
   /** Not removed from YouTube; one entry per video even if it was recorded twice. */
   readonly videosAvailable = computed(() => {
@@ -1330,6 +1511,10 @@ export class YouTubePublishDialogComponent implements OnInit {
       if (!isValidDriveFolderName(this.folderName().trim())) list.push({ field: 'folderName', code: 'drive-folder-invalid', message: 'Use a Drive folder name of letters, digits, spaces and - _ . ( ) &.' });
       // Putting the details on the phone upload needs the same permission as comments.
       if (this.selectedChannel() && !this.selectedChannel()!.canComment) list.push({ field: 'channelId', code: 'youtube-edit-scope', message: 'Reconnect the channel so AnimStudio can fill in the phone upload\'s details.' });
+    }
+    if (this.scheduled()) {
+      if (this.route() === 'phone') list.push({ field: 'publishAt', code: 'schedule-not-on-phone', message: 'Scheduling is not available for a phone upload. Pick another visibility.' });
+      else if (this.scheduleProblem()) list.push({ field: 'publishAt', code: 'schedule-invalid', message: this.scheduleProblem()! });
     }
     for (const e of this.serverErrors()) if (!list.some((x) => x.code === e.code)) list.push(e);
     return list;
@@ -1404,6 +1589,16 @@ export class YouTubePublishDialogComponent implements OnInit {
   }
 
   ngOnInit(): void {
+    // Optional: without the calendar the dialog simply offers no post to link.
+    const from = new Date();
+    const to = new Date(from.getTime() + PLAN_LOOKAHEAD_DAYS * 24 * 60 * 60 * 1000);
+    forkJoin({ topics: this.calendar.listTopics(), items: this.calendar.listItems(from, to) })
+      .pipe(catchError(() => of(null)))
+      .subscribe((r) => {
+        if (!r) return;
+        this.planTopics.set(r.topics);
+        this.planItems.set(r.items);
+      });
     // Optional: without it the pickers just offer Auto and "any tone".
     this.api.suggestOptions().pipe(catchError(() => of(null))).subscribe((o) => {
       if (!o) return;
@@ -1459,6 +1654,8 @@ export class YouTubePublishDialogComponent implements OnInit {
         } else {
           this.categoryId.set(status.categories.some((c) => c.id === prefs.categoryId) ? prefs.categoryId! : draft.categoryId);
           this.privacy.set(prefs.privacy ?? draft.privacy);
+          // The choice comes back, the time does not: an old time would be in the past or wrong.
+          if (prefs.scheduled && this.route() !== 'phone') this.setVisibility('scheduled');
           this.madeForKids.set(prefs.madeForKids ?? draft.madeForKids);
           const remembered = status.channels.find((c) => c.channelId === prefs.channelId);
           this.channelId.set(remembered?.channelId ?? status.channels[0]?.channelId ?? '');
@@ -1466,6 +1663,7 @@ export class YouTubePublishDialogComponent implements OnInit {
         // A song or a music project goes to YouTube Music, whatever was last picked for a video.
         if (this.isRelease() || draft.isMusic) this.setDestination('music');
         if (this.asDraft()) {
+          this.scheduled.set(false);
           this.privacy.set('private');
           this.notify.set(false);
         }
@@ -1563,6 +1761,11 @@ export class YouTubePublishDialogComponent implements OnInit {
         this.descriptionOptions.set(s.descriptionOptions?.length ? [s.description, ...s.descriptionOptions] : []);
         this.tagsText.set(s.tags.join(', '));
         this.tagIdeas.set(s.tagIdeas ?? []);
+        this.pinnedCommentIdea.set(s.pinnedComment ?? null);
+        this.engagementCommentIdea.set(s.engagementComment ?? null);
+        if (!this.firstComment().trim() && s.pinnedComment) {
+          this.firstComment.set(s.pinnedComment);
+        }
         this.suggestedOnce.set(true);
         const by = this.engines().find((e) => e.id === s.providerId)?.name ?? s.providerId;
         this.suggestNote.set(`Filled in by ${by}. Read it through and edit before publishing.`);
@@ -1851,17 +2054,29 @@ export class YouTubePublishDialogComponent implements OnInit {
       return;
     }
 
+    // Checked again now: the time may have slipped under the 10-minute lead while reviewing.
+    const publishAt = this.scheduled() ? this.scheduleDate() : null;
+    const late = this.scheduled() ? this.checkSchedule(publishAt, Date.now()) : null;
+    if (late) {
+      this.error.set(late);
+      this.busy.set(false);
+      return;
+    }
+
     this.api.publish(this.jobId(), this.channelId(), {
       title: this.title().trim(),
       description: this.description().trim(),
       tags: this.tags(),
       categoryId: this.categoryId(),
-      privacy: this.privacy(),
+      privacy: this.scheduled() ? 'private' : this.privacy(),
       madeForKids: this.madeForKids(),
       notifySubscribers: this.notify(),
-    }, this.relatedSelected().map((v) => v.videoId), this.firstComment().trim(), this.source(), this.thumbnailChoice()).subscribe({
+      publishAt: publishAt ? publishAt.toISOString() : null,
+    }, this.relatedSelected().map((v) => v.videoId), this.firstComment().trim(), this.source(), this.thumbnailChoice(),
+    this.selectedPlan()?.id ?? null).subscribe({
       next: (upload) => {
         this.upload.set(upload);
+        this.noteLinked(upload);
         // The dialog can be closed mid-upload; the activity panel keeps following it.
         this.activity.trackYouTubeUpload(upload);
         this.reviewing.set(false);
@@ -1882,6 +2097,8 @@ export class YouTubePublishDialogComponent implements OnInit {
   setRoute(route: YouTubeUploadRoute): void {
     if (this.uploading() || this.sendingToDrive() || this.isRelease()) return;
     this.route.set(route);
+    // The phone upload can't carry a publish time; it stays private rather than going public.
+    if (route === 'phone' && this.scheduled()) this.scheduled.set(false);
     this.error.set(null);
     this.serverErrors.set([]);
   }
@@ -2128,6 +2345,7 @@ export class YouTubePublishDialogComponent implements OnInit {
       this.api.upload(uploadId).subscribe({
         next: (u) => {
           this.upload.set(u);
+          this.noteLinked(u);
           if (u.errorCode === 'youtube-reconnect') this.markNeedsReconnect();
           if (!isUploadFinished(u)) this.poll(uploadId);
           else if (u.state === 'Completed') this.published.emit(u);
@@ -2150,6 +2368,51 @@ export class YouTubePublishDialogComponent implements OnInit {
     });
   }
 
+  setVisibility(value: Visibility): void {
+    if (value === 'scheduled') {
+      if (this.route() === 'phone') return;
+      this.privacy.set('private');
+      this.scheduled.set(true);
+      return;
+    }
+    this.scheduled.set(false);
+    this.privacy.set(value);
+  }
+
+  /** Links the upload to a calendar post; the post's time becomes the schedule (still editable). */
+  choosePlan(id: string): void {
+    const post = this.planOptions().find((p) => p.id === id) ?? null;
+    this.planItemId.set(post?.id ?? null);
+    if (!post) return;
+    this.setVisibility('scheduled');
+    this.publishAtLocal.set(toLocalInput(new Date(post.publishAt)));
+    if (!this.title().trim()) this.title.set(post.title);
+  }
+
+  planTopic(post: ContentPlanItem): ContentTopic | null {
+    return this.topicsById().get(post.topicId) ?? null;
+  }
+
+  when(value: string | Date): string {
+    const date = typeof value === 'string' ? new Date(value) : value;
+    return Number.isNaN(date.getTime()) ? '' : formatWhen(date);
+  }
+
+  private checkSchedule(at: Date | null, now: number): string | null {
+    if (!at) return 'Pick the date and time it goes public.';
+    if (at.getTime() - now < MIN_SCHEDULE_LEAD_MS) return 'Pick a time at least 10 minutes from now.';
+    if (at.getTime() - now > MAX_SCHEDULE_AHEAD_MS) return 'Pick a time at most a year ahead.';
+    return null;
+  }
+
+  /** A post that now has its video drops out of the picker. */
+  private noteLinked(upload: YouTubeUpload): void {
+    const id = upload.linkedPlanItemId;
+    if (!id || !upload.videoId) return;
+    this.planItems.update((list) => list.map((p) => (p.id === id && !p.videoId ? { ...p, videoId: upload.videoId } : p)));
+    if (this.planItemId() === id) this.planItemId.set(null);
+  }
+
   private readPrefs(): PublishPrefs {
     try {
       return JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') as PublishPrefs;
@@ -2165,6 +2428,7 @@ export class YouTubePublishDialogComponent implements OnInit {
         // Music is decided per upload, so the next ordinary video keeps the category picked for videos.
         categoryId: this.isMusic() ? this.videoCategory() : this.categoryId(),
         privacy: this.privacy(),
+        scheduled: this.scheduled(),
         madeForKids: this.madeForKids() ?? undefined,
         route: this.route(),
         muteAudio: this.muteAudio(),

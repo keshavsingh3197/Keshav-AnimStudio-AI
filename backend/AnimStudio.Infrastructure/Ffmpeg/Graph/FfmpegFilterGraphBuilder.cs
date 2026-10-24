@@ -357,7 +357,7 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
             drawsText = false;
         }
 
-        var cinematic = plan.SourceIsImage ? plan.Cinematic : null;
+        var cinematic = plan.Cinematic;
         if (cinematic is { Moves: true } && !capabilities.Supports(RenderFeature.KenBurns))
         {
             // The grade still applies; only the move is lost.
@@ -375,7 +375,9 @@ public sealed class FfmpegFilterGraphBuilder(IRenderCapabilities capabilities) :
             graph.Append(FitChain(fit, canvas with { Width = canvas.Width * k, Height = canvas.Height * k },
                 rate, plan.Encoder.PixelFormat, plan, source));
 
-            var frames = FrameCount.FromSeconds(plan.ImageDurationSeconds, rate).Value;
+            var frames = plan.SourceIsImage
+                ? FrameCount.FromSeconds(plan.ImageDurationSeconds, rate).Value
+                : Math.Max(plan.ExpectedFrames.Value, 1);
             var next = $"m{++stage}";
             graph.Append($"[{current}]{CinematicImageFilters.Motion(cinematic, canvas, frames)}")
                  .Append($",setsar=1,format={plan.Encoder.PixelFormat}[{next}];\n");

@@ -21,6 +21,8 @@ export interface HandoffAnswer {
   title: string;
   description: string;
   tags: string[];
+  pinnedComment?: string;
+  engagementComment?: string;
 }
 
 export interface HandoffParseResult {
@@ -65,11 +67,16 @@ export function buildHandoffPrompt(videos: YouTubeCheckupVideo[], settings: Hand
     '- description: 2-5 short paragraphs a viewer would find useful, at most 4500 characters. Keep what is good in the current description.',
     '  End with two or three topic hashtags; for a YouTube Short also add #shorts.',
     '- tags: 10-20 search tags, no # sign, all tags together under 450 characters.',
+    '- pinnedComment: 1-2 lines encouraging comments (e.g. "Har Har Mahadev 🙏" or "Jai Shree Shyam 🙏") and subscribing.',
+    '- engagementComment: 1 short interactive question comment for viewers.',
     `Write in ${language}. Tone: ${settings.tone || 'auto'}.`,
+    settings.tone === 'devotional-omkr'
+      ? 'Brand Rules: Mention "AnimStudio (Built by Creator)" and "OMKR 3D Devotional Animations", and include https://youtube.com/@omkr-shiv in the description.'
+      : '',
     settings.brief.trim() ? `Notes from the creator: ${settings.brief.trim()}` : '',
     '',
     'Reply with ONLY a JSON array, no other text, in exactly this shape:',
-    '[{"videoId": "…", "title": "…", "description": "…", "tags": ["…", "…"]}]',
+    '[{"videoId": "…", "title": "…", "description": "…", "tags": ["…", "…"], "pinnedComment": "…", "engagementComment": "…"}]',
     'Use the videoId values exactly as given.',
     '',
     ...list,
@@ -112,8 +119,10 @@ export function parseHandoffAnswer(text: string, knownIds: ReadonlySet<string>):
       .slice(0, MAX_TAGS);
     if (!title && !description && tags.length === 0) { skipped.push(`Item ${i + 1}: ${videoId} has no title, description or tags.`); return; }
 
+    const pinnedComment = typeof item['pinnedComment'] === 'string' ? cleanText(item['pinnedComment']).slice(0, 1000) : undefined;
+    const engagementComment = typeof item['engagementComment'] === 'string' ? cleanText(item['engagementComment']).slice(0, 1000) : undefined;
     seen.add(videoId);
-    answers.push({ videoId, title, description, tags });
+    answers.push({ videoId, title, description, tags, pinnedComment, engagementComment });
   });
 
   return { answers, skipped, error: answers.length === 0 && skipped.length === 0 ? 'No videos found in the answer.' : null };

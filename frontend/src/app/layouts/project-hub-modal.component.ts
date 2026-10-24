@@ -242,12 +242,12 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
   `,
   styles: [`
     .hub-modal {
-      width: 1000px;
+      width: 1040px;
       max-width: 95vw;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      box-shadow: 0 12px 48px rgba(0,0,0,0.8);
+      background: var(--surface);
+      border: 1px solid var(--border-bright);
+      border-radius: 16px;
+      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.06);
       display: flex;
       flex-direction: column;
       overflow: hidden;
@@ -257,27 +257,32 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 1rem 1.5rem;
+      padding: 1rem 1.4rem;
       border-bottom: 1px solid var(--border);
-      background: var(--surface);
+      background: linear-gradient(180deg, var(--surface-2) 0%, var(--surface) 100%);
     }
     .storage-bar {
       display: flex;
       align-items: center;
       gap: 8px;
       background: var(--surface-2);
-      padding: 4px 8px;
-      border-radius: 6px;
+      border: 1px solid var(--border);
+      padding: 5px 10px;
+      border-radius: 99px;
+      transition: border-color 0.15s ease;
+    }
+    .storage-bar:hover {
+      border-color: var(--brand);
     }
     .storage-track {
-      width: 60px;
+      width: 64px;
       height: 6px;
       background: var(--bg);
-      border-radius: 3px;
+      border-radius: 99px;
       overflow: hidden;
     }
-    .storage-fill { height: 100%; background: var(--brand); }
-    .storage-text { font-size: 0.65rem; color: var(--muted); white-space: nowrap; }
+    .storage-fill { height: 100%; background: linear-gradient(90deg, var(--brand-dim), var(--brand)); }
+    .storage-text { font-size: 0.72rem; font-weight: 600; color: var(--text-dim); white-space: nowrap; }
 
     .cloud-indicator {
       font-size: 0.75rem;
@@ -289,10 +294,31 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
       align-items: center;
       gap: 4px;
     }
-    .close-btn { font-size: 1.5rem; cursor: pointer; color: var(--muted); background: transparent; border: none; }
+    .close-btn {
+      width: 2rem;
+      height: 2rem;
+      padding: 0;
+      font-size: 1.25rem;
+      cursor: pointer;
+      color: var(--muted);
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .close-btn:hover {
+      color: #fff;
+      border-color: var(--border-bright);
+      background: var(--surface-3);
+    }
     .hub-body {
       display: flex;
-      height: 560px;
+      height: min(600px, 78vh);
+    }
+    @media (max-width: 820px) {
+      .hub-body {
+        flex-direction: column;
+        height: 85vh;
+      }
     }
     .hub-list-section {
       flex: 6;
@@ -303,38 +329,46 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
       background: var(--bg);
     }
     .list-controls {
-      padding: 1rem;
+      padding: 1rem 1.15rem;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 10px;
       border-bottom: 1px solid var(--border);
-      background: var(--surface);
+      background: color-mix(in srgb, var(--surface) 92%, transparent);
     }
     .search-input {
       padding: 8px 12px;
       background: var(--surface-2);
       border: 1px solid var(--border);
-      border-radius: 6px;
+      border-radius: 8px;
       color: #fff;
     }
     .filters, .sort-view-controls {
       display: flex;
-      gap: 8px;
+      gap: 6px;
       align-items: center;
+      flex-wrap: wrap;
     }
     .filters button {
-      background: transparent;
+      background: var(--surface-2);
       border: 1px solid var(--border);
       color: var(--muted);
       border-radius: 99px;
-      padding: 4px 10px;
-      font-size: 0.75rem;
+      padding: 4px 12px;
+      font-size: 0.76rem;
+      font-weight: 600;
       cursor: pointer;
+      box-shadow: none;
+    }
+    .filters button:hover {
+      color: var(--text);
+      border-color: var(--border-bright);
     }
     .filters button.active {
-      background: var(--brand);
+      background: linear-gradient(135deg, var(--brand) 0%, var(--brand-dim) 100%);
       color: #fff;
-      border-color: var(--brand);
+      border-color: rgba(255, 255, 255, 0.2);
+      box-shadow: 0 2px 8px rgba(61, 98, 230, 0.3);
     }
     .bulk-actions {
       display: flex;
@@ -343,28 +377,29 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
     }
     .bulk-actions button {
       font-size: 0.75rem;
-      padding: 4px 8px;
+      padding: 4px 9px;
     }
     .sort-select {
       background: var(--surface-2);
-      color: #fff;
+      color: var(--text);
       border: 1px solid var(--border);
-      border-radius: 4px;
-      padding: 4px 8px;
-      font-size: 0.75rem;
+      border-radius: 7px;
+      padding: 5px 10px;
+      font-size: 0.78rem;
+      width: auto;
       outline: none;
     }
     .projects-container {
       flex: 1;
       overflow-y: auto;
-      padding: 1rem;
+      padding: 1rem 1.15rem;
       display: flex;
       flex-direction: column;
       gap: 8px;
     }
     .projects-container.grid-view {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(185px, 1fr));
       gap: 12px;
       align-items: start;
     }
@@ -372,23 +407,26 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
       display: flex;
       align-items: center;
       gap: 12px;
-      padding: 8px;
-      border-radius: 8px;
-      border: 1px solid transparent;
+      padding: 9px 11px;
+      border-radius: 10px;
+      background: rgba(14, 17, 24, 0.7);
+      border: 1px solid var(--border);
       cursor: pointer;
-      transition: background 0.2s, border 0.2s;
+      transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
       position: relative;
     }
     .project-card:hover, .project-card:focus {
-      background: var(--surface);
-      border-color: var(--border);
+      background: var(--surface-2);
+      border-color: color-mix(in srgb, var(--brand) 55%, var(--border));
+      transform: translateY(-1px);
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
       outline: none;
     }
     .project-card.selected {
       border-color: var(--brand);
-      background: color-mix(in srgb, var(--brand) 10%, transparent);
+      background: color-mix(in srgb, var(--brand) 12%, var(--surface-2));
     }
-    
+
     .card-checkbox {
       position: absolute;
       top: 8px;
@@ -410,9 +448,9 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
       cursor: pointer;
       opacity: 0;
       color: var(--muted);
-      background: rgba(0,0,0,0.6);
+      background: rgba(0,0,0,0.65);
       border: none;
-      border-radius: 4px;
+      border-radius: 6px;
       padding: 4px;
     }
     .project-card:hover .card-pin, .card-pin.active {
@@ -428,9 +466,10 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
       border: 1px solid var(--border);
     }
     .thumb-preview {
-      width: 80px;
-      height: 45px;
-      border-radius: 4px;
+      width: 84px;
+      height: 48px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
       overflow: hidden;
       flex-shrink: 0;
       position: relative;
@@ -449,19 +488,21 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
     }
     .dur-badge {
       position: absolute;
-      bottom: 2px;
-      right: 2px;
-      background: rgba(0,0,0,0.8);
+      bottom: 3px;
+      right: 3px;
+      background: rgba(8, 10, 15, 0.85);
       color: #fff;
-      font-size: 0.6rem;
-      padding: 2px 4px;
-      border-radius: 2px;
+      font-size: 0.62rem;
+      font-family: ui-monospace, monospace;
+      font-weight: 700;
+      padding: 1px 5px;
+      border-radius: 4px;
     }
     .upload-thumb-btn {
       position: absolute;
       top: 4px;
-      left: 32px; /* Next to checkbox */
-      background: rgba(0,0,0,0.6);
+      left: 32px;
+      background: rgba(0,0,0,0.65);
       border-radius: 4px;
       padding: 4px;
       font-size: 0.8rem;
@@ -478,15 +519,17 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
       min-width: 0;
     }
     .p-title {
-      font-weight: 600;
+      font-weight: 700;
       font-size: 0.9rem;
+      color: var(--text);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
     .p-meta {
-      font-size: 0.7rem;
-      color: var(--muted);
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      font-family: ui-monospace, monospace;
       margin-top: 2px;
     }
     .p-time {
@@ -504,24 +547,25 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
       right: 8px;
     }
     .menu-btn {
-      padding: 4px;
-      border-radius: 4px;
+      padding: 4px 6px;
+      border-radius: 6px;
       color: var(--muted);
     }
     .project-card:hover .menu-btn { color: #fff; }
-    
+
     .context-menu {
       display: none;
       position: absolute;
       right: 0;
       top: 100%;
       background: var(--surface-2);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+      border: 1px solid var(--border-bright);
+      border-radius: 8px;
+      padding: 4px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.6);
       z-index: 100;
       flex-direction: column;
-      min-width: 140px;
+      min-width: 148px;
     }
     .project-actions:hover .context-menu {
       display: flex;
@@ -529,49 +573,66 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
     .context-menu button {
       background: transparent;
       border: none;
-      padding: 8px 12px;
+      border-radius: 5px;
+      padding: 7px 10px;
       text-align: left;
-      color: #fff;
+      justify-content: flex-start;
+      color: var(--text);
       font-size: 0.8rem;
       cursor: pointer;
+      box-shadow: none;
     }
-    .context-menu button:hover { background: var(--surface-3); }
+    .context-menu button:hover { background: var(--surface-3); transform: none; box-shadow: none; }
     .context-menu button.danger { color: var(--err); }
-    .context-menu button.danger:hover { background: rgba(255,0,0,0.1); }
-    
+    .context-menu button.danger:hover { background: rgba(244, 67, 80, 0.12); }
+
     .hub-create-section {
-      flex: 4;
+      flex: 4.3;
       min-width: 0;
-      padding: 1.5rem;
+      padding: 1.35rem;
       display: flex;
       flex-direction: column;
       background: var(--surface);
       overflow: hidden;
     }
+    .hub-create-section h3 {
+      margin: 0 0 0.85rem;
+      font-size: 1.05rem;
+      font-weight: 800;
+    }
     .creation-tabs {
       display: flex;
-      gap: 8px;
+      gap: 4px;
+      padding: 3px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 9px;
       margin-bottom: 1rem;
     }
     .creation-tabs button {
       flex: 1;
       padding: 6px;
       background: transparent;
-      border: 1px solid var(--border);
+      border: none;
       color: var(--muted);
       border-radius: 6px;
+      font-size: 0.82rem;
       cursor: pointer;
+      box-shadow: none;
     }
     .creation-tabs button.active {
-      background: var(--surface-2);
+      background: var(--surface-3);
       color: #fff;
-      border-color: var(--brand);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
     }
-    
+
     .hub-create-content {
       flex: 1;
       overflow-y: auto;
       padding-right: 4px;
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
     }
     .hub-create-content::-webkit-scrollbar { width: 4px; }
     .hub-create-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
@@ -586,29 +647,33 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
       flex-shrink: 0;
       background: linear-gradient(180deg, var(--surface-2), var(--surface-3));
       border: 1px solid var(--border);
-      color: #fff;
-      padding: 6px 12px;
+      color: var(--text);
+      padding: 5px 11px;
       border-radius: 99px;
-      font-size: 0.75rem;
+      font-size: 0.74rem;
       cursor: pointer;
       display: flex;
       align-items: center;
-      gap: 4px;
+      gap: 5px;
+      box-shadow: none;
     }
-    .ai-btn:hover { border-color: var(--brand); }
+    .ai-btn:hover { border-color: var(--brand); color: #fff; }
 
     .form-group label {
       display: block;
-      font-size: 0.75rem;
+      font-size: 0.74rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
       color: var(--muted);
       margin-bottom: 6px;
     }
     .form-group input {
       width: 100%;
-      padding: 8px;
+      padding: 8px 10px;
       background: var(--surface-2);
       border: 1px solid var(--border);
-      border-radius: 6px;
+      border-radius: 7px;
       color: #fff;
     }
     .preset-grid {
@@ -619,17 +684,22 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
     .preset-card {
       background: var(--bg);
       border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 6px 4px;
+      border-radius: 8px;
+      padding: 8px 4px;
       cursor: pointer;
       display: flex;
       flex-direction: column;
       align-items: center;
       gap: 6px;
+      transition: all 0.15s ease;
+    }
+    .preset-card:hover {
+      border-color: var(--border-bright);
     }
     .preset-card.active {
       border-color: var(--brand);
-      background: color-mix(in srgb, var(--brand) 10%, transparent);
+      background: color-mix(in srgb, var(--brand) 14%, transparent);
+      box-shadow: inset 0 0 0 1px rgba(108, 140, 255, 0.25);
     }
     .aspect-box-container {
       width: 26px;
@@ -639,32 +709,33 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
       justify-content: center;
     }
     .aspect-box {
-      background: var(--muted);
+      background: var(--brand-dim);
       max-width: 100%;
       max-height: 100%;
       width: 100%;
       border-radius: 2px;
-      border: 1px solid rgba(255,255,255,0.2);
+      border: 1px solid rgba(255,255,255,0.3);
     }
-    .preset-label { font-size: 0.66rem; text-align: center; line-height: 1.2; }
+    .preset-label { font-size: 0.68rem; font-weight: 600; text-align: center; line-height: 1.2; }
     .channel-chips { display: flex; flex-wrap: wrap; gap: 6px; }
     .channel-chip {
       display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
       padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border);
-      background: var(--bg); color: var(--text); font-size: 0.8rem; cursor: pointer;
+      background: var(--bg); color: var(--text); font-size: 0.78rem; cursor: pointer;
+      box-shadow: none;
     }
     .channel-chip small { color: var(--muted); font-size: 0.66rem; }
     .channel-chip.active { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 14%, transparent); }
-    .mark-mode { display: inline-flex; margin-top: 8px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
-    .mark-mode button { background: transparent; border: none; color: var(--muted); padding: 4px 10px; font-size: 0.75rem; cursor: pointer; }
+    .mark-mode { display: inline-flex; margin-top: 8px; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; background: var(--bg); padding: 2px; gap: 2px; }
+    .mark-mode button { background: transparent; border: none; border-radius: 5px; color: var(--muted); padding: 4px 10px; font-size: 0.75rem; cursor: pointer; box-shadow: none; }
     .mark-mode button.active { background: var(--brand); color: #fff; }
     .mark-preview { display: flex; gap: 12px; align-items: flex-start; margin-top: 10px; }
     .mark-hint { margin: 0; font-size: 0.72rem; color: var(--muted); line-height: 1.45; }
-    .mark-hint a { color: var(--brand-glow, var(--brand)); }
+    .mark-hint a { color: var(--brand-bright, var(--brand)); }
     a.storage-bar { text-decoration: none; color: inherit; }
     .storage-bar.warn .storage-fill { background: #f59e0b; }
     .storage-bar.full .storage-fill { background: #ef4444; }
-    
+
     .hub-create-footer {
       padding-top: 1rem;
       border-top: 1px solid var(--border);
@@ -673,15 +744,15 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
     .create-btn {
       width: 100%;
       padding: 10px;
-      font-size: 1rem;
-      font-weight: 600;
-      background: var(--brand);
+      font-size: 0.94rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--brand) 0%, var(--brand-dim) 100%);
       color: #fff;
-      border: none;
-      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 8px;
       cursor: pointer;
     }
-    
+
     .templates-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -690,12 +761,12 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
     .rich-template-card {
       background: var(--bg);
       border: 1px solid var(--border);
-      border-radius: 8px;
+      border-radius: 9px;
       overflow: hidden;
       cursor: pointer;
-      transition: border-color 0.2s;
+      transition: border-color 0.2s, transform 0.15s ease;
     }
-    .rich-template-card:hover { border-color: var(--brand); }
+    .rich-template-card:hover { border-color: var(--brand); transform: translateY(-2px); }
     .template-visual {
       height: 80px;
       background: var(--surface-2);
@@ -707,7 +778,7 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
     .template-hover-btn {
       position: absolute;
       inset: 0;
-      background: rgba(0,0,0,0.6);
+      background: rgba(0,0,0,0.65);
       color: #fff;
       display: flex;
       align-items: center;
@@ -718,7 +789,7 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
       transition: opacity 0.2s;
     }
     .rich-template-card:hover .template-hover-btn { opacity: 1; }
-    
+
     /* Mock Wireframes */
     .wireframe { border: 2px solid var(--muted); border-radius: 4px; }
     .wireframe.talking-head { width: 30px; height: 53px; position: relative; }
@@ -726,22 +797,24 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
     .wireframe.cinematic { width: 60px; height: 34px; background: #000; }
     .wireframe.split-screen { width: 40px; height: 53px; border-top-width: 26px; }
 
-    .template-meta { padding: 8px; }
+    .template-meta { padding: 8px 10px; }
     .template-meta h4 { margin: 0 0 4px 0; font-size: 0.8rem; }
     .template-tag {
-      font-size: 0.6rem;
+      font-size: 0.62rem;
       padding: 2px 6px;
       background: var(--surface-3);
-      color: var(--muted);
+      color: var(--text-dim);
       border-radius: 4px;
       display: inline-block;
       margin-right: 4px;
     }
     .empty-state {
-      padding: 2rem;
+      padding: 2.5rem 1.5rem;
       text-align: center;
       color: var(--muted);
-      font-size: 0.9rem;
+      font-size: 0.88rem;
+      border: 1px dashed var(--border-bright);
+      border-radius: 10px;
     }
   `]
 })
@@ -949,23 +1022,65 @@ export class ProjectHubModalComponent {
   }
 
   importProject() {
-    this.status.notify(['Importing from XML/ZIP is not yet implemented.']);
+    this.status.run(
+      this.api.createProject({
+        name: 'Imported Bundle Project',
+        width: 1920,
+        height: 1080,
+        fps: 30,
+        distributionIntent: 'Public',
+        brandChannelId: this.selectedChannelId(),
+      }),
+      (project) => {
+        this.close();
+        this.router.navigate(['/projects', project.id, 'bundle']);
+      },
+    );
   }
 
   versionHistory(p: Project) {
-    this.status.notify(['Version history for ' + p.name + ' is stored via auto-saves. (Mock)']);
-  }
-  
-  exportProject(p: Project) {
-    this.status.notify(['Exporting ' + p.name + ' data package...']);
+    this.close();
+    this.router.navigate(['/projects', p.id, 'videos']);
   }
 
-  bulkExport() { this.status.notify(['Bulk export started for ' + this.selectedIds().size + ' projects.']); }
-  bulkArchive() { this.status.notify(['Archived ' + this.selectedIds().size + ' projects.']); this.selectedIds.set(new Set()); }
-  bulkDelete() { 
-    if(confirm('Delete ' + this.selectedIds().size + ' projects?')) {
-      this.status.notify(['Deleted ' + this.selectedIds().size + ' projects.']); 
-      this.selectedIds.set(new Set());
+  exportProject(p: Project) {
+    const url = this.api.bundleExportUrl(p.id, false);
+    window.open(url, '_blank');
+    this.status.notify([`Downloading bundle for "${p.name}"...`]);
+  }
+
+  bulkExport() {
+    for (const id of this.selectedIds()) {
+      window.open(this.api.bundleExportUrl(id, false), '_blank');
+    }
+    this.status.notify([`Exporting ${this.selectedIds().size} project bundle(s)...`]);
+  }
+
+  bulkArchive() {
+    this.status.notify([`Cleared selection (${this.selectedIds().size} projects).`]);
+    this.selectedIds.set(new Set());
+  }
+
+  bulkDelete() {
+    const ids = [...this.selectedIds()];
+    if (ids.length === 0) return;
+    if (confirm(`Delete ${ids.length} selected project(s)? This cannot be undone.`)) {
+      let remaining = ids.length;
+      for (const id of ids) {
+        this.api.deleteProject(id).subscribe({
+          next: () => {
+            this.projects.update(list => list.filter(x => x.id !== id));
+            remaining--;
+            if (remaining === 0) {
+              this.selectedIds.set(new Set());
+              this.status.notify([`Deleted ${ids.length} project(s).`]);
+            }
+          },
+          error: () => {
+            remaining--;
+          },
+        });
+      }
     }
   }
 
@@ -1053,20 +1168,12 @@ export class ProjectHubModalComponent {
   }
 
   duplicateProject(p: Project) {
-    this.status.notify(['Duplicating project...']);
-    const intent = (p.distributionIntent && p.distributionIntent !== 'Social Media') ? p.distributionIntent : 'Public';
+    this.status.notify(['Cloning project, scenes, characters, and assets...']);
     this.status.run(
-      this.api.createProject({
-        name: p.name + ' (Copy)',
-        width: p.width,
-        height: p.height,
-        fps: p.fps,
-        distributionIntent: intent,
-        brandChannelId: p.brandChannelId ?? null,
-      }),
+      this.api.duplicateProject(p.id),
       (cloned) => {
         this.projects.update(list => [cloned, ...list]);
-        this.status.notify(['Project duplicated.']);
+        this.status.notify([`Duplicated "${p.name}" with all scenes & cast.`]);
       }
     );
   }

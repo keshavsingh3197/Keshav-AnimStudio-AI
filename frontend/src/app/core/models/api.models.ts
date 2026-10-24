@@ -534,6 +534,8 @@ export interface RenderJob {
   batchName?: string | null;
   /** 0-based place in the batch. */
   batchIndex?: number | null;
+  /** The style an auto short was cut in; null on renders from before styles were recorded. */
+  batchStyle?: string | null;
 }
 
 /** Downloadable forms of an export's timeline: a YouTube description draft, CSV or JSON. */
@@ -808,6 +810,19 @@ export interface TimelineItemTransform {
   vignette?: boolean;
   grain?: boolean;
   cinemaBars?: boolean;
+  /** Image/video overlays: a backdrop colour keyed out (green screen). Mirrors ChromaKeySpec; export only. */
+  chromaKey?: TimelineChromaKey;
+}
+
+/** A colour made transparent on an overlay. The server clamps every value before ffmpeg sees it. */
+export interface TimelineChromaKey {
+  enabled: boolean;
+  /** #rrggbb */
+  color: string;
+  /** 0.01-1: how far from the colour a pixel may be and still go. */
+  similarity: number;
+  /** 0-1: how softly the edge fades. */
+  blend: number;
 }
 
 /** Camera moves over a still. Mirrors ImageMotion on the server (CinematicImage.cs). */
@@ -878,6 +893,8 @@ export interface TimelineItemTextStyle {
   fontSize: number;
   /** #rrggbb */
   color: string;
+  /** Optional #rrggbb accent colour for inline [accent] spans (e.g. comparative letter highlights). */
+  accentColor?: string;
   /** Legacy CSS plate colour; superseded by boxStyle/boxColor/boxOpacity when those are set. */
   backgroundColor: string;
   /** 'custom' places the centre of the text at x/y. */
@@ -964,12 +981,15 @@ export interface TrackControlState {
   color: string;
 }
 
-/** Pace and finish of a batch of auto shorts; Mixed lets each short pick its own. */
-export const AUTO_SHORT_STYLES = ['Mixed', 'Energetic', 'Cinematic', 'Calm'] as const;
+/**
+ * Pace and finish of a batch of auto shorts. Auto picks styles that suit the batch; Mixed
+ * deals every style out so no two shorts look alike.
+ */
+export const AUTO_SHORT_STYLES = ['Auto', 'Mixed', 'DirectResponse', 'Explainer', 'Viral', 'Energetic', 'Hype', 'Cinematic', 'Dramatic', 'Calm', 'Dreamy', 'Retro'] as const;
 export type AutoShortStyle = (typeof AUTO_SHORT_STYLES)[number];
 
 /** How the batch's lines go on screen. */
-export const AUTO_SHORT_TEXT_MODES = ['None', 'Hook', 'PerShot', 'HookAndPerShot'] as const;
+export const AUTO_SHORT_TEXT_MODES = ['None', 'Hook', 'PerShot', 'HookAndPerShot', 'WordPop', 'HookAndWordPop'] as const;
 export type AutoShortTextMode = (typeof AUTO_SHORT_TEXT_MODES)[number];
 
 /**
@@ -979,6 +999,10 @@ export type AutoShortTextMode = (typeof AUTO_SHORT_TEXT_MODES)[number];
  */
 export const AUTO_SHORT_LAYOUTS = ['Spread', 'AllInEach', 'FitLength'] as const;
 export type AutoShortLayout = (typeof AUTO_SHORT_LAYOUTS)[number];
+
+/** Where each short's videos go: anywhere, one to open on, all of them before the pictures, or in exact sequence order. */
+export const AUTO_SHORT_ORDERS = ['InOrder', 'VideosFirst', 'VideoFirst', 'Shuffle'] as const;
+export type AutoShortOrder = (typeof AUTO_SHORT_ORDERS)[number];
 
 /** Several different shorts cut automatically from the chosen clips, pictures and lines. */
 export interface AutoShortsBody {
@@ -994,6 +1018,9 @@ export interface AutoShortsBody {
   imageSeconds: number;
   /** Longest stretch of one video (Spread and AllInEach); null plays each in full. */
   maxClipSeconds: number | null;
+  /** Every short runs exactly targetSeconds with Spread and AllInEach too; FitLength always does. */
+  exactLength?: boolean;
+  order?: AutoShortOrder;
   style: AutoShortStyle;
   textMode: AutoShortTextMode;
   transitions: boolean;
@@ -1030,7 +1057,12 @@ export interface AutoShortPreviewItem {
   seconds: number;
   videos: number;
   images: number;
+  /** The files it uses, in running order. */
   assetIds: string[];
+  /** The style this short was cut in (never Auto or Mixed). */
+  style?: AutoShortStyle | null;
+  /** Shots that repeat a file already used earlier in the batch. */
+  repeats?: number;
 }
 
 export interface AutoShortsPreview {
@@ -1101,6 +1133,7 @@ export const EASINGS = ['Linear', 'EaseInOut'] as const;
 export const TRANSITIONS = [
   'None', 'Fade', 'Dissolve', 'WipeLeft', 'WipeRight',
   'SlideLeft', 'SlideRight', 'CircleOpen', 'CircleClose',
+  'SlideUp', 'SlideDown', 'ZoomIn',
 ] as const;
 
 export const ANCHORS = [
@@ -1604,3 +1637,34 @@ export const EDIT_FORMATS: { value: EditFormat; label: string; ratio: string; wi
 
 /** Suggested categories; any text is allowed. */
 export const EDIT_CATEGORY_SUGGESTIONS = ['Full video', 'Short', 'Teaser', 'Highlight', 'Trailer', 'Reel', 'Clip'];
+
+export interface BatchSceneStyleBody {
+  backgroundEffect?: string;
+  randomizeMotion?: boolean;
+  intensity?: number;
+  easing?: string;
+  transition?: string;
+  transitionDurationSeconds?: number;
+  durationSeconds?: number;
+}
+
+export interface ServerLogFileItem {
+  name: string;
+  sizeBytes: number;
+  updatedAtUtc: string;
+}
+
+export interface ServerLogEntry {
+  timestamp: string;
+  level: string;
+  category: string;
+  message: string;
+  raw: string;
+}
+
+export interface ServerLogsResponse {
+  files: ServerLogFileItem[];
+  activeFile: string | null;
+  entries: ServerLogEntry[];
+}
+

@@ -1,7 +1,7 @@
 namespace AnimStudio.Application.Rendering;
 
 /// <summary>What a celebration overlay rains down (or sends up) over the video.</summary>
-public enum CelebrationKind { Confetti, Cannon, Flowers, Petals, Hearts, Sparkles, Snow, Balloons }
+public enum CelebrationKind { Confetti, Cannon, Flowers, Petals, Hearts, Sparkles, Snow, Balloons, Cosmic }
 
 /// <summary>Once, like YouTube's celebration shower, or falling for as long as the item lasts.</summary>
 public enum CelebrationMode { Burst, Rain }
@@ -58,6 +58,7 @@ public static class CelebrationPlanner
     private static readonly string[] HeartColors = ["ff4d6d", "ff006e", "ff8fab", "e5383b"];
     private static readonly string[] SparkleColors = ["fff3b0", "ffd166", "ffffff", "ffe8a3"];
     private static readonly string[] BalloonColors = ["ef476f", "ffd166", "06d6a0", "118ab2", "9b5de5", "f78c6b"];
+    private static readonly string[] CosmicColors = ["38bdf8", "818cf8", "c084fc", "bae6fd", "f8fafc", "facc15"];
 
     /// <summary>The kind a client names, or null when it isn't one of ours.</summary>
     public static CelebrationKind? ParseKind(string? value) =>
@@ -65,7 +66,7 @@ public static class CelebrationPlanner
 
     /// <summary>A burst for the one-off showers, rain for weather.</summary>
     public static CelebrationMode DefaultMode(CelebrationKind kind) =>
-        kind is CelebrationKind.Snow or CelebrationKind.Sparkles ? CelebrationMode.Rain : CelebrationMode.Burst;
+        kind is CelebrationKind.Snow or CelebrationKind.Sparkles or CelebrationKind.Cosmic ? CelebrationMode.Rain : CelebrationMode.Burst;
 
     /// <summary>Clamps everything the client sent; an unknown kind is null and draws nothing.</summary>
     public static CelebrationSettings? Normalize(string? kind, string? mode, int? density, double? size, double? speed, string seedSource)
@@ -165,6 +166,15 @@ public static class CelebrationPlanner
                     list.Add(new(ParticleShape.Balloon, Pick(BalloonColors), w, Px(w * 1.35), ParticleMotion.Rise,
                         Between(0.05, 0.95), Between(0, 0.4), delay, Between(0.14, 0.24) * s.Speed, Between(0.01, 0.025), Between(0.2, 0.45), phase,
                         Between(-12, 12), 0, 0));
+                    break;
+                }
+                case CelebrationKind.Cosmic:
+                {
+                    var star = i % 2 == 0;
+                    var w = Px(unit * (star ? Between(1.8, 3.6) : Between(1.2, 2.8)));
+                    list.Add(new(star ? ParticleShape.Star : ParticleShape.Flake, Pick(CosmicColors), w, w, ParticleMotion.Twinkle,
+                        R(), Between(0.03, 0.97), delay, Between(0.015, 0.05) * s.Speed, Between(0.006, 0.018), Between(0.18, 0.45), phase,
+                        star ? Between(15, 55) * Sign(R()) : 0, 0, Between(0.45, 1.35) * s.Speed));
                     break;
                 }
             }

@@ -1,0 +1,361 @@
+<section class="vd">
+  <header class="vd-head">
+    <p class="vd-eyebrow">
+      <a routerLink="/youtube" class="vd-back">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+        YouTube
+      </a>
+      <span class="vd-sep">/</span>
+      <span>Video details from IDs</span>
+    </p>
+    <h1>Video details from IDs</h1>
+    <p class="vd-sub">
+      Paste video IDs or links - yours or anyone's. Each video is read in full (captions, the music it uses, chapters)
+      and gets fresh titles, a description with chapters and music credits, tags, hashtags and a pinned comment.
+      Nothing changes on YouTube unless you apply it to one of your own videos.
+    </p>
+  </header>
+
+  <!-- Input -->
+  <div class="vd-card vd-input-card">
+    <label for="vd-ids" class="vd-label">
+      Video IDs or links <span class="vd-hint">(up to {{ maxVideos }} - one per line, or separated by spaces or commas)</span>
+    </label>
+    <textarea id="vd-ids" class="vd-textarea" rows="5" spellcheck="false" maxlength="60000"
+              placeholder="dQw4w9WgXcQ&#10;https://youtu.be/...&#10;https://youtube.com/shorts/...&#10;https://studio.youtube.com/video/.../edit"
+              [ngModel]="input()" (ngModelChange)="input.set($event)" [disabled]="running()"></textarea>
+    <p class="vd-parse-line">
+      {{ parsed().videos.length }} video{{ parsed().videos.length === 1 ? '' : 's' }} found
+      @if (parsed().videos.length > maxVideos) { <span class="vd-warn-text"> - only the first {{ maxVideos }} will be read</span> }
+      @if (parsed().rejected.length > 0) { <span class="vd-warn-text"> · {{ parsed().rejected.length }} not recognised</span> }
+    </p>
+
+    <div class="vd-options">
+      <label class="vd-field">
+        <span class="vd-label">Your channel <span class="vd-hint">(optional)</span></span>
+        <select class="vd-select" [ngModel]="channelId()" (ngModelChange)="channelId.set($event)" [disabled]="running()">
+          <option value="">Auto - detect from each video</option>
+          @for (c of channels(); track c.channelId) {
+            <option [value]="c.channelId">{{ c.channelTitle }}</option>
+          }
+        </select>
+      </label>
+      <label class="vd-field">
+        <span class="vd-label">Tone</span>
+        <select class="vd-select" [ngModel]="tone()" (ngModelChange)="tone.set($event)" [disabled]="running()">
+          @for (t of tones(); track t) {
+            <option [value]="t">{{ toneLabel(t) }}</option>
+          }
+        </select>
+      </label>
+      <label class="vd-field">
+        <span class="vd-label">Language</span>
+        <select class="vd-select" [ngModel]="language()" (ngModelChange)="language.set($event)" [disabled]="running()">
+          <option value="en">English</option>
+          <option value="hi">Hindi</option>
+        </select>
+      </label>
+      <label class="vd-field">
+        <span class="vd-label">AI engine</span>
+        <select class="vd-select" [ngModel]="engine()" (ngModelChange)="engine.set($event)" [disabled]="running()">
+          <option value="">Auto</option>
+          @for (e of engines(); track e.id) {
+            <option [value]="e.id">{{ e.name }}</option>
+          }
+        </select>
+      </label>
+      <label class="vd-field vd-field-wide">
+        <span class="vd-label">Notes for the AI <span class="vd-hint">(optional)</span></span>
+        <input type="text" class="vd-input" maxlength="1000" placeholder="e.g. mention our new series, keep it short"
+               [ngModel]="brief()" (ngModelChange)="brief.set($event)" [disabled]="running()" />
+      </label>
+    </div>
+
+    <div class="vd-actions">
+      @if (running()) {
+        <button type="button" class="vd-btn vd-btn-ghost" (click)="cancel()">Stop</button>
+      } @else {
+        <button type="button" class="vd-btn vd-btn-primary" (click)="run()" [disabled]="parsed().videos.length === 0">
+          Fetch details &amp; write SEO
+        </button>
+      }
+      @if (items().length > 0 && !running()) {
+        <button type="button" class="vd-btn vd-btn-ghost" (click)="clear()">Clear results</button>
+      }
+      @if (doneCount() > 0) {
+        <span class="vd-actions-spacer"></span>
+        <button type="button" class="vd-btn vd-btn-outline" (click)="exportCsv()">Export CSV</button>
+        <button type="button" class="vd-btn vd-btn-outline" (click)="exportJson()">Export JSON</button>
+      }
+    </div>
+  </div>
+
+  @if (notice(); as n) {
+    <div class="vd-alert" role="status">
+      <span>{{ n }}</span>
+      <button type="button" class="vd-alert-x" (click)="notice.set(null)" aria-label="Dismiss">✕</button>
+    </div>
+  }
+
+  @if (items().length > 0) {
+    <div class="vd-progress" role="progressbar" [attr.aria-valuenow]="progress()" aria-valuemin="0" aria-valuemax="100">
+      <div class="vd-progress-bar" [style.width.%]="progress()"></div>
+      <span class="vd-progress-text">{{ finishedCount() }} of {{ items().length }} read · {{ doneCount() }} ready</span>
+    </div>
+  }
+
+  <!-- One card per video -->
+  <div class="vd-list">
+    @for (item of items(); track item.videoId) {
+      <article class="vd-card vd-video" [class.is-error]="item.status === 'error'">
+        @if (item.result; as r) {
+          <header class="vd-video-head">
+            <a [href]="r.videoUrl" target="_blank" rel="noopener noreferrer" class="vd-thumb" [class.is-short]="r.isShort">
+              <img [src]="r.thumbnailUrl" alt="" loading="lazy" referrerpolicy="no-referrer" />
+              @if (r.durationSeconds) { <span class="vd-dur">{{ clock(r.durationSeconds) }}</span> }
+            </a>
+            <div class="vd-video-meta">
+              <h2 class="vd-video-title">{{ r.title }}</h2>
+              <p class="vd-video-sub">
+                @if (r.channelTitle) { <span>{{ r.channelTitle }}</span> }
+                @if (r.publishedAt) {
+                  <span>Published {{ r.publishedAt | date: 'mediumDate' }}</span>
+                } @else if (r.publishedText) {
+                  <span>{{ r.publishedText }}</span>
+                }
+                @if (r.isShort) { <span class="vd-pill vd-pill-short">Short</span> }
+                @if (r.privacy) { <span class="vd-pill" [class.vd-pill-public]="r.privacy === 'public'">{{ r.privacy }}</span> }
+                @if (r.scheduledAt) {
+                  <span class="vd-pill vd-pill-scheduled" [title]="'Goes public by itself on ' + (r.scheduledAt | date: 'full')">
+                    ⏰ Scheduled · goes public {{ r.scheduledAt | date: 'MMM d, h:mm a' }}
+                  </span>
+                }
+                @if (r.ownerChannelId) { <span class="vd-pill vd-pill-own">Your channel</span> }
+              </p>
+              <p class="vd-video-links">
+                <a [href]="r.videoUrl" target="_blank" rel="noopener noreferrer">Watch ↗</a>
+                @if (r.studioUrl) { <a [href]="r.studioUrl" target="_blank" rel="noopener noreferrer">Studio ↗</a> }
+                @if (r.ownerChannelId) {
+                  <a routerLink="/youtube/checkup" [queryParams]="{ channel: r.ownerChannelId, video: r.videoId }">Open in checkup</a>
+                }
+                <span class="vd-engine">Written by {{ r.suggestion.providerId }}</span>
+              </p>
+            </div>
+            <button type="button" class="vd-btn vd-btn-primary vd-copy-all" (click)="copyAll(item)">
+              {{ copied() === 'all-' + item.videoId ? '✓ Copied' : 'Copy all' }}
+            </button>
+          </header>
+
+          @if (r.warnings.length > 0) {
+            <ul class="vd-warnings">
+              @for (w of r.warnings; track w) { <li>{{ w }}</li> }
+            </ul>
+          }
+
+          <div class="vd-grid">
+            <!-- Generated details -->
+            <section class="vd-section vd-generated" aria-label="Suggested details">
+              <div class="vd-field-head">
+                <span class="vd-label">Title <span class="vd-count" [class.vd-over]="item.title.length > 100">{{ item.title.length }}/100</span></span>
+                <button type="button" class="vd-chip" (click)="copy('title-' + item.videoId, item.title)">{{ copied() === 'title-' + item.videoId ? '✓ Copied' : 'Copy' }}</button>
+              </div>
+              <input type="text" class="vd-input" [ngModel]="item.title" (ngModelChange)="patch(item.videoId, { title: $event, applied: false })" />
+              @if (titleOptions(item).length > 0) {
+                <div class="vd-options-list">
+                  @for (t of titleOptions(item); track t) {
+                    <button type="button" class="vd-option" (click)="useTitle(item, t)" title="Use this title">{{ t }}</button>
+                  }
+                </div>
+              }
+
+              <div class="vd-field-head">
+                <span class="vd-label">Description <span class="vd-count" [class.vd-over]="descriptionBytes(item.description) > maxDescriptionBytes">{{ descriptionBytes(item.description) }}/{{ maxDescriptionBytes }} bytes</span></span>
+                <button type="button" class="vd-chip" (click)="copy('desc-' + item.videoId, item.description)">{{ copied() === 'desc-' + item.videoId ? '✓ Copied' : 'Copy' }}</button>
+              </div>
+              <textarea class="vd-textarea vd-desc" rows="10" [ngModel]="item.description" (ngModelChange)="patch(item.videoId, { description: $event, applied: false })"></textarea>
+              @if (descriptionOptions(item).length > 0) {
+                <details class="vd-details">
+                  <summary>Other description styles ({{ descriptionOptions(item).length }})</summary>
+                  @for (d of descriptionOptions(item); track $index) {
+                    <div class="vd-alt">
+                      <pre class="vd-pre">{{ d }}</pre>
+                      <button type="button" class="vd-chip" (click)="useDescription(item, d)">Use this</button>
+                    </div>
+                  }
+                </details>
+              }
+
+              <div class="vd-field-head">
+                <span class="vd-label">Tags <span class="vd-count" [class.vd-over]="tagsLength(item.tagsText) > maxTags">{{ tagsLength(item.tagsText) }}/{{ maxTags }} characters</span></span>
+                <button type="button" class="vd-chip" (click)="copy('tags-' + item.videoId, item.tagsText)">{{ copied() === 'tags-' + item.videoId ? '✓ Copied' : 'Copy' }}</button>
+              </div>
+              <textarea class="vd-textarea" rows="3" [ngModel]="item.tagsText" (ngModelChange)="patch(item.videoId, { tagsText: $event, applied: false })"></textarea>
+              @if (tagIdeas(item).length > 0) {
+                <div class="vd-tag-ideas">
+                  <span class="vd-hint">More ideas:</span>
+                  @for (t of tagIdeas(item); track t) {
+                    <button type="button" class="vd-tag vd-tag-add" (click)="addTag(item, t)">+ {{ t }}</button>
+                  }
+                </div>
+              }
+
+              @if (r.hashtags.length > 0) {
+                <div class="vd-field-head">
+                  <span class="vd-label">Hashtags</span>
+                  <button type="button" class="vd-chip" (click)="copy('hash-' + item.videoId, hashtagsText(item))">{{ copied() === 'hash-' + item.videoId ? '✓ Copied' : 'Copy' }}</button>
+                </div>
+                <div class="vd-tags">
+                  @for (h of r.hashtags; track h) { <span class="vd-tag">{{ h }}</span> }
+                </div>
+              }
+
+              <div class="vd-field-head">
+                <span class="vd-label">Pinned comment</span>
+                <button type="button" class="vd-chip" (click)="copy('pin-' + item.videoId, item.pinned)">{{ copied() === 'pin-' + item.videoId ? '✓ Copied' : 'Copy' }}</button>
+              </div>
+              <textarea class="vd-textarea" rows="3" [ngModel]="item.pinned" (ngModelChange)="patch(item.videoId, { pinned: $event })"></textarea>
+              @if (r.suggestion.engagementComment; as engage) {
+                <p class="vd-engage">
+                  <span class="vd-hint">Engagement question:</span> {{ engage }}
+                  <button type="button" class="vd-chip" (click)="copy('eng-' + item.videoId, engage)">{{ copied() === 'eng-' + item.videoId ? '✓' : 'Copy' }}</button>
+                </p>
+              }
+
+              @if (r.ownerChannelId) {
+                <div class="vd-apply">
+                  @if (r.madeForKids === null) {
+                    <label class="vd-field">
+                      <span class="vd-label">Audience <span class="vd-hint">(never declared on this video)</span></span>
+                      <select class="vd-select" [ngModel]="item.madeForKids" (ngModelChange)="patch(item.videoId, { madeForKids: $event })">
+                        <option [ngValue]="null" disabled>Choose…</option>
+                        <option [ngValue]="false">Not made for kids</option>
+                        <option [ngValue]="true">Made for kids</option>
+                      </select>
+                    </label>
+                  }
+                  @if (applyProblem(item); as problem) {
+                    <p class="vd-warn-text">{{ problem }}</p>
+                  }
+                  @if (item.confirming) {
+                    <p class="vd-confirm">This replaces the title, description and tags of this video on YouTube. Apply?</p>
+                    <div class="vd-actions">
+                      <button type="button" class="vd-btn vd-btn-primary" (click)="applyToYouTube(item)">Yes, apply</button>
+                      <button type="button" class="vd-btn vd-btn-ghost" (click)="patch(item.videoId, { confirming: false })">Cancel</button>
+                    </div>
+                  } @else {
+                    <div class="vd-actions">
+                      <button type="button" class="vd-btn vd-btn-primary" (click)="patch(item.videoId, { confirming: true })"
+                              [disabled]="item.applying || !!applyProblem(item)">
+                        {{ item.applying ? 'Applying…' : item.applied ? '✓ Applied - apply again' : 'Apply to YouTube' }}
+                      </button>
+                      <a class="vd-btn vd-btn-outline" routerLink="/youtube/checkup" [queryParams]="{ channel: r.ownerChannelId, video: r.videoId }">
+                        Open in checkup
+                      </a>
+                    </div>
+                  }
+                  @if (item.applyError; as e) { <p class="vd-error-text" role="alert">{{ e }}</p> }
+                </div>
+              }
+            </section>
+
+            <!-- What was found -->
+            <section class="vd-section vd-found" aria-label="What was found">
+              <div class="vd-block">
+                <div class="vd-field-head">
+                  <span class="vd-label">🎵 Music</span>
+                  @if (r.songs.length > 0) {
+                    <button type="button" class="vd-chip" (click)="copy('songs-' + item.videoId, songsText(item))">{{ copied() === 'songs-' + item.videoId ? '✓ Copied' : 'Copy' }}</button>
+                  }
+                </div>
+                @if (r.songs.length > 0) {
+                  <ul class="vd-songs">
+                    @for (s of r.songs; track $index) {
+                      <li>
+                        <strong>{{ s.title }}</strong>
+                        @if (s.artist) { <span> - {{ s.artist }}</span> }
+                        @if (s.album) { <span class="vd-muted"> ({{ s.album }})</span> }
+                        @if (s.credits) { <span class="vd-muted vd-credits">{{ s.credits }}</span> }
+                        <span class="vd-source" [class.vd-source-card]="s.source === 'youtube-music-card'">{{ sourceLabel(s.source) }}</span>
+                      </li>
+                    }
+                  </ul>
+                } @else {
+                  <p class="vd-muted">No music detected. YouTube shows no Music section for it and the description credits none.</p>
+                }
+                @if (r.licensedContent === true) {
+                  <p class="vd-muted">YouTube marks this video as having licensed (claimed) content.</p>
+                }
+              </div>
+
+              <div class="vd-block">
+                <div class="vd-field-head">
+                  <span class="vd-label">⏱️ Chapters <span class="vd-hint">(from caption timing)</span></span>
+                  @if (r.chapters.length > 0) {
+                    <button type="button" class="vd-chip" (click)="copy('ch-' + item.videoId, chaptersText(item))">{{ copied() === 'ch-' + item.videoId ? '✓ Copied' : 'Copy' }}</button>
+                  }
+                </div>
+                @if (r.chapters.length > 0) {
+                  <ol class="vd-chapters">
+                    @for (c of r.chapters; track c.startSeconds) {
+                      <li><span class="vd-stamp">{{ c.stamp }}</span> {{ c.title }}</li>
+                    }
+                  </ol>
+                } @else {
+                  <p class="vd-muted">None - chapters need captions with timing and a video of a minute or more.</p>
+                }
+              </div>
+
+              <details class="vd-details vd-block">
+                <summary>
+                  📜 Captions
+                  @if (r.captions.available) {
+                    <span class="vd-hint">
+                      {{ r.captions.language || 'unknown language' }}
+                      · {{ r.captions.isAuto === true ? 'auto-generated' : r.captions.isAuto === false ? 'uploaded by the creator' : 'type unknown' }}
+                      · {{ r.captions.lineCount }} lines
+                    </span>
+                  } @else {
+                    <span class="vd-hint">none found</span>
+                  }
+                </summary>
+                @if (r.captions.available) {
+                  <button type="button" class="vd-chip" (click)="copy('cap-' + item.videoId, r.captions.text)">{{ copied() === 'cap-' + item.videoId ? '✓ Copied' : 'Copy captions' }}</button>
+                  <pre class="vd-pre vd-captions">{{ r.captions.text }}</pre>
+                }
+              </details>
+
+              <details class="vd-details vd-block">
+                <summary>Current details on YouTube</summary>
+                <div class="vd-field-head">
+                  <span class="vd-label">Description</span>
+                  <button type="button" class="vd-chip" (click)="copy('cur-' + item.videoId, r.description)">{{ copied() === 'cur-' + item.videoId ? '✓ Copied' : 'Copy' }}</button>
+                </div>
+                <pre class="vd-pre">{{ r.description || '(none)' }}</pre>
+                <span class="vd-label">Tags</span>
+                <div class="vd-tags">
+                  @for (t of r.tags; track $index) { <span class="vd-tag">{{ t }}</span> } @empty { <span class="vd-muted">(none)</span> }
+                </div>
+              </details>
+            </section>
+          </div>
+        } @else {
+          <div class="vd-pending">
+            <img class="vd-pending-thumb" [src]="'https://i.ytimg.com/vi/' + item.videoId + '/mqdefault.jpg'" alt="" loading="lazy" referrerpolicy="no-referrer" />
+            <div class="vd-pending-text">
+              <strong>{{ item.videoId }}</strong>
+              @switch (item.status) {
+                @case ('queued') { <span class="vd-muted">Waiting…</span> }
+                @case ('running') { <span class="vd-running"><span class="vd-spin"></span> Reading captions, music and writing details…</span> }
+                @case ('cancelled') { <span class="vd-muted">Stopped.</span> }
+                @case ('error') { <span class="vd-error-text" role="alert">{{ item.error }}</span> }
+              }
+            </div>
+            @if (item.status === 'error' || item.status === 'cancelled') {
+              <button type="button" class="vd-btn vd-btn-outline" (click)="retry(item)">Try again</button>
+            }
+          </div>
+        }
+      </article>
+    }
+  </div>
+</section>

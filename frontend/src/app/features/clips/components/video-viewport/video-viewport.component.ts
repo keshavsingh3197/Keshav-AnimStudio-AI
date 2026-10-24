@@ -4,7 +4,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MonitorEraseRegion, MonitorFrameMedia, MonitorTextBlock, StudioStateService } from '../../services/studio-state.service';
-import { FrameImage, TEXT_REFERENCE_SHORT_SIDE, hexToRgba } from '../../services/text-overlay-layout';
+import { FrameImage, TEXT_REFERENCE_SHORT_SIDE, hexToRgba, parseAccentRuns } from '../../services/text-overlay-layout';
 import { erasePatchOrigin } from '../../services/erase-geometry';
 import { watermarkMarkStyle } from '../../../../shared/watermark-preview.component';
 import { ERASE_DEFAULT_STRENGTH, TimelineItemTransform } from '../../../../core/models/api.models';
@@ -29,6 +29,7 @@ function isRunning(el: HTMLMediaElement): boolean {
 })
 export class VideoViewportComponent implements OnInit, OnDestroy {
   readonly state = inject(StudioStateService);
+  readonly accentRuns = parseAccentRuns;
 
   /** Every celebration on a visible FX1; the layer works out which are playing each frame. */
   readonly celebrationCues = computed<CelebrationCue[]>(() => !this.state.isTrackVisible('FX1') ? [] : this.state.itemsForTrack('FX1')

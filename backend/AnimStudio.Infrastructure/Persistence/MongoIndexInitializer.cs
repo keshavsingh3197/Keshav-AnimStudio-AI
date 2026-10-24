@@ -1,5 +1,7 @@
 using AnimStudio.Domain.Ai;
+using AnimStudio.Domain.Effects;
 using AnimStudio.Domain.Jobs;
+using AnimStudio.Domain.Planning;
 using AnimStudio.Domain.Publishing;
 using AnimStudio.Domain.Scenes;
 using AnimStudio.Domain.System;
@@ -109,6 +111,46 @@ public sealed class MongoIndexInitializer(
             await voiceProfiles.Indexes.CreateOneAsync(
                 new CreateIndexModel<VoiceProfile>(Builders<VoiceProfile>.IndexKeys
                     .Ascending(v => v.UserId)), cancellationToken: ct).ConfigureAwait(false);
+
+            // The calendar lists one owner's posts by date and one topic's posts for planning;
+            // the sync walks a date window across everyone.
+            var contentTopics = mongo.GetCollection<ContentTopic>(MongoCollections.ContentTopics);
+            await contentTopics.Indexes.CreateOneAsync(
+                new CreateIndexModel<ContentTopic>(Builders<ContentTopic>.IndexKeys
+                    .Ascending(t => t.UserId).Ascending(t => t.Name)), cancellationToken: ct).ConfigureAwait(false);
+
+            var contentItems = mongo.GetCollection<ContentPlanItem>(MongoCollections.ContentPlanItems);
+            await contentItems.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<ContentPlanItem>(Builders<ContentPlanItem>.IndexKeys
+                    .Ascending(i => i.UserId).Ascending(i => i.PublishAt)),
+                new CreateIndexModel<ContentPlanItem>(Builders<ContentPlanItem>.IndexKeys
+                    .Ascending(i => i.TopicId).Descending(i => i.PublishAt)),
+                new CreateIndexModel<ContentPlanItem>(Builders<ContentPlanItem>.IndexKeys
+                    .Ascending(i => i.PublishAt)),
+                new CreateIndexModel<ContentPlanItem>(Builders<ContentPlanItem>.IndexKeys
+                    .Ascending(i => i.UserId).Ascending(i => i.VideoId)),
+            ], ct).ConfigureAwait(false);
+
+            var contentLinks = mongo.GetCollection<ContentSourceLink>(MongoCollections.ContentSourceLinks);
+            await contentLinks.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<ContentSourceLink>(Builders<ContentSourceLink>.IndexKeys
+                    .Ascending(l => l.UserId).Ascending(l => l.UrlHash)),
+                new CreateIndexModel<ContentSourceLink>(Builders<ContentSourceLink>.IndexKeys
+                    .Ascending(l => l.UserId).Ascending(l => l.TopicId).Descending(l => l.LastCapturedAt)),
+            ], ct).ConfigureAwait(false);
+
+            // The effects library lists one owner's files newest first, and finds a project
+            // file already saved to it.
+            var effectClips = mongo.GetCollection<EffectClip>(MongoCollections.EffectClips);
+            await effectClips.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<EffectClip>(Builders<EffectClip>.IndexKeys
+                    .Ascending(e => e.UserId).Descending(e => e.CreatedAt)),
+                new CreateIndexModel<EffectClip>(Builders<EffectClip>.IndexKeys
+                    .Ascending(e => e.UserId).Ascending(e => e.SourceAssetId)),
+            ], ct).ConfigureAwait(false);
 
                         // Migration / Seeder for Static Hub Data
             var hubConfig = mongo.GetCollection<HubConfig>(MongoCollections.HubConfig);

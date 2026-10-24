@@ -12,16 +12,20 @@ import { YouTubePublishService } from '../../core/services/youtube-publish.servi
   selector: 'app-youtube-callback',
   imports: [RouterLink],
   template: `
-    <div class="card" style="max-width: 560px; margin: 3rem auto; text-align: center">
+    <div class="card" style="max-width: 560px; margin: 4rem auto; text-align: center; padding: 2.25rem 2rem; display: flex; flex-direction: column; align-items: center; gap: 0.75rem">
       @if (error(); as e) {
-        <h3>Couldn't connect {{ what() }}</h3>
-        <p class="muted">{{ e }}</p>
+        <div class="studio-icon-badge red" style="width: 48px; height: 48px; font-size: 1.35rem" aria-hidden="true">✕</div>
+        <h3 style="margin: 0.25rem 0 0">Couldn't connect {{ what() }}</h3>
+        <p class="muted" style="margin: 0 0 0.5rem; max-width: 42ch">{{ e }}</p>
         <a routerLink="/projects"><button type="button" class="secondary">Back to projects</button></a>
       } @else if (connected(); as name) {
-        <h3>✓ Connected {{ name }}</h3>
-        <p class="muted">Taking you back…</p>
+        <div class="studio-icon-badge emerald" style="width: 48px; height: 48px; font-size: 1.35rem" aria-hidden="true">✓</div>
+        <h3 style="margin: 0.25rem 0 0">Connected {{ name }}</h3>
+        <p class="muted" style="margin: 0">Taking you back…</p>
       } @else {
-        <h3>Connecting {{ what() }}…</h3>
+        <span class="spinner" style="width: 32px; height: 32px; border-width: 3px; margin-bottom: 0.25rem" aria-hidden="true"></span>
+        <h3 style="margin: 0">Connecting {{ what() }}…</h3>
+        <p class="muted" style="margin: 0">Exchanging secure credentials with Google…</p>
       }
     </div>
   `,

@@ -1,10 +1,12 @@
 using AnimStudio.Domain.Ai;
 using AnimStudio.Domain.Assets;
 using AnimStudio.Domain.Characters;
+using AnimStudio.Domain.Effects;
 using AnimStudio.Domain.Ingest;
 using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.LiveStreams;
 using AnimStudio.Domain.Projects;
+using AnimStudio.Domain.Planning;
 using AnimStudio.Domain.Publishing;
 using AnimStudio.Domain.Scenes;
 using AnimStudio.Domain.Scripts;
@@ -93,6 +95,14 @@ public static class MongoMappingRegistrar
 
             // "vp_{guid}" - a voice a user added from their own sample.
             MapWithLiteralId<VoiceProfile>();
+
+            // App-assigned GUIDs - the content calendar's topics, posts and saved links.
+            MapWithLiteralId<ContentTopic>();
+            MapWithLiteralId<ContentPlanItem>();
+            MapWithLiteralId<ContentSourceLink>();
+
+            // App-assigned GUID - one file in a user's effects library.
+            MapWithLiteralId<EffectClip>();
         }
     }
 

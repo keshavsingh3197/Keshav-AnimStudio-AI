@@ -40,41 +40,94 @@
       <!-- What the shorts are cut from -->
       <section class="as-sources" aria-label="Clips and pictures">
         <div class="as-section-head">
-          <h4>1 · Clips &amp; pictures <span class="as-count">{{ pickedClips().length }} picked</span></h4>
+          <div class="as-head-row">
+            <h4>1 · Clips &amp; pictures <span class="as-count">{{ pickedClips().length }} picked</span></h4>
+            <div class="as-seg as-view" role="group" aria-label="View">
+              <button type="button" [class.on]="view() === 'grid'" (click)="setView('grid')" title="Cards" aria-label="Cards" [attr.aria-pressed]="view() === 'grid'">▦</button>
+              <button type="button" [class.on]="view() === 'large'" (click)="setView('large')" title="Large cards" aria-label="Large cards" [attr.aria-pressed]="view() === 'large'">⬚</button>
+              <button type="button" [class.on]="view() === 'list'" (click)="setView('list')" title="List" aria-label="List" [attr.aria-pressed]="view() === 'list'">☰</button>
+            </div>
+          </div>
           <div class="as-tools">
             <input class="as-search" type="search" placeholder="Search…" [ngModel]="query()" (ngModelChange)="query.set($event)" aria-label="Search clips" />
+            <select class="as-select" [ngModel]="sort()" (ngModelChange)="setSort($event)" aria-label="Sort">
+              @for (s of sorts; track s.id) { <option [ngValue]="s.id">{{ s.label }}</option> }
+            </select>
+          </div>
+          <div class="as-tools">
             <div class="as-seg" role="group" aria-label="Show">
-              <button type="button" [class.on]="filter() === 'all'" (click)="filter.set('all')">All</button>
-              <button type="button" [class.on]="filter() === 'video'" (click)="filter.set('video')">Videos</button>
-              <button type="button" [class.on]="filter() === 'image'" (click)="filter.set('image')">Pictures</button>
+              <button type="button" [class.on]="filter() === 'all'" (click)="filter.set('all')">All {{ sources().length }}</button>
+              <button type="button" [class.on]="filter() === 'video'" (click)="filter.set('video')">🎬 Videos</button>
+              <button type="button" [class.on]="filter() === 'image'" (click)="filter.set('image')">🖼 Pictures</button>
               @if (usage() !== null) {
-                <button type="button" [class.on]="filter() === 'unused'" (click)="filter.set('unused')">New ({{ unusedCount() }})</button>
+                <button type="button" [class.on]="filter() === 'unused'" (click)="filter.set('unused')">New {{ unusedCount() }}</button>
+              }
+              @if (leftOverCount() > 0 || filter() === 'leftover') {
+                <button type="button" [class.on]="filter() === 'leftover'" (click)="filter.set('leftover')" title="Picked, but no short uses them">Left over {{ leftOverCount() }}</button>
               }
             </div>
+            <span class="as-tools-gap"></span>
+            @if (state.timelineOrderedAssetIds().length > 0) {
+              <button class="as-link" type="button" (click)="pickTimelineInOrder()"
+                      title="Pick the clips on your timeline in exact sequence order (1 → N)">🎬 Timeline order ({{ state.timelineOrderedAssetIds().length }})</button>
+            }
             <button class="as-link" type="button" (click)="pickVisible(true)">Pick shown</button>
             <button class="as-link" type="button" (click)="pickVisible(false)">Clear shown</button>
             @if (usage() !== null && unusedCount() > 0) {
-              <button class="as-link" type="button" (click)="pickUnused()">Pick only new</button>
+              <button class="as-link" type="button" (click)="pickUnused()">Only new</button>
             }
           </div>
         </div>
 
         @if (sources().length === 0) {
           <p class="as-empty">Upload some clips or pictures to the library first.</p>
+        } @else if (visible().length === 0) {
+          <p class="as-empty">Nothing matches - try another filter or search.</p>
+        } @else if (view() === 'list') {
+          <div class="as-list" role="list">
+            @for (c of visible(); track idOf(c)) {
+              <button type="button" class="as-row-item" role="listitem" [class.on]="isPicked(c)" [class.leftover]="isPicked(c) && isLeftOver(c)"
+                      (click)="toggle(c)" [attr.aria-pressed]="isPicked(c)" [title]="c.name">
+                <span class="as-check" aria-hidden="true">{{ isPicked(c) ? '✓' : '' }}</span>
+                <img [src]="thumb(c)" alt="" loading="lazy" />
+                <span class="as-row-name">{{ c.name }}</span>
+                <span class="as-row-meta">{{ kindOf(c) === 'video' ? '🎬 ' + (formatDuration(c) || 'video') : '🖼 picture' }}</span>
+                <span class="as-row-meta as-row-uses">
+                  @if (usage() !== null) {
+                    @if (uses(c) === 0) { <span class="as-pill as-pill-new">New</span> }
+                    @else { <span class="as-pill">Used ×{{ uses(c) }}</span> }
+                  }
+                </span>
+                <span class="as-row-meta as-row-short">
+                  @if (isPicked(c)) {
+                    @if (isLeftOver(c)) { <span class="as-pill as-pill-warn">Left over</span> }
+                    @else if (shortsLabel(c); as l) { <span class="as-pill as-pill-brand">{{ l }}</span> }
+                  }
+                </span>
+              </button>
+            }
+          </div>
         } @else {
-          <div class="as-grid">
+          <div class="as-grid" [class.as-grid-large]="view() === 'large'">
             @for (c of visible(); track idOf(c)) {
               <button type="button" class="as-tile" [class.on]="isPicked(c)" [class.leftover]="isPicked(c) && isLeftOver(c)" (click)="toggle(c)"
                       [attr.aria-pressed]="isPicked(c)" [title]="c.name">
                 <img [src]="thumb(c)" alt="" loading="lazy" />
-                <span class="as-tile-kind">{{ kindOf(c) === 'video' ? '🎬' : '🖼' }}</span>
-                @if (formatDuration(c); as d) { <span class="as-tile-dur">{{ d }}</span> }
+                <span class="as-tile-top">
+                  <span class="as-badge">{{ kindOf(c) === 'video' ? '🎬' : '🖼' }}@if (formatDuration(c); as d) { {{ d }} }</span>
+                  @if (isPicked(c)) {
+                    @if (isLeftOver(c)) { <span class="as-badge as-badge-warn" title="No short uses it">Left over</span> }
+                    @else if (shortsLabel(c); as l) { <span class="as-badge as-badge-brand" [title]="'In short ' + l">{{ l }}</span> }
+                  }
+                </span>
                 <span class="as-tile-check" aria-hidden="true">✓</span>
-                @if (usage() !== null) {
-                  @if (uses(c) === 0) { <span class="as-tile-use as-tile-new">New</span> }
-                  @else { <span class="as-tile-use" [title]="'In ' + uses(c) + ' render(s) already'">Used ×{{ uses(c) }}</span> }
-                }
-                <span class="as-tile-name">{{ c.name }}</span>
+                <span class="as-tile-foot">
+                  @if (usage() !== null) {
+                    @if (uses(c) === 0) { <span class="as-badge as-badge-new">New</span> }
+                    @else { <span class="as-badge" [title]="'In ' + uses(c) + ' render(s) already'">Used ×{{ uses(c) }}</span> }
+                  }
+                  <span class="as-tile-name">{{ c.name }}</span>
+                </span>
               </button>
             }
           </div>
@@ -86,19 +139,67 @@
 
       <!-- How the shorts are cut -->
       <section class="as-options" aria-label="Options">
+        <div class="as-quick">
+          <button type="button" class="as-auto" (click)="autoSetup()" [disabled]="pickedClips().length === 0"
+                  title="Settings that suit your picks: shared out, exact length, videos first, auto style">✨ Auto setup</button>
+          @if (state.timelineOrderedAssetIds().length > 0) {
+            <button type="button" class="as-chip" [class.on]="order() === 'InOrder'" (click)="pickTimelineInOrder()"
+                    title="Cut sequential shorts from your timeline clips in exact order (1 → N)">🎬 Timeline in Order</button>
+          }
+          @for (p of presets; track p.id) {
+            <button type="button" class="as-chip" (click)="applyPreset(p)" [title]="p.hint">{{ p.icon }} {{ p.label }}</button>
+          }
+        </div>
+
         <h4>2 · How the shorts are made</h4>
-        <div class="as-styles as-layouts" role="radiogroup" aria-label="Layout">
+        <div class="as-cards as-layouts" role="radiogroup" aria-label="Layout">
           @for (l of layouts; track l.id) {
-            <button type="button" class="as-style" role="radio" [attr.aria-checked]="layout() === l.id" [class.on]="layout() === l.id" (click)="setLayout(l.id)">
-              <span class="as-style-icon" aria-hidden="true">{{ l.icon }}</span>
-              <span class="as-style-name">{{ l.label }}</span>
+            <button type="button" class="as-card" role="radio" [attr.aria-checked]="layout() === l.id" [class.on]="layout() === l.id" (click)="setLayout(l.id)" [title]="l.hint">
+              <span class="as-card-icon" aria-hidden="true">{{ l.icon }}</span>
+              <span class="as-card-name">{{ l.label }}</span>
             </button>
           }
         </div>
         <p class="as-hint">{{ layoutHint() }}</p>
 
+        <div class="as-field">
+          <label class="as-label" for="as-secs">Length</label>
+          <div class="as-chips">
+            @for (d of durations; track d) {
+              <button type="button" class="as-chip" [class.on]="seconds() === d" (click)="setSeconds(d)">{{ d }}s</button>
+            }
+            <input id="as-secs" class="as-num" type="number" [min]="minSeconds" [max]="maxSeconds" [ngModel]="seconds()" (ngModelChange)="setSeconds($event)" aria-label="Seconds per short" />
+          </div>
+        </div>
+        <div class="as-field">
+          <span class="as-label"></span>
+          @if (layout() === 'FitLength') {
+            <p class="as-hint">Quick cuts always land on exactly {{ runTime(seconds()) }}.</p>
+          } @else {
+            <div class="as-seg" role="radiogroup" aria-label="Length rule">
+              <button type="button" role="radio" [class.on]="exact()" [attr.aria-checked]="exact()" (click)="exact.set(true)">Exactly {{ seconds() }}s</button>
+              <button type="button" role="radio" [class.on]="!exact()" [attr.aria-checked]="!exact()" (click)="exact.set(false)">Up to {{ seconds() }}s</button>
+            </div>
+            <p class="as-hint as-hint-inline">{{ exact() ? 'Short shorts are topped up - spare picks first, then longer picture holds, then reused pictures.' : 'Each short ends when its picks run out.' }}</p>
+          }
+        </div>
+
+        <div class="as-field">
+          <label class="as-label" for="as-count">Shorts</label>
+          <div class="as-chips">
+            @if (layout() === 'Spread') {
+              <button type="button" class="as-chip" [class.on]="count() === 0" (click)="setCount(0)"
+                      [title]="exact() ? 'As many full shorts as your picks can fill' : 'As many as it takes to use every pick once'">Auto</button>
+            }
+            @for (n of counts; track n) {
+              <button type="button" class="as-chip" [class.on]="count() === n" (click)="setCount(n)">{{ n }}</button>
+            }
+            <input id="as-count" class="as-num" type="number" [min]="layout() === 'Spread' ? 0 : 1" [max]="maxCount" [ngModel]="count()" (ngModelChange)="setCount($event)" aria-label="Number of shorts" />
+          </div>
+        </div>
+
         @if (layout() !== 'FitLength') {
-          <div class="as-row">
+          <div class="as-field">
             <label class="as-label" for="as-img-secs">Each picture</label>
             <div class="as-chips">
               @for (n of imageChoices; track n) {
@@ -107,37 +208,37 @@
               <input id="as-img-secs" class="as-num" type="number" [min]="minImageSeconds" [max]="maxImageSeconds" [ngModel]="imageSeconds()" (ngModelChange)="setImageSeconds($event)" aria-label="Seconds per picture" />
             </div>
           </div>
-          <div class="as-row">
+          <div class="as-field">
             <label class="as-label" for="as-clip-secs">Each video</label>
             <div class="as-chips">
-              <button type="button" class="as-chip" [class.on]="maxClipSeconds() === null" (click)="setMaxClipSeconds(null)">Full length</button>
+              <button type="button" class="as-chip" [class.on]="maxClipSeconds() === null" (click)="setMaxClipSeconds(null)">Full</button>
               @for (n of clipChoices; track n) {
-                <button type="button" class="as-chip" [class.on]="maxClipSeconds() === n" (click)="setMaxClipSeconds(n)">up to {{ n }}s</button>
+                <button type="button" class="as-chip" [class.on]="maxClipSeconds() === n" (click)="setMaxClipSeconds(n)">≤ {{ n }}s</button>
               }
               <input id="as-clip-secs" class="as-num" type="number" min="1" [max]="maxSeconds" placeholder="full" [ngModel]="maxClipSeconds()" (ngModelChange)="setMaxClipSeconds($event)" aria-label="Longest stretch of one video, in seconds" />
             </div>
           </div>
         }
 
-        <div class="as-row">
-          <label class="as-label" for="as-count">Shorts</label>
+        <div class="as-field">
+          <span class="as-label">Order</span>
           <div class="as-chips">
-            @if (layout() === 'Spread') {
-              <button type="button" class="as-chip" [class.on]="count() === 0" (click)="setCount(0)" title="As many as it takes to use every pick once">Auto</button>
+            @for (o of orders; track o.id) {
+              <button type="button" class="as-chip" [class.on]="order() === o.id" (click)="order.set(o.id)" [title]="o.hint">{{ o.label }}</button>
             }
-            @for (n of counts; track n) {
-              <button type="button" class="as-chip" [class.on]="count() === n" (click)="setCount(n)">{{ n }}</button>
-            }
-            <input id="as-count" class="as-num" type="number" [min]="layout() === 'Spread' ? 0 : 1" [max]="maxCount" [ngModel]="count()" (ngModelChange)="setCount($event)" />
           </div>
         </div>
-        <div class="as-row">
-          <label class="as-label" for="as-secs">{{ layout() === 'FitLength' ? 'Length' : 'Max length' }}</label>
+        <div class="as-field">
+          <span class="as-label"></span>
+          <p class="as-hint as-hint-inline">{{ pickedVideos() === 0 ? 'No videos picked yet - this order applies as soon as you add some.' : orderHint() }}</p>
+        </div>
+
+        <div class="as-field">
+          <span class="as-label">Format</span>
           <div class="as-chips">
-            @for (d of durations; track d) {
-              <button type="button" class="as-chip" [class.on]="seconds() === d" (click)="setSeconds(d)">{{ d }}s</button>
+            @for (f of formats; track f.id) {
+              <button type="button" class="as-chip" [class.on]="formatId() === f.id" (click)="formatId.set(f.id)">{{ f.label }}</button>
             }
-            <input id="as-secs" class="as-num" type="number" [min]="minSeconds" [max]="maxSeconds" [ngModel]="seconds()" (ngModelChange)="setSeconds($event)" />
           </div>
         </div>
 
@@ -147,39 +248,86 @@
           } @else if (previewError(); as err) {
             <span class="as-warn">{{ err }}</span>
           } @else if (preview(); as p) {
-            <strong>Plan: {{ p.shorts.length }} short{{ p.shorts.length === 1 ? '' : 's' }}</strong>
-            @if (plannedRange(); as r) {
-              <span>· {{ r.min === r.max ? runTime(r.min) : runTime(r.min) + '-' + runTime(r.max) }} each · {{ runTime(r.total) }} in all</span>
-            }
+            <div class="as-plan-head">
+              <strong>Plan: {{ p.shorts.length }} short{{ p.shorts.length === 1 ? '' : 's' }}</strong>
+              @if (plannedRange(); as r) {
+                <span>· {{ r.min === r.max ? runTime(r.min) : runTime(r.min) + '-' + runTime(r.max) }} each · {{ runTime(r.total) }} in all</span>
+              }
+              <span class="as-plan-actions">
+                <button class="as-link" type="button" (click)="reshuffle()" title="Plan again with a new shuffle">🔀 Reshuffle</button>
+                <button class="as-link" type="button" (click)="showPlan.set(!showPlan())" [attr.aria-expanded]="showPlan()">{{ showPlan() ? 'Hide' : 'Details' }}</button>
+              </span>
+            </div>
             @if (p.unusedAssetIds.length > 0) {
-              <span class="as-warn">· {{ p.unusedAssetIds.length }} pick{{ p.unusedAssetIds.length === 1 ? '' : 's' }} won't fit (dimmed) - add more shorts or raise the max length</span>
+              <span class="as-warn">{{ p.unusedAssetIds.length }} pick{{ p.unusedAssetIds.length === 1 ? '' : 's' }} won't fit -
+                {{ layout() === 'Spread' && exact() ? 'add more shorts' : 'add more shorts or raise the length' }}
+                (<button class="as-link as-link-inline" type="button" (click)="filter.set('leftover')">show</button>)</span>
             }
             <div class="as-plan-bars">
               @for (s of p.shorts; track $index) {
-                <span class="as-plan-bar" [style.flex-grow]="s.seconds" [title]="s.name + ': ' + runTime(s.seconds) + ' · ' + s.videos + ' videos, ' + s.images + ' pictures'">{{ runTime(s.seconds) }}</span>
+                <span class="as-plan-bar" [style.flex-grow]="s.seconds" [title]="s.name + ': ' + runTime(s.seconds) + ' · ' + s.videos + ' videos, ' + s.images + ' pictures' + (s.style ? ' · ' + s.style : '')">{{ runTime(s.seconds) }}</span>
               }
             </div>
+            @if (showPlan()) {
+              <ol class="as-plan-list">
+                @for (s of p.shorts; track $index) {
+                  <li>
+                    <div class="as-plan-row">
+                      <strong>#{{ $index + 1 }}</strong>
+                      <span>{{ runTime(s.seconds) }}</span>
+                      <span class="as-muted">🎬 {{ s.videos }} · 🖼 {{ s.images }}</span>
+                      @if (s.style) { <span class="as-pill">{{ styleHints[s.style].icon }} {{ s.style }}</span> }
+                      @if (s.repeats && layout() !== 'AllInEach') { <span class="as-pill as-pill-warn" title="Shots that reuse a file to reach the length">↻ {{ s.repeats }}</span> }
+                    </div>
+                    <div class="as-strip">
+                      @for (id of s.assetIds; track id) {
+                        @if (thumbFor(id); as src) { <img [src]="src" alt="" loading="lazy" [title]="nameFor(id)" /> }
+                      }
+                    </div>
+                  </li>
+                }
+              </ol>
+            }
           } @else {
             <span class="as-hint">Working out the plan…</span>
           }
         </div>
-        <div class="as-row">
-          <span class="as-label">Format</span>
-          <div class="as-chips">
-            @for (f of formats; track f.id) {
-              <button type="button" class="as-chip" [class.on]="formatId() === f.id" (click)="formatId.set(f.id)">{{ f.label }}</button>
-            }
-          </div>
-        </div>
 
         <h4>3 · Style</h4>
-        <div class="as-styles">
+        <div class="as-cards as-styles" role="radiogroup" aria-label="Style">
           @for (s of styles; track s) {
-            <button type="button" class="as-style" [class.on]="style() === s" (click)="style.set(s)">
-              <span class="as-style-icon" aria-hidden="true">{{ styleHints[s].icon }}</span>
-              <span class="as-style-name">{{ s }}</span>
-              <span class="as-style-hint">{{ styleHints[s].hint }}</span>
+            @let pv = stylePreviews[s];
+            <button type="button" class="as-card as-style-card" role="radio" [attr.aria-checked]="style() === s" [class.on]="style() === s" (click)="pickStyle(s)">
+              <span [class]="'as-pv as-pv-' + pv.kind" [style.--cut]="pv.cut + 's'" [style.filter]="pv.grade" aria-hidden="true">
+                <span class="as-pv-shot"></span><span class="as-pv-shot"></span><span class="as-pv-shot"></span>
+                <span class="as-pv-text" [class.bold]="pv.bold">{{ pv.bold ? 'WOW' : 'line' }}</span>
+              </span>
+              <span class="as-card-body">
+                <span class="as-card-name">{{ styleHints[s].icon }} {{ s }}</span>
+                <span class="as-card-hint">{{ styleHints[s].hint }}</span>
+              </span>
             </button>
+          }
+        </div>
+        @let sp = stylePreview();
+        <div class="as-style-detail" aria-live="polite">
+          <dl>
+            <dt>Shots</dt><dd>{{ sp.shots }}</dd>
+            <dt>Transitions</dt><dd>{{ sp.transitions }}</dd>
+            <dt>Moves</dt><dd>{{ sp.moves }}</dd>
+            <dt>Look</dt><dd>{{ sp.look }}</dd>
+            <dt>Text</dt><dd>{{ sp.text }}</dd>
+          </dl>
+          @if (styleExample(); as ex) {
+            @if (playingExample() === ex.jobId) {
+              <video class="as-example" [src]="state.api.previewUrl(ex.jobId)" controls autoplay muted playsinline preload="metadata"></video>
+              <button type="button" class="as-link" (click)="playingExample.set(null)">Close example</button>
+            } @else {
+              <button type="button" class="as-chip" (click)="playingExample.set(ex.jobId)"
+                      [title]="ex.name + ' (' + ex.projectName + ')'">▶ Watch an example: {{ ex.name }}</button>
+            }
+          } @else if (style() !== 'Auto' && style() !== 'Mixed') {
+            <p class="as-hint">No {{ style() }} short rendered yet. The animation above shows its pace, and your first {{ style() }} short will play here.</p>
           }
         </div>
         <div class="as-toggles">
@@ -188,7 +336,7 @@
         </div>
 
         <h4>4 · Script lines <span class="as-count">{{ lines().length }}</span></h4>
-        <textarea class="as-lines" rows="5" [ngModel]="linesText()" (ngModelChange)="linesText.set($event)"
+        <textarea class="as-lines" rows="4" [ngModel]="linesText()" (ngModelChange)="linesText.set($event)"
                   placeholder="One line per row - hooks, captions, quotes. Each short gets different lines at random.&#10;Wait till the end 😮&#10;3 things nobody tells you&#10;Watch this before you go"></textarea>
         <div class="as-chips">
           @for (m of textModes; track m.id) {
@@ -225,7 +373,7 @@
             <label><input type="checkbox" [ngModel]="driveOn()" (ngModelChange)="driveOn.set($event)" /> Save each short to Google Drive as it finishes</label>
           </div>
           @if (driveOn()) {
-            <div class="as-row">
+            <div class="as-field">
               <label class="as-label" for="as-drive-for">For</label>
               <select id="as-drive-for" class="as-text" [ngModel]="driveChannelId()" (ngModelChange)="pickDriveChannel($event)">
                 @for (d of drives(); track d.channelId ?? '') {
@@ -235,7 +383,7 @@
                 }
               </select>
             </div>
-            <div class="as-row">
+            <div class="as-field">
               <label class="as-label" for="as-drive-folder">Folder</label>
               <input id="as-drive-folder" class="as-text" type="text" maxlength="100" list="as-drive-folders"
                      [placeholder]="driveTarget()?.folderName ?? ''"
@@ -253,11 +401,11 @@
 
         <details class="as-more">
           <summary>More options</summary>
-          <div class="as-row">
+          <div class="as-field">
             <label class="as-label" for="as-name">Name</label>
             <input id="as-name" class="as-text" type="text" maxlength="160" [ngModel]="name()" (ngModelChange)="name.set($event)" />
           </div>
-          <div class="as-row">
+          <div class="as-field">
             <span class="as-label">Framing</span>
             <div class="as-chips">
               <button type="button" class="as-chip" [class.on]="fit() === 'BlurredBackdrop'" (click)="fit.set('BlurredBackdrop')">Blurred fill</button>
@@ -265,7 +413,7 @@
               <button type="button" class="as-chip" [class.on]="fit() === 'Contain'" (click)="fit.set('Contain')">Fit with bars</button>
             </div>
           </div>
-          <div class="as-row">
+          <div class="as-field">
             <span class="as-label">Quality</span>
             <div class="as-chips">
               <button type="button" class="as-chip" [class.on]="quality() === 'Fast'" (click)="quality.set('Fast')">Fast</button>
@@ -275,7 +423,7 @@
           </div>
           <div class="as-toggles">
             <label><input type="checkbox" [ngModel]="watermark()" (ngModelChange)="watermark.set($event)" /> Watermark</label>
-            <label><input type="checkbox" [ngModel]="outro()" (ngModelChange)="outro.set($event)" /> End card</label>
+            <label><input type="checkbox" [ngModel]="outro()" (ngModelChange)="outro.set($event)" /> End card <span class="as-muted">(plays after the {{ seconds() }}s)</span></label>
           </div>
         </details>
       </section>
@@ -285,7 +433,7 @@
       <div class="as-summary">
         @if (plannedRange(); as r) {
           <strong>{{ planned() }} short{{ planned() === 1 ? '' : 's' }}</strong>
-          <span>{{ format().label }} · {{ runTime(r.total) }} of video in all</span>
+          <span>{{ format().label }} · {{ r.min === r.max ? runTime(r.min) + ' each' : runTime(r.min) + '-' + runTime(r.max) }} · {{ runTime(r.total) }} in all · {{ style() }}</span>
         } @else {
           <strong>{{ planned() ? planned() + ' shorts' : 'Auto' }}</strong>
           <span>{{ format().label }}</span>

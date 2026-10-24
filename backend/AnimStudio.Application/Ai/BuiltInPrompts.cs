@@ -225,6 +225,10 @@ public static class BuiltInPrompts
 
                 Tags are short search phrases with no "#": the best ten or so in "tags", and
                 up to fifteen more good ones, not repeating those, in "tagIdeas".
+
+                Also write:
+                - "pinnedComment": a warm, high-engagement pinned comment for the creator to pin at the top of the comments section (for devotional videos, encourage viewers to write devotional greetings such as Har Har Mahadev / Jai Mata Di / Jai Shree Shyam in the comments and subscribe).
+                - "engagementComment": a short, interactive question comment about the video or lyrics that invites viewers to reply.
                 """,
             Variables = ["summary", "style", "tone", "brief", "language"],
             // "style", "tone" and "brief" are prose, so they are fenced like any other text;
@@ -245,7 +249,9 @@ public static class BuiltInPrompts
                     "tags": { "type": "array", "maxItems": 20,
                               "items": { "type": "string", "maxLength": 40 } },
                     "tagIdeas": { "type": "array", "maxItems": 20,
-                                  "items": { "type": "string", "maxLength": 40 } }
+                                  "items": { "type": "string", "maxLength": 40 } },
+                    "pinnedComment": { "type": "string", "maxLength": 1000 },
+                    "engagementComment": { "type": "string", "maxLength": 600 }
                   }
                 }
                 """

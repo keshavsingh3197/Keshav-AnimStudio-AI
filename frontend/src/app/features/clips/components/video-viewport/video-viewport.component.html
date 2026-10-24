@@ -64,8 +64,8 @@
                crossorigin="anonymous"
                [class]="'pv-monitor-layer ' + getMonitorLayerClass('A') + ' ' + state.monitorFitClass()"
                [style.animation-duration.s]="liveTransitionDuration()"
-               [style.filter]="state.computedMonitorFilter()"
-               [style.transform]="state.activeClipTransform()"
+               [style.filter]="shotFilter(state.computedMonitorFilter())"
+               [style.transform]="shotTransform(state.activeClipTransform())"
                [style.clip-path]="state.activeClipClipPath()"
                [style.visibility]="state.currentClipHidesVideo() || state.inSlotGap() ? 'hidden' : null"
                [muted]="state.isMonitorMuted()"
@@ -76,8 +76,8 @@
                crossorigin="anonymous"
                [class]="'pv-monitor-layer ' + getMonitorLayerClass('B') + ' ' + state.monitorFitClass()"
                [style.animation-duration.s]="liveTransitionDuration()"
-               [style.filter]="state.computedMonitorFilter()"
-               [style.transform]="state.activeClipTransform()"
+               [style.filter]="shotFilter(state.computedMonitorFilter())"
+               [style.transform]="shotTransform(state.activeClipTransform())"
                [style.clip-path]="state.activeClipClipPath()"
                [style.visibility]="state.currentClipHidesVideo() || state.inSlotGap() ? 'hidden' : null"
                [muted]="state.isMonitorMuted()"
@@ -227,10 +227,9 @@
                [style.background-color]="card.color" [style.opacity]="card.opacity"></div>
         }
 
-        <!-- Celebrations on FX1, drawn with the export's own particle plan. -->
-        @if (celebrationCues().length > 0) {
-          <app-celebration-layer [cues]="celebrationCues()" [clock]="monitorClock"
-                                 [exportWidth]="state.exportCanvas().width" [exportHeight]="state.exportCanvas().height" />
+        <!-- Dedicated backdrop for ad layouts (e.g. 3-Stack, Cosmic Card) to prevent underlying video bleed -->
+        @if (state.hasActiveAdLayoutBackdrop()) {
+          <div class="frame-layout-backdrop" [style.background]="state.frameLayout().barColor || '#070b19'"></div>
         }
 
         <!-- Frame images: logos and stickers, placed by their centre and sized by a share of
@@ -274,6 +273,12 @@
           </div>
         }
 
+        <!-- Celebrations on FX1, drawn with the export's own particle plan (floats OVER video & frame images, below text). -->
+        @if (celebrationCues().length > 0) {
+          <app-celebration-layer [cues]="celebrationCues()" [clock]="monitorClock"
+                                 [exportWidth]="state.exportCanvas().width" [exportHeight]="state.exportCanvas().height" />
+        }
+
         @if (dropHover()) {
           <div class="monitor-drop-hint">Drop to place it here, on this clip</div>
         }
@@ -300,7 +305,7 @@
                 @for (line of b.lines; track $index) {
                   <!-- A typed entrance shows the share of the line typed so far, as the export does. -->
                   <div class="text-line"><span [style]="textLineStyle(b)"
-                        [style.clip-path]="b.reveal ? revealClip(b.reveal[$index]) : null">{{ line }}</span></div>
+                        [style.clip-path]="b.reveal ? revealClip(b.reveal[$index]) : null">@for (run of accentRuns(line, b.look.accentColor); track $index) {<span [style.color]="run.accent ? b.look.accentColor : null">{{ run.text }}</span>}</span></div>
                 }
               </div>
             }

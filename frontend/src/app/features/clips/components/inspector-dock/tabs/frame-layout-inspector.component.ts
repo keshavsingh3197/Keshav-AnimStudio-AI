@@ -7,7 +7,7 @@ import { LayerTimingComponent } from './layer-timing.component';
 import { LayerMotionValue, MotionPickerComponent } from './motion-picker.component';
 import {
   FRAME_DESIGNS, FRAME_IMAGE_MAX_WIDTH, FRAME_IMAGE_MIN_WIDTH, FrameDesign, FrameImage,
-  MAX_FRAME_IMAGES, MAX_FRAME_TEXTS, MAX_SUBTITLE_CUES, hexToRgba, resolveTextLook,
+  MAX_FRAME_IMAGES, MAX_FRAME_TEXTS, MAX_SUBTITLE_CUES, buildComparisonDiff, hexToRgba, resolveTextLook,
 } from '../../../services/text-overlay-layout';
 import { OverlayMotion, TimelineItemTextStyle } from '../../../../../core/models/api.models';
 import { MEDIA_IN, MEDIA_OUT, MotionOption, SHAPES, TEXT_IN, TEXT_OUT } from '../../../services/frame-media';
@@ -55,6 +55,9 @@ export class FrameLayoutInspectorComponent {
   readonly scriptOpen = signal(false);
   readonly script = signal('');
   readonly wordsPerCue = signal(4);
+  readonly compOpenFor = signal<string | null>(null);
+  readonly compOriginal = signal('Jonathon');
+  readonly compChanged = signal('Jonathan');
   /** The "apply to every subtitle too" switch in the Animations list. */
   readonly animateSubtitlesToo = signal(true);
 
@@ -227,6 +230,32 @@ export class FrameLayoutInspectorComponent {
 
   clearCues(): void {
     if (confirm('Delete every subtitle line?')) this.state.clearSubtitles();
+  }
+
+  applyWordPopPreset(): void {
+    this.wordsPerCue.set(1);
+    this.state.applyWordPopSubtitleStyle();
+  }
+
+  toggleComparisonHelper(id: string): void {
+    this.compOpenFor.update((cur) => (cur === id ? null : id));
+  }
+
+  applyComparisonToLayer(id: string): void {
+    const diff = buildComparisonDiff(this.compOriginal(), this.compChanged());
+    this.state.updateFrameText(id, diff);
+    this.state.updateFrameTextStyle(id, {
+      color: '#ffffff',
+      accentColor: '#facc15',
+      boxStyle: 'box',
+      boxColor: '#0f172a',
+      boxOpacity: 0.9,
+      outlineColor: '#38bdf8',
+      outlineWidth: 1.5,
+      shadow: true,
+      uppercase: false,
+    });
+    this.compOpenFor.set(null);
   }
 
   numberOr(value: unknown, fallback: number): number {

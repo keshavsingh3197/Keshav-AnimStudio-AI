@@ -2,7 +2,11 @@
   <!-- Header -->
   <div class="settings-header">
     <div class="settings-header-title">
-      <div class="settings-header-icon">⚙️</div>
+      <div class="settings-header-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </div>
       <div>
         <h2>Project Settings &amp; Canvas</h2>
         <p>Configure canvas resolution, framerate, background soundtrack, and video hallmarks.</p>
@@ -10,15 +14,15 @@
     </div>
     <div class="settings-top-actions">
       <label class="channel-picker" title="Music: renders publish to YouTube Music (Music category), and so also appear on YouTube">
-        <span>🎯 Made for</span>
+        <span>Made for</span>
         <select class="form-select" [(ngModel)]="form.contentType" aria-label="What this project makes">
-          <option value="video">🎬 Video</option>
+          <option value="video">Video</option>
           <option value="music">♪ Music (YouTube Music)</option>
         </select>
       </label>
       @if (channels().length > 1) {
         <label class="channel-picker" title="Which YouTube channel this project publishes under: its watermark and end card">
-          <span>📺 Channel</span>
+          <span>Channel</span>
           <select class="form-select" [ngModel]="form.brandChannelId" (ngModelChange)="onChannelChange($event)">
             @for (c of channels(); track c.id) {
               <option [value]="c.id">{{ c.name }}{{ c.isDefault ? ' (default)' : '' }}</option>
@@ -40,9 +44,16 @@
   <!-- Section 1: Canvas & Composition -->
   <div class="settings-card">
     <div class="card-section-head">
-      <div>
-        <h3>📐 Canvas Dimensions &amp; Aspect Ratio</h3>
-        <p>Choose an industry standard aspect ratio or set custom width and height in pixels.</p>
+      <div class="studio-card-title-group" style="align-items: flex-start;">
+        <div class="studio-icon-badge" style="margin-top: 2px;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+          </svg>
+        </div>
+        <div>
+          <h3>Canvas Dimensions &amp; Aspect Ratio</h3>
+          <p>Choose an industry standard aspect ratio or set custom width and height in pixels.</p>
+        </div>
       </div>
     </div>
 
@@ -98,11 +109,11 @@
     <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1.25rem;">
       <p style="margin: 0; font-size: 0.83rem; color: #8b9bb4; line-height: 1.5;">
         @if (format() === 'Short') {
-          📱 <strong>Upright 9:16 format</strong>: Ideal for YouTube Shorts, Instagram Reels, and TikTok (3 minutes or less).
+          <strong>Upright 9:16 format</strong>: Ideal for YouTube Shorts, Instagram Reels, and TikTok (3 minutes or less).
         } @else if (format() === 'Square') {
-          ⬛ <strong>Square 1:1 format</strong>: Ideal for standard Instagram feeds and universal square previews.
+          <strong>Square 1:1 format</strong>: Ideal for standard Instagram feeds and universal square previews.
         } @else {
-          🖥️ <strong>Landscape 16:9 format</strong>: Standard cinematic aspect ratio for desktop monitors, TV screens, and standard YouTube videos.
+          <strong>Landscape 16:9 format</strong>: Standard cinematic aspect ratio for desktop monitors, TV screens, and standard YouTube videos.
         }
         Existing scene clips are automatically refitted non-destructively upon rendering.
       </p>
@@ -134,9 +145,16 @@
   <!-- Section 2: Project Metadata & Soundtrack Bed -->
   <div class="settings-card">
     <div class="card-section-head">
-      <div>
-        <h3>📝 Project Metadata &amp; Soundtrack</h3>
-        <p>Basic naming, commercial distribution intention, and background music bed.</p>
+      <div class="studio-card-title-group" style="align-items: flex-start;">
+        <div class="studio-icon-badge purple" style="margin-top: 2px;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+          </svg>
+        </div>
+        <div>
+          <h3>Project Metadata &amp; Soundtrack</h3>
+          <p>Basic naming, commercial distribution intention, and background music bed.</p>
+        </div>
       </div>
     </div>
 
@@ -168,7 +186,7 @@
 
     <!-- Background Music Track -->
     <div class="form-group">
-      <label class="form-label" for="project-image-sec">🖼️ Image Duration on the Timeline (seconds)</label>
+      <label class="form-label" for="project-image-sec">Image Duration on the Timeline (seconds)</label>
       <input class="form-input" id="project-image-sec" type="number" min="0.5" max="120" step="0.5"
              style="max-width: 180px;"
              [placeholder]="'Studio default: ' + studioImageDuration() + 's'"
@@ -181,7 +199,7 @@
     <div style="background: #0d1117; border: 1px solid var(--border); border-radius: 10px; padding: 1.1rem; margin-bottom: 1.25rem;">
       <div class="form-group" style="margin-bottom: form.backgroundMusicAssetId ? '1rem' : '0'">
         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.45rem;">
-          <label class="form-label" style="margin-bottom: 0;">🎵 Background Music Soundtrack Bed</label>
+          <label class="form-label" style="margin-bottom: 0;">Background Music Soundtrack Bed</label>
           @if (form.backgroundMusicAssetId) {
             <button type="button" class="btn-outline" style="padding: 3px 10px; font-size: 0.78rem; display: flex; align-items: center; gap: 5px;"
                     (click)="toggleAudioPreview()">
@@ -200,7 +218,7 @@
           }
         </select>
         @if (store.project(); as p) {
-          <a [routerLink]="['/projects', p.id, 'music']" style="display: inline-block; margin-top: 0.4rem; font-size: 0.82rem;">🎵 Find trending royalty-free music →</a>
+          <a [routerLink]="['/projects', p.id, 'music']" style="display: inline-block; margin-top: 0.4rem; font-size: 0.82rem;">♪ Find trending royalty-free music →</a>
         }
       </div>
 
@@ -236,9 +254,16 @@
   <!-- Section 3: Project Brand Watermark & Studio Hallmark -->
   <div class="settings-card">
     <div class="card-section-head">
-      <div>
-        <h3>🛡️ Project Brand Watermark &amp; Hallmark</h3>
-        <p>Burn an attribution hallmark or channel badge into every rendered video clip automatically.</p>
+      <div class="studio-card-title-group" style="align-items: flex-start;">
+        <div class="studio-icon-badge emerald" style="margin-top: 2px;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+        </div>
+        <div>
+          <h3>Project Brand Watermark &amp; Hallmark</h3>
+          <p>Burn an attribution hallmark or channel badge into every rendered video clip automatically.</p>
+        </div>
       </div>
     </div>
 
@@ -270,7 +295,7 @@
       <div class="segmented-row">
         <button type="button" class="segment-btn" [class.active]="form.followChannelWatermark"
                 (click)="setWatermarkSource(true)">
-          📺 Follow "{{ selectedChannel()?.name ?? 'Default' }}" channel
+          Follow "{{ selectedChannel()?.name ?? 'Default' }}" channel
         </button>
         <button type="button" class="segment-btn" [class.active]="!form.followChannelWatermark"
                 (click)="setWatermarkSource(false)">
@@ -337,7 +362,7 @@
               <select class="form-select" id="wm-logo" [(ngModel)]="form.defaultWatermarkLogoId">
                 <option value="">Select an image from library...</option>
                 @if (globalWatermark()?.logoAssetId; as channelLogo) {
-                  <option [value]="channelLogo">📺 "{{ selectedChannel()?.name ?? 'Default' }}" channel logo</option>
+                  <option [value]="channelLogo">"{{ selectedChannel()?.name ?? 'Default' }}" channel logo</option>
                 }
                 @for (asset of store.imagesOnly(); track asset.id) {
                   <option [value]="asset.id">{{ asset.name }}</option>
@@ -451,9 +476,16 @@
   <!-- Section 4: Channel Outro Bumper & End-Card -->
   <div class="settings-card">
     <div class="card-section-head">
-      <div>
-        <h3>🎬 Channel Outro Bumper &amp; End-Card</h3>
-        <p>Append a small video (e.g. subscribe animation, channel stinger) or static end-card graphic at the end of the video.</p>
+      <div class="studio-card-title-group" style="align-items: flex-start;">
+        <div class="studio-icon-badge amber" style="margin-top: 2px;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/>
+          </svg>
+        </div>
+        <div>
+          <h3>Channel Outro Bumper &amp; End-Card</h3>
+          <p>Append a small video (e.g. subscribe animation, channel stinger) or static end-card graphic at the end of the video.</p>
+        </div>
       </div>
     </div>
 
@@ -503,7 +535,7 @@
               <select class="form-select" id="outro-video-asset" [(ngModel)]="form.defaultOutroAssetId">
                 <option value="">Select a video from library...</option>
                 @for (asset of store.videos(); track asset.id) {
-                  <option [value]="asset.id">🎬 {{ asset.name }} ({{ asset.durationSeconds | number: '1.1-1' }}s)</option>
+                  <option [value]="asset.id">{{ asset.name }} ({{ asset.durationSeconds | number: '1.1-1' }}s)</option>
                 }
               </select>
               <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem; align-items: center;"
@@ -528,7 +560,7 @@
               <select class="form-select" id="outro-image-asset" [(ngModel)]="form.defaultOutroAssetId">
                 <option value="">Select an image from library...</option>
                 @for (asset of store.imagesOnly(); track asset.id) {
-                  <option [value]="asset.id">🖼️ {{ asset.name }}</option>
+                  <option [value]="asset.id">{{ asset.name }}</option>
                 }
               </select>
               <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem; align-items: center;"
@@ -595,12 +627,16 @@
                 } @else {
                   <img class="outro-preview-image" [src]="url" alt="End-card graphic" />
                   <div class="outro-badge-overlay">
-                    <span>⏱ {{ form.defaultOutroDurationSeconds }}s End-Card</span>
+                    <span>{{ form.defaultOutroDurationSeconds }}s End-Card</span>
                   </div>
                 }
               } @else {
                 <div style="text-align: center; padding: 2rem 1rem; color: #8b9bb4;">
-                  <div style="font-size: 2.2rem; margin-bottom: 0.5rem; opacity: 0.6;">📺</div>
+                  <div class="studio-icon-badge" style="margin: 0 auto 0.5rem;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <rect x="2" y="7" width="20" height="15" rx="2" ry="2"/><polyline points="17 2 12 7 7 2"/>
+                    </svg>
+                  </div>
                   <div style="font-size: 0.88rem; font-weight: 600; color: #c9d1d9;">No outro media selected</div>
                   <div style="font-size: 0.78rem; margin-top: 0.25rem;">
                     Select an outro clip or end-card from the left to preview it here.
@@ -652,9 +688,16 @@
   <!-- Section 5: Danger Zone -->
   <div class="settings-card danger-card">
     <div class="card-section-head" style="border-bottom-color: rgba(239, 68, 68, 0.2);">
-      <div>
-        <h3>⚠️ Danger Zone: Delete Project</h3>
-        <p>Permanently removes this project along with all scenes, video tracks, audio bindings, and assets.</p>
+      <div class="studio-card-title-group" style="align-items: flex-start;">
+        <div class="studio-icon-badge red" style="margin-top: 2px;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+          </svg>
+        </div>
+        <div>
+          <h3>Danger Zone: Delete Project</h3>
+          <p>Permanently removes this project along with all scenes, video tracks, audio bindings, and assets.</p>
+        </div>
       </div>
     </div>
 

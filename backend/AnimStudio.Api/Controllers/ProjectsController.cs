@@ -137,6 +137,17 @@ public sealed class ProjectsController(
         return new BadRequestObjectResult(ApiResponse<EmptyPayload>.Fail(message, new ApiError("unknown-channel", message)));
     }
 
+    [HttpPost("{id}/duplicate")]
+    public async Task<ActionResult<ApiResponse<ProjectResponse>>> Duplicate(
+        string id,
+        [FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] DuplicateProjectRequest? request,
+        CancellationToken ct)
+    {
+        var copy = await editing.DuplicateAsync(id, currentUser.UserId, request?.Name, ct);
+        return CreatedAtAction(nameof(Get), new { id = copy.Id },
+            ApiResponse<ProjectResponse>.Ok(copy.ToResponse()));
+    }
+
     [HttpDelete("{id}")]
     public async Task<ActionResult<ApiResponse<EmptyPayload>>> Delete(
         string id, [FromServices] IProjectEditRepository edits, CancellationToken ct)

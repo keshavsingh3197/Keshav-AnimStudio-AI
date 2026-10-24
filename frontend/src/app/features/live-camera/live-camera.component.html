@@ -1,13 +1,17 @@
-<div class="page-head cs-head">
+<div class="page-head cs-head studio-wide-page">
   <div>
-    <h2>📷 Camera Studio</h2>
-    <p class="muted cs-lede">
+    <div style="display: flex; align-items: center; gap: 0.75rem">
+      <div class="studio-icon-badge" aria-hidden="true">📷</div>
+      <h2 style="margin: 0">Camera Studio</h2>
+      <span class="pill brand" style="font-size: 0.7rem">Privacy Cam</span>
+    </div>
+    <p class="muted cs-lede" style="margin-top: 0.35rem">
       Go live from your camera or screen without showing who you are. Each face is covered by a character, a blur
       or a block, your voice can be disguised, and overlays show who's watching. All of it is drawn on this machine
       before anything is sent, so your real face never leaves it.
     </p>
   </div>
-  <a routerLink="/live" class="cs-switch">🎞️ Playlist streaming →</a>
+  <a routerLink="/live" class="secondary cs-switch">🎞️ Playlist streaming →</a>
 </div>
 
 @if (error(); as message) {

@@ -285,6 +285,14 @@ export class TimelineDockComponent implements OnInit, AfterViewInit, OnDestroy {
       return;
     }
 
+    // An effect from the library is copied into the project first, then placed where it fell.
+    const effect = this.state.draggingEffect();
+    if (effect) {
+      this.state.draggingEffect.set(null);
+      this.state.addEffect(effect, 'playhead', { trackId, time: dropTime });
+      return;
+    }
+
     const dragging = this.state.draggingAsset();
     if (dragging && trackId === 'V1' && this.state.getClipType(dragging.clip) === 'video') {
       this.state.addVideoToCutAt(dragging.clip.id, dropTime);

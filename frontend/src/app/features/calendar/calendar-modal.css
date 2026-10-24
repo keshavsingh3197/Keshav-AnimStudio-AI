@@ -1,0 +1,73 @@
+:host { display: contents; }
+
+.cal-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(3, 5, 10, 0.66);
+  z-index: 90;
+}
+
+.cal-modal {
+  position: fixed;
+  z-index: 91;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(560px, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+.cal-modal-head,
+.cal-modal-foot {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.9rem 1.1rem;
+}
+
+.cal-modal-head { border-bottom: 1px solid var(--border); }
+.cal-modal-head h2 { margin: 0; font-size: 1.1rem; flex: 1; }
+.cal-modal-foot { border-top: 1px solid var(--border); flex-wrap: wrap; }
+.cal-modal-body { padding: 1rem 1.1rem; overflow-y: auto; }
+
+.spacer { flex: 1; }
+.field { margin-bottom: 0.85rem; }
+.field textarea { width: 100%; }
+.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 0.85rem; }
+.small { font-size: 0.8rem; }
+.check { display: flex; align-items: flex-start; gap: 0.2rem; font-weight: 500; margin-bottom: 0.6rem; }
+
+.swatches, .day-toggles { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+
+.swatch {
+  width: 1.7rem;
+  height: 1.7rem;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  box-shadow: none;
+}
+.swatch.on { border-color: var(--text); }
+
+.day {
+  min-width: 3rem;
+  padding: 0.35rem 0.6rem;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  box-shadow: none;
+}
+.day.on { background: var(--brand-subtle); color: var(--brand-bright); border-color: var(--brand); }
+
+.cal-error { color: var(--err); background: var(--err-dim); padding: 0.55rem 0.75rem; border-radius: var(--radius-sm); }
+
+@media (max-width: 560px) {
+  .grid-2 { grid-template-columns: 1fr; }
+  .cal-modal { top: auto; bottom: 0; transform: translateX(-50%); width: 100vw; border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+}

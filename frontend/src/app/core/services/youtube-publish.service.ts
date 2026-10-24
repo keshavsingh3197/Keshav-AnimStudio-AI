@@ -6,9 +6,10 @@ import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../models/api.models';
 import {
   GoogleDriveStatus, PhoneHandoff, PhoneHandoffCheck,
-  YouTubeCheckup, YouTubeCheckupSaved, YouTubeThumbnailSaved, YouTubeVideoDetailsSave, YouTubeVideoEditContext,
+  YouTubeCheckup, YouTubeCheckupSaved, YouTubeThumbnailSaved, YouTubeUrlSeoResult, YouTubeVideoDetailsSave, YouTubeVideoEditContext,
   YouTubeChannel, YouTubeDashboard, YouTubeDraft, YouTubeLiveBroadcast, YouTubeLiveSetup, YouTubeLiveSuggestParams, YouTubePublication, YouTubePublishSource, YouTubePublishStatus,
   YouTubeSuggestion, YouTubeSuggestOptions, YouTubeSuggestParams, YouTubeThumbnailChoice, YouTubeUpload, YouTubeVideoMetadata,
+  YouTubeCommentPosted, YouTubeInspectParams, YouTubeScheduleSaved, YouTubeVideoInspection,
 } from '../models/youtube.models';
 
 @Injectable({ providedIn: 'root' })
@@ -82,12 +83,49 @@ export class YouTubePublishService {
       .pipe(map((r) => r.data as YouTubeSuggestion));
   }
 
+  /** Fetches metadata + spoken transcript for any YouTube URL/Video ID (100% free) and generates the full SEO package. */
+  generateSeoFromUrl(body: {
+    url: string;
+    language?: string;
+    tone?: string;
+    brief?: string;
+    providerId?: string;
+    channelId?: string | null;
+  }): Observable<YouTubeUrlSeoResult> {
+    return this.http
+      .post<ApiResponse<YouTubeUrlSeoResult>>(`${this.base}/seo-from-url`, body)
+      .pipe(map((r) => r.data as YouTubeUrlSeoResult));
+  }
+
   /** Writes reviewed details onto a video on the channel and adds it to playlists. */
   saveVideoDetails(channelId: string, videoId: string, body: YouTubeVideoDetailsSave): Observable<YouTubeCheckupSaved> {
     return this.http
       .put<ApiResponse<YouTubeCheckupSaved>>(
         `${this.base}/channels/${encodeURIComponent(channelId)}/videos/${encodeURIComponent(videoId)}`, body)
       .pipe(map((r) => r.data as YouTubeCheckupSaved));
+  }
+
+  /** Has a private video go public at `publishAt` (ISO); null takes the schedule off and keeps it private. */
+  scheduleVideo(channelId: string, videoId: string, publishAt: string | null): Observable<YouTubeScheduleSaved> {
+    return this.http
+      .put<ApiResponse<YouTubeScheduleSaved>>(
+        `${this.base}/channels/${encodeURIComponent(channelId)}/videos/${encodeURIComponent(videoId)}/schedule`, { publishAt })
+      .pipe(map((r) => r.data as YouTubeScheduleSaved));
+  }
+
+  /** Posts a comment as the channel on one of its videos (YouTube's API can't pin it). */
+  postVideoComment(channelId: string, videoId: string, text: string): Observable<YouTubeCommentPosted> {
+    return this.http
+      .post<ApiResponse<YouTubeCommentPosted>>(
+        `${this.base}/channels/${encodeURIComponent(channelId)}/videos/${encodeURIComponent(videoId)}/comment`, { text })
+      .pipe(map((r) => r.data as YouTubeCommentPosted));
+  }
+
+  /** Reads one video (captions, music, chapters) and writes fresh details for it. Saves nothing. */
+  inspectVideo(params: YouTubeInspectParams): Observable<YouTubeVideoInspection> {
+    return this.http
+      .post<ApiResponse<YouTubeVideoInspection>>(`${this.base}/details/inspect`, params)
+      .pipe(map((r) => r.data as YouTubeVideoInspection));
   }
 
   /** The brand channel footer and tags, and the AnimStudio project, for the edit dialog. */
@@ -109,10 +147,10 @@ export class YouTubePublishService {
   /** `firstComment` is posted on the video once it is up; empty posts nothing. */
   publish(id: string, channelId: string, metadata: YouTubeVideoMetadata, relatedVideoIds: string[] = [],
           firstComment = '', source: YouTubePublishSource = 'render',
-          thumbnail: YouTubeThumbnailChoice | null = null): Observable<YouTubeUpload> {
+          thumbnail: YouTubeThumbnailChoice | null = null, planItemId: string | null = null): Observable<YouTubeUpload> {
     return this.http
       .post<ApiResponse<YouTubeUpload>>(`${this.sourceUrl(id, source)}/publish`,
-        { channelId, metadata, relatedVideoIds, firstComment: firstComment || null, thumbnail })
+        { channelId, metadata, relatedVideoIds, firstComment: firstComment || null, thumbnail, planItemId })
       .pipe(map((r) => r.data as YouTubeUpload));
   }
 

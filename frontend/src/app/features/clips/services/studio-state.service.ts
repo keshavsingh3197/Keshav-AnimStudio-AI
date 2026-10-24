@@ -2,8 +2,8 @@ import { Injectable, computed, effect, inject, signal, untracked, OnDestroy } fr
 import { Observable, catchError, concatMap, finalize, forkJoin, from, map, mergeMap, of, toArray } from 'rxjs';
 
 import {
-  AutoShortsPreview, AutoShortsResult,
-  AutoShortsBody, Clip, ClipAudioBody, ClipFit, ClipOrder, ClipSlotBody, ClipStudio, ExportQuality, MAX_CLIP_GAIN, RenderJob, ExportTimelineFormat,
+  AutoShortStyle, AutoShortTextMode, AutoShortsPreview, AutoShortsResult,
+  AutoShortsBody, Clip, ClipAudioBody, ClipFit, ClipOrder, ClipSlotBody, ClipStudio, ExportQuality, ImageCameraMotion, ImageLook, MAX_CLIP_GAIN, RenderJob, ExportTimelineFormat,
   SHORTS_MAX_SECONDS, TRANSITIONS, WATERMARK_POSITIONS, WatermarkBody, WatermarkKind, WatermarkPosition,
   aspectRatioLabel, isTerminal, videoFormat, OutroBody,
   TimelineItem, TimelineItemType, TrackControlState, TimelineItemTransform, TimelineItemTextStyle,
@@ -16,6 +16,9 @@ import { ApiService } from '../../../core/services/api.service';
 import { ProjectStore } from '../../../core/services/project-store';
 import { StatusService } from '../../../core/services/status.service';
 import { MediaToolsService } from '../../../core/services/media-tools.service';
+import { EffectsService } from '../../../core/services/effects.service';
+import { EffectClip } from '../../../core/models/effects.models';
+import { EffectPlacementMode, planEffectPlacement } from '../../effects/effect-placement';
 import {
   AudioOverlapRule, AudioOverlapRuleOrInherit, AudioOverlapSource,
   ClipAudioSetting, ClipColorSetting, ClipRow, ClipTextSetting, FILTER_PRESETS,
@@ -2111,10 +2114,10 @@ export class StudioStateService implements OnDestroy {
   readonly monitorShot = computed<MonitorShot | null>(() => {
     const img = this.activeImgItem();
     if (img) {
-      const shot = img.type === 'image' ? cinematicOf(img.transform) : null;
+      const shot = (img.type === 'image' || img.type === 'video') ? cinematicOf(img.transform) : null;
       return shot ? { key: img.id, start: img.startTime, duration: img.duration, shot, lane: true } : null;
     }
-    if (this.inSlotGap() || !this.activeClipIsImage()) return null;
+    if (this.inSlotGap()) return null;
     const sched = this.currentScheduledClip();
     const shot = sched ? cinematicOf(this.clipTransforms()[sched.clip.id]) : null;
     return sched && shot
@@ -2129,24 +2132,24 @@ export class StudioStateService implements OnDestroy {
   });
 
   /**
-   * What the Camera & Look panel edits: the selected picture on an image lane, else the
-   * picture clips on V1 in the inspector's scope. Null when no picture is in reach.
+   * What the Camera & Look panel edits: the selected picture/video on an overlay lane, else the
+   * clips/pictures on V1 in the inspector's scope.
    */
   readonly shotTarget = computed<ShotTarget | null>(() => {
     const item = this.selectedTimelineItem();
     if (item) {
-      return item.type === 'image' && SHOT_LANES.has(item.trackId)
-        ? { kind: 'item', id: item.id, name: item.name || 'Picture' }
+      return (item.type === 'image' || item.type === 'video') && (SHOT_LANES.has(item.trackId) || item.trackId === 'V2')
+        ? { kind: 'item', id: item.id, name: item.name || 'Media' }
         : null;
     }
     const clip = this.activeTargetClip();
-    if (!clip || this.getClipType(clip) !== 'image') return null;
+    if (!clip) return null;
     const rows = this.allMediaRows();
     const ids = this.getTargetClipIds(clip.id).filter((id) => {
       const c = rows.find((r) => r.clip.id === id)?.clip;
-      return !!c && this.getClipType(c) === 'image';
+      return !!c && (this.getClipType(c) === 'image' || this.getClipType(c) === 'video');
     });
-    return ids.length > 0 ? { kind: 'clips', ids, name: ids.length > 1 ? `${ids.length} pictures` : clip.name } : null;
+    return ids.length > 0 ? { kind: 'clips', ids, name: ids.length > 1 ? `${ids.length} clips` : clip.name } : null;
   });
 
   /** The shot on the panel's target; a still with no look when it has none yet. */
@@ -2927,9 +2930,11 @@ export class StudioStateService implements OnDestroy {
 
   readonly computedMonitorFilter = computed(() => {
     let color: ClipColorSetting;
+    const sched = this.currentScheduledClip();
     if (this.isPlaying()) {
-      const sched = this.currentScheduledClip();
       color = sched ? this.clipColorSetting(sched.clip.id) : this.activeScopeColorSetting();
+    } else if (sched && this.clipColor().has(sched.clip.id)) {
+      color = this.clipColorSetting(sched.clip.id);
     } else {
       color = this.activeScopeColorSetting();
     }
@@ -5732,6 +5737,365 @@ export class StudioStateService implements OnDestroy {
     this.markDirty();
   }
 
+  /** Clears all ad layout split-screen layers and restores clean full-frame standard cut. */
+  clearAdLayout(): void {
+    this.frameLayout.update((l) => ({
+      ...l,
+      bars: 'auto',
+      images: [],
+      texts: l.texts.filter((t) => !t.id.startsWith('ft_')),
+    }));
+    this.selectedFrameLayer.set(null);
+    this.markDirty();
+    this.status.notify(['Restored Full-Frame Standard Cut (cleared ad layout layers).']);
+  }
+
+  /**
+   * 1-click Direct-Response Ad & Viral Short layout templates:
+   * - 'stack-3': 3-Row Dynamic Video Stack with staggered slide-in reveal
+   * - 'doc-split': 50/50 Talking Head + Document/Report Showcase
+   * - 'cosmic-card': Framed Cosmic Glassmorphic Container + Comparison Name Strip
+   * - 'book-mockup': 3D Product/Report Display + Social-Proof Badge + Pulsing CTA
+   * - 'none': Clears ad layout and restores standard full-frame
+   */
+  applyAdLayoutPreset(
+    preset: 'none' | 'stack-3' | 'doc-split' | 'cosmic-card' | 'book-mockup',
+    options?: {
+      scope?: 'intro' | 'selected' | 'all';
+      duration?: number | null;
+    }
+  ): void {
+    if (preset === 'none') {
+      this.clearAdLayout();
+      return;
+    }
+
+    const sched = this.clipSchedule();
+    const laneItems = this.timelineItems()
+      .filter((it) => (it.type === 'image' || it.type === 'video') && (it.trackId === 'IMG1' || it.trackId === 'V1' || it.trackId === 'V2'))
+      .sort((a, b) => a.startTime - b.startTime);
+
+    let layoutStart = 0;
+    let layoutEnd: number | null = null;
+
+    if (options?.scope === 'selected') {
+      const selId = this.selectedTimelineItemId();
+      const selItem = selId ? this.timelineItems().find((it) => it.id === selId) : null;
+      if (selItem) {
+        layoutStart = selItem.startTime;
+        layoutEnd = Math.round((selItem.startTime + selItem.duration) * 100) / 100;
+      } else {
+        const curClip = this.currentScheduledClip();
+        if (curClip) {
+          layoutStart = curClip.startSeconds;
+          layoutEnd = curClip.endSeconds;
+        }
+      }
+    } else if (options?.scope === 'all') {
+      layoutStart = 0;
+      layoutEnd = null; // Whole video
+    } else {
+      // Default: 'intro' hook (first shot or up to 5 seconds)
+      const firstDur = sched[0]?.durationSeconds ?? laneItems[0]?.duration ?? 5.0;
+      layoutStart = 0;
+      layoutEnd = Math.min(Math.max(3.0, firstDur), 6.0);
+    }
+
+    const videos = this.frameVideoCandidates();
+    const images = this.frameImageCandidates();
+    const media: FrameMediaCandidate[] = [...videos, ...images];
+    if (media.length < 3 && laneItems.length > 0) {
+      const seen = new Set(media.map((m) => m.id));
+      for (const it of laneItems) {
+        if (it.src && !seen.has(it.src)) {
+          seen.add(it.src);
+          media.push({
+            id: it.src,
+            name: it.name || 'Shot',
+            kind: (it.type === 'video' ? 'video' : 'image') as 'video' | 'image',
+            seconds: it.duration ?? null,
+          });
+        }
+      }
+    }
+
+    const span = layoutEnd !== null ? Math.max(1, layoutEnd - layoutStart) : 5;
+    const staggerStep = Math.min(0.35, span * 0.08);
+
+    if (preset === 'stack-3') {
+      const picks = (videos.length >= 3 ? videos : media).slice(0, 3);
+      const bands: FrameImage[] = picks.map((m, idx) => ({
+        id: newLayerId('fi'),
+        kind: m.kind,
+        assetId: m.id,
+        name: `Row ${idx + 1}: ${m.name}`.slice(0, 120),
+        x: 50,
+        y: idx === 0 ? 18 : idx === 1 ? 50 : 82,
+        width: 92,
+        opacity: 1,
+        crop: { left: 0, right: 0, top: 12, bottom: 12 },
+        shape: 'rounded',
+        borderWidth: 2,
+        borderColor: '#38bdf8',
+        sourceAspect: m.kind === 'video' ? 16 / 9 : null,
+        trimStart: 0,
+        animIn: idx === 0 ? 'slide-right' : idx === 1 ? 'slide-left' : 'slide-up',
+        animInDuration: 0.35,
+        animOut: 'fade',
+        animOutDuration: 0.35,
+        start: Math.round((layoutStart + idx * staggerStep) * 100) / 100,
+        end: layoutEnd,
+      }));
+      const badge: FrameText = {
+        id: newLayerId('ft'),
+        label: '3-Stack Hook',
+        text: '⚡ [3] SIGNS TO WATCH',
+        style: {
+          ...DEFAULT_TEXT_STYLE,
+          fontSize: 24, color: '#f8fafc', accentColor: '#facc15',
+          position: 'custom', x: 50, y: 6,
+          boxStyle: 'box', boxColor: '#0f172a', boxOpacity: 0.9,
+          outlineColor: '#38bdf8', outlineWidth: 1.5, shadow: true, uppercase: true,
+          transitionIn: 'slide-down', transitionInDuration: 0.25,
+          transitionOut: 'fade', transitionOutDuration: 0.35,
+        },
+        start: layoutStart,
+        end: layoutEnd,
+      };
+      this.frameLayout.update((l) => ({
+        ...l,
+        bars: 'color',
+        barColor: '#070b19',
+        images: bands,
+        texts: [badge],
+      }));
+      for (const b of bands) {
+        void measureMediaAspect(this.assetUrl(b.assetId), b.kind).then((aspect) => {
+          if (aspect) this.updateFrameImage(b.id, { sourceAspect: aspect });
+        });
+      }
+      this.markDirty();
+      this.status.notify([
+        bands.length > 0
+          ? `Applied 3-Row Stack layout (${layoutEnd ? `${layoutStart}s–${layoutEnd}s hook` : 'whole video'}).`
+          : 'Applied 3-Row Stack frame — add up to 3 videos/pictures in Pictures & Videos below.',
+      ]);
+      return;
+    }
+
+    if (preset === 'doc-split') {
+      const topVid = videos[0] ?? media[0];
+      const bottomDoc = images[0] ?? videos[1] ?? media[0];
+      const layers: FrameImage[] = [];
+      if (topVid) {
+        layers.push({
+          id: newLayerId('fi'),
+          kind: topVid.kind,
+          assetId: topVid.id,
+          name: `Speaker: ${topVid.name}`.slice(0, 120),
+          x: 50, y: 25, width: 92, opacity: 1,
+          crop: { ...NO_CROP }, shape: 'rounded',
+          borderWidth: 2, borderColor: '#eab308', sourceAspect: null, trimStart: 0,
+          animIn: 'slide-down', animInDuration: 0.35, animOut: 'fade', animOutDuration: 0.35,
+          start: layoutStart, end: layoutEnd,
+        });
+      }
+      if (bottomDoc) {
+        layers.push({
+          id: newLayerId('fi'),
+          kind: bottomDoc.kind,
+          assetId: bottomDoc.id,
+          name: `Report Preview: ${bottomDoc.name}`.slice(0, 120),
+          x: 50, y: 74, width: 88, opacity: 1,
+          crop: { ...NO_CROP }, shape: 'rounded',
+          borderWidth: 3, borderColor: '#facc15', sourceAspect: null, trimStart: 0,
+          animIn: 'slide-up', animInDuration: 0.45, animOut: 'fade', animOutDuration: 0.35,
+          start: Math.round((layoutStart + staggerStep) * 100) / 100, end: layoutEnd,
+        });
+      }
+      const banner: FrameText = {
+        id: newLayerId('ft'),
+        label: 'Report Banner',
+        text: '★ PERSONAL REPORT PREVIEW ★',
+        style: {
+          ...DEFAULT_TEXT_STYLE,
+          fontSize: 22, color: '#090d16', accentColor: '#ffffff',
+          position: 'custom', x: 50, y: 50,
+          boxStyle: 'band', boxColor: '#eab308', boxOpacity: 0.96,
+          outlineColor: '#ffffff', outlineWidth: 1, shadow: false, uppercase: true,
+          transitionIn: 'slide-right', transitionInDuration: 0.3,
+          transitionOut: 'fade', transitionOutDuration: 0.35,
+        },
+        start: layoutStart, end: layoutEnd,
+      };
+      this.frameLayout.update((l) => ({
+        ...l,
+        bars: 'color',
+        barColor: '#0c0a09',
+        images: layers,
+        texts: [banner],
+      }));
+      for (const im of layers) {
+        void measureMediaAspect(this.assetUrl(im.assetId), im.kind).then((aspect) => {
+          if (aspect) this.updateFrameImage(im.id, { sourceAspect: aspect });
+        });
+      }
+      this.markDirty();
+      this.status.notify([`Applied 50/50 Talking Head + Document Showcase layout (${layoutEnd ? `${layoutStart}s–${layoutEnd}s hook` : 'whole video'}).`]);
+      return;
+    }
+
+    if (preset === 'cosmic-card') {
+      const hasCosmic = this.itemsForTrack('FX1').some((it) => it.type === 'celebration' && it.src === 'cosmic');
+      if (!hasCosmic) this.addCelebration('cosmic', layoutStart);
+      const texts: FrameText[] = [
+        {
+          id: newLayerId('ft'),
+          label: 'Cosmic Header Pill',
+          text: '✨ [COSMIC] NAME ANALYSIS',
+          style: {
+            ...DEFAULT_TEXT_STYLE,
+            fontSize: 25, color: '#f8fafc', accentColor: '#facc15',
+            position: 'custom', x: 50, y: 16,
+            boxStyle: 'box', boxColor: '#0f172a', boxOpacity: 0.9,
+            outlineColor: '#38bdf8', outlineWidth: 1.5, shadow: true, uppercase: true,
+            transitionIn: 'slide-down', transitionInDuration: 0.3,
+            transitionOut: 'fade', transitionOutDuration: 0.35,
+          },
+          start: layoutStart, end: layoutEnd,
+        },
+        {
+          id: newLayerId('ft'),
+          label: 'Comparison Strip',
+          text: 'Original: Jonath[o]n\nChanged:  Jonath[a]n',
+          style: {
+            ...DEFAULT_TEXT_STYLE,
+            fontSize: 28, color: '#ffffff', accentColor: '#facc15',
+            position: 'custom', x: 50, y: 50,
+            boxStyle: 'box', boxColor: '#0f172a', boxOpacity: 0.92,
+            outlineColor: '#38bdf8', outlineWidth: 2, shadow: true, uppercase: false,
+            transitionIn: 'slide-right', transitionInDuration: 0.35,
+            transitionOut: 'fade', transitionOutDuration: 0.35,
+          },
+          start: Math.round((layoutStart + staggerStep) * 100) / 100, end: layoutEnd,
+        },
+        {
+          id: newLayerId('ft'),
+          label: 'Glassmorphic Info Pill',
+          text: '✔ Vibrational [Alignment] Unlocked',
+          style: {
+            ...DEFAULT_TEXT_STYLE,
+            fontSize: 22, color: '#e2e8f0', accentColor: '#38bdf8',
+            position: 'custom', x: 50, y: 78,
+            boxStyle: 'box', boxColor: '#1e1b4b', boxOpacity: 0.88,
+            outlineColor: '#818cf8', outlineWidth: 1.5, shadow: true, uppercase: false,
+            transitionIn: 'slide-up', transitionInDuration: 0.4,
+            transitionOut: 'fade', transitionOutDuration: 0.35,
+          },
+          start: Math.round((layoutStart + staggerStep * 2) * 100) / 100, end: layoutEnd,
+        },
+      ];
+      this.frameLayout.update((l) => ({
+        ...l,
+        bars: 'color',
+        barColor: '#070b19',
+        texts,
+      }));
+      this.setInspectorTab('layout');
+      this.markDirty();
+      this.status.notify([`Applied Cosmic Glassmorphic Card + Comparison Strip (${layoutEnd ? `${layoutStart}s–${layoutEnd}s hook` : 'whole video'}).`]);
+      return;
+    }
+
+    if (preset === 'book-mockup') {
+      const hasCosmic = this.itemsForTrack('FX1').some((it) => it.type === 'celebration' && it.src === 'cosmic');
+      if (!hasCosmic) this.addCelebration('cosmic', layoutStart);
+      const mockupAsset = images[0] ?? videos[0] ?? media[0];
+      const mockupLayers: FrameImage[] = mockupAsset ? [{
+        id: newLayerId('fi'),
+        kind: mockupAsset.kind,
+        assetId: mockupAsset.id,
+        name: `3D Report Mockup: ${mockupAsset.name}`.slice(0, 120),
+        x: 50, y: 48, width: 64, opacity: 1,
+        crop: { ...NO_CROP }, shape: 'rounded',
+        borderWidth: 4, borderColor: '#facc15', sourceAspect: null, trimStart: 0,
+        animIn: 'zoom', animInDuration: 0.45, animOut: 'fade', animOutDuration: 0.35,
+        start: layoutStart, end: layoutEnd,
+      }] : [];
+      const texts: FrameText[] = [
+        {
+          id: newLayerId('ft'),
+          label: 'Social Proof Badge',
+          text: '★ [10,000+] REPORTS SOLD',
+          style: {
+            ...DEFAULT_TEXT_STYLE,
+            fontSize: 24, color: '#ffffff', accentColor: '#facc15',
+            position: 'custom', x: 50, y: 14,
+            boxStyle: 'box', boxColor: '#0f172a', boxOpacity: 0.92,
+            outlineColor: '#eab308', outlineWidth: 2, shadow: true, uppercase: true,
+            transitionIn: 'slide-down', transitionInDuration: 0.3,
+            transitionOut: 'fade', transitionOutDuration: 0.35,
+          },
+          start: layoutStart, end: layoutEnd,
+        },
+        {
+          id: newLayerId('ft'),
+          label: 'CTA Order Button',
+          text: '👆 ORDER NOW →',
+          style: {
+            ...DEFAULT_TEXT_STYLE,
+            fontSize: 30, color: '#090d16', accentColor: '#dc2626',
+            position: 'custom', x: 50, y: 86,
+            boxStyle: 'box', boxColor: '#facc15', boxOpacity: 0.98,
+            outlineColor: '#ffffff', outlineWidth: 2.5, shadow: true, uppercase: true,
+            transitionIn: 'zoom-in', transitionInDuration: 0.35,
+            transitionOut: 'fade', transitionOutDuration: 0.35,
+          },
+          start: Math.round((layoutStart + staggerStep) * 100) / 100, end: layoutEnd,
+        },
+      ];
+      this.frameLayout.update((l) => ({
+        ...l,
+        bars: 'color',
+        barColor: '#070b19',
+        images: mockupLayers,
+        texts,
+      }));
+      for (const im of mockupLayers) {
+        void measureMediaAspect(this.assetUrl(im.assetId), im.kind).then((aspect) => {
+          if (aspect) this.updateFrameImage(im.id, { sourceAspect: aspect });
+        });
+      }
+      this.setInspectorTab('layout');
+      this.markDirty();
+      this.status.notify([`Applied 3D Report Mockup + Social Proof Badge (${layoutEnd ? `${layoutStart}s–${layoutEnd}s hook` : 'whole video'}).`]);
+    }
+  }
+
+  /** Applies the high-contrast 1-Word Pop kinetic subtitle style to all subtitle cues. */
+  applyWordPopSubtitleStyle(): void {
+    this.updateSubtitleStyle({
+      fontSize: 38,
+      color: '#ffffff',
+      accentColor: '#facc15',
+      position: 'custom',
+      x: 50,
+      y: 56,
+      boxStyle: 'box',
+      boxColor: '#090d16',
+      boxOpacity: 0.72,
+      outlineColor: '#000000',
+      outlineWidth: 3,
+      shadow: true,
+      uppercase: true,
+      transitionIn: 'zoom-in',
+      transitionInDuration: 0.1,
+      transitionOut: 'none',
+      transitionOutDuration: 0.1,
+    });
+    this.status.notify(['Applied 1-Word Kinetic Pop style to subtitles.']);
+  }
+
   resetFrameLayout(): void {
     this.frameLayout.set(defaultFrameLayout());
     this.selectedFrameLayer.set(null);
@@ -5988,6 +6352,13 @@ export class StudioStateService implements OnDestroy {
           sourceTime: i.trimStart + (t - start),
         };
       });
+  });
+
+  /** Whether a dedicated solid/colored backdrop should occlude the background footage during an ad layout (e.g. 3-Stack, Cosmic Card). */
+  readonly hasActiveAdLayoutBackdrop = computed<boolean>(() => {
+    const fl = this.frameLayout();
+    if (fl.bars !== 'color' || fl.images.length === 0) return false;
+    return this.monitorFrameImages().length > 0;
   });
 
   // --- subtitles ---
@@ -6844,6 +7215,102 @@ export class StudioStateService implements OnDestroy {
     this.markDirty();
   }
 
+  // --- Auto transitions: pick styles for video cuts, images and text in one go ---
+
+  /**
+   * Chooses the n-th style from a pool. Fixed always takes the first; Cycle walks the pool
+   * in order; Random is shuffled but repeatable (the same edit picks the same styles) and
+   * never repeats the style just used when the pool has a choice.
+   */
+  private pickAuto(pool: readonly string[], mode: 'fixed' | 'cycle' | 'random', index: number, previous: string | null): string {
+    if (pool.length === 0) return 'None';
+    if (mode === 'fixed' || pool.length === 1) return pool[0];
+    if (mode === 'cycle') return pool[index % pool.length];
+    let h = (index + 1) * 2654435761 >>> 0;
+    h = (h ^ (h >>> 15)) * 2246822519 >>> 0;
+    let pick = pool[h % pool.length];
+    if (pick === previous) pick = pool[(h + 1) % pool.length];
+    return pick;
+  }
+
+  /**
+   * The timeline items of a media group an auto-pick should touch, following the shared
+   * "Apply to" chooser: every item for All, the item under the playhead for Current, the
+   * selected items otherwise.
+   */
+  autoTargetItems(group: 'image' | 'text'): TimelineItem[] {
+    const matches = (it: TimelineItem) => group === 'text' ? it.type === 'text' : it.type === 'image' || it.type === 'video';
+    const items = this.timelineItems().filter(matches);
+    const scope = this.targetScope();
+    if (scope === 'all' || scope === 'under_music' || scope === 'under_selected_music') return items;
+    if (scope === 'current') {
+      const t = this.currentTime();
+      return items.filter((it) => t >= it.startTime && t < it.startTime + it.duration);
+    }
+    const ids = new Set(this.selectedTimelineItemIds());
+    const single = this.selectedTimelineItemId();
+    if (single) ids.add(single);
+    return items.filter((it) => ids.has(it.id));
+  }
+
+  /** The video cuts an auto-pick should touch, following the shared "Apply to" chooser. */
+  autoTargetJunctions(): JunctionView[] {
+    const all = this.junctionsList().filter((j) => !j.slotted);
+    const scope = this.targetScope();
+    if (scope === 'all') return all;
+    const ids = new Set(this.getTargetClipIds());
+    if (scope === 'under_music' || scope === 'under_selected_music') {
+      return all.filter((j) => ids.has(j.left.id) && ids.has(j.right.id));
+    }
+    const openKey = this.selectedJunctionKey();
+    return all.filter((j) => j.key === openKey || ids.has(j.left.id) || ids.has(j.right.id));
+  }
+  /** Gives each target video cut a style from the pool. Returns how many cuts changed. */
+  applyAutoCutTransitions(opts: { mode: 'fixed' | 'cycle' | 'random'; pool: readonly string[]; seconds: number }): number {
+    const targets = this.autoTargetJunctions();
+    if (targets.length === 0 || opts.pool.length === 0) return 0;
+    const secs = Math.max(0.1, Math.min(3, Number(opts.seconds) || 0.5));
+    let previous: string | null = null;
+    this.junctionOverrides.update((map) => {
+      const next = new Map(map);
+      targets.forEach((j, i) => {
+        const kind = this.pickAuto(opts.pool, opts.mode, i, previous);
+        previous = kind;
+        next.set(j.key, kind === 'None' ? { transition: 'None', seconds: 0 } : { transition: kind, seconds: secs });
+      });
+      return next;
+    });
+    this.markDirty();
+    return targets.length;
+  }
+
+  /** Gives each target image / overlay video / text item an in-style (and out-style) from the pool. */
+  applyAutoItemMotions(group: 'image' | 'text', opts: {
+    mode: 'fixed' | 'cycle' | 'random'; pool: readonly string[];
+    inSeconds: number; outSeconds: number; outMatchesIn: boolean;
+  }): number {
+    const targets = this.autoTargetItems(group);
+    if (targets.length === 0 || opts.pool.length === 0) return 0;
+    let previous: string | null = null;
+    targets.forEach((item, i) => {
+      const motion = this.pickAuto(opts.pool, opts.mode, i, previous);
+      previous = motion;
+      const out = opts.outMatchesIn ? motion : 'fade';
+      if (group === 'text') {
+        this.updateTextItemStyle(item.id, {
+          transitionIn: motion as TimelineItemTextStyle['transitionIn'], transitionInDuration: opts.inSeconds,
+          transitionOut: (out === 'none' || out === 'fade' || out.startsWith('slide') || out.startsWith('zoom') ? out : 'fade') as TimelineItemTextStyle['transitionOut'],
+          transitionOutDuration: opts.outSeconds,
+        });
+      } else {
+        this.updateImageItemTransform(item.id, {
+          transitionIn: motion as TimelineItemTransform['transitionIn'], transitionInDuration: opts.inSeconds,
+          transitionOut: (out === 'pop' ? 'zoom' : out) as TimelineItemTransform['transitionOut'], transitionOutDuration: opts.outSeconds,
+        });
+      }
+    });
+    return targets.length;
+  }
   private previewVideoA: HTMLVideoElement | null = null;
   private previewVideoB: HTMLVideoElement | null = null;
   private previewRafId: number | null = null;
@@ -7206,6 +7673,8 @@ export class StudioStateService implements OnDestroy {
     const trans = this.previewJunction()?.transition;
     if (trans === 'SlideLeft') return `translateX(${(-100 * p).toFixed(2)}%)`;
     if (trans === 'SlideRight') return `translateX(${(100 * p).toFixed(2)}%)`;
+    if (trans === 'SlideUp') return `translateY(${(-100 * p).toFixed(2)}%)`;
+    if (trans === 'SlideDown') return `translateY(${(100 * p).toFixed(2)}%)`;
     return 'none';
   }
 
@@ -7216,6 +7685,8 @@ export class StudioStateService implements OnDestroy {
     const trans = this.previewJunction()?.transition;
     if (trans === 'SlideLeft') return `translateX(${(100 * (1 - p)).toFixed(2)}%)`;
     if (trans === 'SlideRight') return `translateX(${(-100 * (1 - p)).toFixed(2)}%)`;
+    if (trans === 'SlideUp') return `translateY(${(100 * (1 - p)).toFixed(2)}%)`;
+    if (trans === 'SlideDown') return `translateY(${(-100 * (1 - p)).toFixed(2)}%)`;
     return 'none';
   }
 
@@ -7674,6 +8145,104 @@ export class StudioStateService implements OnDestroy {
     this.markDirty();
   }
 
+  // ---------------------------------------------------------------- effects library
+
+  private readonly effectsApi = inject(EffectsService);
+
+  /** An effect being dragged from the media panel's Effects list onto the timeline. */
+  readonly draggingEffect = signal<EffectClip | null>(null);
+
+  /** Effects being copied into this project right now, so their buttons can say so. */
+  readonly addingEffectIds = signal<ReadonlySet<string>>(new Set());
+
+  /**
+   * Adds an effect from the user's library: the server copies it into this project once (a
+   * second use reuses that copy), then it is placed - pictures full-frame on V2, sounds on
+   * A1 (or A2 when A1 is busy there), an end screen asked for "at the end" finishing with
+   * the video. `at` is a drop on the timeline: that lane and time win over the mode.
+   */
+  addEffect(effect: EffectClip, mode: EffectPlacementMode, at?: { trackId: string; time: number }): void {
+    const projectId = this.loadedProjectId;
+    if (!this.ownsCurrentProject(projectId)) {
+      this.status.notify(['Open one of your projects to add effects to it.']);
+      return;
+    }
+    if (this.addingEffectIds().has(effect.id)) return;
+    if (this.isPlaying()) this.pause();
+
+    const setAdding = (on: boolean) => this.addingEffectIds.update((ids) => {
+      const next = new Set(ids);
+      if (on) next.add(effect.id); else next.delete(effect.id);
+      return next;
+    });
+    setAdding(true);
+
+    this.effectsApi.use(effect.id, projectId).subscribe({
+      next: ({ asset }) => {
+        setAdding(false);
+        // The user may have opened another project while the copy was made.
+        if (this.loadedProjectId !== projectId) return;
+        this.placeEffectAsset(effect, asset, mode, at);
+        this.store.refreshAssets();
+      },
+      error: (err: unknown) => {
+        setAdding(false);
+        this.status.notify([err instanceof ApiFailure ? err.message : `Could not add "${effect.name}". Try again.`]);
+      },
+    });
+  }
+
+  private placeEffectAsset(effect: EffectClip, asset: Asset, mode: EffectPlacementMode, at?: { trackId: string; time: number }): void {
+    const videoEnd = this.totalSeconds() > 0 ? this.totalSeconds() : this.contentDurationSeconds();
+    const plan = planEffectPlacement(effect, mode, at?.time ?? this.currentTime(), videoEnd, this.imageDurationSeconds());
+
+    if (effect.kind === 'Audio') {
+      // Joins the studio's audio list in place, as library music does: a reload would
+      // re-apply the server draft over edits not yet saved.
+      const studio = this.studio();
+      if (studio && !(studio.musicCandidates || []).some((m) => m.id === asset.id)) {
+        this.studio.set({ ...studio, musicCandidates: [...(studio.musicCandidates || []), asset] });
+      }
+      const start = at ? Math.max(0, at.time) : plan.start;
+      const length = asset.durationSeconds ?? effect.durationSeconds ?? 1;
+      const busy = (lane: 'A1' | 'A2') => this.musicTracksForLane(lane).some((t) =>
+        start < t.startSeconds + this.musicTrackDurationSeconds(t) && start + length > t.startSeconds);
+      const lane: 'A1' | 'A2' = at?.trackId === 'A2' || at?.trackId === 'A1'
+        ? at.trackId
+        : busy('A1') && !busy('A2') ? 'A2' : 'A1';
+      this.addMusicTrackFromAsset(asset.id, start, lane);
+      this.status.notify([`Added "${effect.name}" to ${lane} at ${start.toFixed(1)}s.`]);
+      return;
+    }
+
+    const row: ClipRow = {
+      clip: {
+        id: asset.id,
+        name: asset.name,
+        fileSizeBytes: asset.fileSizeBytes,
+        durationSeconds: asset.durationSeconds ?? effect.durationSeconds ?? undefined,
+        width: asset.width,
+        height: asset.height,
+        hasAudio: effect.kind === 'Video',
+      },
+      included: false,
+    };
+    const before = this.selectedTimelineItemId();
+    this.addAssetToTrack('V2', row, at ? Math.max(0, at.time) : plan.start);
+    const added = this.selectedTimelineItemId();
+    if (added && added !== before && plan.transform) this.updateImageItemTransform(added, plan.transform);
+  }
+
+  /** Saves a file in this project to the user's effects library, for reuse in other videos. */
+  saveClipToEffects(clip: Clip): void {
+    const projectId = this.loadedProjectId;
+    if (!this.ownsCurrentProject(projectId)) return;
+    this.effectsApi.saveFromAsset(projectId, this.resolveAssetId(clip)).subscribe({
+      next: (effect) => this.status.notify([`"${effect.name}" is in your effects library - add it to any video from ✨ Effects.`]),
+      error: (err: unknown) => this.status.notify([err instanceof ApiFailure ? err.message : 'Could not save that to your effects library.']),
+    });
+  }
+
   /**
    * Puts a track just added from the music library on A2, at the playhead (or after the music
    * already under it). The asset joins the studio's audio list in place, as voiceover lines do,
@@ -8030,6 +8599,13 @@ export class StudioStateService implements OnDestroy {
       clipSounds: this.clipSounds(),
       clipTransforms: this.clipTransforms(),
       clipColors: this.clipColors(),
+      clipColorMap: Array.from(this.clipColor().entries()),
+      activeFilter: this.activeFilter(),
+      filterBrightness: this.filterBrightness(),
+      filterContrast: this.filterContrast(),
+      filterSaturation: this.filterSaturation(),
+      filterSepia: this.filterSepia(),
+      filterBlur: this.filterBlur(),
       clipTexts: this.clipTexts(),
       junctions: this.junctions(),
       junctionOverrides: Array.from(this.junctionOverrides().entries()),
@@ -8143,6 +8719,15 @@ export class StudioStateService implements OnDestroy {
     if (draft.clipSounds) this.clipSounds.set(draft.clipSounds);
     if (draft.clipTransforms) this.clipTransforms.set(draft.clipTransforms);
     if (draft.clipColors) this.clipColors.set(draft.clipColors);
+    if (Array.isArray(draft.clipColorMap)) {
+      this.clipColor.set(new Map(draft.clipColorMap));
+    }
+    if (draft.activeFilter !== undefined) this.activeFilter.set(draft.activeFilter);
+    if (draft.filterBrightness !== undefined) this.filterBrightness.set(draft.filterBrightness);
+    if (draft.filterContrast !== undefined) this.filterContrast.set(draft.filterContrast);
+    if (draft.filterSaturation !== undefined) this.filterSaturation.set(draft.filterSaturation);
+    if (draft.filterSepia !== undefined) this.filterSepia.set(draft.filterSepia);
+    if (draft.filterBlur !== undefined) this.filterBlur.set(draft.filterBlur);
     if (draft.clipTexts) this.clipTexts.set(draft.clipTexts);
     if (draft.junctions) this.junctions.set(draft.junctions);
     if (Array.isArray(draft.junctionOverrides)) {
@@ -8961,6 +9546,7 @@ export class StudioStateService implements OnDestroy {
       ...base,
       fontSize: look.fontSize,
       color: look.color,
+      accentColor: look.accentColor ?? undefined,
       boxStyle: look.box,
       boxColor: look.boxColor,
       boxOpacity: look.boxOpacity,
@@ -9018,7 +9604,7 @@ export class StudioStateService implements OnDestroy {
         stabilization: t.stabilization,
         eraseRegions: t.eraseRegions.length > 0 ? t.eraseRegions : undefined,
       };
-      const shot = this.getClipType(entry.clip) === 'image' ? cinematicOf(t) : null;
+      const shot = cinematicOf(t);
       if (shot) Object.assign(transformSpec, cinematicFields(shot));
 
       return {
@@ -9729,6 +10315,35 @@ export class StudioStateService implements OnDestroy {
   });
 
   /**
+   * Asset IDs from the open timeline in exact playback order (V1 cut clips + IMG1 images),
+   * deduplicated while preserving first-seen sequence. Used by Auto Shorts "From Timeline (in order)".
+   */
+  readonly timelineOrderedAssetIds = computed<string[]>(() => {
+    const known = new Set(this.autoShortSources().map((c) => this.resolveAssetId(c)));
+    const ordered: { time: number; id: string }[] = [];
+    for (const s of this.clipSchedule()) {
+      const id = this.resolveAssetId(s.clip);
+      if (id && known.has(id)) ordered.push({ time: s.startSeconds, id });
+    }
+    for (const it of this.timelineItems()) {
+      if (it.type === 'image' || it.type === 'video') {
+        const id = this.resolveAssetId(it.src);
+        if (id && known.has(id)) ordered.push({ time: it.startTime, id });
+      }
+    }
+    ordered.sort((a, b) => a.time - b.time);
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const item of ordered) {
+      if (!seen.has(item.id)) {
+        seen.add(item.id);
+        out.push(item.id);
+      }
+    }
+    return out;
+  });
+
+  /**
    * Queues the batch. The server plans every short and checks every file; each short comes
    * back as its own job, listed in the activity panel so the studio can be left while they render.
    */
@@ -9761,6 +10376,364 @@ export class StudioStateService implements OnDestroy {
     if (!this.ownsCurrentProject(projectId)) return null;
     const wm: WatermarkBody = this.effectiveWatermark();
     return this.api.autoShortsPreview(projectId, { ...body, watermark: body.watermark ? wm : { ...wm, kind: 'None' as WatermarkKind } });
+  }
+
+  /**
+   * Styles, Effects & Layouts Studio Dialog: lets the user preview and apply any Auto-Short style,
+   * camera move, color look, transition pool, atmosphere FX, kinetic caption mode, or ad layout
+   * directly onto the Video Editor timeline with live viewport playback.
+   */
+  readonly styleStudioOpen = signal(false);
+
+  /** All 10 Auto-Short styles available directly in the Video Editor timeline. */
+  readonly studioStylePresets = STUDIO_STYLE_PRESETS;
+
+  /**
+   * Applies an Auto-Short style preset (and any customized overrides) directly to the open timeline
+   * in one undoable step, then seeks and updates the live Video Viewport preview.
+   */
+  applyAutoShortStyleToTimeline(opts: ApplyTimelineStyleOptions): void {
+    const preset = STUDIO_STYLE_PRESETS.find((p) => p.id === opts.styleId) ?? STUDIO_STYLE_PRESETS[0];
+    const sched = this.clipSchedule();
+    const targetClipIds = opts.scope === 'selected' && this.getTargetClipIds().length > 0
+      ? new Set(this.getTargetClipIds())
+      : new Set(this.included().map((r) => r.clip.id));
+
+    const targetImgItems = this.timelineItems().filter((it) =>
+      (it.type === 'image' || it.type === 'video') && (SHOT_LANES.has(it.trackId) || it.trackId === 'V2'));
+
+    this.closeHistoryBurst();
+
+    // 1. Camera Motion, Look & Lens Finish on V1 clips and IMG1/V2 items
+    if (opts.applyMotion || opts.applyLook) {
+      this.clipTransforms.update((rec) => {
+        const next = { ...rec };
+        let idx = 0;
+        for (const row of this.included()) {
+          const clipId = row.clip.id;
+          if (!targetClipIds.has(clipId)) continue;
+          const cur = this.clipTransformSetting(clipId);
+          const curShot = cinematicOf(cur) ?? { ...DEFAULT_CINEMATIC, motion: 'none' };
+          const motion: ImageCameraMotion = opts.applyMotion
+            ? (opts.overrideMotion === 'preset'
+              ? preset.motions[idx % preset.motions.length]
+              : opts.overrideMotion)
+            : curShot.motion;
+          const look: ImageLook = opts.applyLook
+            ? (opts.overrideLook === 'preset' ? preset.look : opts.overrideLook)
+            : curShot.look;
+          const fields = cinematicFields({
+            motion,
+            intensity: opts.applyMotion ? preset.intensity : curShot.intensity,
+            focusX: curShot.focusX ?? 50,
+            focusY: curShot.focusY ?? 50,
+            easing: opts.applyMotion ? preset.easing : curShot.easing,
+            look,
+            vignette: opts.applyLook ? opts.vignette : curShot.vignette,
+            grain: opts.applyLook ? opts.grain : curShot.grain,
+            cinemaBars: opts.applyLook ? opts.cinemaBars : curShot.cinemaBars,
+          });
+          next[clipId] = { ...cur, ...fields };
+          idx++;
+        }
+        return next;
+      });
+
+      if (targetImgItems.length > 0) {
+        this.timelineItems.update((items) => {
+          let idx = 0;
+          return items.map((it) => {
+            if (!((it.type === 'image' || it.type === 'video') && (SHOT_LANES.has(it.trackId) || it.trackId === 'V2'))) {
+              return it;
+            }
+            if (opts.scope === 'selected' && this.selectedTimelineItemId() && it.id !== this.selectedTimelineItemId()) {
+              return it;
+            }
+            const cur = it.transform ?? { scale: 1, x: 0, y: 0, opacity: 1 };
+            const curShot = cinematicOf(cur) ?? { ...DEFAULT_CINEMATIC, motion: 'none' };
+            const motion: ImageCameraMotion = opts.applyMotion
+              ? (opts.overrideMotion === 'preset'
+                ? preset.motions[idx % preset.motions.length]
+                : opts.overrideMotion)
+              : curShot.motion;
+            const look: ImageLook = opts.applyLook
+              ? (opts.overrideLook === 'preset' ? preset.look : opts.overrideLook)
+              : curShot.look;
+            idx++;
+            return {
+              ...it,
+              transform: {
+                ...cur,
+                ...cinematicFields({
+                  motion,
+                  intensity: opts.applyMotion ? preset.intensity : curShot.intensity,
+                  focusX: curShot.focusX ?? 50,
+                  focusY: curShot.focusY ?? 50,
+                  easing: opts.applyMotion ? preset.easing : curShot.easing,
+                  look,
+                  vignette: opts.applyLook ? opts.vignette : curShot.vignette,
+                  grain: opts.applyLook ? opts.grain : curShot.grain,
+                  cinemaBars: opts.applyLook ? opts.cinemaBars : curShot.cinemaBars,
+                }),
+              },
+            };
+          });
+        });
+      }
+
+      // Sync Color Grading filter preset so Color tab reflects the look too
+      if (opts.applyLook) {
+        const lookToFilter: Record<ImageLook, string> = {
+          none: 'none',
+          cinematic: 'cinematic',
+          vivid: 'vibrant',
+          warm: 'warm',
+          cool: 'cool',
+          vintage: 'vintage',
+          noir: 'noir',
+          matte: 'cool',
+        };
+        const chosenLook: ImageLook = opts.overrideLook === 'preset' ? preset.look : opts.overrideLook;
+        const filterId = lookToFilter[chosenLook] ?? preset.filterPreset;
+        if (opts.scope === 'all') {
+          this.activeFilter.set(filterId);
+        }
+        this.clipColor.update((m) => {
+          const next = new Map(m);
+          for (const clipId of targetClipIds) {
+            const cur = this.clipColorSetting(clipId);
+            next.set(clipId, { ...cur, filter: filterId });
+          }
+          return next;
+        });
+      }
+    }
+
+    // 2. Cut Transitions across V1 junctions
+    if (opts.applyTransitions && preset.transitions.length > 0) {
+      const primaryTrans = preset.transitions[0];
+      const transSecs = preset.transitionSeconds;
+      if (opts.scope === 'all') {
+        this.transition.set(primaryTrans);
+        this.transitionSeconds.set(transSecs);
+      }
+      const jList = this.junctionsList();
+      if (jList.length > 0) {
+        this.junctionOverrides.update((map) => {
+          const next = new Map(map);
+          jList.forEach((j, k) => {
+            if (opts.scope === 'selected' && !targetClipIds.has(j.left.id) && !targetClipIds.has(j.right.id)) {
+              return;
+            }
+            const tName = preset.transitions[k % preset.transitions.length];
+            next.set(j.key, { transition: tName, seconds: transSecs });
+          });
+          return next;
+        });
+      }
+    }
+
+    const totalDur = Math.max(4, this.totalSeconds() || this.contentDurationSeconds() || 10);
+
+    // 3. Celebration / Atmosphere FX on FX1
+    if (opts.celebration !== 'none') {
+      const kind = opts.celebration;
+      const fxDur = Math.min(60, Math.max(2, Math.round(totalDur * 10) / 10));
+      const fxItem: TimelineItem = {
+        id: `style_fx_${Date.now().toString(36)}`,
+        type: 'celebration',
+        trackId: 'FX1',
+        startTime: 0,
+        duration: fxDur,
+        src: kind,
+        name: celebrationOption(kind)?.label ?? 'Atmosphere FX',
+        celebration: { mode: defaultCelebrationMode(kind), density: 55, size: 1, speed: 1 },
+      };
+      this.timelineItems.update((items) => [
+        ...items.filter((it) => !(it.type === 'celebration' && it.id.startsWith('style_fx_'))),
+        fxItem,
+      ]);
+      this.showTrackManually('FX1');
+    }
+
+    // 4. Kinetic Captions, Hook & Word-Pop on TXT1
+    if (opts.textMode !== 'None' || opts.addCtaButton) {
+      const cleanLines = opts.scriptLines
+        .map((l) => l.replace(/\s+/g, ' ').trim())
+        .filter((l) => l.length > 0);
+      const lines = cleanLines.length > 0 ? cleanLines : preset.defaultLines;
+      const newTxtItems: TimelineItem[] = [];
+      const stamp = Date.now().toString(36);
+
+      const hasHook = opts.textMode === 'Hook' || opts.textMode === 'HookAndPerShot' || opts.textMode === 'HookAndWordPop';
+      const hasPerShot = opts.textMode === 'PerShot' || opts.textMode === 'HookAndPerShot';
+      const hasWordPop = opts.textMode === 'WordPop' || opts.textMode === 'HookAndWordPop';
+
+      const shots: { start: number; dur: number }[] = [];
+      if (sched.length > 0) {
+        for (const s of sched) shots.push({ start: s.startSeconds, dur: s.durationSeconds });
+      } else {
+        const laneItems = this.timelineItems()
+          .filter((it) => (it.type === 'image' || it.type === 'video') && (it.trackId === 'IMG1' || it.trackId === 'V1' || it.trackId === 'V2'))
+          .sort((a, b) => a.startTime - b.startTime);
+        if (laneItems.length > 0) {
+          for (const it of laneItems) shots.push({ start: it.startTime, dur: it.duration });
+        } else {
+          shots.push({ start: 0, dur: totalDur });
+        }
+      }
+
+      let lineIdx = 0;
+      if (hasHook && lines.length > 0 && shots.length > 0) {
+        const hookDur = Math.min(shots[0].dur, Math.max(1.8, Math.min(3.2, totalDur * 0.35)));
+        newTxtItems.push({
+          id: `style_txt_hook_${stamp}`,
+          type: 'text',
+          trackId: 'TXT1',
+          startTime: Math.round(shots[0].start * 100) / 100,
+          duration: Math.round(hookDur * 100) / 100,
+          src: lines[0],
+          name: 'Hook',
+          overlay: true,
+          textStyle: { ...DEFAULT_TEXT_STYLE, ...preset.hookTextStyle },
+        });
+        lineIdx = 1;
+      }
+
+      if (hasPerShot && lines.length > 0) {
+        const startShot = hasHook && shots.length > 1 ? 1 : 0;
+        for (let k = startShot; k < shots.length; k++) {
+          const line = lines[(lineIdx + (k - startShot)) % lines.length];
+          const s = shots[k];
+          const pad = k > 0 && opts.applyTransitions ? Math.min(0.25, preset.transitionSeconds / 2) : 0;
+          const dur = Math.max(0.6, s.dur - pad * 2);
+          newTxtItems.push({
+            id: `style_txt_shot_${stamp}_${k}`,
+            type: 'text',
+            trackId: 'TXT1',
+            startTime: Math.round((s.start + pad) * 100) / 100,
+            duration: Math.round(dur * 100) / 100,
+            src: line,
+            name: `Caption #${k + 1}`,
+            overlay: true,
+            textStyle: { ...DEFAULT_TEXT_STYLE, ...preset.captionTextStyle },
+          });
+        }
+      }
+
+      if (hasWordPop && lines.length > 0) {
+        const startShot = hasHook && shots.length > 1 ? 1 : 0;
+        for (let k = startShot; k < shots.length; k++) {
+          const line = lines[(lineIdx + (k - startShot)) % lines.length];
+          const s = shots[k];
+          const pad = k > 0 && opts.applyTransitions ? Math.min(0.2, preset.transitionSeconds / 2) : 0;
+          const shotStart = s.start + pad;
+          const shotDur = Math.max(0.6, s.dur - pad * 2);
+          const chunks = chunkIntoWordPops(line);
+          if (chunks.length === 0) continue;
+          const idealStep = Math.min(0.85, Math.max(0.35, shotDur / chunks.length));
+          for (let w = 0; w < chunks.length; w++) {
+            const wStart = shotStart + w * idealStep;
+            if (wStart >= shotStart + shotDur - 0.1) break;
+            const wDur = Math.min(idealStep, shotStart + shotDur - wStart);
+            const rawChunk = chunks[w];
+            const chunkText = w % 2 === 1 && !rawChunk.includes('[') ? `[${rawChunk}]` : rawChunk;
+            newTxtItems.push({
+              id: `style_txt_pop_${stamp}_${k}_${w}`,
+              type: 'text',
+              trackId: 'TXT1',
+              startTime: Math.round(wStart * 100) / 100,
+              duration: Math.round(Math.max(0.25, wDur) * 100) / 100,
+              src: chunkText,
+              name: `Pop ${k + 1}.${w + 1}`,
+              overlay: true,
+              textStyle: {
+                ...DEFAULT_TEXT_STYLE,
+                fontSize: 38,
+                color: '#ffffff',
+                accentColor: '#facc15',
+                position: 'center',
+                boxStyle: 'box',
+                boxColor: '#090d16',
+                boxOpacity: 0.78,
+                outlineColor: '#000000',
+                outlineWidth: 3,
+                shadow: true,
+                uppercase: true,
+                transitionIn: 'zoom-in',
+                transitionInDuration: 0.12,
+                transitionOut: 'none',
+                transitionOutDuration: 0.08,
+              },
+            });
+          }
+        }
+      }
+
+      if (opts.addCtaButton) {
+        const lastShot = shots[shots.length - 1];
+        const ctaDur = Math.min(Math.max(1.8, lastShot.dur), 3.2);
+        const ctaStart = Math.max(0, lastShot.start + lastShot.dur - ctaDur);
+        newTxtItems.push({
+          id: `style_txt_cta_${stamp}`,
+          type: 'text',
+          trackId: 'TXT1',
+          startTime: Math.round(ctaStart * 100) / 100,
+          duration: Math.round(ctaDur * 100) / 100,
+          src: '👆 [ORDER NOW] →',
+          name: 'CTA Order Now',
+          overlay: true,
+          textStyle: {
+            ...DEFAULT_TEXT_STYLE,
+            fontSize: 30,
+            color: '#090d16',
+            accentColor: '#dc2626',
+            position: 'bottom',
+            boxStyle: 'box',
+            boxColor: '#facc15',
+            boxOpacity: 0.96,
+            outlineColor: '#ffffff',
+            outlineWidth: 2,
+            shadow: true,
+            uppercase: true,
+            transitionIn: 'zoom-in',
+            transitionInDuration: 0.3,
+            transitionOut: 'fade',
+            transitionOutDuration: 0.2,
+          },
+        });
+      }
+
+      if (newTxtItems.length > 0) {
+        this.timelineItems.update((items) => [
+          ...items.filter((it) => !(it.type === 'text' && it.id.startsWith('style_txt_'))),
+          ...newTxtItems,
+        ]);
+        this.showTrackManually('TXT1');
+      }
+    }
+
+    // 5. Optional Direct-Response Ad Layout
+    if (opts.adLayout === 'none') {
+      this.clearAdLayout();
+    } else {
+      this.applyAdLayoutPreset(opts.adLayout, {
+        scope: opts.layoutScope ?? (opts.scope === 'selected' ? 'selected' : 'intro'),
+      });
+    }
+
+    this.markDirty();
+    this.closeHistoryBurst();
+
+    // Seek to start (or first selected clip) so the user immediately sees the live preview in the monitor
+    const firstClipStart = opts.scope === 'selected'
+      ? (sched.find((s) => targetClipIds.has(s.clip.id))?.startSeconds ?? 0)
+      : 0;
+    this.seekTo(firstClipStart);
+    this.styleStudioOpen.set(false);
+    this.status.notify([
+      `Applied "${preset.label}" style to timeline (${targetClipIds.size} clip${targetClipIds.size === 1 ? '' : 's'}) — live preview active!`,
+    ]);
   }
 
   /**
@@ -9855,3 +10828,433 @@ export class StudioStateService implements OnDestroy {
     return this.api.timelineUrl(jobId, format);
   }
 }
+
+export interface StudioStylePreset {
+  id: AutoShortStyle;
+  label: string;
+  icon: string;
+  tag: string;
+  description: string;
+  transitions: string[];
+  transitionSeconds: number;
+  motions: ImageCameraMotion[];
+  intensity: number;
+  easing: 'ease' | 'linear';
+  look: ImageLook;
+  filterPreset: string;
+  vignette: boolean;
+  grain: boolean;
+  cinemaBars: boolean;
+  defaultCelebration: CelebrationKind | 'none';
+  defaultTextMode: AutoShortTextMode;
+  defaultAddCta: boolean;
+  defaultLines: string[];
+  hookTextStyle: Partial<TimelineItemTextStyle>;
+  captionTextStyle: Partial<TimelineItemTextStyle>;
+}
+
+export interface ApplyTimelineStyleOptions {
+  styleId: AutoShortStyle;
+  scope: 'all' | 'selected';
+  applyTransitions: boolean;
+  applyMotion: boolean;
+  applyLook: boolean;
+  overrideMotion: ImageCameraMotion | 'preset';
+  overrideLook: ImageLook | 'preset';
+  vignette: boolean;
+  grain: boolean;
+  cinemaBars: boolean;
+  textMode: AutoShortTextMode;
+  scriptLines: string[];
+  addCtaButton: boolean;
+  celebration: CelebrationKind | 'none';
+  adLayout: 'none' | 'stack-3' | 'doc-split' | 'cosmic-card' | 'book-mockup';
+  layoutScope?: 'intro' | 'selected' | 'all';
+}
+
+function chunkIntoWordPops(line: string): string[] {
+  const words = line.trim().split(/\s+/).filter((w) => w.length > 0);
+  const chunks: string[] = [];
+  let i = 0;
+  while (i < words.length) {
+    if (i + 1 < words.length && words[i].length <= 5 && words[i + 1].length <= 5 && !words[i].includes('[')) {
+      chunks.push(`${words[i]} ${words[i + 1]}`);
+      i += 2;
+    } else {
+      chunks.push(words[i]);
+      i += 1;
+    }
+  }
+  return chunks.slice(0, 12);
+}
+
+export const STUDIO_STYLE_PRESETS: readonly StudioStylePreset[] = [
+  {
+    id: 'DirectResponse',
+    label: 'Direct-Response Ad',
+    icon: '🎯',
+    tag: 'High-Converting 9:16 Ad',
+    description: 'Cosmic glassmorphic cards, slide/push cuts, slow Ken Burns zoom-in, starry nebula atmosphere & 1-word pop + CTA.',
+    transitions: ['SlideLeft', 'SlideRight', 'WipeLeft', 'Fade'],
+    transitionSeconds: 0.3,
+    motions: ['zoom-in', 'pan-up', 'drift'],
+    intensity: 0.15,
+    easing: 'ease',
+    look: 'cinematic',
+    filterPreset: 'cinematic',
+    vignette: true,
+    grain: false,
+    cinemaBars: false,
+    defaultCelebration: 'cosmic',
+    defaultTextMode: 'HookAndWordPop',
+    defaultAddCta: true,
+    defaultLines: [
+      '⚡ [3] SIGNS YOUR NAME VIBRATION MATTERS',
+      '10,000+ [REPORTS] SOLD WORLDWIDE',
+      'DISCOVER YOUR [COSMIC] ALIGNMENT TODAY',
+    ],
+    hookTextStyle: {
+      fontSize: 30, color: '#ffffff', accentColor: '#facc15', position: 'top',
+      boxStyle: 'box', boxColor: '#0f172a', boxOpacity: 0.9,
+      outlineColor: '#38bdf8', outlineWidth: 2, shadow: true, uppercase: true,
+      transitionIn: 'slide-down', transitionInDuration: 0.3, transitionOut: 'fade', transitionOutDuration: 0.25,
+    },
+    captionTextStyle: {
+      fontSize: 24, color: '#f8fafc', accentColor: '#38bdf8', position: 'bottom',
+      boxStyle: 'box', boxColor: '#0f172a', boxOpacity: 0.88,
+      outlineColor: '#38bdf8', outlineWidth: 1.5, shadow: true, uppercase: false,
+      transitionIn: 'slide-right', transitionInDuration: 0.25, transitionOut: 'fade', transitionOutDuration: 0.25,
+    },
+  },
+  {
+    id: 'Viral',
+    label: 'Viral Hook & Retention',
+    icon: '🔥',
+    tag: 'High-Retention Reels/Shorts',
+    description: 'Fast wipe/slide cuts, punchy zoom-in & handheld motion, vivid color pop, yellow/red hook headlines & kinetic word-pops.',
+    transitions: ['WipeLeft', 'SlideLeft', 'CircleOpen', 'Fade'],
+    transitionSeconds: 0.28,
+    motions: ['zoom-in', 'handheld', 'pan-up', 'zoom-out'],
+    intensity: 0.19,
+    easing: 'ease',
+    look: 'vivid',
+    filterPreset: 'vibrant',
+    vignette: false,
+    grain: false,
+    cinemaBars: false,
+    defaultCelebration: 'sparkles',
+    defaultTextMode: 'HookAndWordPop',
+    defaultAddCta: false,
+    defaultLines: [
+      'STOP [SCROLLING] WATCH THIS NOW',
+      'NOBODY TALKS ABOUT [THIS] SECRET',
+      'WAIT FOR THE [FINAL] REVEAL',
+    ],
+    hookTextStyle: {
+      fontSize: 34, color: '#fde047', accentColor: '#ffffff', position: 'top',
+      boxStyle: 'box', boxColor: '#090d16', boxOpacity: 0.88,
+      outlineColor: '#dc2626', outlineWidth: 2.5, shadow: true, uppercase: true,
+      transitionIn: 'zoom-in', transitionInDuration: 0.22, transitionOut: 'fade', transitionOutDuration: 0.2,
+    },
+    captionTextStyle: {
+      fontSize: 26, color: '#ffffff', accentColor: '#facc15', position: 'bottom',
+      boxStyle: 'box', boxColor: '#090d16', boxOpacity: 0.82,
+      outlineColor: '#000000', outlineWidth: 2, shadow: true, uppercase: true,
+      transitionIn: 'zoom-in', transitionInDuration: 0.2, transitionOut: 'fade', transitionOutDuration: 0.2,
+    },
+  },
+  {
+    id: 'Explainer',
+    label: 'Explainer & Doc Showcase',
+    icon: '📊',
+    tag: 'Educational & Breakdown',
+    description: 'Clean slide/wipe cuts, smooth pan-down & zoom-in over documents/clips, warm grade with vignette & gold banner headers.',
+    transitions: ['SlideLeft', 'WipeRight', 'Dissolve'],
+    transitionSeconds: 0.35,
+    motions: ['pan-down', 'zoom-in', 'pan-right', 'drift'],
+    intensity: 0.14,
+    easing: 'ease',
+    look: 'warm',
+    filterPreset: 'warm',
+    vignette: true,
+    grain: false,
+    cinemaBars: false,
+    defaultCelebration: 'sparkles',
+    defaultTextMode: 'HookAndPerShot',
+    defaultAddCta: false,
+    defaultLines: [
+      '★ FULL [BREAKDOWN] & ANALYSIS ★',
+      'Key Insight #1: [Exact] Comparison',
+      'Key Insight #2: Step-by-Step [Proof]',
+    ],
+    hookTextStyle: {
+      fontSize: 28, color: '#090d16', accentColor: '#ffffff', position: 'top',
+      boxStyle: 'band', boxColor: '#eab308', boxOpacity: 0.95,
+      outlineColor: '#ffffff', outlineWidth: 1, shadow: false, uppercase: true,
+      transitionIn: 'slide-right', transitionInDuration: 0.3, transitionOut: 'fade', transitionOutDuration: 0.25,
+    },
+    captionTextStyle: {
+      fontSize: 23, color: '#ffffff', accentColor: '#facc15', position: 'bottom',
+      boxStyle: 'box', boxColor: '#0c0a09', boxOpacity: 0.88,
+      outlineColor: '#eab308', outlineWidth: 1.5, shadow: true, uppercase: false,
+      transitionIn: 'slide-up', transitionInDuration: 0.3, transitionOut: 'fade', transitionOutDuration: 0.25,
+    },
+  },
+  {
+    id: 'Energetic',
+    label: 'Energetic',
+    icon: '⚡',
+    tag: 'Fast Cuts & Vivid Pop',
+    description: 'Dynamic wipes & slides, active zoom/pan camera moves, vivid saturation boost, and bold yellow/white captions.',
+    transitions: ['WipeLeft', 'WipeRight', 'SlideLeft', 'SlideRight', 'CircleOpen', 'Fade'],
+    transitionSeconds: 0.35,
+    motions: ['zoom-in', 'pan-left', 'pan-right', 'zoom-out', 'pan-up'],
+    intensity: 0.18,
+    easing: 'ease',
+    look: 'vivid',
+    filterPreset: 'vibrant',
+    vignette: false,
+    grain: false,
+    cinemaBars: false,
+    defaultCelebration: 'confetti',
+    defaultTextMode: 'PerShot',
+    defaultAddCta: false,
+    defaultLines: [
+      'FEEL THE [ENERGY] IN EVERY FRAME',
+      'BUILT FOR [MAXIMUM] IMPACT',
+      'PURE [MOMENTUM] NON-STOP',
+    ],
+    hookTextStyle: {
+      fontSize: 32, color: '#fde047', accentColor: '#ffffff', position: 'top',
+      boxStyle: 'box', boxColor: '#000000', boxOpacity: 0.75,
+      outlineColor: '#000000', outlineWidth: 2, shadow: true, uppercase: true,
+      transitionIn: 'zoom-in', transitionInDuration: 0.25, transitionOut: 'fade', transitionOutDuration: 0.25,
+    },
+    captionTextStyle: {
+      fontSize: 24, color: '#ffffff', accentColor: '#fde047', position: 'bottom',
+      boxStyle: 'box', boxColor: '#000000', boxOpacity: 0.72,
+      outlineColor: '#000000', outlineWidth: 2, shadow: true, uppercase: true,
+      transitionIn: 'slide-up', transitionInDuration: 0.25, transitionOut: 'fade', transitionOutDuration: 0.25,
+    },
+  },
+  {
+    id: 'Hype',
+    label: 'Hype',
+    icon: '🚀',
+    tag: 'Handheld Shake & Action',
+    description: 'Rapid 0.25s cuts, energetic handheld camera shake, high-contrast vivid look with vignette & neon red/yellow titles.',
+    transitions: ['WipeLeft', 'WipeRight', 'SlideLeft', 'SlideRight', 'CircleOpen', 'CircleClose'],
+    transitionSeconds: 0.25,
+    motions: ['handheld', 'zoom-in', 'zoom-out', 'pan-left', 'pan-right'],
+    intensity: 0.21,
+    easing: 'linear',
+    look: 'vivid',
+    filterPreset: 'vibrant',
+    vignette: true,
+    grain: false,
+    cinemaBars: false,
+    defaultCelebration: 'confetti',
+    defaultTextMode: 'WordPop',
+    defaultAddCta: false,
+    defaultLines: [
+      'UNSTOPPABLE [HYPE] MODE',
+      'TURN IT UP TO [100%]',
+      'LET THE [ACTION] SPEAK',
+    ],
+    hookTextStyle: {
+      fontSize: 34, color: '#fde047', accentColor: '#ffffff', position: 'top',
+      boxStyle: 'box', boxColor: '#09090b', boxOpacity: 0.85,
+      outlineColor: '#dc2626', outlineWidth: 2, shadow: true, uppercase: true,
+      transitionIn: 'zoom-in', transitionInDuration: 0.2, transitionOut: 'fade', transitionOutDuration: 0.2,
+    },
+    captionTextStyle: {
+      fontSize: 25, color: '#fde047', accentColor: '#ffffff', position: 'bottom',
+      boxStyle: 'box', boxColor: '#09090b', boxOpacity: 0.82,
+      outlineColor: '#dc2626', outlineWidth: 2, shadow: true, uppercase: true,
+      transitionIn: 'zoom-in', transitionInDuration: 0.2, transitionOut: 'fade', transitionOutDuration: 0.2,
+    },
+  },
+  {
+    id: 'Cinematic',
+    label: 'Cinematic',
+    icon: '🎬',
+    tag: 'Film Grade & Letterbox Bars',
+    description: 'Smooth fades & dissolves, slow Ken Burns zoom/drift, rich cinematic color grade, film grain, vignette & 2.39:1 cinema bars.',
+    transitions: ['Fade', 'Dissolve'],
+    transitionSeconds: 0.6,
+    motions: ['zoom-in', 'drift', 'pan-right', 'zoom-out', 'pan-left'],
+    intensity: 0.14,
+    easing: 'ease',
+    look: 'cinematic',
+    filterPreset: 'cinematic',
+    vignette: true,
+    grain: true,
+    cinemaBars: true,
+    defaultCelebration: 'none',
+    defaultTextMode: 'HookAndPerShot',
+    defaultAddCta: false,
+    defaultLines: [
+      'Every frame tells a [deeper] story',
+      'Where light meets [timeless] motion',
+      'Crafted in [cinematic] detail',
+    ],
+    hookTextStyle: {
+      fontSize: 28, color: '#f8fafc', accentColor: '#facc15', position: 'top',
+      boxStyle: 'box', boxColor: '#0f172a', boxOpacity: 0.6,
+      outlineColor: '#000000', outlineWidth: 2, shadow: true, uppercase: false,
+      transitionIn: 'fade', transitionInDuration: 0.45, transitionOut: 'fade', transitionOutDuration: 0.35,
+    },
+    captionTextStyle: {
+      fontSize: 22, color: '#f8fafc', accentColor: '#facc15', position: 'bottom',
+      boxStyle: 'box', boxColor: '#0f172a', boxOpacity: 0.58,
+      outlineColor: '#000000', outlineWidth: 2, shadow: true, uppercase: false,
+      transitionIn: 'fade', transitionInDuration: 0.45, transitionOut: 'fade', transitionOutDuration: 0.35,
+    },
+  },
+  {
+    id: 'Dramatic',
+    label: 'Dramatic Noir',
+    icon: '🎭',
+    tag: 'Noir Monochrome & Grain',
+    description: 'Deep monochrome noir grade, circle-close & fade transitions, slow dramatic push, heavy vignette, film grain & cinema bars.',
+    transitions: ['Fade', 'CircleClose', 'Dissolve'],
+    transitionSeconds: 0.55,
+    motions: ['zoom-in', 'zoom-out', 'pan-up', 'drift'],
+    intensity: 0.16,
+    easing: 'ease',
+    look: 'noir',
+    filterPreset: 'noir',
+    vignette: true,
+    grain: true,
+    cinemaBars: true,
+    defaultCelebration: 'snow',
+    defaultTextMode: 'Hook',
+    defaultAddCta: false,
+    defaultLines: [
+      'IN THE [SHADOWS] OF TIME',
+      'SILENCE SPEAKS [LOUDER]',
+    ],
+    hookTextStyle: {
+      fontSize: 30, color: '#f4f4f5', accentColor: '#facc15', position: 'top',
+      boxStyle: 'band', boxColor: '#000000', boxOpacity: 0.75,
+      outlineColor: '#000000', outlineWidth: 2, shadow: true, uppercase: true,
+      transitionIn: 'slide-down', transitionInDuration: 0.4, transitionOut: 'fade', transitionOutDuration: 0.35,
+    },
+    captionTextStyle: {
+      fontSize: 22, color: '#f4f4f5', accentColor: '#facc15', position: 'bottom',
+      boxStyle: 'band', boxColor: '#000000', boxOpacity: 0.72,
+      outlineColor: '#000000', outlineWidth: 2, shadow: true, uppercase: false,
+      transitionIn: 'fade', transitionInDuration: 0.4, transitionOut: 'fade', transitionOutDuration: 0.35,
+    },
+  },
+  {
+    id: 'Calm',
+    label: 'Calm & Devotional',
+    icon: '🌿',
+    tag: 'Gentle Drift & Warmth',
+    description: 'Long 0.8s dissolves, gentle drift & breathe camera motion, warm golden grade, and serene floating petals.',
+    transitions: ['Dissolve', 'Fade'],
+    transitionSeconds: 0.8,
+    motions: ['drift', 'breathe', 'zoom-in', 'pan-right'],
+    intensity: 0.10,
+    easing: 'ease',
+    look: 'warm',
+    filterPreset: 'warm',
+    vignette: false,
+    grain: false,
+    cinemaBars: false,
+    defaultCelebration: 'petals',
+    defaultTextMode: 'PerShot',
+    defaultAddCta: false,
+    defaultLines: [
+      'Peace begins within [every] breath',
+      'Gentle moments of [grace] and light',
+      'Stillness in [motion]',
+    ],
+    hookTextStyle: {
+      fontSize: 26, color: '#ffffff', accentColor: '#fde68a', position: 'top',
+      boxStyle: 'box', boxColor: '#000000', boxOpacity: 0.48,
+      outlineColor: '#000000', outlineWidth: 2, shadow: true, uppercase: false,
+      transitionIn: 'fade', transitionInDuration: 0.55, transitionOut: 'fade', transitionOutDuration: 0.45,
+    },
+    captionTextStyle: {
+      fontSize: 21, color: '#ffffff', accentColor: '#fde68a', position: 'bottom',
+      boxStyle: 'box', boxColor: '#000000', boxOpacity: 0.45,
+      outlineColor: '#000000', outlineWidth: 2, shadow: true, uppercase: false,
+      transitionIn: 'fade', transitionInDuration: 0.55, transitionOut: 'fade', transitionOutDuration: 0.45,
+    },
+  },
+  {
+    id: 'Dreamy',
+    label: 'Dreamy Matte',
+    icon: '✨',
+    tag: 'Soft Matte & Ethereal',
+    description: 'Soft dissolves & circle-open reveals, breathing camera motion, lifted matte shadows with vignette & glowing butterflies.',
+    transitions: ['Dissolve', 'Fade', 'CircleOpen'],
+    transitionSeconds: 0.75,
+    motions: ['breathe', 'drift', 'zoom-out', 'pan-up'],
+    intensity: 0.11,
+    easing: 'ease',
+    look: 'matte',
+    filterPreset: 'cool',
+    vignette: true,
+    grain: false,
+    cinemaBars: false,
+    defaultCelebration: 'sparkles',
+    defaultTextMode: 'PerShot',
+    defaultAddCta: false,
+    defaultLines: [
+      'Drifting through a [dreamscape]',
+      'Soft light and [weightless] air',
+    ],
+    hookTextStyle: {
+      fontSize: 27, color: '#fdf4ff', accentColor: '#f5d0fe', position: 'top',
+      boxStyle: 'box', boxColor: '#2e1065', boxOpacity: 0.55,
+      outlineColor: '#1e1b4b', outlineWidth: 2, shadow: true, uppercase: false,
+      transitionIn: 'fade', transitionInDuration: 0.5, transitionOut: 'fade', transitionOutDuration: 0.4,
+    },
+    captionTextStyle: {
+      fontSize: 21, color: '#fdf4ff', accentColor: '#f5d0fe', position: 'bottom',
+      boxStyle: 'box', boxColor: '#2e1065', boxOpacity: 0.52,
+      outlineColor: '#1e1b4b', outlineWidth: 2, shadow: true, uppercase: false,
+      transitionIn: 'fade', transitionInDuration: 0.5, transitionOut: 'fade', transitionOutDuration: 0.4,
+    },
+  },
+  {
+    id: 'Retro',
+    label: 'Retro 35mm',
+    icon: '🎞',
+    tag: 'Vintage Patina & Film Grain',
+    description: 'Classic vintage film look with warm sepia patina, authentic 35mm film grain, vignette, drift/handheld motion & warm gold captions.',
+    transitions: ['Fade', 'WipeLeft', 'Dissolve'],
+    transitionSeconds: 0.45,
+    motions: ['drift', 'zoom-in', 'handheld', 'pan-left'],
+    intensity: 0.13,
+    easing: 'ease',
+    look: 'vintage',
+    filterPreset: 'vintage',
+    vignette: true,
+    grain: true,
+    cinemaBars: false,
+    defaultCelebration: 'sparkles',
+    defaultTextMode: 'PerShot',
+    defaultAddCta: false,
+    defaultLines: [
+      'Captured on [classic] 35mm film',
+      'Timeless [memories] in warm grain',
+    ],
+    hookTextStyle: {
+      fontSize: 28, color: '#fef3c7', accentColor: '#facc15', position: 'top',
+      boxStyle: 'box', boxColor: '#451a03', boxOpacity: 0.72,
+      outlineColor: '#1c1917', outlineWidth: 2, shadow: true, uppercase: false,
+      transitionIn: 'slide-up', transitionInDuration: 0.35, transitionOut: 'fade', transitionOutDuration: 0.3,
+    },
+    captionTextStyle: {
+      fontSize: 22, color: '#fef3c7', accentColor: '#facc15', position: 'bottom',
+      boxStyle: 'box', boxColor: '#451a03', boxOpacity: 0.68,
+      outlineColor: '#1c1917', outlineWidth: 2, shadow: true, uppercase: false,
+      transitionIn: 'slide-up', transitionInDuration: 0.35, transitionOut: 'fade', transitionOutDuration: 0.3,
+    },
+  },
+];
+

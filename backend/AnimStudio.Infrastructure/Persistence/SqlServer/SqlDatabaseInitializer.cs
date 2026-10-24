@@ -457,6 +457,65 @@ public sealed class SqlDatabaseInitializer(
             CREATE INDEX IX_PhoneHandoffs_State ON PhoneHandoffs (State, CreatedAt);
         END;
 
+        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'ContentTopics')
+        BEGIN
+            CREATE TABLE ContentTopics (
+                Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+                UserId NVARCHAR(200) NOT NULL,
+                Name NVARCHAR(200) NOT NULL,
+                Archived BIT NOT NULL DEFAULT 0,
+                UpdatedAt DATETIME2 NOT NULL,
+                DataJson NVARCHAR(MAX) NOT NULL
+            );
+            CREATE INDEX IX_ContentTopics_User ON ContentTopics (UserId, Name);
+            CREATE INDEX IX_ContentTopics_Active ON ContentTopics (Archived, UpdatedAt);
+        END;
+
+        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'ContentPlanItems')
+        BEGIN
+            CREATE TABLE ContentPlanItems (
+                Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+                UserId NVARCHAR(200) NOT NULL,
+                TopicId NVARCHAR(64) NOT NULL,
+                PublishAt DATETIME2 NOT NULL,
+                Status INT NOT NULL DEFAULT 0,
+                VideoId NVARCHAR(32) NULL,
+                DataJson NVARCHAR(MAX) NOT NULL
+            );
+            CREATE INDEX IX_ContentPlanItems_User ON ContentPlanItems (UserId, PublishAt);
+            CREATE INDEX IX_ContentPlanItems_Topic ON ContentPlanItems (TopicId, PublishAt DESC);
+            CREATE INDEX IX_ContentPlanItems_Window ON ContentPlanItems (PublishAt);
+            CREATE INDEX IX_ContentPlanItems_Video ON ContentPlanItems (UserId, VideoId);
+        END;
+
+        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'ContentSourceLinks')
+        BEGIN
+            CREATE TABLE ContentSourceLinks (
+                Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+                UserId NVARCHAR(200) NOT NULL,
+                UrlHash NVARCHAR(64) NOT NULL,
+                TopicId NVARCHAR(64) NULL,
+                PlanItemId NVARCHAR(64) NULL,
+                LastCapturedAt DATETIME2 NOT NULL,
+                DataJson NVARCHAR(MAX) NOT NULL
+            );
+            CREATE INDEX IX_ContentSourceLinks_Url ON ContentSourceLinks (UserId, UrlHash);
+            CREATE INDEX IX_ContentSourceLinks_User ON ContentSourceLinks (UserId, TopicId, LastCapturedAt DESC);
+        END;
+
+        IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'EffectClips')
+        BEGIN
+            CREATE TABLE EffectClips (
+                Id NVARCHAR(64) NOT NULL PRIMARY KEY,
+                UserId NVARCHAR(200) NOT NULL,
+                SourceAssetId NVARCHAR(128) NULL,
+                CreatedAt DATETIME2 NOT NULL,
+                DataJson NVARCHAR(MAX) NOT NULL
+            );
+            CREATE INDEX IX_EffectClips_User ON EffectClips (UserId, CreatedAt DESC);
+            CREATE INDEX IX_EffectClips_Source ON EffectClips (UserId, SourceAssetId);
+        END;
+
         IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'VoiceProfiles')
         BEGIN
             CREATE TABLE VoiceProfiles (

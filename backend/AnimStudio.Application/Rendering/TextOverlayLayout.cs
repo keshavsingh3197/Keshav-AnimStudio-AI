@@ -33,11 +33,15 @@ public enum TextCardEffect
 /// <param name="Rgb">Six hex digits, no prefix.</param>
 public sealed record TextCard(string Rgb, double Opacity, TextCardEffect Effect);
 
+/// <summary>One contiguous span of a line, flagged when enclosed in <c>[...]</c> for accent colouring.</summary>
+public sealed record TextAccentSegment(string Text, bool IsAccent);
+
 /// <summary>A text overlay's style with every value checked, defaulted and in render form.</summary>
 /// <param name="FontSize">In 360-reference pixels; see <see cref="TextOverlayLayout.ReferenceShortSide"/>.</param>
 /// <param name="ColorRgb">Six hex digits, no prefix - the form drawtext takes after <c>0x</c>.</param>
 /// <param name="CenterX">Centre of the block, percent of the frame width.</param>
 /// <param name="CenterY">Centre of the block, percent of the frame height.</param>
+/// <param name="AccentRgb">Optional six hex digits for <c>[accent]</c> spans inside a line.</param>
 public sealed record TextOverlayLook(
     double FontSize,
     string ColorRgb,
@@ -50,7 +54,8 @@ public sealed record TextOverlayLook(
     bool Uppercase,
     double CenterX,
     double CenterY,
-    TextCard? Card = null);
+    TextCard? Card = null,
+    string? AccentRgb = null);
 
 /// <summary>
 /// The rules that decide where a text overlay's lines fall. The studio preview runs the
@@ -129,7 +134,69 @@ public static partial class TextOverlayLayout
             Uppercase: style.Uppercase,
             CenterX: x,
             CenterY: y,
-            Card: ResolveCard(style));
+            Card: ResolveCard(style),
+            AccentRgb: Hex(style.AccentColor));
+    }
+
+    /// <summary>
+    /// Splits a line containing <c>[accent]</c> brackets into plain and accented segments when
+    /// <paramref name="accentRgb"/> is set. Returns empty when no bracketed span is present.
+    /// </summary>
+    public static IReadOnlyList<TextAccentSegment> ParseAccentSegments(string line, string? accentRgb)
+    {
+        if (string.IsNullOrEmpty(line) || string.IsNullOrEmpty(accentRgb)) return [];
+        var openIdx = line.IndexOf('[');
+        if (openIdx < 0 || line.IndexOf(']', openIdx + 1) < 0) return [];
+
+        var segments = new List<TextAccentSegment>();
+        var cursor = 0;
+        while (cursor < line.Length)
+        {
+            var start = line.IndexOf('[', cursor);
+            if (start < 0)
+            {
+                segments.Add(new TextAccentSegment(line[cursor..], false));
+                break;
+            }
+
+            var end = line.IndexOf(']', start + 1);
+            if (end < 0)
+            {
+                segments.Add(new TextAccentSegment(line[cursor..], false));
+                break;
+            }
+
+            if (start > cursor)
+            {
+                segments.Add(new TextAccentSegment(line[cursor..start], false));
+            }
+
+            if (end > start + 1)
+            {
+                segments.Add(new TextAccentSegment(line[(start + 1)..end], true));
+            }
+
+            cursor = end + 1;
+        }
+
+        return segments.Any(s => s.IsAccent) ? segments : [];
+    }
+
+    /// <summary>Estimates the advance width of <paramref name="text"/> in ems for multi-run baseline layout.</summary>
+    public static double EstimateAdvanceEm(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return 0;
+        var sum = 0.0;
+        foreach (var ch in text)
+        {
+            sum += ch switch
+            {
+                ' ' or '.' or ',' or ':' or ';' or '!' or '|' or '\'' or 'i' or 'l' or 'I' => 0.34,
+                'W' or 'M' or '@' or '%' or '→' or '—' => 0.78,
+                _ => 0.58
+            };
+        }
+        return Math.Round(sum, 3);
     }
 
     /// <summary>The card behind the text, or null when there is none or it would not show.</summary>

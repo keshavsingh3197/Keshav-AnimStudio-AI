@@ -31,6 +31,12 @@ public sealed class YouTubeVideoUploader : IDisposable
 
     private const int MaxRetries = 6;
 
+    /// <summary>An unscheduled upload leaves publishAt out of the body entirely rather than sending null.</summary>
+    private static readonly JsonSerializerOptions BodyOptions = new()
+    {
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+    };
+
     private readonly IOptionsMonitor<YouTubePublishOptions> _options;
     private readonly ILogger<YouTubeVideoUploader> _logger;
     private readonly HttpClient _http;
@@ -215,9 +221,13 @@ public sealed class YouTubeVideoUploader : IDisposable
             {
                 privacyStatus = metadata.Privacy,
                 selfDeclaredMadeForKids = metadata.MadeForKids,
-                embeddable = true
+                embeddable = true,
+                // A scheduled upload: YouTube turns it public at this time. Only valid on a private video.
+                publishAt = metadata.Privacy == "private" && metadata.PublishAt is { } at
+                    ? at.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", System.Globalization.CultureInfo.InvariantCulture)
+                    : null
             }
-        });
+        }, BodyOptions);
 
         for (var attempt = 1; ; attempt++)
         {

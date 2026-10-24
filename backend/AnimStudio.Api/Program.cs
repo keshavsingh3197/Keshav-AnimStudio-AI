@@ -34,6 +34,8 @@ builder.Services.AddAnimStudioInfrastructure(builder.Configuration);
 // reads it from here.
 builder.Services.AddAnimStudioAdminAccess(builder.Configuration, builder.Environment);
 builder.Services.AddScoped<ICurrentUser, HttpContextCurrentUser>();
+builder.Services.AddSingleton<AnimStudio.Application.Security.IStudioAccessEvaluator, AnimStudio.Infrastructure.Security.StudioAccessEvaluator>();
+builder.Services.AddHttpClient();
 
 // Enums cross the wire as names, not numbers. Responses already map them with ToString(),
 // so without this a client would have to READ "Fade" and WRITE 1 - and a reordered enum

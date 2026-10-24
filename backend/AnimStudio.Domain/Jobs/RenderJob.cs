@@ -120,6 +120,9 @@ public sealed class RenderJobBatch
     /// <summary>How the picks were shared out ("Spread", "AllInEach", "FitLength").</summary>
     public string? Layout { get; set; }
 
+    /// <summary>The style this short was cut in ("Viral", "Cinematic", ...). Null on renders from before styles were recorded.</summary>
+    public string? Style { get; set; }
+
     /// <summary>The library files the batch was cut from, so "used" can be told from "picked but left over".</summary>
     public List<string> SourceAssetIds { get; set; } = [];
 }

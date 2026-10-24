@@ -29,14 +29,16 @@ export function channelSummary(c: BrandChannel | null | undefined): string {
     <div class="cp">
       <button type="button" class="cp-current" (click)="toggle()"
               aria-haspopup="listbox" [attr.aria-expanded]="open()">
-        <span class="cp-ico">📺</span>
+        <span class="cp-ico" aria-hidden="true">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="15" rx="2" ry="2"/><polyline points="17 2 12 7 7 2"/></svg>
+        </span>
         <span class="cp-text">
           <span class="cp-name">{{ current()?.name ?? 'Default' }}
             @if (current()?.isDefault) { <span class="cp-tag">default</span> }
           </span>
           <span class="cp-meta">{{ summary(current()) }}</span>
         </span>
-        <span class="cp-caret">▾</span>
+        <span class="cp-caret" [class.open]="open()">▾</span>
       </button>
 
       @if (open()) {
@@ -67,31 +69,53 @@ export function channelSummary(c: BrandChannel | null | undefined): string {
     :host { display: inline-block; position: relative; min-width: 260px; }
     .cp-current {
       display: flex; align-items: center; gap: 10px; width: 100%;
-      padding: 7px 12px; border-radius: 8px; cursor: pointer; text-align: left;
-      background: var(--surface-2, #141721); border: 1px solid var(--border, #1e2433); color: inherit;
+      padding: 8px 12px; border-radius: 10px; cursor: pointer; text-align: left;
+      background: linear-gradient(180deg, rgba(25, 31, 48, 0.85), rgba(15, 19, 32, 0.92));
+      border: 1px solid rgba(148, 163, 184, 0.16); color: inherit;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 8px rgba(0, 0, 0, 0.2);
+      transition: all 0.16s ease;
     }
-    .cp-current:hover, .cp-current[aria-expanded="true"] { border-color: var(--brand, #6c8cff); }
-    .cp-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
-    .cp-name { font-weight: 600; font-size: 0.86rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cp-current:hover, .cp-current[aria-expanded="true"] {
+      border-color: rgba(108, 140, 255, 0.45);
+      box-shadow: 0 0 0 3px rgba(108, 140, 255, 0.12), 0 4px 14px rgba(0, 0, 0, 0.3);
+      transform: none;
+    }
+    .cp-ico {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 30px; height: 30px; border-radius: 8px;
+      background: rgba(108, 140, 255, 0.14); border: 1px solid rgba(108, 140, 255, 0.28);
+      color: #a5b8ff; flex-shrink: 0;
+    }
+    .cp-text { display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 1px; }
+    .cp-name { font-weight: 700; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
     .cp-meta { font-size: 0.7rem; color: var(--muted, #8b9bb4); }
-    .cp-tag { font-size: 0.6rem; text-transform: uppercase; letter-spacing: .06em; color: var(--brand, #6c8cff); margin-left: 4px; }
-    .cp-caret { color: var(--muted, #8b9bb4); }
+    .cp-tag {
+      font-size: 0.58rem; text-transform: uppercase; letter-spacing: .06em;
+      color: #a5b8ff; background: rgba(108, 140, 255, 0.16);
+      border: 1px solid rgba(108, 140, 255, 0.3); border-radius: 999px;
+      padding: 1px 6px; margin-left: 4px; font-weight: 700;
+    }
+    .cp-caret { color: var(--muted, #8b9bb4); transition: transform 0.15s ease; }
+    .cp-caret.open { transform: rotate(180deg); color: var(--brand); }
     .cp-pop {
-      position: absolute; z-index: 50; top: calc(100% + 4px); left: 0; width: max(100%, 340px);
-      background: var(--surface, #0f1422); border: 1px solid var(--border, #1e2433); border-radius: 10px;
-      box-shadow: 0 12px 32px rgba(0,0,0,.55); padding: 8px;
+      position: absolute; z-index: 60; top: calc(100% + 6px); left: 0; width: max(100%, 340px);
+      background: linear-gradient(180deg, rgba(19, 24, 38, 0.98) 0%, rgba(11, 15, 25, 0.99) 100%);
+      border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 12px;
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      backdrop-filter: blur(16px); padding: 10px;
     }
     .cp-search {
-      width: 100%; box-sizing: border-box; padding: 7px 10px; border-radius: 7px; margin-bottom: 6px;
-      border: 1px solid var(--border, #1e2433); background: var(--bg, #0b0f19); color: inherit;
+      width: 100%; box-sizing: border-box; padding: 8px 12px; border-radius: 8px; margin-bottom: 8px;
+      border: 1px solid rgba(148, 163, 184, 0.2); background: rgba(6, 9, 17, 0.85); color: inherit;
+      font-size: 0.82rem;
     }
-    .cp-search:focus { outline: none; border-color: var(--brand, #6c8cff); }
-    .cp-list { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; }
-    .cp-list li { display: flex; flex-direction: column; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
-    .cp-list li.active { background: color-mix(in srgb, #fff 6%, transparent); }
-    .cp-list li.selected { box-shadow: inset 2px 0 0 var(--brand, #6c8cff); }
-    .cp-empty { color: var(--muted, #8b9bb4); font-size: .8rem; cursor: default !important; }
-    .cp-more { font-size: .72rem; color: var(--muted, #8b9bb4); padding: 6px 8px 2px; }
+    .cp-search:focus { outline: none; border-color: var(--brand, #6c8cff); box-shadow: 0 0 0 3px rgba(108, 140, 255, 0.15); }
+    .cp-list { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+    .cp-list li { display: flex; flex-direction: column; gap: 2px; padding: 7px 10px; border-radius: 8px; cursor: pointer; transition: background 0.12s ease; }
+    .cp-list li.active { background: rgba(108, 140, 255, 0.12); }
+    .cp-list li.selected { background: rgba(108, 140, 255, 0.16); box-shadow: inset 3px 0 0 var(--brand, #6c8cff); }
+    .cp-empty { color: var(--muted, #8b9bb4); font-size: .8rem; cursor: default !important; text-align: center; padding: 14px 8px !important; }
+    .cp-more { font-size: .72rem; color: var(--muted, #8b9bb4); padding: 8px 8px 2px; border-top: 1px solid rgba(148, 163, 184, 0.1); margin-top: 4px; }
   `],
 })
 export class ChannelPickerComponent {

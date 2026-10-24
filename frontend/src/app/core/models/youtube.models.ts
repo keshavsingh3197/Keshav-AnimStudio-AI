@@ -57,6 +57,11 @@ export interface YouTubeVideoMetadata {
   privacy: YouTubePrivacy;
   madeForKids: boolean | null;
   notifySubscribers: boolean;
+  /**
+   * A scheduled upload: UTC ISO time YouTube makes it public. Only with privacy 'private';
+   * null or absent uploads with the chosen visibility straight away.
+   */
+  publishAt?: string | null;
 }
 
 export interface YouTubeDraft {
@@ -100,6 +105,24 @@ export interface YouTubeSuggestion {
   descriptionOptions?: string[];
   /** More tags to pick from, none already in `tags`. */
   tagIdeas?: string[];
+  /** Suggested pinned comment encouraging viewer participation (e.g. Har Har Mahadev / Jai Mata Di). */
+  pinnedComment?: string | null;
+  /** Short interactive engagement question comment. */
+  engagementComment?: string | null;
+  /** Extracted spoken transcript / lyrics used to build the SEO package. */
+  transcriptText?: string | null;
+}
+
+export interface YouTubeUrlSeoResult {
+  videoId: string;
+  videoUrl: string;
+  originalTitle: string;
+  author?: string | null;
+  durationSeconds?: number | null;
+  isShort: boolean;
+  hasTranscript: boolean;
+  transcriptText: string;
+  suggestion: YouTubeSuggestion;
 }
 
 /** A text engine that can write suggestions now - a hosted model or a local signed-in CLI. */
@@ -153,6 +176,10 @@ export interface YouTubeUpload {
   musicUrl?: string;
   /** A custom thumbnail went up with the video and YouTube accepted it. */
   thumbnailSet?: boolean;
+  /** When a scheduled upload goes public (UTC ISO). */
+  publishAt?: string | null;
+  /** The calendar post the finished video was linked to. */
+  linkedPlanItemId?: string | null;
 }
 
 /**
@@ -426,6 +453,8 @@ export interface YouTubeCheckupVideo {
   studioUrl: string;
   /** The AnimStudio project it was published from, if any. */
   projectId: string | null;
+  /** When a private video goes public by itself (ISO, UTC); null when it isn't scheduled. */
+  scheduledAt?: string | null;
 }
 
 export interface YouTubeCheckup {
@@ -472,4 +501,83 @@ export interface YouTubeThumbnailSaved {
 export interface YouTubeCheckupSaved {
   video: YouTubeCheckupVideo;
   warnings: string[];
+}
+
+// ------------------------------------------------------------------ video details from IDs
+
+/** A song a video credits or YouTube recognised in it; best effort, nothing verified. */
+export interface YouTubeDetectedSong {
+  title: string;
+  artist: string | null;
+  album: string | null;
+  /** 'youtube-music-card' (YouTube's own Music section) or 'description' (credit lines). */
+  source: string;
+  credits: string | null;
+}
+
+export interface YouTubeInspectCaptions {
+  available: boolean;
+  language: string | null;
+  /** YouTube's automatic captions; null when unknown. */
+  isAuto: boolean | null;
+  lineCount: number;
+  /** Every caption line as "[m:ss] text". */
+  text: string;
+}
+
+export interface YouTubeInspectChapter {
+  startSeconds: number;
+  stamp: string;
+  title: string;
+}
+
+/** Everything found about one video, and the details written for it. */
+export interface YouTubeVideoInspection {
+  videoId: string;
+  videoUrl: string;
+  title: string;
+  channelTitle: string | null;
+  thumbnailUrl: string;
+  durationSeconds: number | null;
+  isShort: boolean;
+  publishedAt: string | null;
+  publishedText: string | null;
+  /** Only for a video on one of your channels. */
+  privacy: string | null;
+  scheduledAt: string | null;
+  /** Your channel it is on, when it is - details can then be applied to YouTube. */
+  ownerChannelId: string | null;
+  studioUrl: string | null;
+  categoryId: string | null;
+  madeForKids: boolean | null;
+  licensedContent: boolean | null;
+  description: string;
+  tags: string[];
+  captions: YouTubeInspectCaptions;
+  songs: YouTubeDetectedSong[];
+  chapters: YouTubeInspectChapter[];
+  hashtags: string[];
+  suggestion: YouTubeSuggestion;
+  warnings: string[];
+}
+
+export interface YouTubeInspectParams {
+  video: string;
+  channelId?: string | null;
+  tone?: string;
+  language?: string;
+  brief?: string;
+  providerId?: string;
+}
+
+export interface YouTubeScheduleSaved {
+  videoId: string;
+  privacy: string;
+  scheduledAt: string | null;
+}
+
+export interface YouTubeCommentPosted {
+  videoId: string;
+  commentId: string;
+  studioCommentsUrl: string;
 }

@@ -1,4 +1,5 @@
 import { DatePipe } from '@angular/common';
+import { firstValueFrom } from 'rxjs';
 import { Component, HostListener, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
@@ -10,12 +11,13 @@ import { ApiService } from '../../core/services/api.service';
 import { StatusService } from '../../core/services/status.service';
 import { FileDropDirective } from '../../shared/file-drop.directive';
 import { optimizeThumbnailImage } from '../../core/utils/image-utils';
+import { AssetThumbnailPickerComponent } from '../../shared/asset-thumbnail-picker.component';
 
 export type StartingPoint = 'prompt' | 'bundle' | 'import' | 'clips' | 'scenes';
 
 @Component({
   selector: 'app-project-list',
-  imports: [DatePipe, FormsModule, RouterLink, FileDropDirective],
+  imports: [DatePipe, FormsModule, RouterLink, FileDropDirective, AssetThumbnailPickerComponent],
   templateUrl: './project-list.component.html',
   styleUrl: './project-list.component.css'
 })
@@ -98,20 +100,45 @@ export class ProjectListComponent {
 
   togglePin(p: Project, event?: Event): void {
     if (event) event.stopPropagation();
-    if (this.pinnedProjectIds.has(p.id)) {
-      this.pinnedProjectIds.delete(p.id);
-    } else {
+    const currentlyPinned = this.isPinned(p.id);
+    const nextPinned = !currentlyPinned;
+    if (nextPinned) {
       this.pinnedProjectIds.add(p.id);
+    } else {
+      this.pinnedProjectIds.delete(p.id);
     }
     try {
       localStorage.setItem('animstudio_pinned_projects', JSON.stringify([...this.pinnedProjectIds]));
     } catch {
       // Ignore storage write errors
     }
+
+    const intent = (p.distributionIntent && p.distributionIntent !== 'Social Media') ? p.distributionIntent : 'Public';
+    this.api.updateProject(p.id, {
+      name: p.name,
+      description: p.description,
+      width: p.width,
+      height: p.height,
+      fps: p.fps,
+      isPinned: nextPinned,
+      distributionIntent: intent,
+      acceptShareAlikeObligation: p.acceptShareAlikeObligation,
+      backgroundMusicAssetId: p.backgroundMusicAssetId,
+      backgroundMusicVolume: p.backgroundMusicVolume,
+      customThumbnail: p.customThumbnail,
+      brandChannelId: p.brandChannelId ?? null,
+    }).subscribe({
+      next: (updated) => {
+        this.projects.update(list => list.map(x => x.id === p.id ? updated : x));
+      },
+      error: () => undefined,
+    });
   }
 
   isPinned(id: string): boolean {
-    return this.pinnedProjectIds.has(id);
+    if (this.pinnedProjectIds.has(id)) return true;
+    const found = this.projects().find(p => p.id === id);
+    return !!found?.isPinned;
   }
 
   get totalCount(): number {
@@ -362,20 +389,12 @@ export class ProjectListComponent {
   duplicateProject(p: Project, event?: Event): void {
     if (event) event.stopPropagation();
     this.closeMenus();
-    this.status.notify(['Duplicating project...']);
-    const intent = (p.distributionIntent && p.distributionIntent !== 'Social Media') ? p.distributionIntent : 'Public';
+    this.status.notify(['Cloning project, scenes, characters, and assets...']);
     this.status.run(
-      this.api.createProject({
-        name: p.name + ' (Copy)',
-        width: p.width,
-        height: p.height,
-        fps: p.fps,
-        distributionIntent: intent,
-        brandChannelId: p.brandChannelId ?? null,
-      }),
+      this.api.duplicateProject(p.id),
       (cloned) => {
         this.projects.update(list => [cloned, ...list]);
-        this.status.notify(['Project duplicated successfully.']);
+        this.status.notify([`Project "${cloned.name}" duplicated with all scenes and cast.`]);
       }
     );
   }
@@ -383,14 +402,9 @@ export class ProjectListComponent {
   exportProject(p: Project, event?: Event): void {
     if (event) event.stopPropagation();
     this.closeMenus();
-    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(p, null, 2));
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute('href', dataStr);
-    downloadAnchor.setAttribute('download', `${p.name.replace(/[^a-z0-9_-]/gi, '_')}_project.json`);
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-    this.status.notify(['Exported project metadata.']);
+    const url = this.api.bundleExportUrl(p.id, false);
+    window.open(url, '_blank');
+    this.status.notify([`Downloading bundle ZIP for "${p.name}"...`]);
   }
 
   confirmDelete(projectId: string, event?: Event): void {
@@ -430,11 +444,11 @@ export class ProjectListComponent {
 
   heading(point: StartingPoint): string {
     switch (point) {
-      case 'prompt': return '🪄 AI Prompt to Video — Describe your concept';
-      case 'bundle': return '📊 Batch CSV Import — Bulk project creator';
-      case 'import': return '🎙️ Script & Voiceover — Timed production';
-      case 'clips': return '🎬 New Video Project — Multi-Track NLE Timeline';
-      default: return '🎭 New Project — Scenes & Cast Creator';
+      case 'prompt': return 'AI Prompt to Video — Describe your concept';
+      case 'bundle': return 'Batch CSV Import — Bulk project creator';
+      case 'import': return 'Script & Voiceover — Timed production';
+      case 'clips': return 'New Video Project — Multi-Track NLE Timeline';
+      default: return 'New Project — Scenes & Cast Creator';
     }
   }
 
@@ -508,6 +522,27 @@ export class ProjectListComponent {
       );
     } catch {
       this.status.notify(['Failed to process image for thumbnail.']);
+    }
+  }
+
+  /** Project whose thumbnail is currently being picked from its assets. */
+  readonly thumbPickerProject = signal<Project | null>(null);
+
+  openThumbnailPicker(p: Project, event?: Event): void {
+    event?.stopPropagation();
+    this.closeMenus();
+    this.thumbPickerProject.set(p);
+  }
+
+  async setThumbnailFromAsset(assetId: string): Promise<void> {
+    const p = this.thumbPickerProject();
+    this.thumbPickerProject.set(null);
+    if (!p) return;
+    try {
+      const blob = await firstValueFrom(this.api.assetContent(assetId));
+      await this.setThumbnail(new File([blob], 'asset', { type: blob.type || 'image/png' }), p);
+    } catch {
+      this.status.notify(['Failed to use that asset as thumbnail.']);
     }
   }
 

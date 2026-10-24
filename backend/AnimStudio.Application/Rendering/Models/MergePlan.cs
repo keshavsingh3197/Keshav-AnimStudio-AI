@@ -70,7 +70,7 @@ public sealed record MergeImageShot(CinematicImageSettings Settings, ClipFit Fit
 public sealed record MergeMediaOverlay(
     double CropLeft, double CropTop, double CropRight, double CropBottom,
     OverlayShape Shape, double BorderWidth, string BorderRgb, double? AspectRatio,
-    double TrimStartSeconds = 0)
+    double TrimStartSeconds = 0, OverlayChromaKey? Key = null)
 {
     public bool HasCrop => CropLeft > 0 || CropTop > 0 || CropRight > 0 || CropBottom > 0;
 }
@@ -111,7 +111,7 @@ public sealed record FontRunLine(IReadOnlyList<FontRun> Runs, double AscentEm, d
 }
 
 /// <summary>A run ready to draw: its text in a file, and where it starts along the line in ems.</summary>
-public sealed record MergeTextRun(string RelativePath, string FontFilePath, double OffsetEm);
+public sealed record MergeTextRun(string RelativePath, string FontFilePath, double OffsetEm, string? ColorRgb = null);
 
 /// <summary>
 /// A line drawn as several runs. drawtext measures each run only by itself, so the line is

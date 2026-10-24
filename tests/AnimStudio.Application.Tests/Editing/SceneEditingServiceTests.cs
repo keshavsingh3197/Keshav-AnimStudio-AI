@@ -301,6 +301,33 @@ public class SceneEditingServiceTests
     }
 
     [Fact]
+    public async Task Batch_updating_scene_style_can_randomize_motion_and_clamp_transitions()
+    {
+        var world = new EditingWorld();
+        var s1 = world.AddScene(1, seconds: 4);
+        var s2 = world.AddScene(2, seconds: 4);
+        var s3 = world.AddScene(3, seconds: 4);
+
+        var updated = await world.SceneEditing.BatchUpdateStyleAsync(new BatchSceneStyleCommand
+        {
+            ProjectId = world.Project.Id,
+            UserId = EditingWorld.UserId,
+            RandomizeMotion = true,
+            Intensity = 0.08,
+            Easing = Easing.EaseInOut,
+            Transition = SceneTransition.Fade,
+            TransitionDurationSeconds = 0.5
+        }, CancellationToken.None);
+
+        Assert.Equal(3, updated);
+        Assert.Equal(BackgroundEffect.ZoomIn, s1.Animation.Background);
+        Assert.Equal(BackgroundEffect.PanRight, s2.Animation.Background);
+        Assert.Equal(BackgroundEffect.ZoomOut, s3.Animation.Background);
+        Assert.Equal(SceneTransition.Fade, s1.TransitionToNext);
+        Assert.Equal(world.Frames(0.5), s1.TransitionDurationFrames);
+    }
+
+    [Fact]
     public async Task Picking_the_media_file_makes_every_sliced_scene_audible()
     {
         var world = new EditingWorld();

@@ -82,6 +82,14 @@ export class StatusService {
     this.logEntries.update(logs => [...newLogs, ...logs]);
   }
 
+  showError(message: string): void {
+    this.error.set(message);
+  }
+
+  showNotice(message: string): void {
+    this.notify([message]);
+  }
+
   clearError(): void {
     this.error.set(null);
   }

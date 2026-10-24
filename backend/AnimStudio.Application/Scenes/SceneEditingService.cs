@@ -379,6 +379,93 @@ public sealed class SceneEditingService(
         return applied;
     }
 
+    /// <summary>
+    /// Applies camera motion, transitions, or uniform timing across all scenes in the project.
+    /// When <c>RandomizeMotion</c> is true, cycles through smooth Ken Burns camera moves so
+    /// an imported storyboard looks dynamic without editing each scene individually.
+    /// </summary>
+    public async Task<int> BatchUpdateStyleAsync(BatchSceneStyleCommand command, CancellationToken ct)
+    {
+        var project = await LoadProjectAsync(command.ProjectId, command.UserId, ct).ConfigureAwait(false);
+        var rate = project.Settings.ToCanvas().FrameRate;
+        var list = await scenes.ListByProjectAsync(command.ProjectId, ct).ConfigureAwait(false);
+        if (list.Count == 0) return 0;
+
+        BackgroundEffect[] kenBurnsCycle =
+        [
+            BackgroundEffect.ZoomIn,
+            BackgroundEffect.PanRight,
+            BackgroundEffect.ZoomOut,
+            BackgroundEffect.PanLeft
+        ];
+
+        for (var i = 0; i < list.Count; i++)
+        {
+            var scene = list[i];
+
+            if (command.DurationSeconds is { } durSec)
+            {
+                var frames = ToFrames(durSec, rate, nameof(command.DurationSeconds));
+                scene.DurationFrames = frames.Value;
+            }
+
+            var effect = command.RandomizeMotion
+                ? kenBurnsCycle[i % kenBurnsCycle.Length]
+                : (command.BackgroundEffect ?? scene.Animation.Background);
+
+            var intensity = command.Intensity ?? (effect != BackgroundEffect.None && scene.Animation.Intensity <= 0
+                ? 0.14
+                : scene.Animation.Intensity);
+
+            var easing = command.Easing ?? (command.RandomizeMotion ? Easing.EaseInOut : scene.Animation.Easing);
+
+            scene.Animation = scene.Animation with
+            {
+                Background = effect,
+                Intensity = Math.Clamp(intensity, 0, 1),
+                Easing = easing
+            };
+
+            if (command.Transition is { } transition)
+            {
+                scene.TransitionToNext = i == list.Count - 1 ? SceneTransition.None : transition;
+                if (scene.TransitionToNext == SceneTransition.None)
+                {
+                    scene.TransitionDurationFrames = 0;
+                }
+                else
+                {
+                    var transSec = command.TransitionDurationSeconds ?? 0.5;
+                    scene.TransitionDurationFrames = ToFrames(
+                        transSec, rate, nameof(command.TransitionDurationSeconds), allowZero: true).Value;
+                }
+            }
+            else if (command.TransitionDurationSeconds is { } transSec && scene.TransitionToNext != SceneTransition.None)
+            {
+                scene.TransitionDurationFrames = ToFrames(
+                    transSec, rate, nameof(command.TransitionDurationSeconds), allowZero: true).Value;
+            }
+
+            ClampToDuration(scene);
+            Touch(scene);
+        }
+
+        // Ensure transitions between consecutive scenes never exceed half of either scene's duration
+        for (var i = 0; i < list.Count; i++)
+        {
+            if (i + 1 < list.Count)
+            {
+                var budget = Math.Min(list[i].DurationFrames, list[i + 1].DurationFrames) / 2;
+                if (list[i].TransitionDurationFrames > budget)
+                    list[i].TransitionDurationFrames = budget;
+            }
+
+            await scenes.ReplaceAsync(list[i], ct).ConfigureAwait(false);
+        }
+
+        return list.Count;
+    }
+
     public async Task<Scene> UpsertDialogueAsync(UpsertDialogueCommand command, CancellationToken ct)
     {
         var (scene, project) = await LoadSceneAsync(command.SceneId, command.UserId, ct)

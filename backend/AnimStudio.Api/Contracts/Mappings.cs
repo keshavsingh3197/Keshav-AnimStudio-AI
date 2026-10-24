@@ -219,7 +219,7 @@ public static class Mappings
             diag,
             job.Timeline is { Entries.Count: > 0 },
             job.Name ?? job.ClipMerge?.ExportName,
-            job.Batch?.Id, job.Batch?.Name, job.Batch?.Index);
+            job.Batch?.Id, job.Batch?.Name, job.Batch?.Index, job.Batch?.Style);
     }
 
     /// <summary>One video or image clip, with the facts a running order is laid out from.</summary>

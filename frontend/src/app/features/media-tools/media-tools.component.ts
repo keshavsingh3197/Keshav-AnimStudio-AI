@@ -16,6 +16,8 @@ import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { firstValueFrom } from 'rxjs';
 
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
+import { ContentTopic } from '../../core/models/calendar.models';
+import { ContentCalendarService } from '../../core/services/content-calendar.service';
 import { AssetFolder, DEFAULT_BRAND_CHANNEL, Project } from '../../core/models/api.models';
 import {
   ChunkItemResponse,
@@ -83,6 +85,7 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
   private readonly mediaTools = inject(MediaToolsService);
   private readonly activity = inject(ActivityService);
   private readonly api = inject(ApiService);
+  private readonly calendar = inject(ContentCalendarService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly sanitizer = inject(DomSanitizer);
@@ -153,6 +156,9 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
   readonly folderChoice = signal<string>(NEW_FOLDER);
   readonly newFolderName = signal<string>(DEFAULT_FOLDER_NAME);
   readonly addToTimeline = signal<boolean>(true);
+  /** Content calendar topic the downloaded link is saved under (Saved links). */
+  readonly calendarTopics = signal<ContentTopic[]>([]);
+  readonly linkTopic = signal<string>('');
   readonly NEW_PROJECT = NEW_PROJECT;
   readonly NEW_FOLDER = NEW_FOLDER;
 
@@ -210,6 +216,19 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
   readonly convertTo916 = signal<boolean>(false);
   readonly importAsClips = signal<boolean>(true);
   readonly chunkCompression = signal<string>('original'); // 'original' | 'balanced' | 'high' | 'ultracompact'
+  readonly chunkStyle = signal<string>('original'); // 'original' | 'blur_916' | 'direct_response' | 'viral_pop' | 'split_header' | 'cosmic_card'
+  readonly chunkHookText = signal<string>('');
+  readonly chunkShowPartBadge = signal<boolean>(false);
+  readonly chunkSubtleZoom = signal<boolean>(false);
+
+  readonly chunkStylePresets = [
+    { id: 'original', icon: '🎞️', label: 'Original', desc: 'Keep source aspect ratio & fast split' },
+    { id: 'blur_916', icon: '📱', label: '9:16 Blur Fill', desc: 'Vertical 9:16 with blurred backdrop' },
+    { id: 'direct_response', icon: '🌌', label: 'Direct Ad 9:16', desc: 'Cosmic frame, glass header, slow push-in' },
+    { id: 'viral_pop', icon: '🚀', label: 'Viral Pop 9:16', desc: 'Vivid punchy 9:16 + yellow hook banner' },
+    { id: 'split_header', icon: '📄', label: '50/50 Header', desc: 'Gold/dark showcase header + 9:16 frame' },
+    { id: 'cosmic_card', icon: '✨', label: 'Cosmic Card', desc: 'Framed vertical card on starry backdrop' },
+  ] as const;
 
   readonly chunking = signal<boolean>(false);
   readonly chunkResult = signal<VideoChunkResult | null>(null);
@@ -401,6 +420,11 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
     this.mediaTools.getSources().subscribe({
       next: (s) => this.sources.set(s),
       error: (err: unknown) => this.probeError.set(this.toMediaError(err, 'Could not load the supported sources.')),
+    });
+
+    this.calendar.listTopics().subscribe({
+      next: (topics) => this.calendarTopics.set(topics.filter((t) => !t.archived)),
+      error: () => this.calendarTopics.set([]),
     });
 
     this.api.listProjects().subscribe({
@@ -616,6 +640,7 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
         folderId: projectId && folderChoice && folderChoice !== NEW_FOLDER ? folderChoice : undefined,
         folderName: projectId && folderChoice === NEW_FOLDER ? this.newFolderName().trim() || undefined : undefined,
         addToClipOrder: this.addToTimeline(),
+        topicId: this.linkTopic() || undefined,
       };
 
       const res = await firstValueFrom(this.activity.trackRequest('download', probe.title || rawUrl,
@@ -687,6 +712,28 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
   // --- Chunker actions ---
   setDuration(sec: number): void {
     this.chunkDurationSeconds.set(sec);
+  }
+
+  selectChunkStyle(styleId: string): void {
+    this.chunkStyle.set(styleId);
+    if (styleId === 'original') {
+      this.convertTo916.set(false);
+    } else {
+      this.convertTo916.set(true);
+      if (styleId === 'direct_response' || styleId === 'viral_pop') {
+        this.chunkSubtleZoom.set(true);
+        this.chunkShowPartBadge.set(true);
+      }
+    }
+  }
+
+  onConvertTo916Change(enabled: boolean): void {
+    this.convertTo916.set(enabled);
+    if (enabled && this.chunkStyle() === 'original') {
+      this.chunkStyle.set('blur_916');
+    } else if (!enabled && this.chunkStyle() === 'blur_916') {
+      this.chunkStyle.set('original');
+    }
   }
 
   saveAsGlobalDefault(): void {
@@ -814,8 +861,12 @@ export class MediaToolsComponent implements OnInit, AfterViewInit {
 
     form.append('chunkDurationSeconds', this.chunkDurationSeconds().toString());
     form.append('accurateCut', this.accurateCut().toString());
-    form.append('convertTo916', this.convertTo916().toString());
+    form.append('convertTo916', (this.convertTo916() || this.chunkStyle() !== 'original').toString());
     form.append('compressionPreset', this.chunkCompression());
+    form.append('chunkStyle', this.chunkStyle());
+    if (this.chunkHookText().trim()) form.append('hookText', this.chunkHookText().trim());
+    form.append('showPartBadge', this.chunkShowPartBadge().toString());
+    form.append('subtleZoom', this.chunkSubtleZoom().toString());
 
     const projectId = this.store?.projectId?.();
     if (projectId) {

@@ -113,6 +113,13 @@ public sealed partial class YouTubeConnectionStore(
         return [.. stored.Select(Describe)];
     }
 
+    /// <summary>Master oversight: list every connected YouTube channel across all users for administrative monitoring.</summary>
+    public async Task<IReadOnlyList<YouTubeConnectionStatus>> ListAllAsync(CancellationToken ct)
+    {
+        var stored = await repository.ListAllAsync(ct).ConfigureAwait(false);
+        return [.. stored.Select(Describe)];
+    }
+
     /// <summary>Where to send the browser to pick and approve a channel.</summary>
     /// <param name="returnPath">An in-app path to come back to; anything else is replaced with <c>/</c>.</param>
     public string BeginConnect(string userId, string? returnPath)

@@ -17,11 +17,16 @@ namespace AnimStudio.Infrastructure.Jobs;
 /// and without it a few crashes during development quietly fill the disk, after which
 /// every render fails with a confusing ffmpeg error.
 /// </para>
+/// <para>
+/// It also trims the render preview cache, which otherwise keeps a full copy of every
+/// render ever previewed, published or thumbnailed.
+/// </para>
 /// </summary>
 public sealed class RenderWorkspaceJanitor(
     IServiceScopeFactory scopeFactory,
     IOptions<RenderOptions> options,
     IHostEnvironment environment,
+    AppDataPaths dataPaths,
     ILogger<RenderWorkspaceJanitor> logger) : BackgroundService
 {
     private readonly RenderOptions _options = options.Value;
@@ -46,6 +51,7 @@ public sealed class RenderWorkspaceJanitor(
             try
             {
                 await SweepAsync(stoppingToken).ConfigureAwait(false);
+                TrimPreviewCache(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -105,5 +111,50 @@ public sealed class RenderWorkspaceJanitor(
         }
 
         if (removed > 0) logger.LogInformation("Swept {Count} stale render workspace(s).", removed);
+    }
+
+    private void TrimPreviewCache(CancellationToken ct)
+    {
+        var directory = dataPaths.PreviewCache;
+        if (!Directory.Exists(directory)) return;
+
+        var retention = TimeSpan.FromHours(_options.WorkspaceRetentionHours);
+        var budget = Math.Max(0, (long)_options.PreviewCacheMaxGigabytes) * 1024 * 1024 * 1024;
+        var now = DateTime.UtcNow;
+        long total = 0;
+        var removed = 0;
+
+        // Newest first: everything past the retention window or the size budget goes.
+        // A file still being streamed cannot be deleted on Windows; it is retried next sweep.
+        var files = new DirectoryInfo(directory).EnumerateFiles()
+            .OrderByDescending(f => f.LastWriteTimeUtc)
+            .ToList();
+
+        foreach (var file in files)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var stale = now - file.LastWriteTimeUtc > retention;
+            // A .partial is a download in progress until it is old enough to be a crash leftover.
+            var inProgress = file.Name.EndsWith(".partial", StringComparison.OrdinalIgnoreCase);
+            if (!stale && (inProgress || total + file.Length <= budget))
+            {
+                total += file.Length;
+                continue;
+            }
+
+            try
+            {
+                file.Delete();
+                removed++;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                total += file.Length;
+                logger.LogDebug(ex, "Could not evict preview {File}.", file.Name);
+            }
+        }
+
+        if (removed > 0) logger.LogInformation("Evicted {Count} render preview(s).", removed);
     }
 }

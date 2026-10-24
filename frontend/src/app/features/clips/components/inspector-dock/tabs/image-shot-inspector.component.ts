@@ -16,6 +16,10 @@ import { IMAGE_LOOKS, IMAGE_MOTIONS, IMAGE_MOTION_MAX, IMAGE_MOTION_MIN } from '
         <div class="shot-head">
           <span class="shot-title">🎥 Camera &amp; Look</span>
           <span class="shot-name" [title]="target.name">{{ target.name }}</span>
+          <button type="button" class="shot-studio-btn" (click)="state.styleStudioOpen.set(true)"
+                  title="Open Styles, Effects &amp; Layouts Studio to preview and apply Auto-Short styles to your timeline">
+            ✨ Styles Studio
+          </button>
         </div>
 
         <div class="shot-lbl">Camera move</div>
@@ -81,9 +85,12 @@ import { IMAGE_LOOKS, IMAGE_MOTIONS, IMAGE_MOTION_MAX, IMAGE_MOTION_MIN } from '
   styles: [`
     .shot { display: flex; flex-direction: column; gap: 6px; padding: 10px; margin-bottom: 8px;
       border: 1px solid #334155; border-radius: 8px; background: rgba(15, 23, 42, .6); }
-    .shot-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+    .shot-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
     .shot-title { font-size: .78rem; font-weight: 600; color: #e2e8f0; flex-shrink: 0; }
-    .shot-name { font-size: .68rem; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .shot-name { font-size: .68rem; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+    .shot-studio-btn { padding: 2px 7px; font-size: .66rem; font-weight: 600; color: #facc15; background: rgba(250, 204, 21, .12);
+      border: 1px solid rgba(250, 204, 21, .35); border-radius: 5px; cursor: pointer; flex-shrink: 0; }
+    .shot-studio-btn:hover { background: rgba(250, 204, 21, .22); border-color: #facc15; }
     .shot-lbl { font-size: .66rem; color: #94a3b8; text-transform: uppercase; letter-spacing: .04em; margin-top: 2px; }
     .shot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 4px; }
     .shot-chip { display: flex; align-items: center; gap: 5px; padding: 4px 6px; font-size: .7rem; color: #cbd5e1;

@@ -1,61 +1,88 @@
-<section class="vp">
-  <header class="vp-head">
-    <div>
-      <h2>Videos &amp; Shorts</h2>
-      <p class="muted">
-        Every video here uses this project's assets, and each one keeps its own timeline.
-        Make a Short from part of a long video, then edit either without changing the other.
-      </p>
+<section class="vp studio-wide-page">
+  <header class="vp-head sb-studio-bar">
+    <div class="vp-head-left">
+      <div class="studio-icon-badge">🎬</div>
+      <div class="sb-studio-title-col">
+        <h2>Videos &amp; Shorts</h2>
+        <p class="muted">
+          Every video here uses this project's assets, and each one keeps its own timeline.
+          Make a Short from part of a long video, then edit either without changing the other.
+        </p>
+      </div>
     </div>
-    <button type="button" class="vp-new" (click)="openCreate()">+ New video or Short</button>
+    <div class="sb-studio-actions">
+      <span class="pill brand">{{ formatCounts()['All'] }} Timelines</span>
+      <button type="button" class="vp-new" (click)="openCreate()">+ New video or Short</button>
+    </div>
   </header>
 
+  <div class="sb-kpi-strip">
+    <div class="sb-kpi-card">
+      <span class="sb-kpi-label">All Timelines</span>
+      <span class="sb-kpi-val brand">{{ formatCounts()['All'] }}</span>
+    </div>
+    <div class="sb-kpi-card">
+      <span class="sb-kpi-label">9:16 Shorts</span>
+      <span class="sb-kpi-val">{{ formatCounts()['Short'] || 0 }}</span>
+    </div>
+    <div class="sb-kpi-card">
+      <span class="sb-kpi-label">Ready / Exported</span>
+      <span class="sb-kpi-val ok">{{ statusCounts().ExportedOnly }}</span>
+    </div>
+    <div class="sb-kpi-card">
+      <span class="sb-kpi-label">Published on YouTube</span>
+      <span class="sb-kpi-val">{{ statusCounts().OnYouTube }}</span>
+    </div>
+  </div>
+
   <!-- Filters -->
-  <div class="vp-toolbar">
-    <input type="text" class="vp-search" placeholder="Search name, category or tag…"
-           [value]="search()" (input)="search.set($any($event.target).value)" aria-label="Search videos" />
+  <div class="vp-filter-panel">
+    <div class="vp-toolbar">
+      <input type="text" class="vp-search" placeholder="Search name, category or tag…"
+             [value]="search()" (input)="search.set($any($event.target).value)" aria-label="Search videos" />
 
-    <div class="chips" role="group" aria-label="Format">
-      <button type="button" class="chip" [class.on]="formatFilter() === 'All'" (click)="formatFilter.set('All')">
-        All <span>{{ formatCounts()['All'] }}</span>
-      </button>
-      @for (f of formats; track f.value) {
-        <button type="button" class="chip" [class.on]="formatFilter() === f.value" (click)="formatFilter.set(f.value)">
-          {{ f.label }} <span>{{ formatCounts()[f.value] }}</span>
+      <div class="chips" role="group" aria-label="Format">
+        <button type="button" class="chip" [class.on]="formatFilter() === 'All'" (click)="formatFilter.set('All')">
+          All <span>{{ formatCounts()['All'] }}</span>
         </button>
-      }
+        @for (f of formats; track f.value) {
+          <button type="button" class="chip" [class.on]="formatFilter() === f.value" (click)="formatFilter.set(f.value)">
+            {{ f.label }} <span>{{ formatCounts()[f.value] }}</span>
+          </button>
+        }
+      </div>
+
+      <select class="vp-sort" [value]="sort()" (change)="sort.set($any($event.target).value)" aria-label="Sort">
+        <option value="recent">Recently edited</option>
+        <option value="number">Order (#) newest first</option>
+        <option value="name">Name</option>
+        <option value="longest">Longest first</option>
+      </select>
     </div>
 
-    <select class="vp-sort" [value]="sort()" (change)="sort.set($any($event.target).value)" aria-label="Sort">
-      <option value="recent">Recently edited</option>
-      <option value="number">Order (#) newest first</option>
-      <option value="name">Name</option>
-      <option value="longest">Longest first</option>
-    </select>
-  </div>
-
-  <div class="chips cats" role="group" aria-label="Status">
-    <span class="chips-label">Status</span>
-    <button type="button" class="chip small" [class.on]="statusFilter() === 'All'" (click)="statusFilter.set('All')">Any</button>
-    <button type="button" class="chip small" [class.on]="statusFilter() === 'NotUploaded'" (click)="statusFilter.set('NotUploaded')"
-            title="Not on YouTube yet, exported or not">Not on YouTube <span>{{ statusCounts().NotUploaded }}</span></button>
-    <button type="button" class="chip small" [class.on]="statusFilter() === 'NotExported'" (click)="statusFilter.set('NotExported')">
-      Not exported <span>{{ statusCounts().NotExported }}</span></button>
-    <button type="button" class="chip small" [class.on]="statusFilter() === 'ExportedOnly'" (click)="statusFilter.set('ExportedOnly')"
-            title="Exported but not uploaded">Exported, not uploaded <span>{{ statusCounts().ExportedOnly }}</span></button>
-    <button type="button" class="chip small" [class.on]="statusFilter() === 'OnYouTube'" (click)="statusFilter.set('OnYouTube')">
-      On YouTube <span>{{ statusCounts().OnYouTube }}</span></button>
-  </div>
-
-  @if (categories().length > 0) {
-    <div class="chips cats" role="group" aria-label="Category">
-      <span class="chips-label">Category</span>
-      <button type="button" class="chip small" [class.on]="!categoryFilter()" (click)="categoryFilter.set(null)">Any</button>
-      @for (c of categories(); track c) {
-        <button type="button" class="chip small" [class.on]="categoryFilter() === c" (click)="categoryFilter.set(c)">{{ c }}</button>
-      }
+    <div class="chips cats" role="group" aria-label="Status">
+      <span class="chips-label">Status</span>
+      <button type="button" class="chip small" [class.on]="statusFilter() === 'All'" (click)="statusFilter.set('All')">Any</button>
+      <button type="button" class="chip small" [class.on]="statusFilter() === 'NotUploaded'" (click)="statusFilter.set('NotUploaded')"
+              title="Not on YouTube yet, exported or not">Not on YouTube <span>{{ statusCounts().NotUploaded }}</span></button>
+      <button type="button" class="chip small" [class.on]="statusFilter() === 'NotExported'" (click)="statusFilter.set('NotExported')">
+        Not exported <span>{{ statusCounts().NotExported }}</span></button>
+      <button type="button" class="chip small" [class.on]="statusFilter() === 'ExportedOnly'" (click)="statusFilter.set('ExportedOnly')"
+              title="Exported but not uploaded">Exported, not uploaded <span>{{ statusCounts().ExportedOnly }}</span></button>
+      <button type="button" class="chip small" [class.on]="statusFilter() === 'OnYouTube'" (click)="statusFilter.set('OnYouTube')">
+        On YouTube <span>{{ statusCounts().OnYouTube }}</span></button>
     </div>
-  }
+
+    @if (categories().length > 0) {
+      <div class="chips cats" role="group" aria-label="Category">
+        <span class="chips-label">Category</span>
+        <button type="button" class="chip small" [class.on]="!categoryFilter()" (click)="categoryFilter.set(null)">Any</button>
+        @for (c of categories(); track c) {
+          <button type="button" class="chip small" [class.on]="categoryFilter() === c" (click)="categoryFilter.set(c)">{{ c }}</button>
+        }
+      </div>
+    }
+  </div>
 
   @if (loading()) {
     <div class="card muted">Loading videos…</div>

@@ -1,6 +1,7 @@
 import { DatePipe } from '@angular/common';
 import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { RouterLink } from '@angular/router';
 
 import {
@@ -9,8 +10,11 @@ import {
 } from '../../core/models/youtube.models';
 import { YouTubePublishService } from '../../core/services/youtube-publish.service';
 
+const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
+
 type VideoFilter = 'all' | 'public' | 'unlisted' | 'private' | 'attention';
 type VideoSort = 'newest' | 'views' | 'likes';
+export type DashboardViewMode = 'list' | 'grid';
 
 interface VideoRow {
   video: YouTubePublication;
@@ -33,6 +37,7 @@ const NO_STATS: Record<string, YouTubeVideoStats> = {};
 })
 export class YouTubeDashboardComponent implements OnInit, OnDestroy {
   private readonly api = inject(YouTubePublishService);
+  private readonly sanitizer = inject(DomSanitizer);
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly data = signal<YouTubeDashboard | null>(null);
@@ -47,6 +52,29 @@ export class YouTubeDashboardComponent implements OnInit, OnDestroy {
   readonly sort = signal<VideoSort>('newest');
   readonly channelFilter = signal<string>('all');
   readonly query = signal('');
+  readonly viewMode = signal<DashboardViewMode>('list');
+
+  // Video preview player modal
+  readonly previewVideo = signal<YouTubePublication | null>(null);
+  readonly previewEmbedUrl = computed<SafeResourceUrl | null>(() => {
+    const v = this.previewVideo();
+    if (!v) return null;
+    return VIDEO_ID.test(v.videoId)
+      ? this.sanitizer.bypassSecurityTrustResourceUrl(`https://www.youtube-nocookie.com/embed/${v.videoId}?autoplay=1&rel=0`)
+      : null;
+  });
+
+  openPreview(v: YouTubePublication): void {
+    this.previewVideo.set(v);
+  }
+
+  closePreview(): void {
+    this.previewVideo.set(null);
+  }
+
+  setViewMode(mode: DashboardViewMode): void {
+    this.viewMode.set(mode);
+  }
 
   readonly channels = computed(() => this.data()?.channels ?? []);
   readonly videos = computed(() => this.data()?.videos ?? []);
@@ -191,6 +219,10 @@ export class YouTubeDashboardComponent implements OnInit, OnDestroy {
   subscriberText(c: YouTubeChannelOverview): string {
     if (c.subscribersHidden) return 'Hidden';
     return compact(c.subscribers);
+  }
+
+  isShortVideo(v: YouTubePublication): boolean {
+    return /#shorts/i.test(v.title) || v.videoUrl.includes('/shorts/');
   }
 
   compact = compact;

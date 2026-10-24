@@ -5,6 +5,7 @@ using AnimStudio.Application.Abstractions.Rendering;
 using AnimStudio.Application.Abstractions.Storage;
 using AnimStudio.Application.Media;
 using AnimStudio.Application.Options;
+using AnimStudio.Application.Planning;
 using AnimStudio.Application.Security;
 using AnimStudio.Domain.Assets;
 using AnimStudio.Domain.Projects;
@@ -28,6 +29,7 @@ public sealed class MediaToolsController(
     IAiSettingsRepository aiSettingsRepo,
     IOptions<IngestOptions> ingestOptions,
     ICurrentUser currentUser,
+    ContentPlanningService planning,
     AppDataPaths dataPaths,
     ILogger<MediaToolsController> logger) : ControllerBase
 {
@@ -138,6 +140,10 @@ public sealed class MediaToolsController(
             }
         }
 
+        // Same rule as the project: a topic or post that isn't the caller's fails before the download.
+        var (linkTopicId, linkPlanItemId) = await planning.ResolveTargetsAsync(
+            currentUser.UserId, request.TopicId, request.PlanItemId, ct);
+
         var workDir = Path.Combine(dataPaths.Downloads, Guid.NewGuid().ToString("n"));
         Directory.CreateDirectory(workDir);
 
@@ -186,6 +192,11 @@ public sealed class MediaToolsController(
                 Probe = mediaProbe,
                 UsageScope = AssetUsageScope.SceneUse,
                 ReviewStatus = AssetReviewStatus.NotRequired,
+                Provenance = new AssetProvenance
+                {
+                    SourceProvider = validation.Platform!.Id,
+                    SourceUrl = validation.CanonicalUrl
+                },
                 CreatedAt = DateTime.UtcNow
             };
 
@@ -199,6 +210,20 @@ public sealed class MediaToolsController(
                 project.Settings.ClipOrderAssetIds = new List<string>(project.Settings.ClipOrderAssetIds) { asset.Id };
                 await projects.ReplaceAsync(project, ct);
             }
+        }
+
+        // Every downloaded link is kept (per topic when one was picked) so it can be found again
+        // from the phone. Saving it is a convenience: a failure here never fails the download.
+        string? sourceLinkId = null;
+        try
+        {
+            var link = await planning.CaptureDownloadAsync(currentUser.UserId, validation.CanonicalUrl!, validation.Platform!.Id,
+                validation.Platform.Name, downloaded.Title, linkTopicId, linkPlanItemId, targetProject?.Id, assetId, ct);
+            sourceLinkId = link.Id;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Saving the downloaded link from {Platform} failed", validation.Platform!.Id);
         }
 
         var ticketId = Guid.NewGuid().ToString("n");
@@ -216,7 +241,8 @@ public sealed class MediaToolsController(
             ProjectId: targetProject?.Id,
             FolderId: folder?.Id,
             FolderName: folder?.Name,
-            AssetName: savedAssetName)));
+            AssetName: savedAssetName,
+            SourceLinkId: sourceLinkId)));
     }
 
     /// <summary>
@@ -250,6 +276,10 @@ public sealed class MediaToolsController(
         [FromForm] string? projectId = null,
         [FromForm] bool importAsClips = false,
         [FromForm] string compressionPreset = "original",
+        [FromForm] string chunkStyle = "original",
+        [FromForm] string? hookText = null,
+        [FromForm] bool showPartBadge = false,
+        [FromForm] bool subtleZoom = false,
         CancellationToken ct = default)
     {
         // Load default chunk duration from settings if not explicitly specified
@@ -341,7 +371,8 @@ public sealed class MediaToolsController(
             }
 
             var chunkResult = await chunker.ChunkVideoAsync(
-                inputVideoPath, sourceTitle, chunkDuration, accurateCut, convertTo916, jobId, workDir, compressionPreset, ct);
+                inputVideoPath, sourceTitle, chunkDuration, accurateCut, convertTo916, jobId, workDir,
+                compressionPreset, chunkStyle, hookText, showPartBadge, subtleZoom, ct);
 
             // If requested, import chunks as Project Clips!
             if (targetProject is not null)

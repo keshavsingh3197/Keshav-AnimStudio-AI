@@ -184,6 +184,82 @@
     </div>
   }
 
+  <!-- Auto transitions: pick styles for cuts, images and text automatically -->
+  <div class="trans-defaults-card auto-card">
+    <div style="font-size: 0.8rem; font-weight: 700; color: var(--text, #f0f4fc);">✨ Auto Transitions</div>
+    <p style="font-size: 0.73rem; color: var(--text-muted, #8892a4); margin: 2px 0 8px;">
+      Pick styles for video cuts, images and text automatically, or choose exactly which ones to use.
+    </p>
+
+    <p class="auto-msg" style="margin: 0 0 6px;">Applies to: <strong>{{ state.targetScopeLabel() }}</strong> (change it with <em>Apply to</em> at the top)</p>
+    <div class="auto-row">
+      <span class="auto-k">Pick</span>
+      <button type="button" class="trans-dur-preset-btn" [class.active]="autoMode() === 'fixed'" (click)="autoMode.set('fixed')" title="Always the first style chosen">Fixed</button>
+      <button type="button" class="trans-dur-preset-btn" [class.active]="autoMode() === 'cycle'" (click)="autoMode.set('cycle')" title="Go through the chosen styles in order">Cycle</button>
+      <button type="button" class="trans-dur-preset-btn" [class.active]="autoMode() === 'random'" (click)="autoMode.set('random')" title="Mix the chosen styles up (repeatable)">Random</button>
+    </div>
+
+    <div class="auto-group">
+      <div class="auto-group-head">
+        <strong>🎞 Video cuts</strong>
+        <span class="auto-count">{{ cutTargetCount() }} cut{{ cutTargetCount() === 1 ? '' : 's' }}</span>
+      </div>
+      <div class="auto-chips">
+        @for (c of cutChoices; track c) {
+          <button type="button" class="trans-dur-preset-btn" [class.active]="cutPool().includes(c)" (click)="togglePool(cutPool, c)">{{ label(c) }}</button>
+        }
+      </div>
+      <div class="auto-row">
+        <span class="auto-k">Length</span>
+        <input type="range" class="trans-range" min="0.1" max="3" step="0.1" [ngModel]="cutSeconds()" (ngModelChange)="cutSeconds.set(+$event)" />
+        <span class="auto-v">{{ cutSeconds() | number: '1.1-1' }}s</span>
+        <button type="button" class="btn-trans-secondary" (click)="applyAuto('cuts')">Apply</button>
+      </div>
+    </div>
+
+    <div class="auto-group">
+      <div class="auto-group-head">
+        <strong>🖼 Images &amp; overlay videos</strong>
+        <span class="auto-count">{{ imageTargetCount() }} item{{ imageTargetCount() === 1 ? '' : 's' }}</span>
+      </div>
+      <div class="auto-chips">
+        @for (c of imageChoices; track c) {
+          <button type="button" class="trans-dur-preset-btn" [class.active]="imagePool().includes(c)" (click)="togglePool(imagePool, c)">{{ label(c) }}</button>
+        }
+      </div>
+      <div class="auto-row">
+        <span class="auto-k">Length</span>
+        <input type="range" class="trans-range" min="0.1" max="3" step="0.1" [ngModel]="imageSeconds()" (ngModelChange)="imageSeconds.set(+$event)" />
+        <span class="auto-v">{{ imageSeconds() | number: '1.1-1' }}s</span>
+        <button type="button" class="btn-trans-secondary" (click)="applyAuto('images')">Apply</button>
+      </div>
+    </div>
+
+    <div class="auto-group">
+      <div class="auto-group-head">
+        <strong>🔤 Text</strong>
+        <span class="auto-count">{{ textTargetCount() }} item{{ textTargetCount() === 1 ? '' : 's' }}</span>
+      </div>
+      <div class="auto-chips">
+        @for (c of textChoices; track c) {
+          <button type="button" class="trans-dur-preset-btn" [class.active]="textPool().includes(c)" (click)="togglePool(textPool, c)">{{ label(c) }}</button>
+        }
+      </div>
+      <div class="auto-row">
+        <span class="auto-k">Length</span>
+        <input type="range" class="trans-range" min="0.1" max="3" step="0.1" [ngModel]="textSeconds()" (ngModelChange)="textSeconds.set(+$event)" />
+        <span class="auto-v">{{ textSeconds() | number: '1.1-1' }}s</span>
+        <button type="button" class="btn-trans-secondary" (click)="applyAuto('text')">Apply</button>
+      </div>
+    </div>
+
+    <button type="button" class="btn-trans-primary" style="width: 100%; justify-content: center; margin-top: 8px;" (click)="applyAuto('all')">
+      ✨ Auto-pick everything
+    </button>
+    @if (autoMessage(); as msg) {
+      <p class="auto-msg">{{ msg }}</p>
+    }
+  </div>
   <!-- Global / Batch Defaults Card -->
   <div class="trans-defaults-card">
     <div class="d-flex justify-content-between align-items-center mb-1">

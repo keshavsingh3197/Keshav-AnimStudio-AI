@@ -306,6 +306,138 @@ public class AutoShortPlannerTests
         Assert.All(plan.Shorts, s => Assert.NotEmpty(Shots(s)));
     }
 
+    // --- Exact length, video order and styles ---
+
+    [Theory]
+    [InlineData(AutoShortLayout.Spread, 0, 15)]
+    [InlineData(AutoShortLayout.Spread, 0, 45)]
+    [InlineData(AutoShortLayout.Spread, 3, 60)]
+    [InlineData(AutoShortLayout.Spread, 5, 90)]
+    [InlineData(AutoShortLayout.AllInEach, 3, 60)]
+    [InlineData(AutoShortLayout.AllInEach, 2, 25)]
+    [InlineData(AutoShortLayout.Spread, 1, 180)]
+    public void Exact_length_lands_every_layout_on_the_asked_length(AutoShortLayout layout, int count, double seconds)
+    {
+        foreach (var pool in new[] { Pool12, Mixed })
+        {
+            for (var seed = 0; seed < 20; seed++)
+            {
+                var plan = AutoShortPlanner.PlanBatch(Batch(pool, count: count, seconds: seconds, seed: seed)
+                    with { Layout = layout, ExactLength = true, MaxClipSeconds = seed % 2 == 0 ? null : 8 });
+
+                Assert.All(plan.Shorts, s => Assert.Equal(seconds, V1Length(s), 1));
+                Assert.All(plan.Shorts.SelectMany(Shots), i => Assert.True(i.Duration >= AutoShortPlanner.MinShotSeconds - 0.01, $"{i.Duration}s shot"));
+                foreach (var v in plan.Shorts.SelectMany(Shots).Where(i => i.Type == "video"))
+                {
+                    var length = pool.Single(p => p.AssetId == v.Src).DurationSeconds!.Value;
+                    Assert.True(v.TrimStartSeconds >= 0 && v.TrimEndSeconds <= length + 0.01);
+                    Assert.Equal(v.Duration, v.TrimEndSeconds!.Value - v.TrimStartSeconds!.Value, 2);
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void Exact_spread_makes_full_shorts_and_tops_them_up_before_repeating()
+    {
+        // 8 x 5s pictures + 70s of video = 110s: one exact 60s short, the rest topping it up.
+        var plan = AutoShortPlanner.PlanBatch(Batch(Pool12, count: 0, seconds: 60) with { Layout = AutoShortLayout.Spread, ExactLength = true });
+
+        var only = Assert.Single(plan.Shorts);
+        Assert.Equal(60, V1Length(only), 1);
+        var used = Shots(only).Select(i => i.Src).ToList();
+        Assert.Equal(used.Count, used.Distinct().Count());
+    }
+
+    [Fact]
+    public void Exact_spread_keeps_videos_to_one_short_each_while_pictures_can_be_reused()
+    {
+        var pool = new AutoShortSource[]
+        {
+            new("v1", AssetKind.Video, 10), new("v2", AssetKind.Video, 10), new("v3", AssetKind.Video, 10),
+            new("p1", AssetKind.Image, null), new("p2", AssetKind.Image, null),
+        };
+        var plan = AutoShortPlanner.PlanBatch(Batch(pool, count: 3, seconds: 30)
+            with { Layout = AutoShortLayout.Spread, ExactLength = true, Order = AutoShortOrder.VideosFirst });
+
+        Assert.Equal(3, plan.Shorts.Count);
+        var videos = plan.Shorts.SelectMany(s => Shots(s).Where(i => i.Type == "video").Select(i => i.Src)).ToList();
+        Assert.Equal(videos.Count, videos.Distinct().Count());
+        Assert.All(plan.Shorts, s => Assert.Equal(30, V1Length(s), 1));
+    }
+
+    [Theory]
+    [InlineData(AutoShortLayout.Spread)]
+    [InlineData(AutoShortLayout.AllInEach)]
+    [InlineData(AutoShortLayout.FitLength)]
+    public void Videos_first_opens_every_short_on_footage(AutoShortLayout layout)
+    {
+        for (var seed = 0; seed < 20; seed++)
+        {
+            var plan = AutoShortPlanner.PlanBatch(Batch(Pool12, count: 4, seconds: 30, seed: seed)
+                with { Layout = layout, ExactLength = true, Order = AutoShortOrder.VideosFirst });
+
+            foreach (var s in plan.Shorts)
+            {
+                var kinds = Shots(s).Select(i => i.Type).ToList();
+                if (!kinds.Contains("video")) continue;
+                Assert.Equal("video", kinds[0]);
+                // No video after the first picture.
+                var firstPicture = kinds.IndexOf("image");
+                if (firstPicture >= 0) Assert.DoesNotContain("video", kinds.Skip(firstPicture));
+            }
+            Assert.Contains(plan.Shorts, s => Shots(s)[0].Type == "video");
+        }
+    }
+
+    [Fact]
+    public void Video_first_only_moves_one_video_to_the_front()
+    {
+        var plan = AutoShortPlanner.PlanBatch(Batch(Pool12, count: 3, seconds: 60) with { Layout = AutoShortLayout.Spread, Order = AutoShortOrder.VideoFirst });
+
+        Assert.All(plan.Shorts.Where(s => Shots(s).Any(i => i.Type == "video")), s => Assert.Equal("video", Shots(s)[0].Type));
+    }
+
+    [Fact]
+    public void Each_short_reports_its_style_and_mixed_goes_round_them_all()
+    {
+        var plan = AutoShortPlanner.PlanBatch(Batch(count: 7));
+        Assert.NotNull(plan.Styles);
+        Assert.Equal(7, plan.Styles!.Count);
+        Assert.Equal(7, plan.Styles.Distinct().Count());
+        Assert.DoesNotContain(AutoShortStyle.Mixed, plan.Styles);
+        Assert.DoesNotContain(AutoShortStyle.Auto, plan.Styles);
+
+        var fixedStyle = AutoShortPlanner.PlanBatch(Batch(count: 3) with { Style = AutoShortStyle.Retro });
+        Assert.All(fixedStyle.Styles!, s => Assert.Equal(AutoShortStyle.Retro, s));
+    }
+
+    [Fact]
+    public void Auto_style_picks_quick_styles_for_teasers()
+    {
+        var plan = AutoShortPlanner.PlanBatch(Batch(count: 4, seconds: 15) with { Style = AutoShortStyle.Auto });
+        Assert.All(plan.Styles!, s => Assert.Contains(s, new[] { AutoShortStyle.Hype, AutoShortStyle.Energetic }));
+    }
+
+    [Fact]
+    public void Viral_cuts_fast_with_whips_and_bold_yellow_captions()
+    {
+        var plan = AutoShortPlanner.PlanBatch(Batch(count: 3, seconds: 30, text: AutoShortTextMode.HookAndPerShot,
+            lines: ["poora naam", "vibration ka hota", "letter tweak kiya"]) with { Style = AutoShortStyle.Viral });
+
+        Assert.All(plan.Styles!, s => Assert.Equal(AutoShortStyle.Viral, s));
+        SceneTransition[] whips = [SceneTransition.SlideUp, SceneTransition.SlideDown, SceneTransition.ZoomIn, SceneTransition.SlideLeft, SceneTransition.None];
+        foreach (var s in plan.Shorts)
+        {
+            Assert.All(s.Junctions!, j => Assert.Contains(j.Transition, whips));
+            Assert.All(Shots(s), i => Assert.InRange(i.Duration, 0.9, 2.81 + 2.81));
+            var captions = s.TimelineItems!.Where(i => i.Name == "Caption").ToList();
+            Assert.NotEmpty(captions);
+            Assert.All(captions, c => Assert.Equal("#ffd60a", c.TextStyle!.Color));
+            Assert.Equal("#ffffff", s.TimelineItems!.Single(i => i.Name == "Hook").TextStyle!.BoxColor);
+        }
+    }
+
     [Fact]
     public void Fit_length_is_still_the_default_layout()
     {

@@ -1,16 +1,19 @@
 import { DatePipe } from '@angular/common';
 import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
-import { Observable, catchError, of } from 'rxjs';
+import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
+import { ActivatedRoute, RouterLink } from '@angular/router';
+import { Observable, catchError, map, of, switchMap } from 'rxjs';
 
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
 import {
-  YouTubeCategory, YouTubeChannel, YouTubeCheckup, YouTubeCheckupVideo, YouTubeSuggestEngine, YouTubeSuggestion,
+  YouTubeCategory, YouTubeChannel, YouTubeCheckup, YouTubeCheckupVideo, YouTubeSuggestEngine, YouTubeSuggestion, YouTubeUrlSeoResult,
 } from '../../core/models/youtube.models';
 import { YouTubePublishService } from '../../core/services/youtube-publish.service';
 import { MAX_ANSWER_CHARS, MAX_PROMPT_VIDEOS, buildHandoffPrompt, parseHandoffAnswer } from './checkup-ai-handoff';
-import { Draft, EMPTY_STATE, HASHTAG, HASHTAGS, RowState, draftDiffers, fitTags, splitTags } from './checkup-draft';
+import {
+  Draft, EMPTY_STATE, HASHTAG, HASHTAGS, RowState, draftDiffers, fitTags, fromLocalInput, scheduleDiffers, splitTags, toLocalInput, toneLabel,
+} from './checkup-draft';
 import { CheckupVideoEditorComponent } from './checkup-video-editor.component';
 
 /** The issues the page counts and filters by, in the order they're shown. */
@@ -24,10 +27,15 @@ const ISSUE_LABELS: readonly { code: string; label: string }[] = [
   { code: 'title-default', label: 'File-name title' },
 ];
 
+/** Valid 11-char YouTube video ID */
+const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
+
 /** Two drafts at a time: the server only writes two suggestions at once anyway. */
 const PARALLEL = 2;
 
-type Filter = 'needs' | 'all' | string;
+export type Filter = 'needs' | 'all' | 'complete' | string;
+
+export type ViewMode = 'list' | 'grid' | 'compact';
 
 type Sort = 'newest' | 'oldest' | 'most-missing' | 'title';
 
@@ -40,6 +48,15 @@ const DEFAULT_CHECK_SIZE = 25;
 
 /** Remembered per browser, so the page opens with the last chosen size. */
 const PREFS_KEY = 'animstudio.youtube.checkup';
+const VIEW_MODE_KEY = 'animstudio.youtube.checkup.viewMode';
+
+function loadViewMode(): ViewMode {
+  try {
+    const m = localStorage.getItem(VIEW_MODE_KEY);
+    if (m === 'grid' || m === 'list' || m === 'compact') return m;
+  } catch {}
+  return 'list';
+}
 
 /**
  * Details checkup: every video on a connected channel - however it was uploaded - with what
@@ -55,6 +72,11 @@ const PREFS_KEY = 'animstudio.youtube.checkup';
 })
 export class YouTubeCheckupComponent implements OnInit {
   private readonly api = inject(YouTubePublishService);
+  private readonly sanitizer = inject(DomSanitizer);
+  private readonly route = inject(ActivatedRoute);
+
+  /** A video to open once its channel's check has loaded - from "Open in checkup" on the details page. */
+  private pendingOpen: string | null = null;
 
   readonly issueLabels = ISSUE_LABELS;
   readonly maxPromptVideos = MAX_PROMPT_VIDEOS;
@@ -79,6 +101,17 @@ export class YouTubeCheckupComponent implements OnInit {
   readonly query = signal('');
   readonly sort = signal<Sort>('newest');
   readonly page = signal(0);
+  readonly viewMode = signal<ViewMode>(loadViewMode());
+
+  // Video preview player modal
+  readonly previewVideo = signal<YouTubeCheckupVideo | null>(null);
+  readonly previewEmbedUrl = computed<SafeResourceUrl | null>(() => {
+    const v = this.previewVideo();
+    if (!v) return null;
+    return VIDEO_ID.test(v.videoId)
+      ? this.sanitizer.bypassSecurityTrustResourceUrl(`https://www.youtube-nocookie.com/embed/${v.videoId}?autoplay=1&rel=0`)
+      : null;
+  });
 
   // AI settings shared by every draft.
   readonly tone = signal('auto');
@@ -97,6 +130,14 @@ export class YouTubeCheckupComponent implements OnInit {
   readonly pasteText = signal('');
   readonly pasteReport = signal<{ ok: boolean; lines: string[] } | null>(null);
   readonly promptCopied = signal<string | null>(null);
+
+  // Automated YouTube URL -> Transcript + SEO Generator (100% Free supported)
+  readonly urlSeoOpen = signal(false);
+  readonly urlSeoInput = signal('');
+  readonly urlSeoBusy = signal(false);
+  readonly urlSeoError = signal<string | null>(null);
+  readonly urlSeoResult = signal<YouTubeUrlSeoResult | null>(null);
+  readonly urlCopiedKey = signal<string | null>(null);
 
   /** Per video, when its thumbnail was last changed here - so the row's picture reloads. */
   private readonly thumbVersions = signal<Record<string, number>>({});
@@ -117,12 +158,18 @@ export class YouTubeCheckupComponent implements OnInit {
     return { all: this.videos().length, needs, complete: this.videos().length - needs, byIssue };
   });
 
+  readonly healthPercent = computed(() => {
+    const c = this.counts();
+    return c.all > 0 ? Math.round((c.complete / c.all) * 100) : 0;
+  });
+
   readonly rows = computed(() => {
     const f = this.filter();
     const words = this.query().trim().toLowerCase().split(/\s+/).filter(Boolean);
     const shown = this.videos().filter((v) => {
       if (f === 'needs' && v.issues.length === 0) return false;
-      if (f !== 'needs' && f !== 'all' && !v.issues.some((i) => i.code === f)) return false;
+      if (f === 'complete' && v.issues.length > 0) return false;
+      if (f !== 'needs' && f !== 'all' && f !== 'complete' && !v.issues.some((i) => i.code === f)) return false;
       const text = `${v.title} ${v.description} ${v.tags.join(' ')}`.toLowerCase();
       return words.every((w) => text.includes(w));
     });
@@ -161,7 +208,11 @@ export class YouTubeCheckupComponent implements OnInit {
       this.configured.set(s.configured);
       this.channels.set(s.channels);
       this.categories.set(s.categories);
-      const first = s.channels.find((c) => !c.needsReconnect && c.canComment) ?? s.channels[0];
+      const query = this.route.snapshot.queryParamMap;
+      const wanted = s.channels.find((c) => c.channelId === query.get('channel'));
+      const video = query.get('video');
+      if (wanted && video && VIDEO_ID.test(video)) this.pendingOpen = video;
+      const first = wanted ?? s.channels.find((c) => !c.needsReconnect && c.canComment) ?? s.channels[0];
       if (first) this.pickChannel(first.channelId);
     });
     this.api.suggestOptions().pipe(catchError(() => of(null))).subscribe((o) => {
@@ -199,9 +250,23 @@ export class YouTubeCheckupComponent implements OnInit {
     this.page.set(0);
     this.startTimer();
     this.api.checkup(channel.channelId, this.max()).subscribe({
-      next: (c) => { this.checkup.set(c); this.loading.set(false); this.stopTimer(); },
+      next: (c) => { this.checkup.set(c); this.loading.set(false); this.stopTimer(); this.openPending(); },
       error: (e: unknown) => { this.error.set(message(e)); this.loading.set(false); this.stopTimer(); },
     });
+  }
+
+  /** Opens the video asked for in the link, or says why it can't. */
+  private openPending(): void {
+    const id = this.pendingOpen;
+    this.pendingOpen = null;
+    if (!id) return;
+    const v = this.videos().find((x) => x.videoId === id);
+    if (v) {
+      this.filter.set('all');
+      this.openEditor(v);
+    } else {
+      this.notice.set(`That video isn't among the newest ${this.max()} checked. Raise the scan depth to find it.`);
+    }
   }
 
   setFilter(filter: Filter): void {
@@ -217,6 +282,19 @@ export class YouTubeCheckupComponent implements OnInit {
   setSort(sort: Sort): void {
     this.sort.set(sort);
     this.page.set(0);
+  }
+
+  setViewMode(mode: ViewMode): void {
+    this.viewMode.set(mode);
+    try { localStorage.setItem(VIEW_MODE_KEY, mode); } catch {}
+  }
+
+  openPreview(v: YouTubeCheckupVideo): void {
+    this.previewVideo.set(v);
+  }
+
+  closePreview(): void {
+    this.previewVideo.set(null);
   }
 
   goToPage(index: number): void {
@@ -395,6 +473,8 @@ export class YouTubeCheckupComponent implements OnInit {
           title: a.title || draft.title,
           description: a.description || draft.description,
           tags: a.tags,
+          pinnedComment: a.pinnedComment,
+          engagementComment: a.engagementComment,
           providerId: 'pasted',
         }),
         saved: false,
@@ -485,20 +565,32 @@ export class YouTubeCheckupComponent implements OnInit {
       const d = this.state(v.videoId).draft;
       if (!d) { sub.next(false); sub.complete(); return; }
       this.patch(v.videoId, { busy: 'save', error: null, warnings: [] });
-      return this.api.saveVideoDetails(this.channelId(), v.videoId, {
+      const channelId = this.channelId();
+      // A schedule is set (or taken off) after the details, which leave a private video's own schedule alone.
+      const scheduleChange = scheduleDiffers(v, d);
+      const publishAt = d.scheduled ? fromLocalInput(d.publishAtLocal) : null;
+      return this.api.saveVideoDetails(channelId, v.videoId, {
         metadata: {
           title: d.title.trim(),
           description: d.description.trim(),
           tags: splitTags(d.tagsText),
           categoryId: d.categoryId,
-          privacy: d.privacy,
+          privacy: d.scheduled ? 'private' : d.privacy,
           madeForKids: d.madeForKids,
           notifySubscribers: false,
         },
         addToPlaylistIds: d.addPlaylistIds,
         currentPlaylistIds: v.playlistIds,
         playlistsKnown: !this.checkup()?.playlistError,
-      }).subscribe({
+      }).pipe(
+        switchMap((res) => !scheduleChange
+          ? of(res)
+          : this.api.scheduleVideo(channelId, v.videoId, publishAt).pipe(
+            map((s) => ({ ...res, video: { ...res.video, privacy: s.privacy, scheduledAt: s.scheduledAt } })),
+            // The details are saved; a refused schedule is reported on the row, not lost with them.
+            catchError((e: unknown) => of({ ...res, warnings: [...res.warnings, `Details saved, but the schedule wasn't: ${message(e)}`] })),
+          )),
+      ).subscribe({
         next: (res) => {
           this.checkup.update((c) => c ? { ...c, videos: c.videos.map((x) => x.videoId === v.videoId ? res.video : x) } : c);
           this.patch(v.videoId, { busy: null, saved: true, warnings: res.warnings, draft: this.draftFrom(res.video) });
@@ -524,7 +616,10 @@ export class YouTubeCheckupComponent implements OnInit {
       ? v.categoryId
       : (categories.find((c) => c.id === '22') ?? categories[0])?.id ?? '22';
     const privacy = (['public', 'unlisted', 'private'] as const).find((p) => p === v.privacy) ?? 'public';
+    const scheduled = privacy === 'private' && !!v.scheduledAt;
     return {
+      scheduled,
+      publishAtLocal: scheduled ? toLocalInput(v.scheduledAt) : '',
       title: v.title,
       description: v.description,
       tagsText: v.tags.join(', '),
@@ -569,7 +664,67 @@ export class YouTubeCheckupComponent implements OnInit {
       titleOptions: replaceTitle ? titles.filter((t) => t !== s.title) : titles,
       descriptionOptions: offered.filter((o) => o && o !== description),
       tagIdeas: (s.tagIdeas ?? []).filter((t) => !splitTags(d.tagsText).includes(t)),
+      pinnedComment: s.pinnedComment || d.pinnedComment,
+      engagementComment: s.engagementComment || d.engagementComment,
+      transcriptText: s.transcriptText ?? d.transcriptText,
     };
+  }
+
+  toneLabel(t: string): string {
+    return toneLabel(t);
+  }
+
+  generateUrlSeo(): void {
+    const url = this.urlSeoInput().trim();
+    if (!url || this.urlSeoBusy()) return;
+    this.urlSeoBusy.set(true);
+    this.urlSeoError.set(null);
+    this.api.generateSeoFromUrl({
+      url,
+      language: this.language(),
+      tone: this.tone(),
+      brief: this.brief().trim() || undefined,
+      providerId: this.engine() || undefined,
+      channelId: this.channelId() || undefined,
+    }).subscribe({
+      next: (res) => {
+        this.urlSeoResult.set(res);
+        this.urlSeoBusy.set(false);
+      },
+      error: (e: unknown) => {
+        this.urlSeoError.set(message(e));
+        this.urlSeoBusy.set(false);
+      },
+    });
+  }
+
+  async copyUrlField(key: string, text: string): Promise<void> {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      this.urlCopiedKey.set(key);
+      setTimeout(() => {
+        if (this.urlCopiedKey() === key) this.urlCopiedKey.set(null);
+      }, 2000);
+    } catch {
+      this.error.set('Clipboard access was blocked by the browser.');
+    }
+  }
+
+  hasChannelVideo(videoId: string): boolean {
+    return this.videos().some((v) => v.videoId === videoId);
+  }
+
+  applyUrlSeoToChannelVideo(res: YouTubeUrlSeoResult): void {
+    const v = this.videos().find((x) => x.videoId === res.videoId);
+    if (!v) return;
+    const draft = this.state(v.videoId).draft ?? this.draftFrom(v);
+    this.patch(v.videoId, {
+      draft: this.merge(v, draft, res.suggestion),
+      saved: false,
+      error: null,
+    });
+    this.openEditor(v);
   }
 }
 

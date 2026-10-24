@@ -18,6 +18,11 @@ public sealed class MongoYouTubeConnectionRepository(MongoDbService mongo) : IYo
             .SortBy(c => c.ConnectedAt)
             .ToListAsync(ct).ConfigureAwait(false);
 
+    public async Task<IReadOnlyList<YouTubeChannelConnection>> ListAllAsync(CancellationToken ct) =>
+        await Collection.Find(_ => true)
+            .SortBy(c => c.ConnectedAt)
+            .ToListAsync(ct).ConfigureAwait(false);
+
     public Task UpsertAsync(YouTubeChannelConnection connection, CancellationToken ct) =>
         Collection.ReplaceOneAsync(c => c.Id == connection.Id, connection, new ReplaceOptions { IsUpsert = true }, ct);
 
