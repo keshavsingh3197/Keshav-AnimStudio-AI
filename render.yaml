@@ -46,6 +46,8 @@ services:
       # ---- CORS. Setting index 0 REPLACES the appsettings array, dropping localhost. ----
       - key: AllowedOrigins__0
         value: https://studio.keshavsingh.in
+      - key: AllowedOrigins__1
+        value: https://studio.ksubsync.net
 
       # ---- Storage on the persistent disk ----
       - key: Storage__DataRoot

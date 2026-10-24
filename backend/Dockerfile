@@ -38,10 +38,10 @@ RUN dotnet publish AnimStudio.Api/AnimStudio.Api.csproj -c Release -o /app/publi
 
 # ---- Runtime stage ----
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+USER root
 
 # ffmpeg/ffprobe do every render (the app requires 6.0+). DejaVu is the subtitle font named in
 # appsettings and the face the watermark auto-detect finds; fontconfig lets drawtext resolve it.
-# setpriv (util-linux, already in the base image) drops root in the entrypoint.
 ARG SKIP_OPTIONAL_TOOLS=false
 RUN if [ "$SKIP_OPTIONAL_TOOLS" != "true" ]; then \
         apt-get update \
@@ -57,10 +57,8 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 # All studio data (projects, uploads, renders, scratch, clip cache, logs) lives under one root,
 # which on Render is the persistent disk mounted here.
 ENV DATA_ROOT=/var/data
-RUN mkdir -p "$DATA_ROOT" && chown "$APP_UID:$APP_UID" "$DATA_ROOT"
+RUN mkdir -p "$DATA_ROOT" && chmod 777 "$DATA_ROOT" && (chown "$APP_UID:$APP_UID" "$DATA_ROOT" 2>/dev/null || true)
 
 EXPOSE 8080
 
-# Starts as root only to make the mounted disk writable, then runs the app as the image's
-# unprivileged "app" user (see docker-entrypoint.sh).
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
