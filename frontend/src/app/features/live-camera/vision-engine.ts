@@ -1,7 +1,7 @@
 import type { FaceLandmarker, GestureRecognizer, ImageSegmenter, NormalizedLandmark, PoseLandmarker, Category } from '@mediapipe/tasks-vision';
 
 import { FaceObservation } from './face-tracker';
-import { EMPTY_MOTION, MotionFrame } from './motion';
+import { BodyPose, EMPTY_MOTION, MotionFrame } from './motion';
 
 /**
  * On-device face tracking and person segmentation (MediaPipe Tasks, Apache-2.0). Everything
@@ -234,6 +234,38 @@ export class VisionEngine {
     }
 
     return { faces, mask, motion, inferenceMs: performance.now() - started };
+  }
+
+  /**
+   * Finds the body (and optionally the person mask) in one still picture, so a character can be
+   * rigged from a single image. Needs the motion models loaded; the mask needs the base models.
+   */
+  analyseStill(
+    image: HTMLCanvasElement,
+    withMask: boolean,
+  ): { body: BodyPose | null; mask: { values: Float32Array; width: number; height: number } | null } {
+    const next = () => {
+      const now = performance.now();
+      this.lastTimestamp = now <= this.lastTimestamp ? this.lastTimestamp + 1 : now;
+      return this.lastTimestamp;
+    };
+
+    let body: BodyPose | null = null;
+    if (this.pose) {
+      const found = this.pose.detectForVideo(image, next()).landmarks[0];
+      if (found) body = { points: found.map((p) => ({ x: p.x, y: p.y, v: p.visibility ?? 1 })) };
+    }
+
+    let mask: { values: Float32Array; width: number; height: number } | null = null;
+    if (withMask && this.segmenter) {
+      const segmented = this.segmenter.segmentForVideo(image, next());
+      const confidence = segmented.confidenceMasks?.[0];
+      if (confidence) {
+        mask = { values: confidence.getAsFloat32Array().slice(), width: confidence.width, height: confidence.height };
+      }
+      segmented.close();
+    }
+    return { body, mask };
   }
 
   /** The person mask alone, without face tracking: for cutting someone out (Collab green screen). */

@@ -206,6 +206,13 @@ export const routes: Routes = [
   },
 
   {
+    path: 'motion-copy',
+    title: 'Motion Copy - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/motion-copy/motion-copy.component').then((m) => m.MotionCopyComponent),
+  },
+
+  {
     path: 'collab',
     title: 'Collab Studio - AnimStudio AI',
     loadComponent: () =>
