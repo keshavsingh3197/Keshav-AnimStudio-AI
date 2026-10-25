@@ -32,21 +32,36 @@ import { environment } from '../../environments/environment';
 
             @if (twoFactorRequired()) {
               <form (ngSubmit)="submitTwoFactor()">
-                <p class="form-hint">Two-Factor Authentication is enabled on this account. Enter the 6-digit code from your authenticator app.</p>
+                <p class="form-hint">
+                  @if (isBackupMode()) {
+                    Enter one of your 8-character emergency backup codes generated when 2FA was set up.
+                  } @else {
+                    Two-Factor Authentication is enabled on this account. Enter the 6-digit code from your authenticator app.
+                  }
+                </p>
                 <div class="form-field">
-                  <label for="twoFactorCode">Verification Code</label>
+                  <div class="form-label-row">
+                    <label for="twoFactorCode">{{ isBackupMode() ? 'Backup Code' : 'Verification Code' }}</label>
+                    <button type="button" class="btn-text-link" (click)="toggleBackupMode()">
+                      {{ isBackupMode() ? 'Use Authenticator App' : 'Use a backup code' }}
+                    </button>
+                  </div>
                   <input
                     id="twoFactorCode"
                     type="text"
-                    inputmode="numeric"
-                    pattern="[0-9]*"
-                    maxlength="8"
-                    placeholder="000000"
+                    [placeholder]="isBackupMode() ? 'e.g. a1b2-c3d4' : '000000'"
                     [(ngModel)]="twoFactorCode"
                     name="twoFactorCode"
                     required
                     autofocus
                   />
+                  <span class="field-hint">
+                    @if (isBackupMode()) {
+                      Backup codes are single-use emergency codes.
+                    } @else {
+                      Codes change every 30 seconds. If a code was already submitted or just rotated, wait for the next 30s code or sync your phone clock.
+                    }
+                  </span>
                 </div>
                 <div class="modal-actions">
                   <button type="button" class="btn btn-secondary" (click)="resetForm()">Back</button>
@@ -223,6 +238,40 @@ import { environment } from '../../environments/environment';
       margin-bottom: 1.15rem;
     }
 
+    .form-label-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.4rem;
+    }
+
+    .form-label-row label {
+      margin-bottom: 0;
+    }
+
+    .btn-text-link {
+      background: none;
+      border: none;
+      color: #8bb0ff;
+      font-size: 0.78rem;
+      cursor: pointer;
+      padding: 0;
+      text-decoration: underline;
+      transition: color 0.15s ease;
+    }
+
+    .btn-text-link:hover {
+      color: #b4cbff;
+    }
+
+    .field-hint {
+      display: block;
+      font-size: 0.74rem;
+      color: #94a3b8;
+      margin-top: 0.35rem;
+      line-height: 1.35;
+    }
+
     .form-field label {
       display: block;
       font-size: 0.8rem;
@@ -379,6 +428,7 @@ export class LoginModalComponent {
   errorMessage = signal<string | null>(null);
   twoFactorRequired = signal(false);
   twoFactorToken = signal<string | null>(null);
+  readonly isBackupMode = signal(false);
 
   readonly registerUrl = `${environment.adminUrl}/register?app=studio`;
 
@@ -388,10 +438,17 @@ export class LoginModalComponent {
     }
   }
 
+  toggleBackupMode() {
+    this.isBackupMode.update((v) => !v);
+    this.twoFactorCode = '';
+    this.errorMessage.set(null);
+  }
+
   resetForm() {
     this.twoFactorRequired.set(false);
     this.twoFactorToken.set(null);
     this.twoFactorCode = '';
+    this.isBackupMode.set(false);
     this.errorMessage.set(null);
   }
 
@@ -407,6 +464,25 @@ export class LoginModalComponent {
         if (res.twoFactorRequired) {
           this.twoFactorRequired.set(true);
           this.twoFactorToken.set(res.twoFactorToken ?? null);
+        } else if (res.requiresSessionConfirmation && res.sessionConfirmationTicket) {
+          this.loading.set(true);
+          this.auth.confirmSession(res.sessionConfirmationTicket).subscribe({
+            next: (cRes) => {
+              this.loading.set(false);
+              if (cRes.success) {
+                this.status.showNotice(`Welcome back, ${cRes.user?.displayName || cRes.user?.email || 'User'}!`);
+                this.resetForm();
+                this.email = '';
+                this.password = '';
+              } else {
+                this.errorMessage.set(cRes.error || 'Failed to establish session.');
+              }
+            },
+            error: (err) => {
+              this.loading.set(false);
+              this.errorMessage.set(err?.message || 'Failed to confirm session.');
+            },
+          });
         } else if (res.success) {
           this.status.showNotice(`Welcome back, ${res.user?.displayName || res.user?.email || 'User'}!`);
           this.resetForm();
@@ -431,13 +507,17 @@ export class LoginModalComponent {
     this.loading.set(true);
     this.errorMessage.set(null);
 
+    const isBackup = this.isBackupMode() || code.length === 8 || code.includes('-') || /[a-zA-Z]/.test(code);
+    const method = isBackup ? 2 : 0;
+
     const req$ = token
-      ? this.auth.verifyTwoFactor({ twoFactorToken: token, code, method: 0 })
+      ? this.auth.verifyTwoFactor({ twoFactorToken: token, code, method })
       : this.auth.login({
           email: this.email,
           password: this.password,
           twoFactorCode: code,
           twoFactorToken: token ?? undefined,
+          recoveryCode: isBackup ? code : undefined,
         });
 
     req$.subscribe({
@@ -448,6 +528,25 @@ export class LoginModalComponent {
           this.resetForm();
           this.email = '';
           this.password = '';
+        } else if (res.requiresSessionConfirmation && res.sessionConfirmationTicket) {
+          this.loading.set(true);
+          this.auth.confirmSession(res.sessionConfirmationTicket).subscribe({
+            next: (cRes) => {
+              this.loading.set(false);
+              if (cRes.success) {
+                this.status.showNotice(`Welcome back, ${cRes.user?.displayName || 'User'}!`);
+                this.resetForm();
+                this.email = '';
+                this.password = '';
+              } else {
+                this.errorMessage.set(cRes.error || 'Failed to establish session.');
+              }
+            },
+            error: (err) => {
+              this.loading.set(false);
+              this.errorMessage.set(err?.message || 'Failed to confirm session.');
+            },
+          });
         } else {
           this.errorMessage.set(res.error || 'Invalid verification code.');
         }

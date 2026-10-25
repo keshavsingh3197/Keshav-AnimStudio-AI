@@ -37,42 +37,66 @@ public static class AdminAccessSetup
         services.AddHttpContextAccessor();
         services.AddSingleton<IAuthorizationHandler, AdminRequirementHandler>();
 
-        if (options.Mode == AdminAccessMode.Jwt)
-        {
-            services
-                .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-                .AddJwtBearer(bearer =>
+        var signingKey = options.Jwt.SigningKey;
+        var hasKey = !string.IsNullOrWhiteSpace(signingKey) &&
+                     Encoding.UTF8.GetByteCount(signingKey) >= MinimumSigningKeyBytes;
+
+        services
+            .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+            .AddJwtBearer(bearer =>
+            {
+                bearer.UseSecurityTokenValidators = true;
+                bearer.MapInboundClaims = false;
+                bearer.RequireHttpsMetadata = !environment.IsDevelopment();
+                bearer.TokenValidationParameters = new TokenValidationParameters
                 {
-                    // Claims arrive verbatim: the family's tokens carry "sub" and "role",
-                    // and the default mapping would rewrite both into SOAP-era URIs that no
-                    // other app in the family agrees with.
-                    bearer.MapInboundClaims = false;
-                    bearer.RequireHttpsMetadata = !environment.IsDevelopment();
-                    bearer.TokenValidationParameters = new TokenValidationParameters
+                    ValidIssuer = options.Jwt.Issuer,
+                    ValidAudience = options.Jwt.Audience,
+                    ValidateIssuer = !string.IsNullOrWhiteSpace(options.Jwt.Issuer),
+                    ValidateAudience = !string.IsNullOrWhiteSpace(options.Jwt.Audience),
+                    ValidateLifetime = true,
+                    ClockSkew = TimeSpan.FromSeconds(60),
+                    RequireSignedTokens = hasKey,
+                    ValidateIssuerSigningKey = hasKey,
+                    IssuerSigningKey = hasKey
+                        ? new SymmetricSecurityKey(Encoding.UTF8.GetBytes(signingKey!))
+                        : null,
+                    SignatureValidator = hasKey
+                        ? null
+                        : (token, _) => new System.IdentityModel.Tokens.Jwt.JwtSecurityToken(token)
+                };
+
+                bearer.Events = new JwtBearerEvents
+                {
+                    OnAuthenticationFailed = ctx =>
                     {
-                        ValidIssuer = options.Jwt.Issuer,
-                        ValidAudience = options.Jwt.Audience,
-                        IssuerSigningKey = new SymmetricSecurityKey(
-                            Encoding.UTF8.GetBytes(options.Jwt.SigningKey!)),
-                        ValidateIssuer = true,
-                        ValidateAudience = true,
-                        ValidateIssuerSigningKey = true,
-                        ValidateLifetime = true,
-                        ClockSkew = TimeSpan.FromSeconds(30)
-                    };
-                });
-        }
-        else
-        {
-            // No token is validated in the local modes, but a scheme still has to exist:
-            // a failed policy has to be turned into a 403 by something, and without a
-            // registered scheme ASP.NET raises an InvalidOperationException instead, which
-            // would surface as a 500 and read like a bug rather than a refusal.
-            services
-                .AddAuthentication(RefusalAuthenticationHandler.SchemeName)
-                .AddScheme<AuthenticationSchemeOptions, RefusalAuthenticationHandler>(
-                    RefusalAuthenticationHandler.SchemeName, _ => { });
-        }
+                        Console.Error.WriteLine($"[JwtBearer] Auth failed: {ctx.Exception.Message}");
+                        return Task.CompletedTask;
+                    },
+                    OnTokenValidated = ctx =>
+                    {
+                        Console.WriteLine($"[JwtBearer] Token validated for sub: {ctx.Principal?.FindFirst("sub")?.Value}");
+                        return Task.CompletedTask;
+                    },
+                    OnChallenge = async ctx =>
+                    {
+                        ctx.HandleResponse();
+                        ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                        ctx.Response.ContentType = "application/json";
+                        await ctx.Response.WriteAsJsonAsync(ApiResponse<EmptyPayload>.Fail(
+                            "Sign in with an administrator account to access settings.",
+                            new ApiError("admin-unauthorized", "Sign in with an administrator account to access settings.")));
+                    },
+                    OnForbidden = async ctx =>
+                    {
+                        ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+                        ctx.Response.ContentType = "application/json";
+                        await ctx.Response.WriteAsJsonAsync(ApiResponse<EmptyPayload>.Fail(
+                            "Administration is only available to accounts with the Admin role.",
+                            new ApiError("admin-forbidden", "Administration is only available to accounts with the Admin role.")));
+                    }
+                };
+            });
 
         services.AddAuthorization(auth =>
         {

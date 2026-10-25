@@ -8,6 +8,7 @@ using AnimStudio.Application.Abstractions.Storage;
 using AnimStudio.Application.Abstractions.Transcripts;
 using AnimStudio.Application.Options;
 using AnimStudio.Domain.Projects;
+using AnimStudio.Domain.Rendering;
 using AnimStudio.Application.Security;
 using AnimStudio.Infrastructure.Ingest;
 using Microsoft.AspNetCore.Mvc;
@@ -25,7 +26,8 @@ public sealed class SystemController(
     IAiSettingsRepository aiSettingsRepo,
     IAssetRepository assets,
     IObjectStore store,
-    IStorageUsageService storageUsage) : ControllerBase
+    IStorageUsageService storageUsage,
+    ICurrentUser currentUser) : ControllerBase
 {
     /// <summary>
     /// How full the media store is, for the project hub's storage bar. Measured from the
@@ -55,15 +57,21 @@ public sealed class SystemController(
     public ActionResult<ApiResponse<AdminAccessResponse>> AdminAccess()
     {
         var options = adminOptions.CurrentValue;
-        var admitted = AdminAccessRules.IsAdmitted(options, HttpContext, User);
+        var admitted = currentUser.IsAdmin && AdminAccessRules.IsAdmitted(options, HttpContext, User);
 
         var explanation = options.Mode switch
         {
             AdminAccessMode.Disabled =>
                 "Administration is switched off on this server.",
 
+            _ when !currentUser.IsAuthenticated =>
+                "Sign in with an administrator account to access settings.",
+
+            _ when !currentUser.IsAdmin =>
+                "Administrator role required to access settings.",
+
             AdminAccessMode.LocalOnly when admitted =>
-                "You are on the machine this server runs on, so you can change its settings.",
+                "You are on the machine this server runs on and signed in with the Admin role.",
 
             AdminAccessMode.LocalOnly =>
                 "Administration is only available from the machine this server runs on.",
@@ -79,7 +87,7 @@ public sealed class SystemController(
     }
 
     /// <summary>
-    /// Current caller identity, active roles, and guest access policy.
+    /// Current caller identity, active roles, guest access policy, and UI visibility rules.
     /// </summary>
     [HttpGet("session")]
     [Microsoft.AspNetCore.Authorization.AllowAnonymous]
@@ -93,7 +101,18 @@ public sealed class SystemController(
             currentUser.Email,
             currentUser.IsAdmin,
             currentUser.Roles,
-            options.AnonymousPolicy)));
+            options.AnonymousPolicy,
+            options.UiNavigation)));
+    }
+
+    /// <summary>
+    /// UI navigation visibility and sensitivity configurations.
+    /// </summary>
+    [HttpGet("ui-navigation")]
+    [AllowAnonymous]
+    public ActionResult<ApiResponse<UiNavigationSettings>> UiNavigation()
+    {
+        return Ok(ApiResponse<UiNavigationSettings>.Ok(adminOptions.CurrentValue.UiNavigation));
     }
 
     /// <summary>
@@ -151,6 +170,12 @@ public sealed class SystemController(
     public async Task<ActionResult<ApiResponse<WatermarkResponse?>>> GetBranding(
         [FromQuery] string? channel, CancellationToken ct)
     {
+        // Only studio administrators may inspect internal studio branding/watermark
+        if (!currentUser.IsAdmin)
+        {
+            return Ok(ApiResponse<WatermarkResponse?>.Ok(null));
+        }
+
         var settings = await aiSettingsRepo.GetAsync(ct);
         return Ok(ApiResponse<WatermarkResponse?>.Ok(settings?.WatermarkFor(channel).ToResponse()));
     }
@@ -158,11 +183,29 @@ public sealed class SystemController(
     /// <summary>
     /// The studio's brand channels (one per YouTube channel), default first - for a project
     /// to pick which channel's watermark and end card it uses.
+    /// Non-admin users and anonymous guests are strictly isolated to an unbranded Default channel.
     /// </summary>
     [AllowAnonymous]
     [HttpGet("branding/channels")]
     public async Task<ActionResult<ApiResponse<IReadOnlyList<BrandChannelResponse>>>> GetBrandChannels(CancellationToken ct)
     {
+        // Non-admin members and anonymous visitors NEVER see internal studio/admin brand channels
+        if (!currentUser.IsAdmin)
+        {
+            return Ok(ApiResponse<IReadOnlyList<BrandChannelResponse>>.Ok([
+                new BrandChannelResponse(
+                    BrandChannel.DefaultId,
+                    "Default",
+                    IsDefault: true,
+                    Watermark: null,
+                    Outro: null,
+                    YouTubeChannelId: null,
+                    YouTubeChannelTitle: null,
+                    YouTubeChannelHandle: null,
+                    YouTubeThumbnailUrl: null)
+            ]));
+        }
+
         var settings = await aiSettingsRepo.GetAsync(ct);
         return Ok(ApiResponse<IReadOnlyList<BrandChannelResponse>>.Ok(settings.ToChannelResponses()));
     }
@@ -174,6 +217,9 @@ public sealed class SystemController(
     [HttpGet("branding/logo")]
     public async Task<IActionResult> GetBrandingLogo([FromQuery] string? channel, CancellationToken ct)
     {
+        if (!currentUser.IsAdmin)
+            return NotFound();
+
         var settings = await aiSettingsRepo.GetAsync(ct);
         var logoId = settings?.WatermarkFor(channel)?.LogoAssetId;
         if (string.IsNullOrWhiteSpace(logoId))
@@ -205,6 +251,9 @@ public sealed class SystemController(
     public async Task<ActionResult<ApiResponse<OutroResponse?>>> GetBrandingOutro(
         [FromQuery] string? channel, CancellationToken ct)
     {
+        if (!currentUser.IsAdmin)
+            return Ok(ApiResponse<OutroResponse?>.Ok(null));
+
         var settings = await aiSettingsRepo.GetAsync(ct);
         return Ok(ApiResponse<OutroResponse?>.Ok(settings?.OutroFor(channel).ToResponse()));
     }
@@ -217,6 +266,9 @@ public sealed class SystemController(
     [HttpGet("branding/outro/qr")]
     public async Task<IActionResult> GetBrandingOutroQr([FromQuery] string? channel, CancellationToken ct)
     {
+        if (!currentUser.IsAdmin)
+            return NotFound();
+
         var settings = await aiSettingsRepo.GetAsync(ct);
         var qrAssetId = settings?.OutroFor(channel)?.QrAssetId;
         if (string.IsNullOrWhiteSpace(qrAssetId)) return NotFound();
@@ -238,6 +290,9 @@ public sealed class SystemController(
     [HttpGet("branding/outro/media")]
     public async Task<IActionResult> GetBrandingOutroMedia([FromQuery] string? channel, CancellationToken ct)
     {
+        if (!currentUser.IsAdmin)
+            return NotFound();
+
         var settings = await aiSettingsRepo.GetAsync(ct);
         var outroAssetId = settings?.OutroFor(channel)?.AssetId;
         if (string.IsNullOrWhiteSpace(outroAssetId))

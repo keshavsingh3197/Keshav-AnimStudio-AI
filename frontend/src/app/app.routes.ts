@@ -1,5 +1,5 @@
 import { Routes } from '@angular/router';
-import { adminGuard } from './core/guards/auth.guard';
+import { adminGuard, sensitiveFeatureGuard } from './core/guards/auth.guard';
 
 /**
  * Feature areas are lazy: the dashboard is the only thing most visits need, and the scene
@@ -153,6 +153,7 @@ export const routes: Routes = [
   {
     path: 'release',
     title: 'Music Release Kit - AnimStudio AI',
+    canActivate: [sensitiveFeatureGuard],
     loadComponent: () =>
       import('./features/release-kit/release-kit.component')
         .then((m) => m.ReleaseKitComponent),
@@ -161,6 +162,7 @@ export const routes: Routes = [
   {
     path: 'youtube',
     title: 'YouTube - AnimStudio AI',
+    canActivate: [sensitiveFeatureGuard],
     loadComponent: () =>
       import('./features/youtube/youtube-dashboard.component')
         .then((m) => m.YouTubeDashboardComponent),
@@ -169,6 +171,7 @@ export const routes: Routes = [
   {
     path: 'youtube/checkup',
     title: 'Video details checkup - AnimStudio AI',
+    canActivate: [sensitiveFeatureGuard],
     loadComponent: () =>
       import('./features/youtube/youtube-checkup.component')
         .then((m) => m.YouTubeCheckupComponent),
@@ -193,6 +196,7 @@ export const routes: Routes = [
   {
     path: 'live',
     title: 'Go Live - AnimStudio AI',
+    canActivate: [sensitiveFeatureGuard],
     loadComponent: () =>
       import('./features/live-stream/live-stream.component')
         .then((m) => m.LiveStreamComponent),

@@ -26,6 +26,7 @@ export const adminGuard: CanActivateFn = () => {
  */
 export const memberGuard: CanActivateFn = () => {
   const auth = inject(AuthService);
+  const router = inject(Router);
   const status = inject(StatusService);
 
   if (auth.isAuthenticated()) {
@@ -34,6 +35,23 @@ export const memberGuard: CanActivateFn = () => {
 
   auth.openAuthModal();
   status.showNotice('Please sign in to access this feature.');
-  return false;
+  return router.parseUrl('/projects');
 };
 
+/**
+ * Protects sensitive cloud integration routes (e.g. YouTube hub, Music Release publishing, Go Live).
+ * If the user is anonymous, alerts the user and redirects to /projects while prompting sign-in.
+ */
+export const sensitiveFeatureGuard: CanActivateFn = () => {
+  const auth = inject(AuthService);
+  const router = inject(Router);
+  const status = inject(StatusService);
+
+  if (auth.isAuthenticated()) {
+    return true;
+  }
+
+  auth.openAuthModal();
+  status.showNotice('Sensitive feature: YouTube and Google Drive integrations require signing in to AnimStudio.');
+  return router.parseUrl('/projects');
+};

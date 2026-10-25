@@ -64,9 +64,9 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
     keywords: ['cost', 'tokens', 'limit', 'quota', 'requests', 'daily'],
   },
   {
-    id: 'access', group: 'Security', label: 'Access & Quotas', icon: '🔐', route: 'access',
-    description: 'Anonymous visitor policy, guest quotas, central identity app-boundary, and master YouTube channel supervision.',
-    keywords: ['access', 'auth', 'roles', 'permissions', 'anonymous', 'guest', 'quota', 'channels', 'security', 'rbac', 'users', 'free tier'],
+    id: 'access', group: 'Security', label: 'Access & UI Navigation', icon: '🔐', route: 'access',
+    description: 'UI navigation tabs, anonymous visitor quotas, user session scopes, and YouTube integration boundaries.',
+    keywords: ['access', 'auth', 'roles', 'permissions', 'anonymous', 'guest', 'quota', 'navigation', 'tabs', 'pages', 'visibility', 'privacy', 'purge', 'drive', 'channels', 'security', 'rbac', 'users', 'free tier', 'scopes'],
   },
   {
     id: 'app-settings', group: 'System', label: 'Application settings', icon: '⚙️', route: 'settings',

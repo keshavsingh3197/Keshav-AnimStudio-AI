@@ -49,6 +49,12 @@ public sealed partial class YouTubePublishController
     public async Task<ActionResult<ApiResponse<YouTubeConnectStartResponse>>> StartDriveConnect(
         [FromServices] GoogleDriveConnectionStore drive, [FromBody] DriveConnectStartRequest? request, CancellationToken ct)
     {
+        if (!currentUser.IsAuthenticated)
+        {
+            const string msg = "Connecting Google Drive is sensitive and requires an authenticated member account. Anonymous visitors cannot connect Google Drive.";
+            return StatusCode(403, ApiResponse<YouTubeConnectStartResponse>.Fail(msg, new ApiError("auth-required", msg)));
+        }
+
         if (!IsOptionalChannelId(request?.ChannelId))
             return DriveBadRequest<YouTubeConnectStartResponse>("channel-invalid", "Unknown channel.", "channelId");
         try
@@ -66,6 +72,12 @@ public sealed partial class YouTubePublishController
     public async Task<ActionResult<ApiResponse<DriveConnectCompleteResponse>>> CompleteDriveConnect(
         [FromServices] GoogleDriveConnectionStore drive, [FromBody] YouTubeConnectCompleteRequest? request, CancellationToken ct)
     {
+        if (!currentUser.IsAuthenticated)
+        {
+            const string msg = "Connecting Google Drive requires an authenticated member account.";
+            return StatusCode(403, ApiResponse<DriveConnectCompleteResponse>.Fail(msg, new ApiError("auth-required", msg)));
+        }
+
         try
         {
             var (status, returnPath) = await drive.CompleteConnectAsync(currentUser.UserId, request?.Code, request?.State, ct);
@@ -141,6 +153,12 @@ public sealed partial class YouTubePublishController
         [FromServices] GoogleDriveConnectionStore drive, [FromServices] PhoneHandoffManager handoffs,
         [FromServices] IPhoneHandoffRepository repository, CancellationToken ct)
     {
+        if (!currentUser.IsAuthenticated)
+        {
+            const string msg = "Saving renders to Google Drive requires an authenticated member account. Anonymous visitors cannot save to cloud storage.";
+            return StatusCode(403, ApiResponse<PhoneHandoffStatus>.Fail(msg, new ApiError("auth-required", msg)));
+        }
+
         var job = await LoadOwnedJobAsync(jobId, ct);
         if (!IsOptionalChannelId(request?.ChannelId)) return HandoffBadRequest("channel-invalid", "Unknown channel.", "channelId");
         if (job.Status is not (RenderJobStatus.Completed or RenderJobStatus.CompletedWithWarnings) || job.OutputStorageKey is null)
@@ -179,6 +197,12 @@ public sealed partial class YouTubePublishController
         [FromServices] GoogleDriveConnectionStore drive, [FromServices] PhoneHandoffManager handoffs,
         [FromServices] IPhoneHandoffRepository repository, CancellationToken ct)
     {
+        if (!currentUser.IsAuthenticated)
+        {
+            const string msg = "Phone handoff via Google Drive requires an authenticated member account. Anonymous visitors cannot export to cloud storage.";
+            return StatusCode(403, ApiResponse<PhoneHandoffStatus>.Fail(msg, new ApiError("auth-required", msg)));
+        }
+
         var job = await LoadOwnedJobAsync(jobId, ct);
         var facts = Facts(job);
 

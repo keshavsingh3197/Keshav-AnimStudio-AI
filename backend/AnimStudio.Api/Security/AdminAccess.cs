@@ -32,16 +32,27 @@ public static class AdminAccess
 /// </remarks>
 public static class AdminAccessRules
 {
-    public static bool IsAdmitted(AdminOptions options, HttpContext? http, ClaimsPrincipal? user) =>
-        options.Mode switch
+    public static bool IsAdmitted(AdminOptions options, HttpContext? http, ClaimsPrincipal? user)
+    {
+        // Unauthenticated callers or guests without authenticated tokens can NEVER administer the server
+        if (user?.Identity?.IsAuthenticated != true)
+        {
+            return false;
+        }
+
+        // Must possess the Admin role
+        if (!HasAdminRole(user, options.Jwt))
+        {
+            return false;
+        }
+
+        return options.Mode switch
         {
             AdminAccessMode.LocalOnly => IsLoopback(http),
-            AdminAccessMode.Jwt => HasAdminRole(user, options.Jwt),
-
-            // Disabled, and anything a future enum value adds: denied until someone writes
-            // the rule for it.
+            AdminAccessMode.Jwt => true,
             _ => false
         };
+    }
 
     public static bool IsLoopback(HttpContext? http)
     {
@@ -60,11 +71,28 @@ public static class AdminAccessRules
     {
         if (user?.Identity?.IsAuthenticated != true) return false;
 
-        // Both names are checked because the identity provider emits a bare "role", while a
-        // token that has been through inbound claim mapping carries the ClaimTypes URI.
         return user.Claims.Any(claim =>
-            (claim.Type == jwt.RoleClaim || claim.Type == ClaimTypes.Role)
-            && string.Equals(claim.Value, jwt.AdminRole, StringComparison.Ordinal));
+        {
+            var isRoleType = claim.Type == jwt.RoleClaim ||
+                             claim.Type == ClaimTypes.Role ||
+                             claim.Type.Equals("role", StringComparison.OrdinalIgnoreCase) ||
+                             claim.Type.Equals("roles", StringComparison.OrdinalIgnoreCase);
+
+            if (!isRoleType) return false;
+
+            if (string.Equals(claim.Value, jwt.AdminRole, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(claim.Value, "Admin", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (claim.Value.Contains("Admin", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return false;
+        });
     }
 }
 

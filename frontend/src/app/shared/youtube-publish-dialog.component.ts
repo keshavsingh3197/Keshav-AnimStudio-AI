@@ -16,6 +16,7 @@ import { ApiService } from '../core/services/api.service';
 import { ContentCalendarService } from '../core/services/content-calendar.service';
 import { ProjectStore } from '../core/services/project-store';
 import { YouTubePublishService } from '../core/services/youtube-publish.service';
+import { AuthService } from '../core/services/auth.service';
 
 /** Remembered per browser so the next publish starts where the last one left off. */
 const PREFS_KEY = 'animstudio.youtube.publish';
@@ -114,7 +115,24 @@ interface PublishPrefs {
         </header>
 
         <div class="yt-body">
-        @if (loading()) {
+        @if (auth.isAnonymous()) {
+          <div style="padding: 2.5rem 1.5rem; text-align: center">
+            <div style="font-size: 2.2rem; margin-bottom: 0.5rem">🔒</div>
+            <h4 style="color: #fca5a5; margin: 0 0 0.5rem">Authentication Required</h4>
+            <p class="yt-muted" style="max-width: 480px; margin: 0 auto 1.5rem">
+              Publishing renders to YouTube or Google Drive requires an authenticated member account.
+              Anonymous visitors cannot connect or publish to external cloud services.
+            </p>
+            <div style="display: flex; gap: 0.75rem; justify-content: center">
+              <button type="button" class="btn-primary-glow" (click)="auth.openAuthModal(); closed.emit()">
+                Sign In to Publish
+              </button>
+              <button type="button" class="btn-outline" (click)="closed.emit()">
+                Cancel
+              </button>
+            </div>
+          </div>
+        } @else if (loading()) {
           <p class="yt-muted">Loading…</p>
         } @else if (status(); as st) {
           @if (!st.configured) {
@@ -1238,6 +1256,7 @@ export class YouTubePublishDialogComponent implements OnInit {
   private readonly api = inject(YouTubePublishService);
   private readonly activity = inject(ActivityService);
   private readonly calendar = inject(ContentCalendarService);
+  readonly auth = inject(AuthService);
 
   readonly jobId = input.required<string>();
   /** A render (the default) or a release kit's visualizer. */

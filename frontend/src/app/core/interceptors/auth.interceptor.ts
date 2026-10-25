@@ -27,11 +27,15 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const guestId = auth.guestId();
 
   let headers = req.headers;
-  if (guestId && !headers.has('X-Guest-Id')) {
+  if (token) {
+    if (!headers.has('Authorization')) {
+      headers = headers.set('Authorization', `Bearer ${token}`);
+    }
+    if (headers.has('X-Guest-Id')) {
+      headers = headers.delete('X-Guest-Id');
+    }
+  } else if (guestId && !headers.has('X-Guest-Id')) {
     headers = headers.set('X-Guest-Id', guestId);
-  }
-  if (token && !headers.has('Authorization')) {
-    headers = headers.set('Authorization', `Bearer ${token}`);
   }
 
   const authed = req.clone({
@@ -41,16 +45,17 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
 
   return next(authed).pipe(
     catchError((err: unknown) => {
-      if (!(err instanceof HttpErrorResponse) || err.status !== 401 || isAuthRoute) {
+      if (!(err instanceof HttpErrorResponse) || err.status !== 401 || isAuthRoute || !auth.accessToken()) {
         return throwError(() => err);
       }
 
       // If unauthorized and we have a token, attempt silent SSO refresh once
       return auth.refreshSession().pipe(
         switchMap((res) => {
-          const retryHeaders = req.headers
-            .set('Authorization', `Bearer ${res.accessToken}`)
-            .set('X-Guest-Id', guestId);
+          let retryHeaders = req.headers.set('Authorization', `Bearer ${res.accessToken}`);
+          if (retryHeaders.has('X-Guest-Id')) {
+            retryHeaders = retryHeaders.delete('X-Guest-Id');
+          }
           return next(
             req.clone({
               headers: retryHeaders,

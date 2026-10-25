@@ -173,10 +173,12 @@ public sealed record SaveChainRequest
 public sealed record AdminAccessControlResponse(
     string Mode,
     AnimStudio.Application.Options.AnonymousAccessPolicy AnonymousPolicy,
+    AnimStudio.Application.Options.UiNavigationSettings UiNavigation,
     IReadOnlyList<string> AvailableRoles);
 
 public sealed record UpdateAccessControlRequest(
-    AnimStudio.Application.Options.AnonymousAccessPolicy? AnonymousPolicy);
+    AnimStudio.Application.Options.AnonymousAccessPolicy? AnonymousPolicy,
+    AnimStudio.Application.Options.UiNavigationSettings? UiNavigation);
 
 public sealed record StudioSessionResponse(
     bool IsAuthenticated,
@@ -185,4 +187,24 @@ public sealed record StudioSessionResponse(
     string? Email,
     bool IsAdmin,
     IReadOnlyList<string> Roles,
-    AnimStudio.Application.Options.AnonymousAccessPolicy AnonymousPolicy);
+    AnimStudio.Application.Options.AnonymousAccessPolicy AnonymousPolicy,
+    AnimStudio.Application.Options.UiNavigationSettings UiNavigation);
+
+public sealed record UserScopeItemResponse(
+    string UserId,
+    bool IsGuest,
+    string DisplayName,
+    int ProjectCount,
+    DateTime? LastActiveUtc,
+    string StorageEstimate);
+
+public sealed record UserScopesOverviewResponse(
+    int TotalUsers,
+    int RegisteredMembers,
+    int GuestSessions,
+    int TotalProjects,
+    IReadOnlyList<UserScopeItemResponse> Scopes);
+
+public sealed record PurgeGuestProjectsRequest(int DaysInactive = 7);
+
+public sealed record PurgeGuestProjectsResponse(int ProjectsPurged, int GuestScopesCleaned);

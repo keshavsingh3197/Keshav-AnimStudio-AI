@@ -1,11 +1,13 @@
 using AnimStudio.Api.Common;
 using AnimStudio.Api.Contracts;
 using AnimStudio.Application.Abstractions.Persistence;
+using AnimStudio.Application.Options;
 using AnimStudio.Application.Projects;
 using AnimStudio.Application.Security;
 using AnimStudio.Domain.Projects;
 using AnimStudio.Domain.Rendering;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 
 namespace AnimStudio.Api.Controllers;
 
@@ -16,6 +18,7 @@ public sealed class ProjectsController(
     ProjectEditingService editing,
     IAiSettingsRepository aiSettingsRepo,
     ICurrentUser currentUser,
+    IOptionsMonitor<AdminOptions> adminOptions,
     TimeProvider clock) : ControllerBase
 {
     [HttpGet]
@@ -37,7 +40,29 @@ public sealed class ProjectsController(
     public async Task<ActionResult<ApiResponse<ProjectResponse>>> Create(
         [FromBody] CreateProjectRequest request, CancellationToken ct)
     {
+        var policy = adminOptions.CurrentValue.AnonymousPolicy;
+        if (!currentUser.IsAuthenticated)
+        {
+            if (!policy.AllowGuestProjectCreation)
+            {
+                const string msg = "Guest project creation is disabled by platform policy. Please sign in to create projects.";
+                return StatusCode(403, ApiResponse<ProjectResponse>.Fail(msg, new ApiError("guest-forbidden", msg)));
+            }
+
+            var ownedList = await projects.ListAsync(currentUser.UserId, ct);
+            if (ownedList.Count >= policy.MaxGuestProjects)
+            {
+                var msg = $"Guest project limit reached: anonymous visitors can create up to {policy.MaxGuestProjects} project(s). Please sign in for unlimited projects.";
+                return BadRequest(ApiResponse<ProjectResponse>.Fail(msg, new ApiError("guest-limit-reached", msg)));
+            }
+        }
         var now = clock.GetUtcNow().UtcDateTime;
+
+        if (!currentUser.IsAdmin && !string.IsNullOrWhiteSpace(request.BrandChannelId) && !BrandChannel.IsDefault(request.BrandChannelId))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden,
+                ApiResponse<ProjectResponse>.Fail("Non-administrator users cannot attach projects to internal studio brand channels."));
+        }
 
         var globalSettings = await aiSettingsRepo.GetAsync(ct);
         if (UnknownChannel(globalSettings, request.BrandChannelId) is { } unknown) return unknown;
@@ -45,21 +70,24 @@ public sealed class ProjectsController(
 
         // The new project starts with its channel's watermark, copied so it can be tuned per project.
         WatermarkSettings? defaultWatermark = null;
-        var channelWatermark = globalSettings?.WatermarkFor(channelId);
-        if (channelWatermark is not null && channelWatermark.Kind != WatermarkKind.None)
+        if (currentUser.IsAdmin)
         {
-            defaultWatermark = new WatermarkSettings
+            var channelWatermark = globalSettings?.WatermarkFor(channelId);
+            if (channelWatermark is not null && channelWatermark.Kind != WatermarkKind.None)
             {
-                Kind = channelWatermark.Kind,
-                Text = channelWatermark.Text,
-                LogoAssetId = channelWatermark.LogoAssetId,
-                Position = channelWatermark.Position,
-                Opacity = channelWatermark.Opacity,
-                HeightFraction = channelWatermark.HeightFraction,
-                MarginFraction = channelWatermark.MarginFraction,
-                ColorHex = channelWatermark.ColorHex,
-                BackplateOpacity = channelWatermark.BackplateOpacity
-            };
+                defaultWatermark = new WatermarkSettings
+                {
+                    Kind = channelWatermark.Kind,
+                    Text = channelWatermark.Text,
+                    LogoAssetId = channelWatermark.LogoAssetId,
+                    Position = channelWatermark.Position,
+                    Opacity = channelWatermark.Opacity,
+                    HeightFraction = channelWatermark.HeightFraction,
+                    MarginFraction = channelWatermark.MarginFraction,
+                    ColorHex = channelWatermark.ColorHex,
+                    BackplateOpacity = channelWatermark.BackplateOpacity
+                };
+            }
         }
 
         var project = new Project
@@ -97,6 +125,12 @@ public sealed class ProjectsController(
     public async Task<ActionResult<ApiResponse<ProjectResponse>>> Update(
         string id, [FromBody] UpdateProjectRequest request, CancellationToken ct)
     {
+        if (!currentUser.IsAdmin && !string.IsNullOrWhiteSpace(request.BrandChannelId) && !BrandChannel.IsDefault(request.BrandChannelId))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden,
+                ApiResponse<ProjectResponse>.Fail("Non-administrator users cannot attach projects to internal studio brand channels."));
+        }
+
         if (request.BrandChannelId is not null
             && UnknownChannel(await aiSettingsRepo.GetAsync(ct), request.BrandChannelId) is { } unknown)
         {

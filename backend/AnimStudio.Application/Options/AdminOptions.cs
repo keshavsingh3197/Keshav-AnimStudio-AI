@@ -64,12 +64,58 @@ public sealed class AnonymousAccessPolicy
     public int MaxAiCallsPerDay { get; set; } = 3;
     public bool AllowYouTubePublish { get; set; } = false;
     public bool AllowCloudSave { get; set; } = false;
+    public bool AllowGoogleDrivePublish { get; set; } = false;
+    public int MaxGuestProjects { get; set; } = 5;
+    public bool AllowGuestProjectCreation { get; set; } = true;
     public List<string> AllowedFeatures { get; set; } = new()
     {
         "camera-studio",
         "motion-copy",
         "media-tools",
         "demo-projects"
+    };
+}
+
+public sealed class UiNavigationItemConfig
+{
+    public string Id { get; set; } = string.Empty;
+    public string Label { get; set; } = string.Empty;
+    public string Path { get; set; } = string.Empty;
+    public string Icon { get; set; } = string.Empty;
+    public bool VisibleToAnonymous { get; set; }
+    public bool VisibleToMembers { get; set; } = true;
+    public bool RequiresAuth { get; set; }
+    public bool IsSensitive { get; set; }
+    public bool Enabled { get; set; } = true;
+    public string? Description { get; set; }
+}
+
+public sealed class UiNavigationSettings
+{
+    public bool EnforceGuestRestrictions { get; set; } = true;
+    public List<UiNavigationItemConfig> Tabs { get; set; } = new();
+
+    public static UiNavigationSettings CreateDefault() => new()
+    {
+        EnforceGuestRestrictions = true,
+        Tabs = new List<UiNavigationItemConfig>
+        {
+            new() { Id = "projects", Label = "Projects", Path = "/projects", Icon = "folder", VisibleToAnonymous = true, VisibleToMembers = true, RequiresAuth = false, IsSensitive = false, Description = "Personal video projects and timeline workspace" },
+            new() { Id = "shorts", Label = "Shorts", Path = "/shorts", Icon = "video", VisibleToAnonymous = true, VisibleToMembers = true, RequiresAuth = false, IsSensitive = false, Description = "Vertical video clips and batch shorts generator" },
+            new() { Id = "calendar", Label = "Calendar", Path = "/calendar", Icon = "calendar", VisibleToAnonymous = false, VisibleToMembers = true, RequiresAuth = true, IsSensitive = false, Description = "Social media scheduling and release planning" },
+            new() { Id = "effects", Label = "Effects", Path = "/effects", Icon = "sparkles", VisibleToAnonymous = true, VisibleToMembers = true, RequiresAuth = false, IsSensitive = false, Description = "Stingers, overlays, sound effects and visual elements" },
+            new() { Id = "clips", Label = "Video Editor", Path = "/projects", Icon = "film", VisibleToAnonymous = true, VisibleToMembers = true, RequiresAuth = false, IsSensitive = false, Description = "Scene sequence and clip editor" },
+            new() { Id = "tools", Label = "Media Studio", Path = "/tools", Icon = "sliders", VisibleToAnonymous = true, VisibleToMembers = true, RequiresAuth = false, IsSensitive = false, Description = "Audio/video chunking, extraction, and format conversions" },
+            new() { Id = "release", Label = "Music Release", Path = "/release", Icon = "music", VisibleToAnonymous = false, VisibleToMembers = true, RequiresAuth = true, IsSensitive = true, Description = "Music master distribution and visualizer publishing" },
+            new() { Id = "youtube", Label = "YouTube", Path = "/youtube", Icon = "youtube", VisibleToAnonymous = false, VisibleToMembers = true, RequiresAuth = true, IsSensitive = true, Description = "Direct YouTube channel integration and video analytics" },
+            new() { Id = "details", Label = "Video Details", Path = "/youtube/details", Icon = "search", VisibleToAnonymous = true, VisibleToMembers = true, RequiresAuth = false, IsSensitive = false, Description = "SEO audit and video metadata generator" },
+            new() { Id = "live", Label = "Go Live", Path = "/live", Icon = "radio", VisibleToAnonymous = false, VisibleToMembers = true, RequiresAuth = true, IsSensitive = true, Description = "YouTube live stream broadcaster" },
+            new() { Id = "camera", Label = "Camera Studio", Path = "/live/camera", Icon = "camera", VisibleToAnonymous = true, VisibleToMembers = true, RequiresAuth = false, IsSensitive = false, Description = "Local camera feed capture and background removal" },
+            new() { Id = "motion-copy", Label = "Motion Copy", Path = "/motion-copy", Icon = "user", VisibleToAnonymous = true, VisibleToMembers = true, RequiresAuth = false, IsSensitive = false, Description = "Pose estimation and motion transfer to avatars" },
+            new() { Id = "collab", Label = "Collab", Path = "/collab", Icon = "users", VisibleToAnonymous = false, VisibleToMembers = true, RequiresAuth = true, IsSensitive = false, Description = "Multi-creator collaboration and workspace sharing" },
+            new() { Id = "logs", Label = "Logs", Path = "/logs", Icon = "terminal", VisibleToAnonymous = false, VisibleToMembers = false, RequiresAuth = true, IsSensitive = true, Description = "System diagnosis and server operational logs (Admins only)" },
+            new() { Id = "admin", Label = "Settings", Path = "/admin", Icon = "settings", VisibleToAnonymous = false, VisibleToMembers = false, RequiresAuth = true, IsSensitive = true, Description = "Platform administration and UI control matrix" }
+        }
     };
 }
 
@@ -102,4 +148,6 @@ public sealed class AdminOptions
     public AdminJwtOptions Jwt { get; set; } = new();
 
     public AnonymousAccessPolicy AnonymousPolicy { get; set; } = new();
+
+    public UiNavigationSettings UiNavigation { get; set; } = UiNavigationSettings.CreateDefault();
 }

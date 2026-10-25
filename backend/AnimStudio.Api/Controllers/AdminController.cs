@@ -7,6 +7,7 @@ using AnimStudio.Application.Abstractions.Diagnostics;
 using AnimStudio.Application.Admin;
 using AnimStudio.Application.Ai;
 using AnimStudio.Application.Options;
+using AnimStudio.Application.Projects;
 using AnimStudio.Application.Publishing;
 using AnimStudio.Domain.Publishing;
 using AnimStudio.Infrastructure.Publishing;
@@ -1139,6 +1140,7 @@ public sealed class AdminController(
         return Ok(ApiResponse<AdminAccessControlResponse>.Ok(new AdminAccessControlResponse(
             options.Mode.ToString(),
             options.AnonymousPolicy,
+            options.UiNavigation,
             new[] { "Admin", "StudioUser", "Editor", "Viewer", "Anonymous" })));
     }
 
@@ -1157,14 +1159,111 @@ public sealed class AdminController(
             await webSettings.SetAsync("Admin:AnonymousPolicy:MaxAiCallsPerDay", request.AnonymousPolicy.MaxAiCallsPerDay.ToString(), currentUser.UserId, ct);
             await webSettings.SetAsync("Admin:AnonymousPolicy:AllowYouTubePublish", request.AnonymousPolicy.AllowYouTubePublish ? "true" : "false", currentUser.UserId, ct);
             await webSettings.SetAsync("Admin:AnonymousPolicy:AllowCloudSave", request.AnonymousPolicy.AllowCloudSave ? "true" : "false", currentUser.UserId, ct);
+            await webSettings.SetAsync("Admin:AnonymousPolicy:AllowGoogleDrivePublish", request.AnonymousPolicy.AllowGoogleDrivePublish ? "true" : "false", currentUser.UserId, ct);
+            await webSettings.SetAsync("Admin:AnonymousPolicy:MaxGuestProjects", request.AnonymousPolicy.MaxGuestProjects.ToString(), currentUser.UserId, ct);
+            await webSettings.SetAsync("Admin:AnonymousPolicy:AllowGuestProjectCreation", request.AnonymousPolicy.AllowGuestProjectCreation ? "true" : "false", currentUser.UserId, ct);
             await audit.RecordAsync("access-control.updated", "anonymous-policy", null, "Updated guest quotas and access rules", RemoteAddress(), ct);
+        }
+
+        if (request.UiNavigation is not null)
+        {
+            adminOpts.CurrentValue.UiNavigation.EnforceGuestRestrictions = request.UiNavigation.EnforceGuestRestrictions;
+            if (request.UiNavigation.Tabs is { Count: > 0 } tabs)
+            {
+                adminOpts.CurrentValue.UiNavigation.Tabs = tabs;
+            }
+            await audit.RecordAsync("access-control.ui-navigation", "ui-tabs", null, "Updated UI tab navigation visibility rules", RemoteAddress(), ct);
         }
 
         var options = adminOpts.CurrentValue;
         return Ok(ApiResponse<AdminAccessControlResponse>.Ok(new AdminAccessControlResponse(
             options.Mode.ToString(),
             options.AnonymousPolicy,
+            options.UiNavigation,
             new[] { "Admin", "StudioUser", "Editor", "Viewer", "Anonymous" })));
+    }
+
+    [HttpGet("user-scopes")]
+    public async Task<ActionResult<ApiResponse<UserScopesOverviewResponse>>> GetUserScopes(
+        [FromServices] IProjectRepository projectRepo,
+        CancellationToken ct)
+    {
+        var allProjects = await projectRepo.ListAllAsync(ct);
+        var grouped = allProjects.GroupBy(p => p.UserId).ToList();
+
+        var scopes = new List<UserScopeItemResponse>();
+        foreach (var grp in grouped.OrderByDescending(g => g.Max(p => p.UpdatedAt)))
+        {
+            var isGuest = grp.Key.StartsWith("guest_", StringComparison.OrdinalIgnoreCase);
+            var lastActive = grp.Max(p => p.UpdatedAt);
+            var count = grp.Count();
+            var displayName = isGuest ? $"Guest ({grp.Key[..Math.Min(14, grp.Key.Length)]})" : grp.Key;
+            scopes.Add(new UserScopeItemResponse(
+                grp.Key,
+                isGuest,
+                displayName,
+                count,
+                lastActive,
+                $"~{count * 12} MB"));
+        }
+
+        var totalUsers = scopes.Count;
+        var guestSessions = scopes.Count(s => s.IsGuest);
+        var registered = totalUsers - guestSessions;
+
+        return Ok(ApiResponse<UserScopesOverviewResponse>.Ok(new UserScopesOverviewResponse(
+            totalUsers,
+            registered,
+            guestSessions,
+            allProjects.Count,
+            scopes)));
+    }
+
+    [HttpPost("user-scopes/purge-guests")]
+    public async Task<ActionResult<ApiResponse<PurgeGuestProjectsResponse>>> PurgeGuestProjects(
+        [FromBody] PurgeGuestProjectsRequest? request,
+        [FromServices] IProjectRepository projectRepo,
+        [FromServices] ProjectEditingService projectEditing,
+        [FromServices] IProjectEditRepository edits,
+        [FromServices] ILogger<AdminController> log,
+        CancellationToken ct)
+    {
+        var days = request?.DaysInactive ?? 7;
+        if (days < 1) days = 1;
+        var cutoff = DateTime.UtcNow.AddDays(-days);
+
+        var allProjects = await projectRepo.ListAllAsync(ct);
+        var guestProjects = allProjects
+            .Where(p => p.UserId.StartsWith("guest_", StringComparison.OrdinalIgnoreCase) && p.UpdatedAt < cutoff)
+            .ToList();
+
+        var purgedCount = 0;
+        var guestUserIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var proj in guestProjects)
+        {
+            try
+            {
+                guestUserIds.Add(proj.UserId);
+                await projectEditing.DeleteAsync(proj.Id, proj.UserId, ct);
+                foreach (var edit in await edits.ListByProjectAsync(proj.Id, ct))
+                {
+                    await edits.DeleteAsync(edit.Id, ct);
+                }
+                purgedCount++;
+            }
+            catch (Exception ex)
+            {
+                log.LogWarning(ex, "Failed to purge guest project {ProjectId}", proj.Id);
+            }
+        }
+
+        await audit.RecordAsync("user-scopes.purge-guests", "guest-sessions", null,
+            $"Purged {purgedCount} guest projects older than {days} days from {guestUserIds.Count} guest scopes",
+            RemoteAddress(), ct);
+
+        return Ok(ApiResponse<PurgeGuestProjectsResponse>.Ok(
+            new PurgeGuestProjectsResponse(purgedCount, guestUserIds.Count)));
     }
 
     private static bool TryChannel(AiSettings settings, string? channelId, out BrandChannel? channel)

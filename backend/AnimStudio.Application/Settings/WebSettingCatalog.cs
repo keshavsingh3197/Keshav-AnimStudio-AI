@@ -114,6 +114,9 @@ public static class WebSettingCatalog
         new("Admin:AnonymousPolicy:MaxAiCallsPerDay", "Access Control", "Guest AI Quota", "How many AI requests unauthenticated visitors can run per day.", WebSettingType.Integer, true, 0, 50),
         new("Admin:AnonymousPolicy:AllowYouTubePublish", "Access Control", "Guest YouTube Publishing", "Allow anonymous visitors to connect or publish to YouTube channels (strictly discouraged).", WebSettingType.Boolean, true),
         new("Admin:AnonymousPolicy:AllowCloudSave", "Access Control", "Guest Cloud Project Save", "Allow saving projects to the central database without signing in.", WebSettingType.Boolean, true),
+        new("Admin:AnonymousPolicy:AllowGoogleDrivePublish", "Access Control", "Guest Google Drive Publishing", "Allow anonymous visitors to connect or save to Google Drive (strictly discouraged).", WebSettingType.Boolean, true),
+        new("Admin:AnonymousPolicy:MaxGuestProjects", "Access Control", "Max Guest Projects", "Maximum number of projects an anonymous guest can create.", WebSettingType.Integer, true, 1, 50),
+        new("Admin:AnonymousPolicy:AllowGuestProjectCreation", "Access Control", "Allow Guest Project Creation", "Whether unauthenticated visitors can create new projects.", WebSettingType.Boolean, true),
 
         // --- Server Profile & Free-Tier Resilience
         new("ServerProfile:FreeTier", "Server Profile", "Free-tier hosting profile", "Optimizes timeouts and caches for constrained free hosting environments.", WebSettingType.Boolean, true),

@@ -20,6 +20,7 @@ import {
   LiveStreamSetup,
 } from '../../core/models/live-stream.models';
 import { ApiService } from '../../core/services/api.service';
+import { AuthService } from '../../core/services/auth.service';
 import { LiveStreamService } from '../../core/services/live-stream.service';
 import { SelectedYouTubeBroadcast, YouTubeLiveSetupComponent } from '../../shared/youtube-live-setup.component';
 import { StatusService } from '../../core/services/status.service';
@@ -146,6 +147,7 @@ export class LiveCameraComponent {
   private readonly api = inject(ApiService);
   private readonly http = inject(HttpClient);
   private readonly status = inject(StatusService);
+  readonly auth = inject(AuthService);
 
   readonly scenes = SCENES;
   readonly builtIns = BUILT_IN_CHARACTERS;

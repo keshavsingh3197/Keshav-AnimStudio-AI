@@ -16,7 +16,13 @@ import {
   WatermarkBody, OutroBody, BrandChannel, BrandChannelSyncResult, DEFAULT_BRAND_CHANNEL, StorageSummary, StorageDetail,
   ProjectEdit, CreateEditBody, UpdateEditBody, SaveEditDraftBody,
 } from '../models/api.models';
-import { AdminAccessControl, AdminYouTubeChannelItem, UpdateAccessControlRequest } from '../models/auth.models';
+import {
+  AdminAccessControl,
+  AdminYouTubeChannelItem,
+  PurgeGuestProjectsResponse,
+  UpdateAccessControlRequest,
+  UserScopesOverview,
+} from '../models/auth.models';
 
 /**
  * Typed wrapper over the API.
@@ -699,6 +705,14 @@ export class ApiService {
 
   adminAllYouTubeChannels(): Observable<AdminYouTubeChannelItem[]> {
     return this.unwrap(this.http.get<ApiResponse<AdminYouTubeChannelItem[]>>(`${this.admin}/channels`));
+  }
+
+  adminUserScopes(): Observable<UserScopesOverview> {
+    return this.unwrap(this.http.get<ApiResponse<UserScopesOverview>>(`${this.admin}/user-scopes`));
+  }
+
+  purgeGuestProjects(daysInactive = 7): Observable<PurgeGuestProjectsResponse> {
+    return this.unwrap(this.http.post<ApiResponse<PurgeGuestProjectsResponse>>(`${this.admin}/user-scopes/purge-guests`, { daysInactive }));
   }
 
   adminStorage(refresh = false): Observable<StorageDetail> {

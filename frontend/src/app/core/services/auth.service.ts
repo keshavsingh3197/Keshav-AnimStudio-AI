@@ -1,6 +1,6 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { Observable, catchError, map, of, tap, throwError } from 'rxjs';
+import { Observable, catchError, map, of, shareReplay, tap, throwError, timeout } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../models/api.models';
@@ -164,31 +164,13 @@ export class AuthService {
             } as LoginResult;
           }
 
-          const token =
-            data.accessToken ||
-            data.tokens?.accessToken ||
-            data.session?.accessToken;
-
-          const userInfo =
-            data.user ||
-            data.tokens?.user ||
-            data.session?.user;
-
-          if (token && userInfo) {
-            this.saveAccessToken(token);
-            const roles: string[] = Array.isArray(userInfo.roles) ? userInfo.roles : [];
-            const studioUser: StudioUser = {
-              userId: userInfo.id || userInfo.userId,
-              email: userInfo.email,
-              displayName: userInfo.displayName || userInfo.username || userInfo.email,
-              isAuthenticated: true,
-              isAdmin: roles.some((r: string) => r.toLowerCase() === 'admin'),
-              roles,
-            };
-            this.saveUser(studioUser);
+          const session = this.extractSessionUser(data);
+          if (session) {
+            this.saveAccessToken(session.token);
+            this.saveUser(session.user);
             this.closeAuthModal();
             this.fetchSystemSession().subscribe();
-            return { success: true, user: studioUser };
+            return { success: true, user: session.user };
           }
 
           if (data.error || data.message) {
@@ -221,31 +203,21 @@ export class AuthService {
         map((resp) => {
           const data = resp?.data ?? resp;
 
-          const token =
-            data.accessToken ||
-            data.tokens?.accessToken ||
-            data.session?.accessToken;
-
-          const userInfo =
-            data.user ||
-            data.tokens?.user ||
-            data.session?.user;
-
-          if (token && userInfo) {
-            this.saveAccessToken(token);
-            const roles: string[] = Array.isArray(userInfo.roles) ? userInfo.roles : [];
-            const studioUser: StudioUser = {
-              userId: userInfo.id || userInfo.userId,
-              email: userInfo.email,
-              displayName: userInfo.displayName || userInfo.username || userInfo.email,
-              isAuthenticated: true,
-              isAdmin: roles.some((r: string) => r.toLowerCase() === 'admin'),
-              roles,
-            };
-            this.saveUser(studioUser);
+          const session = this.extractSessionUser(data);
+          if (session) {
+            this.saveAccessToken(session.token);
+            this.saveUser(session.user);
             this.closeAuthModal();
             this.fetchSystemSession().subscribe();
-            return { success: true, user: studioUser };
+            return { success: true, user: session.user };
+          }
+
+          if (data.requiresSessionConfirmation && data.sessionConfirmationTicket) {
+            return {
+              success: false,
+              requiresSessionConfirmation: true,
+              sessionConfirmationTicket: data.sessionConfirmationTicket,
+            };
           }
 
           if (data.error || data.message) {
@@ -255,7 +227,7 @@ export class AuthService {
             };
           }
 
-          return { success: false, error: 'Invalid verification code.' };
+          return { success: false, error: 'Verification failed. Check your code and try again.' };
         }),
         catchError((err) => {
           const message =
@@ -266,6 +238,72 @@ export class AuthService {
           return of({ success: false, error: message });
         })
       );
+  }
+
+  confirmSession(ticket: string): Observable<LoginResult> {
+    return this.http
+      .post<any>(`${this.base}/api/auth/session/confirm`, {
+        sessionConfirmationTicket: ticket,
+        revokeAllOthers: true,
+      }, {
+        withCredentials: true,
+        headers: { 'X-Guest-Id': this.guestId() },
+      })
+      .pipe(
+        map((resp) => {
+          const data = resp?.data ?? resp;
+          const session = this.extractSessionUser(data);
+          if (session) {
+            this.saveAccessToken(session.token);
+            this.saveUser(session.user);
+            this.closeAuthModal();
+            this.fetchSystemSession().subscribe();
+            return { success: true, user: session.user };
+          }
+          return { success: false, error: data.error || data.message || 'Session confirmation failed.' };
+        }),
+        catchError((err) => {
+          return of({ success: false, error: err?.error?.message || err?.error?.error || 'Session confirmation failed.' });
+        })
+      );
+  }
+
+  private extractSessionUser(data: any): { token: string; user: StudioUser } | null {
+    if (!data) return null;
+
+    const token =
+      data.accessToken ||
+      data.AccessToken ||
+      data.tokens?.accessToken ||
+      data.tokens?.AccessToken ||
+      data.session?.accessToken ||
+      data.session?.AccessToken ||
+      data.Session?.AccessToken;
+
+    const userInfo =
+      data.user ||
+      data.User ||
+      data.tokens?.user ||
+      data.tokens?.User ||
+      data.session?.user ||
+      data.session?.User ||
+      data.Session?.User;
+
+    if (!token || !userInfo) return null;
+
+    const rawRoles = userInfo.roles || userInfo.Roles;
+    const roles: string[] = Array.isArray(rawRoles) ? rawRoles : [];
+
+    const studioUser: StudioUser = {
+      userId: userInfo.id || userInfo.Id || userInfo.userId || userInfo.UserId || '',
+      email: userInfo.email || userInfo.Email || null,
+      displayName: userInfo.displayName || userInfo.DisplayName || userInfo.username || userInfo.Username || userInfo.email || 'User',
+      isAuthenticated: true,
+      isAdmin: roles.some((r: string) => r.toLowerCase() === 'admin'),
+      roles,
+    };
+
+    return { token, user: studioUser };
   }
 
   refreshSession(): Observable<{ accessToken: string }> {
@@ -315,8 +353,16 @@ export class AuthService {
       );
   }
 
+  signOut(): void {
+    this.logout();
+  }
+
   logout(): Observable<void> {
-    return this.http
+    // 1. Immediately wipe local auth state and session cache
+    this.clearLocalSession();
+
+    // 2. Instruct backend / IdP to invalidate SSO session and cookies
+    const req$ = this.http
       .post<void>(
         `${this.base}/api/auth/logout`,
         {},
@@ -326,18 +372,47 @@ export class AuthService {
         }
       )
       .pipe(
-        tap(() => this.clearLocalSession()),
+        timeout({ each: 2500, with: () => of(undefined) }),
+        tap(() => {
+          this.fetchSystemSession().subscribe();
+        }),
         catchError(() => {
-          this.clearLocalSession();
+          this.fetchSystemSession().subscribe();
           return of(undefined);
-        })
+        }),
+        shareReplay(1)
       );
+
+    // Auto-subscribe immediately so calling auth.logout() from template event bindings executes
+    req$.subscribe();
+    return req$;
   }
 
   clearLocalSession(): void {
     this.saveAccessToken(null);
     this.saveUser(null);
-    this.fetchSystemSession().subscribe();
+    this.resetGuestId();
+    const fallbackSession: StudioSession = {
+      isAuthenticated: false,
+      userId: this.guestId(),
+      displayName: 'Guest',
+      email: null,
+      isAdmin: false,
+      roles: ['Anonymous'],
+      anonymousPolicy: DEFAULT_ANONYMOUS_POLICY,
+    };
+    this.session.set(fallbackSession);
+  }
+
+  resetGuestId(): string {
+    const gid = 'guest_' + Math.random().toString(36).substring(2, 10);
+    try {
+      localStorage.setItem(GUEST_ID_KEY, gid);
+    } catch {
+      // Storage access blocked or restricted
+    }
+    this.guestId.set(gid);
+    return gid;
   }
 
   openAuthModal(): void {

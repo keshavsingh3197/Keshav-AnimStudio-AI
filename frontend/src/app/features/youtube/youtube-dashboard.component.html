@@ -36,13 +36,31 @@
     </div>
   </header>
 
-  @if (error(); as e) {
-    <div class="yt-alert-error" role="alert">
-      <span>⚠️ {{ e }}</span>
+  @if (auth.isAnonymous()) {
+    <div class="yt-empty-card" style="border: 1px solid rgba(239, 68, 68, 0.35); background: rgba(239, 68, 68, 0.04); padding: 3.5rem 1.5rem; text-align: center; border-radius: 12px; margin-top: 1.5rem">
+      <div class="yt-empty-icon" style="font-size: 2.8rem; margin-bottom: 0.75rem">🔒</div>
+      <h3 style="color: #fca5a5; margin: 0 0 0.5rem; font-size: 1.35rem">YouTube Studio Hub Requires Authentication</h3>
+      <p style="color: var(--muted, #94a3b8); max-width: 620px; margin: 0 auto 1.5rem; font-size: 0.95rem; line-height: 1.55">
+        Connecting YouTube channels, auditing video metadata, and publishing renders involves sensitive Google OAuth credentials and channel permissions.
+        To protect channel security, anonymous visitors cannot access YouTube integrations.
+      </p>
+      <div style="display: flex; gap: 0.85rem; justify-content: center; align-items: center">
+        <button type="button" class="yt-btn-primary" (click)="auth.openAuthModal()">
+          Sign In to Connect Channel
+        </button>
+        <a routerLink="/projects" class="yt-btn-secondary" style="text-decoration: none; display: inline-flex; align-items: center">
+          Return to Projects
+        </a>
+      </div>
     </div>
-  }
+  } @else {
+    @if (error(); as e) {
+      <div class="yt-alert-error" role="alert">
+        <span>⚠️ {{ e }}</span>
+      </div>
+    }
 
-  @if (loading()) {
+    @if (loading()) {
     <div class="yt-skeleton-grid">
       <div class="yt-skeleton-card yt-shimmer"></div>
       <div class="yt-kpis">
@@ -512,4 +530,5 @@
       }
     }
   }
+}
 </section>

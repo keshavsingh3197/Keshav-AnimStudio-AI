@@ -43,10 +43,15 @@ public sealed class AuthController(
         // If twoFactorToken and code are supplied, route to 2FA verify
         if (!string.IsNullOrWhiteSpace(request.TwoFactorToken) && !string.IsNullOrWhiteSpace(request.TwoFactorCode))
         {
+            var isBackup = !string.IsNullOrWhiteSpace(request.RecoveryCode) ||
+                request.TwoFactorCode.Length == 8 ||
+                request.TwoFactorCode.Contains('-') ||
+                request.TwoFactorCode.Any(char.IsLetter);
+
             return await VerifyTwoFactor(new StudioTwoFactorVerifyRequest(
                 request.TwoFactorToken,
                 request.TwoFactorCode,
-                string.IsNullOrWhiteSpace(request.RecoveryCode) ? 0 : 2), ct).ConfigureAwait(false);
+                isBackup ? 2 : 0), ct).ConfigureAwait(false);
         }
 
         try
@@ -79,13 +84,12 @@ public sealed class AuthController(
             using var resp = await client.SendAsync(msg, ct).ConfigureAwait(false);
             var content = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
 
-            // Forward any SSO cookies issued by IdP
-            ForwardResponseCookies(resp);
+            var (status, body) = await HandleIdpSessionResponseAsync(resp, content, idpBase, ct).ConfigureAwait(false);
 
             return new ContentResult
             {
-                StatusCode = (int)resp.StatusCode,
-                Content = content,
+                StatusCode = status,
+                Content = body,
                 ContentType = "application/json"
             };
         }
@@ -108,15 +112,67 @@ public sealed class AuthController(
 
             var verifyUrl = $"{idpBase}/api/sso/2fa/verify?app={StudioAppKey}";
 
+            var cleanCode = request.Code?.Trim();
+            var isBackup = request.Method == 2 ||
+                (cleanCode != null && (cleanCode.Length == 8 || cleanCode.Contains('-') || cleanCode.Any(char.IsLetter)));
+            var methodInt = isBackup ? 2 : (request.Method ?? 0);
+
             var payload = new
             {
                 twoFactorToken = request.TwoFactorToken,
-                code = request.Code?.Trim(),
-                method = request.Method ?? 0
+                code = cleanCode,
+                method = methodInt
             };
 
             var client = httpFactory.CreateClient("IdP");
             using var msg = new HttpRequestMessage(HttpMethod.Post, verifyUrl)
+            {
+                Content = new StringContent(JsonSerializer.Serialize(payload, JsonOpts), Encoding.UTF8, "application/json")
+            };
+
+            if (HttpContext.Connection.RemoteIpAddress is { } ip)
+                msg.Headers.TryAddWithoutValidation("X-Forwarded-For", ip.ToString());
+            if (Request.Headers.UserAgent.ToString() is { Length: > 0 } ua)
+                msg.Headers.TryAddWithoutValidation("User-Agent", ua);
+
+            using var resp = await client.SendAsync(msg, ct).ConfigureAwait(false);
+            var content = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+
+            var (status, body) = await HandleIdpSessionResponseAsync(resp, content, idpBase, ct).ConfigureAwait(false);
+
+            return new ContentResult
+            {
+                StatusCode = status,
+                Content = body,
+                ContentType = "application/json"
+            };
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to verify 2FA via central IdP.");
+            return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                ApiResponse<EmptyPayload>.Fail("Identity service unavailable. Please try again shortly."));
+        }
+    }
+
+    [HttpPost("session/confirm")]
+    public async Task<IActionResult> ConfirmSession([FromBody] StudioSessionConfirmRequest request, CancellationToken ct)
+    {
+        try
+        {
+            var idpBase = options.CurrentValue.Jwt.Issuer == "keshavsingh-idp"
+                ? "https://id.keshavsingh.in"
+                : "http://localhost:5000";
+
+            var confirmUrl = $"{idpBase}/api/sso/session/confirm?app={StudioAppKey}";
+            var payload = new
+            {
+                sessionConfirmationTicket = request.SessionConfirmationTicket,
+                revokeAllOthers = request.RevokeAllOthers ?? true
+            };
+
+            var client = httpFactory.CreateClient("IdP");
+            using var msg = new HttpRequestMessage(HttpMethod.Post, confirmUrl)
             {
                 Content = new StringContent(JsonSerializer.Serialize(payload, JsonOpts), Encoding.UTF8, "application/json")
             };
@@ -140,7 +196,7 @@ public sealed class AuthController(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to verify 2FA via central IdP.");
+            logger.LogError(ex, "Failed to confirm session via central IdP.");
             return StatusCode(StatusCodes.Status503ServiceUnavailable,
                 ApiResponse<EmptyPayload>.Fail("Identity service unavailable. Please try again shortly."));
         }
@@ -204,14 +260,67 @@ public sealed class AuthController(
                 msg.Headers.TryAddWithoutValidation("Cookie", $"ks_sso={ssoCookie}");
 
             using var resp = await client.SendAsync(msg, ct).ConfigureAwait(false);
+            ForwardResponseCookies(resp);
+            Response.Cookies.Delete("ks_sso", new CookieOptions { Path = "/" });
             Response.Cookies.Delete("ks_sso");
             return NoContent();
         }
         catch
         {
+            Response.Cookies.Delete("ks_sso", new CookieOptions { Path = "/" });
             Response.Cookies.Delete("ks_sso");
             return NoContent();
         }
+    }
+
+    private async Task<(int StatusCode, string Content)> HandleIdpSessionResponseAsync(
+        HttpResponseMessage resp, string content, string idpBase, CancellationToken ct)
+    {
+        if (resp.IsSuccessStatusCode && !string.IsNullOrWhiteSpace(content))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(content);
+                var root = doc.RootElement;
+                if (root.TryGetProperty("requiresSessionConfirmation", out var reqProp) && reqProp.GetBoolean() &&
+                    root.TryGetProperty("sessionConfirmationTicket", out var ticketProp) && !string.IsNullOrWhiteSpace(ticketProp.GetString()))
+                {
+                    var ticket = ticketProp.GetString();
+                    logger.LogInformation("Auto-confirming single session conflict for studio...");
+
+                    var confirmUrl = $"{idpBase}/api/sso/session/confirm?app={StudioAppKey}";
+                    var confirmPayload = new
+                    {
+                        sessionConfirmationTicket = ticket,
+                        revokeAllOthers = true
+                    };
+
+                    var client = httpFactory.CreateClient("IdP");
+                    using var confirmMsg = new HttpRequestMessage(HttpMethod.Post, confirmUrl)
+                    {
+                        Content = new StringContent(JsonSerializer.Serialize(confirmPayload, JsonOpts), Encoding.UTF8, "application/json")
+                    };
+
+                    if (HttpContext.Connection.RemoteIpAddress is { } ip)
+                        confirmMsg.Headers.TryAddWithoutValidation("X-Forwarded-For", ip.ToString());
+                    if (Request.Headers.UserAgent.ToString() is { Length: > 0 } ua)
+                        confirmMsg.Headers.TryAddWithoutValidation("User-Agent", ua);
+
+                    using var confirmResp = await client.SendAsync(confirmMsg, ct).ConfigureAwait(false);
+                    var confirmContent = await confirmResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+
+                    ForwardResponseCookies(confirmResp);
+                    return ((int)confirmResp.StatusCode, confirmContent);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to auto-confirm session conflict.");
+            }
+        }
+
+        ForwardResponseCookies(resp);
+        return ((int)resp.StatusCode, content);
     }
 
     private void ForwardResponseCookies(HttpResponseMessage resp)
@@ -236,6 +345,10 @@ public sealed record StudioTwoFactorVerifyRequest(
     string TwoFactorToken,
     string Code,
     int? Method = 0);
+
+public sealed record StudioSessionConfirmRequest(
+    string SessionConfirmationTicket,
+    bool? RevokeAllOthers = true);
 
 public sealed record AuthMeResponse(
     bool IsAuthenticated,

@@ -71,29 +71,46 @@ public sealed partial class LiveStreamsController(
     public async Task<ActionResult<ApiResponse<LiveStreamSetup>>> Setup(CancellationToken ct)
     {
         var destinations = DestinationList();
-        var settings = await settingsRepository.GetAsync(ct);
-        var saved = (await keys.DescribeAllAsync(ct))
-            .ToDictionary(k => (k.ChannelId, k.DestinationId));
-
-        var channels = ChannelList(settings)
-            .Select(c => new LiveStreamChannel(c.Id, c.Name, c.IsDefault,
-                destinations.Select(d => saved.TryGetValue((c.Id, d.Id), out var status)
-                    ? status
-                    : LiveStreamKeyStore.Missing(c.Id, d.Id)).ToList()))
-            .ToList();
-
         var isAdmin = IsAdmin();
+
+        List<LiveStreamChannel> channels;
+        if (isAdmin)
+        {
+            var settings = await settingsRepository.GetAsync(ct);
+            var saved = (await keys.DescribeAllAsync(ct))
+                .ToDictionary(k => (k.ChannelId, k.DestinationId));
+
+            channels = ChannelList(settings)
+                .Select(c => new LiveStreamChannel(c.Id, c.Name, c.IsDefault,
+                    destinations.Select(d => saved.TryGetValue((c.Id, d.Id), out var status)
+                        ? status
+                        : LiveStreamKeyStore.Missing(c.Id, d.Id)).ToList()))
+                .ToList();
+        }
+        else
+        {
+            // Anonymous guests and regular non-admin members receive an isolated default channel
+            // with no internal brand names and NO access to admin stream keys.
+            channels = [
+                new LiveStreamChannel(
+                    BrandChannel.DefaultId,
+                    "Default",
+                    IsDefault: true,
+                    destinations.Select(d => LiveStreamKeyStore.Missing(BrandChannel.DefaultId, d.Id)).ToList())
+            ];
+        }
+
         return Ok(ApiResponse<LiveStreamSetup>.Ok(new LiveStreamSetup(
             destinations,
             channels,
-            CanUseSavedKeys: isAdmin || streams.AllowSavedKeysForNonAdmins,
+            CanUseSavedKeys: isAdmin,
             CanManageKeys: isAdmin,
             AllowLinks: ingestOptions.Value.AllowMediaDownload,
             MaxItems: LiveStreamValidator.MaxItems,
             MaxStreamsPerUser: streams.MaxStreamsPerUser,
             CameraEnabled: cameras.Enabled,
             CameraMaxChunkBytes: cameras.MaxChunkBytes,
-            AudienceStatsEnabled: audience.IsConfigured)));
+            AudienceStatsEnabled: isAdmin && audience.IsConfigured)));
     }
 
     [HttpGet("destinations")]
@@ -538,6 +555,13 @@ public sealed partial class LiveStreamsController(
         if (!streams.Destinations.ContainsKey(destinationId))
             return Invalid("destination-invalid", "That destination isn't configured on this server.", "destinationId");
 
+        var isAdmin = IsAdmin();
+        if (!isAdmin && !BrandChannel.IsDefault(channelId))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden,
+                ApiResponse<LiveStreamStatus>.Fail("Non-administrator users cannot broadcast to internal studio brand channels."));
+        }
+
         var settings = await settingsRepository.GetAsync(ct);
         if (!LiveStreamValidator.IsValidId(channelId) || ChannelList(settings).All(c => c.Id != channelId))
             return Invalid("channel-invalid", "That channel doesn't exist.", "channelId");
@@ -554,7 +578,7 @@ public sealed partial class LiveStreamsController(
     private List<LiveStreamDestination> DestinationList() =>
         streams.Destinations.Select(d => new LiveStreamDestination(d.Key, d.Value.Name, d.Value.KeyHelpUrl)).ToList();
 
-    private bool IsAdmin() => AdminAccessRules.IsAdmitted(adminOptions.CurrentValue, HttpContext, User);
+    private bool IsAdmin() => currentUser.IsAdmin && AdminAccessRules.IsAdmitted(adminOptions.CurrentValue, HttpContext, User);
 
     private async Task<ActionResult?> RtmpsProblemAsync(CancellationToken ct)
     {
