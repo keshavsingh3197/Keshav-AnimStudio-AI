@@ -6,8 +6,7 @@ using Microsoft.Extensions.Options;
 namespace AnimStudio.Infrastructure.Security;
 
 public sealed class StudioAccessEvaluator(
-    IOptionsMonitor<AdminOptions> options,
-    ILogger<StudioAccessEvaluator> logger) : IStudioAccessEvaluator
+    IOptionsMonitor<AdminOptions> options) : IStudioAccessEvaluator
 {
     public bool HasPermission(ICurrentUser user, string permissionKey)
     {

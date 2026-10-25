@@ -41,6 +41,17 @@ builder.Services.AddHttpClient();
 // so without this a client would have to READ "Fade" and WRITE 1 - and a reordered enum
 // would silently change what an old client's number meant.
 builder.Services.AddControllers()
+    .ConfigureApplicationPartManager(manager =>
+    {
+        // Exclude external KeshavSingh.Auth controller to avoid ambiguous route collision
+        var authParts = manager.ApplicationParts
+            .Where(p => string.Equals(p.Name, "KeshavSingh.Auth", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        foreach (var p in authParts)
+        {
+            manager.ApplicationParts.Remove(p);
+        }
+    })
     .ConfigureApiBehaviorOptions(options =>
     {
         options.InvalidModelStateResponseFactory = context =>
