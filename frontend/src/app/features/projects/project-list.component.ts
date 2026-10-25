@@ -35,6 +35,13 @@ export class ProjectListComponent {
   readonly confirming = signal<string | null>(null);
   readonly showDetails = signal(false);
 
+  // Sub-projects state
+  readonly expandedProjectIds = signal<Set<string>>(new Set());
+  readonly creatingSubProjectFor = signal<Project | null>(null);
+  subProjectName = '';
+  subProjectDescription = '';
+  subProjectUseSharedAssets = true;
+
   // View & Filter State
   readonly viewMode = signal<'grid' | 'table'>('grid');
   readonly sortBy = signal<'updated' | 'name' | 'newest'>('updated');
@@ -159,15 +166,83 @@ export class ProjectListComponent {
     }).length;
   }
 
+  toggleExpandSubProjects(projectId: string, event?: Event): void {
+    if (event) event.stopPropagation();
+    const next = new Set(this.expandedProjectIds());
+    if (next.has(projectId)) {
+      next.delete(projectId);
+    } else {
+      next.add(projectId);
+    }
+    this.expandedProjectIds.set(next);
+  }
+
+  isExpanded(projectId: string): boolean {
+    return this.expandedProjectIds().has(projectId);
+  }
+
+  getSubProjects(parentId: string): Project[] {
+    return this.projects().filter(p => p.parentProjectId === parentId);
+  }
+
+  subProjectsCount(project: Project): number {
+    return project.subProjectCount ?? this.getSubProjects(project.id).length;
+  }
+
+  openCreateSubProject(parent: Project, event?: Event): void {
+    if (event) event.stopPropagation();
+    this.closeMenus();
+    this.creatingSubProjectFor.set(parent);
+    const count = this.subProjectsCount(parent);
+    this.subProjectName = `${parent.name} - Part ${count + 1}`;
+    this.subProjectDescription = '';
+    this.subProjectUseSharedAssets = true;
+  }
+
+  cancelCreateSubProject(): void {
+    this.creatingSubProjectFor.set(null);
+  }
+
+  submitCreateSubProject(): void {
+    const parent = this.creatingSubProjectFor();
+    if (!parent || !this.subProjectName.trim()) return;
+
+    this.status.run(
+      this.api.createSubProject(parent.id, {
+        name: this.subProjectName.trim(),
+        description: this.subProjectDescription.trim() || undefined,
+        useSharedAssets: this.subProjectUseSharedAssets,
+      }),
+      (subProject) => {
+        this.projects.update((list) => [
+          subProject,
+          ...list.map((p) => (p.id === parent.id ? { ...p, subProjectCount: (p.subProjectCount ?? 0) + 1 } : p)),
+        ]);
+        const set = new Set(this.expandedProjectIds());
+        set.add(parent.id);
+        this.expandedProjectIds.set(set);
+        this.creatingSubProjectFor.set(null);
+        void this.router.navigate(['/projects', subProject.id, 'clips']);
+      }
+    );
+  }
+
   get filteredAndSortedProjects(): Project[] {
-    let list = this.projects();
+    let list = this.projects().filter((p) => !p.parentProjectId);
 
     if (this.searchTerm.trim()) {
       const q = this.searchTerm.toLowerCase();
-      list = list.filter(p =>
-        p.name.toLowerCase().includes(q) ||
-        (p.description && p.description.toLowerCase().includes(q))
-      );
+      list = list.filter((p) => {
+        const selfMatch =
+          p.name.toLowerCase().includes(q) ||
+          (p.description && p.description.toLowerCase().includes(q));
+        const subMatch = this.getSubProjects(p.id).some(
+          (sub) =>
+            sub.name.toLowerCase().includes(q) ||
+            (sub.description && sub.description.toLowerCase().includes(q))
+        );
+        return selfMatch || subMatch;
+      });
     }
 
     if (this.statusFilter !== 'All') {
@@ -420,10 +495,17 @@ export class ProjectListComponent {
 
   delete(projectId: string, event?: Event): void {
     if (event) event.stopPropagation();
+    const target = this.projects().find(p => p.id === projectId);
     this.status.run(this.api.deleteProject(projectId), () => {
       this.confirming.set(null);
       this.selectedProjectIds.delete(projectId);
-      this.projects.update((list) => list.filter((p) => p.id !== projectId));
+      this.projects.update((list) => {
+        let updated = list.filter((p) => p.id !== projectId);
+        if (target?.parentProjectId) {
+          updated = updated.map(p => p.id === target.parentProjectId ? { ...p, subProjectCount: Math.max(0, (p.subProjectCount ?? 1) - 1) } : p);
+        }
+        return updated;
+      });
       this.status.notify(['Project deleted.']);
     });
   }

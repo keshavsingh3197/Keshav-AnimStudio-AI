@@ -133,6 +133,9 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
                       <div class="p-title">{{ p.name }}</div>
                       <div class="p-meta">
                         {{ p.width }}&times;{{ p.height }} &bull; {{ p.fps }}fps
+                        @if (p.subProjectCount) {
+                          &bull; {{ p.subProjectCount }} sub-project{{ p.subProjectCount > 1 ? 's' : '' }}
+                        }
                       </div>
                       <div class="p-time">Edited {{ p.updatedAt | date:'mediumDate' }}</div>
                     </div>
@@ -901,12 +904,12 @@ export class ProjectHubModalComponent {
   readonly selectedPreset = signal<any>(null);
 
   readonly filteredProjects = computed(() => {
-    let list = this.projects();
+    let list = this.projects().filter(p => !p.parentProjectId);
     
     // Search
     const q = this.searchQuery().toLowerCase();
     if (q) {
-      list = list.filter(p => p.name.toLowerCase().includes(q));
+      list = list.filter(p => p.name.toLowerCase().includes(q) || this.projects().some(sub => sub.parentProjectId === p.id && sub.name.toLowerCase().includes(q)));
     }
     
     // Tags

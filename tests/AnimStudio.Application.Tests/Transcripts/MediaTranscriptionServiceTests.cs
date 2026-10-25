@@ -82,7 +82,7 @@ public class MediaTranscriptionServiceTests
             world.Projects, world.Assets, world.Store, new FakeWorkspaces(), extractor, ai,
             new SubtitleParser(new ParsingOptions()),
             Microsoft.Extensions.Options.Options.Create(new IngestOptions()),
-            TimeProvider.System, NullLogger<MediaTranscriptionService>.Instance);
+            TimeProvider.System, world.AssetScope, NullLogger<MediaTranscriptionService>.Instance);
         return (service, world, extractor, ai);
     }
 

@@ -28,6 +28,7 @@ public sealed class AssetsController(
     IOptions<IngestOptions> ingestOptions,
     ICurrentUser currentUser,
     AppDataPaths dataPaths,
+    AssetScopeService scope,
     TimeProvider clock) : ControllerBase
 {
     /// <summary>
@@ -62,7 +63,7 @@ public sealed class AssetsController(
     {
         await EnsureOwnedAsync(projectId, ct);
 
-        var list = await assets.ListByProjectAsync(projectId, ct);
+        var list = await scope.ListVisibleAssetsAsync(projectId, ct);
         _ = Task.Run(() => PrewarmThumbnails(list, dataPaths));
 
         return Ok(ApiResponse<IReadOnlyList<AssetResponse>>.Ok(

@@ -223,6 +223,20 @@ public sealed record UpdateProjectRequest
 
     /// <summary>Seconds an image plays when added to the timeline. Null: unchanged; 0: use the studio-wide default.</summary>
     [Range(0, ImageDurationLimits.Max)] public double? DefaultImageDurationSeconds { get; init; }
+
+    /// <summary>Sub-projects only. Null leaves unchanged.</summary>
+    public bool? UseSharedAssets { get; init; }
+}
+
+public sealed record CreateSubProjectRequest
+{
+    [Required, StringLength(120, MinimumLength = 1)]
+    public string Name { get; init; } = string.Empty;
+
+    [StringLength(2000)]
+    public string? Description { get; init; }
+
+    public bool UseSharedAssets { get; init; } = true;
 }
 
 public sealed record CreateSceneRequest

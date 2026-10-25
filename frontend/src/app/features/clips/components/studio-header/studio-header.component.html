@@ -4,6 +4,12 @@
       ✦ AnimStudio<strong>AI</strong>
     </a>
     <div class="studio-breadcrumb">
+      @if (state.store.parentProject(); as parent) {
+        <a [routerLink]="['/projects', parent.id, 'clips']" class="muted" style="text-decoration: none; cursor: pointer; color: #a5b4fc;">
+          {{ parent.name }}
+        </a>
+        <span class="muted">›</span>
+      }
       <a [routerLink]="['/projects', state.store.project()?.id, 'scenes']" class="muted" style="text-decoration: none; cursor: pointer;">
         {{ state.store.project()?.name ?? 'Project' }}
       </a>

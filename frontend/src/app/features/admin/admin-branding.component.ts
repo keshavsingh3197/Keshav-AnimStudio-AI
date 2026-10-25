@@ -29,11 +29,14 @@ export class AdminBrandingComponent {
   private readonly mediaTools = inject(MediaToolsService);
   readonly status = inject(StatusService);
 
-  readonly watermarkPositions = WATERMARK_POSITIONS;
+  readonly watermarkPositions: readonly WatermarkPosition[] = [
+    'TopLeft', 'TopCenter', 'TopRight',
+    'BottomLeft', 'BottomCenter', 'BottomRight',
+  ];
   readonly watermarkKinds: readonly { kind: WatermarkKind; label: string }[] = [
     { kind: 'None', label: 'No Hallmark / Watermark' },
-    { kind: 'Text', label: 'Studio Hallmark Text / Brand Name' },
-    { kind: 'Logo', label: 'Studio Hallmark Logo (PNG / JPG / WEBP)' },
+    { kind: 'Text', label: 'Text Hallmark / Brand Name' },
+    { kind: 'Logo', label: 'Studio Logo Image' },
   ];
 
   readonly outroKinds: readonly { kind: OutroKind; label: string }[] = [

@@ -9,7 +9,7 @@ import {
   AdminProviderTest, AdminUsage, AiCapabilities, ApiResponse, Asset, AssetSearchOptions, AssetSearchResult, BundleApplyBody,
   VoiceoverBody, VoiceoverVoices, MyVoice, VoiceScriptDictation, VoiceScriptPolish, MediaTranscript,
   BundleImportResult, BundlePreview, Character, CharacterBody, AutoShortsBody, AutoShortsPreview, AutoShortsResult, ClipMergeBody, ClipOrder,
-  ClipStudio, CreateProjectBody,
+  ClipStudio, CreateProjectBody, CreateSubProjectBody,
   CreateSceneBody, DialogueBody, IngestCapabilities, IngestResult, IngestSummary,
   PlacementBody, Project, RenderJob, ExportTimelineFormat, RendererStatus, Scene, SceneAudioBody, SceneDetail,
   SceneGenerationResult, ScriptDetail, ScriptSummary, UpdateProjectBody, UpdateSceneBody,
@@ -141,6 +141,10 @@ export class ApiService {
 
   createProject(body: CreateProjectBody): Observable<Project> {
     return this.unwrap(this.http.post<ApiResponse<Project>>(`${this.base}/api/projects`, body));
+  }
+
+  createSubProject(parentId: string, body: CreateSubProjectBody): Observable<Project> {
+    return this.unwrap(this.http.post<ApiResponse<Project>>(`${this.base}/api/projects/${parentId}/subprojects`, body));
   }
 
   duplicateProject(projectId: string, name?: string): Observable<Project> {

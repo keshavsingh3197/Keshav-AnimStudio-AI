@@ -25,7 +25,7 @@ namespace AnimStudio.Api.Contracts;
 /// </summary>
 public static class Mappings
 {
-    public static ProjectResponse ToResponse(this Project p) => new(
+    public static ProjectResponse ToResponse(this Project p, int subProjectCount = 0) => new(
         p.Id, p.Name, p.Description, p.Status.ToString(),
         p.Settings.Width, p.Settings.Height, p.Settings.FrameRateNum,
         p.Settings.DistributionIntent.ToString(), p.Settings.AcceptShareAlikeObligation,
@@ -38,7 +38,10 @@ public static class Mappings
         p.Settings.BrandChannelId,
         p.Settings.FollowsChannelWatermark,
         ProjectContentTypes.Format(p.Settings.ContentType),
-        p.Settings.DefaultImageDurationSeconds);
+        p.Settings.DefaultImageDurationSeconds,
+        p.ParentProjectId,
+        p.Settings.UseSharedAssets,
+        subProjectCount);
 
     /// <summary>Every channel, the built-in default first.</summary>
     public static IReadOnlyList<BrandChannelResponse> ToChannelResponses(this AiSettings? s) =>
@@ -110,7 +113,7 @@ public static class Mappings
     public static AssetResponse ToResponse(this Asset a) => new(
         a.Id, a.Name, a.Kind.ToString(), a.MimeType, a.FileSizeBytes,
         a.Probe.Width, a.Probe.Height, a.Probe.HasAlpha, a.Probe.DurationSeconds,
-        a.ReviewStatus.ToString(), a.FolderId);
+        a.ReviewStatus.ToString(), a.FolderId, a.ProjectId);
 
     public static SceneResponse ToResponse(this Scene s, FrameRate rate) => new(
         s.Id, s.SceneNumber, s.Title, s.DurationFrames, s.Duration.ToSeconds(rate),
@@ -232,7 +235,8 @@ public static class Mappings
         a.StorageKey.StartsWith("renders/", StringComparison.Ordinal),
         // Always written as UTC; the SQL store reads it back unspecified, which would
         // serialize without a 'Z' and make the browser's "added today" check drift.
-        DateTime.SpecifyKind(a.CreatedAt, DateTimeKind.Utc));
+        DateTime.SpecifyKind(a.CreatedAt, DateTimeKind.Utc),
+        a.ProjectId);
 
     public static AssetSearchHitResponse ToResponse(this AssetSearchHit hit) => new(
         hit.Asset.ToResponse(), hit.Project.Id, hit.Project.Name, hit.ChannelId,

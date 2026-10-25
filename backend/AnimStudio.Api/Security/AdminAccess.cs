@@ -48,7 +48,7 @@ public static class AdminAccessRules
 
         return options.Mode switch
         {
-            AdminAccessMode.LocalOnly => IsLoopback(http),
+            AdminAccessMode.LocalOnly => IsLoopback(http) || HasAdminRole(user, options.Jwt),
             AdminAccessMode.Jwt => true,
             _ => false
         };

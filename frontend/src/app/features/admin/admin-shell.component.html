@@ -66,6 +66,10 @@
             Open AnimStudio on the machine the server is running on, or sign in with an account
             that has the Admin role.
           </p>
+          <div style="margin-top: 1.25rem; display: flex; gap: 0.75rem; justify-content: center;">
+            <button class="btn btn-secondary" (click)="recheckAccess()">Verify Access</button>
+            <button class="btn btn-primary" (click)="openSignIn()">Sign In</button>
+          </div>
         </div>
       } @else {
         <router-outlet />

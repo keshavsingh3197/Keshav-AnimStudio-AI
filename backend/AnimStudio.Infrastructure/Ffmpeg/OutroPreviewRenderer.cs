@@ -21,6 +21,7 @@ public sealed class OutroPreviewRenderer(
     IRenderCapabilities capabilities,
     WatermarkFontResolver fonts,
     IOptions<RenderOptions> options,
+    AnimStudio.Application.Assets.AssetScopeService scope,
     ILogger<OutroPreviewRenderer> logger) : IOutroPreviewRenderer
 {
     public async Task<byte[]?> RenderAsync(OutroSettings outro, Canvas canvas, string? projectId, CancellationToken ct)
@@ -39,7 +40,7 @@ public sealed class OutroPreviewRenderer(
         // not become a way to pull a file out of somebody else's project.
         if (asset is not null
             && asset.ProjectId is not ("global" or "system")
-            && !(projectId is not null && string.Equals(asset.ProjectId, projectId, StringComparison.Ordinal)))
+            && !(projectId is not null && await scope.CanUseAssetAsync(asset, projectId, ct).ConfigureAwait(false)))
         {
             asset = null;
         }

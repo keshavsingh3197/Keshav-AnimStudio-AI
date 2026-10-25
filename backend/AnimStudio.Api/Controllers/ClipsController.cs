@@ -31,6 +31,7 @@ public sealed class ClipsController(
     IProjectRepository projects,
     IRenderCapabilities capabilities,
     IOptions<RenderOptions> renderOptions,
+    AnimStudio.Application.Assets.AssetScopeService scope,
     ICurrentUser currentUser) : ControllerBase
 {
     /// <summary>
@@ -48,7 +49,7 @@ public sealed class ClipsController(
         string projectId, CancellationToken ct)
     {
         var clipList = await clips.ListClipsAsync(projectId, ct);
-        var all = await assets.ListByProjectAsync(projectId, ct);
+        var all = await scope.ListVisibleAssetsAsync(projectId, ct);
         var project = await projects.GetAsync(projectId, ct);
 
         var options = renderOptions.Value;

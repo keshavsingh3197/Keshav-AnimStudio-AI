@@ -1,6 +1,6 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { Observable, catchError, map, of, shareReplay, tap, throwError, timeout } from 'rxjs';
+import { Observable, catchError, finalize, map, of, shareReplay, tap, throwError, timeout } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../models/api.models';
@@ -54,7 +54,11 @@ export class AuthService {
     return this.session()?.anonymousPolicy ?? DEFAULT_ANONYMOUS_POLICY;
   });
 
+  private refreshInProgress$: Observable<{ accessToken: string }> | null = null;
+  private refreshTimer: any = null;
+
   constructor() {
+    this.scheduleAutoRefresh(this.accessToken());
     this.initSession();
   }
 
@@ -62,6 +66,19 @@ export class AuthService {
    * Initializes session: checks current identity from API and triggers silent SSO if needed.
    */
   initSession(): void {
+    const token = this.accessToken();
+    if (token && this.isTokenExpired(token)) {
+      // Token exists in localStorage but is expired: refresh immediately via SSO cookie
+      this.refreshSession().subscribe({
+        next: () => this.fetchSystemSession().subscribe(),
+        error: () => {
+          this.clearLocalSession();
+          this.fetchSystemSession().subscribe();
+        },
+      });
+      return;
+    }
+
     this.fetchSystemSession().subscribe({
       next: (sess) => {
         if (!sess.isAuthenticated && !this.accessToken()) {
@@ -307,7 +324,11 @@ export class AuthService {
   }
 
   refreshSession(): Observable<{ accessToken: string }> {
-    return this.http
+    if (this.refreshInProgress$) {
+      return this.refreshInProgress$;
+    }
+
+    this.refreshInProgress$ = this.http
       .post<any>(
         `${this.base}/api/auth/session`,
         {},
@@ -349,8 +370,14 @@ export class AuthService {
         catchError((err) => {
           this.saveAccessToken(null);
           return throwError(() => err);
-        })
+        }),
+        finalize(() => {
+          this.refreshInProgress$ = null;
+        }),
+        shareReplay(1)
       );
+
+    return this.refreshInProgress$;
   }
 
   signOut(): void {
@@ -389,6 +416,10 @@ export class AuthService {
   }
 
   clearLocalSession(): void {
+    if (this.refreshTimer) {
+      clearTimeout(this.refreshTimer);
+      this.refreshTimer = null;
+    }
     this.saveAccessToken(null);
     this.saveUser(null);
     this.resetGuestId();
@@ -434,6 +465,65 @@ export class AuthService {
     return headers;
   }
 
+  isTokenExpired(token?: string | null, skewSeconds = 30): boolean {
+    const t = token ?? this.accessToken();
+    if (!t) return true;
+    try {
+      const parts = t.split('.');
+      if (parts.length < 2) return true;
+      const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+      if (!payload || !payload.exp) return false;
+      return Date.now() >= (payload.exp - skewSeconds) * 1000;
+    } catch {
+      return true;
+    }
+  }
+
+  getTokenExpiryMs(token?: string | null): number | null {
+    const t = token ?? this.accessToken();
+    if (!t) return null;
+    try {
+      const parts = t.split('.');
+      if (parts.length < 2) return null;
+      const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+      if (!payload || !payload.exp) return null;
+      return payload.exp * 1000;
+    } catch {
+      return null;
+    }
+  }
+
+  private scheduleAutoRefresh(token: string | null): void {
+    if (this.refreshTimer) {
+      clearTimeout(this.refreshTimer);
+      this.refreshTimer = null;
+    }
+
+    if (!token) return;
+
+    const expiryMs = this.getTokenExpiryMs(token);
+    if (!expiryMs) return;
+
+    // Refresh 90 seconds before token expires (or in 5 seconds if already very close)
+    const now = Date.now();
+    const refreshInMs = Math.max(5000, expiryMs - now - 90000);
+
+    if (expiryMs > now) {
+      this.refreshTimer = setTimeout(() => {
+        if (this.accessToken()) {
+          this.refreshSession().subscribe({
+            next: () => {
+              // Successfully refreshed token ahead of expiration
+            },
+            error: () => {
+              // SSO session may have expired
+            },
+          });
+        }
+      }, refreshInMs);
+    }
+  }
+
   private saveAccessToken(token: string | null): void {
     this.accessToken.set(token);
     if (token) {
@@ -441,6 +531,7 @@ export class AuthService {
     } else {
       localStorage.removeItem(ACCESS_TOKEN_KEY);
     }
+    this.scheduleAutoRefresh(token);
   }
 
   private saveUser(user: StudioUser | null): void {

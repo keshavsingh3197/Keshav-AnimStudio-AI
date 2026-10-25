@@ -26,6 +26,11 @@ public sealed class MongoProjectRepository(MongoDbService mongo) : IProjectRepos
             .SortByDescending(p => p.UpdatedAt)
             .ToListAsync(ct).ConfigureAwait(false);
 
+    public async Task<IReadOnlyList<Project>> ListSubProjectsAsync(string parentProjectId, CancellationToken ct) =>
+        await Collection.Find(p => p.ParentProjectId == parentProjectId)
+            .SortByDescending(p => p.UpdatedAt)
+            .ToListAsync(ct).ConfigureAwait(false);
+
     public Task InsertAsync(Project project, CancellationToken ct) =>
         Collection.InsertOneAsync(project, cancellationToken: ct);
 
@@ -154,6 +159,17 @@ public sealed class MongoAssetRepository(MongoDbService mongo) : IAssetRepositor
         await Collection.Find(a => a.ProjectId == projectId)
             .SortByDescending(a => a.CreatedAt)
             .ToListAsync(ct).ConfigureAwait(false);
+
+    public async Task<IReadOnlyList<Asset>> ListByProjectsAsync(
+        IEnumerable<string> projectIds, CancellationToken ct)
+    {
+        var list = projectIds.Where(id => !string.IsNullOrWhiteSpace(id)).Distinct().ToList();
+        if (list.Count == 0) return [];
+
+        return await Collection.Find(Builders<Asset>.Filter.In(a => a.ProjectId, list))
+            .SortByDescending(a => a.CreatedAt)
+            .ToListAsync(ct).ConfigureAwait(false);
+    }
 
     public async Task<IReadOnlyList<Asset>> GetManyAsync(
         IEnumerable<string> ids, CancellationToken ct)

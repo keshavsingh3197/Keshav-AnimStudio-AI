@@ -8,6 +8,12 @@
               <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.2" fill="none"><polyline points="15 18 9 12 15 6"/></svg>
               Projects
             </a>
+            @if (store.parentProject(); as parent) {
+              <span class="pw-crumb-sep">/</span>
+              <a [routerLink]="['/projects', parent.id]" class="pw-back-link" style="color: #a5b4fc; font-weight: 500;">
+                {{ parent.name }}
+              </a>
+            }
             <span class="pw-crumb-sep">/</span>
             <span class="pw-crumb-Format" [class.is-short]="format(project.width, project.height) === 'Short'">
               {{ format(project.width, project.height) }} ({{ aspect(project.width, project.height) }})

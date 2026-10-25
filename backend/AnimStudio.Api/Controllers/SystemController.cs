@@ -56,6 +56,14 @@ public sealed class SystemController(
     [HttpGet("admin-access")]
     public ActionResult<ApiResponse<AdminAccessResponse>> AdminAccess()
     {
+        // If an Authorization header was sent but authentication failed (e.g. expired JWT),
+        // return 401 Unauthorized so client interceptors proactively trigger silent token refresh.
+        if (Request.Headers.ContainsKey("Authorization") && User?.Identity?.IsAuthenticated != true)
+        {
+            Response.Headers.Append("WWW-Authenticate", "Bearer error=\"invalid_token\", error_description=\"The token is expired or invalid\"");
+            return Unauthorized(ApiResponse<AdminAccessResponse>.Fail("Authentication token expired or invalid."));
+        }
+
         var options = adminOptions.CurrentValue;
         var admitted = currentUser.IsAdmin && AdminAccessRules.IsAdmitted(options, HttpContext, User);
 
@@ -93,6 +101,14 @@ public sealed class SystemController(
     [Microsoft.AspNetCore.Authorization.AllowAnonymous]
     public ActionResult<ApiResponse<StudioSessionResponse>> Session([FromServices] ICurrentUser currentUser)
     {
+        // If an Authorization header was sent but authentication failed (e.g. expired JWT),
+        // return 401 Unauthorized so client interceptors proactively trigger silent token refresh.
+        if (Request.Headers.ContainsKey("Authorization") && User?.Identity?.IsAuthenticated != true)
+        {
+            Response.Headers.Append("WWW-Authenticate", "Bearer error=\"invalid_token\", error_description=\"The token is expired or invalid\"");
+            return Unauthorized(ApiResponse<StudioSessionResponse>.Fail("Authentication token expired or invalid."));
+        }
+
         var options = adminOptions.CurrentValue;
         return Ok(ApiResponse<StudioSessionResponse>.Ok(new StudioSessionResponse(
             currentUser.IsAuthenticated,

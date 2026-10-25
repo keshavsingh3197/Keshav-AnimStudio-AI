@@ -780,6 +780,21 @@
 }
 
 /* Type Badge (Top-Right) */
+.clip-top-right-badges {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 9;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  pointer-events: none;
+}
+.clip-top-right-badges .clip-type-badge {
+  position: static;
+  top: auto;
+  right: auto;
+}
 .clip-type-badge {
   position: absolute;
   top: 5px;
@@ -791,6 +806,11 @@
   border-radius: 3px;
   backdrop-filter: blur(4px);
   pointer-events: none;
+}
+.clip-type-badge.shared {
+  background: rgba(99, 102, 241, 0.35);
+  border: 1px solid rgba(129, 140, 248, 0.6);
+  color: #c7d2fe;
 }
 .clip-type-badge.ai {
   background: rgba(139, 92, 246, 0.35);

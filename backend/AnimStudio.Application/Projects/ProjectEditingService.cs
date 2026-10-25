@@ -43,6 +43,7 @@ public sealed record UpdateProjectCommand
     public double? DefaultImageDurationSeconds { get; init; }
     public bool? IsPinned { get; init; }
     public string? CustomThumbnail { get; init; }
+    public bool? UseSharedAssets { get; init; }
 }
 
 /// <summary>
@@ -55,6 +56,7 @@ public sealed class ProjectEditingService(
     ICharacterRepository characters,
     IAssetRepository assets,
     IObjectStore store,
+    AnimStudio.Application.Assets.AssetScopeService scope,
     TimeProvider clock)
 {
     /// <summary>Above 1 the bed is amplified; past 2 it simply clips.</summary>
@@ -92,7 +94,7 @@ public sealed class ProjectEditingService(
         {
             var asset = await assets.GetAsync(musicId, ct).ConfigureAwait(false);
 
-            if (asset is null || !string.Equals(asset.ProjectId, project.Id, StringComparison.Ordinal))
+            if (asset is null || !await scope.CanUseAssetAsync(asset, project.Id, ct).ConfigureAwait(false))
                 throw EditingException.Invalid("asset-not-found", "That file is not in this project.");
 
             if (asset.Kind != AssetKind.Audio)
@@ -154,6 +156,9 @@ public sealed class ProjectEditingService(
                 BrandChannel.IsDefault(command.BrandChannelId) ? null : command.BrandChannelId;
         }
 
+        if (command.UseSharedAssets is { } useShared)
+            project.Settings.UseSharedAssets = useShared;
+
         project.UpdatedAt = clock.GetUtcNow().UtcDateTime;
         await projects.ReplaceAsync(project, ct).ConfigureAwait(false);
 
@@ -181,12 +186,28 @@ public sealed class ProjectEditingService(
         if (!string.Equals(project.UserId, userId, StringComparison.Ordinal))
             throw new UnauthorizedAccessException();
 
+        var subProjects = await projects.ListSubProjectsAsync(projectId, ct).ConfigureAwait(false);
+        if (subProjects.Count > 0)
+            throw new InvalidOperationException("Delete or move this project's sub-projects first.");
+
         var files = await assets.ListByProjectAsync(projectId, ct).ConfigureAwait(false);
 
-        foreach (var asset in files)
+        if (project.IsSubProject && !string.IsNullOrEmpty(project.ParentProjectId))
         {
-            await assets.DeleteAsync(asset.Id, ct).ConfigureAwait(false);
-            await store.DeleteAsync(asset.StorageKey, ct).ConfigureAwait(false);
+            foreach (var asset in files)
+            {
+                asset.ProjectId = project.ParentProjectId;
+                asset.FolderId = null;
+                await assets.ReplaceAsync(asset, ct).ConfigureAwait(false);
+            }
+        }
+        else
+        {
+            foreach (var asset in files)
+            {
+                await assets.DeleteAsync(asset.Id, ct).ConfigureAwait(false);
+                await store.DeleteAsync(asset.StorageKey, ct).ConfigureAwait(false);
+            }
         }
 
         var cast = await characters.ListByProjectAsync(projectId, ct).ConfigureAwait(false);

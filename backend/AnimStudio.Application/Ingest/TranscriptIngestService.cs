@@ -26,6 +26,7 @@ public sealed class TranscriptIngestService(
     IOptions<IngestOptions> ingestOptions,
     IOptions<SegmentationOptions> segmentationOptions,
     TimeProvider clock,
+    AnimStudio.Application.Assets.AssetScopeService scope,
     ILogger<TranscriptIngestService> logger)
 {
     private readonly IngestOptions _options = ingestOptions.Value;
@@ -182,7 +183,7 @@ public sealed class TranscriptIngestService(
         var asset = await assets.GetAsync(command.SubtitleAssetId, ct).ConfigureAwait(false);
 
         if (asset is null
-            || !string.Equals(asset.ProjectId, command.ProjectId, StringComparison.Ordinal))
+            || !await scope.CanUseAssetAsync(asset, command.ProjectId, ct).ConfigureAwait(false))
         {
             throw new TranscriptIngestException("file-missing",
                 "That subtitle file is not in this project.");

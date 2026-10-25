@@ -83,6 +83,7 @@ export class ProjectSettingsComponent {
     contentType: 'video' as ProjectContentType,
     /** Null: use the studio-wide default. */
     imageDurationSeconds: null as number | null,
+    useSharedAssets: true,
   };
 
   /**
@@ -177,6 +178,7 @@ export class ProjectSettingsComponent {
         followChannelWatermark: project.followChannelWatermark ?? true,
         contentType: project.contentType ?? 'video',
         imageDurationSeconds: project.defaultImageDurationSeconds ?? null,
+        useSharedAssets: project.useSharedAssets ?? true,
       };
 
       this.presetIndex = this.matchPreset(project.width, project.height);
@@ -503,6 +505,7 @@ export class ProjectSettingsComponent {
         backgroundMusicVolume: this.form.musicVolumePercent / 100,
         // 0 tells the server to go back to the studio-wide default.
         defaultImageDurationSeconds: imageSeconds ?? 0,
+        useSharedAssets: this.form.useSharedAssets,
         defaultWatermark: {
           kind: this.form.defaultWatermarkKind,
           text: this.form.defaultWatermarkText.trim() || null,

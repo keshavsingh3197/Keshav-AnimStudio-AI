@@ -3,6 +3,7 @@ import { ActivatedRoute, Router, RouterLink, RouterLinkActive, RouterOutlet } fr
 
 import { AdminAccess } from '../../core/models/api.models';
 import { ApiService } from '../../core/services/api.service';
+import { AuthService } from '../../core/services/auth.service';
 import { StatusService } from '../../core/services/status.service';
 import { SETTINGS_GROUPS, SETTINGS_PAGES, searchSettings } from './settings-registry';
 
@@ -24,6 +25,7 @@ import { SETTINGS_GROUPS, SETTINGS_PAGES, searchSettings } from './settings-regi
 })
 export class AdminShellComponent {
   private readonly api = inject(ApiService);
+  private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
 
@@ -40,7 +42,26 @@ export class AdminShellComponent {
   @ViewChild('search') searchRef?: ElementRef<HTMLInputElement>;
 
   constructor() {
-    this.status.run(this.api.adminAccess(), (access) => this.access.set(access));
+    this.recheckAccess();
+  }
+
+  recheckAccess(): void {
+    this.status.run(this.api.adminAccess(), (access) => {
+      this.access.set(access);
+      if (!access.canAdminister && this.auth.isAdmin()) {
+        // Attempt silent refresh in case the token just expired
+        this.auth.refreshSession().subscribe({
+          next: () => {
+            this.status.run(this.api.adminAccess(), (refreshed) => this.access.set(refreshed));
+          },
+          error: () => {},
+        });
+      }
+    });
+  }
+
+  openSignIn(): void {
+    this.auth.openAuthModal();
   }
 
   openFirst(): void {

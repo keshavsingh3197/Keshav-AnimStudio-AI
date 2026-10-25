@@ -167,7 +167,8 @@ public sealed class ClipMergeService(
     ProjectStatusService status,
     ICurrentUser currentUser,
     TimeProvider clock,
-    IAiSettingsRepository aiSettings)
+    IAiSettingsRepository aiSettings,
+    AnimStudio.Application.Assets.AssetScopeService scope)
 {
     /// <summary>Longest crossfade offered. Beyond a second or two it reads as a mistake.</summary>
     private const double MaxTransitionSeconds = 3.0;
@@ -184,7 +185,7 @@ public sealed class ClipMergeService(
     {
         var project = await EnsureOwnedAsync(projectId, ct).ConfigureAwait(false);
 
-        var all = await assets.ListByProjectAsync(projectId, ct).ConfigureAwait(false);
+        var all = await scope.ListVisibleAssetsAsync(projectId, ct).ConfigureAwait(false);
         var clips = all.Where(a => (a.Kind == AssetKind.Video || a.Kind == AssetKind.Image) && a.IsUsableInScene).ToList();
         var savedPosition = project.Settings.ClipOrderAssetIds
             .Select((id, index) => (id, index))
@@ -235,7 +236,7 @@ public sealed class ClipMergeService(
                 $"A single video can be built from at most {ClipMergeSpec.MaxClips} clips.");
         }
 
-        var clips = await assets.ListByProjectAsync(projectId, ct).ConfigureAwait(false);
+        var clips = await scope.ListVisibleAssetsAsync(projectId, ct).ConfigureAwait(false);
         var usableIds = clips
             .Where(a => (a.Kind == AssetKind.Video || a.Kind == AssetKind.Image) && a.IsUsableInScene)
             .Select(a => a.Id)
@@ -358,6 +359,7 @@ public sealed class ClipMergeService(
         }
 
         var loaded = await assets.GetManyAsync(queryIds, ct).ConfigureAwait(false);
+        var visibleProjectIds = (await scope.GetVisibleProjectIdsAsync(projectId, ct).ConfigureAwait(false)).ToHashSet(StringComparer.Ordinal);
         var byId = new Dictionary<string, Asset>(StringComparer.Ordinal);
         foreach (var a in loaded)
         {
@@ -373,7 +375,7 @@ public sealed class ClipMergeService(
 
         foreach (var id in clipIds)
         {
-            var asset = Require(byId, id, projectId, "clip");
+            var asset = Require(byId, id, visibleProjectIds, "clip");
             if (asset.Kind != AssetKind.Video && asset.Kind != AssetKind.Image)
             {
                 throw EditingException.Invalid("not-a-video-or-image",
@@ -381,7 +383,7 @@ public sealed class ClipMergeService(
             }
         }
 
-        var watermark = ValidateWatermark(command.Watermark, byId, projectId);
+        var watermark = ValidateWatermark(command.Watermark, byId, visibleProjectIds);
 
         // The outro comes from saved settings, but its asset is still checked like any other:
         // a project's outro naming another project's file must not fetch that file.
@@ -395,7 +397,7 @@ public sealed class ClipMergeService(
             }
             else
             {
-                var asset = Require(byId, outroAssetId, projectId, "outro");
+                var asset = Require(byId, outroAssetId, visibleProjectIds, "outro");
                 var expected = outro!.Kind == OutroKind.Video ? AssetKind.Video : AssetKind.Image;
                 if (asset.Kind != expected)
                 {
@@ -407,7 +409,7 @@ public sealed class ClipMergeService(
 
         if (command.BackgroundMusicAssetId is { Length: > 0 } musicId)
         {
-            var asset = Require(byId, musicId, projectId, "music");
+            var asset = Require(byId, musicId, visibleProjectIds, "music");
 
             if (asset.Kind is not (AssetKind.Audio or AssetKind.Video))
             {
@@ -486,7 +488,7 @@ public sealed class ClipMergeService(
 
         foreach (var track in command.MusicTracks)
         {
-            var asset = Require(byId, track.AssetId, projectId, "music");
+            var asset = Require(byId, track.AssetId, visibleProjectIds, "music");
 
             if (asset.Kind is not (AssetKind.Audio or AssetKind.Video))
             {
@@ -539,7 +541,7 @@ public sealed class ClipMergeService(
 
                 if (entry.AudioAssetId is not { Length: > 0 } soundId) continue;
 
-                var asset = Require(byId, soundId, projectId, "sound");
+                var asset = Require(byId, soundId, visibleProjectIds, "sound");
 
                 if (asset.Kind is not (AssetKind.Audio or AssetKind.Video))
                 {
@@ -664,7 +666,7 @@ public sealed class ClipMergeService(
     /// </para>
     /// </summary>
     private static WatermarkSettings ValidateWatermark(
-        WatermarkSettings requested, Dictionary<string, Asset> byId, string projectId)
+        WatermarkSettings requested, Dictionary<string, Asset> byId, ISet<string> visibleProjectIds)
     {
         var watermark = new WatermarkSettings
         {
@@ -698,7 +700,7 @@ public sealed class ClipMergeService(
                         "Choose the image to use as the watermark, or turn the watermark off.");
                 }
 
-                var logo = Require(byId, logoId, projectId, "watermark");
+                var logo = Require(byId, logoId, visibleProjectIds, "watermark");
 
                 if (logo.Kind != AssetKind.Image)
                 {
@@ -827,12 +829,13 @@ public sealed class ClipMergeService(
             throw EditingException.Invalid("no-clips", "Choose at least one clip or picture to cut shorts from.");
 
         var loaded = await assets.GetManyAsync([.. sourceIds.Concat(musicIds)], ct).ConfigureAwait(false);
+        var visibleProjectIds = (await scope.GetVisibleProjectIdsAsync(projectId, ct).ConfigureAwait(false)).ToHashSet(StringComparer.Ordinal);
         var byId = loaded.ToDictionary(a => a.Id, StringComparer.Ordinal);
 
         var sources = new List<AutoShortSource>(sourceIds.Count);
         foreach (var id in sourceIds)
         {
-            var asset = Require(byId, id, projectId, "clip");
+            var asset = Require(byId, id, visibleProjectIds, "clip");
             if (asset.Kind is not (AssetKind.Video or AssetKind.Image) || !asset.IsUsableInScene)
                 throw EditingException.Invalid("not-a-video-or-image", $"'{asset.Name}' is not a video or image clip.");
             sources.Add(new AutoShortSource(asset.Id, asset.Kind, asset.Probe.DurationSeconds));
@@ -840,7 +843,7 @@ public sealed class ClipMergeService(
 
         foreach (var id in musicIds)
         {
-            var asset = Require(byId, id, projectId, "music");
+            var asset = Require(byId, id, visibleProjectIds, "music");
             if (asset.Kind is not (AssetKind.Audio or AssetKind.Video))
                 throw EditingException.Invalid("not-audio", $"'{asset.Name}' has no sound in it.");
         }
@@ -883,7 +886,7 @@ public sealed class ClipMergeService(
     }
 
     private static Asset Require(
-        Dictionary<string, Asset> byId, string assetId, string projectId, string role)
+        Dictionary<string, Asset> byId, string assetId, ISet<string> visibleProjectIds, string role)
     {
         if (!byId.TryGetValue(assetId, out var asset))
         {
@@ -892,9 +895,9 @@ public sealed class ClipMergeService(
         }
 
         if (asset is null
-            || (!string.Equals(asset.ProjectId, projectId, StringComparison.Ordinal)
-                && !string.Equals(asset.ProjectId, "global", StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(asset.ProjectId, "system", StringComparison.OrdinalIgnoreCase)))
+            || (!visibleProjectIds.Contains(asset.ProjectId) && !string.Equals(asset.ProjectId, "global", StringComparison.OrdinalIgnoreCase) && !string.Equals(asset.ProjectId, "system", StringComparison.OrdinalIgnoreCase)))
+//
+//
         {
             throw EditingException.Invalid($"{role}-not-found",
                 "One of the files you chose is no longer in this project.");

@@ -26,6 +26,43 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const token = auth.accessToken();
   const guestId = auth.guestId();
 
+  // If a token exists but has expired or is expiring imminently, proactively refresh it
+  // before making the request. This prevents lifetime validation failures and ensures
+  // anonymous/admin-access endpoints do not silently drop claims.
+  if (token && !isAuthRoute && auth.isTokenExpired(token)) {
+    return auth.refreshSession().pipe(
+      switchMap((res) => {
+        let refreshedHeaders = req.headers.set('Authorization', `Bearer ${res.accessToken}`);
+        if (refreshedHeaders.has('X-Guest-Id')) {
+          refreshedHeaders = refreshedHeaders.delete('X-Guest-Id');
+        }
+        return next(
+          req.clone({
+            headers: refreshedHeaders,
+            withCredentials: true,
+          })
+        );
+      }),
+      catchError((refreshErr) => {
+        auth.clearLocalSession();
+        // If it was a public session or access check, fall back to guest headers gracefully
+        if (req.url.includes('/api/system/session') || req.url.includes('/api/system/admin-access')) {
+          let guestHeaders = req.headers.delete('Authorization');
+          if (!guestHeaders.has('X-Guest-Id')) {
+            guestHeaders = guestHeaders.set('X-Guest-Id', auth.guestId());
+          }
+          return next(
+            req.clone({
+              headers: guestHeaders,
+              withCredentials: true,
+            })
+          );
+        }
+        return throwError(() => refreshErr);
+      })
+    );
+  }
+
   let headers = req.headers;
   if (token) {
     if (!headers.has('Authorization')) {

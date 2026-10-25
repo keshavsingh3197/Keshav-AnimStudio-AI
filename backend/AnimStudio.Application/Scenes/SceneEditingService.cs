@@ -24,6 +24,7 @@ public sealed class SceneEditingService(
     ICharacterRepository characters,
     IAssetRepository assets,
     ProjectStatusService status,
+    AnimStudio.Application.Assets.AssetScopeService scope,
     TimeProvider clock)
 {
     /// <summary>An hour. Long enough for any single shot, short enough to catch a stray unit.</summary>
@@ -876,7 +877,7 @@ public sealed class SceneEditingService(
     {
         var asset = await assets.GetAsync(assetId, ct).ConfigureAwait(false);
 
-        if (asset is null || !string.Equals(asset.ProjectId, projectId, StringComparison.Ordinal))
+        if (asset is null || !await scope.CanUseAssetAsync(asset, projectId, ct).ConfigureAwait(false))
             throw EditingException.Invalid("asset-not-found", "That file is not in this project.");
 
         if (asset.Kind != kind && asset.Kind != alternate)

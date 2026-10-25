@@ -82,6 +82,7 @@ public sealed class MediaTranscriptionService(
     ISubtitleParser parser,
     IOptions<IngestOptions> ingestOptions,
     TimeProvider clock,
+    AnimStudio.Application.Assets.AssetScopeService scope,
     ILogger<MediaTranscriptionService> logger)
 {
     public static readonly TimeSpan PartLength = TimeSpan.FromMinutes(10);
@@ -209,7 +210,7 @@ public sealed class MediaTranscriptionService(
         }
 
         var asset = await assets.GetAsync(command.AssetId, ct).ConfigureAwait(false);
-        if (asset is null || !string.Equals(asset.ProjectId, command.ProjectId, StringComparison.Ordinal))
+        if (asset is null || !await scope.CanUseAssetAsync(asset, command.ProjectId, ct).ConfigureAwait(false))
             throw new MediaTranscriptionException("asset-not-found", "That file is not in this project.");
 
         return asset;

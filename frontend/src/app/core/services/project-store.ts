@@ -19,6 +19,7 @@ export class ProjectStore {
   private readonly status = inject(StatusService);
 
   readonly project = signal<Project | null>(null);
+  readonly parentProject = signal<Project | null>(null);
 
   /** Cheap to fetch - the server probes ffmpeg once at startup - and every screen wants it. */
   readonly renderer = signal<RendererStatus | null>(null);
@@ -57,6 +58,7 @@ export class ProjectStore {
       // Cleared before the new project arrives, so no screen ever shows - or acts on - the
       // previous project's files, cast or scenes while the next one is loading.
       this.project.set(null);
+      this.parentProject.set(null);
       this.assets.set([]);
       this.folders.set([]);
       this.characters.set([]);
@@ -81,6 +83,15 @@ export class ProjectStore {
         this.characters.set(loaded.characters);
         this.scenes.set(loaded.scenes);
         this.renderer.set(loaded.renderer);
+
+        if (loaded.project.parentProjectId) {
+          this.api.getProject(loaded.project.parentProjectId).subscribe({
+            next: (p) => { if (this.currentId === projectId) this.parentProject.set(p); },
+            error: () => {},
+          });
+        } else {
+          this.parentProject.set(null);
+        }
       });
   }
 

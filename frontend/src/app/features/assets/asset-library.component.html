@@ -212,6 +212,14 @@
           }
         </div>
 
+        @if (isInFamily()) {
+          <div class="ownership-filter-segment" style="display: flex; gap: 0.2rem; background: rgba(255,255,255,0.06); padding: 0.2rem; border-radius: 6px; border: 1px solid var(--border);">
+            <button type="button" class="btn-filter-pill" (click)="ownershipFilter.set('all'); currentPage.set(1)" [style.background]="ownershipFilter() === 'all' ? 'rgba(99,102,241,0.3)' : 'transparent'" [style.color]="ownershipFilter() === 'all' ? '#fff' : '#94a3b8'" style="padding: 3px 8px; font-size: 0.78rem; border: none; border-radius: 4px; cursor: pointer;">All</button>
+            <button type="button" class="btn-filter-pill" (click)="ownershipFilter.set('own'); currentPage.set(1)" [style.background]="ownershipFilter() === 'own' ? 'rgba(99,102,241,0.3)' : 'transparent'" [style.color]="ownershipFilter() === 'own' ? '#fff' : '#94a3b8'" style="padding: 3px 8px; font-size: 0.78rem; border: none; border-radius: 4px; cursor: pointer;">Own</button>
+            <button type="button" class="btn-filter-pill" (click)="ownershipFilter.set('shared'); currentPage.set(1)" [style.background]="ownershipFilter() === 'shared' ? 'rgba(99,102,241,0.3)' : 'transparent'" [style.color]="ownershipFilter() === 'shared' ? '#fff' : '#94a3b8'" style="padding: 3px 8px; font-size: 0.78rem; border: none; border-radius: 4px; cursor: pointer;">Shared</button>
+          </div>
+        }
+
         <!-- Sort Control -->
         <div class="sort-control">
           <select [ngModel]="sortBy()" (ngModelChange)="toggleSort($event)" class="form-select form-select-sm">
@@ -319,6 +327,9 @@
             <div class="asset-card-body">
               <div class="asset-card-title-row">
                 <span class="asset-name" [title]="asset.name">{{ asset.name }}</span>
+                @if (isSharedAsset(asset)) {
+                  <span class="shared-chip" title="Shared from another project in this collection" style="background: rgba(99, 102, 241, 0.2); color: #a5b4fc; font-size: 0.68rem; font-weight: 600; padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(99, 102, 241, 0.4); margin-left: auto; flex-shrink: 0;">Shared</span>
+                }
               </div>
 
               <div class="asset-card-meta">
@@ -341,17 +352,19 @@
                   {{ copiedAssetId() === asset.id ? '✓ Copied' : '# ID' }}
                 </button>
 
-                @if (confirming() === asset.id) {
-                  <div class="confirm-delete-box">
-                    <button type="button" class="btn-delete-confirm" (click)="remove(asset.id)">Confirm</button>
-                    <button type="button" class="btn-cancel" (click)="confirming.set(null)">✕</button>
-                  </div>
-                } @else {
-                  <button type="button" class="action-btn danger" (click)="confirming.set(asset.id)" title="Delete asset">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                    </svg>
-                  </button>
+                @if (!isSharedAsset(asset)) {
+                  @if (confirming() === asset.id) {
+                    <div class="confirm-delete-box">
+                      <button type="button" class="btn-delete-confirm" (click)="remove(asset.id)">Confirm</button>
+                      <button type="button" class="btn-cancel" (click)="confirming.set(null)">✕</button>
+                    </div>
+                  } @else {
+                    <button type="button" class="action-btn danger" (click)="confirming.set(asset.id)" title="Delete asset">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                      </svg>
+                    </button>
+                  }
                 }
               </div>
             </div>
@@ -401,6 +414,9 @@
                 </td>
                 <td style="word-break: break-all;">
                   <strong class="asset-table-name" (click)="openPreview(asset)">{{ asset.name }}</strong>
+                  @if (isSharedAsset(asset)) {
+                    <span class="shared-chip" title="Shared from another project in this collection" style="background: rgba(99, 102, 241, 0.2); color: #a5b4fc; font-size: 0.68rem; font-weight: 600; padding: 2px 5px; border-radius: 4px; border: 1px solid rgba(99, 102, 241, 0.4); margin-left: 6px;">Shared</span>
+                  }
                 </td>
                 <td>
                   <span class="kind-badge" [attr.data-kind]="asset.kind">{{ asset.kind }}</span>
@@ -414,20 +430,22 @@
                 </td>
                 <td class="mono">{{ formatFileSize(asset.fileSizeBytes) }}</td>
                 <td style="text-align: right; white-space: nowrap">
-                  @if (confirming() === asset.id) {
-                    <button class="danger btn-sm" type="button" (click)="remove(asset.id)">Confirm</button>
-                    <button class="secondary btn-sm" type="button" (click)="confirming.set(null)">Keep</button>
-                  } @else {
-                    <button class="action-btn btn-sm" type="button" (click)="openPreview(asset)" title="Inspect">▶</button>
-                    @if (isImage(asset)) {
-                      <button class="action-btn btn-sm" type="button" (click)="setAsProjectThumbnail(asset)" title="Use as project thumbnail">🖼</button>
+                  <button class="action-btn btn-sm" type="button" (click)="openPreview(asset)" title="Inspect">▶</button>
+                  @if (isImage(asset)) {
+                    <button class="action-btn btn-sm" type="button" (click)="setAsProjectThumbnail(asset)" title="Use as project thumbnail">🖼</button>
+                  }
+                  <button class="action-btn btn-sm" type="button" (click)="copyAssetId(asset.id)" title="Copy ID">#</button>
+                  @if (!isSharedAsset(asset)) {
+                    @if (confirming() === asset.id) {
+                      <button class="danger btn-sm" type="button" (click)="remove(asset.id)">Confirm</button>
+                      <button class="secondary btn-sm" type="button" (click)="confirming.set(null)">Keep</button>
+                    } @else {
+                      <button class="action-btn danger btn-sm" type="button" (click)="confirming.set(asset.id)" title="Delete">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                        </svg>
+                      </button>
                     }
-                    <button class="action-btn btn-sm" type="button" (click)="copyAssetId(asset.id)" title="Copy ID">#</button>
-                    <button class="action-btn danger btn-sm" type="button" (click)="confirming.set(asset.id)" title="Delete">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                      </svg>
-                    </button>
                   }
                 </td>
               </tr>

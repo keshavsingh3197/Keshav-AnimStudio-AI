@@ -324,13 +324,18 @@
             }
 
             <!-- Top-Right Media Type Badge -->
-            @if (state.getClipType(row.clip) === 'ai') {
-              <span class="clip-type-badge ai" title="AI Generated">✨ AI</span>
-            } @else if (state.getClipType(row.clip) === 'image') {
-              <span class="clip-type-badge img" title="Image Asset">🖼 IMG</span>
-            } @else if (state.getClipType(row.clip) === 'audio') {
-              <span class="clip-type-badge aud" title="Audio Track">🎵 AUD</span>
-            }
+            <div class="clip-top-right-badges">
+              @if (isShared(row.clip)) {
+                <span class="clip-type-badge shared" title="Shared from project family">🔗 Shared</span>
+              }
+              @if (state.getClipType(row.clip) === 'ai') {
+                <span class="clip-type-badge ai" title="AI Generated">✨ AI</span>
+              } @else if (state.getClipType(row.clip) === 'image') {
+                <span class="clip-type-badge img" title="Image Asset">🖼 IMG</span>
+              } @else if (state.getClipType(row.clip) === 'audio') {
+                <span class="clip-type-badge aud" title="Audio Track">🎵 AUD</span>
+              }
+            </div>
 
             <!-- Bottom-Right Duration Badge -->
             @if (row.clip.durationSeconds) {

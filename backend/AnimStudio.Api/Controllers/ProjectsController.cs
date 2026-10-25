@@ -26,14 +26,20 @@ public sealed class ProjectsController(
         CancellationToken ct)
     {
         var list = await projects.ListAsync(currentUser.UserId, ct);
-        return Ok(ApiResponse<IReadOnlyList<ProjectResponse>>.Ok([.. list.Select(p => p.ToResponse())]));
+        var subProjectCounts = list.Where(p => !string.IsNullOrEmpty(p.ParentProjectId))
+            .GroupBy(p => p.ParentProjectId!)
+            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+
+        return Ok(ApiResponse<IReadOnlyList<ProjectResponse>>.Ok(
+            [.. list.Select(p => p.ToResponse(subProjectCounts.GetValueOrDefault(p.Id, 0)))]));
     }
 
     [HttpGet("{id}")]
     public async Task<ActionResult<ApiResponse<ProjectResponse>>> Get(string id, CancellationToken ct)
     {
         var project = await LoadOwnedAsync(id, ct);
-        return Ok(ApiResponse<ProjectResponse>.Ok(project.ToResponse()));
+        var subProjects = await projects.ListSubProjectsAsync(id, ct);
+        return Ok(ApiResponse<ProjectResponse>.Ok(project.ToResponse(subProjects.Count)));
     }
 
     [HttpPost]
@@ -157,7 +163,8 @@ public sealed class ProjectsController(
             BrandChannelId = request.BrandChannelId,
             FollowChannelWatermark = request.FollowChannelWatermark,
             DefaultImageDurationSeconds = request.DefaultImageDurationSeconds,
-            ContentType = request.ContentType is null ? null : ProjectContentTypes.Parse(request.ContentType)
+            ContentType = request.ContentType is null ? null : ProjectContentTypes.Parse(request.ContentType),
+            UseSharedAssets = request.UseSharedAssets
         }, ct);
 
         return Ok(ApiResponse<ProjectResponse>.Ok(project.ToResponse()));
@@ -169,6 +176,51 @@ public sealed class ProjectsController(
         if (BrandChannel.IsDefault(channelId) || settings?.FindChannel(channelId) is not null) return null;
         const string message = "That brand channel no longer exists. Pick another in project settings.";
         return new BadRequestObjectResult(ApiResponse<EmptyPayload>.Fail(message, new ApiError("unknown-channel", message)));
+    }
+
+    [HttpPost("{id}/subprojects")]
+    public async Task<ActionResult<ApiResponse<ProjectResponse>>> CreateSubProject(
+        string id, [FromBody] CreateSubProjectRequest request, CancellationToken ct)
+    {
+        var parent = await LoadOwnedAsync(id, ct);
+        if (parent.IsSubProject)
+        {
+            const string msg = "Sub-projects cannot contain sub-projects.";
+            return BadRequest(ApiResponse<ProjectResponse>.Fail(msg, new ApiError("nesting-not-allowed", msg)));
+        }
+
+        var now = clock.GetUtcNow().UtcDateTime;
+        var subProject = new Project
+        {
+            Id = MongoDB.Bson.ObjectId.GenerateNewId().ToString(),
+            UserId = currentUser.UserId,
+            ParentProjectId = parent.Id,
+            Name = request.Name.Trim(),
+            Description = request.Description?.Trim(),
+            Status = ProjectStatus.Draft,
+            Settings = new ProjectSettings
+            {
+                Width = parent.Settings.Width,
+                Height = parent.Settings.Height,
+                FrameRateNum = parent.Settings.FrameRateNum,
+                FrameRateDen = parent.Settings.FrameRateDen,
+                DistributionIntent = parent.Settings.DistributionIntent,
+                ContentType = parent.Settings.ContentType,
+                BrandChannelId = parent.Settings.BrandChannelId,
+                FollowChannelWatermark = parent.Settings.FollowChannelWatermark,
+                DefaultWatermark = parent.Settings.DefaultWatermark,
+                DefaultOutro = parent.Settings.DefaultOutro,
+                DefaultImageDurationSeconds = parent.Settings.DefaultImageDurationSeconds,
+                UseSharedAssets = request.UseSharedAssets
+            },
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+
+        await projects.InsertAsync(subProject, ct);
+
+        return CreatedAtAction(nameof(Get), new { id = subProject.Id },
+            ApiResponse<ProjectResponse>.Ok(subProject.ToResponse(0)));
     }
 
     [HttpPost("{id}/duplicate")]
@@ -186,6 +238,14 @@ public sealed class ProjectsController(
     public async Task<ActionResult<ApiResponse<EmptyPayload>>> Delete(
         string id, [FromServices] IProjectEditRepository edits, CancellationToken ct)
     {
+        var subProjects = await projects.ListSubProjectsAsync(id, ct);
+        if (subProjects.Count > 0)
+        {
+            const string msg = "Delete or move this project's sub-projects first.";
+            return StatusCode(StatusCodes.Status409Conflict,
+                ApiResponse<EmptyPayload>.Fail(msg, new ApiError("has-subprojects", msg)));
+        }
+
         await editing.DeleteAsync(id, currentUser.UserId, ct);
 
         // Only reached once the delete above confirmed ownership.

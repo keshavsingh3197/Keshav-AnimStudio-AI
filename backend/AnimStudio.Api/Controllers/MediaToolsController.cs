@@ -31,6 +31,7 @@ public sealed class MediaToolsController(
     ICurrentUser currentUser,
     ContentPlanningService planning,
     AppDataPaths dataPaths,
+    AnimStudio.Application.Assets.AssetScopeService scope,
     ILogger<MediaToolsController> logger) : ControllerBase
 {
     private const int MaxFolderNameLength = 100;
@@ -305,7 +306,7 @@ public sealed class MediaToolsController(
             if (sourceAsset is null
                 || !await IsOwnedAssetAsync(sourceAsset, ct)
                 || (targetProject is not null
-                    && !string.Equals(sourceAsset.ProjectId, targetProject.Id, StringComparison.Ordinal)
+                    && !await scope.CanUseAssetAsync(sourceAsset, targetProject.Id, ct)
                     && !IsSharedLibrary(sourceAsset.ProjectId)))
             {
                 return NotFound(ApiResponse<VideoChunkResult>.Fail("Asset not found.", new ApiError("asset-not-found", "Asset not found.")));

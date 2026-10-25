@@ -15,6 +15,7 @@ public interface IProjectRepository
 
     /// <summary>Every user's projects. Administration only - e.g. counting what uses a brand channel.</summary>
     Task<IReadOnlyList<Project>> ListAllAsync(CancellationToken ct);
+    Task<IReadOnlyList<Project>> ListSubProjectsAsync(string parentProjectId, CancellationToken ct);
     Task InsertAsync(Project project, CancellationToken ct);
     Task ReplaceAsync(Project project, CancellationToken ct);
     Task DeleteAsync(string id, CancellationToken ct);
@@ -66,6 +67,7 @@ public interface IAssetRepository
 {
     Task<Asset?> GetAsync(string id, CancellationToken ct);
     Task<IReadOnlyList<Asset>> ListByProjectAsync(string projectId, CancellationToken ct);
+    Task<IReadOnlyList<Asset>> ListByProjectsAsync(IEnumerable<string> projectIds, CancellationToken ct);
     Task<IReadOnlyList<Asset>> GetManyAsync(IEnumerable<string> ids, CancellationToken ct);
     Task InsertAsync(Asset asset, CancellationToken ct);
     Task ReplaceAsync(Asset asset, CancellationToken ct);
