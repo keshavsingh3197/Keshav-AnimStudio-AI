@@ -424,34 +424,39 @@ export class LoginModalComponent {
   }
 
   submitTwoFactor() {
-    if (!this.twoFactorCode) return;
+    const code = this.twoFactorCode.trim();
+    const token = this.twoFactorToken();
+    if (!code) return;
 
     this.loading.set(true);
     this.errorMessage.set(null);
 
-    this.auth
-      .login({
-        email: this.email,
-        password: this.password,
-        twoFactorCode: this.twoFactorCode,
-      })
-      .subscribe({
-        next: (res) => {
-          this.loading.set(false);
-          if (res.success) {
-            this.status.showNotice(`Welcome back, ${res.user?.displayName || 'User'}!`);
-            this.resetForm();
-            this.email = '';
-            this.password = '';
-          } else {
-            this.errorMessage.set(res.error || 'Invalid verification code.');
-          }
-        },
-        error: (err) => {
-          this.loading.set(false);
-          this.errorMessage.set(err?.message || 'Verification failed.');
-        },
-      });
+    const req$ = token
+      ? this.auth.verifyTwoFactor({ twoFactorToken: token, code, method: 0 })
+      : this.auth.login({
+          email: this.email,
+          password: this.password,
+          twoFactorCode: code,
+          twoFactorToken: token ?? undefined,
+        });
+
+    req$.subscribe({
+      next: (res) => {
+        this.loading.set(false);
+        if (res.success) {
+          this.status.showNotice(`Welcome back, ${res.user?.displayName || 'User'}!`);
+          this.resetForm();
+          this.email = '';
+          this.password = '';
+        } else {
+          this.errorMessage.set(res.error || 'Invalid verification code.');
+        }
+      },
+      error: (err) => {
+        this.loading.set(false);
+        this.errorMessage.set(err?.message || 'Verification failed.');
+      },
+    });
   }
 }
 

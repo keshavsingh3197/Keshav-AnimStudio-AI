@@ -40,18 +40,27 @@ public sealed class AuthController(
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] StudioLoginRequest request, CancellationToken ct)
     {
+        // If twoFactorToken and code are supplied, route to 2FA verify
+        if (!string.IsNullOrWhiteSpace(request.TwoFactorToken) && !string.IsNullOrWhiteSpace(request.TwoFactorCode))
+        {
+            return await VerifyTwoFactor(new StudioTwoFactorVerifyRequest(
+                request.TwoFactorToken,
+                request.TwoFactorCode,
+                string.IsNullOrWhiteSpace(request.RecoveryCode) ? 0 : 2), ct).ConfigureAwait(false);
+        }
+
         try
         {
-            var idpUrl = options.CurrentValue.Jwt.Issuer == "keshavsingh-idp"
-                ? "https://id.keshavsingh.in/api/sso/login"
-                : "http://localhost:5000/api/sso/login";
+            var idpBase = options.CurrentValue.Jwt.Issuer == "keshavsingh-idp"
+                ? "https://id.keshavsingh.in"
+                : "http://localhost:5000";
+
+            var idpUrl = $"{idpBase}/api/sso/login";
 
             var payload = new
             {
                 email = request.Email?.Trim(),
                 password = request.Password,
-                twoFactorCode = request.TwoFactorCode,
-                recoveryCode = request.RecoveryCode,
                 appKey = StudioAppKey
             };
 
@@ -83,6 +92,55 @@ public sealed class AuthController(
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to authenticate via central IdP.");
+            return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                ApiResponse<EmptyPayload>.Fail("Identity service unavailable. Please try again shortly."));
+        }
+    }
+
+    [HttpPost("2fa/verify")]
+    public async Task<IActionResult> VerifyTwoFactor([FromBody] StudioTwoFactorVerifyRequest request, CancellationToken ct)
+    {
+        try
+        {
+            var idpBase = options.CurrentValue.Jwt.Issuer == "keshavsingh-idp"
+                ? "https://id.keshavsingh.in"
+                : "http://localhost:5000";
+
+            var verifyUrl = $"{idpBase}/api/sso/2fa/verify?app={StudioAppKey}";
+
+            var payload = new
+            {
+                twoFactorToken = request.TwoFactorToken,
+                code = request.Code?.Trim(),
+                method = request.Method ?? 0
+            };
+
+            var client = httpFactory.CreateClient("IdP");
+            using var msg = new HttpRequestMessage(HttpMethod.Post, verifyUrl)
+            {
+                Content = new StringContent(JsonSerializer.Serialize(payload, JsonOpts), Encoding.UTF8, "application/json")
+            };
+
+            if (HttpContext.Connection.RemoteIpAddress is { } ip)
+                msg.Headers.TryAddWithoutValidation("X-Forwarded-For", ip.ToString());
+            if (Request.Headers.UserAgent.ToString() is { Length: > 0 } ua)
+                msg.Headers.TryAddWithoutValidation("User-Agent", ua);
+
+            using var resp = await client.SendAsync(msg, ct).ConfigureAwait(false);
+            var content = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+
+            ForwardResponseCookies(resp);
+
+            return new ContentResult
+            {
+                StatusCode = (int)resp.StatusCode,
+                Content = content,
+                ContentType = "application/json"
+            };
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to verify 2FA via central IdP.");
             return StatusCode(StatusCodes.Status503ServiceUnavailable,
                 ApiResponse<EmptyPayload>.Fail("Identity service unavailable. Please try again shortly."));
         }
@@ -171,7 +229,13 @@ public sealed record StudioLoginRequest(
     string? Email,
     string? Password,
     string? TwoFactorCode = null,
-    string? RecoveryCode = null);
+    string? RecoveryCode = null,
+    string? TwoFactorToken = null);
+
+public sealed record StudioTwoFactorVerifyRequest(
+    string TwoFactorToken,
+    string Code,
+    int? Method = 0);
 
 public sealed record AuthMeResponse(
     bool IsAuthenticated,
@@ -180,4 +244,3 @@ public sealed record AuthMeResponse(
     string? Email,
     bool IsAdmin,
     IReadOnlyList<string> Roles);
-

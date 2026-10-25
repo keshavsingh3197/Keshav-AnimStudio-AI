@@ -40,7 +40,14 @@ export interface LoginCredentials {
   email: string;
   password: string;
   twoFactorCode?: string;
+  twoFactorToken?: string;
   recoveryCode?: string;
+}
+
+export interface TwoFactorVerifyCredentials {
+  twoFactorToken: string;
+  code: string;
+  method?: number;
 }
 
 export interface LoginResult {

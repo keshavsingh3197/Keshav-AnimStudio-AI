@@ -10,6 +10,7 @@ import {
   LoginResult,
   StudioSession,
   StudioUser,
+  TwoFactorVerifyCredentials,
 } from '../models/auth.models';
 
 const ACCESS_TOKEN_KEY = 'animstudio_access_token';
@@ -129,6 +130,14 @@ export class AuthService {
   }
 
   login(credentials: LoginCredentials): Observable<LoginResult> {
+    if (credentials.twoFactorCode && credentials.twoFactorToken) {
+      return this.verifyTwoFactor({
+        twoFactorToken: credentials.twoFactorToken,
+        code: credentials.twoFactorCode,
+        method: 0,
+      });
+    }
+
     return this.http
       .post<any>(`${this.base}/api/auth/login`, credentials, {
         withCredentials: true,
@@ -197,6 +206,63 @@ export class AuthService {
             err?.error?.error ||
             err?.message ||
             'Failed to connect to authentication service.';
+          return of({ success: false, error: message });
+        })
+      );
+  }
+
+  verifyTwoFactor(credentials: TwoFactorVerifyCredentials): Observable<LoginResult> {
+    return this.http
+      .post<any>(`${this.base}/api/auth/2fa/verify`, credentials, {
+        withCredentials: true,
+        headers: { 'X-Guest-Id': this.guestId() },
+      })
+      .pipe(
+        map((resp) => {
+          const data = resp?.data ?? resp;
+
+          const token =
+            data.accessToken ||
+            data.tokens?.accessToken ||
+            data.session?.accessToken;
+
+          const userInfo =
+            data.user ||
+            data.tokens?.user ||
+            data.session?.user;
+
+          if (token && userInfo) {
+            this.saveAccessToken(token);
+            const roles: string[] = Array.isArray(userInfo.roles) ? userInfo.roles : [];
+            const studioUser: StudioUser = {
+              userId: userInfo.id || userInfo.userId,
+              email: userInfo.email,
+              displayName: userInfo.displayName || userInfo.username || userInfo.email,
+              isAuthenticated: true,
+              isAdmin: roles.some((r: string) => r.toLowerCase() === 'admin'),
+              roles,
+            };
+            this.saveUser(studioUser);
+            this.closeAuthModal();
+            this.fetchSystemSession().subscribe();
+            return { success: true, user: studioUser };
+          }
+
+          if (data.error || data.message) {
+            return {
+              success: false,
+              error: data.error || data.message,
+            };
+          }
+
+          return { success: false, error: 'Invalid verification code.' };
+        }),
+        catchError((err) => {
+          const message =
+            err?.error?.message ||
+            err?.error?.error ||
+            err?.message ||
+            'Failed to verify authentication code.';
           return of({ success: false, error: message });
         })
       );
