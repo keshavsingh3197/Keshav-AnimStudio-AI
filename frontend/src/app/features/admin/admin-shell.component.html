@@ -1,5 +1,6 @@
 @if (access(); as access) {
-  <div class="settings-layout studio-wide-page">
+  @if (access.canAdminister) {
+    <div class="settings-layout studio-wide-page">
     <aside class="settings-nav" aria-label="Settings">
       <div class="settings-nav-head">
         <div class="settings-title-row">
@@ -58,24 +59,24 @@
     </aside>
 
     <main class="settings-main">
-      @if (!access.canAdminister) {
-        <div class="notice error">{{ access.explanation }}</div>
-        <div class="empty">
-          <p>There is nothing to show here from this browser.</p>
-          <p class="muted">
-            Open AnimStudio on the machine the server is running on, or sign in with an account
-            that has the Admin role.
-          </p>
-          <div style="margin-top: 1.25rem; display: flex; gap: 0.75rem; justify-content: center;">
-            <button class="btn btn-secondary" (click)="recheckAccess()">Verify Access</button>
-            <button class="btn btn-primary" (click)="openSignIn()">Sign In</button>
-          </div>
-        </div>
-      } @else {
-        <router-outlet />
-      }
+      <router-outlet />
     </main>
   </div>
+} @else {
+  <div class="unauthorized-container" style="display: flex; justify-content: center; align-items: center; min-height: 60vh; padding: 2rem;">
+    <div class="empty" style="max-width: 480px; text-align: center; background: rgba(20,26,42,0.9); border: 1px solid rgba(148,163,184,0.16); border-radius: 14px; padding: 2.5rem 2rem; box-shadow: 0 16px 40px rgba(0,0,0,0.5);">
+      <div class="notice error" style="margin-bottom: 1.25rem;">{{ access.explanation }}</div>
+      <h2 style="font-size: 1.25rem; font-weight: 700; color: #f1f5f9; margin-bottom: 0.5rem;">Access Restricted</h2>
+      <p class="muted" style="color: #94a3b8; font-size: 0.9rem; line-height: 1.5; margin-bottom: 1.5rem;">
+        Sign in with an account that has the Administrator role to access server settings.
+      </p>
+      <div style="display: flex; gap: 0.75rem; justify-content: center;">
+        <button class="btn btn-secondary" (click)="recheckAccess()">Verify Access</button>
+        <button class="btn btn-primary" (click)="openSignIn()">Sign In</button>
+      </div>
+    </div>
+  </div>
+}
 } @else {
   <div class="card muted" style="display: flex; align-items: center; gap: 0.65rem">
     <span class="spinner"></span> Loading&hellip;

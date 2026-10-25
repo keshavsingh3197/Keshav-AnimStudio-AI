@@ -17,7 +17,7 @@ export const adminGuard: CanActivateFn = () => {
   }
 
   status.showError('Access restricted: Administrator role required.');
-  return router.parseUrl('/projects');
+  return router.parseUrl('/not-found');
 };
 
 /**

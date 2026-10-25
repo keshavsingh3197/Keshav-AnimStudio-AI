@@ -1,8 +1,10 @@
 import { Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { firstValueFrom } from 'rxjs';
 import { AuthService } from '../core/services/auth.service';
 import { StatusService } from '../core/services/status.service';
 import { environment } from '../../environments/environment';
+import { createPasskeyErrorMessage, getPasskeyAssertion, isPasskeySupported, ServerCredentialOptions } from '../core/services/webauthn';
 
 @Component({
   selector: 'app-login-modal',
@@ -120,6 +122,14 @@ import { environment } from '../../environments/environment';
                   </button>
                 </div>
               </form>
+
+              @if (passkeySupported) {
+                <div class="or-divider"><span>or</span></div>
+                <button class="btn-passkey" type="button" [disabled]="loading() || passkeyLoading()"
+                        (click)="signInWithPasskey()">
+                  🔑 {{ passkeyLoading() ? 'Waiting for passkey…' : 'Sign in with a passkey' }}
+                </button>
+              }
             }
           </div>
 
@@ -402,6 +412,52 @@ import { environment } from '../../environments/environment';
       text-decoration: underline;
     }
 
+    .or-divider {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin: 1.15rem 0;
+      color: #64748b;
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .or-divider::before, .or-divider::after {
+      content: '';
+      flex: 1;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .btn-passkey {
+      width: 100%;
+      box-sizing: border-box;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      padding: 0.65rem 1rem;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: #f1f5f9;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      cursor: pointer;
+      transition: all 0.16s ease;
+    }
+
+    .btn-passkey:hover:not(:disabled) {
+      background: rgba(108, 140, 255, 0.12);
+      border-color: rgba(108, 140, 255, 0.45);
+      color: #b4cbff;
+    }
+
+    .btn-passkey:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
     @keyframes fadeIn {
       from { opacity: 0; }
       to { opacity: 1; }
@@ -431,6 +487,8 @@ export class LoginModalComponent {
   readonly isBackupMode = signal(false);
 
   readonly registerUrl = `${environment.adminUrl}/register?app=studio`;
+  readonly passkeySupported = isPasskeySupported();
+  readonly passkeyLoading = signal(false);
 
   onBackdropClick(event: MouseEvent) {
     if ((event.target as HTMLElement).classList.contains('modal-backdrop')) {
@@ -474,6 +532,7 @@ export class LoginModalComponent {
                 this.resetForm();
                 this.email = '';
                 this.password = '';
+                this.auth.closeAuthModal();
               } else {
                 this.errorMessage.set(cRes.error || 'Failed to establish session.');
               }
@@ -488,6 +547,7 @@ export class LoginModalComponent {
           this.resetForm();
           this.email = '';
           this.password = '';
+          this.auth.closeAuthModal();
         } else {
           this.errorMessage.set(res.error || 'Invalid email or password.');
         }
@@ -528,6 +588,7 @@ export class LoginModalComponent {
           this.resetForm();
           this.email = '';
           this.password = '';
+          this.auth.closeAuthModal();
         } else if (res.requiresSessionConfirmation && res.sessionConfirmationTicket) {
           this.loading.set(true);
           this.auth.confirmSession(res.sessionConfirmationTicket).subscribe({
@@ -538,6 +599,7 @@ export class LoginModalComponent {
                 this.resetForm();
                 this.email = '';
                 this.password = '';
+                this.auth.closeAuthModal();
               } else {
                 this.errorMessage.set(cRes.error || 'Failed to establish session.');
               }
@@ -556,6 +618,29 @@ export class LoginModalComponent {
         this.errorMessage.set(err?.message || 'Verification failed.');
       },
     });
+  }
+
+  async signInWithPasskey(): Promise<void> {
+    this.passkeyLoading.set(true);
+    this.errorMessage.set(null);
+    try {
+      const begin = await firstValueFrom(this.auth.passkeyLoginBegin());
+      const assertion = await getPasskeyAssertion(begin.options as unknown as ServerCredentialOptions);
+      const res = await firstValueFrom(this.auth.passkeyLoginComplete(begin.handle, assertion));
+      if (res.success) {
+        this.status.showNotice(`Welcome back, ${res.user?.displayName || res.user?.email || 'User'}!`);
+        this.resetForm();
+        this.email = '';
+        this.password = '';
+        this.auth.closeAuthModal();
+      } else {
+        this.errorMessage.set(res.error || 'Passkey sign-in failed.');
+      }
+    } catch (err) {
+      this.errorMessage.set(createPasskeyErrorMessage(err, 'Passkey sign-in failed.'));
+    } finally {
+      this.passkeyLoading.set(false);
+    }
   }
 }
 

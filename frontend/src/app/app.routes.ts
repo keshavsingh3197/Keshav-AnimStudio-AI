@@ -236,6 +236,7 @@ export const routes: Routes = [
     path: 'admin',
     title: 'Server settings - AnimStudio AI',
     canActivate: [adminGuard],
+    canActivateChild: [adminGuard],
     loadComponent: () =>
       import('./features/admin/admin-shell.component').then((m) => m.AdminShellComponent),
     children: [
@@ -334,5 +335,12 @@ export const routes: Routes = [
     ],
   },
 
-  { path: '**', redirectTo: 'projects' },
+  {
+    path: 'not-found',
+    title: 'Not Found - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/not-found/not-found.component').then((m) => m.NotFoundComponent),
+  },
+
+  { path: '**', redirectTo: 'not-found' },
 ];

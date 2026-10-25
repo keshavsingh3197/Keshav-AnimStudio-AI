@@ -1,6 +1,6 @@
 import { DatePipe } from '@angular/common';
 import { firstValueFrom } from 'rxjs';
-import { Component, HostListener, computed, inject, signal } from '@angular/core';
+import { Component, HostListener, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 
@@ -12,6 +12,7 @@ import { StatusService } from '../../core/services/status.service';
 import { FileDropDirective } from '../../shared/file-drop.directive';
 import { optimizeThumbnailImage } from '../../core/utils/image-utils';
 import { AssetThumbnailPickerComponent } from '../../shared/asset-thumbnail-picker.component';
+import { AuthService } from '../../core/services/auth.service';
 
 export type StartingPoint = 'prompt' | 'bundle' | 'import' | 'clips' | 'scenes';
 
@@ -24,6 +25,7 @@ export type StartingPoint = 'prompt' | 'bundle' | 'import' | 'clips' | 'scenes';
 export class ProjectListComponent {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
+  private readonly auth = inject(AuthService);
 
   readonly status = inject(StatusService);
   readonly projects = signal<Project[]>([]);
@@ -74,8 +76,12 @@ export class ProjectListComponent {
 /** The channel a project publishes under; no channel is the default one. */  channelName(p: Project): string {    const id = p.brandChannelId || DEFAULT_BRAND_CHANNEL;    return this.channels().find((c) => c.id === id)?.name ?? 'Default';  }
   constructor() {
     this.loadSavedPreferences();
-    this.reload();
-    this.api.listBrandChannels().subscribe({ next: (list) => this.channels.set(list), error: () => {} });
+    // Reactively load and reload projects & brand channels whenever user signs in or out
+    effect(() => {
+      this.auth.user();
+      this.reload();
+      this.api.listBrandChannels().subscribe({ next: (list) => this.channels.set(list), error: () => {} });
+    });
   }
 
   private loadSavedPreferences(): void {

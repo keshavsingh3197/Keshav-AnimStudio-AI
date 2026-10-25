@@ -1,4 +1,4 @@
-import { Component, ElementRef, HostListener, ViewChild, computed, inject, signal } from '@angular/core';
+import { Component, ElementRef, HostListener, ViewChild, computed, effect, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
 import { AdminAccess } from '../../core/models/api.models';
@@ -43,6 +43,12 @@ export class AdminShellComponent {
 
   constructor() {
     this.recheckAccess();
+    effect(() => {
+      const u = this.auth.user();
+      if (u) {
+        this.recheckAccess();
+      }
+    });
   }
 
   recheckAccess(): void {

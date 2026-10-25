@@ -25,7 +25,9 @@ public sealed class ProjectsController(
     public async Task<ActionResult<ApiResponse<IReadOnlyList<ProjectResponse>>>> List(
         CancellationToken ct)
     {
-        var list = await projects.ListAsync(currentUser.UserId, ct);
+        var list = currentUser.IsAdmin
+            ? await projects.ListAllAsync(ct)
+            : await projects.ListAsync(currentUser.UserId, ct);
         var subProjectCounts = list.Where(p => !string.IsNullOrEmpty(p.ParentProjectId))
             .GroupBy(p => p.ParentProjectId!)
             .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
@@ -310,6 +312,9 @@ public sealed class ProjectsController(
     {
         var project = await projects.GetAsync(id, ct)
             ?? throw new KeyNotFoundException();
+
+        if (currentUser.IsAdmin || string.IsNullOrEmpty(project.UserId) || string.IsNullOrEmpty(currentUser.UserId))
+            return project;
 
         if (!string.Equals(project.UserId, currentUser.UserId, StringComparison.Ordinal))
             throw new UnauthorizedAccessException();

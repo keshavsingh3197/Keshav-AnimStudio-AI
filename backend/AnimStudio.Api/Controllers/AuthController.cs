@@ -202,6 +202,87 @@ public sealed class AuthController(
         }
     }
 
+    [HttpPost("passkeys/login/begin")]
+    public async Task<IActionResult> PasskeyLoginBegin(CancellationToken ct)
+    {
+        try
+        {
+            var idpBase = options.CurrentValue.Jwt.Issuer == "keshavsingh-idp"
+                ? "https://id.keshavsingh.in"
+                : "http://localhost:5000";
+
+            var url = $"{idpBase}/api/passkeys/login/begin";
+            var client = httpFactory.CreateClient("IdP");
+            using var msg = new HttpRequestMessage(HttpMethod.Post, url)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json")
+            };
+
+            if (HttpContext.Connection.RemoteIpAddress is { } ip)
+                msg.Headers.TryAddWithoutValidation("X-Forwarded-For", ip.ToString());
+            if (Request.Headers.UserAgent.ToString() is { Length: > 0 } ua)
+                msg.Headers.TryAddWithoutValidation("User-Agent", ua);
+
+            using var resp = await client.SendAsync(msg, ct).ConfigureAwait(false);
+            var content = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            ForwardResponseCookies(resp);
+
+            return new ContentResult
+            {
+                StatusCode = (int)resp.StatusCode,
+                Content = content,
+                ContentType = "application/json"
+            };
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to begin passkey login via IdP.");
+            return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                ApiResponse<EmptyPayload>.Fail("Passkey service unavailable."));
+        }
+    }
+
+    [HttpPost("passkeys/login/complete")]
+    public async Task<IActionResult> PasskeyLoginComplete([FromBody] JsonElement payload, CancellationToken ct)
+    {
+        try
+        {
+            var idpBase = options.CurrentValue.Jwt.Issuer == "keshavsingh-idp"
+                ? "https://id.keshavsingh.in"
+                : "http://localhost:5000";
+
+            var url = $"{idpBase}/api/passkeys/login/complete?app={StudioAppKey}";
+            var client = httpFactory.CreateClient("IdP");
+            using var msg = new HttpRequestMessage(HttpMethod.Post, url)
+            {
+                Content = new StringContent(payload.GetRawText(), Encoding.UTF8, "application/json")
+            };
+
+            if (HttpContext.Connection.RemoteIpAddress is { } ip)
+                msg.Headers.TryAddWithoutValidation("X-Forwarded-For", ip.ToString());
+            if (Request.Headers.UserAgent.ToString() is { Length: > 0 } ua)
+                msg.Headers.TryAddWithoutValidation("User-Agent", ua);
+
+            using var resp = await client.SendAsync(msg, ct).ConfigureAwait(false);
+            var content = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+
+            var (status, body) = await HandleIdpSessionResponseAsync(resp, content, idpBase, ct).ConfigureAwait(false);
+
+            return new ContentResult
+            {
+                StatusCode = status,
+                Content = body,
+                ContentType = "application/json"
+            };
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to complete passkey login via IdP.");
+            return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                ApiResponse<EmptyPayload>.Fail("Passkey service unavailable."));
+        }
+    }
+
     [HttpPost("session")]
     public async Task<IActionResult> Session(CancellationToken ct)
     {

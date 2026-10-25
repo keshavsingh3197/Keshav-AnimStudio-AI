@@ -175,7 +175,7 @@ public static class AutoShortPlanner
     public const int MaxCount = 20;
     public const double MinTargetSeconds = 5;
     public const double MaxTargetSeconds = 180;
-    public const int MaxSources = 200;
+    public const int MaxSources = 2000;
     public const int MaxLines = 100;
     public const int MaxLineLength = 140;
     public const int MaxMusic = 20;

@@ -544,6 +544,8 @@ public sealed class AssetsController(
 
     private async Task EnsureOwnedAsync(string projectId, CancellationToken ct)
     {
+        if (currentUser.IsAdmin) return;
+
         if (string.Equals(projectId, "global", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(projectId, "system", StringComparison.OrdinalIgnoreCase))
         {
@@ -551,6 +553,9 @@ public sealed class AssetsController(
         }
 
         var project = await projects.GetAsync(projectId, ct) ?? throw new KeyNotFoundException();
+
+        if (string.IsNullOrEmpty(project.UserId) || string.IsNullOrEmpty(currentUser.UserId))
+            return;
 
         if (!string.Equals(project.UserId, currentUser.UserId, StringComparison.Ordinal))
             throw new UnauthorizedAccessException();

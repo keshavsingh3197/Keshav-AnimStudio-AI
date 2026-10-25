@@ -43,9 +43,10 @@ export class AuthService {
   });
 
   readonly isAdmin = computed(() => {
+    if (!this.isAuthenticated()) return false;
     const u = this.user();
     if (!u) return false;
-    return u.isAdmin || u.roles.some((r) => r.toLowerCase() === 'admin');
+    return u.isAdmin || (u.roles || []).some((r) => r.toLowerCase() === 'admin');
   });
 
   readonly isAnonymous = computed(() => !this.isAuthenticated());
@@ -321,6 +322,65 @@ export class AuthService {
     };
 
     return { token, user: studioUser };
+  }
+
+  passkeyLoginBegin(): Observable<{ handle: string; options: any }> {
+    return this.http.post<{ handle: string; options: any }>(
+      `${this.base}/api/auth/passkeys/login/begin`,
+      {},
+      { withCredentials: true }
+    );
+  }
+
+  passkeyLoginComplete(handle: string, response: unknown): Observable<LoginResult> {
+    return this.http
+      .post<any>(
+        `${this.base}/api/auth/passkeys/login/complete`,
+        { handle, response },
+        { withCredentials: true }
+      )
+      .pipe(
+        map((resp) => {
+          const data = resp?.data ?? resp;
+          const authData = this.extractSessionUser(data);
+          if (authData) {
+            this.saveAccessToken(authData.token);
+            this.saveUser(authData.user);
+            return { success: true, user: authData.user } as LoginResult;
+          }
+
+          if (data.accessToken) {
+            this.saveAccessToken(data.accessToken);
+            if (data.user) {
+              const u: StudioUser = {
+                userId: data.user.id || data.user.userId || '',
+                email: data.user.email,
+                displayName: data.user.displayName || data.user.name || 'User',
+                isAuthenticated: true,
+                isAdmin: data.user.isAdmin || (data.user.roles || []).includes('Admin'),
+                roles: data.user.roles || [],
+              };
+              this.saveUser(u);
+            }
+            return { success: true, user: this.user()! } as LoginResult;
+          }
+
+          return { success: false, error: data.error || 'Passkey sign-in failed.' } as LoginResult;
+        }),
+        tap((res) => {
+          if (res.success) {
+            this.fetchSystemSession().subscribe();
+          }
+        }),
+        catchError((err) => {
+          const message =
+            err?.error?.message ||
+            err?.error?.error ||
+            err?.message ||
+            'Passkey sign-in failed.';
+          return of({ success: false, error: message });
+        })
+      );
   }
 
   refreshSession(): Observable<{ accessToken: string }> {

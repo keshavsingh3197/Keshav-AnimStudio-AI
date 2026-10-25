@@ -592,6 +592,9 @@
 
 /* ── Channel Picker Bar ─────────────────────────────────────────── */
 .channel-bar {
+  position: relative;
+  z-index: 30;
+  overflow: visible;
   background: linear-gradient(135deg, rgba(20, 28, 48, 0.9) 0%, rgba(13, 18, 30, 0.95) 100%);
   border-color: rgba(108, 140, 255, 0.28);
   padding: 1.1rem 1.4rem;
@@ -603,6 +606,8 @@
   justify-content: space-between;
   gap: 2rem;
   flex-wrap: wrap;
+  position: relative;
+  overflow: visible;
 }
 
 .channel-pick-selector {
@@ -610,6 +615,8 @@
   flex-direction: column;
   gap: 0.35rem;
   flex-shrink: 0;
+  position: relative;
+  z-index: 35;
 }
 
 .channel-pick-meta {
