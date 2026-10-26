@@ -230,6 +230,7 @@ public sealed class SystemController(
     /// Serves the global branding logo image file.
     /// </summary>
     [AllowAnonymous]
+    [AllowMediaTicket]
     [HttpGet("branding/logo")]
     public async Task<IActionResult> GetBrandingLogo([FromQuery] string? channel, CancellationToken ct)
     {
@@ -279,6 +280,7 @@ public sealed class SystemController(
     /// asset is served, whatever the stored id points at.
     /// </summary>
     [AllowAnonymous]
+    [AllowMediaTicket]
     [HttpGet("branding/outro/qr")]
     public async Task<IActionResult> GetBrandingOutroQr([FromQuery] string? channel, CancellationToken ct)
     {
@@ -303,6 +305,7 @@ public sealed class SystemController(
     /// Serves or streams the global outro video or image file.
     /// </summary>
     [AllowAnonymous]
+    [AllowMediaTicket]
     [HttpGet("branding/outro/media")]
     public async Task<IActionResult> GetBrandingOutroMedia([FromQuery] string? channel, CancellationToken ct)
     {

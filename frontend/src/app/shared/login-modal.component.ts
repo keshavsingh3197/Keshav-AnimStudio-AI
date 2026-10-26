@@ -127,7 +127,7 @@ import { createPasskeyErrorMessage, getPasskeyAssertion, isPasskeySupported, Ser
                 <div class="or-divider"><span>or</span></div>
                 <button class="btn-passkey" type="button" [disabled]="loading() || passkeyLoading()"
                         (click)="signInWithPasskey()">
-                  🔑 {{ passkeyLoading() ? 'Waiting for passkey…' : 'Sign in with a passkey' }}
+                  🔑 {{ passkeyLoading() ? 'Waiting for passkey…' : (isLocalhost ? 'Sign in with Passkey (Central SSO)' : 'Sign in with a passkey') }}
                 </button>
               }
             }
@@ -487,6 +487,8 @@ export class LoginModalComponent {
   readonly isBackupMode = signal(false);
 
   readonly registerUrl = `${environment.adminUrl}/register?app=studio`;
+  readonly isLocalhost = typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
   readonly passkeySupported = isPasskeySupported();
   readonly passkeyLoading = signal(false);
 
@@ -621,8 +623,20 @@ export class LoginModalComponent {
   }
 
   async signInWithPasskey(): Promise<void> {
-    this.passkeyLoading.set(true);
     this.errorMessage.set(null);
+
+    // WebAuthn W3C specification strictly requires the page origin to match or be a subdomain
+    // of the Relying Party ID ("keshavsingh.in"). On localhost, browsers disallow accessing
+    // credentials registered for keshavsingh.in and throw a SecurityError.
+    if (this.isLocalhost) {
+      window.open(`${environment.adminUrl}/login?app=studio`, '_blank');
+      this.errorMessage.set(
+        'Passkeys for @keshavsingh.in must be authenticated on the central identity domain (*.keshavsingh.in). We opened Central SSO in a new tab.'
+      );
+      return;
+    }
+
+    this.passkeyLoading.set(true);
     try {
       const begin = await firstValueFrom(this.auth.passkeyLoginBegin());
       const assertion = await getPasskeyAssertion(begin.options as unknown as ServerCredentialOptions);

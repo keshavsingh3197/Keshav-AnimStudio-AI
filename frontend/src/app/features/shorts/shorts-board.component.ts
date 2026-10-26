@@ -1,7 +1,7 @@
 import { Component, DestroyRef, computed, effect, inject, input, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { catchError, finalize, of } from 'rxjs';
+import { TimeoutError, catchError, finalize, of, timeout } from 'rxjs';
 
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
 import { isTerminal } from '../../core/models/api.models';
@@ -158,8 +158,12 @@ export class ShortsBoardComponent {
   load(): void {
     this.stopTimer();
     this.shorts.overview(this.projectId(), this.scope()).pipe(
+      // A stalled request shows the error and Try again rather than "Loading" for ever.
+      timeout(30000),
       catchError((err: unknown) => {
-        this.loadError.set(err instanceof ApiFailure ? err.message : 'Could not load your shorts.');
+        this.loadError.set(err instanceof ApiFailure ? err.message
+          : err instanceof TimeoutError ? 'Loading your shorts is taking too long. Try again.'
+          : 'Could not load your shorts.');
         return of(null);
       }),
       finalize(() => this.loading.set(false)),

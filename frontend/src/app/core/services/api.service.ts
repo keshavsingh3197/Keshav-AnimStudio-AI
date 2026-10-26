@@ -23,6 +23,7 @@ import {
   UpdateAccessControlRequest,
   UserScopesOverview,
 } from '../models/auth.models';
+import { MediaTicketService } from './media-ticket.service';
 
 /**
  * Typed wrapper over the API.
@@ -61,6 +62,7 @@ export class ApiService {
 
   private readonly http = inject(HttpClient);
   private readonly base = environment.apiUrl;
+  private readonly media = inject(MediaTicketService);
 
   // --- system
   /** How full the media store is, measured on the server against the configured quota. */
@@ -105,7 +107,7 @@ export class ApiService {
 
   /** Always carries a query string, so callers add cache-busters with `&`. */
   globalLogoUrl(channel?: string | null): string {
-    return `${this.base}/api/system/branding/logo${channelQuery(channel, true)}`;
+    return this.media.sign(`${this.base}/api/system/branding/logo${channelQuery(channel, true)}`);
   }
 
   getGlobalOutro(channel?: string | null): Observable<OutroBody | null> {
@@ -115,12 +117,12 @@ export class ApiService {
 
   /** A channel's support-card QR image. Always carries a query string, so callers add cache-busters with `&`. */
   globalOutroQrUrl(channel?: string | null): string {
-    return `${this.base}/api/system/branding/outro/qr${channelQuery(channel, true)}`;
+    return this.media.sign(`${this.base}/api/system/branding/outro/qr${channelQuery(channel, true)}`);
   }
 
   /** Always carries a query string, so callers add cache-busters with `&`. */
   globalOutroMediaUrl(channel?: string | null): string {
-    return `${this.base}/api/system/branding/outro/media${channelQuery(channel, true)}`;
+    return this.media.sign(`${this.base}/api/system/branding/outro/media${channelQuery(channel, true)}`);
   }
 
   /** Every brand channel, the default first. Readable by any signed-in user. */
@@ -224,12 +226,12 @@ export class ApiService {
 
   /** Direct URL to the stored bytes, for an <img> or an <audio> element. */
   assetUrl(assetId: string): string {
-    return `${this.base}/api/assets/${assetId}/content`;
+    return this.media.sign(`${this.base}/api/assets/${assetId}/content`);
   }
 
   /** Direct URL to the fast lightweight thumbnail image (320px JPEG for videos). */
   assetThumbnailUrl(assetId: string, version = 2): string {
-    return `${this.base}/api/assets/${encodeURIComponent(assetId)}/thumbnail?v=${version}`;
+    return this.media.sign(`${this.base}/api/assets/${encodeURIComponent(assetId)}/thumbnail?v=${version}`);
   }
 
   // --- studio voice
@@ -378,7 +380,7 @@ export class ApiService {
 
   /** Direct link to a .srt built from the project's dialogue, timed as it renders. */
   subtitlesUrl(projectId: string): string {
-    return `${this.base}/api/projects/${projectId}/subtitles.srt`;
+    return this.media.sign(`${this.base}/api/projects/${projectId}/subtitles.srt`);
   }
 
   getScene(sceneId: string): Observable<SceneDetail> {
@@ -502,16 +504,16 @@ export class ApiService {
   }
 
   previewUrl(jobId: string): string {
-    return `${this.base}/api/render-jobs/${jobId}/preview`;
+    return this.media.sign(`${this.base}/api/render-jobs/${jobId}/preview`);
   }
 
   downloadUrl(jobId: string): string {
-    return `${this.base}/api/render-jobs/${jobId}/download`;
+    return this.media.sign(`${this.base}/api/render-jobs/${jobId}/download`);
   }
 
   /** Where each clip, sound and overlay sits in the finished export. */
   timelineUrl(jobId: string, format: ExportTimelineFormat): string {
-    return `${this.base}/api/render-jobs/${encodeURIComponent(jobId)}/timeline?format=${format}`;
+    return this.media.sign(`${this.base}/api/render-jobs/${encodeURIComponent(jobId)}/timeline?format=${format}`);
   }
 
   /** The same timeline as text, for copying straight to the clipboard. */
@@ -661,11 +663,11 @@ export class ApiService {
 
   /** Direct links, because a download is a navigation rather than a fetch. */
   bundleTemplateUrl(): string {
-    return `${this.base}/api/templates/bundle`;
+    return this.media.sign(`${this.base}/api/templates/bundle`);
   }
 
   aiPromptPackUrl(): string {
-    return `${this.base}/api/templates/ai-prompts`;
+    return this.media.sign(`${this.base}/api/templates/ai-prompts`);
   }
 
   previewBundle(projectId: string, file: File): Observable<BundlePreview> {
@@ -683,7 +685,7 @@ export class ApiService {
 
   /** The whole project as one zip: sheets plus every picture and sound they refer to. */
   bundleExportUrl(projectId: string, includeMedia = true): string {
-    return `${this.base}/api/projects/${projectId}/bundle?includeMedia=${includeMedia}`;
+    return this.media.sign(`${this.base}/api/projects/${projectId}/bundle?includeMedia=${includeMedia}`);
   }
 
   // --- AI status, available to any signed-in user
@@ -899,7 +901,7 @@ export class ApiService {
 
   /** Global (studio-wide) assets such as the QR code are readable by any signed-in user. */
   assetContentUrl(assetId: string): string {
-    return `${this.base}/api/assets/${encodeURIComponent(assetId)}/content`;
+    return this.media.sign(`${this.base}/api/assets/${encodeURIComponent(assetId)}/content`);
   }
 
   /** The asset's bytes, fetched through HttpClient so it can be edited on a canvas. */

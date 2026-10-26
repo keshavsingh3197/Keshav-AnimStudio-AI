@@ -22,6 +22,7 @@ import {
 } from '../../core/models/live-stream.models';
 import { ApiService } from '../../core/services/api.service';
 import { LiveStreamService } from '../../core/services/live-stream.service';
+import { MediaTicketService } from '../../core/services/media-ticket.service';
 import { MediaToolsService } from '../../core/services/media-tools.service';
 import { StatusService } from '../../core/services/status.service';
 import { environment } from '../../../environments/environment';
@@ -74,6 +75,7 @@ export class LiveStreamComponent {
   private readonly live = inject(LiveStreamService);
   private readonly api = inject(ApiService);
   private readonly media = inject(MediaToolsService);
+  private readonly mediaTicket = inject(MediaTicketService);
   private readonly status = inject(StatusService);
   private readonly route = inject(ActivatedRoute);
 
@@ -532,8 +534,9 @@ export class LiveStreamComponent {
       case 'ReleaseKit': {
         const kit = `${environment.apiUrl}/api/releases/kits/${encodeURIComponent(entry.releaseKitId!)}/files`;
         this.openSourcePreview(entry.useVisualizer
-          ? { ...base, type: entry.typeLabel, src: `${kit}/visualizer_1920x1080.mp4` }
-          : { ...base, type: entry.typeLabel, src: `${kit}/master.wav`, audio: true, coverSrc: `${kit}/cover_3000x3000.jpg`,
+          ? { ...base, type: entry.typeLabel, src: this.mediaTicket.sign(`${kit}/visualizer_1920x1080.mp4`) }
+          : { ...base, type: entry.typeLabel, src: this.mediaTicket.sign(`${kit}/master.wav`), audio: true,
+              coverSrc: this.mediaTicket.sign(`${kit}/cover_3000x3000.jpg`),
               note: 'On air: the cover over a blurred copy of itself, with a live waveform.' },
           { entryKey: entry.key });
         break;

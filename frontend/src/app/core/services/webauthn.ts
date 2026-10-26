@@ -81,7 +81,9 @@ export function createPasskeyErrorMessage(err: unknown, fallback: string): strin
   if (err instanceof DOMException) {
     if (err.name === 'NotAllowedError' || err.name === 'AbortError') return 'Passkey prompt was dismissed.';
     if (err.name === 'InvalidStateError') return 'This device already has a passkey for your account.';
-    if (err.name === 'SecurityError') return 'Passkeys are not available on this page’s address.';
+    if (err.name === 'SecurityError') {
+      return 'Passkeys for @keshavsingh.in cannot be accessed directly on localhost (WebAuthn browser security). Please sign in using your email and password, or use Central SSO.';
+    }
   }
   if (err instanceof Error && err.message) return err.message;
   return fallback;

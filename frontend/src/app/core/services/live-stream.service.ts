@@ -16,11 +16,13 @@ import {
   PlaylistEntry,
   YouTubeAudienceStats,
 } from '../models/live-stream.models';
+import { MediaTicketService } from './media-ticket.service';
 
 @Injectable({ providedIn: 'root' })
 export class LiveStreamService {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/api/live-streams`;
+  private readonly media = inject(MediaTicketService);
 
   setup(): Observable<LiveStreamSetup> {
     return this.http
@@ -97,7 +99,7 @@ export class LiveStreamService {
 
   /** A prepared item exactly as it will be sent - usable directly as a <video> source. */
   previewUrl(id: string, index: number): string {
-    return `${this.base}/${encodeURIComponent(id)}/items/${index}/preview`;
+    return this.media.sign(`${this.base}/${encodeURIComponent(id)}/items/${index}/preview`);
   }
 
   /** Admin only. The key goes in the body and comes back masked. */

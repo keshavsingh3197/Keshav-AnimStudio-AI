@@ -54,8 +54,11 @@ public sealed class HttpContextCurrentUser(
             }
 
             // 3. In LocalOnly mode, an unauthenticated loopback caller WITHOUT a guest header
-            // (e.g. dotnet test, curl, local maintenance tooling) uses the local-user identity
-            if (settings.Mode == AdminAccessMode.LocalOnly && AdminAccessRules.IsLoopback(http) && string.IsNullOrWhiteSpace(guestHeader))
+            // (e.g. dotnet test, curl, local maintenance tooling) uses the local-user identity.
+            // Never one that presented a bearer token which failed validation: that caller is
+            // someone else whose token expired, not the machine's own user.
+            if (settings.Mode == AdminAccessMode.LocalOnly && AdminAccessRules.IsLoopback(http) &&
+                string.IsNullOrWhiteSpace(guestHeader) && !HasBearerHeader(http))
             {
                 return LocalSingleUserProvider.LocalUserId;
             }
@@ -140,7 +143,8 @@ public sealed class HttpContextCurrentUser(
             }
 
             // In LocalOnly mode without guest header, loopback callers are considered authenticated
-            if (settings.Mode == AdminAccessMode.LocalOnly && AdminAccessRules.IsLoopback(http))
+            // - unless they presented a bearer token that failed validation (see UserId).
+            if (settings.Mode == AdminAccessMode.LocalOnly && AdminAccessRules.IsLoopback(http) && !HasBearerHeader(http))
             {
                 return true;
             }
@@ -148,6 +152,9 @@ public sealed class HttpContextCurrentUser(
             return false;
         }
     }
+
+    private static bool HasBearerHeader(HttpContext? http) =>
+        http?.Request.Headers.Authorization.Count > 0;
 
     public bool IsAdmin
     {

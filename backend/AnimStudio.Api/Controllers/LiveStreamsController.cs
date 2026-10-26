@@ -128,6 +128,7 @@ public sealed partial class LiveStreamsController(
             : StreamNotFound();
 
     /// <summary>A prepared item exactly as it will be sent, for the owner to watch first.</summary>
+    [AllowMediaTicket]
     [HttpGet("{id}/items/{index:int}/preview")]
     public IActionResult Preview(string id, int index)
     {

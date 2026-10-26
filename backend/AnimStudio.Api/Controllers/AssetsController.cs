@@ -1,3 +1,4 @@
+using AnimStudio.Api.Security;
 using System.ComponentModel.DataAnnotations;
 using AnimStudio.Api.Common;
 using AnimStudio.Api.Contracts;
@@ -178,6 +179,7 @@ public sealed class AssetsController(
     /// for thumbnails and straight-through audio preview.
     /// </para>
     /// </summary>
+    [AllowMediaTicket]
     [HttpGet("api/assets/{id}/content")]
     [HttpHead("api/assets/{id}/content")]
     public async Task<IActionResult> Content(string id, CancellationToken ct)
@@ -213,7 +215,7 @@ public sealed class AssetsController(
             Response.Headers.AccessControlAllowMethods = "GET, HEAD, OPTIONS";
             Response.Headers.AccessControlAllowHeaders = "*";
             Response.Headers.XContentTypeOptions = "nosniff";
-            Response.Headers.CacheControl = "public, max-age=86400";
+            Response.Headers.CacheControl = "private, max-age=86400";
             return File(stream, meta.MimeType, enableRangeProcessing: stream.CanSeek);
         }
         catch (OperationCanceledException)
@@ -278,6 +280,7 @@ public sealed class AssetsController(
     /// Serves a lightweight image thumbnail for an asset (e.g., 320px JPEG for videos, or direct image stream).
     /// Prevents browser connection saturation when browsing large media libraries or timeline filmstrips.
     /// </summary>
+    [AllowMediaTicket]
     [HttpGet("api/assets/{id}/thumbnail")]
     [HttpHead("api/assets/{id}/thumbnail")]
     public async Task<IActionResult> Thumbnail(string id, CancellationToken ct)
@@ -313,7 +316,7 @@ public sealed class AssetsController(
 
             if (meta.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
             {
-                Response.Headers.CacheControl = "public, max-age=604800";
+                Response.Headers.CacheControl = "private, max-age=604800";
                 var imgStream = await store.OpenAsync(meta.StorageKey, ct);
                 if (imgStream is null) return NotFound();
                 return File(imgStream, meta.MimeType);
@@ -321,7 +324,7 @@ public sealed class AssetsController(
 
             if (meta.MimeType.StartsWith("audio/", StringComparison.OrdinalIgnoreCase))
             {
-                Response.Headers.CacheControl = "public, max-age=604800";
+                Response.Headers.CacheControl = "private, max-age=604800";
                 var audioSvg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"320\" height=\"180\" viewBox=\"0 0 320 180\"><rect width=\"100%\" height=\"100%\" fill=\"#1e293b\"/><path d=\"M30 90 Q65 30 100 90 T170 90 T240 90 T300 90\" fill=\"none\" stroke=\"#38bdf8\" stroke-width=\"4\" stroke-linecap=\"round\"/><text x=\"160\" y=\"150\" font-family=\"sans-serif\" font-size=\"14\" font-weight=\"bold\" fill=\"#94a3b8\" text-anchor=\"middle\">🎵 Audio Track</text></svg>";
                 return Content(audioSvg, "image/svg+xml");
             }
@@ -333,7 +336,7 @@ public sealed class AssetsController(
 
                 if (System.IO.File.Exists(thumbPath))
                 {
-                    Response.Headers.CacheControl = "public, max-age=604800";
+                    Response.Headers.CacheControl = "private, max-age=604800";
                     return PhysicalFile(thumbPath, "image/jpeg");
                 }
 
@@ -346,7 +349,7 @@ public sealed class AssetsController(
                     {
                         if (System.IO.File.Exists(thumbPath))
                         {
-                            Response.Headers.CacheControl = "public, max-age=604800";
+                            Response.Headers.CacheControl = "private, max-age=604800";
                             return PhysicalFile(thumbPath, "image/jpeg");
                         }
 
@@ -366,7 +369,7 @@ public sealed class AssetsController(
                             await proc.WaitForExitAsync(linkedCts.Token);
                             if (System.IO.File.Exists(thumbPath))
                             {
-                                Response.Headers.CacheControl = "public, max-age=604800";
+                                Response.Headers.CacheControl = "private, max-age=604800";
                                 return PhysicalFile(thumbPath, "image/jpeg");
                             }
                         }

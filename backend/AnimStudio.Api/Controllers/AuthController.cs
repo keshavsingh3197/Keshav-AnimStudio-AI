@@ -37,6 +37,29 @@ public sealed class AuthController(
             currentUser.IsAdmin,
             currentUser.Roles)));
 
+    /// <summary>
+    /// A short-lived ticket the SPA appends as <c>?mt=</c> to media URLs (thumbnails, video,
+    /// downloads), because a browser never sends the bearer header for those requests.
+    /// Only a bearer-authenticated caller gets one, and it is accepted only by endpoints
+    /// marked <see cref="Security.AllowMediaTicketAttribute"/>.
+    /// </summary>
+    [HttpPost("media-ticket")]
+    public ActionResult<ApiResponse<MediaTicketResponse>> MediaTicket(
+        [FromServices] Security.MediaTicketService tickets)
+    {
+        if (User.Identity?.IsAuthenticated != true)
+        {
+            return Unauthorized(ApiResponse<MediaTicketResponse>.Fail(
+                "Sign in to load media.", new ApiError("unauthorized", "Sign in to load media.")));
+        }
+
+        var (ticket, expiresAt) = tickets.Issue(User);
+        Response.Headers.CacheControl = "no-store";
+        return Ok(ApiResponse<MediaTicketResponse>.Ok(new MediaTicketResponse(ticket, expiresAt)));
+    }
+
+    public sealed record MediaTicketResponse(string Ticket, DateTimeOffset ExpiresAt);
+
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] StudioLoginRequest request, CancellationToken ct)
     {

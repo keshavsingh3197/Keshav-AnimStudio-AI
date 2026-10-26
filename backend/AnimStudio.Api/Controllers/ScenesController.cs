@@ -1,3 +1,4 @@
+using AnimStudio.Api.Security;
 using AnimStudio.Api.Common;
 using AnimStudio.Api.Contracts;
 using AnimStudio.Application.Abstractions.Persistence;
@@ -36,6 +37,7 @@ public sealed class ScenesController(
     /// render - a download for a platform that wants a caption sidecar, or for polishing in
     /// any subtitle editor before pasting it back in as a transcript.
     /// </summary>
+    [AllowMediaTicket]
     [HttpGet("api/projects/{projectId}/subtitles.srt")]
     public async Task<IActionResult> ExportSubtitles(string projectId, CancellationToken ct)
     {

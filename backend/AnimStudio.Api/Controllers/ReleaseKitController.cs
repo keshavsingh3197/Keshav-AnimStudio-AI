@@ -1,3 +1,4 @@
+using AnimStudio.Api.Security;
 using System.Text.Json;
 using AnimStudio.Api.Common;
 using AnimStudio.Application.Releases;
@@ -179,6 +180,7 @@ public sealed class ReleaseKitController(
             : KitNotFound();
 
     /// <summary>One file from a finished kit. Only the caller's own kits, and only files the kit lists.</summary>
+    [AllowMediaTicket]
     [HttpGet("kits/{jobId}/files/{name}")]
     public IActionResult DownloadFile(string jobId, string name)
     {

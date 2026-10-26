@@ -5,6 +5,7 @@ using AnimStudio.Application.Options;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 
@@ -21,6 +22,9 @@ public static class AdminAccessSetup
     /// one is accepted by the algorithm and is not worth the trouble of having a boundary.
     /// </summary>
     private const int MinimumSigningKeyBytes = 32;
+
+    /// <summary>Picks bearer or media-ticket authentication per request.</summary>
+    private const string DefaultScheme = "AnimStudio";
 
     public static IServiceCollection AddAnimStudioAdminAccess(
         this IServiceCollection services,
@@ -41,29 +45,44 @@ public static class AdminAccessSetup
         var hasKey = !string.IsNullOrWhiteSpace(signingKey) &&
                      Encoding.UTF8.GetByteCount(signingKey) >= MinimumSigningKeyBytes;
 
+        services.AddDataProtection();
+        services.AddSingleton<MediaTicketService>();
+
         services
-            .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+            .AddAuthentication(DefaultScheme)
+            // A media element's request carries no bearer header, so a marked media endpoint
+            // may be authenticated by its ticket instead; everything else is the bearer token.
+            .AddPolicyScheme(DefaultScheme, DefaultScheme, policy =>
+                policy.ForwardDefaultSelector = context => MediaTicketService.Applies(context)
+                    ? MediaTicketAuthenticationHandler.SchemeName
+                    : JwtBearerDefaults.AuthenticationScheme)
+            .AddScheme<AuthenticationSchemeOptions, MediaTicketAuthenticationHandler>(
+                MediaTicketAuthenticationHandler.SchemeName, _ => { })
             .AddJwtBearer(bearer =>
             {
                 bearer.UseSecurityTokenValidators = true;
                 bearer.MapInboundClaims = false;
                 bearer.RequireHttpsMetadata = !environment.IsDevelopment();
+                // Every token must be signed with the family key, in HS256, by the family
+                // issuer for the family audience. Without a key there is nothing to verify a
+                // signature against, so every token is refused (fail closed) and the local
+                // modes fall back to their single local user - an unsigned token is never
+                // accepted, since anyone could write one naming any user, admin included.
                 bearer.TokenValidationParameters = new TokenValidationParameters
                 {
                     ValidIssuer = options.Jwt.Issuer,
                     ValidAudience = options.Jwt.Audience,
-                    ValidateIssuer = !string.IsNullOrWhiteSpace(options.Jwt.Issuer),
-                    ValidateAudience = !string.IsNullOrWhiteSpace(options.Jwt.Audience),
+                    ValidateIssuer = true,
+                    ValidateAudience = true,
                     ValidateLifetime = true,
+                    RequireExpirationTime = true,
                     ClockSkew = TimeSpan.FromSeconds(60),
-                    RequireSignedTokens = hasKey,
-                    ValidateIssuerSigningKey = hasKey,
+                    RequireSignedTokens = true,
+                    ValidateIssuerSigningKey = true,
+                    ValidAlgorithms = [SecurityAlgorithms.HmacSha256],
                     IssuerSigningKey = hasKey
                         ? new SymmetricSecurityKey(Encoding.UTF8.GetBytes(signingKey!))
-                        : null,
-                    SignatureValidator = hasKey
-                        ? null
-                        : (token, _) => new System.IdentityModel.Tokens.Jwt.JwtSecurityToken(token)
+                        : null
                 };
 
                 bearer.Events = new JwtBearerEvents
@@ -123,6 +142,16 @@ public static class AdminAccessSetup
     /// </summary>
     private static void Validate(AdminOptions options, IWebHostEnvironment environment)
     {
+        // In any mode: a key that is set but too short would refuse every sign-in without a
+        // word, which is worse than not starting.
+        if (!string.IsNullOrWhiteSpace(options.Jwt.SigningKey) &&
+            Encoding.UTF8.GetByteCount(options.Jwt.SigningKey) < MinimumSigningKeyBytes)
+        {
+            throw new InvalidOperationException(
+                $"Admin:Jwt:SigningKey is shorter than {MinimumSigningKeyBytes} bytes, which is " +
+                "too short for HS256. Use the family signing key.");
+        }
+
         if (options.Mode == AdminAccessMode.Jwt)
         {
             var key = options.Jwt.SigningKey;

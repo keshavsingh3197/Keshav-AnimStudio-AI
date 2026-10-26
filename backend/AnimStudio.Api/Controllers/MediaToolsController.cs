@@ -1,3 +1,4 @@
+using AnimStudio.Api.Security;
 using System.Collections.Concurrent;
 using AnimStudio.Api.Common;
 using AnimStudio.Application.Abstractions.Persistence;
@@ -249,6 +250,7 @@ public sealed class MediaToolsController(
     /// <summary>
     /// Streams downloaded file for browser download.
     /// </summary>
+    [AllowMediaTicket]
     [HttpGet("stream/{ticket}")]
     public IActionResult StreamFile(string ticket)
     {
@@ -442,6 +444,7 @@ public sealed class MediaToolsController(
     /// <summary>
     /// Downloads all chunks bundled as a ZIP archive.
     /// </summary>
+    [AllowMediaTicket]
     [HttpGet("chunks/{jobId}/zip")]
     public IActionResult DownloadZip(string jobId)
     {
@@ -463,6 +466,7 @@ public sealed class MediaToolsController(
     /// <summary>
     /// Streams an individual chunk video file for preview or download.
     /// </summary>
+    [AllowMediaTicket]
     [HttpGet("chunks/{jobId}/{index:int}")]
     public IActionResult StreamChunk(string jobId, int index)
     {
