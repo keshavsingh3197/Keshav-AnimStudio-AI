@@ -4,6 +4,7 @@ import { Observable, catchError, finalize, map, of, shareReplay, tap, throwError
 
 import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../models/api.models';
+import { StatusService } from './status.service';
 import {
   AnonymousAccessPolicy,
   LoginCredentials,
@@ -29,6 +30,7 @@ const DEFAULT_ANONYMOUS_POLICY: AnonymousAccessPolicy = {
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private readonly http = inject(HttpClient);
+  private readonly status = inject(StatusService);
   private readonly base = environment.apiUrl;
 
   readonly accessToken = signal<string | null>(this.getStoredAccessToken());
@@ -60,7 +62,180 @@ export class AuthService {
 
   constructor() {
     this.scheduleAutoRefresh(this.accessToken());
-    this.initSession();
+    const handledFromRedirect = this.checkRedirectAuthParams();
+    if (!handledFromRedirect) {
+      this.initSession();
+    }
+    this.listenForExternalSessionCompletion();
+  }
+
+  /**
+   * Inspects URL query params and fragment for returned auth tokens from Central SSO / Admin redirect.
+   * If detected, establishes session, strips sensitive tokens from browser URL, and closes auth modal.
+   */
+  checkRedirectAuthParams(): boolean {
+    if (typeof window === 'undefined') return false;
+
+    try {
+      const url = new URL(window.location.href);
+      const params = url.searchParams;
+
+      let hashParams: URLSearchParams | null = null;
+      if (url.hash && url.hash.includes('=')) {
+        try {
+          hashParams = new URLSearchParams(url.hash.replace(/^#/, ''));
+        } catch {
+          // Ignore hash parse errors
+        }
+      }
+
+      const token =
+        params.get('token') ||
+        params.get('access_token') ||
+        params.get('accessToken') ||
+        hashParams?.get('token') ||
+        hashParams?.get('access_token') ||
+        hashParams?.get('accessToken');
+
+      const ticket =
+        params.get('ticket') ||
+        params.get('sessionConfirmationTicket') ||
+        hashParams?.get('ticket');
+
+      const ssoSuccess =
+        params.get('sso') === 'success' ||
+        params.get('login') === 'success' ||
+        params.get('auth') === 'success';
+
+      let handled = false;
+
+      // Check if user came back from a pending passkey flow
+      const isPasskeyPending = sessionStorage.getItem('animstudio_passkey_pending') === 'true';
+      if (isPasskeyPending) {
+        sessionStorage.removeItem('animstudio_passkey_pending');
+      }
+
+      if (token) {
+        this.saveAccessToken(token);
+        this.closeAuthModal();
+        this.fetchSystemSession().subscribe({
+          next: (s) => {
+            this.status.showNotice(`Welcome back, ${s.displayName || 'User'}! Signed in with Passkey.`);
+          },
+        });
+        handled = true;
+      } else if (ticket) {
+        this.confirmSession(ticket).subscribe({
+          next: (res) => {
+            if (res.success) {
+              this.closeAuthModal();
+              this.fetchSystemSession().subscribe();
+              this.status.showNotice('Signed in successfully.');
+            }
+          },
+        });
+        handled = true;
+      } else if (ssoSuccess || isPasskeyPending) {
+        this.refreshSession().subscribe({
+          next: () => {
+            this.closeAuthModal();
+            this.fetchSystemSession().subscribe({
+              next: (s) => {
+                this.status.showNotice(`Welcome back, ${s.displayName || 'User'}!`);
+              },
+            });
+          },
+          error: () => {
+            this.initSession();
+          },
+        });
+        handled = true;
+      }
+
+      if (handled) {
+        // Clean URL to prevent tokens/parameters from persisting in history/bookmarks
+        params.delete('token');
+        params.delete('access_token');
+        params.delete('accessToken');
+        params.delete('ticket');
+        params.delete('sessionConfirmationTicket');
+        params.delete('sso');
+        params.delete('login');
+        params.delete('auth');
+
+        const newSearch = params.toString() ? `?${params.toString()}` : '';
+        const cleanUrl = `${url.pathname}${newSearch}`;
+        window.history.replaceState({}, document.title, cleanUrl);
+        return true;
+      }
+    } catch {
+      // Ignore URL parsing errors
+    }
+    return false;
+  }
+
+  /**
+   * Listens for tab refocus, visibility change, and inter-window messages so if the user
+   * completed SSO authentication in an adjacent tab or popup, this page auto-syncs.
+   */
+  private listenForExternalSessionCompletion(): void {
+    if (typeof window === 'undefined') return;
+
+    let debounceTimer: any = null;
+    const handleRecheck = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        if (!this.isAuthenticated() || this.isAuthModalOpen()) {
+          this.refreshSession().subscribe({
+            next: () => {
+              this.closeAuthModal();
+              this.fetchSystemSession().subscribe({
+                next: (sess) => {
+                  this.status.showNotice(`Welcome back, ${sess.displayName || 'User'}!`);
+                },
+              });
+            },
+            error: () => {
+              // No remote SSO session established
+            },
+          });
+        }
+      }, 500);
+    };
+
+    window.addEventListener('focus', handleRecheck);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        handleRecheck();
+      }
+    });
+
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        const channel = new BroadcastChannel('animstudio_auth');
+        channel.onmessage = (event) => {
+          if (event.data?.type === 'AUTH_SUCCESS') {
+            if (event.data.token) {
+              this.saveAccessToken(event.data.token);
+            }
+            this.closeAuthModal();
+            this.fetchSystemSession().subscribe();
+          }
+        };
+      } catch {
+        // Channel unavailable
+      }
+    }
+
+    window.addEventListener('message', (event) => {
+      if (event.data?.type === 'ANIMSTUDIO_AUTH_SUCCESS') {
+        if (event.data.token) {
+          this.saveAccessToken(event.data.token);
+        }
+        this.closeAuthModal();
+        this.fetchSystemSession().subscribe();
+      }
+    });
   }
 
   /**

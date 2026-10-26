@@ -5,6 +5,7 @@ import { AdminAccess } from '../core/models/api.models';
 import { ActivityPanelComponent } from './activity-panel.component';
 import { LoginModalComponent } from '../shared/login-modal.component';
 import { ProjectHubModalComponent } from './project-hub-modal.component';
+import { SessionTimeoutComponent } from '../shared/session-timeout.component';
 import { ActivityService } from '../core/services/activity.service';
 import { ApiService } from '../core/services/api.service';
 import { AuthService } from '../core/services/auth.service';
@@ -26,8 +27,10 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
  */
 @Component({
   selector: 'app-shell',
-  imports: [RouterLink, RouterLinkActive, RouterOutlet, ProjectHubModalComponent, ActivityPanelComponent, LoginModalComponent],
+  imports: [RouterLink, RouterLinkActive, RouterOutlet, ProjectHubModalComponent, ActivityPanelComponent, LoginModalComponent, SessionTimeoutComponent],
   template: `
+    <app-session-timeout></app-session-timeout>
+
     <header class="topbar">
       <div class="wrap topbar-inner">
         <a routerLink="/projects" class="brand">AnimStudio<span>AI</span></a>

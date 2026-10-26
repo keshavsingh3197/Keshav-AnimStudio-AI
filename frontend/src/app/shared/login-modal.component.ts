@@ -127,8 +127,15 @@ import { createPasskeyErrorMessage, getPasskeyAssertion, isPasskeySupported, Ser
                 <div class="or-divider"><span>or</span></div>
                 <button class="btn-passkey" type="button" [disabled]="loading() || passkeyLoading()"
                         (click)="signInWithPasskey()">
-                  🔑 {{ passkeyLoading() ? 'Waiting for passkey…' : (isLocalhost ? 'Sign in with Passkey (Central SSO)' : 'Sign in with a passkey') }}
+                  🔑 {{ passkeyLoading() ? 'Connecting to passkey…' : (isLocalhost ? 'Sign in with Passkey (Central SSO)' : 'Sign in with a passkey') }}
                 </button>
+                @if (isLocalhost) {
+                  <div class="passkey-sub-options">
+                    <button type="button" class="btn-link-sm" (click)="openPasskeyPopup()">
+                      Or authenticate in a separate tab &rarr;
+                    </button>
+                  </div>
+                }
               }
             }
           </div>
@@ -458,6 +465,26 @@ import { createPasskeyErrorMessage, getPasskeyAssertion, isPasskeySupported, Ser
       cursor: not-allowed;
     }
 
+    .passkey-sub-options {
+      margin-top: 0.55rem;
+      text-align: center;
+    }
+
+    .btn-link-sm {
+      background: none;
+      border: none;
+      color: #94a3b8;
+      font-size: 0.78rem;
+      cursor: pointer;
+      text-decoration: underline;
+      padding: 0.2rem 0.5rem;
+      transition: color 0.15s ease;
+    }
+
+    .btn-link-sm:hover {
+      color: #b4cbff;
+    }
+
     @keyframes fadeIn {
       from { opacity: 0; }
       to { opacity: 1; }
@@ -486,7 +513,10 @@ export class LoginModalComponent {
   twoFactorToken = signal<string | null>(null);
   readonly isBackupMode = signal(false);
 
-  readonly registerUrl = `${environment.adminUrl}/register?app=studio`;
+  get registerUrl(): string {
+    const returnUrl = typeof window !== 'undefined' ? window.location.href : '';
+    return `${environment.adminUrl}/register?app=studio&returnUrl=${encodeURIComponent(returnUrl)}&redirect=${encodeURIComponent(returnUrl)}&redirect_uri=${encodeURIComponent(returnUrl)}`;
+  }
   readonly isLocalhost = typeof window !== 'undefined' &&
     (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
   readonly passkeySupported = isPasskeySupported();
@@ -622,17 +652,45 @@ export class LoginModalComponent {
     });
   }
 
+  buildCentralSsoUrl(mode: 'passkey' | 'standard' = 'passkey'): string {
+    const returnUrl = typeof window !== 'undefined' ? window.location.href : '/';
+    const target = new URL(`${environment.adminUrl}/login`);
+    target.searchParams.set('app', 'studio');
+    target.searchParams.set('returnUrl', returnUrl);
+    target.searchParams.set('redirect', returnUrl);
+    target.searchParams.set('redirect_uri', returnUrl);
+    target.searchParams.set('return_url', returnUrl);
+    if (mode === 'passkey') {
+      target.searchParams.set('mode', 'passkey');
+      target.searchParams.set('auth_mode', 'passkey');
+    }
+    return target.toString();
+  }
+
+  openPasskeyPopup(): void {
+    try {
+      sessionStorage.setItem('animstudio_passkey_pending', 'true');
+    } catch {}
+    const ssoUrl = this.buildCentralSsoUrl('passkey');
+    window.open(ssoUrl, '_blank');
+    this.status.showNotice('Central SSO opened in new tab. When passkey authentication completes, switch back here.');
+  }
+
   async signInWithPasskey(): Promise<void> {
     this.errorMessage.set(null);
 
-    // WebAuthn W3C specification strictly requires the page origin to match or be a subdomain
-    // of the Relying Party ID ("keshavsingh.in"). On localhost, browsers disallow accessing
-    // credentials registered for keshavsingh.in and throw a SecurityError.
+    // If on localhost (or another domain outside *.keshavsingh.in), WebAuthn strictly requires
+    // authenticating on the registered RP domain (*.keshavsingh.in). We redirect to Central SSO
+    // with returnUrl so that once passkey sign-in completes on the central identity domain,
+    // the user is automatically reverted back to this AnimStudio page with their session established.
     if (this.isLocalhost) {
-      window.open(`${environment.adminUrl}/login?app=studio`, '_blank');
-      this.errorMessage.set(
-        'Passkeys for @keshavsingh.in must be authenticated on the central identity domain (*.keshavsingh.in). We opened Central SSO in a new tab.'
-      );
+      this.passkeyLoading.set(true);
+      this.status.showNotice('Redirecting to Central SSO for Passkey authentication...');
+      try {
+        sessionStorage.setItem('animstudio_passkey_pending', 'true');
+      } catch {}
+
+      window.location.href = this.buildCentralSsoUrl('passkey');
       return;
     }
 
@@ -650,7 +708,15 @@ export class LoginModalComponent {
       } else {
         this.errorMessage.set(res.error || 'Passkey sign-in failed.');
       }
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.name === 'SecurityError') {
+        // Fallback to Central SSO redirect with returnUrl
+        try {
+          sessionStorage.setItem('animstudio_passkey_pending', 'true');
+        } catch {}
+        window.location.href = this.buildCentralSsoUrl('passkey');
+        return;
+      }
       this.errorMessage.set(createPasskeyErrorMessage(err, 'Passkey sign-in failed.'));
     } finally {
       this.passkeyLoading.set(false);

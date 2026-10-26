@@ -5,6 +5,7 @@ import { DatePipe } from '@angular/common';
 import { ApiService } from '../../core/services/api.service';
 import { AuthService } from '../../core/services/auth.service';
 import { StatusService } from '../../core/services/status.service';
+import { SessionTimeoutService } from '../../core/services/session-timeout.service';
 import { UiNavigationService, DEFAULT_UI_NAVIGATION_TABS } from '../../core/services/ui-navigation.service';
 import {
   AdminAccessControl,
@@ -410,6 +411,80 @@ type AdminViewTab = 'matrix' | 'policy' | 'scopes' | 'identity';
                 <div class="stat-box">
                   <span class="stat-number success">100%</span>
                   <span class="stat-label">Isolation Integrity</span>
+                </div>
+              </div>
+
+              <!-- Session Inactivity & Lifetime Policy Card -->
+              <div class="card" style="margin-top: 1.25rem; border: 1px solid rgba(108, 140, 255, 0.25); background: rgba(15, 23, 42, 0.55);">
+                <div class="card-head">
+                  <div>
+                    <h3 style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.2rem">
+                      <span>⏱️</span> Session Inactivity &amp; Expiry Policy
+                    </h3>
+                    <p class="muted">
+                      Configure automatic sign out due to inactivity. Continuous user interactions (typing, editing, timeline scrubbing, renders) reset the countdown.
+                    </p>
+                  </div>
+                  <div class="head-actions">
+                    <button
+                      type="button"
+                      class="btn-primary-glow btn-sm"
+                      (click)="saveSessionPolicy()"
+                      title="Save inactivity policy"
+                    >
+                      Save Policy
+                    </button>
+                  </div>
+                </div>
+
+                <div class="policy-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; padding: 1rem 0;">
+                  <div class="form-field">
+                    <label style="display: block; font-weight: 600; font-size: 0.85rem; margin-bottom: 0.4rem; color: #cbd5e1;">
+                      Inactivity Timeout Limit:
+                    </label>
+                    <select
+                      [(ngModel)]="sessionTimeoutMinutes"
+                      style="width: 100%; padding: 0.5rem; background: #0b101b; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 6px; color: #f1f5f9;"
+                    >
+                      <option [value]="15">15 Minutes</option>
+                      <option [value]="30">30 Minutes (Recommended)</option>
+                      <option [value]="45">45 Minutes</option>
+                      <option [value]="60">60 Minutes (1 Hour)</option>
+                      <option [value]="120">120 Minutes (2 Hours)</option>
+                      <option [value]="180">180 Minutes (3 Hours)</option>
+                    </select>
+                    <span class="muted" style="font-size: 0.76rem; display: block; margin-top: 0.3rem">
+                      User will be logged out after this duration of continuous inactivity.
+                    </span>
+                  </div>
+
+                  <div class="form-field">
+                    <label style="display: block; font-weight: 600; font-size: 0.85rem; margin-bottom: 0.4rem; color: #cbd5e1;">
+                      Warning Alert Window:
+                    </label>
+                    <select
+                      [(ngModel)]="sessionWarningMinutes"
+                      style="width: 100%; padding: 0.5rem; background: #0b101b; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 6px; color: #f1f5f9;"
+                    >
+                      <option [value]="1">1 Minute before expiry</option>
+                      <option [value]="2">2 Minutes before expiry (Default)</option>
+                      <option [value]="3">3 Minutes before expiry</option>
+                      <option [value]="5">5 Minutes before expiry</option>
+                    </select>
+                    <span class="muted" style="font-size: 0.76rem; display: block; margin-top: 0.3rem">
+                      When this time remains, a top banner and pop-up with a progress bar will appear.
+                    </span>
+                  </div>
+
+                  <div class="form-field" style="display: flex; flex-direction: column; justify-content: center; background: rgba(0, 0, 0, 0.25); padding: 0.75rem 1rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.05);">
+                    <div style="font-size: 0.78rem; color: #94a3b8; margin-bottom: 0.25rem;">Live Session Countdown:</div>
+                    <div style="font-size: 1.25rem; font-weight: 700; color: #fbbf24; font-family: monospace;">
+                      {{ sessionTimeout.formattedRemaining() }} remaining
+                    </div>
+                    <div style="font-size: 0.74rem; color: #64748b; margin-top: 0.2rem;">
+                      Status: {{ sessionTimeout.isWarning() ? '⚠️ Warning Active' : '🟢 Session Active' }}
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -1124,6 +1199,7 @@ export class AdminAccessControlComponent {
   private readonly auth = inject(AuthService);
   private readonly status = inject(StatusService);
   private readonly uiNav = inject(UiNavigationService);
+  readonly sessionTimeout = inject(SessionTimeoutService);
 
   readonly activeTab = signal<AdminViewTab>('matrix');
   readonly accessInfo = signal<AdminAccessControl | null>(null);
@@ -1138,6 +1214,14 @@ export class AdminAccessControlComponent {
   readonly showPurgeDialog = signal<boolean>(false);
 
   purgeDays = 7;
+  sessionTimeoutMinutes = this.sessionTimeout.timeoutMinutes();
+  sessionWarningMinutes = this.sessionTimeout.warningMinutes();
+
+  saveSessionPolicy(): void {
+    this.sessionTimeout.setTimeoutMinutes(this.sessionTimeoutMinutes);
+    this.sessionTimeout.setWarningMinutes(this.sessionWarningMinutes);
+    this.status.showNotice(`Session policy updated: ${this.sessionTimeoutMinutes} min inactivity timeout, ${this.sessionWarningMinutes} min warning.`);
+  }
 
   // Form model for Anonymous visitor policies
   policy: AnonymousAccessPolicy = {
