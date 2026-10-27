@@ -16,6 +16,7 @@ import { ApiService } from '../core/services/api.service';
 import { ContentCalendarService } from '../core/services/content-calendar.service';
 import { ProjectStore } from '../core/services/project-store';
 import { YouTubePublishService } from '../core/services/youtube-publish.service';
+import { TopicPickerComponent } from './topic-picker.component';
 import { AuthService } from '../core/services/auth.service';
 
 /** Remembered per browser so the next publish starts where the last one left off. */
@@ -103,7 +104,7 @@ interface PublishPrefs {
 @Component({
   selector: 'app-youtube-publish-dialog',
   standalone: true,
-  imports: [FormsModule, DecimalPipe, RouterLink],
+  imports: [FormsModule, DecimalPipe, RouterLink, TopicPickerComponent],
   host: { '(document:keydown.escape)': 'closed.emit()' },
   template: `
     <div class="yt-backdrop" (click)="closed.emit()">
@@ -303,6 +304,7 @@ interface PublishPrefs {
                       @if (folderName().trim() !== dr.folderName && !fieldError('folderName')) {
                         <button type="button" class="link" (click)="saveDefaultFolder()" [disabled]="busy()">Use "{{ folderName().trim() }}" every time{{ dr.channelId ? ' for ' + dr.channelTitle : '' }}</button>
                       }
+                      <app-topic-picker label="Topic (optional - files the copy in the Drive library)" [(value)]="topicId" [disabled]="savingCopy()" />
                       <div class="yt-phone-row">
                         <span class="yt-muted">Only want the file? Save a copy to Drive - nothing goes to YouTube.</span>
                         <button type="button" (click)="saveCopyToDrive()"
@@ -1549,6 +1551,7 @@ export class YouTubePublishDialogComponent implements OnInit {
   readonly drive = signal<GoogleDriveStatus | null>(null);
   /** The Drive folder for this send; starts as the Drive's default. */
   readonly folderName = signal('');
+  readonly topicId = signal<string | null>(null);
   readonly muteAudio = signal(false);
   readonly handoff = signal<PhoneHandoff | null>(null);
   /** The channel's new uploads from the last "Check now"; null until one has run. */
@@ -2200,7 +2203,7 @@ export class YouTubePublishDialogComponent implements OnInit {
   saveCopyToDrive(): void {
     if (this.savingCopy() || !this.folderNameValid()) return;
     this.error.set(null);
-    this.api.saveToDrive(this.jobId(), { channelId: this.channelId() || null, folderName: this.folderName().trim() }).subscribe({
+    this.api.saveToDrive(this.jobId(), { channelId: this.channelId() || null, folderName: this.folderName().trim(), topicId: this.topicId() }).subscribe({
       next: (c) => {
         this.driveCopy.set(c);
         this.pollCopy(c.id);

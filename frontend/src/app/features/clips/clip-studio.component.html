@@ -1523,6 +1523,7 @@
                             }
                           </datalist>
                         </label>
+                        <app-topic-picker class="export-drive-field" label="Topic" [(value)]="topicId" [disabled]="driveSaving()" />
                         <button type="button" class="btn btn-success export-drive-send-btn"
                                 (click)="saveExportToDrive(completedJob.jobId)"
                                 [disabled]="driveSaving() || !!driveFolderError()">

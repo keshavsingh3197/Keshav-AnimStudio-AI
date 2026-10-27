@@ -260,11 +260,12 @@ export class YouTubePublishService {
   }
 
   /** Copies a finished render to the Drive (and folder) a channel uses; nothing goes to YouTube. */
-  saveToDrive(jobId: string, body: { channelId?: string | null; folderName?: string | null }): Observable<PhoneHandoff> {
+  saveToDrive(jobId: string, body: { channelId?: string | null; folderName?: string | null; topicId?: string | null }): Observable<PhoneHandoff> {
     return this.http
       .post<ApiResponse<PhoneHandoff>>(`${this.base}/render-jobs/${encodeURIComponent(jobId)}/save-to-drive`, {
         channelId: body.channelId || null,
         folderName: body.folderName || null,
+        topicId: body.topicId || null,
       })
       .pipe(map((r) => r.data as PhoneHandoff));
   }

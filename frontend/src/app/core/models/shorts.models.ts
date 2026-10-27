@@ -10,6 +10,65 @@ export interface ShortDrive {
   folderName: string;
   driveUrl: string | null;
   error: string | null;
+  /** The topic (e.g. Mahadev) the copy is filed under. */
+  topic?: string | null;
+  /** When it was marked used (downloaded or posted); null when not used yet. */
+  usedAt?: string | null;
+  archived?: boolean;
+}
+
+export type LibraryView = 'active' | 'unused' | 'used' | 'archived' | 'all';
+
+export interface LibraryQuery {
+  search?: string;
+  /** A topic id, or 'none' for shorts without one. */
+  topicId?: string;
+  view?: LibraryView;
+  sort?: 'newest' | 'oldest' | 'name' | 'used';
+  page: number;
+  pageSize: number;
+}
+
+export interface LibraryItem {
+  handoffId: string;
+  jobId: string;
+  projectId: string;
+  projectName: string;
+  title: string;
+  durationSeconds: number | null;
+  sizeBytes: number | null;
+  createdAt: string;
+  topicId: string | null;
+  topicName: string | null;
+  topicColor: string | null;
+  usedAt: string | null;
+  archived: boolean;
+  drivePath: string;
+  driveUrl: string | null;
+}
+
+export interface LibraryTopicCount {
+  topicId: string;
+  name: string;
+  color: string;
+  shorts: number;
+  unused: number;
+}
+
+export interface LibraryPage {
+  items: LibraryItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  pages: number;
+  counts: { active: number; unused: number; used: number; archived: number; noTopic: number };
+  topics: LibraryTopicCount[];
+}
+
+export interface LibraryBulk {
+  done: number;
+  failed: number;
+  error: string | null;
 }
 
 /** Where a short stands on YouTube. */

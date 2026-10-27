@@ -11,6 +11,7 @@ import { GoogleDriveStatus, isValidDriveFolderName } from '../../../../core/mode
 import { ActivityService } from '../../../../core/services/activity.service';
 import { ShortsService } from '../../../../core/services/shorts.service';
 import { YouTubePublishService } from '../../../../core/services/youtube-publish.service';
+import { TopicPickerComponent } from '../../../../shared/topic-picker.component';
 import { StudioStateService } from '../../services/studio-state.service';
 import { formatRunTime } from '../photo-story/photo-story-logic';
 
@@ -148,7 +149,7 @@ const newSeed = (): number => Math.floor(Math.random() * 2_000_000_000);
 @Component({
   selector: 'app-auto-shorts',
   standalone: true,
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, TopicPickerComponent],
   templateUrl: './auto-shorts.component.html',
   styleUrl: './auto-shorts.component.css',
 })
@@ -264,6 +265,8 @@ export class AutoShortsComponent {
   readonly drives = signal<GoogleDriveStatus[] | null>(null);
   readonly anyDrive = computed(() => (this.drives() ?? []).some((d) => d.connected && !d.needsReconnect));
   readonly driveOn = signal(false);
+  /** The shared topic every short of the batch is for; null for none. */
+  readonly topicId = signal<string | null>(null);
   /** '' is the personal Drive. */
   readonly driveChannelId = signal('');
   readonly driveTarget = computed(() =>
@@ -308,6 +311,7 @@ export class AutoShortsComponent {
       watermark: this.watermark(),
       includeOutro: this.outro(),
       saveToDrive: this.driveOn(),
+      topicId: this.topicId(),
       driveChannelId: this.driveOn() ? this.driveChannelId() || null : null,
       driveFolderName: this.driveOn() ? this.driveFolder().trim() || null : null,
     };

@@ -1,6 +1,6 @@
 import { Component, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 
 import { ShortsBoardComponent } from './shorts-board.component';
@@ -13,7 +13,7 @@ import { ShortsBoardComponent } from './shorts-board.component';
 @Component({
   selector: 'app-shorts-page',
   standalone: true,
-  imports: [ShortsBoardComponent],
+  imports: [ShortsBoardComponent, RouterLink],
   template: `
     <div class="sp-page studio-wide-page">
       <header class="sp-head sb-studio-bar">
@@ -26,6 +26,7 @@ import { ShortsBoardComponent } from './shorts-board.component';
           </div>
         </div>
         <div class="sb-studio-actions">
+          <a routerLink="/shorts/library" class="pill brand">📁 Drive library</a>
           <span class="pill brand">9:16 Batch Pipeline</span>
         </div>
       </header>

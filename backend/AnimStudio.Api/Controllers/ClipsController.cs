@@ -7,6 +7,7 @@ using AnimStudio.Application.Security;
 using AnimStudio.Application.Shorts;
 using AnimStudio.Domain.Assets;
 using AnimStudio.Domain.Jobs;
+using AnimStudio.Domain.Planning;
 using AnimStudio.Domain.Publishing;
 using AnimStudio.Infrastructure.Ffmpeg;
 using AnimStudio.Infrastructure.Publishing;
@@ -34,7 +35,8 @@ public sealed class ClipsController(
     IOptions<RenderOptions> renderOptions,
     AnimStudio.Application.Assets.AssetScopeService scope,
     ICurrentUser currentUser,
-    IOptionsMonitor<ShortsOptions> shortsOptions) : ControllerBase
+    IOptionsMonitor<ShortsOptions> shortsOptions,
+    IContentTopicRepository topicRepository) : ControllerBase
 {
     /// <summary>
     /// Everything the clip screen needs to draw itself: the clips, what may be used as a
@@ -147,9 +149,19 @@ public sealed class ClipsController(
     public async Task<ActionResult<ApiResponse<RenderJobResponse>>> Merge(
         string projectId, [FromBody] ClipMergeRequest request, CancellationToken ct)
     {
+        try
+        {
+            await DriveCopies.ResolveTopicAsync(topicRepository, currentUser.UserId, request.TopicId, ct);
+        }
+        catch (YouTubePublishException ex)
+        {
+            return BadRequest(ApiResponse<RenderJobResponse>.Fail(ex.Message, new ApiError(ex.Code, ex.Message, Field: "topicId")));
+        }
+
         var command = new ClipMergeCommand
         {
             ExportName = request.ExportName,
+            TopicId = request.TopicId,
             AssetIds = request.AssetIds,
             Fit = request.Fit,
             BackgroundColor = request.BackgroundColor,
@@ -302,6 +314,15 @@ public sealed class ClipsController(
         // nowhere to go. The copies themselves start as each short finishes, on the server -
         // closing the studio doesn't stop them.
         DriveTarget? target = null;
+        ContentTopic? topic;
+        try
+        {
+            topic = await DriveCopies.ResolveTopicAsync(topicRepository, currentUser.UserId, request.TopicId, ct);
+        }
+        catch (YouTubePublishException ex)
+        {
+            return BadRequest(ApiResponse<AutoShortsResponse>.Fail(ex.Message, new ApiError(ex.Code, ex.Message, Field: "topicId")));
+        }
         if (request.SaveToDrive)
         {
             try
@@ -323,7 +344,7 @@ public sealed class ClipsController(
             {
                 var title = string.IsNullOrWhiteSpace(job.Name) ? "Auto short" : job.Name.Trim();
                 await handoffs.UpsertAsync(DriveCopies.SaveOnly(
-                    currentUser.UserId, job, projectName, request.DriveChannelId, title, target, PhoneHandoffState.WaitingForRender), ct);
+                    currentUser.UserId, job, projectName, request.DriveChannelId, title, target, PhoneHandoffState.WaitingForRender, topic), ct);
             }
         }
 
@@ -391,6 +412,7 @@ public sealed class ClipsController(
         Watermark = request.Watermark.ToSettings(),
         IncludeOutro = request.IncludeOutro,
         Seed = request.Seed,
+        TopicId = request.TopicId,
     };
 
     /// <summary>

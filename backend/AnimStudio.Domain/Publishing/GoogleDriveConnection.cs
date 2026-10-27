@@ -54,6 +54,9 @@ public sealed class GoogleDriveConnection
     /// </summary>
     public List<GoogleDriveChannelFolder> ChannelFolders { get; set; } = [];
 
+    /// <summary>Legacy: topic names from before topics were shared with the calendar. Moved into calendar topics on first use.</summary>
+    public List<string> Topics { get; set; } = [];
+
     public DateTime ConnectedAt { get; set; }
 
     /// <summary>When Google last refused the refresh token. Cleared by reconnecting.</summary>

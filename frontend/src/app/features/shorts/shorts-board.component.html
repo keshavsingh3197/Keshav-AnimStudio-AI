@@ -130,6 +130,9 @@
                    [placeholder]="driveTarget()?.folderName ?? ''" [ngModel]="driveFolder()" (ngModelChange)="driveFolder.set($event)" />
             <datalist id="sb-drive-folders">@for (f of driveFolders(); track f) { <option [value]="f"></option> }</datalist>
           </div>
+          <div class="sb-row">
+            <app-topic-picker label="Topic (optional)" [(value)]="topicId" />
+          </div>
           @if (driveFolderError(); as err) { <p class="sb-warn-text">{{ err }}</p> }
           <label class="sb-check"><input type="checkbox" [ngModel]="driveAgain()" (ngModelChange)="driveAgain.set($event)" /> Copy again even if already on Drive</label>
           <p class="sb-muted">Ready shorts start copying now; ones still rendering are copied the moment they finish - on the server, so you can close this page.</p>

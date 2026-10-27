@@ -47,6 +47,9 @@ public sealed record ClipAudioTrack(
 public sealed record ClipMergeCommand
 {
     public string? ExportName { get; init; }
+
+    /// <summary>The shared topic the export is for; its Drive copy is filed under it. Checked by the API.</summary>
+    public string? TopicId { get; init; }
     public IReadOnlyList<string> AssetIds { get; init; } = [];
 
     public ClipFit Fit { get; init; } = ClipFit.Contain;
@@ -145,6 +148,9 @@ public sealed record AutoShortsCommand
     public WatermarkSettings Watermark { get; init; } = new();
     public bool IncludeOutro { get; init; }
     public int? Seed { get; init; }
+
+    /// <summary>The shared topic every short of the batch is for. Checked by the API.</summary>
+    public string? TopicId { get; init; }
 }
 
 /// <summary>A queued Auto Shorts batch: its id and name, one render per short, and the picks no short used.</summary>
@@ -623,6 +629,7 @@ public sealed class ClipMergeService(
             TargetFormat = targetFormat,
             CreatedAt = clock.GetUtcNow().UtcDateTime,
             Batch = command.Batch,
+            TopicId = string.IsNullOrWhiteSpace(command.TopicId) ? null : command.TopicId,
             ClipMerge = new ClipMergeSpec
             {
                 ExportName = command.ExportName,
@@ -792,7 +799,7 @@ public sealed class ClipMergeService(
                 CreatedAt = batch.CreatedAt, Layout = batch.Layout, SourceAssetIds = batch.SourceAssetIds,
                 Style = plan.Styles is { } styles && k < styles.Count ? styles[k].ToString() : null,
             };
-            queued.Add(await QueueAsync(projectId, plan.Shorts[k] with { Batch = place }, ct).ConfigureAwait(false));
+            queued.Add(await QueueAsync(projectId, plan.Shorts[k] with { Batch = place, TopicId = command.TopicId }, ct).ConfigureAwait(false));
         }
         return new AutoShortsQueued(batch.Id, batch.Name, queued, plan.UnusedAssetIds);
     }

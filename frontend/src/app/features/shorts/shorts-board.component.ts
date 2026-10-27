@@ -14,6 +14,7 @@ import { ApiService } from '../../core/services/api.service';
 import { ShortsService } from '../../core/services/shorts.service';
 import { StatusService } from '../../core/services/status.service';
 import { YouTubePublishService } from '../../core/services/youtube-publish.service';
+import { TopicPickerComponent } from '../../shared/topic-picker.component';
 
 type StatusFilter = 'all' | 'rendering' | 'ready' | 'needs-youtube' | 'needs-drive' | 'on-youtube' | 'failed';
 type Panel = 'drive' | 'youtube' | null;
@@ -41,7 +42,7 @@ const IDLE_POLL_MS = 60000;
 @Component({
   selector: 'app-shorts-board',
   standalone: true,
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, TopicPickerComponent],
   templateUrl: './shorts-board.component.html',
   styleUrl: './shorts-board.component.css',
 })
@@ -125,6 +126,7 @@ export class ShortsBoardComponent {
   readonly driveChannelId = signal('');
   readonly driveTarget = computed(() => (this.drives() ?? []).find((d) => (d.channelId ?? '') === this.driveChannelId()) ?? null);
   readonly driveFolder = signal('');
+  readonly topicId = signal<string | null>(null);
   readonly driveFolders = signal<string[]>([]);
   readonly driveAgain = signal(false);
   readonly driveFolderError = computed(() => {
@@ -283,7 +285,7 @@ export class ShortsBoardComponent {
     if (ids.length === 0 || !d?.connected || d.needsReconnect || this.driveFolderError() || this.working()) return;
     this.working.set(true);
     this.status.run(
-      this.shorts.saveToDrive({ jobIds: ids, channelId: this.driveChannelId() || null, folderName: this.driveFolder(), again: this.driveAgain() })
+      this.shorts.saveToDrive({ jobIds: ids, channelId: this.driveChannelId() || null, folderName: this.driveFolder(), topicId: this.topicId(), again: this.driveAgain() })
         .pipe(finalize(() => this.working.set(false))),
       (res) => {
         this.afterBulk(res, 'saved to Drive');

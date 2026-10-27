@@ -119,6 +119,13 @@ export const routes: Routes = [
   },
 
   {
+    path: 'shorts/library',
+    title: 'Drive library - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/shorts/shorts-library-page.component').then((m) => m.ShortsLibraryPageComponent),
+  },
+
+  {
     path: 'effects',
     title: 'Effects & overlays - AnimStudio AI',
     loadComponent: () =>

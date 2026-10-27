@@ -6,6 +6,7 @@ using AnimStudio.Application.Publishing;
 using AnimStudio.Application.Security;
 using AnimStudio.Application.Shorts;
 using AnimStudio.Domain.Jobs;
+using AnimStudio.Domain.Planning;
 using AnimStudio.Domain.Projects;
 using AnimStudio.Domain.Publishing;
 using AnimStudio.Infrastructure.Publishing;
@@ -35,6 +36,7 @@ public sealed class ShortsController(
     YouTubeUploadManager uploads,
     PhoneHandoffManager handoffManager,
     GoogleDriveConnectionStore drive,
+    IContentTopicRepository topics,
     IOptionsMonitor<ShortsOptions> options,
     ICurrentUser currentUser,
     TimeProvider clock,
@@ -161,15 +163,18 @@ public sealed class ShortsController(
         if (!request.JobIds.All(ShortsIds.IsEntityId)) return BadJobIds();
 
         DriveTarget target;
+        ContentTopic? requestedTopic;
         try
         {
             target = await drive.ResolveAsync(currentUser.UserId, request.ChannelId, request.FolderName, ct);
+            requestedTopic = await DriveCopies.ResolveTopicAsync(topics, currentUser.UserId, request.TopicId, ct);
         }
         catch (YouTubePublishException ex)
         {
             return BadRequest(ApiResponse<ShortsBulkResponse>.Fail(ex.Message,
-                new ApiError(ex.Code, ex.Message, Field: ex.Code == "drive-folder-invalid" ? "folderName" : "drive")));
+                new ApiError(ex.Code, ex.Message, Field: ex.Code switch { "drive-folder-invalid" => "folderName", "topic-invalid" => "topicId", _ => "drive" })));
         }
+        var topicCache = new Dictionary<string, ContentTopic?>(StringComparer.Ordinal);
 
         var results = new List<ShortsBulkResult>();
         foreach (var jobId in request.JobIds.Distinct(StringComparer.Ordinal))
@@ -197,8 +202,15 @@ public sealed class ShortsController(
             var ready = ShortsOverview.IsReady(job);
             var projectName = await ProjectNameAsync(job.ProjectId, ct);
             var title = DriveLayout.TitleFor(job, projectName);
+            // The topic asked for now, else the one the short was made for.
+            var topic = requestedTopic;
+            if (topic is null && job.TopicId is { } madeFor)
+            {
+                if (!topicCache.TryGetValue(madeFor, out topic)) topicCache[madeFor] = topic = await topics.GetAsync(madeFor, ct);
+                if (topic is not null && !string.Equals(topic.UserId, currentUser.UserId, StringComparison.Ordinal)) topic = null;
+            }
             var handoff = DriveCopies.SaveOnly(currentUser.UserId, job, projectName, request.ChannelId, title, target,
-                ready ? PhoneHandoffState.Sending : PhoneHandoffState.WaitingForRender);
+                ready ? PhoneHandoffState.Sending : PhoneHandoffState.WaitingForRender, topic);
             handoff.TotalBytes = job.OutputSizeBytes ?? 0;
             await handoffs.UpsertAsync(handoff, ct);
             if (ready) handoffManager.StartSending(handoff, job.OutputStorageKey!, job.OutputSizeBytes ?? 0);
@@ -359,7 +371,8 @@ public sealed class ShortsController(
         h.DriveMissing ? "Missing" : h.State.ToString(),
         PhoneHandoffManager.DrivePath(h),
         h.DriveFileId is null ? null : $"https://drive.google.com/file/d/{Uri.EscapeDataString(h.DriveFileId)}/view",
-        h.DriveMissing ? "Not on Google Drive any more (deleted or in the trash). Save it again." : h.State == PhoneHandoffState.Failed ? h.Error : null);
+        h.DriveMissing ? "Not on Google Drive any more (deleted or in the trash). Save it again." : h.State == PhoneHandoffState.Failed ? h.Error : null,
+        h.Topic, h.UsedAt, h.Archived, h.TopicId);
 
     private static ShortYouTubeResponse? YouTubeState(
         string jobId,
@@ -429,6 +442,9 @@ public sealed record ShortsDriveRequest
     /// <summary>A folder for these copies; empty uses the channel's (or the Drive's) default.</summary>
     [StringLength(100)] public string? FolderName { get; init; }
 
+    /// <summary>File the copies under this shared topic; empty uses each short's own topic, if it has one.</summary>
+    [RegularExpression("^[A-Za-z0-9_-]{1,64}$")] public string? TopicId { get; init; }
+
     /// <summary>Copy even renders already on Drive.</summary>
     public bool Again { get; init; }
 }
@@ -441,7 +457,9 @@ public sealed record ShortsDriveCheckRequest
 
 public sealed record ShortsDriveCheckResponse(int Checked, int Present, int Missing, int Moved, int Failed, string? Error);
 
-public sealed record ShortDriveResponse(string HandoffId, string State, string FolderName, string? DriveUrl, string? Error);
+public sealed record ShortDriveResponse(
+    string HandoffId, string State, string FolderName, string? DriveUrl, string? Error,
+    string? Topic = null, DateTime? UsedAt = null, bool Archived = false, string? TopicId = null);
 
 /// <summary>State: Published, Queued, Uploading or Failed.</summary>
 public sealed record ShortYouTubeResponse(

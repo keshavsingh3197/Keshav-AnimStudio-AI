@@ -1049,6 +1049,8 @@ export interface AutoShortsBody {
   seed?: number | null;
   /** Copy each short to Google Drive as soon as it has rendered - on the server. */
   saveToDrive?: boolean;
+  /** The shared (calendar) topic the batch is for; its Drive copies are filed under it. */
+  topicId?: string | null;
   /** Whose Drive and folder; null is the personal Drive. */
   driveChannelId?: string | null;
   /** A folder for this batch; empty uses the channel's (or the Drive's) default. */

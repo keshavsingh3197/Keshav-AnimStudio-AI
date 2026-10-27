@@ -1,0 +1,524 @@
+import { DatePipe, DecimalPipe } from '@angular/common';
+import { Component, OnDestroy, computed, inject, signal } from '@angular/core';
+import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
+import { Observable } from 'rxjs';
+
+import { LibraryBulk, LibraryItem, LibraryPage, LibraryQuery, LibraryView } from '../../core/models/shorts.models';
+import { ShortsService } from '../../core/services/shorts.service';
+import { TopicPickerComponent } from '../../shared/topic-picker.component';
+
+type Sort = NonNullable<LibraryQuery['sort']>;
+type ViewMode = 'xl' | 'large' | 'medium' | 'small' | 'list' | 'details' | 'tiles' | 'content';
+
+/**
+ * The shorts already on Drive as a library: search, filter by topic and status, page through
+ * them, download to this device, mark used so none is posted twice, file under shared topics
+ * and archive the used. Everything is filtered and paged on the server.
+ */
+@Component({
+  selector: 'app-shorts-library-page',
+  standalone: true,
+  imports: [FormsModule, RouterLink, TopicPickerComponent, DatePipe, DecimalPipe],
+  template: `
+    <div class="lp studio-wide-page">
+      <header class="lp-head">
+        <div>
+          <h2>Drive library</h2>
+          <p class="muted">Shorts saved to Google Drive. Download them, mark them used so you never post one twice,
+            file them under topics and archive the finished ones.</p>
+        </div>
+        <div class="lp-head-actions">
+          <a routerLink="/shorts" class="lp-btn">← Shorts Studio</a>
+          <a routerLink="/calendar" class="lp-btn">Topics &amp; calendar</a>
+          <button type="button" class="lp-btn" (click)="reload()" [disabled]="busy() || loading()">Refresh</button>
+          <button type="button" class="lp-btn primary" (click)="archiveUsed()" [disabled]="busy() || !(data()?.counts?.used)">
+            Archive {{ data()?.counts?.used ?? 0 }} used
+          </button>
+        </div>
+      </header>
+
+      <section class="lp-card">
+        <div class="lp-filters">
+          <input class="lp-input grow" type="search" maxlength="100" placeholder="Search by name or topic…"
+                 [ngModel]="search()" (ngModelChange)="onSearch($event)" />
+          <select class="lp-input" [ngModel]="mode()" (ngModelChange)="setMode($event)" aria-label="View">
+            @for (m of modes; track m.id) { <option [value]="m.id">{{ m.icon }} {{ m.label }}</option> }
+          </select>
+          <select class="lp-input" [ngModel]="sort()" (ngModelChange)="setSort($event)" aria-label="Sort">
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="name">Name A–Z</option>
+            <option value="used">Recently used</option>
+          </select>
+          <select class="lp-input" [ngModel]="pageSize()" (ngModelChange)="setPageSize($event)" aria-label="Per page">
+            @for (n of pageSizes; track n) { <option [ngValue]="n">{{ n }} / page</option> }
+          </select>
+        </div>
+
+        <div class="lp-chips">
+          @for (v of views(); track v.id) {
+            <button type="button" class="lp-chip" [class.on]="view() === v.id" (click)="setView(v.id)">
+              {{ v.label }} <small>{{ v.count }}</small>
+            </button>
+          }
+        </div>
+
+        <div class="lp-chips">
+          <button type="button" class="lp-chip" [class.on]="!topicId()" (click)="setTopic('')">All topics</button>
+          <button type="button" class="lp-chip" [class.on]="topicId() === 'none'" (click)="setTopic('none')">
+            No topic <small>{{ data()?.counts?.noTopic ?? 0 }}</small>
+          </button>
+          @for (t of data()?.topics ?? []; track t.topicId) {
+            <button type="button" class="lp-chip" [class.on]="topicId() === t.topicId" (click)="setTopic(t.topicId)">
+              <span class="lp-dot" [style.background]="t.color"></span>{{ t.name }} <small>{{ t.unused }}/{{ t.shorts }}</small>
+            </button>
+          }
+        </div>
+      </section>
+
+      @if (message(); as m) { <p class="lp-msg" role="status">{{ m }}</p> }
+
+      <section class="lp-card">
+        <div class="lp-bar">
+          <label class="lp-check"><input type="checkbox" [checked]="allOnPageSelected()" (change)="togglePage()" /> Page</label>
+          <span class="muted">{{ selected().size }} selected</span>
+          @if (allOnPageSelected() && (data()?.total ?? 0) > pageItems().length && selected().size < (data()?.total ?? 0)) {
+            <button type="button" class="lp-link" (click)="selectAllMatching()" [disabled]="busy()">
+              Select all {{ data()?.total }} matching
+            </button>
+          }
+          @if (selected().size) {
+            <button type="button" class="lp-link" (click)="selected.set(empty)">Clear</button>
+          }
+          <span class="lp-spacer"></span>
+          <button type="button" class="lp-btn" (click)="downloadSelected()" [disabled]="busy() || !selected().size">Download</button>
+          <button type="button" class="lp-btn" (click)="setUsed(true)" [disabled]="busy() || !selected().size">Mark used</button>
+          <button type="button" class="lp-btn" (click)="setUsed(false)" [disabled]="busy() || !selected().size">Mark unused</button>
+          @if (view() === 'archived') {
+            <button type="button" class="lp-btn" (click)="restoreSelected()" [disabled]="busy() || !selected().size">Restore</button>
+          } @else {
+            <button type="button" class="lp-btn" (click)="archiveSelected()" [disabled]="busy() || !selected().size">Archive</button>
+          }
+        </div>
+
+        <div class="lp-move">
+          <span class="lp-move-label">Move selected to</span>
+          <app-topic-picker [(value)]="moveTarget" emptyLabel="No topic" [refresh]="data()?.topics?.length" />
+          <button type="button" class="lp-btn" (click)="moveSelected()" [disabled]="busy() || !selected().size">
+            {{ moveTarget() ? 'Move' : 'Remove from topic' }}
+          </button>
+          <span class="lp-spacer"></span>
+          <label class="lp-check" title="Used shorts move to Archive/&lt;topic&gt; on Drive automatically">
+            <input type="checkbox" [ngModel]="autoArchive()" (ngModelChange)="autoArchive.set($event)" />
+            Auto-archive when used
+          </label>
+        </div>
+
+        @if (mode() === 'details') {
+          <div class="lp-table-wrap" [class.loading]="loading()">
+            <table class="lp-table">
+              <thead>
+                <tr>
+                  <th class="c-sel"><input type="checkbox" [checked]="allOnPageSelected()" (change)="togglePage()" aria-label="Select page" /></th>
+                  <th><button type="button" class="lp-th" (click)="sortBy('name')">Name {{ arrow('name') }}</button></th>
+                  <th>Project</th>
+                  <th>Topic</th>
+                  <th>Length</th>
+                  <th>Size</th>
+                  <th><button type="button" class="lp-th" (click)="sortBy('date')">Created {{ arrow('date') }}</button></th>
+                  <th><button type="button" class="lp-th" (click)="sortBy('used')">Status {{ arrow('used') }}</button></th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (i of pageItems(); track i.handoffId) {
+                  <tr [class.used]="!!i.usedAt" [class.sel]="selected().has(i.handoffId)" (dblclick)="downloadOne(i)">
+                    <td class="c-sel"><input type="checkbox" [checked]="selected().has(i.handoffId)" (change)="toggle(i.handoffId)" [attr.aria-label]="'Select ' + i.title" /></td>
+                    <td class="c-name">🎬 {{ i.title || 'Short' }}</td>
+                    <td class="muted">{{ i.projectName }}</td>
+                    <td>@if (i.topicName) { <span class="lp-tag"><span class="lp-dot" [style.background]="i.topicColor"></span>{{ i.topicName }}</span> }</td>
+                    <td class="muted">@if (i.durationSeconds) { {{ i.durationSeconds | number: '1.0-0' }}s }</td>
+                    <td class="muted">@if (i.sizeBytes) { {{ mb(i.sizeBytes) }} MB }</td>
+                    <td class="muted">{{ i.createdAt | date: 'mediumDate' }}</td>
+                    <td>
+                      @if (i.archived) { <span class="lp-tag">Archived</span> }
+                      @else if (i.usedAt) { <span class="lp-tag used">Used</span> }
+                      @else { <span class="lp-tag">Unused</span> }
+                    </td>
+                    <td class="c-act">
+                      @if (i.driveUrl) { <a class="lp-link" [href]="i.driveUrl" target="_blank" rel="noopener">Drive</a> }
+                      <button type="button" class="lp-btn sm" (click)="downloadOne(i)" [disabled]="busy()">Download</button>
+                    </td>
+                  </tr>
+                } @empty {
+                  <tr><td colspan="9" class="lp-empty muted">{{ emptyText() }}</td></tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        } @else {
+          <ul class="lp-items" [class]="'lp-items m-' + mode()" [class.loading]="loading()">
+            @for (i of pageItems(); track i.handoffId) {
+              <li class="lp-item" [class.used]="!!i.usedAt" [class.sel]="selected().has(i.handoffId)" (dblclick)="downloadOne(i)">
+                <label class="lp-pick"><input type="checkbox" [checked]="selected().has(i.handoffId)" (change)="toggle(i.handoffId)" [attr.aria-label]="'Select ' + i.title" /></label>
+                <div class="lp-thumb" [style.--tc]="i.topicColor || '#6c8cff'">
+                  <span class="lp-play">▶</span>
+                  @if (i.durationSeconds) { <span class="lp-dur">{{ i.durationSeconds | number: '1.0-0' }}s</span> }
+                  @if (i.usedAt) { <span class="lp-badge used">Used</span> }
+                </div>
+                <div class="lp-main">
+                  <span class="lp-title" [title]="i.title">{{ i.title || 'Short' }}</span>
+                  <span class="lp-meta muted">{{ i.projectName }} · {{ i.createdAt | date: 'mediumDate' }}@if (i.sizeBytes) { · {{ mb(i.sizeBytes) }} MB }</span>
+                  @if (mode() === 'content') { <span class="lp-meta muted">📁 {{ i.drivePath }}</span> }
+                  <span class="lp-tags">
+                    @if (i.topicName) { <span class="lp-tag"><span class="lp-dot" [style.background]="i.topicColor"></span>{{ i.topicName }}</span> }
+                    @if (i.archived) { <span class="lp-tag">Archived</span> }
+                  </span>
+                </div>
+                <div class="lp-acts">
+                  @if (i.driveUrl) { <a class="lp-link" [href]="i.driveUrl" target="_blank" rel="noopener">Drive</a> }
+                  <button type="button" class="lp-btn sm" (click)="downloadOne(i)" [disabled]="busy()">Download</button>
+                </div>
+              </li>
+            } @empty {
+              <li class="lp-empty muted">{{ emptyText() }}</li>
+            }
+          </ul>
+        }
+
+        <nav class="lp-pager" aria-label="Pagination">
+          <span class="muted">{{ rangeText() }}</span>
+          <span class="lp-spacer"></span>
+          <button type="button" class="lp-btn" (click)="go(1)" [disabled]="page() <= 1">«</button>
+          <button type="button" class="lp-btn" (click)="go(page() - 1)" [disabled]="page() <= 1">‹ Prev</button>
+          <span>Page {{ page() }} of {{ data()?.pages ?? 1 }}</span>
+          <button type="button" class="lp-btn" (click)="go(page() + 1)" [disabled]="page() >= (data()?.pages ?? 1)">Next ›</button>
+          <button type="button" class="lp-btn" (click)="go(data()?.pages ?? 1)" [disabled]="page() >= (data()?.pages ?? 1)">»</button>
+        </nav>
+      </section>
+    </div>
+  `,
+  styles: [`
+    .lp { max-width: 1280px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; box-sizing: border-box; }
+    .lp-head { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+    .lp-head h2 { margin: 0 0 4px; font-size: 1.35rem; font-weight: 800; }
+    .lp-head p { margin: 0; max-width: 640px; font-size: 0.84rem; line-height: 1.45; }
+    .lp-head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .lp-card { background: var(--panel, #161b22); border: 1px solid var(--border, #30363d); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+    .lp-filters, .lp-chips, .lp-bar, .lp-move, .lp-pager { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .lp-move app-topic-picker { min-width: 240px; }
+    .lp-move-label { font-size: 0.82rem; color: var(--muted, #8b949e); }
+    .lp-spacer { flex: 1; }
+    .lp-input { width: auto; background: transparent; color: inherit; border: 1px solid var(--border, #30363d); border-radius: 8px; padding: 7px 10px; font: inherit; font-size: 0.85rem; }
+    .lp-input option { color: #000; }
+    .lp-input.grow { flex: 1; min-width: 200px; width: auto; }
+    .lp-btn, .lp-chip { background: transparent; color: inherit; border: 1px solid var(--border, #30363d); border-radius: 8px; padding: 6px 11px; cursor: pointer; font: inherit; font-size: 0.82rem; text-decoration: none; }
+    .lp-btn.primary, .lp-chip.on { background: var(--brand, #7c3aed); border-color: transparent; color: #fff; }
+    .lp-chip { border-radius: 999px; }
+    .lp-chip small { opacity: 0.75; margin-left: 4px; }
+    .lp-btn:disabled { opacity: 0.45; cursor: default; }
+    .lp-link { background: none; border: none; color: var(--brand, #a78bfa); cursor: pointer; font: inherit; font-size: 0.82rem; padding: 0; }
+    .lp-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+    .lp-msg { margin: 0; padding: 8px 12px; border: 1px solid var(--border, #30363d); border-radius: 8px; font-size: 0.85rem; }
+    .lp-check { display: flex; align-items: center; gap: 6px; font-size: 0.82rem; }
+    .lp-list { list-style: none; margin: 0; padding: 0; }
+    .lp-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; --w: 180px; grid-template-columns: repeat(auto-fill, minmax(var(--w), 1fr)); }
+    .lp-items.loading, .lp-table-wrap.loading { opacity: 0.55; }
+    .lp-item { position: relative; display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--border, #30363d); border-radius: 12px; cursor: default; }
+    .lp-item:hover { background: rgba(124, 58, 237, 0.07); }
+    .lp-item.sel { border-color: var(--brand, #7c3aed); background: rgba(124, 58, 237, 0.14); }
+    .lp-item.used .lp-title, .lp-item.used .lp-thumb { opacity: 0.6; }
+    .lp-pick { position: absolute; top: 14px; left: 14px; z-index: 1; }
+    .lp-thumb { position: relative; aspect-ratio: 9 / 16; max-height: 100%; border-radius: 8px; display: grid; place-items: center; background: linear-gradient(160deg, color-mix(in srgb, var(--tc) 55%, #000), #0d1117); }
+    .lp-play { font-size: 1.6rem; opacity: 0.85; }
+    .lp-dur { position: absolute; right: 6px; bottom: 6px; background: rgba(0, 0, 0, 0.65); border-radius: 4px; padding: 1px 6px; font-size: 0.72rem; }
+    .lp-badge { position: absolute; left: 6px; bottom: 6px; border-radius: 4px; padding: 1px 6px; font-size: 0.7rem; background: #2ea043; }
+    .lp-tags { display: flex; gap: 4px; flex-wrap: wrap; }
+    .lp-acts { display: flex; gap: 8px; align-items: center; }
+    .lp-btn.sm { padding: 3px 8px; font-size: 0.75rem; }
+    .lp-items.m-xl { --w: 300px; }
+    .lp-items.m-large { --w: 210px; }
+    .lp-items.m-medium { --w: 150px; }
+    .lp-items.m-small { --w: 104px; gap: 8px; }
+    .m-small .lp-meta, .m-small .lp-tags, .m-small .lp-acts { display: none; }
+    .m-small .lp-title { font-size: 0.74rem; }
+    .m-medium .lp-meta { display: none; }
+    .m-list, .m-tiles, .m-content { grid-template-columns: 1fr; gap: 0; }
+    .m-list { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+    .m-list .lp-item, .m-tiles .lp-item, .m-content .lp-item { flex-direction: row; align-items: center; border-radius: 8px; }
+    .m-list .lp-thumb { width: 28px; aspect-ratio: 1; flex: none; } .m-list .lp-play, .m-list .lp-dur, .m-list .lp-badge, .m-list .lp-meta, .m-list .lp-tags, .m-list .lp-acts { display: none; }
+    .m-list .lp-pick { position: static; }
+    .m-tiles { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 8px; }
+    .m-tiles .lp-thumb { width: 64px; aspect-ratio: 1; flex: none; } .m-tiles .lp-pick { left: 8px; top: 8px; }
+    .m-tiles .lp-main, .m-content .lp-main { flex: 1; }
+    .m-content .lp-thumb { width: 88px; aspect-ratio: 1; flex: none; } .m-content .lp-pick { left: 8px; top: 8px; }
+    .lp-table-wrap { overflow-x: auto; }
+    .lp-table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+    .lp-table th { text-align: left; font-weight: 600; font-size: 0.76rem; color: var(--muted, #8b949e); padding: 6px 8px; border-bottom: 1px solid var(--border, #30363d); white-space: nowrap; }
+    .lp-table td { padding: 7px 8px; border-bottom: 1px solid var(--border, #30363d); white-space: nowrap; }
+    .lp-table tr.used .c-name { opacity: 0.6; }
+    .lp-table tbody tr:hover { background: rgba(124, 58, 237, 0.07); }
+    .lp-table tr.sel { background: rgba(124, 58, 237, 0.16); }
+    .lp-table .c-name { max-width: 320px; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+    .lp-table .c-sel { width: 28px; } .lp-table .c-act { text-align: right; }
+    .lp-th { background: none; border: none; color: inherit; font: inherit; cursor: pointer; padding: 0; }
+    .lp-empty { list-style: none; grid-column: 1 / -1; text-align: center; padding: 28px 0 !important; }
+    .lp-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .lp-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+    .lp-meta { font-size: 0.76rem; }
+    .lp-tag { font-size: 0.72rem; border: 1px solid var(--border, #30363d); border-radius: 999px; padding: 2px 9px; white-space: nowrap; display: inline-flex; align-items: center; }
+    .lp-tag.used { background: #2ea04366; }
+    .lp-empty { justify-content: center; padding: 28px 0 !important; }
+    .lp-pager { font-size: 0.82rem; }
+    @media (max-width: 720px) { .m-tiles, .m-content { grid-template-columns: 1fr; } }
+  `],
+})
+export class ShortsLibraryPageComponent implements OnDestroy {
+  private readonly api = inject(ShortsService);
+
+  readonly pageSizes = [10, 25, 50, 100];
+  readonly modes: { id: ViewMode; label: string; icon: string }[] = [
+    { id: 'xl', label: 'Extra large icons', icon: '▣' },
+    { id: 'large', label: 'Large icons', icon: '▢' },
+    { id: 'medium', label: 'Medium icons', icon: '◫' },
+    { id: 'small', label: 'Small icons', icon: '▦' },
+    { id: 'list', label: 'List', icon: '☰' },
+    { id: 'details', label: 'Details', icon: '▤' },
+    { id: 'tiles', label: 'Tiles', icon: '◧' },
+    { id: 'content', label: 'Content', icon: '≣' },
+  ];
+  readonly mode = signal<ViewMode>(this.savedMode());
+  readonly empty: ReadonlySet<string> = new Set();
+
+  readonly data = signal<LibraryPage | null>(null);
+  readonly loading = signal(false);
+  readonly busy = signal(false);
+  readonly message = signal<string | null>(null);
+
+  readonly search = signal('');
+  readonly topicId = signal('');
+  readonly view = signal<LibraryView>('active');
+  readonly sort = signal<Sort>('newest');
+  readonly page = signal(1);
+  readonly pageSize = signal(25);
+
+  readonly selected = signal<ReadonlySet<string>>(new Set());
+  readonly moveTarget = signal<string | null>(null);
+  readonly autoArchive = signal(true);
+
+  readonly pageItems = computed(() => this.data()?.items ?? []);
+  readonly allOnPageSelected = computed(() => {
+    const items = this.pageItems();
+    return items.length > 0 && items.every((i) => this.selected().has(i.handoffId));
+  });
+  readonly hasFilters = computed(() => !!this.search().trim() || !!this.topicId() || this.view() !== 'active');
+
+  readonly views = computed(() => {
+    const c = this.data()?.counts;
+    return [
+      { id: 'active' as LibraryView, label: 'All', count: c?.active ?? 0 },
+      { id: 'unused' as LibraryView, label: 'Unused', count: c?.unused ?? 0 },
+      { id: 'used' as LibraryView, label: 'Used', count: c?.used ?? 0 },
+      { id: 'archived' as LibraryView, label: 'Archive', count: c?.archived ?? 0 },
+    ];
+  });
+
+  readonly rangeText = computed(() => {
+    const d = this.data();
+    if (!d || d.total === 0) return '0 shorts';
+    const from = (d.page - 1) * d.pageSize + 1;
+    return `${from}–${Math.min(d.total, from + d.items.length - 1)} of ${d.total}`;
+  });
+
+  private debounce: ReturnType<typeof setTimeout> | null = null;
+  private requestId = 0;
+
+  constructor() {
+    this.reload();
+  }
+
+  ngOnDestroy(): void {
+    if (this.debounce) clearTimeout(this.debounce);
+  }
+
+  mb(bytes: number): string {
+    return (bytes / 1_048_576).toFixed(1);
+  }
+
+  private savedMode(): ViewMode {
+    const v = localStorage.getItem('shorts.library.view');
+    return (['xl', 'large', 'medium', 'small', 'list', 'details', 'tiles', 'content'] as string[]).includes(v ?? '') ? v as ViewMode : 'medium';
+  }
+
+  setMode(m: ViewMode): void {
+    this.mode.set(m);
+    localStorage.setItem('shorts.library.view', m);
+  }
+
+  emptyText(): string {
+    return this.loading() ? 'Loading…'
+      : this.hasFilters() ? 'No shorts match these filters.'
+      : 'Nothing here yet. Shorts appear once they are saved to Google Drive.';
+  }
+
+  /** Details column headers sort the server-side list; a second click flips the direction. */
+  sortBy(col: 'name' | 'date' | 'used'): void {
+    const next: Sort = col === 'name' ? 'name' : col === 'used' ? 'used' : this.sort() === 'newest' ? 'oldest' : 'newest';
+    this.setSort(next);
+  }
+
+  arrow(col: 'name' | 'date' | 'used'): string {
+    const s = this.sort();
+    if (col === 'name') return s === 'name' ? '▲' : '';
+    if (col === 'used') return s === 'used' ? '▼' : '';
+    return s === 'newest' ? '▼' : s === 'oldest' ? '▲' : '';
+  }
+
+  onSearch(value: string): void {
+    this.search.set(value);
+    if (this.debounce) clearTimeout(this.debounce);
+    this.debounce = setTimeout(() => { this.page.set(1); this.reload(); }, 300);
+  }
+
+  setView(v: LibraryView): void { this.view.set(v); this.page.set(1); this.reload(); }
+  setTopic(id: string): void { this.topicId.set(id); this.page.set(1); this.reload(); }
+  setSort(s: Sort): void { this.sort.set(s); this.page.set(1); this.reload(); }
+  setPageSize(n: number): void { this.pageSize.set(Number(n)); this.page.set(1); this.reload(); }
+  go(p: number): void { this.page.set(Math.max(1, p)); this.reload(false); }
+
+  private query(): LibraryQuery {
+    return {
+      search: this.search().trim() || undefined,
+      topicId: this.topicId() || undefined,
+      view: this.view(),
+      sort: this.sort(),
+      page: this.page(),
+      pageSize: this.pageSize(),
+    };
+  }
+
+  /** Loads the current page; a filter change also drops the selection (it may no longer be visible). */
+  reload(clearSelection = true): void {
+    const id = ++this.requestId;
+    this.loading.set(true);
+    if (clearSelection) this.selected.set(new Set());
+    this.api.libraryItems(this.query()).subscribe({
+      next: (d) => {
+        if (id !== this.requestId) return;
+        this.data.set(d);
+        this.page.set(d.page);
+        this.loading.set(false);
+      },
+      error: () => {
+        if (id !== this.requestId) return;
+        this.loading.set(false);
+        this.message.set('Could not load the Drive library.');
+      },
+    });
+  }
+
+  toggle(id: string): void {
+    const next = new Set(this.selected());
+    if (!next.delete(id)) next.add(id);
+    this.selected.set(next);
+  }
+
+  togglePage(): void {
+    const next = new Set(this.selected());
+    const ids = this.pageItems().map((i) => i.handoffId);
+    if (this.allOnPageSelected()) ids.forEach((id) => next.delete(id));
+    else ids.forEach((id) => next.add(id));
+    this.selected.set(next);
+  }
+
+  selectAllMatching(): void {
+    this.api.libraryIds(this.query()).subscribe({
+      next: (ids) => this.selected.set(new Set(ids)),
+      error: () => this.message.set('Could not select every match.'),
+    });
+  }
+
+  moveSelected(): void {
+    this.run(this.api.moveToTopic([...this.selected()], this.moveTarget()), (r) => this.report(r, 'moved'));
+  }
+
+  setUsed(used: boolean): void {
+    this.run(this.api.markUsed([...this.selected()], used, this.autoArchive()), (r) => this.report(r, used ? (this.autoArchive() ? 'marked used and archived' : 'marked used') : 'marked unused'));
+  }
+
+  archiveSelected(): void {
+    this.run(this.api.archive([...this.selected()]), (r) => this.report(r, 'archived'));
+  }
+
+  archiveUsed(): void {
+    const n = this.data()?.counts.used ?? 0;
+    if (!confirm(`Move ${n} used shorts to the Archive folder on Drive?`)) return;
+    this.run(this.api.archive(), (r) => this.report(r, 'archived'));
+  }
+
+  restoreSelected(): void {
+    this.run(this.api.restore([...this.selected()]), (r) => this.report(r, 'restored'));
+  }
+
+  downloadOne(item: LibraryItem): void {
+    if (!this.confirmReuse([item])) return;
+    void this.downloadAll([item]);
+  }
+
+  downloadSelected(): void {
+    const chosen = this.pageItems().filter((i) => this.selected().has(i.handoffId));
+    if (chosen.length === 0) {
+      this.message.set('Downloads run for the shorts on this page; select them here first.');
+      return;
+    }
+    if (!this.confirmReuse(chosen)) return;
+    void this.downloadAll(chosen);
+  }
+
+  /** A used short shouldn't be posted twice, so downloading one asks first. */
+  private confirmReuse(items: LibraryItem[]): boolean {
+    const used = items.filter((i) => i.usedAt).length;
+    return used === 0 || confirm(`${used} of these ${used === 1 ? 'is' : 'are'} already marked used. Download anyway?`);
+  }
+
+  private async downloadAll(items: LibraryItem[]): Promise<void> {
+    this.busy.set(true);
+    let ok = 0;
+    for (const i of items) {
+      try {
+        const blob = await new Promise<Blob>((resolve, reject) =>
+          this.api.downloadCopy(i.handoffId, true, this.autoArchive()).subscribe({ next: resolve, error: reject }));
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${(i.title || 'short').replace(/[\\/:*?"<>|]/g, ' ').trim()}.mp4`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        ok++;
+      } catch {
+        this.message.set(`Could not download "${i.title || 'short'}".`);
+      }
+    }
+    this.busy.set(false);
+    if (ok > 0) {
+      this.message.set(`Downloaded ${ok} and marked ${ok === 1 ? 'it' : 'them'} used${this.autoArchive() ? ' - moved to Archive' : ''}.`);
+      this.reload(false);
+    }
+  }
+
+  private report(r: LibraryBulk, verb: string): void {
+    this.message.set(r.failed > 0
+      ? `${r.done} ${verb}, ${r.failed} failed${r.error ? `: ${r.error}` : '.'}`
+      : `${r.done} ${verb}.`);
+  }
+
+  private run(call: Observable<LibraryBulk>, then: (r: LibraryBulk) => void): void {
+    this.busy.set(true);
+    this.message.set(null);
+    call.subscribe({
+      next: (r) => { this.busy.set(false); then(r); this.selected.set(new Set()); this.reload(false); },
+      error: () => { this.busy.set(false); this.message.set('That did not work. Please try again.'); },
+    });
+  }
+}

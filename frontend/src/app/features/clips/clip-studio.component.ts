@@ -7,6 +7,7 @@ import { catchError, map, of } from 'rxjs';
 import { Clip, DEFAULT_BRAND_CHANNEL } from '../../core/models/api.models';
 import { GoogleDriveStatus, PhoneHandoff, isValidDriveFolderName } from '../../core/models/youtube.models';
 import { YouTubePublishService } from '../../core/services/youtube-publish.service';
+import { TopicPickerComponent } from '../../shared/topic-picker.component';
 import { StudioStateService } from './services/studio-state.service';
 import { StudioHeaderComponent } from './components/studio-header/studio-header.component';
 import { MediaDockComponent } from './components/media-dock/media-dock.component';
@@ -30,6 +31,7 @@ import { lastApplied, loadStoredLibrary, spokenText } from './components/inspect
   imports: [
     CommonModule,
     FormsModule,
+    TopicPickerComponent,
     StudioHeaderComponent,
     MediaDockComponent,
     VideoViewportComponent,
@@ -143,6 +145,7 @@ export class ClipStudioComponent implements OnDestroy {
   readonly driveTarget = computed(() =>
     (this.drives() ?? []).find((d) => (d.channelId ?? '') === this.driveChannelId()) ?? null);
   readonly driveFolder = signal('');
+  readonly topicId = signal<string | null>(null);
   readonly driveFolders = signal<string[]>([]);
   readonly driveCopy = signal<PhoneHandoff | null>(null);
   readonly driveError = signal<string | null>(null);
@@ -199,6 +202,7 @@ export class ClipStudioComponent implements OnDestroy {
     this.youtube.saveToDrive(jobId, {
       channelId: this.driveChannelId() || null,
       folderName: folder,
+      topicId: this.topicId(),
     }).subscribe({
       next: (copy) => {
         this.driveCopy.set(copy);
