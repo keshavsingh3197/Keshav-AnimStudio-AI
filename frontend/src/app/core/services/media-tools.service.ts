@@ -12,11 +12,13 @@ import {
   MediaSystemSettings,
   VideoChunkResult,
 } from '../models/media-tools.models';
+import { MediaTicketService } from './media-ticket.service';
 
 @Injectable({ providedIn: 'root' })
 export class MediaToolsService {
   private readonly http = inject(HttpClient);
   private readonly base = environment.apiUrl;
+  private readonly media = inject(MediaTicketService);
 
   /** Supported sites and whether the downloader (yt-dlp) is installed. */
   getSources(): Observable<MediaSources> {
@@ -39,7 +41,7 @@ export class MediaToolsService {
       this.http.post<ApiResponse<MediaDownloadResult>>(`${this.base}/api/media/download`, req)
     ).pipe(map((r) => ({
       ...r,
-      streamUrl: r.streamUrl?.startsWith('/') ? `${this.base}${r.streamUrl}` : r.streamUrl,
+      streamUrl: this.media.sign(r.streamUrl?.startsWith('/') ? `${this.base}${r.streamUrl}` : r.streamUrl),
     })));
   }
 
@@ -72,11 +74,11 @@ export class MediaToolsService {
   }
 
   getZipDownloadUrl(jobId: string): string {
-    return `${this.base}/api/media/chunks/${jobId}/zip`;
+    return this.media.sign(`${this.base}/api/media/chunks/${jobId}/zip`);
   }
 
   getChunkStreamUrl(jobId: string, index: number): string {
-    return `${this.base}/api/media/chunks/${jobId}/${index}`;
+    return this.media.sign(`${this.base}/api/media/chunks/${jobId}/${index}`);
   }
 
   /** Make sure all relative /api/... stream URLs from the backend get the full origin prefix
@@ -85,12 +87,12 @@ export class MediaToolsService {
     const base = this.base;
     return {
       ...result,
-      zipDownloadUrl: result.zipDownloadUrl?.startsWith('/')
-        ? `${base}${result.zipDownloadUrl}` : result.zipDownloadUrl,
+      zipDownloadUrl: this.media.sign(result.zipDownloadUrl?.startsWith('/')
+        ? `${base}${result.zipDownloadUrl}` : result.zipDownloadUrl),
       chunks: result.chunks.map((c) => ({
         ...c,
-        streamUrl: c.streamUrl?.startsWith('/')
-          ? `${base}${c.streamUrl}` : c.streamUrl,
+        streamUrl: this.media.sign(c.streamUrl?.startsWith('/')
+          ? `${base}${c.streamUrl}` : c.streamUrl),
       })),
     };
   }

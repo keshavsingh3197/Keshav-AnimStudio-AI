@@ -1,3 +1,4 @@
+using AnimStudio.Api.Security;
 using AnimStudio.Api.Common;
 using AnimStudio.Api.Contracts;
 using AnimStudio.Application.Abstractions.Persistence;
@@ -159,6 +160,7 @@ public sealed class RenderController(
     /// id stays on the end so two builds of the same project remain distinguishable.
     /// </para>
     /// </summary>
+    [AllowMediaTicket]
     [HttpGet("api/render-jobs/{jobId}/download")]
     public async Task<IActionResult> Download(string jobId, CancellationToken ct)
     {
@@ -182,6 +184,7 @@ public sealed class RenderController(
     /// Only clip exports completed since the timeline was recorded have one; anything else
     /// is a 404, the same answer as a job with no output.
     /// </summary>
+    [AllowMediaTicket]
     [HttpGet("api/render-jobs/{jobId}/timeline")]
     public async Task<IActionResult> DownloadTimeline(
         string jobId, [FromQuery] string? format, CancellationToken ct)
@@ -322,6 +325,7 @@ public sealed class RenderController(
     /// a presigned URL, which is why it is isolated here.
     /// </para>
     /// </summary>
+    [AllowMediaTicket]
     [HttpGet("api/render-jobs/{jobId}/preview")]
     public async Task<IActionResult> Preview(string jobId, CancellationToken ct)
     {

@@ -48,6 +48,12 @@ public sealed class RenderJob
     /// </summary>
     public RenderJobBatch? Batch { get; set; }
 
+    /// <summary>
+    /// The shared topic (a content calendar topic) the short is for, chosen when it was made.
+    /// Its Drive copy is filed under it. Null when none was chosen.
+    /// </summary>
+    public string? TopicId { get; set; }
+
     public RenderJobStatus Status { get; set; } = RenderJobStatus.Pending;
     public int Progress { get; set; }
     public string? Message { get; set; }

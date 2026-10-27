@@ -53,6 +53,7 @@ public sealed class EffectLibraryService(
     IObjectStore store,
     IMediaProbeService probe,
     IEffectThumbnailer thumbnails,
+    AnimStudio.Application.Assets.AssetScopeService scope,
     TimeProvider clock)
 {
     private DateTime Now => clock.GetUtcNow().UtcDateTime;
@@ -134,7 +135,7 @@ public sealed class EffectLibraryService(
         await EnsureProjectOwnedAsync(projectId, userId, ct).ConfigureAwait(false);
 
         var asset = await assets.GetAsync(assetId, ct).ConfigureAwait(false) ?? throw new KeyNotFoundException();
-        if (!string.Equals(asset.ProjectId, projectId, StringComparison.Ordinal)) throw new KeyNotFoundException();
+        if (!await scope.CanUseAssetAsync(asset, projectId, ct).ConfigureAwait(false)) throw new KeyNotFoundException();
 
         // A copy of one of the caller's own effects is already in the library.
         if (string.Equals(asset.Provenance?.SourceProvider, EffectRules.ProvenanceProvider, StringComparison.Ordinal)

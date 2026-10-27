@@ -737,24 +737,77 @@
 }
 
 .btn-pin-star {
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(4px);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 6px;
-  width: 26px;
-  height: 26px;
+  background: rgba(10, 14, 24, 0.78);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  font-size: 0.85rem;
   color: var(--text-muted, #8892a4);
-  transition: all 0.15s ease;
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.btn-pin-star:hover {
+  color: #fbbf24;
+  background: rgba(10, 14, 24, 0.95);
+  border-color: rgba(251, 191, 36, 0.55);
+  transform: translateY(-1px);
+}
+
+.btn-pin-star:focus-visible,
+.btn-subproject-delete:focus-visible {
+  outline: 2px solid var(--brand, #6c8cff);
+  outline-offset: 2px;
 }
 
 .btn-pin-star.pinned {
   color: #fbbf24;
-  border-color: rgba(251, 191, 36, 0.4);
+  background: rgba(120, 75, 12, 0.62);
+  border-color: rgba(251, 191, 36, 0.55);
+}
+
+.btn-pin-star.pinned svg path:first-child {
+  fill: currentColor;
+}
+
+.subproject-actions,
+.subproject-delete-confirm {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.subproject-delete-confirm .btn-confirm-delete,
+.subproject-delete-confirm .btn-cancel-delete {
+  padding: 3px 6px;
+  white-space: nowrap;
+}
+
+.btn-subproject-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 25px;
+  height: 25px;
+  padding: 0;
+  color: #fca5a5;
+  background: rgba(220, 38, 38, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.22);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.btn-subproject-delete:hover {
+  color: #fff;
+  background: #dc2626;
+  border-color: #ef4444;
 }
 
 .project-thumb-container {

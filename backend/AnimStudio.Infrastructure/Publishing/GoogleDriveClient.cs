@@ -172,6 +172,39 @@ public sealed partial class GoogleDriveClient : IDisposable
     }
 
     /// <summary>
+    /// Streams an app-made file's content into the stream <paramref name="open"/> returns. The
+    /// destination is only opened once Drive has agreed to send the file, so a failure can still
+    /// be answered with an error instead of a half-written download.
+    /// </summary>
+    /// <param name="open">Given the file's size when Drive says it; returns where the bytes go.</param>
+    public async Task DownloadAsync(string accessToken, string fileId, Func<long?, Task<Stream>> open, CancellationToken ct)
+    {
+        if (!IsFileId(fileId)) throw new YouTubePublishException("drive-not-found", "That item isn't on Google Drive any more.");
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{Api}files/{Uri.EscapeDataString(fileId)}?alt=media");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
+        {
+            _logger.LogWarning("Google Drive could not be reached for download: {ErrorType}", ex.GetType().Name);
+            throw new YouTubePublishException("drive-unreachable", "Google Drive couldn't be reached. Try again in a minute.");
+        }
+
+        using (response)
+        {
+            if (!response.IsSuccessStatusCode) throw await FailureAsync(response, "files.download", ct).ConfigureAwait(false);
+            var destination = await open(response.Content.Headers.ContentLength).ConfigureAwait(false);
+            await using var source = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+            await source.CopyToAsync(destination, 81920, ct).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
     /// The folders in the Drive's root that this app made - with <c>drive.file</c>, the only
     /// ones it can see - most recently changed first.
     /// </summary>

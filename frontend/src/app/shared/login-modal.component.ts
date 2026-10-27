@@ -1,8 +1,10 @@
 import { Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { firstValueFrom } from 'rxjs';
 import { AuthService } from '../core/services/auth.service';
 import { StatusService } from '../core/services/status.service';
 import { environment } from '../../environments/environment';
+import { createPasskeyErrorMessage, getPasskeyAssertion, isPasskeySupported, ServerCredentialOptions } from '../core/services/webauthn';
 
 @Component({
   selector: 'app-login-modal',
@@ -32,21 +34,36 @@ import { environment } from '../../environments/environment';
 
             @if (twoFactorRequired()) {
               <form (ngSubmit)="submitTwoFactor()">
-                <p class="form-hint">Two-Factor Authentication is enabled on this account. Enter the 6-digit code from your authenticator app.</p>
+                <p class="form-hint">
+                  @if (isBackupMode()) {
+                    Enter one of your 8-character emergency backup codes generated when 2FA was set up.
+                  } @else {
+                    Two-Factor Authentication is enabled on this account. Enter the 6-digit code from your authenticator app.
+                  }
+                </p>
                 <div class="form-field">
-                  <label for="twoFactorCode">Verification Code</label>
+                  <div class="form-label-row">
+                    <label for="twoFactorCode">{{ isBackupMode() ? 'Backup Code' : 'Verification Code' }}</label>
+                    <button type="button" class="btn-text-link" (click)="toggleBackupMode()">
+                      {{ isBackupMode() ? 'Use Authenticator App' : 'Use a backup code' }}
+                    </button>
+                  </div>
                   <input
                     id="twoFactorCode"
                     type="text"
-                    inputmode="numeric"
-                    pattern="[0-9]*"
-                    maxlength="8"
-                    placeholder="000000"
+                    [placeholder]="isBackupMode() ? 'e.g. a1b2-c3d4' : '000000'"
                     [(ngModel)]="twoFactorCode"
                     name="twoFactorCode"
                     required
                     autofocus
                   />
+                  <span class="field-hint">
+                    @if (isBackupMode()) {
+                      Backup codes are single-use emergency codes.
+                    } @else {
+                      Codes change every 30 seconds. If a code was already submitted or just rotated, wait for the next 30s code or sync your phone clock.
+                    }
+                  </span>
                 </div>
                 <div class="modal-actions">
                   <button type="button" class="btn btn-secondary" (click)="resetForm()">Back</button>
@@ -105,6 +122,14 @@ import { environment } from '../../environments/environment';
                   </button>
                 </div>
               </form>
+
+              @if (passkeySupported) {
+                <div class="or-divider"><span>or</span></div>
+                <button class="btn-passkey" type="button" [disabled]="loading() || passkeyLoading()"
+                        (click)="signInWithPasskey()">
+                  🔑 {{ passkeyLoading() ? 'Connecting to passkey…' : (isLocalhost ? 'Sign in with Passkey (Central SSO)' : 'Sign in with a passkey') }}
+                </button>
+              }
             }
           </div>
 
@@ -221,6 +246,40 @@ import { environment } from '../../environments/environment';
 
     .form-field {
       margin-bottom: 1.15rem;
+    }
+
+    .form-label-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.4rem;
+    }
+
+    .form-label-row label {
+      margin-bottom: 0;
+    }
+
+    .btn-text-link {
+      background: none;
+      border: none;
+      color: #8bb0ff;
+      font-size: 0.78rem;
+      cursor: pointer;
+      padding: 0;
+      text-decoration: underline;
+      transition: color 0.15s ease;
+    }
+
+    .btn-text-link:hover {
+      color: #b4cbff;
+    }
+
+    .field-hint {
+      display: block;
+      font-size: 0.74rem;
+      color: #94a3b8;
+      margin-top: 0.35rem;
+      line-height: 1.35;
     }
 
     .form-field label {
@@ -353,6 +412,52 @@ import { environment } from '../../environments/environment';
       text-decoration: underline;
     }
 
+    .or-divider {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin: 1.15rem 0;
+      color: #64748b;
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .or-divider::before, .or-divider::after {
+      content: '';
+      flex: 1;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .btn-passkey {
+      width: 100%;
+      box-sizing: border-box;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      padding: 0.65rem 1rem;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: #f1f5f9;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      cursor: pointer;
+      transition: all 0.16s ease;
+    }
+
+    .btn-passkey:hover:not(:disabled) {
+      background: rgba(108, 140, 255, 0.12);
+      border-color: rgba(108, 140, 255, 0.45);
+      color: #b4cbff;
+    }
+
+    .btn-passkey:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
     @keyframes fadeIn {
       from { opacity: 0; }
       to { opacity: 1; }
@@ -379,8 +484,16 @@ export class LoginModalComponent {
   errorMessage = signal<string | null>(null);
   twoFactorRequired = signal(false);
   twoFactorToken = signal<string | null>(null);
+  readonly isBackupMode = signal(false);
 
-  readonly registerUrl = `${environment.adminUrl}/register?app=studio`;
+  get registerUrl(): string {
+    const returnUrl = typeof window !== 'undefined' ? window.location.href : '';
+    return `${environment.adminUrl}/register?app=studio&returnUrl=${encodeURIComponent(returnUrl)}&redirect=${encodeURIComponent(returnUrl)}&redirect_uri=${encodeURIComponent(returnUrl)}`;
+  }
+  readonly isLocalhost = typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+  readonly passkeySupported = isPasskeySupported();
+  readonly passkeyLoading = signal(false);
 
   onBackdropClick(event: MouseEvent) {
     if ((event.target as HTMLElement).classList.contains('modal-backdrop')) {
@@ -388,10 +501,17 @@ export class LoginModalComponent {
     }
   }
 
+  toggleBackupMode() {
+    this.isBackupMode.update((v) => !v);
+    this.twoFactorCode = '';
+    this.errorMessage.set(null);
+  }
+
   resetForm() {
     this.twoFactorRequired.set(false);
     this.twoFactorToken.set(null);
     this.twoFactorCode = '';
+    this.isBackupMode.set(false);
     this.errorMessage.set(null);
   }
 
@@ -407,11 +527,32 @@ export class LoginModalComponent {
         if (res.twoFactorRequired) {
           this.twoFactorRequired.set(true);
           this.twoFactorToken.set(res.twoFactorToken ?? null);
+        } else if (res.requiresSessionConfirmation && res.sessionConfirmationTicket) {
+          this.loading.set(true);
+          this.auth.confirmSession(res.sessionConfirmationTicket).subscribe({
+            next: (cRes) => {
+              this.loading.set(false);
+              if (cRes.success) {
+                this.status.showNotice(`Welcome back, ${cRes.user?.displayName || cRes.user?.email || 'User'}!`);
+                this.resetForm();
+                this.email = '';
+                this.password = '';
+                this.auth.closeAuthModal();
+              } else {
+                this.errorMessage.set(cRes.error || 'Failed to establish session.');
+              }
+            },
+            error: (err) => {
+              this.loading.set(false);
+              this.errorMessage.set(err?.message || 'Failed to confirm session.');
+            },
+          });
         } else if (res.success) {
           this.status.showNotice(`Welcome back, ${res.user?.displayName || res.user?.email || 'User'}!`);
           this.resetForm();
           this.email = '';
           this.password = '';
+          this.auth.closeAuthModal();
         } else {
           this.errorMessage.set(res.error || 'Invalid email or password.');
         }
@@ -424,34 +565,134 @@ export class LoginModalComponent {
   }
 
   submitTwoFactor() {
-    if (!this.twoFactorCode) return;
+    const code = this.twoFactorCode.trim();
+    const token = this.twoFactorToken();
+    if (!code) return;
 
     this.loading.set(true);
     this.errorMessage.set(null);
 
-    this.auth
-      .login({
-        email: this.email,
-        password: this.password,
-        twoFactorCode: this.twoFactorCode,
-      })
-      .subscribe({
-        next: (res) => {
-          this.loading.set(false);
-          if (res.success) {
-            this.status.showNotice(`Welcome back, ${res.user?.displayName || 'User'}!`);
-            this.resetForm();
-            this.email = '';
-            this.password = '';
-          } else {
-            this.errorMessage.set(res.error || 'Invalid verification code.');
-          }
-        },
-        error: (err) => {
-          this.loading.set(false);
-          this.errorMessage.set(err?.message || 'Verification failed.');
-        },
-      });
+    const isBackup = this.isBackupMode() || code.length === 8 || code.includes('-') || /[a-zA-Z]/.test(code);
+    const method = isBackup ? 2 : 0;
+
+    const req$ = token
+      ? this.auth.verifyTwoFactor({ twoFactorToken: token, code, method })
+      : this.auth.login({
+          email: this.email,
+          password: this.password,
+          twoFactorCode: code,
+          twoFactorToken: token ?? undefined,
+          recoveryCode: isBackup ? code : undefined,
+        });
+
+    req$.subscribe({
+      next: (res) => {
+        this.loading.set(false);
+        if (res.success) {
+          this.status.showNotice(`Welcome back, ${res.user?.displayName || 'User'}!`);
+          this.resetForm();
+          this.email = '';
+          this.password = '';
+          this.auth.closeAuthModal();
+        } else if (res.requiresSessionConfirmation && res.sessionConfirmationTicket) {
+          this.loading.set(true);
+          this.auth.confirmSession(res.sessionConfirmationTicket).subscribe({
+            next: (cRes) => {
+              this.loading.set(false);
+              if (cRes.success) {
+                this.status.showNotice(`Welcome back, ${cRes.user?.displayName || 'User'}!`);
+                this.resetForm();
+                this.email = '';
+                this.password = '';
+                this.auth.closeAuthModal();
+              } else {
+                this.errorMessage.set(cRes.error || 'Failed to establish session.');
+              }
+            },
+            error: (err) => {
+              this.loading.set(false);
+              this.errorMessage.set(err?.message || 'Failed to confirm session.');
+            },
+          });
+        } else {
+          this.errorMessage.set(res.error || 'Invalid verification code.');
+        }
+      },
+      error: (err) => {
+        this.loading.set(false);
+        this.errorMessage.set(err?.message || 'Verification failed.');
+      },
+    });
+  }
+
+  buildCentralSsoUrl(mode: 'passkey' | 'standard' = 'passkey'): string {
+    const callback = typeof window !== 'undefined'
+      ? new URL(window.location.href)
+      : new URL('http://localhost/');
+    if (mode === 'passkey') {
+      callback.searchParams.set('login', 'success');
+    }
+    const returnUrl = callback.toString();
+    const target = new URL(`${environment.adminUrl}/login`);
+    target.searchParams.set('app', 'studio');
+    target.searchParams.set('returnUrl', returnUrl);
+    target.searchParams.set('redirect', returnUrl);
+    target.searchParams.set('redirect_uri', returnUrl);
+    target.searchParams.set('return_url', returnUrl);
+    if (mode === 'passkey') {
+      target.searchParams.set('mode', 'passkey');
+      target.searchParams.set('auth_mode', 'passkey');
+    }
+    return target.toString();
+  }
+
+  openPasskeyPopup(): void {
+    const ssoUrl = this.buildCentralSsoUrl('passkey');
+    const popup = window.open(ssoUrl, '_blank');
+    if (!popup) {
+      this.errorMessage.set('Your browser blocked the Central SSO window. Allow pop-ups for AnimStudio and try again.');
+      return;
+    }
+    try {
+      sessionStorage.setItem('animstudio_passkey_pending', 'true');
+    } catch {}
+    popup.opener = null;
+    this.status.showNotice('Complete passkey sign-in in the Central SSO tab. AnimStudio will stay open and update when you return.');
+  }
+
+  async signInWithPasskey(): Promise<void> {
+    this.errorMessage.set(null);
+
+    // Localhost cannot use passkeys registered for the Central SSO relying-party domain.
+    if (this.isLocalhost) {
+      this.passkeyLoading.set(true);
+      this.openPasskeyPopup();
+      this.passkeyLoading.set(false);
+      return;
+    }
+
+    this.passkeyLoading.set(true);
+    try {
+      const begin = await firstValueFrom(this.auth.passkeyLoginBegin());
+      const assertion = await getPasskeyAssertion(begin.options as unknown as ServerCredentialOptions);
+      const res = await firstValueFrom(this.auth.passkeyLoginComplete(begin.handle, assertion));
+      if (res.success) {
+        this.status.showNotice(`Welcome back, ${res.user?.displayName || res.user?.email || 'User'}!`);
+        this.resetForm();
+        this.email = '';
+        this.password = '';
+        this.auth.closeAuthModal();
+      } else {
+        this.errorMessage.set(res.error || 'Passkey sign-in failed.');
+      }
+    } catch (err: any) {
+      if (err?.name === 'SecurityError') {
+        this.openPasskeyPopup();
+        return;
+      }
+      this.errorMessage.set(createPasskeyErrorMessage(err, 'Passkey sign-in failed.'));
+    } finally {
+      this.passkeyLoading.set(false);
+    }
   }
 }
-

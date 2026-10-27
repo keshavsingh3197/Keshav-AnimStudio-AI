@@ -5,7 +5,7 @@ import { Observable, map } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../models/api.models';
 import {
-  ShortsActive, ShortsBulkResponse, ShortsDriveCheck, ShortsOverview, YouTubeBulkPublishBody,
+  LibraryBulk, LibraryPage, LibraryQuery, ShortsActive, ShortsBulkResponse, ShortsDriveCheck, ShortsOverview, YouTubeBulkPublishBody,
 } from '../models/shorts.models';
 
 /** The Shorts page's calls: every short across projects, and the bulk actions on them. */
@@ -35,9 +35,10 @@ export class ShortsService {
   }
 
   /** Copies many renders to Drive; ones still rendering are copied when they finish. */
-  saveToDrive(body: { jobIds: string[]; channelId?: string | null; folderName?: string | null; again?: boolean }): Observable<ShortsBulkResponse> {
+  saveToDrive(body: { jobIds: string[]; channelId?: string | null; folderName?: string | null; topicId?: string | null; again?: boolean }): Observable<ShortsBulkResponse> {
     return this.http.post<ApiResponse<ShortsBulkResponse>>(`${this.base}/drive`, {
       jobIds: body.jobIds,
+      topicId: body.topicId || null,
       channelId: body.channelId || null,
       folderName: body.folderName?.trim() || null,
       again: !!body.again,
@@ -63,5 +64,56 @@ export class ShortsService {
   publishToYouTube(body: YouTubeBulkPublishBody): Observable<ShortsBulkResponse> {
     return this.http.post<ApiResponse<ShortsBulkResponse>>(`${environment.apiUrl}/api/youtube/render-jobs/bulk-publish`, body)
       .pipe(map((r) => r.data as ShortsBulkResponse));
+  }
+
+  private readonly library = `${environment.apiUrl}/api/shorts/library`;
+
+  /** One page of the Drive library for the filters, with the counts the filter chips show. */
+  libraryItems(query: LibraryQuery): Observable<LibraryPage> {
+    return this.http.get<ApiResponse<LibraryPage>>(`${this.library}/items`, { params: this.libraryParams(query) })
+      .pipe(map((r) => r.data as LibraryPage));
+  }
+
+  /** Every id the filters match, across pages. */
+  libraryIds(query: LibraryQuery): Observable<string[]> {
+    return this.http.get<ApiResponse<string[]>>(`${this.library}/ids`, { params: this.libraryParams(query) })
+      .pipe(map((r) => r.data ?? []));
+  }
+
+  private libraryParams(q: LibraryQuery): HttpParams {
+    let params = new HttpParams();
+    for (const [key, value] of Object.entries(q)) {
+      if (value !== undefined && value !== null && value !== '') params = params.set(key, String(value));
+    }
+    return params;
+  }
+
+  /** Files copies under a shared topic (null takes them out of any topic), moving them on Drive. */
+  moveToTopic(handoffIds: string[], topicId: string | null): Observable<LibraryBulk> {
+    return this.http.post<ApiResponse<LibraryBulk>>(`${this.library}/move`, { handoffIds, topicId })
+      .pipe(map((r) => r.data as LibraryBulk));
+  }
+
+  markUsed(handoffIds: string[], used: boolean, archive = true): Observable<LibraryBulk> {
+    return this.http.post<ApiResponse<LibraryBulk>>(`${this.library}/used`, { handoffIds, used, archive })
+      .pipe(map((r) => r.data as LibraryBulk));
+  }
+
+  /** Moves the given copies (or, with none given, every used one) to the Drive Archive folder. */
+  archive(handoffIds?: string[]): Observable<LibraryBulk> {
+    return this.http.post<ApiResponse<LibraryBulk>>(`${this.library}/archive`, { handoffIds: handoffIds ?? null })
+      .pipe(map((r) => r.data as LibraryBulk));
+  }
+
+  restore(handoffIds: string[]): Observable<LibraryBulk> {
+    return this.http.post<ApiResponse<LibraryBulk>>(`${this.library}/restore`, { handoffIds })
+      .pipe(map((r) => r.data as LibraryBulk));
+  }
+
+  /** The copy's bytes, streamed from Drive through the server; with markUsed it is then marked used. */
+  downloadCopy(handoffId: string, markUsed: boolean, autoArchive = true): Observable<Blob> {
+    return this.http.get(`${this.library}/download/${encodeURIComponent(handoffId)}`, {
+      params: { markUsed, autoArchive }, responseType: 'blob',
+    });
   }
 }

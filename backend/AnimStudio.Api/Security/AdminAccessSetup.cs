@@ -5,6 +5,7 @@ using AnimStudio.Application.Options;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 
@@ -22,6 +23,9 @@ public static class AdminAccessSetup
     /// </summary>
     private const int MinimumSigningKeyBytes = 32;
 
+    /// <summary>Picks bearer or media-ticket authentication per request.</summary>
+    private const string DefaultScheme = "AnimStudio";
+
     public static IServiceCollection AddAnimStudioAdminAccess(
         this IServiceCollection services,
         IConfiguration configuration,
@@ -37,42 +41,81 @@ public static class AdminAccessSetup
         services.AddHttpContextAccessor();
         services.AddSingleton<IAuthorizationHandler, AdminRequirementHandler>();
 
-        if (options.Mode == AdminAccessMode.Jwt)
-        {
-            services
-                .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-                .AddJwtBearer(bearer =>
+        var signingKey = options.Jwt.SigningKey;
+        var hasKey = !string.IsNullOrWhiteSpace(signingKey) &&
+                     Encoding.UTF8.GetByteCount(signingKey) >= MinimumSigningKeyBytes;
+
+        services.AddDataProtection();
+        services.AddSingleton<MediaTicketService>();
+
+        services
+            .AddAuthentication(DefaultScheme)
+            // A media element's request carries no bearer header, so a marked media endpoint
+            // may be authenticated by its ticket instead; everything else is the bearer token.
+            .AddPolicyScheme(DefaultScheme, DefaultScheme, policy =>
+                policy.ForwardDefaultSelector = context => MediaTicketService.Applies(context)
+                    ? MediaTicketAuthenticationHandler.SchemeName
+                    : JwtBearerDefaults.AuthenticationScheme)
+            .AddScheme<AuthenticationSchemeOptions, MediaTicketAuthenticationHandler>(
+                MediaTicketAuthenticationHandler.SchemeName, _ => { })
+            .AddJwtBearer(bearer =>
+            {
+                bearer.UseSecurityTokenValidators = true;
+                bearer.MapInboundClaims = false;
+                bearer.RequireHttpsMetadata = !environment.IsDevelopment();
+                // Every token must be signed with the family key, in HS256, by the family
+                // issuer for the family audience. Without a key there is nothing to verify a
+                // signature against, so every token is refused (fail closed) and the local
+                // modes fall back to their single local user - an unsigned token is never
+                // accepted, since anyone could write one naming any user, admin included.
+                bearer.TokenValidationParameters = new TokenValidationParameters
                 {
-                    // Claims arrive verbatim: the family's tokens carry "sub" and "role",
-                    // and the default mapping would rewrite both into SOAP-era URIs that no
-                    // other app in the family agrees with.
-                    bearer.MapInboundClaims = false;
-                    bearer.RequireHttpsMetadata = !environment.IsDevelopment();
-                    bearer.TokenValidationParameters = new TokenValidationParameters
+                    ValidIssuer = options.Jwt.Issuer,
+                    ValidAudience = options.Jwt.Audience,
+                    ValidateIssuer = true,
+                    ValidateAudience = true,
+                    ValidateLifetime = true,
+                    RequireExpirationTime = true,
+                    ClockSkew = TimeSpan.FromSeconds(60),
+                    RequireSignedTokens = true,
+                    ValidateIssuerSigningKey = true,
+                    ValidAlgorithms = [SecurityAlgorithms.HmacSha256],
+                    IssuerSigningKey = hasKey
+                        ? new SymmetricSecurityKey(Encoding.UTF8.GetBytes(signingKey!))
+                        : null
+                };
+
+                bearer.Events = new JwtBearerEvents
+                {
+                    OnAuthenticationFailed = ctx =>
                     {
-                        ValidIssuer = options.Jwt.Issuer,
-                        ValidAudience = options.Jwt.Audience,
-                        IssuerSigningKey = new SymmetricSecurityKey(
-                            Encoding.UTF8.GetBytes(options.Jwt.SigningKey!)),
-                        ValidateIssuer = true,
-                        ValidateAudience = true,
-                        ValidateIssuerSigningKey = true,
-                        ValidateLifetime = true,
-                        ClockSkew = TimeSpan.FromSeconds(30)
-                    };
-                });
-        }
-        else
-        {
-            // No token is validated in the local modes, but a scheme still has to exist:
-            // a failed policy has to be turned into a 403 by something, and without a
-            // registered scheme ASP.NET raises an InvalidOperationException instead, which
-            // would surface as a 500 and read like a bug rather than a refusal.
-            services
-                .AddAuthentication(RefusalAuthenticationHandler.SchemeName)
-                .AddScheme<AuthenticationSchemeOptions, RefusalAuthenticationHandler>(
-                    RefusalAuthenticationHandler.SchemeName, _ => { });
-        }
+                        Console.Error.WriteLine($"[JwtBearer] Auth failed: {ctx.Exception.Message}");
+                        return Task.CompletedTask;
+                    },
+                    OnTokenValidated = ctx =>
+                    {
+                        // Token validated
+                        return Task.CompletedTask;
+                    },
+                    OnChallenge = async ctx =>
+                    {
+                        ctx.HandleResponse();
+                        ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                        ctx.Response.ContentType = "application/json";
+                        await ctx.Response.WriteAsJsonAsync(ApiResponse<EmptyPayload>.Fail(
+                            "Sign in with an administrator account to access settings.",
+                            new ApiError("admin-unauthorized", "Sign in with an administrator account to access settings.")));
+                    },
+                    OnForbidden = async ctx =>
+                    {
+                        ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+                        ctx.Response.ContentType = "application/json";
+                        await ctx.Response.WriteAsJsonAsync(ApiResponse<EmptyPayload>.Fail(
+                            "Administration is only available to accounts with the Admin role.",
+                            new ApiError("admin-forbidden", "Administration is only available to accounts with the Admin role.")));
+                    }
+                };
+            });
 
         services.AddAuthorization(auth =>
         {
@@ -99,6 +142,16 @@ public static class AdminAccessSetup
     /// </summary>
     private static void Validate(AdminOptions options, IWebHostEnvironment environment)
     {
+        // In any mode: a key that is set but too short would refuse every sign-in without a
+        // word, which is worse than not starting.
+        if (!string.IsNullOrWhiteSpace(options.Jwt.SigningKey) &&
+            Encoding.UTF8.GetByteCount(options.Jwt.SigningKey) < MinimumSigningKeyBytes)
+        {
+            throw new InvalidOperationException(
+                $"Admin:Jwt:SigningKey is shorter than {MinimumSigningKeyBytes} bytes, which is " +
+                "too short for HS256. Use the family signing key.");
+        }
+
         if (options.Mode == AdminAccessMode.Jwt)
         {
             var key = options.Jwt.SigningKey;

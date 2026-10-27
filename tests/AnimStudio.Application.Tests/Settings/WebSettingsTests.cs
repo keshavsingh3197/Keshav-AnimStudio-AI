@@ -1,4 +1,5 @@
 using AnimStudio.Application.Settings;
+using AnimStudio.Application.Shorts;
 using AnimStudio.Infrastructure.Ffmpeg;
 using AnimStudio.Infrastructure.Settings;
 using Microsoft.Extensions.Configuration;
@@ -15,6 +16,7 @@ public class WebSettingsTests
     [InlineData("Render:Preset", "SLOW", "slow")]
     [InlineData("Render:UseHardwareEncoder", "True", "true")]
     [InlineData("Segmentation:TargetSegmentSeconds", "6.5", "6.5")]
+    [InlineData("Shorts:MaxBatchCount", "75", "75")]
     [InlineData("YouTube:Publish:RedirectUri", "http://localhost:4200/youtube/callback", "http://localhost:4200/youtube/callback")]
     public void Accepts_valid_values_in_invariant_form(string key, string input, string expected)
     {
@@ -30,6 +32,8 @@ public class WebSettingsTests
     [InlineData("Render:Preset", "placebo")]
     [InlineData("Render:UseHardwareEncoder", "yes")]
     [InlineData("Segmentation:TargetSegmentSeconds", "NaN")]
+    [InlineData("Shorts:MaxBatchCount", "0")]
+    [InlineData("Shorts:MaxBatchCount", "501")]
     [InlineData("YouTube:Publish:RedirectUri", "http://example.com/callback")]
     [InlineData("YouTube:Publish:RedirectUri", "javascript:alert(1)")]
     [InlineData("Render:WatermarkText", "line\nbreak")]
@@ -55,29 +59,41 @@ public class WebSettingsTests
     {
         var source = new WebSettingsConfigurationSource();
         var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?> { ["Render:Crf"] = "18", ["Encryption:DataKey"] = "file" })
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Render:Crf"] = "18",
+                ["Shorts:MaxBatchCount"] = "20",
+                ["Encryption:DataKey"] = "file"
+            })
             .Add(source)
             .Build();
 
         var services = new ServiceCollection();
         services.Configure<RenderOptions>(configuration.GetSection(RenderOptions.Section));
+        services.Configure<ShortsOptions>(configuration.GetSection(ShortsOptions.Section));
         services.AddSingleton<IOptions<RenderOptions>, LiveOptions<RenderOptions>>();
+        services.AddSingleton<IOptions<ShortsOptions>, LiveOptions<ShortsOptions>>();
         using var provider = services.BuildServiceProvider();
         var options = provider.GetRequiredService<IOptions<RenderOptions>>();
+        var shortsOptions = provider.GetRequiredService<IOptions<ShortsOptions>>();
 
         Assert.Equal(18, options.Value.Crf);
+        Assert.Equal(20, shortsOptions.Value.MaxBatchCount);
 
         source.Provider.Apply(new Dictionary<string, string>
         {
             ["Render:Crf"] = "23",
+            ["Shorts:MaxBatchCount"] = "35",
             // Not in the catalog: ignored even if someone inserts the row by hand.
             ["Encryption:DataKey"] = "from-database"
         });
 
         Assert.Equal(23, options.Value.Crf);
+        Assert.Equal(35, shortsOptions.Value.MaxBatchCount);
         Assert.Equal("file", configuration["Encryption:DataKey"]);
 
         source.Provider.Apply(new Dictionary<string, string>());
         Assert.Equal(18, options.Value.Crf);
+        Assert.Equal(20, shortsOptions.Value.MaxBatchCount);
     }
 }

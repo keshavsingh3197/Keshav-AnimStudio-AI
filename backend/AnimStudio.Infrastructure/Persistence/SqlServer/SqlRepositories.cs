@@ -73,6 +73,24 @@ public sealed class SqlProjectRepository(ISqlConnectionFactory factory) : IProje
         return list;
     }
 
+    public async Task<IReadOnlyList<Project>> ListSubProjectsAsync(string parentProjectId, CancellationToken ct)
+    {
+        await using var conn = await factory.OpenConnectionAsync(ct).ConfigureAwait(false);
+        const string sql = "SELECT DataJson FROM Projects WHERE JSON_VALUE(DataJson, '$.parentProjectId') = @ParentProjectId ORDER BY UpdatedAt DESC";
+        await using var cmd = new SqlCommand(sql, conn);
+        cmd.Parameters.AddWithValue("@ParentProjectId", parentProjectId);
+
+        var list = new List<Project>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
+        {
+            var json = reader.GetString(0);
+            var item = SqlJson.Deserialize<Project>(json);
+            if (item != null) list.Add(item);
+        }
+        return list;
+    }
+
     public async Task InsertAsync(Project project, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(project.Id))
@@ -348,6 +366,32 @@ public sealed class SqlAssetRepository(ISqlConnectionFactory factory) : IAssetRe
         const string sql = "SELECT DataJson FROM Assets WHERE ProjectId = @ProjectId ORDER BY CreatedAt DESC";
         await using var cmd = new SqlCommand(sql, conn);
         cmd.Parameters.AddWithValue("@ProjectId", projectId);
+
+        var list = new List<Asset>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+        while (await reader.ReadAsync(ct).ConfigureAwait(false))
+        {
+            var json = reader.GetString(0);
+            var item = SqlJson.Deserialize<Asset>(json);
+            if (item != null) list.Add(item);
+        }
+        return list;
+    }
+
+    public async Task<IReadOnlyList<Asset>> ListByProjectsAsync(IEnumerable<string> projectIds, CancellationToken ct)
+    {
+        var pList = projectIds.Where(i => !string.IsNullOrWhiteSpace(i)).Distinct().ToList();
+        if (pList.Count == 0) return [];
+
+        await using var conn = await factory.OpenConnectionAsync(ct).ConfigureAwait(false);
+        var paramNames = pList.Select((_, idx) => $"@p{idx}").ToArray();
+        var sql = $"SELECT DataJson FROM Assets WHERE ProjectId IN ({string.Join(",", paramNames)}) ORDER BY CreatedAt DESC";
+
+        await using var cmd = new SqlCommand(sql, conn);
+        for (var i = 0; i < pList.Count; i++)
+        {
+            cmd.Parameters.AddWithValue(paramNames[i], pList[i]);
+        }
 
         var list = new List<Asset>();
         await using var reader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);

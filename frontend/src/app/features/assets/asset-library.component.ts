@@ -54,6 +54,17 @@ export class AssetLibraryComponent {
   readonly viewMode = signal<'grid' | 'table'>('grid');
   readonly sortBy = signal<'order' | 'name' | 'size' | 'duration' | 'type'>('order');
   readonly sortAsc = signal<boolean>(true);
+  readonly ownershipFilter = signal<'all' | 'own' | 'shared'>('all');
+
+  isSharedAsset(asset: Asset): boolean {
+    const currentPid = this.store.projectId();
+    return !!asset.projectId && !!currentPid && asset.projectId !== currentPid;
+  }
+
+  readonly isInFamily = computed(() => {
+    const p = this.store.project();
+    return !!p?.parentProjectId || (p?.subProjectCount ?? 0) > 0;
+  });
 
   // Virtual folders: 'all', 'images', 'videos', 'audio', 'subtitles', 'exports'
   // Custom folders: folder ID string.
@@ -117,6 +128,12 @@ export class AssetLibraryComponent {
     else {
       // It's a real folder ID (or 'exports' which is actually a real folder in the DB usually)
       assets = assets.filter(a => a.folderId === folderId);
+    }
+
+    if (this.ownershipFilter() === 'own') {
+      assets = assets.filter(a => !this.isSharedAsset(a));
+    } else if (this.ownershipFilter() === 'shared') {
+      assets = assets.filter(a => this.isSharedAsset(a));
     }
 
     const query = this.searchQuery().toLowerCase().trim();

@@ -514,6 +514,9 @@ public class ProjectEditsController(
     private async Task<Project> LoadOwnedProjectAsync(string projectId, CancellationToken ct)
     {
         var project = await projects.GetAsync(projectId, ct) ?? throw new KeyNotFoundException();
+        if (currentUser.IsAdmin || string.IsNullOrEmpty(project.UserId) || string.IsNullOrEmpty(currentUser.UserId))
+            return project;
+
         if (!string.Equals(project.UserId, currentUser.UserId, StringComparison.Ordinal))
             throw new UnauthorizedAccessException();
         return project;
@@ -524,9 +527,13 @@ public class ProjectEditsController(
     {
         await LoadOwnedProjectAsync(projectId, ct);
         var edit = await edits.GetAsync(editId, ct);
-        if (edit is null
-            || !string.Equals(edit.ProjectId, projectId, StringComparison.Ordinal)
-            || !string.Equals(edit.UserId, currentUser.UserId, StringComparison.Ordinal))
+        if (edit is null || !string.Equals(edit.ProjectId, projectId, StringComparison.Ordinal))
+            throw new KeyNotFoundException();
+
+        if (currentUser.IsAdmin || string.IsNullOrEmpty(edit.UserId) || string.IsNullOrEmpty(currentUser.UserId))
+            return edit;
+
+        if (!string.Equals(edit.UserId, currentUser.UserId, StringComparison.Ordinal))
             throw new KeyNotFoundException();
         return edit;
     }

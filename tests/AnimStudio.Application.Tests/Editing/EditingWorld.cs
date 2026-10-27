@@ -44,11 +44,13 @@ public sealed class EditingWorld
 
     public ProjectStatusService ProjectStatus => new(Projects, Scenes);
 
+    public AssetScopeService AssetScope => new(Projects, Assets);
+
     public SceneEditingService SceneEditing =>
-        new(Scenes, Projects, Characters, Assets, ProjectStatus, TimeProvider.System);
+        new(Scenes, Projects, Characters, Assets, ProjectStatus, AssetScope, TimeProvider.System);
 
     public ProjectEditingService ProjectEditing =>
-        new(Projects, Scenes, Characters, Assets, Store, TimeProvider.System);
+        new(Projects, Scenes, Characters, Assets, Store, AssetScope, TimeProvider.System);
 
     public CharacterEditingService CharacterEditing =>
         new(Characters, Projects, Scenes, Assets, TimeProvider.System);

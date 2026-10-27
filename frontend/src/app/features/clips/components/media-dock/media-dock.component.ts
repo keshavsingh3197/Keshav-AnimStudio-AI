@@ -99,6 +99,11 @@ export class MediaDockComponent implements OnDestroy {
     this.state.inspectClip(clip);
   }
 
+  isShared(clip: Clip): boolean {
+    const cur = this.state.store.projectId();
+    return !!clip.projectId && !!cur && clip.projectId !== cur;
+  }
+
   togglePreviewAudio(assetId: string, event?: Event): void {
     event?.stopPropagation();
     if (this.previewingAudioId() === assetId) {

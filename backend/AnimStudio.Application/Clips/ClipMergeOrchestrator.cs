@@ -84,6 +84,7 @@ public sealed class ClipMergeOrchestrator(
     IRenderWorkspaceFactory workspaces,
     IRenderCapabilities capabilities,
     TimeProvider clock,
+    AnimStudio.Application.Assets.AssetScopeService scope,
     ILogger<ClipMergeOrchestrator> logger)
 {
     public async Task ExecuteAsync(
@@ -853,9 +854,9 @@ public sealed class ClipMergeOrchestrator(
         var result = new Dictionary<string, Asset>(StringComparer.Ordinal);
         foreach (var a in loaded)
         {
-            if ((string.Equals(a.ProjectId, projectId, StringComparison.Ordinal)
-                 || string.Equals(a.ProjectId, "global", StringComparison.OrdinalIgnoreCase)
-                 || string.Equals(a.ProjectId, "system", StringComparison.OrdinalIgnoreCase))
+            if (await scope.CanUseAssetAsync(a, projectId, ct).ConfigureAwait(false)
+//
+//
                 && a.IsUsableInScene)
             {
                 result[a.Id] = a;

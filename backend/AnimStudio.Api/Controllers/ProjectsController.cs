@@ -1,11 +1,13 @@
 using AnimStudio.Api.Common;
 using AnimStudio.Api.Contracts;
 using AnimStudio.Application.Abstractions.Persistence;
+using AnimStudio.Application.Options;
 using AnimStudio.Application.Projects;
 using AnimStudio.Application.Security;
 using AnimStudio.Domain.Projects;
 using AnimStudio.Domain.Rendering;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 
 namespace AnimStudio.Api.Controllers;
 
@@ -16,28 +18,59 @@ public sealed class ProjectsController(
     ProjectEditingService editing,
     IAiSettingsRepository aiSettingsRepo,
     ICurrentUser currentUser,
+    IOptionsMonitor<AdminOptions> adminOptions,
     TimeProvider clock) : ControllerBase
 {
     [HttpGet]
     public async Task<ActionResult<ApiResponse<IReadOnlyList<ProjectResponse>>>> List(
         CancellationToken ct)
     {
-        var list = await projects.ListAsync(currentUser.UserId, ct);
-        return Ok(ApiResponse<IReadOnlyList<ProjectResponse>>.Ok([.. list.Select(p => p.ToResponse())]));
+        var list = currentUser.IsAdmin
+            ? await projects.ListAllAsync(ct)
+            : await projects.ListAsync(currentUser.UserId, ct);
+        var subProjectCounts = list.Where(p => !string.IsNullOrEmpty(p.ParentProjectId))
+            .GroupBy(p => p.ParentProjectId!)
+            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+
+        return Ok(ApiResponse<IReadOnlyList<ProjectResponse>>.Ok(
+            [.. list.Select(p => p.ToResponse(subProjectCounts.GetValueOrDefault(p.Id, 0)))]));
     }
 
     [HttpGet("{id}")]
     public async Task<ActionResult<ApiResponse<ProjectResponse>>> Get(string id, CancellationToken ct)
     {
         var project = await LoadOwnedAsync(id, ct);
-        return Ok(ApiResponse<ProjectResponse>.Ok(project.ToResponse()));
+        var subProjects = await projects.ListSubProjectsAsync(id, ct);
+        return Ok(ApiResponse<ProjectResponse>.Ok(project.ToResponse(subProjects.Count)));
     }
 
     [HttpPost]
     public async Task<ActionResult<ApiResponse<ProjectResponse>>> Create(
         [FromBody] CreateProjectRequest request, CancellationToken ct)
     {
+        var policy = adminOptions.CurrentValue.AnonymousPolicy;
+        if (!currentUser.IsAuthenticated)
+        {
+            if (!policy.AllowGuestProjectCreation)
+            {
+                const string msg = "Guest project creation is disabled by platform policy. Please sign in to create projects.";
+                return StatusCode(403, ApiResponse<ProjectResponse>.Fail(msg, new ApiError("guest-forbidden", msg)));
+            }
+
+            var ownedList = await projects.ListAsync(currentUser.UserId, ct);
+            if (ownedList.Count >= policy.MaxGuestProjects)
+            {
+                var msg = $"Guest project limit reached: anonymous visitors can create up to {policy.MaxGuestProjects} project(s). Please sign in for unlimited projects.";
+                return BadRequest(ApiResponse<ProjectResponse>.Fail(msg, new ApiError("guest-limit-reached", msg)));
+            }
+        }
         var now = clock.GetUtcNow().UtcDateTime;
+
+        if (!currentUser.IsAdmin && !string.IsNullOrWhiteSpace(request.BrandChannelId) && !BrandChannel.IsDefault(request.BrandChannelId))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden,
+                ApiResponse<ProjectResponse>.Fail("Non-administrator users cannot attach projects to internal studio brand channels."));
+        }
 
         var globalSettings = await aiSettingsRepo.GetAsync(ct);
         if (UnknownChannel(globalSettings, request.BrandChannelId) is { } unknown) return unknown;
@@ -45,21 +78,24 @@ public sealed class ProjectsController(
 
         // The new project starts with its channel's watermark, copied so it can be tuned per project.
         WatermarkSettings? defaultWatermark = null;
-        var channelWatermark = globalSettings?.WatermarkFor(channelId);
-        if (channelWatermark is not null && channelWatermark.Kind != WatermarkKind.None)
+        if (currentUser.IsAdmin)
         {
-            defaultWatermark = new WatermarkSettings
+            var channelWatermark = globalSettings?.WatermarkFor(channelId);
+            if (channelWatermark is not null && channelWatermark.Kind != WatermarkKind.None)
             {
-                Kind = channelWatermark.Kind,
-                Text = channelWatermark.Text,
-                LogoAssetId = channelWatermark.LogoAssetId,
-                Position = channelWatermark.Position,
-                Opacity = channelWatermark.Opacity,
-                HeightFraction = channelWatermark.HeightFraction,
-                MarginFraction = channelWatermark.MarginFraction,
-                ColorHex = channelWatermark.ColorHex,
-                BackplateOpacity = channelWatermark.BackplateOpacity
-            };
+                defaultWatermark = new WatermarkSettings
+                {
+                    Kind = channelWatermark.Kind,
+                    Text = channelWatermark.Text,
+                    LogoAssetId = channelWatermark.LogoAssetId,
+                    Position = channelWatermark.Position,
+                    Opacity = channelWatermark.Opacity,
+                    HeightFraction = channelWatermark.HeightFraction,
+                    MarginFraction = channelWatermark.MarginFraction,
+                    ColorHex = channelWatermark.ColorHex,
+                    BackplateOpacity = channelWatermark.BackplateOpacity
+                };
+            }
         }
 
         var project = new Project
@@ -97,6 +133,12 @@ public sealed class ProjectsController(
     public async Task<ActionResult<ApiResponse<ProjectResponse>>> Update(
         string id, [FromBody] UpdateProjectRequest request, CancellationToken ct)
     {
+        if (!currentUser.IsAdmin && !string.IsNullOrWhiteSpace(request.BrandChannelId) && !BrandChannel.IsDefault(request.BrandChannelId))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden,
+                ApiResponse<ProjectResponse>.Fail("Non-administrator users cannot attach projects to internal studio brand channels."));
+        }
+
         if (request.BrandChannelId is not null
             && UnknownChannel(await aiSettingsRepo.GetAsync(ct), request.BrandChannelId) is { } unknown)
         {
@@ -123,7 +165,8 @@ public sealed class ProjectsController(
             BrandChannelId = request.BrandChannelId,
             FollowChannelWatermark = request.FollowChannelWatermark,
             DefaultImageDurationSeconds = request.DefaultImageDurationSeconds,
-            ContentType = request.ContentType is null ? null : ProjectContentTypes.Parse(request.ContentType)
+            ContentType = request.ContentType is null ? null : ProjectContentTypes.Parse(request.ContentType),
+            UseSharedAssets = request.UseSharedAssets
         }, ct);
 
         return Ok(ApiResponse<ProjectResponse>.Ok(project.ToResponse()));
@@ -135,6 +178,51 @@ public sealed class ProjectsController(
         if (BrandChannel.IsDefault(channelId) || settings?.FindChannel(channelId) is not null) return null;
         const string message = "That brand channel no longer exists. Pick another in project settings.";
         return new BadRequestObjectResult(ApiResponse<EmptyPayload>.Fail(message, new ApiError("unknown-channel", message)));
+    }
+
+    [HttpPost("{id}/subprojects")]
+    public async Task<ActionResult<ApiResponse<ProjectResponse>>> CreateSubProject(
+        string id, [FromBody] CreateSubProjectRequest request, CancellationToken ct)
+    {
+        var parent = await LoadOwnedAsync(id, ct);
+        if (parent.IsSubProject)
+        {
+            const string msg = "Sub-projects cannot contain sub-projects.";
+            return BadRequest(ApiResponse<ProjectResponse>.Fail(msg, new ApiError("nesting-not-allowed", msg)));
+        }
+
+        var now = clock.GetUtcNow().UtcDateTime;
+        var subProject = new Project
+        {
+            Id = MongoDB.Bson.ObjectId.GenerateNewId().ToString(),
+            UserId = currentUser.UserId,
+            ParentProjectId = parent.Id,
+            Name = request.Name.Trim(),
+            Description = request.Description?.Trim(),
+            Status = ProjectStatus.Draft,
+            Settings = new ProjectSettings
+            {
+                Width = parent.Settings.Width,
+                Height = parent.Settings.Height,
+                FrameRateNum = parent.Settings.FrameRateNum,
+                FrameRateDen = parent.Settings.FrameRateDen,
+                DistributionIntent = parent.Settings.DistributionIntent,
+                ContentType = parent.Settings.ContentType,
+                BrandChannelId = parent.Settings.BrandChannelId,
+                FollowChannelWatermark = parent.Settings.FollowChannelWatermark,
+                DefaultWatermark = parent.Settings.DefaultWatermark,
+                DefaultOutro = parent.Settings.DefaultOutro,
+                DefaultImageDurationSeconds = parent.Settings.DefaultImageDurationSeconds,
+                UseSharedAssets = request.UseSharedAssets
+            },
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+
+        await projects.InsertAsync(subProject, ct);
+
+        return CreatedAtAction(nameof(Get), new { id = subProject.Id },
+            ApiResponse<ProjectResponse>.Ok(subProject.ToResponse(0)));
     }
 
     [HttpPost("{id}/duplicate")]
@@ -152,6 +240,14 @@ public sealed class ProjectsController(
     public async Task<ActionResult<ApiResponse<EmptyPayload>>> Delete(
         string id, [FromServices] IProjectEditRepository edits, CancellationToken ct)
     {
+        var subProjects = await projects.ListSubProjectsAsync(id, ct);
+        if (subProjects.Count > 0)
+        {
+            const string msg = "Delete or move this project's sub-projects first.";
+            return StatusCode(StatusCodes.Status409Conflict,
+                ApiResponse<EmptyPayload>.Fail(msg, new ApiError("has-subprojects", msg)));
+        }
+
         await editing.DeleteAsync(id, currentUser.UserId, ct);
 
         // Only reached once the delete above confirmed ownership.
@@ -216,6 +312,9 @@ public sealed class ProjectsController(
     {
         var project = await projects.GetAsync(id, ct)
             ?? throw new KeyNotFoundException();
+
+        if (currentUser.IsAdmin || string.IsNullOrEmpty(project.UserId) || string.IsNullOrEmpty(currentUser.UserId))
+            return project;
 
         if (!string.Equals(project.UserId, currentUser.UserId, StringComparison.Ordinal))
             throw new UnauthorizedAccessException();

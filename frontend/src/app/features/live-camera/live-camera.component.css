@@ -273,3 +273,9 @@ kbd {
 .cs-channelpick select { flex: 1; min-width: 0; }
 .cs-channelfacts { display: flex; flex-wrap: wrap; gap: .3rem .9rem; font-size: .8rem; align-items: center; }
 .cs-channelfacts .off { opacity: .55; }
+
+.cs-channelbar-guest { display: flex; align-items: center; justify-content: space-between; padding: 0.4rem 0.2rem; }
+.cs-channelpick-guest { display: flex; align-items: center; gap: .6rem; }
+.cs-channel-badge { background: rgba(108, 140, 255, 0.15); color: #8bb0ff; border: 1px solid rgba(108, 140, 255, 0.3); font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+.cs-channel-title { font-weight: 600; font-size: 0.85rem; color: var(--text, #f1f5f9); }
+.cs-guest-note { font-size: 0.78rem; color: var(--muted, #94a3b8); display: inline-flex; align-items: center; gap: 0.3rem; }

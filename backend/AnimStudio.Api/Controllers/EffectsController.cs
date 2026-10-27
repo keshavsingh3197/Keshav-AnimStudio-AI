@@ -1,3 +1,4 @@
+using AnimStudio.Api.Security;
 using AnimStudio.Api.Common;
 using AnimStudio.Api.Contracts;
 using AnimStudio.Application.Effects;
@@ -95,11 +96,13 @@ public sealed class EffectsController(
     /// are ever stored, and nosniff stops a browser deciding otherwise. Range requests are
     /// honoured when the store's stream can seek, so a long clip can be scrubbed.
     /// </summary>
+    [AllowMediaTicket]
     [HttpGet("{id}/content")]
     [HttpHead("{id}/content")]
     public Task<IActionResult> Content(string id, CancellationToken ct) => ServeAsync(id, thumbnail: false, ct);
 
     /// <summary>A still for the card: a frame of a video, or the still itself. 404 for a sound.</summary>
+    [AllowMediaTicket]
     [HttpGet("{id}/thumbnail")]
     [HttpHead("{id}/thumbnail")]
     public Task<IActionResult> Thumbnail(string id, CancellationToken ct) => ServeAsync(id, thumbnail: true, ct);

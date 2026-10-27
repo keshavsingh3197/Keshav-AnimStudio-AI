@@ -16,26 +16,31 @@
   </div>
 
   @if (shows('watermark') || shows('outro')) {
-  <!-- Which channel these settings belong to. A picker, not tabs: it has to work for 1000. -->
+  <!-- Which channel these settings belong to -->
   <div class="branding-card branding-card-wide channel-bar">
     <div class="channel-pick-row">
-      <div>
-        <span class="form-label" style="margin: 0 0 4px; display: block;">Editing channel</span>
+      <div class="channel-pick-selector">
+        <span class="form-label" style="margin: 0 0 4px; display: block;">Editing Channel</span>
         <app-channel-picker [channels]="channels()" [selectedId]="selectedChannelId()"
                             (selectedIdChange)="selectChannel($event)" />
       </div>
-      <p class="channel-pick-hint">
-        Everything below belongs to this channel. Projects on it follow it unless they set their own.
-        {{ channels().length }} {{ channels().length === 1 ? 'channel' : 'channels' }} -
-        <a routerLink="/admin/channels">add, rename or remove them in Channels</a>.
-      </p>
+      <div class="channel-pick-meta">
+        <span class="channel-pill-info">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          Channel-Scoped Branding
+        </span>
+        <p class="channel-pick-hint">
+          Watermark &amp; hallmark settings belong to <strong>{{ selectedChannel()?.name || 'Default' }}</strong>. Projects on this channel follow these settings unless overridden.
+          <a routerLink="/admin/channels">Manage Channels &rarr;</a>
+        </p>
+      </div>
     </div>
   </div>
   }
 
   @if (shows('watermark')) {
   <!-- Card 1: Studio Hallmark & Watermark -->
-  <div class="branding-card">
+  <div class="branding-card branding-card-wide">
     <div class="card-section-head">
       <div>
         <h3>🛡️ Hallmark &amp; Watermark <span class="channel-heading-name">· {{ selectedChannel()?.name ?? 'Default' }}</span></h3>
@@ -51,21 +56,26 @@
     <!-- Style Selector -->
     <div class="form-group">
       <label class="form-label">Hallmark Style</label>
-      <div class="segmented-row">
+      <div class="segmented-row style-selector-grid">
         @for (k of watermarkKinds; track k.kind) {
           <button type="button" class="segment-btn"
                   [class.active]="form.kind === k.kind"
                   (click)="setWatermarkKind(k.kind)">
-            {{ k.label }}
+            @switch (k.kind) {
+              @case ('None') { <span>⊘</span> }
+              @case ('Text') { <span>✎</span> }
+              @case ('Logo') { <span>🖼</span> }
+            }
+            <span>{{ k.label }}</span>
           </button>
         }
       </div>
     </div>
 
     @if (form.kind !== 'None') {
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 1.5rem; margin-bottom: 1.25rem;">
+      <div class="wm-editor-grid">
         <!-- Left Column: Controls -->
-        <div>
+        <div class="wm-controls-col">
           @if (form.kind === 'Text') {
             <div class="form-group">
               <label class="form-label" for="admin-wm-text">Hallmark Text / Brand Name</label>
@@ -81,7 +91,10 @@
               </div>
               <div class="slider-container">
                 <div class="slider-meta">
-                  <label class="form-label" style="margin-bottom: 0;">Backplate Shading</label>
+                  <div class="slider-meta-left">
+                    <label class="form-label" style="margin-bottom: 0;">Backplate Shading</label>
+                    <span class="slider-sub">Dark contrast shadow behind text</span>
+                  </div>
                   <span class="slider-val-badge">{{ (form.backplate * 100) | number: '1.0-0' }}%</span>
                 </div>
                 <input class="form-range" id="admin-wm-backplate" type="range" min="0" max="0.9" step="0.05"
@@ -93,29 +106,50 @@
           @if (form.kind === 'Logo') {
             <div class="form-group" appFileDrop="image/png,image/jpeg,image/webp" (filesDropped)="uploadLogo($event[0])">
               <label class="form-label">Studio Logo Image</label>
-              <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
-                <label class="btn-outline" style="cursor: pointer;">
-                  <input type="file" accept="image/png,image/jpeg,image/webp" (change)="onUploadLogo($event)" style="display: none;" />
-                  <span>⬆ Upload New Logo (PNG / JPG / WEBP)</span>
-                </label>
-                <span class="file-drop-hint">or drop a file here / paste with Ctrl+V</span>
-                @if (form.logoAssetId) {
-                  <button type="button" class="btn-outline" style="color: #f87171; border-color: rgba(239,68,68,0.3);" (click)="clearLogo()">
-                    ✕ Remove Logo
-                  </button>
-                }
-              </div>
               @if (form.logoAssetId) {
-                <p style="margin: 0.35rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
-                  Logo stored securely in server storage. Transparent PNG recommended.
-                </p>
+                <div class="logo-preview-card">
+                  <div class="logo-preview-thumb">
+                    @if (logoPreviewUrl(); as url) {
+                      <img [src]="url" alt="Logo thumbnail" />
+                    } @else {
+                      <span style="font-size: 1.4rem;">🖼</span>
+                    }
+                  </div>
+                  <div class="logo-preview-info">
+                    <span class="logo-preview-name">{{ form.logoAssetId }}</span>
+                    <span class="logo-preview-sub">Active watermark image</span>
+                  </div>
+                  <div class="logo-preview-actions">
+                    <label class="btn-outline btn-sm" style="cursor: pointer;">
+                      <input type="file" accept="image/png,image/jpeg,image/webp" (change)="onUploadLogo($event)" style="display: none;" />
+                      <span>↻ Replace</span>
+                    </label>
+                    <button type="button" class="btn-outline btn-sm danger" (click)="clearLogo()">
+                      ✕ Remove
+                    </button>
+                  </div>
+                </div>
+              } @else {
+                <div class="logo-dropzone">
+                  <label class="btn-outline" style="cursor: pointer;">
+                    <input type="file" accept="image/png,image/jpeg,image/webp" (change)="onUploadLogo($event)" style="display: none;" />
+                    <span>⬆ Upload New Logo (PNG / JPG / WEBP)</span>
+                  </label>
+                  <span class="file-drop-hint">or drop a file here / paste with Ctrl+V</span>
+                </div>
               }
+              <p style="margin: 0.35rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
+                Logo is stored securely in server storage. High-resolution transparent PNG with minimal padding is recommended.
+              </p>
             </div>
           }
 
           <!-- Position Picker Grid -->
           <div class="form-group">
-            <label class="form-label">Position Placement</label>
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.45rem;">
+              <label class="form-label" style="margin-bottom: 0;">Position Placement</label>
+              <span class="pos-active-indicator">{{ formatPosLabel(form.position) }}</span>
+            </div>
             <div class="position-grid">
               @for (p of watermarkPositions; track p) {
                 <button type="button" class="pos-btn"
@@ -128,37 +162,55 @@
           </div>
 
           <!-- Fine Tuning Sliders -->
-          <div class="slider-container" style="margin-bottom: 1rem;">
-            <div class="slider-meta">
-              <label class="form-label" style="margin-bottom: 0;">Opacity</label>
-              <span class="slider-val-badge">{{ (form.opacity * 100) | number: '1.0-0' }}%</span>
+          <div class="sliders-stack">
+            <div class="slider-container">
+              <div class="slider-meta">
+                <div class="slider-meta-left">
+                  <label class="form-label" style="margin-bottom: 0;">Opacity</label>
+                  <span class="slider-sub">Transparency of the watermark overlay</span>
+                </div>
+                <span class="slider-val-badge">{{ (form.opacity * 100) | number: '1.0-0' }}%</span>
+              </div>
+              <input class="form-range" id="admin-wm-opac" type="range" min="0.15" max="1" step="0.05"
+                     [(ngModel)]="form.opacity" />
             </div>
-            <input class="form-range" id="admin-wm-opac" type="range" min="0.15" max="1" step="0.05"
-                   [(ngModel)]="form.opacity" />
-          </div>
 
-          <div class="slider-container" style="margin-bottom: 1rem;">
-            <div class="slider-meta">
-              <label class="form-label" style="margin-bottom: 0;">Size (% of canvas height)</label>
-              <span class="slider-val-badge">{{ form.height }}%</span>
+            <div class="slider-container">
+              <div class="slider-meta">
+                <div class="slider-meta-left">
+                  <label class="form-label" style="margin-bottom: 0;">Size (% of Canvas Height)</label>
+                  <span class="slider-sub">Scales proportionally across all video resolutions</span>
+                </div>
+                <span class="slider-val-badge">{{ form.height }}%</span>
+              </div>
+              <input class="form-range" id="admin-wm-height" type="range" min="2" max="25" step="0.5"
+                     [(ngModel)]="form.height" />
             </div>
-            <input class="form-range" id="admin-wm-height" type="range" min="2" max="20" step="0.5"
-                   [(ngModel)]="form.height" />
-          </div>
 
-          <div class="slider-container">
-            <div class="slider-meta">
-              <label class="form-label" style="margin-bottom: 0;">Margin from Edge</label>
-              <span class="slider-val-badge">{{ form.margin }}%</span>
+            <div class="slider-container">
+              <div class="slider-meta">
+                <div class="slider-meta-left">
+                  <label class="form-label" style="margin-bottom: 0;">Margin from Edge</label>
+                  <span class="slider-sub">Inset safe margin from video boundary</span>
+                </div>
+                <span class="slider-val-badge">{{ form.margin }}%</span>
+              </div>
+              <input class="form-range" id="admin-wm-margin" type="range" min="1" max="15" step="0.5"
+                     [(ngModel)]="form.margin" />
             </div>
-            <input class="form-range" id="admin-wm-margin" type="range" min="1" max="15" step="0.5"
-                   [(ngModel)]="form.margin" />
           </div>
         </div>
 
-        <!-- Right Column: Interactive 16:9 Canvas Mockup -->
-        <div>
-          <label class="form-label">Live preview</label>
+        <!-- Right Column: Interactive Canvas Mockup -->
+        <div class="wm-preview-col">
+          <div class="preview-header-bar">
+            <label class="form-label" style="margin-bottom: 0;">Interactive Live Preview</label>
+            <div class="preview-badge-status">
+              <span class="pulse-dot"></span>
+              <span>Real-Time Simulation</span>
+            </div>
+          </div>
+
           <div class="mockup-wrapper">
             <div class="mockup-header-row">
               <div class="aspect-toggle" role="group" aria-label="Preview format">
@@ -166,7 +218,10 @@
                   <button type="button" [class.active]="previewAspect() === a" (click)="previewAspect.set(a)">{{ a.label }}</button>
                 }
               </div>
-              <span style="color: #93c5fd; font-family: ui-monospace, monospace;">{{ form.position }} &bull; {{ (form.opacity * 100) | number: '1.0-0' }}%</span>
+              <div class="mockup-metrics">
+                <span class="metric-pill">{{ previewAspect().width }} &times; {{ previewAspect().height }}</span>
+                <span class="metric-pill accent">{{ formatPosLabel(form.position) }} &bull; {{ (form.opacity * 100) | number: '1.0-0' }}%</span>
+              </div>
             </div>
 
             <div class="preview-stage">
@@ -175,21 +230,35 @@
                 [width]="previewAspect().width"
                 [height]="previewAspect().height"
                 [logoUrl]="logoPreviewUrl()"
-                [boxHeight]="previewAspect().height > previewAspect().width ? 300 : 200"
+                [boxHeight]="previewAspect().height > previewAspect().width ? 280 : 200"
                 [label]="previewAspect().width + '×' + previewAspect().height" />
             </div>
-            <p style="margin: 0; font-size: 0.78rem; color: #8b9bb4; text-align: center;">
-              Drawn with the renderer's own sizing, including the safe margin on upright videos -
-              what you see here is the export, scaled down.
-            </p>
+
+            <div class="mockup-caption">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+              <span>Drawn with the renderer's actual safe-area insets. What you see is the exact export scaled down.</span>
+            </div>
           </div>
         </div>
       </div>
     }
 
-    <div style="display: flex; justify-content: flex-end; margin-top: 1rem;">
+    <!-- Action Bar -->
+    <div class="card-action-bar">
+      @if (saveSuccess()) {
+        <div class="save-status-text">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+          <span>All watermark settings successfully saved to {{ selectedChannel()?.name ?? 'current channel' }}.</span>
+        </div>
+      } @else {
+        <span class="action-bar-hint">Changes apply to all future video exports on this channel.</span>
+      }
       <button type="button" class="btn-primary-glow" (click)="save()" [disabled]="status.busy()">
-        Save Global Hallmark
+        @if (status.busy()) {
+          <span class="spinner" style="width: 13px; height: 13px;"></span> Saving&hellip;
+        } @else {
+          Save Global Hallmark
+        }
       </button>
     </div>
   </div>

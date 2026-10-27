@@ -104,6 +104,9 @@ public sealed record AutoShortBatch
     /// <summary>How many shorts. With <see cref="AutoShortLayout.Spread"/>, 0 makes as many as it takes to use every pick once.</summary>
     public int Count { get; init; } = 3;
 
+    /// <summary>Maximum number of shorts this batch may contain.</summary>
+    public int MaxShortCount { get; init; } = AutoShortPlanner.MaxCount;
+
     /// <summary>The exact length with <see cref="AutoShortLayout.FitLength"/>; the most a short may run otherwise.</summary>
     public double TargetSeconds { get; init; } = 30;
 
@@ -172,10 +175,10 @@ public sealed record AutoShortPlan(
 /// </summary>
 public static class AutoShortPlanner
 {
-    public const int MaxCount = 20;
+    public const int MaxCount = 500;
     public const double MinTargetSeconds = 5;
     public const double MaxTargetSeconds = 180;
-    public const int MaxSources = 200;
+    public const int MaxSources = 2000;
     public const int MaxLines = 100;
     public const int MaxLineLength = 140;
     public const int MaxMusic = 20;
@@ -608,7 +611,7 @@ public static class AutoShortPlanner
             .ThenByDescending(p => inOrder ? 0 : p.Length)
             .ToList();
 
-        var most = Math.Min(MaxCount, picks.Count);
+        var most = Math.Min(Math.Clamp(batch.MaxShortCount, 1, MaxCount), picks.Count);
         var auto = batch.Count <= 0;
         var total = picks.Sum(p => p.Length) / cap;
         var count = auto
@@ -654,7 +657,7 @@ public static class AutoShortPlanner
     /// </summary>
     private static List<List<Shot>> AllInEachShots(AutoShortBatch batch, List<AutoShortSource> usable, double cap, Random random)
     {
-        var count = Math.Clamp(batch.Count <= 0 ? 3 : batch.Count, 1, MaxCount);
+        var count = Math.Clamp(batch.Count <= 0 ? 3 : batch.Count, 1, Math.Clamp(batch.MaxShortCount, 1, MaxCount));
         var cuts = new List<List<Shot>>(count);
         for (var k = 0; k < count; k++)
         {
@@ -684,7 +687,7 @@ public static class AutoShortPlanner
     /// </summary>
     private static List<List<Shot>> FitLengthShots(AutoShortBatch batch, List<AutoShortSource> usable, double target, Random random, Func<int, Pace> paceAt)
     {
-        var count = Math.Clamp(batch.Count <= 0 ? 3 : batch.Count, 1, MaxCount);
+        var count = Math.Clamp(batch.Count <= 0 ? 3 : batch.Count, 1, Math.Clamp(batch.MaxShortCount, 1, MaxCount));
         var inOrder = batch.Order == AutoShortOrder.InOrder;
         var deck = new Deck<AutoShortSource>(usable, random, inOrder);
         // Opening shots come from the videos alone, so every short starts on footage - a

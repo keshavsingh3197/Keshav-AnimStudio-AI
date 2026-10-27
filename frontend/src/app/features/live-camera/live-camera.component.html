@@ -221,23 +221,35 @@
   <div class="cs-col">
     <section class="card cs-panel">
       <!-- One choice of channel drives its QR code, saved stream key and YouTube numbers. -->
-      <div class="cs-channelbar">
-        <label class="cs-channelpick">📺 Channel
-          <select [ngModel]="settings().brand.cardChannel" (ngModelChange)="useChannel($event)" [disabled]="onAir()" aria-label="Studio channel">
-            @for (c of brandChannels(); track c.id) { <option [value]="c.isDefault ? 'default' : c.id">{{ c.name }}</option> }
-          </select>
-        </label>
-        <div class="cs-channelfacts">
-          <span [class.off]="!supportHasQr()" title="QR image from Settings → End card">🔳 {{ supportHasQr() ? 'QR image' : 'No QR image' }}</span>
-          @if (setup()?.canUseSavedKeys) {
-            <span [class.off]="channelKey()?.state !== 'Saved'" title="Saved stream key">🔑 {{ channelKey()?.state === 'Saved' ? 'Key ' + channelKey()?.masked : 'No saved key' }}</span>
-          }
-          <span [class.off]="!studioChannel()?.youTubeChannelId" title="YouTube channel from Settings → YouTube publishing">
-            ▶ {{ studioChannel()?.youTubeChannelTitle || studioChannel()?.youTubeChannelId || 'No YouTube channel linked' }}
-          </span>
-          <a routerLink="/admin/channels" class="cs-note">Manage</a>
+      @if (auth.isAdmin()) {
+        <div class="cs-channelbar">
+          <label class="cs-channelpick">📺 Channel
+            <select [ngModel]="settings().brand.cardChannel" (ngModelChange)="useChannel($event)" [disabled]="onAir()" aria-label="Studio channel">
+              @for (c of brandChannels(); track c.id) { <option [value]="c.isDefault ? 'default' : c.id">{{ c.name }}</option> }
+            </select>
+          </label>
+          <div class="cs-channelfacts">
+            <span [class.off]="!supportHasQr()" title="QR image from Settings → End card">🔳 {{ supportHasQr() ? 'QR image' : 'No QR image' }}</span>
+            @if (setup()?.canUseSavedKeys) {
+              <span [class.off]="channelKey()?.state !== 'Saved'" title="Saved stream key">🔑 {{ channelKey()?.state === 'Saved' ? 'Key ' + channelKey()?.masked : 'No saved key' }}</span>
+            }
+            <span [class.off]="!studioChannel()?.youTubeChannelId" title="YouTube channel from Settings → YouTube publishing">
+              ▶ {{ studioChannel()?.youTubeChannelTitle || studioChannel()?.youTubeChannelId || 'No YouTube channel linked' }}
+            </span>
+            <a routerLink="/admin/channels" class="cs-note">Manage</a>
+          </div>
         </div>
-      </div>
+      } @else {
+        <div class="cs-channelbar cs-channelbar-guest">
+          <div class="cs-channelpick-guest">
+            <span class="cs-channel-badge">Isolated Session</span>
+            <span class="cs-channel-title">Default Camera Studio</span>
+          </div>
+          <div class="cs-channelfacts">
+            <span class="cs-guest-note" title="Personal camera feed isolated from server brand channels">🔒 Private / Zero-Branding</span>
+          </div>
+        </div>
+      }
 
       <div class="cs-tabs" role="tablist" aria-label="Studio settings">
         @for (t of [

@@ -5,6 +5,27 @@ export interface AnonymousAccessPolicy {
   maxAiCallsPerDay: number;
   allowYouTubePublish: boolean;
   allowCloudSave: boolean;
+  allowGoogleDrivePublish?: boolean;
+  maxGuestProjects?: number;
+  allowGuestProjectCreation?: boolean;
+}
+
+export interface UiNavigationItemConfig {
+  id: string;
+  label: string;
+  path: string;
+  icon: string;
+  visibleToAnonymous: boolean;
+  visibleToMembers: boolean;
+  requiresAuth: boolean;
+  isSensitive: boolean;
+  enabled: boolean;
+  description?: string;
+}
+
+export interface UiNavigationSettings {
+  enforceGuestRestrictions: boolean;
+  tabs: UiNavigationItemConfig[];
 }
 
 export interface StudioUser {
@@ -24,23 +45,59 @@ export interface StudioSession {
   isAdmin: boolean;
   roles: string[];
   anonymousPolicy: AnonymousAccessPolicy;
+  uiNavigation?: UiNavigationSettings;
 }
 
 export interface AdminAccessControl {
   mode: string;
   anonymousPolicy: AnonymousAccessPolicy;
+  uiNavigation?: UiNavigationSettings;
   availableRoles: string[];
 }
 
 export interface UpdateAccessControlRequest {
   anonymousPolicy?: AnonymousAccessPolicy;
+  uiNavigation?: UiNavigationSettings;
+}
+
+export interface UserScopeItem {
+  userId: string;
+  isGuest: boolean;
+  displayName: string;
+  projectCount: number;
+  lastActiveUtc?: string | null;
+  storageEstimate: string;
+}
+
+export interface UserScopesOverview {
+  totalUsers: number;
+  registeredMembers: number;
+  guestSessions: number;
+  totalProjects: number;
+  scopes: UserScopeItem[];
+}
+
+export interface PurgeGuestProjectsRequest {
+  daysInactive?: number;
+}
+
+export interface PurgeGuestProjectsResponse {
+  projectsPurged: number;
+  guestScopesCleaned: number;
 }
 
 export interface LoginCredentials {
   email: string;
   password: string;
   twoFactorCode?: string;
+  twoFactorToken?: string;
   recoveryCode?: string;
+}
+
+export interface TwoFactorVerifyCredentials {
+  twoFactorToken: string;
+  code: string;
+  method?: number;
 }
 
 export interface LoginResult {
@@ -63,4 +120,3 @@ export interface AdminYouTubeChannelItem {
   connectedAt: string;
   lastUsedAt?: string | null;
 }
-

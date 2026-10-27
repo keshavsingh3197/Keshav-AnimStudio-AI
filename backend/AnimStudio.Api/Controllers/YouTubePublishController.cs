@@ -88,6 +88,12 @@ public sealed partial class YouTubePublishController(
     [HttpPost("oauth/start")]
     public ActionResult<ApiResponse<YouTubeConnectStartResponse>> StartConnect([FromBody] YouTubeConnectStartRequest? request)
     {
+        if (!currentUser.IsAuthenticated)
+        {
+            const string msg = "Connecting a YouTube channel is sensitive and requires an authenticated member account. Anonymous visitors cannot connect external accounts.";
+            return StatusCode(403, ApiResponse<YouTubeConnectStartResponse>.Fail(msg, new ApiError("auth-required", msg)));
+        }
+
         try
         {
             var url = connections.BeginConnect(currentUser.UserId, request?.ReturnPath);
@@ -103,6 +109,12 @@ public sealed partial class YouTubePublishController(
     public async Task<ActionResult<ApiResponse<YouTubeConnectCompleteResponse>>> CompleteConnect(
         [FromBody] YouTubeConnectCompleteRequest? request, CancellationToken ct)
     {
+        if (!currentUser.IsAuthenticated)
+        {
+            const string msg = "Connecting a YouTube channel is sensitive and requires an authenticated member account.";
+            return StatusCode(403, ApiResponse<YouTubeConnectCompleteResponse>.Fail(msg, new ApiError("auth-required", msg)));
+        }
+
         try
         {
             var (connection, returnPath) = await connections.CompleteConnectAsync(
@@ -154,6 +166,12 @@ public sealed partial class YouTubePublishController(
     [HttpDelete("channels/{channelId}")]
     public async Task<IActionResult> Disconnect(string channelId, CancellationToken ct)
     {
+        if (!currentUser.IsAuthenticated)
+        {
+            const string msg = "Managing YouTube channel connections requires an authenticated member account.";
+            return StatusCode(403, ApiResponse<string>.Fail(msg, new ApiError("auth-required", msg)));
+        }
+
         if (!IsChannelId(channelId) || !await connections.DisconnectAsync(currentUser.UserId, channelId, ct))
             return NotFound(ApiResponse<string>.Fail("That channel isn't connected.", new ApiError("not-found", "That channel isn't connected.")));
 
@@ -200,8 +218,10 @@ public sealed partial class YouTubePublishController(
         // The project's brand channel decides where it goes and what every upload starts with.
         var brandChannelId = project?.Settings.BrandChannelId;
         var brandSettings = await settingsRepo.GetAsync(ct);
-        var defaults = brandSettings?.PublishingFor(brandChannelId);
-        var brandName = brandSettings?.FindChannel(brandChannelId)?.Name ?? brandSettings?.DefaultChannelName ?? "Default";
+        var defaults = currentUser.IsAdmin ? brandSettings?.PublishingFor(brandChannelId) : null;
+        var brandName = currentUser.IsAdmin
+            ? (brandSettings?.FindChannel(brandChannelId)?.Name ?? brandSettings?.DefaultChannelName ?? "Default")
+            : "Default";
         // A music project goes to YouTube Music: the Music category, whatever the channel's default.
         var isMusic = project?.Settings.ContentType == ProjectContentType.Music;
 
@@ -428,6 +448,12 @@ public sealed partial class YouTubePublishController(
     public async Task<ActionResult<ApiResponse<YouTubeUploadStatus>>> Publish(
         string jobId, [FromBody] YouTubePublishRequest? request, CancellationToken ct)
     {
+        if (!currentUser.IsAuthenticated)
+        {
+            const string msg = "Publishing to YouTube is a sensitive action that requires an authenticated member account. Anonymous visitors cannot publish videos.";
+            return StatusCode(403, ApiResponse<YouTubeUploadStatus>.Fail(msg, new ApiError("auth-required", msg)));
+        }
+
         var job = await LoadOwnedJobAsync(jobId, ct);
 
         return await QueueUploadAsync(request, Facts(job), token => RenderPreviewFile.EnsureAsync(store, dataPaths, job, token), "render", (connection, metadata, related, firstComment) => new YouTubeUploadRequest(

@@ -11,6 +11,7 @@ import { GoogleDriveStatus, isValidDriveFolderName } from '../../../../core/mode
 import { ActivityService } from '../../../../core/services/activity.service';
 import { ShortsService } from '../../../../core/services/shorts.service';
 import { YouTubePublishService } from '../../../../core/services/youtube-publish.service';
+import { TopicPickerComponent } from '../../../../shared/topic-picker.component';
 import { StudioStateService } from '../../services/studio-state.service';
 import { formatRunTime } from '../photo-story/photo-story-logic';
 
@@ -131,7 +132,6 @@ const SOURCE_SORTS: readonly { id: SourceSort; label: string }[] = [
 const PREFS_KEY = 'animstudio.autoShorts.sources';
 type AutoShortsRequest = Omit<AutoShortsBody, 'watermark'> & { watermark: boolean };
 
-export const AUTO_SHORT_MAX_COUNT = 20;
 export const AUTO_SHORT_MIN_SECONDS = 5;
 export const AUTO_SHORT_MAX_SECONDS = 180;
 export const AUTO_SHORT_MIN_IMAGE_SECONDS = 1;
@@ -149,7 +149,7 @@ const newSeed = (): number => Math.floor(Math.random() * 2_000_000_000);
 @Component({
   selector: 'app-auto-shorts',
   standalone: true,
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, TopicPickerComponent],
   templateUrl: './auto-shorts.component.html',
   styleUrl: './auto-shorts.component.css',
 })
@@ -173,7 +173,7 @@ export class AutoShortsComponent {
   readonly counts = [3, 5, 10] as const;
   readonly imageChoices = [3, 5, 7, 10] as const;
   readonly clipChoices = [5, 10, 15, 30] as const;
-  readonly maxCount = AUTO_SHORT_MAX_COUNT;
+  readonly maxCount = computed(() => this.state.studio()?.maxAutoShortsCount ?? 20);
   readonly minSeconds = AUTO_SHORT_MIN_SECONDS;
   readonly maxSeconds = AUTO_SHORT_MAX_SECONDS;
   readonly minImageSeconds = AUTO_SHORT_MIN_IMAGE_SECONDS;
@@ -265,6 +265,8 @@ export class AutoShortsComponent {
   readonly drives = signal<GoogleDriveStatus[] | null>(null);
   readonly anyDrive = computed(() => (this.drives() ?? []).some((d) => d.connected && !d.needsReconnect));
   readonly driveOn = signal(false);
+  /** The shared topic every short of the batch is for; null for none. */
+  readonly topicId = signal<string | null>(null);
   /** '' is the personal Drive. */
   readonly driveChannelId = signal('');
   readonly driveTarget = computed(() =>
@@ -309,6 +311,7 @@ export class AutoShortsComponent {
       watermark: this.watermark(),
       includeOutro: this.outro(),
       saveToDrive: this.driveOn(),
+      topicId: this.topicId(),
       driveChannelId: this.driveOn() ? this.driveChannelId() || null : null,
       driveFolderName: this.driveOn() ? this.driveFolder().trim() || null : null,
     };
@@ -357,6 +360,10 @@ export class AutoShortsComponent {
     this.readPrefs();
     this.loadUsage();
     this.loadStyleExamples();
+
+    effect(() => {
+      if (this.count() > this.maxCount()) this.setCount(this.maxCount());
+    });
 
     // Re-plan on the server (nothing queued) whenever a setting that shapes the batch changes.
     this.previewRequests.pipe(
@@ -479,13 +486,13 @@ export class AutoShortsComponent {
   setLayout(l: AutoShortLayout): void {
     this.layout.set(l);
     // "Auto" only means something when picks are shared out.
-    if (l !== 'Spread' && this.count() === 0) this.count.set(3);
+    if (l !== 'Spread' && this.count() === 0) this.setCount(Math.min(3, this.maxCount()));
     if (l === 'FitLength' && this.seconds() > 90) this.seconds.set(30);
   }
 
   setCount(v: number): void {
     const min = this.layout() === 'Spread' ? 0 : 1;
-    this.count.set(Math.min(AUTO_SHORT_MAX_COUNT, Math.max(min, Math.round(Number(v) || min))));
+    this.count.set(Math.min(this.maxCount(), Math.max(min, Math.round(Number(v) || min))));
   }
 
   setSeconds(v: number): void {

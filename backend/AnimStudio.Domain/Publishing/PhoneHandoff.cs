@@ -92,6 +92,21 @@ public sealed class PhoneHandoff
     /// </summary>
     public bool DriveMissing { get; set; }
     public string? DriveFileName { get; set; }
+
+    /// <summary>
+    /// The shared topic (the content calendar's <c>ContentTopic</c>) this copy is filed under; null for none.
+    /// Copies made for a render that has a topic start filed under it.
+    /// </summary>
+    public string? TopicId { get; set; }
+
+    /// <summary>The topic's folder name on Drive when the copy was filed; what the file's folder is called there.</summary>
+    public string? Topic { get; set; }
+
+    /// <summary>When the user marked the copy as used (downloaded or posted), so it isn't used twice; null when unused.</summary>
+    public DateTime? UsedAt { get; set; }
+
+    /// <summary>Moved to the Archive folder on Drive.</summary>
+    public bool Archived { get; set; }
     public long BytesSent { get; set; }
     public long TotalBytes { get; set; }
 

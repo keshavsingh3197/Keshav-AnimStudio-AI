@@ -5,12 +5,14 @@ import { Observable, filter, map, tap } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../models/api.models';
 import { EffectClip, EffectQuery, EffectUpdate, EffectUpload, EffectUseResult } from '../models/effects.models';
+import { MediaTicketService } from './media-ticket.service';
 
 /** The user's effects library (api/effects). Every call is scoped to the signed-in user on the server. */
 @Injectable({ providedIn: 'root' })
 export class EffectsService {
   private readonly http = inject(HttpClient);
   private readonly base = environment.apiUrl;
+  private readonly media = inject(MediaTicketService);
 
   list(query: EffectQuery = {}): Observable<EffectClip[]> {
     let params = new HttpParams();
@@ -60,11 +62,11 @@ export class EffectsService {
   }
 
   contentUrl(id: string): string {
-    return `${this.base}/api/effects/${encodeURIComponent(id)}/content`;
+    return this.media.sign(`${this.base}/api/effects/${encodeURIComponent(id)}/content`);
   }
 
   thumbnailUrl(effect: EffectClip): string | null {
-    return effect.hasThumbnail ? `${this.base}/api/effects/${encodeURIComponent(effect.id)}/thumbnail` : null;
+    return effect.hasThumbnail ? this.media.sign(`${this.base}/api/effects/${encodeURIComponent(effect.id)}/thumbnail`) : null;
   }
 
   private unwrap<T>(source: Observable<ApiResponse<T>>): Observable<T> {

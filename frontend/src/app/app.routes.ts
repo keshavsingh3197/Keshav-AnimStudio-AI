@@ -1,5 +1,5 @@
 import { Routes } from '@angular/router';
-import { adminGuard } from './core/guards/auth.guard';
+import { adminGuard, sensitiveFeatureGuard } from './core/guards/auth.guard';
 
 /**
  * Feature areas are lazy: the dashboard is the only thing most visits need, and the scene
@@ -119,6 +119,13 @@ export const routes: Routes = [
   },
 
   {
+    path: 'shorts/library',
+    title: 'Drive library - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/shorts/shorts-library-page.component').then((m) => m.ShortsLibraryPageComponent),
+  },
+
+  {
     path: 'effects',
     title: 'Effects & overlays - AnimStudio AI',
     loadComponent: () =>
@@ -153,6 +160,7 @@ export const routes: Routes = [
   {
     path: 'release',
     title: 'Music Release Kit - AnimStudio AI',
+    canActivate: [sensitiveFeatureGuard],
     loadComponent: () =>
       import('./features/release-kit/release-kit.component')
         .then((m) => m.ReleaseKitComponent),
@@ -161,6 +169,7 @@ export const routes: Routes = [
   {
     path: 'youtube',
     title: 'YouTube - AnimStudio AI',
+    canActivate: [sensitiveFeatureGuard],
     loadComponent: () =>
       import('./features/youtube/youtube-dashboard.component')
         .then((m) => m.YouTubeDashboardComponent),
@@ -169,6 +178,7 @@ export const routes: Routes = [
   {
     path: 'youtube/checkup',
     title: 'Video details checkup - AnimStudio AI',
+    canActivate: [sensitiveFeatureGuard],
     loadComponent: () =>
       import('./features/youtube/youtube-checkup.component')
         .then((m) => m.YouTubeCheckupComponent),
@@ -193,6 +203,7 @@ export const routes: Routes = [
   {
     path: 'live',
     title: 'Go Live - AnimStudio AI',
+    canActivate: [sensitiveFeatureGuard],
     loadComponent: () =>
       import('./features/live-stream/live-stream.component')
         .then((m) => m.LiveStreamComponent),
@@ -232,6 +243,7 @@ export const routes: Routes = [
     path: 'admin',
     title: 'Server settings - AnimStudio AI',
     canActivate: [adminGuard],
+    canActivateChild: [adminGuard],
     loadComponent: () =>
       import('./features/admin/admin-shell.component').then((m) => m.AdminShellComponent),
     children: [
@@ -330,5 +342,12 @@ export const routes: Routes = [
     ],
   },
 
-  { path: '**', redirectTo: 'projects' },
+  {
+    path: 'not-found',
+    title: 'Not Found - AnimStudio AI',
+    loadComponent: () =>
+      import('./features/not-found/not-found.component').then((m) => m.NotFoundComponent),
+  },
+
+  { path: '**', redirectTo: 'not-found' },
 ];

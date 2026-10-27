@@ -25,6 +25,9 @@ public sealed class FakeProjectRepository : IProjectRepository
     public Task<IReadOnlyList<Project>> ListAsync(string userId, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<Project>>([.. Items.Where(p => p.UserId == userId)]);
 
+    public Task<IReadOnlyList<Project>> ListSubProjectsAsync(string parentProjectId, CancellationToken ct) =>
+        Task.FromResult<IReadOnlyList<Project>>([.. Items.Where(p => p.ParentProjectId == parentProjectId)]);
+
     public Task<IReadOnlyList<Project>> ListAllAsync(CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<Project>>([.. Items]);
 
@@ -126,6 +129,12 @@ public sealed class FakeAssetRepository : IAssetRepository
 
     public Task<IReadOnlyList<Asset>> ListByProjectAsync(string projectId, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<Asset>>([.. Items.Where(a => a.ProjectId == projectId)]);
+
+    public Task<IReadOnlyList<Asset>> ListByProjectsAsync(IEnumerable<string> projectIds, CancellationToken ct)
+    {
+        var idSet = projectIds.ToHashSet();
+        return Task.FromResult<IReadOnlyList<Asset>>([.. Items.Where(a => idSet.Contains(a.ProjectId))]);
+    }
 
     public Task<IReadOnlyList<Asset>> GetManyAsync(IEnumerable<string> ids, CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<Asset>>([.. Items.Where(a => ids.Contains(a.Id))]);

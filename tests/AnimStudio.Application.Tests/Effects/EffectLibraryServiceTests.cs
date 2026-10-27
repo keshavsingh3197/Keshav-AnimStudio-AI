@@ -1,6 +1,7 @@
 using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Abstractions.Rendering;
 using AnimStudio.Application.Abstractions.Storage;
+using AnimStudio.Application.Assets;
 using AnimStudio.Application.Common;
 using AnimStudio.Application.Effects;
 using AnimStudio.Application.Tests.Ai;
@@ -27,7 +28,8 @@ public sealed class EffectLibraryServiceTests
         _projects.Items.Add(new Project { Id = "p1", UserId = "u1" });
         _projects.Items.Add(new Project { Id = "p2", UserId = "u1" });
         _projects.Items.Add(new Project { Id = "theirs", UserId = "u2" });
-        _service = new EffectLibraryService(_effects, _assets, _projects, _store, _probe, new FakeThumbnailer(_store), new ManualTimeProvider(Now));
+        var scope = new AssetScopeService(_projects, _assets);
+        _service = new EffectLibraryService(_effects, _assets, _projects, _store, _probe, new FakeThumbnailer(_store), scope, new ManualTimeProvider(Now));
     }
 
     private static EffectUploadCommand Upload(string fileName, string type, byte[] bytes, string? category = null, bool green = false) =>

@@ -126,6 +126,24 @@ public class AutoShortPlannerTests
     }
 
     [Fact]
+    public void Spread_auto_plan_respects_the_configured_batch_cap()
+    {
+        var pictures = Enumerable.Range(0, 25)
+            .Select(i => new AutoShortSource($"img_{i}", AssetKind.Image, null))
+            .ToArray();
+
+        var plan = AutoShortPlanner.PlanBatch(Batch(pictures, count: 0, seconds: 5) with
+        {
+            Layout = AutoShortLayout.Spread,
+            ImageSeconds = 1,
+            MaxShortCount = 2,
+        });
+
+        Assert.Equal(2, plan.Shorts.Count);
+        Assert.NotEmpty(plan.UnusedAssetIds);
+    }
+
+    [Fact]
     public void Pictures_move_unless_motion_is_off()
     {
         var pics = new[] { new AutoShortSource("img", AssetKind.Image, null) };

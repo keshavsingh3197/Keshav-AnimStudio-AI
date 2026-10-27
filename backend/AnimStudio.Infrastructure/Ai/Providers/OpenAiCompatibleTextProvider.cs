@@ -41,10 +41,23 @@ public sealed class OpenAiCompatibleTextProvider(
     {
         var wantsJson = !string.IsNullOrWhiteSpace(request.JsonSchema);
         var useJsonMode = wantsJson && ProviderOptions?.SupportsJsonMode != false;
+        string? modelOverride = null;
 
         try
         {
-            return await AttemptAsync(request, useJsonMode, ct).ConfigureAwait(false);
+            return await AttemptAsync(request, useJsonMode, modelOverride, ct).ConfigureAwait(false);
+        }
+        catch (AiProviderException ex) when (
+            ex.Code == "endpoint-or-model-not-found" &&
+            string.Equals(Id.Value, KnownAiProviders.Gemini, StringComparison.OrdinalIgnoreCase) &&
+            IsRetiredGeminiModel(Model))
+        {
+            modelOverride = "gemini-3.8-flash";
+            Logger.LogInformation(
+                "AI provider {ProviderId} reported retired model {OldModel} (404); retrying with {FallbackModel}.",
+                Id.Value, Model, modelOverride);
+
+            return await AttemptAsync(request, useJsonMode, modelOverride, ct).ConfigureAwait(false);
         }
         catch (AiProviderException ex) when (useJsonMode && ex.Code == "bad-request")
         {
@@ -52,13 +65,20 @@ public sealed class OpenAiCompatibleTextProvider(
                 "AI provider {ProviderId} refused a JSON-mode request; retrying without it.",
                 Id.Value);
 
-            return await AttemptAsync(request, useJsonMode: false, ct).ConfigureAwait(false);
+            return await AttemptAsync(request, useJsonMode: false, modelOverride, ct).ConfigureAwait(false);
         }
     }
 
+    private static bool IsRetiredGeminiModel(string? model) =>
+        model is not null && (
+            model.StartsWith("gemini-2.5", StringComparison.OrdinalIgnoreCase) ||
+            model.StartsWith("gemini-2.0", StringComparison.OrdinalIgnoreCase) ||
+            model.StartsWith("gemini-1.5", StringComparison.OrdinalIgnoreCase));
+
     private async Task<AiTextResult> AttemptAsync(
-        AiTextRequest request, bool useJsonMode, CancellationToken ct)
+        AiTextRequest request, bool useJsonMode, string? modelOverride, CancellationToken ct)
     {
+        var effectiveModel = modelOverride ?? Model;
         var messages = new List<object>(2);
 
         if (!string.IsNullOrWhiteSpace(request.SystemPrompt))
@@ -76,7 +96,7 @@ public sealed class OpenAiCompatibleTextProvider(
 
         // LM Studio serves whichever model is loaded and takes the field as advisory, so an
         // unset model is legitimate rather than a misconfiguration.
-        if (!string.IsNullOrWhiteSpace(Model)) body["model"] = Model;
+        if (!string.IsNullOrWhiteSpace(effectiveModel)) body["model"] = effectiveModel;
 
         // Sent only when the caller pinned one: an unrequested seed would make every call
         // for the same prompt return the identical answer, including a bad one.

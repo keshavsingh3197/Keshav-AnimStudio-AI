@@ -1,3 +1,4 @@
+using AnimStudio.Api.Security;
 using System.Security.Cryptography;
 using AnimStudio.Api.Common;
 using AnimStudio.Application.Abstractions.Persistence;
@@ -40,6 +41,7 @@ public sealed class BundleController(
     /// <summary>
     /// The starter bundle: one CSV per sheet, a README, and a <c>media/</c> folder.
     /// </summary>
+    [AllowMediaTicket]
     [HttpGet("api/templates/bundle")]
     public IActionResult Template()
     {
@@ -52,6 +54,7 @@ public sealed class BundleController(
     /// Prompts for filling the sheets in with any free AI chat tool - no key needed here,
     /// because the AI part happens outside this application entirely.
     /// </summary>
+    [AllowMediaTicket]
     [HttpGet("api/templates/ai-prompts")]
     public IActionResult PromptPack()
     {
@@ -73,6 +76,7 @@ public sealed class BundleController(
     /// the other end and only the numbers changed.
     /// </para>
     /// </remarks>
+    [AllowMediaTicket]
     [HttpGet("api/projects/{projectId}/bundle")]
     public async Task<IActionResult> Export(
         string projectId, [FromQuery] bool includeMedia = true, CancellationToken ct = default)

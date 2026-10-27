@@ -95,6 +95,7 @@ public static class WebSettingCatalog
 
         // --- Shorts page: read per request, so live.
         new("Shorts:WeeklyGoal", "Shorts", "Shorts a week", "How many shorts you mean to make each week. The Shorts page reminds you when you're behind. 0 turns the reminder off.", WebSettingType.Integer, true, 0, 500),
+        new("Shorts:MaxBatchCount", "Shorts", "Maximum shorts per batch", "The most shorts users can generate in one Auto Shorts batch. Applies immediately to planning and rendering.", WebSettingType.Integer, true, 1, 500),
         new("Shorts:LowStockThreshold", "Shorts", "Low stock warning", "Warn when a project that makes auto shorts has fewer unused clips and pictures than this.", WebSettingType.Integer, true, 1, 200),
         new("Shorts:UnpublishedReminderDays", "Shorts", "Unpublished reminder (days)", "Remind about finished shorts that haven't gone to YouTube after this many days.", WebSettingType.Integer, true, 0, 60),
 
@@ -114,6 +115,9 @@ public static class WebSettingCatalog
         new("Admin:AnonymousPolicy:MaxAiCallsPerDay", "Access Control", "Guest AI Quota", "How many AI requests unauthenticated visitors can run per day.", WebSettingType.Integer, true, 0, 50),
         new("Admin:AnonymousPolicy:AllowYouTubePublish", "Access Control", "Guest YouTube Publishing", "Allow anonymous visitors to connect or publish to YouTube channels (strictly discouraged).", WebSettingType.Boolean, true),
         new("Admin:AnonymousPolicy:AllowCloudSave", "Access Control", "Guest Cloud Project Save", "Allow saving projects to the central database without signing in.", WebSettingType.Boolean, true),
+        new("Admin:AnonymousPolicy:AllowGoogleDrivePublish", "Access Control", "Guest Google Drive Publishing", "Allow anonymous visitors to connect or save to Google Drive (strictly discouraged).", WebSettingType.Boolean, true),
+        new("Admin:AnonymousPolicy:MaxGuestProjects", "Access Control", "Max Guest Projects", "Maximum number of projects an anonymous guest can create.", WebSettingType.Integer, true, 1, 50),
+        new("Admin:AnonymousPolicy:AllowGuestProjectCreation", "Access Control", "Allow Guest Project Creation", "Whether unauthenticated visitors can create new projects.", WebSettingType.Boolean, true),
 
         // --- Server Profile & Free-Tier Resilience
         new("ServerProfile:FreeTier", "Server Profile", "Free-tier hosting profile", "Optimizes timeouts and caches for constrained free hosting environments.", WebSettingType.Boolean, true),

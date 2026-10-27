@@ -66,7 +66,7 @@ export function channelSummary(c: BrandChannel | null | undefined): string {
     </div>
   `,
   styles: [`
-    :host { display: inline-block; position: relative; min-width: 260px; }
+    :host { display: inline-block; position: relative; min-width: 260px; z-index: 40; }
     .cp-current {
       display: flex; align-items: center; gap: 10px; width: 100%;
       padding: 8px 12px; border-radius: 10px; cursor: pointer; text-align: left;
@@ -98,7 +98,7 @@ export function channelSummary(c: BrandChannel | null | undefined): string {
     .cp-caret { color: var(--muted, #8b9bb4); transition: transform 0.15s ease; }
     .cp-caret.open { transform: rotate(180deg); color: var(--brand); }
     .cp-pop {
-      position: absolute; z-index: 60; top: calc(100% + 6px); left: 0; width: max(100%, 340px);
+      position: absolute; z-index: 100; top: calc(100% + 6px); left: 0; width: max(100%, 340px);
       background: linear-gradient(180deg, rgba(19, 24, 38, 0.98) 0%, rgba(11, 15, 25, 0.99) 100%);
       border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 12px;
       box-shadow: 0 20px 48px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.06);

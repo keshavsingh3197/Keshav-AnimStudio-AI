@@ -42,6 +42,9 @@ export interface Project {
   contentType?: ProjectContentType;
   /** Seconds an image plays when added to the timeline; null = the studio-wide default. */
   defaultImageDurationSeconds?: number | null;
+  parentProjectId?: string | null;
+  useSharedAssets?: boolean;
+  subProjectCount?: number;
 }
 
 /** What a project makes; 'music' sends its renders to YouTube Music (the Music category). */
@@ -98,6 +101,13 @@ export interface UpdateProjectBody extends CreateProjectBody {
   customThumbnail?: string | null;
   /** Omitted leaves it unchanged; 0 goes back to the studio-wide default. */
   defaultImageDurationSeconds?: number;
+  useSharedAssets?: boolean | null;
+}
+
+export interface CreateSubProjectBody {
+  name: string;
+  description?: string | null;
+  useSharedAssets: boolean;
 }
 
 export interface AssetFolder {
@@ -121,6 +131,7 @@ export interface Asset {
   durationSeconds?: number;
   reviewStatus: string;
   folderId?: string | null;
+  projectId?: string | null;
 }
 
 /** Where a reuse search looks: this project's channel only, or every project. */
@@ -595,6 +606,7 @@ export function isTerminal(status: string): boolean {
 
 export interface Clip {
   id: string;
+  projectId?: string;
   assetId?: string;
   trimStartSeconds?: number;
   trimEndSeconds?: number;
@@ -648,6 +660,7 @@ export interface ClipStudio {
   logoWatermarkAvailable: boolean;
   transitionsAvailable: boolean;
   blurredBackdropAvailable: boolean;
+  maxAutoShortsCount: number;
   studioDraftJson?: string;
 }
 
@@ -1036,6 +1049,8 @@ export interface AutoShortsBody {
   seed?: number | null;
   /** Copy each short to Google Drive as soon as it has rendered - on the server. */
   saveToDrive?: boolean;
+  /** The shared (calendar) topic the batch is for; its Drive copies are filed under it. */
+  topicId?: string | null;
   /** Whose Drive and folder; null is the personal Drive. */
   driveChannelId?: string | null;
   /** A folder for this batch; empty uses the channel's (or the Drive's) default. */
@@ -1667,4 +1682,3 @@ export interface ServerLogsResponse {
   activeFile: string | null;
   entries: ServerLogEntry[];
 }
-

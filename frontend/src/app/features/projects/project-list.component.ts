@@ -1,6 +1,6 @@
 import { DatePipe } from '@angular/common';
 import { firstValueFrom } from 'rxjs';
-import { Component, HostListener, computed, inject, signal } from '@angular/core';
+import { Component, HostListener, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 
@@ -12,6 +12,7 @@ import { StatusService } from '../../core/services/status.service';
 import { FileDropDirective } from '../../shared/file-drop.directive';
 import { optimizeThumbnailImage } from '../../core/utils/image-utils';
 import { AssetThumbnailPickerComponent } from '../../shared/asset-thumbnail-picker.component';
+import { AuthService } from '../../core/services/auth.service';
 
 export type StartingPoint = 'prompt' | 'bundle' | 'import' | 'clips' | 'scenes';
 
@@ -24,6 +25,7 @@ export type StartingPoint = 'prompt' | 'bundle' | 'import' | 'clips' | 'scenes';
 export class ProjectListComponent {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
+  private readonly auth = inject(AuthService);
 
   readonly status = inject(StatusService);
   readonly projects = signal<Project[]>([]);
@@ -34,6 +36,13 @@ export class ProjectListComponent {
   readonly starting = signal<StartingPoint | null>(null);
   readonly confirming = signal<string | null>(null);
   readonly showDetails = signal(false);
+
+  // Sub-projects state
+  readonly expandedProjectIds = signal<Set<string>>(new Set());
+  readonly creatingSubProjectFor = signal<Project | null>(null);
+  subProjectName = '';
+  subProjectDescription = '';
+  subProjectUseSharedAssets = true;
 
   // View & Filter State
   readonly viewMode = signal<'grid' | 'table'>('grid');
@@ -57,7 +66,6 @@ export class ProjectListComponent {
   /** A channel id, or 'All'. */
   channelFilter = 'All';
   selectedProjectIds = new Set<string>();
-  pinnedProjectIds = new Set<string>();
 
   // Context Menu State
   activeMenuProjectId = signal<string | null>(null);
@@ -67,8 +75,12 @@ export class ProjectListComponent {
 /** The channel a project publishes under; no channel is the default one. */  channelName(p: Project): string {    const id = p.brandChannelId || DEFAULT_BRAND_CHANNEL;    return this.channels().find((c) => c.id === id)?.name ?? 'Default';  }
   constructor() {
     this.loadSavedPreferences();
-    this.reload();
-    this.api.listBrandChannels().subscribe({ next: (list) => this.channels.set(list), error: () => {} });
+    // Reactively load and reload projects & brand channels whenever user signs in or out
+    effect(() => {
+      this.auth.user();
+      this.reload();
+      this.api.listBrandChannels().subscribe({ next: (list) => this.channels.set(list), error: () => {} });
+    });
   }
 
   private loadSavedPreferences(): void {
@@ -76,13 +88,6 @@ export class ProjectListComponent {
       const savedMode = localStorage.getItem('animstudio_projects_view_mode');
       if (savedMode === 'grid' || savedMode === 'table') {
         this.viewMode.set(savedMode);
-      }
-      const savedPins = localStorage.getItem('animstudio_pinned_projects');
-      if (savedPins) {
-        const parsed = JSON.parse(savedPins);
-        if (Array.isArray(parsed)) {
-          this.pinnedProjectIds = new Set(parsed);
-        }
       }
     } catch {
       // Ignore storage read errors
@@ -100,43 +105,31 @@ export class ProjectListComponent {
 
   togglePin(p: Project, event?: Event): void {
     if (event) event.stopPropagation();
-    const currentlyPinned = this.isPinned(p.id);
-    const nextPinned = !currentlyPinned;
-    if (nextPinned) {
-      this.pinnedProjectIds.add(p.id);
-    } else {
-      this.pinnedProjectIds.delete(p.id);
-    }
-    try {
-      localStorage.setItem('animstudio_pinned_projects', JSON.stringify([...this.pinnedProjectIds]));
-    } catch {
-      // Ignore storage write errors
-    }
+    const nextPinned = !this.isPinned(p.id);
 
     const intent = (p.distributionIntent && p.distributionIntent !== 'Social Media') ? p.distributionIntent : 'Public';
-    this.api.updateProject(p.id, {
-      name: p.name,
-      description: p.description,
-      width: p.width,
-      height: p.height,
-      fps: p.fps,
-      isPinned: nextPinned,
-      distributionIntent: intent,
-      acceptShareAlikeObligation: p.acceptShareAlikeObligation,
-      backgroundMusicAssetId: p.backgroundMusicAssetId,
-      backgroundMusicVolume: p.backgroundMusicVolume,
-      customThumbnail: p.customThumbnail,
-      brandChannelId: p.brandChannelId ?? null,
-    }).subscribe({
-      next: (updated) => {
+    this.status.run(
+      this.api.updateProject(p.id, {
+        name: p.name,
+        description: p.description,
+        width: p.width,
+        height: p.height,
+        fps: p.fps,
+        isPinned: nextPinned,
+        distributionIntent: intent,
+        acceptShareAlikeObligation: p.acceptShareAlikeObligation,
+        backgroundMusicAssetId: p.backgroundMusicAssetId,
+        backgroundMusicVolume: p.backgroundMusicVolume,
+        customThumbnail: p.customThumbnail,
+        brandChannelId: p.brandChannelId ?? null,
+      }),
+      (updated) => {
         this.projects.update(list => list.map(x => x.id === p.id ? updated : x));
-      },
-      error: () => undefined,
-    });
+      }
+    );
   }
 
   isPinned(id: string): boolean {
-    if (this.pinnedProjectIds.has(id)) return true;
     const found = this.projects().find(p => p.id === id);
     return !!found?.isPinned;
   }
@@ -159,15 +152,83 @@ export class ProjectListComponent {
     }).length;
   }
 
+  toggleExpandSubProjects(projectId: string, event?: Event): void {
+    if (event) event.stopPropagation();
+    const next = new Set(this.expandedProjectIds());
+    if (next.has(projectId)) {
+      next.delete(projectId);
+    } else {
+      next.add(projectId);
+    }
+    this.expandedProjectIds.set(next);
+  }
+
+  isExpanded(projectId: string): boolean {
+    return this.expandedProjectIds().has(projectId);
+  }
+
+  getSubProjects(parentId: string): Project[] {
+    return this.projects().filter(p => p.parentProjectId === parentId);
+  }
+
+  subProjectsCount(project: Project): number {
+    return project.subProjectCount ?? this.getSubProjects(project.id).length;
+  }
+
+  openCreateSubProject(parent: Project, event?: Event): void {
+    if (event) event.stopPropagation();
+    this.closeMenus();
+    this.creatingSubProjectFor.set(parent);
+    const count = this.subProjectsCount(parent);
+    this.subProjectName = `${parent.name} - Part ${count + 1}`;
+    this.subProjectDescription = '';
+    this.subProjectUseSharedAssets = true;
+  }
+
+  cancelCreateSubProject(): void {
+    this.creatingSubProjectFor.set(null);
+  }
+
+  submitCreateSubProject(): void {
+    const parent = this.creatingSubProjectFor();
+    if (!parent || !this.subProjectName.trim()) return;
+
+    this.status.run(
+      this.api.createSubProject(parent.id, {
+        name: this.subProjectName.trim(),
+        description: this.subProjectDescription.trim() || undefined,
+        useSharedAssets: this.subProjectUseSharedAssets,
+      }),
+      (subProject) => {
+        this.projects.update((list) => [
+          subProject,
+          ...list.map((p) => (p.id === parent.id ? { ...p, subProjectCount: (p.subProjectCount ?? 0) + 1 } : p)),
+        ]);
+        const set = new Set(this.expandedProjectIds());
+        set.add(parent.id);
+        this.expandedProjectIds.set(set);
+        this.creatingSubProjectFor.set(null);
+        void this.router.navigate(['/projects', subProject.id, 'clips']);
+      }
+    );
+  }
+
   get filteredAndSortedProjects(): Project[] {
-    let list = this.projects();
+    let list = this.projects().filter((p) => !p.parentProjectId);
 
     if (this.searchTerm.trim()) {
       const q = this.searchTerm.toLowerCase();
-      list = list.filter(p =>
-        p.name.toLowerCase().includes(q) ||
-        (p.description && p.description.toLowerCase().includes(q))
-      );
+      list = list.filter((p) => {
+        const selfMatch =
+          p.name.toLowerCase().includes(q) ||
+          (p.description && p.description.toLowerCase().includes(q));
+        const subMatch = this.getSubProjects(p.id).some(
+          (sub) =>
+            sub.name.toLowerCase().includes(q) ||
+            (sub.description && sub.description.toLowerCase().includes(q))
+        );
+        return selfMatch || subMatch;
+      });
     }
 
     if (this.statusFilter !== 'All') {
@@ -420,10 +481,17 @@ export class ProjectListComponent {
 
   delete(projectId: string, event?: Event): void {
     if (event) event.stopPropagation();
+    const target = this.projects().find(p => p.id === projectId);
     this.status.run(this.api.deleteProject(projectId), () => {
       this.confirming.set(null);
       this.selectedProjectIds.delete(projectId);
-      this.projects.update((list) => list.filter((p) => p.id !== projectId));
+      this.projects.update((list) => {
+        let updated = list.filter((p) => p.id !== projectId);
+        if (target?.parentProjectId) {
+          updated = updated.map(p => p.id === target.parentProjectId ? { ...p, subProjectCount: Math.max(0, (p.subProjectCount ?? 1) - 1) } : p);
+        }
+        return updated;
+      });
       this.status.notify(['Project deleted.']);
     });
   }

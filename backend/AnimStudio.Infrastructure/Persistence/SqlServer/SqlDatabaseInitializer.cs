@@ -158,6 +158,49 @@ public sealed class SqlDatabaseInitializer(
         {
             logger.LogDebug(ex, "Database cleanup check completed with notice.");
         }
+
+        // Self-healing migration: re-bind legacy 'local-user' or unbound projects, edits, and content data
+        // to the primary administrator account (admin@keshavsingh.in / 6a6ae3f1d0797d6459bdc65f)
+        const string adminRebindSql = """
+            DECLARE @adminId NVARCHAR(64) = '6a6ae3f1d0797d6459bdc65f';
+
+            UPDATE Projects SET UserId = @adminId, DataJson = JSON_MODIFY(DataJson, '$.userId', @adminId)
+            WHERE UserId = 'local-user' OR UserId = '' OR UserId IS NULL;
+
+            UPDATE ProjectEdits SET UserId = @adminId
+            WHERE UserId = 'local-user' OR UserId = '' OR UserId IS NULL;
+
+            UPDATE ContentPlanItems SET UserId = @adminId, DataJson = JSON_MODIFY(DataJson, '$.userId', @adminId)
+            WHERE UserId = 'local-user' OR UserId = '' OR UserId IS NULL;
+
+            UPDATE ContentSourceLinks SET UserId = @adminId, DataJson = JSON_MODIFY(DataJson, '$.userId', @adminId)
+            WHERE UserId = 'local-user' OR UserId = '' OR UserId IS NULL;
+
+            UPDATE ContentTopics SET UserId = @adminId, DataJson = JSON_MODIFY(DataJson, '$.userId', @adminId)
+            WHERE UserId = 'local-user' OR UserId = '' OR UserId IS NULL;
+
+            UPDATE VoiceProfiles SET UserId = @adminId, DataJson = JSON_MODIFY(DataJson, '$.userId', @adminId)
+            WHERE UserId = 'local-user' OR UserId = '' OR UserId IS NULL;
+
+            UPDATE YouTubePublications SET UserId = @adminId, DataJson = JSON_MODIFY(DataJson, '$.userId', @adminId)
+            WHERE UserId = 'local-user' OR UserId = '' OR UserId IS NULL;
+
+            UPDATE RenderJobs SET DataJson = JSON_MODIFY(DataJson, '$.userId', @adminId)
+            WHERE JSON_VALUE(DataJson, '$.userId') = 'local-user';
+            """;
+        try
+        {
+            await using var rebindCmd = new SqlCommand(adminRebindSql, conn);
+            var rebindCount = await rebindCmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            if (rebindCount > 0)
+            {
+                logger.LogInformation("Re-bound {Count} legacy records to administrator account ({AdminId}).", rebindCount, "6a6ae3f1d0797d6459bdc65f");
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Admin record rebind check completed with notice.");
+        }
     }
 
     /// <summary>

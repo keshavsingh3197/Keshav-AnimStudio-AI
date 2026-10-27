@@ -16,6 +16,8 @@ import { ApiService } from '../core/services/api.service';
 import { ContentCalendarService } from '../core/services/content-calendar.service';
 import { ProjectStore } from '../core/services/project-store';
 import { YouTubePublishService } from '../core/services/youtube-publish.service';
+import { TopicPickerComponent } from './topic-picker.component';
+import { AuthService } from '../core/services/auth.service';
 
 /** Remembered per browser so the next publish starts where the last one left off. */
 const PREFS_KEY = 'animstudio.youtube.publish';
@@ -102,7 +104,7 @@ interface PublishPrefs {
 @Component({
   selector: 'app-youtube-publish-dialog',
   standalone: true,
-  imports: [FormsModule, DecimalPipe, RouterLink],
+  imports: [FormsModule, DecimalPipe, RouterLink, TopicPickerComponent],
   host: { '(document:keydown.escape)': 'closed.emit()' },
   template: `
     <div class="yt-backdrop" (click)="closed.emit()">
@@ -114,7 +116,24 @@ interface PublishPrefs {
         </header>
 
         <div class="yt-body">
-        @if (loading()) {
+        @if (auth.isAnonymous()) {
+          <div style="padding: 2.5rem 1.5rem; text-align: center">
+            <div style="font-size: 2.2rem; margin-bottom: 0.5rem">🔒</div>
+            <h4 style="color: #fca5a5; margin: 0 0 0.5rem">Authentication Required</h4>
+            <p class="yt-muted" style="max-width: 480px; margin: 0 auto 1.5rem">
+              Publishing renders to YouTube or Google Drive requires an authenticated member account.
+              Anonymous visitors cannot connect or publish to external cloud services.
+            </p>
+            <div style="display: flex; gap: 0.75rem; justify-content: center">
+              <button type="button" class="btn-primary-glow" (click)="auth.openAuthModal(); closed.emit()">
+                Sign In to Publish
+              </button>
+              <button type="button" class="btn-outline" (click)="closed.emit()">
+                Cancel
+              </button>
+            </div>
+          </div>
+        } @else if (loading()) {
           <p class="yt-muted">Loading…</p>
         } @else if (status(); as st) {
           @if (!st.configured) {
@@ -285,6 +304,7 @@ interface PublishPrefs {
                       @if (folderName().trim() !== dr.folderName && !fieldError('folderName')) {
                         <button type="button" class="link" (click)="saveDefaultFolder()" [disabled]="busy()">Use "{{ folderName().trim() }}" every time{{ dr.channelId ? ' for ' + dr.channelTitle : '' }}</button>
                       }
+                      <app-topic-picker label="Topic (optional - files the copy in the Drive library)" [(value)]="topicId" [disabled]="savingCopy()" />
                       <div class="yt-phone-row">
                         <span class="yt-muted">Only want the file? Save a copy to Drive - nothing goes to YouTube.</span>
                         <button type="button" (click)="saveCopyToDrive()"
@@ -1238,6 +1258,7 @@ export class YouTubePublishDialogComponent implements OnInit {
   private readonly api = inject(YouTubePublishService);
   private readonly activity = inject(ActivityService);
   private readonly calendar = inject(ContentCalendarService);
+  readonly auth = inject(AuthService);
 
   readonly jobId = input.required<string>();
   /** A render (the default) or a release kit's visualizer. */
@@ -1530,6 +1551,7 @@ export class YouTubePublishDialogComponent implements OnInit {
   readonly drive = signal<GoogleDriveStatus | null>(null);
   /** The Drive folder for this send; starts as the Drive's default. */
   readonly folderName = signal('');
+  readonly topicId = signal<string | null>(null);
   readonly muteAudio = signal(false);
   readonly handoff = signal<PhoneHandoff | null>(null);
   /** The channel's new uploads from the last "Check now"; null until one has run. */
@@ -2181,7 +2203,7 @@ export class YouTubePublishDialogComponent implements OnInit {
   saveCopyToDrive(): void {
     if (this.savingCopy() || !this.folderNameValid()) return;
     this.error.set(null);
-    this.api.saveToDrive(this.jobId(), { channelId: this.channelId() || null, folderName: this.folderName().trim() }).subscribe({
+    this.api.saveToDrive(this.jobId(), { channelId: this.channelId() || null, folderName: this.folderName().trim(), topicId: this.topicId() }).subscribe({
       next: (c) => {
         this.driveCopy.set(c);
         this.pollCopy(c.id);

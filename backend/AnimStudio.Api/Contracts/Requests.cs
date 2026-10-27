@@ -223,6 +223,20 @@ public sealed record UpdateProjectRequest
 
     /// <summary>Seconds an image plays when added to the timeline. Null: unchanged; 0: use the studio-wide default.</summary>
     [Range(0, ImageDurationLimits.Max)] public double? DefaultImageDurationSeconds { get; init; }
+
+    /// <summary>Sub-projects only. Null leaves unchanged.</summary>
+    public bool? UseSharedAssets { get; init; }
+}
+
+public sealed record CreateSubProjectRequest
+{
+    [Required, StringLength(120, MinimumLength = 1)]
+    public string Name { get; init; } = string.Empty;
+
+    [StringLength(2000)]
+    public string? Description { get; init; }
+
+    public bool UseSharedAssets { get; init; } = true;
 }
 
 public sealed record CreateSceneRequest
@@ -552,6 +566,9 @@ public sealed record ClipMergeRequest
 {
     [MaxLength(200)]
     public string? ExportName { get; init; }
+
+    /// <summary>The shared topic (content calendar topic) this export is for.</summary>
+    [RegularExpression("^[A-Za-z0-9_-]{1,64}$")] public string? TopicId { get; init; }
     /// <summary>
     /// Empty for a cut of pictures, titles or music alone, whose <c>Slots</c> are the
     /// picture; the service refuses a request with neither.
@@ -703,6 +720,9 @@ public sealed record AutoShortsRequest
 
     /// <summary>A folder for this batch; empty uses the channel's (or the Drive's) default.</summary>
     [StringLength(100)] public string? DriveFolderName { get; init; }
+
+    /// <summary>The shared topic every short of the batch is for; its Drive copies are filed under it.</summary>
+    [RegularExpression("^[A-Za-z0-9_-]{1,64}$")] public string? TopicId { get; init; }
 }
 
 public sealed record TimelineItemTextStyleRequest

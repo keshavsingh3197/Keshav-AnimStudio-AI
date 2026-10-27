@@ -41,7 +41,10 @@ public sealed record ProjectResponse(
     /// <summary>"video" or "music"; a music project publishes to YouTube Music by default.</summary>
     string ContentType = ProjectContentTypes.Video,
     /// <summary>Seconds an image plays when added to the timeline; null = the studio-wide default.</summary>
-    double? DefaultImageDurationSeconds = null);
+    double? DefaultImageDurationSeconds = null,
+    string? ParentProjectId = null,
+    bool UseSharedAssets = true,
+    int SubProjectCount = 0);
 
 /// <summary>A brand channel and its look. The built-in default comes first, with IsDefault set.</summary>
 public sealed record BrandChannelResponse(
@@ -78,7 +81,8 @@ public sealed record CharacterVoiceResponse(
 
 public sealed record AssetResponse(
     string Id, string Name, string Kind, string MimeType, long FileSizeBytes,
-    int? Width, int? Height, bool HasAlpha, double? DurationSeconds, string ReviewStatus, string? FolderId = null);
+    int? Width, int? Height, bool HasAlpha, double? DurationSeconds, string ReviewStatus, string? FolderId = null,
+    string? ProjectId = null);
 
 /// <summary>A file in another of the user's projects, found by the reuse search.</summary>
 /// <param name="IsExport">A cut exported from Clip Studio rather than an upload.</param>
@@ -258,7 +262,7 @@ public sealed record AiCapabilitiesResponse(IReadOnlyList<AiCapabilityResponse> 
 public sealed record ClipResponse(
     string Id, string Name, long FileSizeBytes,
     double? DurationSeconds, int? Width, int? Height, bool HasAudio, bool IsExport,
-    DateTime CreatedAt);
+    DateTime CreatedAt, string? ProjectId = null);
 
 public sealed record ClipOrderLineResponse(int Number, string Text, string? AssetId, string Match);
 
@@ -297,6 +301,7 @@ public sealed record ClipStudioResponse(
     bool LogoWatermarkAvailable,
     bool TransitionsAvailable,
     bool BlurredBackdropAvailable,
+    int MaxAutoShortsCount,
     string? StudioDraftJson = null);
 
 /// <summary>

@@ -18,6 +18,7 @@ import { WatermarkBody } from '../core/models/api.models';
   template: `
     <div class="wp-frame" [style.aspect-ratio]="width() + ' / ' + height()"
          [style.height.px]="boxHeight()" [style.width.px]="boxHeight() ? boxHeight()! * width() / height() : null"
+         [style.max-width.%]="100"
          [class.has-image]="!!background()"
          [style.background-image]="background() ? 'url(' + background() + ')' : null">
       @if (!background()) {
@@ -45,12 +46,26 @@ import { WatermarkBody } from '../core/models/api.models';
     </div>
   `,
   styles: [`
-    :host { display: block; flex-shrink: 0; }
+    :host {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+    }
     .wp-frame {
-      position: relative; width: 100%; overflow: hidden; flex-shrink: 0;
-      border-radius: 10px; border: 1px solid rgba(148, 163, 184, 0.22);
-      container-type: size; background: #0b1020 center / cover no-repeat;
-      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      position: relative;
+      width: 100%;
+      max-width: 100%;
+      max-height: 100%;
+      overflow: hidden;
+      flex-shrink: 1;
+      border-radius: 12px;
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      container-type: size;
+      background: #0b1020 center / cover no-repeat;
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.08);
     }
     .wp-scene { position: absolute; inset: 0;
       background: linear-gradient(180deg, #1e3a5f 0%, #3b5a7a 55%, #22324a 100%); }

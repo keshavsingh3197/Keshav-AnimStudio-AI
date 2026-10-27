@@ -5,11 +5,14 @@ import { AdminAccess } from '../core/models/api.models';
 import { ActivityPanelComponent } from './activity-panel.component';
 import { LoginModalComponent } from '../shared/login-modal.component';
 import { ProjectHubModalComponent } from './project-hub-modal.component';
+import { SessionTimeoutComponent } from '../shared/session-timeout.component';
 import { ActivityService } from '../core/services/activity.service';
 import { ApiService } from '../core/services/api.service';
 import { AuthService } from '../core/services/auth.service';
 import { ShortsService } from '../core/services/shorts.service';
+import { SessionTimeoutService } from '../core/services/session-timeout.service';
 import { StatusService } from '../core/services/status.service';
+import { UiNavigationService } from '../core/services/ui-navigation.service';
 
 /** How often the Shorts badge is re-read; alerts change on the scale of renders and days, not seconds. */
 const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
@@ -25,82 +28,77 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
  */
 @Component({
   selector: 'app-shell',
-  imports: [RouterLink, RouterLinkActive, RouterOutlet, ProjectHubModalComponent, ActivityPanelComponent, LoginModalComponent],
+  imports: [RouterLink, RouterLinkActive, RouterOutlet, ProjectHubModalComponent, ActivityPanelComponent, LoginModalComponent, SessionTimeoutComponent],
   template: `
+    <app-session-timeout></app-session-timeout>
+
     <header class="topbar">
       <div class="wrap topbar-inner">
         <a routerLink="/projects" class="brand">AnimStudio<span>AI</span></a>
 
         <nav class="topbar-nav" aria-label="Main Studio Navigation">
-          <a routerLink="/projects" routerLinkActive="active" class="topbar-navlink">
-            <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-            <span>Projects</span>
-          </a>
-          <a routerLink="/shorts" routerLinkActive="active" class="topbar-navlink"
-             [title]="shortsAttention() ? shortsAttention() + ' thing(s) on the Shorts page want attention' : 'Every short across your projects'">
-            <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><rect x="6" y="2" width="12" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
-            <span>Shorts</span>
-            @if (shortsAttention() > 0) {
-              <span class="topbar-badge warn">{{ shortsAttention() }}</span>
+          @for (tab of uiNav.visibleNavItems(); track tab.id) {
+            @if (tab.id === 'clips') {
+              <button type="button" (click)="openVideoModal()" class="topbar-navlink topbar-navbtn" [title]="tab.description || tab.label">
+                <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+                <span>{{ tab.label }}</span>
+              </button>
+            } @else if (tab.id !== 'admin') {
+              <a [routerLink]="tab.path" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: tab.path === '/live' }" class="topbar-navlink" [title]="tab.description || tab.label">
+                @switch (tab.id) {
+                  @case ('projects') {
+                    <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                  }
+                  @case ('shorts') {
+                    <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><rect x="6" y="2" width="12" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+                  }
+                  @case ('calendar') {
+                    <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                  }
+                  @case ('effects') {
+                    <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><path d="M12 2l2.4 5.6L20 10l-5.6 2.4L12 18l-2.4-5.6L4 10l5.6-2.4z"/><line x1="19" y1="17" x2="19" y2="22"/><line x1="16.5" y1="19.5" x2="21.5" y2="19.5"/></svg>
+                  }
+                  @case ('tools') {
+                    <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>
+                  }
+                  @case ('release') {
+                    <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+                  }
+                  @case ('youtube') {
+                    <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><rect x="2" y="4" width="20" height="16" rx="4"/><polygon points="10 9 15 12 10 15 10 9" fill="currentColor" stroke="none"/></svg>
+                  }
+                  @case ('details') {
+                    <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/><line x1="11" y1="8" x2="11" y2="14"/></svg>
+                  }
+                  @case ('live') {
+                    <span class="topbar-live-dot" aria-hidden="true"></span>
+                  }
+                  @case ('camera') {
+                    <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                  }
+                  @case ('motion-copy') {
+                    <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="5" r="2"/><path d="M12 7v6M5 10l7 1 7-1M9 22l3-9 3 9"/></svg>
+                  }
+                  @case ('collab') {
+                    <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                  }
+                  @case ('logs') {
+                    <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                  }
+                  @default {
+                    <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="9"/></svg>
+                  }
+                }
+                <span>{{ tab.label }}</span>
+                @if (tab.id === 'shorts' && shortsAttention() > 0) {
+                  <span class="topbar-badge warn">{{ shortsAttention() }}</span>
+                }
+                @if (tab.id === 'logs' && status.logEntries().length > 0) {
+                  <span class="topbar-badge">{{ status.logEntries().length }}</span>
+                }
+              </a>
             }
-          </a>
-          <a routerLink="/calendar" routerLinkActive="active" class="topbar-navlink" title="Plan posts ahead and check they're scheduled">
-            <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-            <span>Calendar</span>
-          </a>
-          <a routerLink="/effects" routerLinkActive="active" class="topbar-navlink" title="Effects &amp; overlays - subscribe buttons, stingers, end screens and sounds to reuse in every video">
-            <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><path d="M12 2l2.4 5.6L20 10l-5.6 2.4L12 18l-2.4-5.6L4 10l5.6-2.4z"/><line x1="19" y1="17" x2="19" y2="22"/><line x1="16.5" y1="19.5" x2="21.5" y2="19.5"/></svg>
-            <span>Effects</span>
-          </a>
-          <button type="button" (click)="openVideoModal()" class="topbar-navlink topbar-navbtn">
-            <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
-            <span>Video Editor</span>
-          </button>
-          <a routerLink="/tools" routerLinkActive="active" class="topbar-navlink">
-            <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>
-            <span>Media Studio</span>
-          </a>
-          <a routerLink="/release" routerLinkActive="active" class="topbar-navlink">
-            <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-            <span>Music Release</span>
-          </a>
-
-          <span class="topbar-divider" aria-hidden="true"></span>
-
-          <a routerLink="/youtube" routerLinkActive="active" class="topbar-navlink">
-            <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><rect x="2" y="4" width="20" height="16" rx="4"/><polygon points="10 9 15 12 10 15 10 9" fill="currentColor" stroke="none"/></svg>
-            <span>YouTube</span>
-          </a>
-          <a routerLink="/youtube/details" routerLinkActive="active" class="topbar-navlink" title="Full details and fresh SEO for any list of video IDs">
-            <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/><line x1="11" y1="8" x2="11" y2="14"/></svg>
-            <span>Video Details</span>
-          </a>
-          <a routerLink="/live" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }" class="topbar-navlink">
-            <span class="topbar-live-dot" aria-hidden="true"></span>
-            <span>Go Live</span>
-          </a>
-          <a routerLink="/live/camera" routerLinkActive="active" class="topbar-navlink">
-            <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-            <span>Camera Studio</span>
-          </a>
-          <a routerLink="/motion-copy" routerLinkActive="active" class="topbar-navlink" title="Copy the moves from any video onto a character">
-            <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="5" r="2"/><path d="M12 7v6M5 10l7 1 7-1M9 22l3-9 3 9"/></svg>
-            <span>Motion Copy</span>
-          </a>
-          <a routerLink="/collab" routerLinkActive="active" class="topbar-navlink">
-            <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-            <span>Collab</span>
-          </a>
-
-          <span class="topbar-divider" aria-hidden="true"></span>
-
-          <a routerLink="/logs" routerLinkActive="active" class="topbar-navlink">
-            <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
-            <span>Logs</span>
-            @if (status.logEntries().length > 0) {
-              <span class="topbar-badge">{{ status.logEntries().length }}</span>
-            }
-          </a>
+          }
         </nav>
 
         <div class="topbar-end">
@@ -125,12 +123,24 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
           }
           @if (auth.isAuthenticated()) {
             <div class="user-pill">
+              <span
+                class="topbar-session-timer"
+                [class.warning]="sessionTimeout.isWarning()"
+                [class.urgent]="sessionTimeout.isUrgent()"
+                [attr.aria-label]="'Automatic sign-out in ' + sessionTimeout.formattedRemaining() + ' due to inactivity'"
+                [title]="'Automatic sign-out in ' + sessionTimeout.formattedRemaining() + ' due to inactivity'"
+              >
+                <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                </svg>
+                {{ sessionTimeout.formattedRemaining() }}
+              </span>
               <span class="user-avatar" [title]="auth.user()?.email || 'User'">{{ (auth.user()?.displayName || auth.user()?.email || 'U')[0].toUpperCase() }}</span>
               <span class="user-name" [title]="auth.user()?.email || 'User'">{{ auth.user()?.displayName || auth.user()?.email }}</span>
               @if (auth.isAdmin()) {
                 <span class="user-role-badge">Admin</span>
               }
-              <button type="button" class="btn-logout" (click)="auth.logout()" title="Sign out">
+              <button type="button" class="btn-logout" (click)="signOut()" [disabled]="signingOut()" title="Sign out">
                 <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
               </button>
             </div>
@@ -144,7 +154,7 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
             </div>
           }
 
-          @if (auth.isAdmin() || access()?.canAdminister) {
+          @if (auth.isAdmin()) {
             <a routerLink="/admin" routerLinkActive="active" class="topbar-navlink topbar-settings" title="Server & Studio Settings">
               <svg class="topbar-svg" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
               <span>Settings</span>
@@ -200,18 +210,12 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
         </div>
 
         <nav class="app-footer-links" aria-label="Footer">
-          <a routerLink="/projects">Projects</a>
-          <a routerLink="/shorts">Shorts</a>
-          <a routerLink="/effects">Effects</a>
-          <a routerLink="/tools">Media Studio</a>
-          <a routerLink="/release">Music Release</a>
-          <a routerLink="/youtube">YouTube</a>
-          <a routerLink="/youtube/details">Video Details</a>
-          <a routerLink="/live">Go Live</a>
-          <a routerLink="/live/camera">Camera Studio</a>
-          <a routerLink="/collab">Collab Studio</a>
-          <a routerLink="/logs">Logs</a>
-          @if (access()?.canAdminister) {
+          @for (tab of uiNav.visibleNavItems(); track tab.id) {
+            @if (tab.id !== 'clips') {
+              <a [routerLink]="tab.path">{{ tab.label }}</a>
+            }
+          }
+          @if (auth.isAdmin()) {
             <a routerLink="/admin">Settings</a>
           }
         </nav>
@@ -398,6 +402,25 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
       flex-shrink: 0;
     }
 
+    .topbar-session-timer {
+      display: inline-flex;
+      align-items: center;
+      gap: .3rem;
+      color: #a7f3d0;
+      font-size: .72rem;
+      font-variant-numeric: tabular-nums;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .topbar-session-timer.warning {
+      color: #fbbf24;
+    }
+
+    .topbar-session-timer.urgent {
+      color: #f87171;
+    }
+
     .topbar-busy {
       display: inline-flex;
       align-items: center;
@@ -580,9 +603,14 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
       box-shadow: none;
     }
 
-    .btn-logout:hover {
+    .btn-logout:hover:not(:disabled) {
       color: #f87171;
       background: rgba(239, 68, 68, 0.12);
+    }
+
+    .btn-logout:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
     }
   `],
 })
@@ -591,6 +619,8 @@ export class AppShellComponent {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
   readonly auth = inject(AuthService);
+  readonly sessionTimeout = inject(SessionTimeoutService);
+  readonly uiNav = inject(UiNavigationService);
 
   readonly status = inject(StatusService);
   readonly activity = inject(ActivityService);
@@ -609,6 +639,28 @@ export class AppShellComponent {
     this.shorts.overview().subscribe({
       next: (o) => this.shortsAttention.set(o.alerts.filter((a) => a.severity !== 'info').length),
       error: () => undefined,
+    });
+  }
+
+  readonly signingOut = signal(false);
+
+  signOut(): void {
+    if (this.signingOut()) return;
+    this.signingOut.set(true);
+    this.status.showNotice('Signing out...');
+    this.access.set(null);
+
+    this.auth.logout().subscribe({
+      next: () => {
+        this.signingOut.set(false);
+        this.status.showNotice('Signed out successfully.');
+        window.location.href = '/projects';
+      },
+      error: () => {
+        this.signingOut.set(false);
+        this.status.showNotice('Signed out.');
+        window.location.href = '/projects';
+      },
     });
   }
 

@@ -191,8 +191,9 @@ export class ActivityService {
         this.patch(id, this.fromJob(job));
         if (!isTerminal(job.status)) this.pollJob(id, jobId);
       },
-      // A blip while polling isn't the job failing; try again a little later.
-      error: () => this.pollJob(id, jobId),
+      // A blip while polling isn't the job failing; try again a little later. A refusal is
+      // permanent, though, and retrying it every few seconds starves the page's own requests.
+      error: (err: unknown) => this.retryUnlessRefused(id, err, () => this.pollJob(id, jobId)),
     }));
   }
 
@@ -204,7 +205,7 @@ export class ActivityService {
         this.patch(id, fields);
         if (fields.state === 'running') this.pollHandoff(id, handoffId);
       },
-      error: () => this.pollHandoff(id, handoffId),
+      error: (err: unknown) => this.retryUnlessRefused(id, err, () => this.pollHandoff(id, handoffId)),
     }));
   }
 
@@ -237,7 +238,7 @@ export class ActivityService {
         this.patch(id, this.fromUpload(upload));
         if (!isUploadFinished(upload)) this.pollUpload(id, uploadId);
       },
-      error: () => this.pollUpload(id, uploadId),
+      error: (err: unknown) => this.retryUnlessRefused(id, err, () => this.pollUpload(id, uploadId)),
     }));
   }
 
@@ -316,6 +317,26 @@ export class ActivityService {
   private trim(list: ActivityItem[]): ActivityItem[] {
     let finished = 0;
     return list.filter((i) => i.state === 'running' || ++finished <= MAX_FINISHED);
+  }
+
+  /**
+   * Retries a failed poll, except when the server refused it (signed out, not yours, gone):
+   * that row stops and says so. Work still running on the server is picked up again by
+   * {@link resumeServerWork} on the next visit.
+   */
+  private retryUnlessRefused(id: string, err: unknown, retry: () => void): void {
+    const status = err instanceof ApiFailure ? err.status : (err as { status?: number } | null)?.status;
+    if (status === 401 || status === 403 || status === 404) {
+      if (!this.find(id)) return;
+      this.stopTimer(id);
+      this.patch(id, {
+        state: 'failed',
+        detail: status === 404 ? 'No longer on the server.' : 'Not available to this account. Sign in again to follow it.',
+        finishedAt: new Date(),
+      });
+      return;
+    }
+    retry();
   }
 
   private schedule(id: string, work: () => void): void {

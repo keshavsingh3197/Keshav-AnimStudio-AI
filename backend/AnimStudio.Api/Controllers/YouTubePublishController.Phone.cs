@@ -2,6 +2,7 @@ using AnimStudio.Api.Common;
 using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Publishing;
 using AnimStudio.Domain.Jobs;
+using AnimStudio.Domain.Planning;
 using AnimStudio.Domain.Publishing;
 using AnimStudio.Infrastructure.Publishing;
 using Microsoft.AspNetCore.Mvc;
@@ -49,6 +50,12 @@ public sealed partial class YouTubePublishController
     public async Task<ActionResult<ApiResponse<YouTubeConnectStartResponse>>> StartDriveConnect(
         [FromServices] GoogleDriveConnectionStore drive, [FromBody] DriveConnectStartRequest? request, CancellationToken ct)
     {
+        if (!currentUser.IsAuthenticated)
+        {
+            const string msg = "Connecting Google Drive is sensitive and requires an authenticated member account. Anonymous visitors cannot connect Google Drive.";
+            return StatusCode(403, ApiResponse<YouTubeConnectStartResponse>.Fail(msg, new ApiError("auth-required", msg)));
+        }
+
         if (!IsOptionalChannelId(request?.ChannelId))
             return DriveBadRequest<YouTubeConnectStartResponse>("channel-invalid", "Unknown channel.", "channelId");
         try
@@ -66,6 +73,12 @@ public sealed partial class YouTubePublishController
     public async Task<ActionResult<ApiResponse<DriveConnectCompleteResponse>>> CompleteDriveConnect(
         [FromServices] GoogleDriveConnectionStore drive, [FromBody] YouTubeConnectCompleteRequest? request, CancellationToken ct)
     {
+        if (!currentUser.IsAuthenticated)
+        {
+            const string msg = "Connecting Google Drive requires an authenticated member account.";
+            return StatusCode(403, ApiResponse<DriveConnectCompleteResponse>.Fail(msg, new ApiError("auth-required", msg)));
+        }
+
         try
         {
             var (status, returnPath) = await drive.CompleteConnectAsync(currentUser.UserId, request?.Code, request?.State, ct);
@@ -139,26 +152,34 @@ public sealed partial class YouTubePublishController
     public async Task<ActionResult<ApiResponse<PhoneHandoffStatus>>> SaveToDrive(
         string jobId, [FromBody] SaveToDriveRequest? request,
         [FromServices] GoogleDriveConnectionStore drive, [FromServices] PhoneHandoffManager handoffs,
-        [FromServices] IPhoneHandoffRepository repository, CancellationToken ct)
+        [FromServices] IPhoneHandoffRepository repository, [FromServices] IContentTopicRepository topics, CancellationToken ct)
     {
+        if (!currentUser.IsAuthenticated)
+        {
+            const string msg = "Saving renders to Google Drive requires an authenticated member account. Anonymous visitors cannot save to cloud storage.";
+            return StatusCode(403, ApiResponse<PhoneHandoffStatus>.Fail(msg, new ApiError("auth-required", msg)));
+        }
+
         var job = await LoadOwnedJobAsync(jobId, ct);
         if (!IsOptionalChannelId(request?.ChannelId)) return HandoffBadRequest("channel-invalid", "Unknown channel.", "channelId");
         if (job.Status is not (RenderJobStatus.Completed or RenderJobStatus.CompletedWithWarnings) || job.OutputStorageKey is null)
             return HandoffBadRequest("render-not-ready", "This render hasn't finished yet. Save it to Drive once it's done.", "jobId");
 
         DriveTarget target;
+        ContentTopic? topic;
         try
         {
             target = await drive.ResolveAsync(currentUser.UserId, request?.ChannelId, request?.FolderName, ct);
+            topic = await DriveCopies.ResolveTopicAsync(topics, currentUser.UserId, request?.TopicId ?? job.TopicId, ct);
         }
         catch (YouTubePublishException ex)
         {
-            return HandoffBadRequest(ex.Code, ex.Message, ex.Code == "drive-folder-invalid" ? "folderName" : "drive");
+            return HandoffBadRequest(ex.Code, ex.Message, ex.Code switch { "drive-folder-invalid" => "folderName", "topic-invalid" => "topicId", _ => "drive" });
         }
 
         var project = await projects.GetAsync(job.ProjectId, ct);
         var title = DriveLayout.TitleFor(job, project?.Name);
-        var handoff = DriveCopies.SaveOnly(currentUser.UserId, job, project?.Name, request?.ChannelId, title, target, PhoneHandoffState.Sending);
+        var handoff = DriveCopies.SaveOnly(currentUser.UserId, job, project?.Name, request?.ChannelId, title, target, PhoneHandoffState.Sending, topic);
         handoff.TotalBytes = job.OutputSizeBytes ?? 0;
         await repository.UpsertAsync(handoff, ct);
         handoffs.StartSending(handoff, job.OutputStorageKey!, job.OutputSizeBytes ?? 0);
@@ -179,6 +200,12 @@ public sealed partial class YouTubePublishController
         [FromServices] GoogleDriveConnectionStore drive, [FromServices] PhoneHandoffManager handoffs,
         [FromServices] IPhoneHandoffRepository repository, CancellationToken ct)
     {
+        if (!currentUser.IsAuthenticated)
+        {
+            const string msg = "Phone handoff via Google Drive requires an authenticated member account. Anonymous visitors cannot export to cloud storage.";
+            return StatusCode(403, ApiResponse<PhoneHandoffStatus>.Fail(msg, new ApiError("auth-required", msg)));
+        }
+
         var job = await LoadOwnedJobAsync(jobId, ct);
         var facts = Facts(job);
 
@@ -382,17 +409,31 @@ public sealed record DriveConnectStartRequest(string? ReturnPath, string? Channe
 
 /// <param name="ChannelId">Whose Drive and folder to use; null for the personal Drive's default folder.</param>
 /// <param name="FolderName">A folder for this one copy; empty uses the default.</param>
-public sealed record SaveToDriveRequest(string? ChannelId = null, string? FolderName = null);
+public sealed record SaveToDriveRequest(string? ChannelId = null, string? FolderName = null, string? TopicId = null);
 
 /// <summary>Plain copies to Drive - a saved render, or one of an auto-shorts batch.</summary>
 public static class DriveCopies
 {
+    /// <summary>The Drive folder topics live under.</summary>
+    public const string TopicsFolder = "Topics";
+
+    /// <summary>The Drive folder used copies are moved to.</summary>
+    public const string ArchiveFolder = "Archive";
+
+    /// <summary>The folders a copy of a topic sits in, below the Drive's own folder.</summary>
+    public static string[] TopicPath(string topicFolder) => [TopicsFolder, topicFolder];
+
+    /// <summary>The topic's name as a Drive folder name.</summary>
+    public static string TopicFolderName(ContentTopic topic) => DriveLayout.CleanFolderName(topic.Name, "Topic");
+
     /// <summary>
-    /// A plain copy, filed under the project and the day's batch (see <see cref="DriveLayout"/>)
-    /// so a channel folder never turns into one long list of look-alike files.
+    /// A plain copy, filed under the topic when there is one, else under the project and the
+    /// day's batch (see <see cref="DriveLayout"/>) so a channel folder never turns into one
+    /// long list of look-alike files.
     /// </summary>
     public static PhoneHandoff SaveOnly(
-        string userId, RenderJob job, string? projectName, string? channelId, string title, DriveTarget target, PhoneHandoffState state) => new()
+        string userId, RenderJob job, string? projectName, string? channelId, string title, DriveTarget target, PhoneHandoffState state,
+        ContentTopic? topic = null) => new()
     {
         Id = Guid.NewGuid().ToString("N"),
         UserId = userId,
@@ -403,11 +444,27 @@ public static class DriveCopies
         SaveOnly = true,
         DriveChannelId = target.DriveChannelId,
         DriveFolderName = target.FolderName,
-        DriveSubfolders = [.. DriveLayout.FoldersFor(projectName, job)],
+        TopicId = topic?.Id,
+        Topic = topic is null ? null : TopicFolderName(topic),
+        DriveSubfolders = topic is null ? [.. DriveLayout.FoldersFor(projectName, job)] : [.. TopicPath(TopicFolderName(topic))],
         DriveFileName = PhoneHandoffManager.FileNameFor(DriveLayout.FileTitleFor(title, job)),
         State = state,
         CreatedAt = DateTime.UtcNow
     };
+
+    /// <summary>
+    /// The caller's own topic with this id; null when none is asked for. A topic that isn't the
+    /// caller's (or is gone) is refused with <c>topic-invalid</c>, never revealed.
+    /// </summary>
+    public static async Task<ContentTopic?> ResolveTopicAsync(
+        IContentTopicRepository topics, string userId, string? topicId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(topicId)) return null;
+        var topic = await topics.GetAsync(topicId, ct);
+        if (topic is null || !string.Equals(topic.UserId, userId, StringComparison.Ordinal))
+            throw new YouTubePublishException("topic-invalid", "Pick one of your topics.");
+        return topic;
+    }
 }
 
 public sealed record SendToPhoneRequest(

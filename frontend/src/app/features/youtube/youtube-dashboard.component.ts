@@ -9,6 +9,7 @@ import {
   isUploadFinished, needsAttention,
 } from '../../core/models/youtube.models';
 import { YouTubePublishService } from '../../core/services/youtube-publish.service';
+import { AuthService } from '../../core/services/auth.service';
 
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 
@@ -38,6 +39,7 @@ const NO_STATS: Record<string, YouTubeVideoStats> = {};
 export class YouTubeDashboardComponent implements OnInit, OnDestroy {
   private readonly api = inject(YouTubePublishService);
   private readonly sanitizer = inject(DomSanitizer);
+  readonly auth = inject(AuthService);
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly data = signal<YouTubeDashboard | null>(null);
@@ -152,6 +154,10 @@ export class YouTubeDashboardComponent implements OnInit, OnDestroy {
   readonly needsAttention = needsAttention;
 
   ngOnInit(): void {
+    if (this.auth.isAnonymous()) {
+      this.loading.set(false);
+      return;
+    }
     this.load(false);
     this.pollUploads();
   }

@@ -2,6 +2,7 @@ import { Component, computed, effect, inject, model, signal } from '@angular/cor
 import { Router, RouterLink } from '@angular/router';
 import { DatePipe, DecimalPipe, NgClass } from '@angular/common';
 import { ApiService } from '../core/services/api.service';
+import { AuthService } from '../core/services/auth.service';
 import { Project, BrandChannel, StorageSummary, WatermarkBody, DEFAULT_BRAND_CHANNEL, formatBytes } from '../core/models/api.models';
 import { StatusService } from '../core/services/status.service';
 import { FileDropDirective } from '../shared/file-drop.directive';
@@ -26,20 +27,37 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
               
               
               @if (storage(); as s) {
-                <a class="storage-bar" routerLink="/admin/storage" (click)="close()"
-                   [class.warn]="storagePercent() >= 85" [class.full]="storagePercent() >= 100"
-                   [title]="storageTitle()">
-                  @if (s.isMeasurable) {
-                    <div class="storage-track">
-                      <div class="storage-fill" [style.width.%]="Math.min(100, storagePercent())"></div>
-                    </div>
-                    <span class="storage-text">
-                      {{ bytes(s.usedBytes) }}@if (s.capacityBytes) { / {{ bytes(s.capacityBytes) }} }
-                    </span>
-                  } @else {
-                    <span class="storage-text">{{ s.provider }} storage</span>
-                  }
-                </a>
+                @if (auth.isAdmin()) {
+                  <a class="storage-bar" routerLink="/admin/storage" (click)="close()"
+                     [class.warn]="storagePercent() >= 85" [class.full]="storagePercent() >= 100"
+                     [title]="storageTitle()">
+                    @if (s.isMeasurable) {
+                      <div class="storage-track">
+                        <div class="storage-fill" [style.width.%]="Math.min(100, storagePercent())"></div>
+                      </div>
+                      <span class="storage-text">
+                        {{ bytes(s.usedBytes) }}@if (s.capacityBytes) { / {{ bytes(s.capacityBytes) }} }
+                      </span>
+                    } @else {
+                      <span class="storage-text">{{ s.provider }} storage</span>
+                    }
+                  </a>
+                } @else {
+                  <div class="storage-bar"
+                     [class.warn]="storagePercent() >= 85" [class.full]="storagePercent() >= 100"
+                     [title]="storageTitle()">
+                    @if (s.isMeasurable) {
+                      <div class="storage-track">
+                        <div class="storage-fill" [style.width.%]="Math.min(100, storagePercent())"></div>
+                      </div>
+                      <span class="storage-text">
+                        {{ bytes(s.usedBytes) }}@if (s.capacityBytes) { / {{ bytes(s.capacityBytes) }} }
+                      </span>
+                    } @else {
+                      <span class="storage-text">{{ s.provider }} storage</span>
+                    }
+                  </div>
+                }
               }
               <button class="icon close-btn" type="button" (click)="close()">&times;</button>
             </div>
@@ -115,6 +133,9 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
                       <div class="p-title">{{ p.name }}</div>
                       <div class="p-meta">
                         {{ p.width }}&times;{{ p.height }} &bull; {{ p.fps }}fps
+                        @if (p.subProjectCount) {
+                          &bull; {{ p.subProjectCount }} sub-project{{ p.subProjectCount > 1 ? 's' : '' }}
+                        }
                       </div>
                       <div class="p-time">Edited {{ p.updatedAt | date:'mediumDate' }}</div>
                     </div>
@@ -171,41 +192,43 @@ import { ChannelPickerComponent } from '../shared/channel-picker.component';
                     </div>
                   </div>
 
-                  <div class="form-group">
-                    <label>Channel &amp; watermark</label>
-                    <!-- Chips for a handful of channels; past that, a searchable picker. -->
-                    @if (channels().length <= 6) {
-                      <div class="channel-chips">
-                        @for (c of channels(); track c.id) {
-                          <button type="button" class="channel-chip" [class.active]="selectedChannelId() === c.id"
-                                  (click)="selectedChannelId.set(c.id)">
-                            {{ c.name }}
-                            <small>{{ watermarkSummary(c) }}</small>
-                          </button>
-                        }
+                  @if (channels().length > 1) {
+                    <div class="form-group">
+                      <label>Channel &amp; watermark</label>
+                      <!-- Chips for a handful of channels; past that, a searchable picker. -->
+                      @if (channels().length <= 6) {
+                        <div class="channel-chips">
+                          @for (c of channels(); track c.id) {
+                            <button type="button" class="channel-chip" [class.active]="selectedChannelId() === c.id"
+                                    (click)="selectedChannelId.set(c.id)">
+                              {{ c.name }}
+                              <small>{{ watermarkSummary(c) }}</small>
+                            </button>
+                          }
+                        </div>
+                      } @else {
+                        <app-channel-picker [channels]="channels()" [selectedId]="selectedChannelId()"
+                                            (selectedIdChange)="selectedChannelId.set($event)" />
+                      }
+                      <div class="mark-mode">
+                        <button type="button" [class.active]="!noWatermark()" (click)="noWatermark.set(false)">Channel watermark</button>
+                        <button type="button" [class.active]="noWatermark()" (click)="noWatermark.set(true)">No watermark</button>
                       </div>
-                    } @else {
-                      <app-channel-picker [channels]="channels()" [selectedId]="selectedChannelId()"
-                                          (selectedIdChange)="selectedChannelId.set($event)" />
-                    }
-                    <div class="mark-mode">
-                      <button type="button" [class.active]="!noWatermark()" (click)="noWatermark.set(false)">Channel watermark</button>
-                      <button type="button" [class.active]="noWatermark()" (click)="noWatermark.set(true)">No watermark</button>
+                      <div class="mark-preview">
+                        <app-watermark-preview
+                          [watermark]="previewWatermark()"
+                          [width]="selectedPreset()?.width ?? 1920"
+                          [height]="selectedPreset()?.height ?? 1080"
+                          [logoUrl]="previewLogoUrl()"
+                          [boxHeight]="128" />
+                        <p class="mark-hint">
+                          Exactly where the export draws it. The end card comes from the same channel;
+                          both can be changed per project later@if (auth.isAdmin()) {, or for every project in
+                          <a routerLink="/admin/branding/watermark" (click)="close()">Settings › Watermark</a>}.
+                        </p>
+                      </div>
                     </div>
-                    <div class="mark-preview">
-                      <app-watermark-preview
-                        [watermark]="previewWatermark()"
-                        [width]="selectedPreset()?.width ?? 1920"
-                        [height]="selectedPreset()?.height ?? 1080"
-                        [logoUrl]="previewLogoUrl()"
-                        [boxHeight]="128" />
-                      <p class="mark-hint">
-                        Exactly where the export draws it. The end card comes from the same channel;
-                        both can be changed per project later, or for every project in
-                        <a routerLink="/admin/branding/watermark" (click)="close()">Settings › Watermark</a>.
-                      </p>
-                    </div>
-                  </div>
+                  }
 
                 } @else {
                   <div class="templates-grid">
@@ -824,6 +847,7 @@ export class ProjectHubModalComponent {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
   private readonly status = inject(StatusService);
+  readonly auth = inject(AuthService);
 
   readonly projects = signal<Project[]>([]);
   
@@ -880,12 +904,12 @@ export class ProjectHubModalComponent {
   readonly selectedPreset = signal<any>(null);
 
   readonly filteredProjects = computed(() => {
-    let list = this.projects();
+    let list = this.projects().filter(p => !p.parentProjectId);
     
     // Search
     const q = this.searchQuery().toLowerCase();
     if (q) {
-      list = list.filter(p => p.name.toLowerCase().includes(q));
+      list = list.filter(p => p.name.toLowerCase().includes(q) || this.projects().some(sub => sub.parentProjectId === p.id && sub.name.toLowerCase().includes(q)));
     }
     
     // Tags

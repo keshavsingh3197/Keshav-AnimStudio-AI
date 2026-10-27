@@ -160,6 +160,30 @@
 
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; margin-bottom: 1.25rem;">
       <div class="form-group">
+        @if (store.project()?.parentProjectId) {
+          <div class="subproject-banner" style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 10px; padding: 1.1rem; margin-bottom: 1.25rem; grid-column: 1 / -1;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <span style="font-weight: 600; font-size: 0.95rem; color: #a5b4fc;">📁 Sub-project</span>
+                <span style="font-size: 0.8rem; color: #94a3b8;">This production belongs to a project collection</span>
+              </div>
+              <a class="btn-link" [routerLink]="['/projects', store.project()?.parentProjectId, 'settings']" style="font-size: 0.85rem; color: #818cf8; text-decoration: none; font-weight: 500;">
+                View Parent Project &rarr;
+              </a>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="checkbox-label" style="display: flex; align-items: flex-start; gap: 0.6rem; cursor: pointer;">
+                <input type="checkbox" [(ngModel)]="form.useSharedAssets" style="margin-top: 0.25rem;" />
+                <div>
+                  <span style="font-weight: 500; font-size: 0.88rem; color: #f1f5f9;">Use project's shared assets</span>
+                  <p style="margin: 0.2rem 0 0; font-size: 0.8rem; color: #94a3b8;">
+                    When enabled, this sub-project can view and use all assets from the parent project and sibling sub-projects. Your uploads are always shared with the rest of the project family.
+                  </p>
+                </div>
+              </label>
+            </div>
+          </div>
+        }
         <label class="form-label" for="project-name">Project Title <span style="color: #f87171;">*</span></label>
         <input class="form-input" id="project-name" type="text" [(ngModel)]="form.name" placeholder="Enter project name..." />
       </div>

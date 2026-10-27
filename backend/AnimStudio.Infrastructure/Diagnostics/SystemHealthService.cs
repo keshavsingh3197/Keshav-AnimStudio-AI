@@ -121,12 +121,12 @@ public sealed class SystemHealthService(
     {
         var options = ai.CurrentValue.Providers.TryGetValue(providerId, out var found) ? found : null;
 
-        if (options is null || string.IsNullOrWhiteSpace(options.ExecutablePath))
+        if (options is null || !options.Enabled || string.IsNullOrWhiteSpace(options.ExecutablePath))
         {
             return new HealthProbe(providerId, displayName, HealthState.Missing,
-                "No executable configured.",
-                $"Optional. Set Ai:Providers:{providerId}:ExecutablePath and "
-                + $"Ai:Providers:{providerId}:{folderSetting} to use it.");
+                options?.Enabled == false ? "Switched off in configuration." : "No executable configured.",
+                $"Optional. Set Ai:Providers:{providerId}:Enabled to true, and configure ExecutablePath and "
+                + $"{folderSetting} to use it.");
         }
 
         var probe = await ProbeExecutableAsync(
@@ -321,11 +321,30 @@ public sealed class SystemHealthService(
             return new HealthProbe(key, displayName, HealthState.Failed,
                 "Did not respond in time.", advice, required);
         }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            if (required)
+            {
+                logger.LogWarning("Health probe for required tool {Tool} ({Executable}) could not start: executable not found.", key, executable);
+            }
+            else
+            {
+                logger.LogDebug("Health probe for optional tool {Tool} skipped: executable not found.", key);
+            }
+
+            return new HealthProbe(key, displayName, HealthState.Missing,
+                "Not installed, or not on this process's PATH.", advice, required);
+        }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // The exception text names the path it tried to run, so it goes to the log and
-            // not to the response.
-            logger.LogInformation(ex, "Health probe for {Tool} could not start it.", key);
+            if (required)
+            {
+                logger.LogWarning(ex, "Health probe for required tool {Tool} could not start it.", key);
+            }
+            else
+            {
+                logger.LogDebug(ex, "Health probe for optional tool {Tool} could not start it.", key);
+            }
 
             return new HealthProbe(key, displayName, HealthState.Missing,
                 "Not installed, or not on this process's PATH.", advice, required);

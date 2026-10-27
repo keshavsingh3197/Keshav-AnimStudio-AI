@@ -65,6 +65,8 @@ public sealed class YtDlpCaptionDownloader(
                 "--restrict-filenames",
                 "--no-part",
                 "--no-continue",
+                "--geo-bypass",
+                "--extractor-args", "youtube:player_client=ios,android,web",
                 "--print-to-file", "%(id)s\t%(channel_id)s\t%(title)s", "meta.txt",
                 "-o", stem,
                 "--",

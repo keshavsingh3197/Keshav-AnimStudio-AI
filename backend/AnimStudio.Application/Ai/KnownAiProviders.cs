@@ -110,7 +110,7 @@ public static class KnownAiProviders
         new(Gemini, AiCapability.Text, AiProviderFamily.OpenAiCompatibleText,
             "Google Gemini",
             "https://generativelanguage.googleapis.com/v1beta/openai",
-            "gemini-2.5-flash",
+            "gemini-3.8-flash",
             RunsLocally: false,
             "Free tier from Google AI Studio, no card needed. The strongest free choice for " +
             "Hindi and other Indian languages, so it suits YouTube titles and descriptions. " +
@@ -120,8 +120,11 @@ public static class KnownAiProviders
             DefaultDailyRequestLimit: 200,
             Models:
             [
-                new("gemini-2.5-flash", "2.5 Flash - best quality on the free tier"),
-                new("gemini-2.5-flash-lite", "2.5 Flash-Lite - faster, larger free allowance")
+                new("gemini-3.8-flash", "3.8 Flash - latest quality default"),
+                new("gemini-3.5-flash-lite", "3.5 Flash-Lite - faster, larger free allowance"),
+                new("gemini-flash-latest", "Flash Latest - auto-tracks current Flash release"),
+                new("gemini-2.5-flash", "2.5 Flash (legacy)"),
+                new("gemini-2.5-flash-lite", "2.5 Flash-Lite (legacy)")
             ]),
 
 

@@ -217,6 +217,7 @@ public static class DependencyInjection
         services.AddScoped<SceneEditingService>();
         services.AddScoped<AssetLibraryService>();
         services.AddScoped<AssetSearchService>();
+        services.AddScoped<AssetScopeService>();
 
         // --- ai
         // Singleton because the registry owns the per-provider circuit state, which has to

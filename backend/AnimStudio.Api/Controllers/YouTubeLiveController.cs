@@ -193,6 +193,12 @@ public sealed class YouTubeLiveController(
     public async Task<ActionResult<ApiResponse<YouTubeLiveBroadcastResponse>>> Create(
         [FromBody] YouTubeLiveCreateRequest? request, CancellationToken ct)
     {
+        if (!currentUser.IsAuthenticated)
+        {
+            const string msg = "Creating YouTube live broadcasts is sensitive and requires an authenticated member account. Anonymous visitors cannot create live broadcasts.";
+            return StatusCode(403, ApiResponse<YouTubeLiveBroadcastResponse>.Fail(msg, new ApiError("auth-required", msg)));
+        }
+
         if (request is null || !YouTubePublishValidator.IsYouTubeChannelId(request.ChannelId))
             return BadRequest(ApiResponse<YouTubeLiveBroadcastResponse>.Fail("Choose a channel to go live on.",
                 new ApiError("channel-missing", "Choose a channel to go live on.", Field: "channelId")));
@@ -262,6 +268,7 @@ public sealed class YouTubeLiveController(
     /// <summary>The publishing defaults of the brand channel that publishes to this YouTube channel, if any.</summary>
     private async Task<ChannelPublishSettings?> DefaultsForAsync(string youTubeChannelId, CancellationToken ct)
     {
+        if (!currentUser.IsAdmin) return null;
         var settings = await settingsRepo.GetAsync(ct);
         if (settings is null) return null;
         if (settings.DefaultPublishing?.YouTubeChannelId == youTubeChannelId) return settings.DefaultPublishing;

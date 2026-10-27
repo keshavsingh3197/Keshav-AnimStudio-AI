@@ -64,6 +64,13 @@ public sealed class ProjectSettings
     /// </summary>
     public double? DefaultImageDurationSeconds { get; set; }
 
+    /// <summary>
+    /// Sub-projects only. True (the default): this sub-project sees every asset in its
+    /// project family - the parent's and every sibling's. False: it sees only its own
+    /// uploads. Either way its own uploads stay visible to the rest of the family.
+    /// </summary>
+    public bool UseSharedAssets { get; set; } = true;
+
     public Canvas ToCanvas() => new(Width, Height, new FrameRate(FrameRateNum, FrameRateDen));
 }
 
@@ -75,7 +82,15 @@ public sealed class Project
     public string? Description { get; set; }
     public ProjectStatus Status { get; set; } = ProjectStatus.Draft;
     public ProjectSettings Settings { get; set; } = new();
-    
+
+    /// <summary>
+    /// The project this one is a sub-project (collection) of. Null for a top-level project.
+    /// Only one level deep: a sub-project never has sub-projects of its own.
+    /// </summary>
+    public string? ParentProjectId { get; set; }
+
+    public bool IsSubProject => !string.IsNullOrEmpty(ParentProjectId);
+
     // New dynamic fields
     public bool IsPinned { get; set; }
     public string? CustomThumbnail { get; set; }

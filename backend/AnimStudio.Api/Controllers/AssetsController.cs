@@ -1,3 +1,4 @@
+using AnimStudio.Api.Security;
 using System.ComponentModel.DataAnnotations;
 using AnimStudio.Api.Common;
 using AnimStudio.Api.Contracts;
@@ -28,6 +29,7 @@ public sealed class AssetsController(
     IOptions<IngestOptions> ingestOptions,
     ICurrentUser currentUser,
     AppDataPaths dataPaths,
+    AssetScopeService scope,
     TimeProvider clock) : ControllerBase
 {
     /// <summary>
@@ -62,7 +64,7 @@ public sealed class AssetsController(
     {
         await EnsureOwnedAsync(projectId, ct);
 
-        var list = await assets.ListByProjectAsync(projectId, ct);
+        var list = await scope.ListVisibleAssetsAsync(projectId, ct);
         _ = Task.Run(() => PrewarmThumbnails(list, dataPaths));
 
         return Ok(ApiResponse<IReadOnlyList<AssetResponse>>.Ok(
@@ -177,6 +179,7 @@ public sealed class AssetsController(
     /// for thumbnails and straight-through audio preview.
     /// </para>
     /// </summary>
+    [AllowMediaTicket]
     [HttpGet("api/assets/{id}/content")]
     [HttpHead("api/assets/{id}/content")]
     public async Task<IActionResult> Content(string id, CancellationToken ct)
@@ -212,7 +215,7 @@ public sealed class AssetsController(
             Response.Headers.AccessControlAllowMethods = "GET, HEAD, OPTIONS";
             Response.Headers.AccessControlAllowHeaders = "*";
             Response.Headers.XContentTypeOptions = "nosniff";
-            Response.Headers.CacheControl = "public, max-age=86400";
+            Response.Headers.CacheControl = "private, max-age=86400";
             return File(stream, meta.MimeType, enableRangeProcessing: stream.CanSeek);
         }
         catch (OperationCanceledException)
@@ -247,23 +250,44 @@ public sealed class AssetsController(
                 var videoPath = paths.ObjectPath(a.StorageKey);
                 if (videoPath is null || !System.IO.File.Exists(videoPath)) continue;
 
+                var tempThumbPath = Path.Combine(thumbDir, $"{a.Id}.{Guid.NewGuid():N}.jpg");
                 try
                 {
                     var psi = new System.Diagnostics.ProcessStartInfo
                     {
                         FileName = "ffmpeg",
-                        Arguments = $"-ss 00:00:00.100 -i \"{videoPath}\" -vframes 1 -vf \"scale=320:-1\" -q:v 4 \"{thumbPath}\" -y",
+                        Arguments = $"-ss 00:00:00.100 -i \"{videoPath}\" -vframes 1 -vf \"scale=320:-1\" -q:v 4 \"{tempThumbPath}\" -y",
                         RedirectStandardOutput = true,
                         RedirectStandardError = true,
                         UseShellExecute = false,
                         CreateNoWindow = true
                     };
                     using var proc = System.Diagnostics.Process.Start(psi);
-                    proc?.WaitForExit(6000);
+                    if (proc is null) continue;
+
+                    if (proc.WaitForExit(6000) &&
+                        proc.ExitCode == 0 &&
+                        System.IO.File.Exists(tempThumbPath) &&
+                        new FileInfo(tempThumbPath).Length > 0)
+                    {
+                        System.IO.File.Move(tempThumbPath, thumbPath, overwrite: true);
+                    }
                 }
                 catch
                 {
                     // Ignore single extraction failure during background prewarm
+                }
+                finally
+                {
+                    try
+                    {
+                        if (System.IO.File.Exists(tempThumbPath))
+                            System.IO.File.Delete(tempThumbPath);
+                    }
+                    catch (IOException)
+                    {
+                        // A timed-out ffmpeg process may still have the temporary file open.
+                    }
                 }
             }
         }
@@ -277,6 +301,7 @@ public sealed class AssetsController(
     /// Serves a lightweight image thumbnail for an asset (e.g., 320px JPEG for videos, or direct image stream).
     /// Prevents browser connection saturation when browsing large media libraries or timeline filmstrips.
     /// </summary>
+    [AllowMediaTicket]
     [HttpGet("api/assets/{id}/thumbnail")]
     [HttpHead("api/assets/{id}/thumbnail")]
     public async Task<IActionResult> Thumbnail(string id, CancellationToken ct)
@@ -312,7 +337,7 @@ public sealed class AssetsController(
 
             if (meta.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
             {
-                Response.Headers.CacheControl = "public, max-age=604800";
+                Response.Headers.CacheControl = "private, max-age=604800";
                 var imgStream = await store.OpenAsync(meta.StorageKey, ct);
                 if (imgStream is null) return NotFound();
                 return File(imgStream, meta.MimeType);
@@ -320,7 +345,7 @@ public sealed class AssetsController(
 
             if (meta.MimeType.StartsWith("audio/", StringComparison.OrdinalIgnoreCase))
             {
-                Response.Headers.CacheControl = "public, max-age=604800";
+                Response.Headers.CacheControl = "private, max-age=604800";
                 var audioSvg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"320\" height=\"180\" viewBox=\"0 0 320 180\"><rect width=\"100%\" height=\"100%\" fill=\"#1e293b\"/><path d=\"M30 90 Q65 30 100 90 T170 90 T240 90 T300 90\" fill=\"none\" stroke=\"#38bdf8\" stroke-width=\"4\" stroke-linecap=\"round\"/><text x=\"160\" y=\"150\" font-family=\"sans-serif\" font-size=\"14\" font-weight=\"bold\" fill=\"#94a3b8\" text-anchor=\"middle\">🎵 Audio Track</text></svg>";
                 return Content(audioSvg, "image/svg+xml");
             }
@@ -330,30 +355,32 @@ public sealed class AssetsController(
                 Directory.CreateDirectory(ThumbDir);
                 var thumbPath = Path.Combine(ThumbDir, $"{id}.jpg");
 
-                if (System.IO.File.Exists(thumbPath))
+                if (IsThumbnailReady(thumbPath))
                 {
-                    Response.Headers.CacheControl = "public, max-age=604800";
+                    Response.Headers.CacheControl = "private, max-age=604800";
                     return PhysicalFile(thumbPath, "image/jpeg");
                 }
+                DeleteEmptyThumbnail(thumbPath);
 
                 var videoPath = dataPaths.ObjectPath(meta.StorageKey);
 
                 if (videoPath is not null && System.IO.File.Exists(videoPath))
                 {
                     await ThumbLock.WaitAsync(ct);
+                    var tempThumbPath = Path.Combine(ThumbDir, $"{id}.{Guid.NewGuid():N}.jpg");
                     try
                     {
-                        if (System.IO.File.Exists(thumbPath))
+                        if (IsThumbnailReady(thumbPath))
                         {
-                            Response.Headers.CacheControl = "public, max-age=604800";
+                            Response.Headers.CacheControl = "private, max-age=604800";
                             return PhysicalFile(thumbPath, "image/jpeg");
                         }
-
+                        DeleteEmptyThumbnail(thumbPath);
                         using var linkedCts = new CancellationTokenSource(TimeSpan.FromSeconds(12));
                         var psi = new System.Diagnostics.ProcessStartInfo
                         {
                             FileName = "ffmpeg",
-                            Arguments = $"-ss 00:00:00.100 -i \"{videoPath}\" -vframes 1 -vf \"scale=320:-1\" -q:v 4 \"{thumbPath}\" -y",
+                            Arguments = $"-ss 00:00:00.100 -i \"{videoPath}\" -vframes 1 -vf \"scale=320:-1\" -q:v 4 \"{tempThumbPath}\" -y",
                             RedirectStandardOutput = true,
                             RedirectStandardError = true,
                             UseShellExecute = false,
@@ -363,9 +390,12 @@ public sealed class AssetsController(
                         if (proc != null)
                         {
                             await proc.WaitForExitAsync(linkedCts.Token);
-                            if (System.IO.File.Exists(thumbPath))
+                            if (proc.ExitCode == 0 &&
+                                System.IO.File.Exists(tempThumbPath) &&
+                                new FileInfo(tempThumbPath).Length > 0)
                             {
-                                Response.Headers.CacheControl = "public, max-age=604800";
+                                System.IO.File.Move(tempThumbPath, thumbPath, overwrite: true);
+                                Response.Headers.CacheControl = "private, max-age=604800";
                                 return PhysicalFile(thumbPath, "image/jpeg");
                             }
                         }
@@ -376,6 +406,15 @@ public sealed class AssetsController(
                     }
                     finally
                     {
+                        try
+                        {
+                            if (System.IO.File.Exists(tempThumbPath))
+                                System.IO.File.Delete(tempThumbPath);
+                        }
+                        catch (IOException)
+                        {
+                            // A timed-out ffmpeg process may still have the temporary file open.
+                        }
                         ThumbLock.Release();
                     }
                 }
@@ -543,6 +582,8 @@ public sealed class AssetsController(
 
     private async Task EnsureOwnedAsync(string projectId, CancellationToken ct)
     {
+        if (currentUser.IsAdmin) return;
+
         if (string.Equals(projectId, "global", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(projectId, "system", StringComparison.OrdinalIgnoreCase))
         {
@@ -550,6 +591,9 @@ public sealed class AssetsController(
         }
 
         var project = await projects.GetAsync(projectId, ct) ?? throw new KeyNotFoundException();
+
+        if (string.IsNullOrEmpty(project.UserId) || string.IsNullOrEmpty(currentUser.UserId))
+            return;
 
         if (!string.Equals(project.UserId, currentUser.UserId, StringComparison.Ordinal))
             throw new UnauthorizedAccessException();
@@ -559,6 +603,15 @@ public sealed class AssetsController(
         new(@"^[A-Za-z0-9_-]{1,128}$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     private static bool IsSafeId(string? id) => id is not null && SafeIdPattern.IsMatch(id);
+
+    private static bool IsThumbnailReady(string path) =>
+        System.IO.File.Exists(path) && new FileInfo(path).Length > 0;
+
+    private static void DeleteEmptyThumbnail(string path)
+    {
+        if (System.IO.File.Exists(path) && new FileInfo(path).Length == 0)
+            System.IO.File.Delete(path);
+    }
 
     /// <summary>True for "no folder", or for a folder that belongs to this project.</summary>
     private async Task<bool> IsFolderOfProjectAsync(string? folderId, string projectId, CancellationToken ct)
