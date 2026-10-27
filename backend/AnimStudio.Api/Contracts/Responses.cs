@@ -301,6 +301,7 @@ public sealed record ClipStudioResponse(
     bool LogoWatermarkAvailable,
     bool TransitionsAvailable,
     bool BlurredBackdropAvailable,
+    int MaxAutoShortsCount,
     string? StudioDraftJson = null);
 
 /// <summary>

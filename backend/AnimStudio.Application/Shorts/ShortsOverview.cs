@@ -11,6 +11,9 @@ public sealed class ShortsOptions
     /// <summary>Shorts the user means to make a week. 0 turns the reminder off.</summary>
     public int WeeklyGoal { get; set; }
 
+    /// <summary>Maximum shorts in one Auto Shorts batch.</summary>
+    public int MaxBatchCount { get; set; } = 20;
+
     /// <summary>Warn when a project that makes auto shorts has fewer unused clips and pictures than this.</summary>
     public int LowStockThreshold { get; set; } = 5;
 

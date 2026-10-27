@@ -4,6 +4,7 @@ using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Abstractions.Rendering;
 using AnimStudio.Application.Clips;
 using AnimStudio.Application.Security;
+using AnimStudio.Application.Shorts;
 using AnimStudio.Domain.Assets;
 using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Publishing;
@@ -32,7 +33,8 @@ public sealed class ClipsController(
     IRenderCapabilities capabilities,
     IOptions<RenderOptions> renderOptions,
     AnimStudio.Application.Assets.AssetScopeService scope,
-    ICurrentUser currentUser) : ControllerBase
+    ICurrentUser currentUser,
+    IOptionsMonitor<ShortsOptions> shortsOptions) : ControllerBase
 {
     /// <summary>
     /// Everything the clip screen needs to draw itself: the clips, what may be used as a
@@ -84,6 +86,7 @@ public sealed class ClipsController(
             capabilities.IsAvailable,
             capabilities.Supports(RenderFeature.CrossFadeTransitions),
             capabilities.Supports(RenderFeature.BlurBackdrop),
+            Math.Clamp(shortsOptions.CurrentValue.MaxBatchCount, 1, AutoShortPlanner.MaxCount),
             project?.StudioDraftJson)));
     }
 
@@ -288,6 +291,13 @@ public sealed class ClipsController(
         [FromServices] GoogleDriveConnectionStore drive, [FromServices] IPhoneHandoffRepository handoffs,
         CancellationToken ct)
     {
+        var maxCount = Math.Clamp(shortsOptions.CurrentValue.MaxBatchCount, 1, AutoShortPlanner.MaxCount);
+        if (request.Count > maxCount)
+        {
+            var message = $"A batch can contain at most {maxCount} shorts.";
+            return BadRequest(ApiResponse<AutoShortsResponse>.Fail(message, new ApiError("shorts-limit", message, Field: "count")));
+        }
+
         // The Drive is checked before anything renders, so a batch never finishes with
         // nowhere to go. The copies themselves start as each short finishes, on the server -
         // closing the studio doesn't stop them.
@@ -304,7 +314,7 @@ public sealed class ClipsController(
             }
         }
 
-        var queued = await clips.QueueAutoShortsAsync(projectId, ToCommand(request), ct);
+        var queued = await clips.QueueAutoShortsAsync(projectId, ToCommand(request, maxCount), ct);
 
         if (target is not null)
         {
@@ -329,7 +339,14 @@ public sealed class ClipsController(
     public async Task<ActionResult<ApiResponse<AutoShortsPreviewResponse>>> PreviewAutoShorts(
         string projectId, [FromBody] AutoShortsRequest request, CancellationToken ct)
     {
-        var plan = await clips.PreviewAutoShortsAsync(projectId, ToCommand(request), ct);
+        var maxCount = Math.Clamp(shortsOptions.CurrentValue.MaxBatchCount, 1, AutoShortPlanner.MaxCount);
+        if (request.Count > maxCount)
+        {
+            var message = $"A batch can contain at most {maxCount} shorts.";
+            return BadRequest(ApiResponse<AutoShortsPreviewResponse>.Fail(message, new ApiError("shorts-limit", message, Field: "count")));
+        }
+
+        var plan = await clips.PreviewAutoShortsAsync(projectId, ToCommand(request, maxCount), ct);
         // A shot is a repeat when its file already played earlier in the batch.
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var shorts = plan.Shorts.Select((s, k) =>
@@ -348,12 +365,13 @@ public sealed class ClipsController(
         return Ok(ApiResponse<AutoShortsPreviewResponse>.Ok(new AutoShortsPreviewResponse(shorts, plan.UnusedAssetIds)));
     }
 
-    private static AutoShortsCommand ToCommand(AutoShortsRequest request) => new()
+    private static AutoShortsCommand ToCommand(AutoShortsRequest request, int maxCount) => new()
     {
         SourceAssetIds = request.SourceAssetIds,
         Lines = request.Lines,
         MusicAssetIds = request.MusicAssetIds,
         Count = request.Count,
+        MaxShortCount = maxCount,
         TargetSeconds = request.TargetSeconds,
         Layout = request.Layout,
         ImageSeconds = request.ImageSeconds,

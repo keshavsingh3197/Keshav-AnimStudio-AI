@@ -119,12 +119,16 @@ public sealed partial class YouTubeTranscriptFetcher : IDisposable
         bool? captionsAreAuto = null;
         string? channelId = null;
 
+        var innertubeSucceeded = false;
+        var innertubeTrackCount = 0;
         // 1. Try YouTube Innertube Player API (fast, free, returns videoDetails + captionTracks)
         try
         {
             var (itTitle, itDesc, itKeywords, itAuthor, itDur, captionTracks, itChannelId) =
                 await FetchInnertubePlayerAsync(videoId, ct).ConfigureAwait(false);
             channelId = itChannelId;
+            innertubeSucceeded = !string.IsNullOrWhiteSpace(itTitle);
+            innertubeTrackCount = captionTracks.Count;
 
             if (!string.IsNullOrWhiteSpace(itTitle)) title = itTitle;
             if (!string.IsNullOrWhiteSpace(itDesc)) description = itDesc;
@@ -172,7 +176,7 @@ public sealed partial class YouTubeTranscriptFetcher : IDisposable
         }
 
         // 3. Fallback to yt-dlp if transcript is still empty and yt-dlp is installed on the machine
-        if (string.IsNullOrWhiteSpace(transcriptText) && _ytDlp is not null)
+        if (string.IsNullOrWhiteSpace(transcriptText) && (!innertubeSucceeded || innertubeTrackCount > 0) && _ytDlp is not null)
         {
             try
             {
@@ -378,7 +382,7 @@ public sealed partial class YouTubeTranscriptFetcher : IDisposable
                     hl = "hi",
                     gl = "IN",
                     clientName = "ANDROID",
-                    clientVersion = "19.09.37",
+                    clientVersion = "20.10.38",
                     androidSdkVersion = 34
                 }
             },
@@ -390,7 +394,7 @@ public sealed partial class YouTubeTranscriptFetcher : IDisposable
             Content = JsonContent.Create(body)
         };
         req.Headers.TryAddWithoutValidation("X-YouTube-Client-Name", "3");
-        req.Headers.TryAddWithoutValidation("X-YouTube-Client-Version", "19.09.37");
+        req.Headers.TryAddWithoutValidation("X-YouTube-Client-Version", "20.10.38");
 
         using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
         resp.EnsureSuccessStatusCode();

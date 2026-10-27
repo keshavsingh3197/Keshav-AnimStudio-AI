@@ -126,6 +126,12 @@ public sealed class YouTubeDashboardService(
         foreach (var channel in channels)
         {
             ct.ThrowIfCancellationRequested();
+            if (channel.NeedsReconnect)
+            {
+                channelResults[channel.ChannelId] = (channelResults.GetValueOrDefault(channel.ChannelId).Item1,
+                    "YouTube access for this channel has expired or was removed. Connect the channel again.");
+                continue;
+            }
             try
             {
                 var token = await connections.GetAccessTokenAsync(userId, channel.ChannelId, ct).ConfigureAwait(false);

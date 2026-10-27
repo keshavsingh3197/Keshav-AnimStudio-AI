@@ -660,6 +660,7 @@ export interface ClipStudio {
   logoWatermarkAvailable: boolean;
   transitionsAvailable: boolean;
   blurredBackdropAvailable: boolean;
+  maxAutoShortsCount: number;
   studioDraftJson?: string;
 }
 
@@ -1679,4 +1680,3 @@ export interface ServerLogsResponse {
   activeFile: string | null;
   entries: ServerLogEntry[];
 }
-

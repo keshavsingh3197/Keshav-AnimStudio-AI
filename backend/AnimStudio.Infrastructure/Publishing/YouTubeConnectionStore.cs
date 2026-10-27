@@ -189,6 +189,7 @@ public sealed partial class YouTubeConnectionStore(
             RevokedAt = null
         };
         await repository.UpsertAsync(saved, ct).ConfigureAwait(false);
+        AccessTokenCache.TryRemove(id, out _);
 
         logger.LogInformation("YouTube channel {ChannelId} {Action} for user {UserId}",
             channel.Id, existing is null ? "connected" : "reconnected", userId);
@@ -199,6 +200,7 @@ public sealed partial class YouTubeConnectionStore(
     public async Task<bool> DisconnectAsync(string userId, string channelId, CancellationToken ct)
     {
         var id = YouTubeChannelConnection.IdFor(userId, channelId);
+        AccessTokenCache.TryRemove(id, out _);
         var stored = await repository.GetAsync(id, ct).ConfigureAwait(false);
         if (stored is null) return false;
 
@@ -213,11 +215,25 @@ public sealed partial class YouTubeConnectionStore(
     public async Task<YouTubeChannelConnection?> GetAsync(string userId, string channelId, CancellationToken ct) =>
         await repository.GetAsync(YouTubeChannelConnection.IdFor(userId, channelId), ct).ConfigureAwait(false);
 
+    private static readonly ConcurrentDictionary<string, (string AccessToken, DateTimeOffset ExpiresAt)> AccessTokenCache =
+        new(StringComparer.Ordinal);
+
     /// <summary>A fresh access token for an upload. Marks the connection for reconnecting if Google refuses it.</summary>
     public async Task<string> GetAccessTokenAsync(string userId, string channelId, CancellationToken ct)
     {
         var stored = await GetAsync(userId, channelId, ct).ConfigureAwait(false)
             ?? throw new YouTubePublishException("youtube-channel-not-connected", "That channel isn't connected any more. Connect it again.");
+
+        if (stored.RevokedAt is not null)
+        {
+            AccessTokenCache.TryRemove(stored.Id, out _);
+            throw new YouTubePublishException("youtube-reconnect",
+                "YouTube access for this channel has expired or was removed. Connect the channel again.");
+        }
+
+        var now = clock.GetUtcNow();
+        if (AccessTokenCache.TryGetValue(stored.Id, out var cached) && cached.ExpiresAt > now)
+            return cached.AccessToken;
 
         var refreshToken = TryDecrypt(stored)
             ?? throw new YouTubePublishException("youtube-reconnect",
@@ -225,11 +241,15 @@ public sealed partial class YouTubeConnectionStore(
 
         try
         {
-            return (await oauth.RefreshAsync(refreshToken, ct).ConfigureAwait(false)).AccessToken;
+            var refreshed = await oauth.RefreshAsync(refreshToken, ct).ConfigureAwait(false);
+            var ttlSeconds = Math.Max(60, refreshed.ExpiresInSeconds - 120);
+            AccessTokenCache[stored.Id] = (refreshed.AccessToken, now.AddSeconds(ttlSeconds));
+            return refreshed.AccessToken;
         }
         catch (YouTubePublishException ex) when (ex.Code == "youtube-reconnect")
         {
-            stored.RevokedAt = clock.GetUtcNow().UtcDateTime;
+            AccessTokenCache.TryRemove(stored.Id, out _);
+            stored.RevokedAt = now.UtcDateTime;
             await repository.UpsertAsync(stored, CancellationToken.None).ConfigureAwait(false);
             throw;
         }

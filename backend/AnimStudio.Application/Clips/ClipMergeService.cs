@@ -125,6 +125,7 @@ public sealed record AutoShortsCommand
     public IReadOnlyList<string> Lines { get; init; } = [];
     public IReadOnlyList<string> MusicAssetIds { get; init; } = [];
     public int Count { get; init; } = 3;
+    public int MaxShortCount { get; init; } = AutoShortPlanner.MaxCount;
     public double TargetSeconds { get; init; } = 30;
     public AutoShortLayout Layout { get; init; } = AutoShortLayout.FitLength;
     public double ImageSeconds { get; init; } = AutoShortPlanner.DefaultImageSeconds;
@@ -856,6 +857,7 @@ public sealed class ClipMergeService(
                 Lines = command.Lines,
                 MusicAssetIds = musicIds,
                 Count = command.Count,
+                MaxShortCount = command.MaxShortCount,
                 TargetSeconds = command.TargetSeconds,
                 Layout = command.Layout,
                 ImageSeconds = command.ImageSeconds,
@@ -975,5 +977,4 @@ public sealed class ClipMergeService(
 
 
 }
-
 

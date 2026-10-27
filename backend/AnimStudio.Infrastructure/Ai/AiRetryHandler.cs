@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
 
 namespace AnimStudio.Infrastructure.Ai;
@@ -51,10 +52,10 @@ public sealed class AiRetryHandler(ILogger<AiRetryHandler> logger) : DelegatingH
                 if (attempt >= MaxAttempts || Array.IndexOf(Retryable, response.StatusCode) < 0)
                     return response;
             }
-            catch (HttpRequestException) when (attempt < MaxAttempts)
+            catch (HttpRequestException ex) when (attempt < MaxAttempts && !IsUnreachableHost(ex))
             {
-                // A transport failure never reached the provider, so it is always safe to
-                // try again.
+                // A transient transport failure never reached the provider, so it is safe to
+                // try again; a refused connection (local server not running) is not retried.
                 response = null;
             }
 
@@ -89,4 +90,13 @@ public sealed class AiRetryHandler(ILogger<AiRetryHandler> logger) : DelegatingH
 
         return total > MaxDelay ? MaxDelay : total;
     }
+
+    private static bool IsUnreachableHost(HttpRequestException ex) =>
+        ex.InnerException is SocketException
+        {
+            SocketErrorCode: SocketError.ConnectionRefused
+                or SocketError.HostNotFound
+                or SocketError.HostUnreachable
+                or SocketError.AddressNotAvailable
+        };
 }

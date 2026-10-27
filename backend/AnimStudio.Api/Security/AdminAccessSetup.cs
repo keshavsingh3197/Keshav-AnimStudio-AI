@@ -94,7 +94,7 @@ public static class AdminAccessSetup
                     },
                     OnTokenValidated = ctx =>
                     {
-                        Console.WriteLine($"[JwtBearer] Token validated for sub: {ctx.Principal?.FindFirst("sub")?.Value}");
+                        // Token validated
                         return Task.CompletedTask;
                     },
                     OnChallenge = async ctx =>

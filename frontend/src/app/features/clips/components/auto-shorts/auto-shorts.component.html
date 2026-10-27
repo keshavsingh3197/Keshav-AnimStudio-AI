@@ -192,9 +192,9 @@
                       [title]="exact() ? 'As many full shorts as your picks can fill' : 'As many as it takes to use every pick once'">Auto</button>
             }
             @for (n of counts; track n) {
-              <button type="button" class="as-chip" [class.on]="count() === n" (click)="setCount(n)">{{ n }}</button>
+              <button type="button" class="as-chip" [class.on]="count() === n" [disabled]="n > maxCount()" (click)="setCount(n)">{{ n }}</button>
             }
-            <input id="as-count" class="as-num" type="number" [min]="layout() === 'Spread' ? 0 : 1" [max]="maxCount" [ngModel]="count()" (ngModelChange)="setCount($event)" aria-label="Number of shorts" />
+            <input id="as-count" class="as-num" type="number" [min]="layout() === 'Spread' ? 0 : 1" [max]="maxCount()" [ngModel]="count()" (ngModelChange)="setCount($event)" aria-label="Number of shorts" />
           </div>
         </div>
 

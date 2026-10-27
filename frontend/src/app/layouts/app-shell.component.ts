@@ -10,6 +10,7 @@ import { ActivityService } from '../core/services/activity.service';
 import { ApiService } from '../core/services/api.service';
 import { AuthService } from '../core/services/auth.service';
 import { ShortsService } from '../core/services/shorts.service';
+import { SessionTimeoutService } from '../core/services/session-timeout.service';
 import { StatusService } from '../core/services/status.service';
 import { UiNavigationService } from '../core/services/ui-navigation.service';
 
@@ -122,6 +123,18 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
           }
           @if (auth.isAuthenticated()) {
             <div class="user-pill">
+              <span
+                class="topbar-session-timer"
+                [class.warning]="sessionTimeout.isWarning()"
+                [class.urgent]="sessionTimeout.isUrgent()"
+                [attr.aria-label]="'Automatic sign-out in ' + sessionTimeout.formattedRemaining() + ' due to inactivity'"
+                [title]="'Automatic sign-out in ' + sessionTimeout.formattedRemaining() + ' due to inactivity'"
+              >
+                <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                </svg>
+                {{ sessionTimeout.formattedRemaining() }}
+              </span>
               <span class="user-avatar" [title]="auth.user()?.email || 'User'">{{ (auth.user()?.displayName || auth.user()?.email || 'U')[0].toUpperCase() }}</span>
               <span class="user-name" [title]="auth.user()?.email || 'User'">{{ auth.user()?.displayName || auth.user()?.email }}</span>
               @if (auth.isAdmin()) {
@@ -389,6 +402,25 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
       flex-shrink: 0;
     }
 
+    .topbar-session-timer {
+      display: inline-flex;
+      align-items: center;
+      gap: .3rem;
+      color: #a7f3d0;
+      font-size: .72rem;
+      font-variant-numeric: tabular-nums;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .topbar-session-timer.warning {
+      color: #fbbf24;
+    }
+
+    .topbar-session-timer.urgent {
+      color: #f87171;
+    }
+
     .topbar-busy {
       display: inline-flex;
       align-items: center;
@@ -587,6 +619,7 @@ export class AppShellComponent {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
   readonly auth = inject(AuthService);
+  readonly sessionTimeout = inject(SessionTimeoutService);
   readonly uiNav = inject(UiNavigationService);
 
   readonly status = inject(StatusService);

@@ -71,7 +71,7 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
   {
     id: 'app-settings', group: 'System', label: 'Application settings', icon: '⚙️', route: 'settings',
     description: 'Render quality, timeouts, import limits, streaming and YouTube options - stored in the database, applied without a deploy.',
-    keywords: ['config', 'configuration', 'appsettings', 'websettings', 'refresh', 'reload', 'crf', 'preset', 'fps', 'timeout', 'limit', 'restart', 'yt-dlp', 'client id', 'redirect'],
+    keywords: ['config', 'configuration', 'appsettings', 'websettings', 'refresh', 'reload', 'crf', 'preset', 'fps', 'timeout', 'limit', 'restart', 'yt-dlp', 'client id', 'redirect', 'shorts', 'auto shorts', 'batch', 'max batch'],
   },
   {
     id: 'health', group: 'System', label: 'This machine', icon: '🖥️', route: 'health',

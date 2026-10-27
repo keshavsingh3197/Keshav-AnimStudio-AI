@@ -210,6 +210,31 @@ export class AuthService {
       }
     });
 
+    let storageSyncTimer: ReturnType<typeof setTimeout> | null = null;
+    window.addEventListener('storage', (event) => {
+      if (event.key !== ACCESS_TOKEN_KEY && event.key !== USER_KEY) return;
+      if (storageSyncTimer) clearTimeout(storageSyncTimer);
+      storageSyncTimer = setTimeout(() => {
+        storageSyncTimer = null;
+        const token = this.getStoredAccessToken();
+        const user = this.getStoredUser();
+        this.accessToken.set(token);
+        this.user.set(user);
+        this.scheduleAutoRefresh(token);
+
+        if (token && user?.isAuthenticated) {
+          this.closeAuthModal();
+          this.fetchSystemSession().subscribe({
+            next: (sess) => {
+              if (sess.isAuthenticated) {
+                this.status.showNotice(`Welcome back, ${sess.displayName || 'User'}!`);
+              }
+            },
+          });
+        }
+      }, 0);
+    });
+
     if (typeof BroadcastChannel !== 'undefined') {
       try {
         const channel = new BroadcastChannel('animstudio_auth');
@@ -376,9 +401,17 @@ export class AuthService {
           return { success: false, error: 'Unexpected sign in response.' };
         }),
         catchError((err) => {
+          if (err?.status === 423) {
+            const retry = Number(err?.error?.retryAfterSeconds ?? err?.headers?.get?.('Retry-After'));
+            const wait = Number.isFinite(retry) && retry > 0 ? ` Try again in about ${Math.ceil(retry / 60)} minute(s).` : ' Please wait a while and try again.';
+            return of({
+              success: false,
+              error: `This account is temporarily locked after too many failed sign-in attempts.${wait} You can also reset your password at id.keshavsingh.in.`,
+            });
+          }
           const message =
-            err?.error?.message ||
-            err?.error?.error ||
+            (typeof err?.error === 'string' ? undefined : err?.error?.message) ||
+            (typeof err?.error === 'string' ? undefined : err?.error?.error) ||
             err?.message ||
             'Failed to connect to authentication service.';
           return of({ success: false, error: message });
@@ -808,4 +841,3 @@ export class AuthService {
     }
   }
 }
-

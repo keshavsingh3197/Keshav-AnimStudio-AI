@@ -91,27 +91,27 @@ public abstract class HttpAiProviderBase : IAiProvider
     /// actually up is discovered by the first real call, which then opens the circuit.
     /// </para>
     /// </summary>
-    public virtual Task<AiProviderHealth> CheckHealthAsync(CancellationToken ct)
+    public virtual async Task<AiProviderHealth> CheckHealthAsync(CancellationToken ct)
     {
         var options = ProviderOptions;
 
         if (options is null)
-            return Task.FromResult(AiProviderHealth.Unhealthy("No configuration for this provider."));
+            return AiProviderHealth.Unhealthy("No configuration for this provider.");
 
         if (!options.Enabled)
-            return Task.FromResult(AiProviderHealth.Unhealthy("Disabled."));
+            return AiProviderHealth.Unhealthy("Disabled.");
 
-        if (RequiresApiKey && !_secrets.IsInstalled(Id))
-            return Task.FromResult(AiProviderHealth.Unhealthy("No API key is installed."));
+        if (RequiresApiKey && string.IsNullOrEmpty(await GetSecretAsync(ct).ConfigureAwait(false)))
+            return AiProviderHealth.Unhealthy("No API key is installed.");
 
         try
         {
             _ = _clients.Create(Id);
-            return Task.FromResult(AiProviderHealth.Healthy);
+            return AiProviderHealth.Healthy;
         }
         catch (AiEndpointException ex)
         {
-            return Task.FromResult(AiProviderHealth.Unhealthy($"Endpoint rejected: {ex.Rejection}."));
+            return AiProviderHealth.Unhealthy($"Endpoint rejected: {ex.Rejection}.");
         }
     }
 
@@ -355,6 +355,10 @@ public abstract class HttpAiProviderBase : IAiProvider
             using var document = JsonDocument.Parse(payload);
 
             var root = document.RootElement;
+            if (root.ValueKind == JsonValueKind.Array && root.GetArrayLength() > 0)
+            {
+                root = root[0];
+            }
             if (root.ValueKind != JsonValueKind.Object) return null;
 
             if (root.TryGetProperty("error", out var error) &&

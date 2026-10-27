@@ -250,23 +250,44 @@ public sealed class AssetsController(
                 var videoPath = paths.ObjectPath(a.StorageKey);
                 if (videoPath is null || !System.IO.File.Exists(videoPath)) continue;
 
+                var tempThumbPath = Path.Combine(thumbDir, $"{a.Id}.{Guid.NewGuid():N}.jpg");
                 try
                 {
                     var psi = new System.Diagnostics.ProcessStartInfo
                     {
                         FileName = "ffmpeg",
-                        Arguments = $"-ss 00:00:00.100 -i \"{videoPath}\" -vframes 1 -vf \"scale=320:-1\" -q:v 4 \"{thumbPath}\" -y",
+                        Arguments = $"-ss 00:00:00.100 -i \"{videoPath}\" -vframes 1 -vf \"scale=320:-1\" -q:v 4 \"{tempThumbPath}\" -y",
                         RedirectStandardOutput = true,
                         RedirectStandardError = true,
                         UseShellExecute = false,
                         CreateNoWindow = true
                     };
                     using var proc = System.Diagnostics.Process.Start(psi);
-                    proc?.WaitForExit(6000);
+                    if (proc is null) continue;
+
+                    if (proc.WaitForExit(6000) &&
+                        proc.ExitCode == 0 &&
+                        System.IO.File.Exists(tempThumbPath) &&
+                        new FileInfo(tempThumbPath).Length > 0)
+                    {
+                        System.IO.File.Move(tempThumbPath, thumbPath, overwrite: true);
+                    }
                 }
                 catch
                 {
                     // Ignore single extraction failure during background prewarm
+                }
+                finally
+                {
+                    try
+                    {
+                        if (System.IO.File.Exists(tempThumbPath))
+                            System.IO.File.Delete(tempThumbPath);
+                    }
+                    catch (IOException)
+                    {
+                        // A timed-out ffmpeg process may still have the temporary file open.
+                    }
                 }
             }
         }
@@ -334,30 +355,32 @@ public sealed class AssetsController(
                 Directory.CreateDirectory(ThumbDir);
                 var thumbPath = Path.Combine(ThumbDir, $"{id}.jpg");
 
-                if (System.IO.File.Exists(thumbPath))
+                if (IsThumbnailReady(thumbPath))
                 {
                     Response.Headers.CacheControl = "private, max-age=604800";
                     return PhysicalFile(thumbPath, "image/jpeg");
                 }
+                DeleteEmptyThumbnail(thumbPath);
 
                 var videoPath = dataPaths.ObjectPath(meta.StorageKey);
 
                 if (videoPath is not null && System.IO.File.Exists(videoPath))
                 {
                     await ThumbLock.WaitAsync(ct);
+                    var tempThumbPath = Path.Combine(ThumbDir, $"{id}.{Guid.NewGuid():N}.jpg");
                     try
                     {
-                        if (System.IO.File.Exists(thumbPath))
+                        if (IsThumbnailReady(thumbPath))
                         {
                             Response.Headers.CacheControl = "private, max-age=604800";
                             return PhysicalFile(thumbPath, "image/jpeg");
                         }
-
+                        DeleteEmptyThumbnail(thumbPath);
                         using var linkedCts = new CancellationTokenSource(TimeSpan.FromSeconds(12));
                         var psi = new System.Diagnostics.ProcessStartInfo
                         {
                             FileName = "ffmpeg",
-                            Arguments = $"-ss 00:00:00.100 -i \"{videoPath}\" -vframes 1 -vf \"scale=320:-1\" -q:v 4 \"{thumbPath}\" -y",
+                            Arguments = $"-ss 00:00:00.100 -i \"{videoPath}\" -vframes 1 -vf \"scale=320:-1\" -q:v 4 \"{tempThumbPath}\" -y",
                             RedirectStandardOutput = true,
                             RedirectStandardError = true,
                             UseShellExecute = false,
@@ -367,8 +390,11 @@ public sealed class AssetsController(
                         if (proc != null)
                         {
                             await proc.WaitForExitAsync(linkedCts.Token);
-                            if (System.IO.File.Exists(thumbPath))
+                            if (proc.ExitCode == 0 &&
+                                System.IO.File.Exists(tempThumbPath) &&
+                                new FileInfo(tempThumbPath).Length > 0)
                             {
+                                System.IO.File.Move(tempThumbPath, thumbPath, overwrite: true);
                                 Response.Headers.CacheControl = "private, max-age=604800";
                                 return PhysicalFile(thumbPath, "image/jpeg");
                             }
@@ -380,6 +406,15 @@ public sealed class AssetsController(
                     }
                     finally
                     {
+                        try
+                        {
+                            if (System.IO.File.Exists(tempThumbPath))
+                                System.IO.File.Delete(tempThumbPath);
+                        }
+                        catch (IOException)
+                        {
+                            // A timed-out ffmpeg process may still have the temporary file open.
+                        }
                         ThumbLock.Release();
                     }
                 }
@@ -568,6 +603,15 @@ public sealed class AssetsController(
         new(@"^[A-Za-z0-9_-]{1,128}$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     private static bool IsSafeId(string? id) => id is not null && SafeIdPattern.IsMatch(id);
+
+    private static bool IsThumbnailReady(string path) =>
+        System.IO.File.Exists(path) && new FileInfo(path).Length > 0;
+
+    private static void DeleteEmptyThumbnail(string path)
+    {
+        if (System.IO.File.Exists(path) && new FileInfo(path).Length == 0)
+            System.IO.File.Delete(path);
+    }
 
     /// <summary>True for "no folder", or for a folder that belongs to this project.</summary>
     private async Task<bool> IsFolderOfProjectAsync(string? folderId, string projectId, CancellationToken ct)

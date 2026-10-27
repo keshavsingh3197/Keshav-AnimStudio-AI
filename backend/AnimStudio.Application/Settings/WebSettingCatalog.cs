@@ -95,6 +95,7 @@ public static class WebSettingCatalog
 
         // --- Shorts page: read per request, so live.
         new("Shorts:WeeklyGoal", "Shorts", "Shorts a week", "How many shorts you mean to make each week. The Shorts page reminds you when you're behind. 0 turns the reminder off.", WebSettingType.Integer, true, 0, 500),
+        new("Shorts:MaxBatchCount", "Shorts", "Maximum shorts per batch", "The most shorts users can generate in one Auto Shorts batch. Applies immediately to planning and rendering.", WebSettingType.Integer, true, 1, 500),
         new("Shorts:LowStockThreshold", "Shorts", "Low stock warning", "Warn when a project that makes auto shorts has fewer unused clips and pictures than this.", WebSettingType.Integer, true, 1, 200),
         new("Shorts:UnpublishedReminderDays", "Shorts", "Unpublished reminder (days)", "Remind about finished shorts that haven't gone to YouTube after this many days.", WebSettingType.Integer, true, 0, 60),
 

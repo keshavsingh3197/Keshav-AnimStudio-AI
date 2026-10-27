@@ -381,9 +381,11 @@
               <button type="button" class="btn-pin-star"
                       [class.pinned]="isPinned(project.id)"
                       (click)="togglePin(project, $event)"
-                      title="{{ isPinned(project.id) ? 'Unpin project' : 'Pin project to top' }}">
-                <svg width="14" height="14" viewBox="0 0 24 24" [attr.fill]="isPinned(project.id) ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                      [attr.aria-label]="isPinned(project.id) ? 'Unpin project' : 'Pin project to top'"
+                      [attr.title]="isPinned(project.id) ? 'Unpin project' : 'Pin project to top'">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="m16 3 5 5-4 1-4 4v4l-2 2-3-7-4-3 2-2h4l4-4 2 0Z"/>
+                  <path d="m2 22 7-7"/>
                 </svg>
               </button>
             </div>
@@ -555,10 +557,24 @@
                           <span style="font-size: 0.65rem; color: #34d399; background: rgba(52,211,153,0.1); padding: 1px 4px; border-radius: 3px;" title="Shares parent asset pool">shared assets</span>
                         }
                       </div>
-                      <div style="display: flex; gap: 4px;">
-                        <button type="button" class="action-btn btn-sm" (click)="openInClips(sub.id, $event)" title="Open Video Editor" style="font-size: 0.7rem; padding: 1px 4px;">Clips</button>
-                        <button type="button" class="action-btn danger btn-sm" (click)="confirmDelete(sub.id, $event)" title="Delete sub-project" style="font-size: 0.7rem; padding: 1px 4px;">✕</button>
-                      </div>
+                      @if (confirming() === sub.id) {
+                        <div class="subproject-delete-confirm" (click)="$event.stopPropagation()">
+                          <button type="button" class="btn-confirm-delete" (click)="delete(sub.id, $event)">Delete</button>
+                          <button type="button" class="btn-cancel-delete" (click)="cancelDelete($event)">Cancel</button>
+                        </div>
+                      } @else {
+                        <div class="subproject-actions">
+                          <button type="button" class="action-btn btn-sm" (click)="openInClips(sub.id, $event)" title="Open Video Editor" style="font-size: 0.7rem; padding: 1px 4px;">Clips</button>
+                          <button type="button" class="btn-subproject-delete" (click)="confirmDelete(sub.id, $event)" title="Delete sub-project" aria-label="Delete sub-project">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                              <path d="M3 6h18"/>
+                              <path d="M8 6V4h8v2"/>
+                              <path d="m19 6-1 14H6L5 6"/>
+                              <path d="M10 11v5M14 11v5"/>
+                            </svg>
+                          </button>
+                        </div>
+                      }
                     </div>
                   }
                 </div>

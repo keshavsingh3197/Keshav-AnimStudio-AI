@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using AnimStudio.Application.Abstractions.Ai;
 using AnimStudio.Application.Ai;
@@ -59,15 +60,13 @@ public abstract class LocalProcessAiProvider(
             var providerOptions = ProviderOptions;
 
             return providerOptions is { Enabled: true } &&
-                   !string.IsNullOrWhiteSpace(providerOptions.ExecutablePath);
+                   ResolveExecutablePath(providerOptions.ExecutablePath) is not null;
         }
     }
 
     /// <summary>
     /// Reports what can be known without running anything. A configured executable that is
-    /// missing from the filesystem is the one failure worth catching before a render starts,
-    /// so it is checked - but only when the path is a path rather than a name resolved
-    /// through PATH, which cannot be probed without launching it.
+    /// missing from the filesystem or PATH is caught before a render or AI request starts.
     /// </summary>
     public virtual Task<AiProviderHealth> CheckHealthAsync(CancellationToken ct)
     {
@@ -84,10 +83,61 @@ public abstract class LocalProcessAiProvider(
         if (string.IsNullOrWhiteSpace(path))
             return Task.FromResult(AiProviderHealth.Unhealthy("No executable is configured."));
 
-        if (LooksLikeAPath(path) && !File.Exists(path))
-            return Task.FromResult(AiProviderHealth.Unhealthy("The configured executable does not exist."));
+        if (ResolveExecutablePath(path) is null)
+            return Task.FromResult(AiProviderHealth.Unhealthy($"The configured executable '{path}' is not installed or could not be found in PATH."));
 
         return Task.FromResult(AiProviderHealth.Healthy);
+    }
+
+    private static readonly ConcurrentDictionary<string, (string? Resolved, DateTimeOffset CheckedAt)> ResolvedExecutableCache =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    protected static string? ResolveExecutablePath(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var trimmed = value.Trim();
+        var now = DateTimeOffset.UtcNow;
+
+        if (ResolvedExecutableCache.TryGetValue(trimmed, out var cached) && now - cached.CheckedAt < TimeSpan.FromMinutes(1))
+            return cached.Resolved;
+
+        var resolved = ProbeExecutablePath(trimmed);
+        ResolvedExecutableCache[trimmed] = (resolved, now);
+        return resolved;
+    }
+
+    private static string? ProbeExecutablePath(string trimmed)
+    {
+        if (LooksLikeAPath(trimmed))
+            return File.Exists(trimmed) ? trimmed : null;
+
+        var pathEnv = Environment.GetEnvironmentVariable("PATH");
+        if (string.IsNullOrWhiteSpace(pathEnv)) return null;
+
+        var isWindows = OperatingSystem.IsWindows();
+        var hasExtension = Path.HasExtension(trimmed);
+        string[] suffixes = isWindows && !hasExtension ? [".exe", ""] : [""];
+
+        foreach (var dir in pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            // VS Code's copilot-shim\copilot.exe is an integrated-terminal stub that exits with 127 when standalone Copilot CLI is not installed.
+            if (dir.Contains("copilot-shim", StringComparison.OrdinalIgnoreCase)) continue;
+
+            foreach (var suffix in suffixes)
+            {
+                try
+                {
+                    var candidate = Path.Combine(dir, trimmed + suffix);
+                    if (File.Exists(candidate)) return candidate;
+                }
+                catch
+                {
+                    // Ignore malformed PATH entries.
+                }
+            }
+        }
+
+        return null;
     }
 
     private static bool LooksLikeAPath(string value) =>
@@ -102,9 +152,13 @@ public abstract class LocalProcessAiProvider(
         IReadOnlyList<string> arguments, string? standardInput, CancellationToken ct,
         string? workingDirectory = null, bool scrubAppSecrets = false)
     {
-        var executable = ExecutablePath
+        var configuredExecutable = ExecutablePath
             ?? throw new AiProviderException("not-configured",
                 $"No executable is configured for '{Id.Value}'.");
+
+        var executable = ResolveExecutablePath(configuredExecutable)
+            ?? throw new AiProviderException("executable-missing",
+                $"The program configured for '{Id.Value}' could not be found.");
 
         var startInfo = new ProcessStartInfo
         {

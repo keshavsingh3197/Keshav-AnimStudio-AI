@@ -131,7 +131,6 @@ const SOURCE_SORTS: readonly { id: SourceSort; label: string }[] = [
 const PREFS_KEY = 'animstudio.autoShorts.sources';
 type AutoShortsRequest = Omit<AutoShortsBody, 'watermark'> & { watermark: boolean };
 
-export const AUTO_SHORT_MAX_COUNT = 20;
 export const AUTO_SHORT_MIN_SECONDS = 5;
 export const AUTO_SHORT_MAX_SECONDS = 180;
 export const AUTO_SHORT_MIN_IMAGE_SECONDS = 1;
@@ -173,7 +172,7 @@ export class AutoShortsComponent {
   readonly counts = [3, 5, 10] as const;
   readonly imageChoices = [3, 5, 7, 10] as const;
   readonly clipChoices = [5, 10, 15, 30] as const;
-  readonly maxCount = AUTO_SHORT_MAX_COUNT;
+  readonly maxCount = computed(() => this.state.studio()?.maxAutoShortsCount ?? 20);
   readonly minSeconds = AUTO_SHORT_MIN_SECONDS;
   readonly maxSeconds = AUTO_SHORT_MAX_SECONDS;
   readonly minImageSeconds = AUTO_SHORT_MIN_IMAGE_SECONDS;
@@ -358,6 +357,10 @@ export class AutoShortsComponent {
     this.loadUsage();
     this.loadStyleExamples();
 
+    effect(() => {
+      if (this.count() > this.maxCount()) this.setCount(this.maxCount());
+    });
+
     // Re-plan on the server (nothing queued) whenever a setting that shapes the batch changes.
     this.previewRequests.pipe(
       debounceTime(350),
@@ -479,13 +482,13 @@ export class AutoShortsComponent {
   setLayout(l: AutoShortLayout): void {
     this.layout.set(l);
     // "Auto" only means something when picks are shared out.
-    if (l !== 'Spread' && this.count() === 0) this.count.set(3);
+    if (l !== 'Spread' && this.count() === 0) this.setCount(Math.min(3, this.maxCount()));
     if (l === 'FitLength' && this.seconds() > 90) this.seconds.set(30);
   }
 
   setCount(v: number): void {
     const min = this.layout() === 'Spread' ? 0 : 1;
-    this.count.set(Math.min(AUTO_SHORT_MAX_COUNT, Math.max(min, Math.round(Number(v) || min))));
+    this.count.set(Math.min(this.maxCount(), Math.max(min, Math.round(Number(v) || min))));
   }
 
   setSeconds(v: number): void {

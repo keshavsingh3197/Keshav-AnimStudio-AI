@@ -66,7 +66,6 @@ export class ProjectListComponent {
   /** A channel id, or 'All'. */
   channelFilter = 'All';
   selectedProjectIds = new Set<string>();
-  pinnedProjectIds = new Set<string>();
 
   // Context Menu State
   activeMenuProjectId = signal<string | null>(null);
@@ -90,13 +89,6 @@ export class ProjectListComponent {
       if (savedMode === 'grid' || savedMode === 'table') {
         this.viewMode.set(savedMode);
       }
-      const savedPins = localStorage.getItem('animstudio_pinned_projects');
-      if (savedPins) {
-        const parsed = JSON.parse(savedPins);
-        if (Array.isArray(parsed)) {
-          this.pinnedProjectIds = new Set(parsed);
-        }
-      }
     } catch {
       // Ignore storage read errors
     }
@@ -113,43 +105,31 @@ export class ProjectListComponent {
 
   togglePin(p: Project, event?: Event): void {
     if (event) event.stopPropagation();
-    const currentlyPinned = this.isPinned(p.id);
-    const nextPinned = !currentlyPinned;
-    if (nextPinned) {
-      this.pinnedProjectIds.add(p.id);
-    } else {
-      this.pinnedProjectIds.delete(p.id);
-    }
-    try {
-      localStorage.setItem('animstudio_pinned_projects', JSON.stringify([...this.pinnedProjectIds]));
-    } catch {
-      // Ignore storage write errors
-    }
+    const nextPinned = !this.isPinned(p.id);
 
     const intent = (p.distributionIntent && p.distributionIntent !== 'Social Media') ? p.distributionIntent : 'Public';
-    this.api.updateProject(p.id, {
-      name: p.name,
-      description: p.description,
-      width: p.width,
-      height: p.height,
-      fps: p.fps,
-      isPinned: nextPinned,
-      distributionIntent: intent,
-      acceptShareAlikeObligation: p.acceptShareAlikeObligation,
-      backgroundMusicAssetId: p.backgroundMusicAssetId,
-      backgroundMusicVolume: p.backgroundMusicVolume,
-      customThumbnail: p.customThumbnail,
-      brandChannelId: p.brandChannelId ?? null,
-    }).subscribe({
-      next: (updated) => {
+    this.status.run(
+      this.api.updateProject(p.id, {
+        name: p.name,
+        description: p.description,
+        width: p.width,
+        height: p.height,
+        fps: p.fps,
+        isPinned: nextPinned,
+        distributionIntent: intent,
+        acceptShareAlikeObligation: p.acceptShareAlikeObligation,
+        backgroundMusicAssetId: p.backgroundMusicAssetId,
+        backgroundMusicVolume: p.backgroundMusicVolume,
+        customThumbnail: p.customThumbnail,
+        brandChannelId: p.brandChannelId ?? null,
+      }),
+      (updated) => {
         this.projects.update(list => list.map(x => x.id === p.id ? updated : x));
-      },
-      error: () => undefined,
-    });
+      }
+    );
   }
 
   isPinned(id: string): boolean {
-    if (this.pinnedProjectIds.has(id)) return true;
     const found = this.projects().find(p => p.id === id);
     return !!found?.isPinned;
   }

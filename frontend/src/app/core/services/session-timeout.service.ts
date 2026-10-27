@@ -1,4 +1,4 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import { AuthService } from './auth.service';
 import { StatusService } from './status.service';
 
@@ -26,6 +26,7 @@ export class SessionTimeoutService {
   private lastRecordedTime = 0;
   private timerInterval: any = null;
   private isRefreshingToken = false;
+  private wasAuthenticated = false;
 
   readonly isUrgent = computed(() => this.isWarning() && this.remainingSeconds() <= 30);
 
@@ -47,6 +48,14 @@ export class SessionTimeoutService {
   });
 
   constructor() {
+    effect(() => {
+      if (this.auth.isAuthenticated()) {
+        this.wasAuthenticated = true;
+        this.resetTimer();
+      } else {
+        this.wasAuthenticated = false;
+      }
+    });
     this.initActivityListeners();
     this.startTimer();
   }
@@ -66,11 +75,10 @@ export class SessionTimeoutService {
       return;
     }
 
-    // Only auto-reset if not currently in warning mode (warning requires conscious extension)
-    if (!this.isWarning()) {
-      this.lastActivityTime = now;
-      this.remainingSeconds.set(this.timeoutMinutes() * 60);
-    }
+    this.lastActivityTime = now;
+    this.remainingSeconds.set(this.timeoutMinutes() * 60);
+    this.isWarning.set(false);
+    this.showWarningModal.set(false);
 
     // Proactively refresh token if user is actively working and token is nearing expiry
     this.checkSlidingTokenRefresh(now);
@@ -161,8 +169,17 @@ export class SessionTimeoutService {
 
   private tick(): void {
     if (!this.auth.isAuthenticated()) {
+      this.wasAuthenticated = false;
       if (this.isWarning()) this.isWarning.set(false);
       if (this.showWarningModal()) this.showWarningModal.set(false);
+      return;
+    }
+
+    // A fresh sign-in must start a full window. Otherwise inactivity accrued as a guest
+    // (the page sat open before login) would expire the new session on the first tick.
+    if (!this.wasAuthenticated) {
+      this.wasAuthenticated = true;
+      this.resetTimer();
       return;
     }
 
@@ -266,4 +283,3 @@ export class SessionTimeoutService {
     return DEFAULT_WARNING_MINUTES;
   }
 }
-

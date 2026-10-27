@@ -4,9 +4,11 @@ using System.Text.Json;
 using AnimStudio.Api.Common;
 using AnimStudio.Application.Options;
 using AnimStudio.Application.Security;
+using Microsoft.Extensions.Primitives;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
+using Microsoft.Net.Http.Headers;
 
 namespace AnimStudio.Api.Controllers;
 
@@ -433,7 +435,19 @@ public sealed class AuthController(
 
         foreach (var cookieHeader in setCookies)
         {
-            Response.Headers.Append("Set-Cookie", cookieHeader);
+            var cookie = SetCookieHeaderValue.Parse(new StringSegment(cookieHeader));
+            if (string.Equals(cookie.Name.Value, "ks_sso", StringComparison.OrdinalIgnoreCase))
+            {
+                // The IdP's cookie domain does not match the API host. Re-scope the
+                // session cookie to this host so the browser accepts it on localhost
+                // and sends it back to the API on subsequent credentialed requests.
+                cookie.Domain = null;
+                cookie.Path = "/";
+                cookie.SameSite = Microsoft.Net.Http.Headers.SameSiteMode.None;
+                cookie.Secure = true;
+            }
+
+            Response.Headers.Append(HeaderNames.SetCookie, cookie.ToString());
         }
     }
 }
