@@ -459,6 +459,7 @@ no `<` / `>`, audience required. Videos over 15 minutes need a verified channel.
 | `NETSDK1045: The current .NET SDK does not support targeting net10.0` | .NET 10 SDK missing. `dotnet --list-sdks` and install per section 2. |
 | Restore fails `401 Unauthorized` on `nuget.pkg.github.com` | No sibling checkouts *and* no `PACKAGES_READ_TOKEN`. See [private package access](#private-package-access-one-of-these-two). |
 | Startup: *"refuses to start without a connection string"* | `Mongo:ConnectionString` not set — section 4. |
+| Render logs show a SQL Server connection error | Production defaults to MongoDB. Set `Mongo__ConnectionString` in the Render dashboard to the MongoDB connection string; keep `Database__Provider=Mongo` if overriding configuration. |
 | Render request: *"Video rendering is not configured on this server."* | FFmpeg missing, too old, or not on the service's `PATH`. Set absolute `Ffmpeg:FfmpegPath` / `FfprobePath`. |
 | *"The installed renderer is 4.4; 6.0 or newer is required."* | Distro FFmpeg is too old — install a static/full build. |
 | Video renders but subtitles never appear | Build lacks libass. Check `-buildconf` for `--enable-libass`. |

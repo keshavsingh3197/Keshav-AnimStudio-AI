@@ -305,6 +305,18 @@ public class PromptLibraryTests
     }
 
     [Fact]
+    public void Video_metadata_prompt_uses_transcript_as_primary_evidence()
+    {
+        var template = BuiltInPrompts.Find(BuiltInPrompts.VideoMetadata);
+
+        Assert.NotNull(template);
+        Assert.Equal(4, template.Version);
+        Assert.Contains("strongest evidence", template.Body, StringComparison.Ordinal);
+        Assert.Contains("unverified context", template.Body, StringComparison.Ordinal);
+        Assert.Contains("invent lyrics, scripture", template.Body, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Every_built_in_template_that_promises_json_declares_a_valid_schema()
     {
         foreach (var template in BuiltInPrompts.All)
