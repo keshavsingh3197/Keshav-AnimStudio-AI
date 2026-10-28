@@ -496,6 +496,40 @@ public sealed class AdminController(
         return Ok(ApiResponse<MigrationReport>.Ok(report));
     }
 
+    /// <summary>Whether the local-only Mongo/SQL sync is available (false on a Mongo-only deployment).</summary>
+    [HttpGet("sync-drive-data/available")]
+    public ActionResult<ApiResponse<bool>> SyncDriveDataAvailable([FromServices] IServiceProvider sp) =>
+        Ok(ApiResponse<bool>.Ok(sp.GetService<DriveDataSyncService>() is not null));
+
+    /// <summary>Syncs drive folders, topics, plan items and Drive copy records between Mongo and SQL. Local only.</summary>
+    [HttpPost("sync-drive-data")]
+    public async Task<ActionResult<ApiResponse<DriveSyncReport>>> SyncDriveData(
+        [FromServices] IServiceProvider sp,
+        [FromQuery] SyncDirection direction = SyncDirection.Both,
+        CancellationToken ct = default)
+    {
+        var sync = sp.GetService<DriveDataSyncService>();
+        if (sync is null)
+        {
+            return BadRequest(ApiResponse<DriveSyncReport>.Fail(
+                "Drive data sync is for local use only: it needs Database:Provider 'SqlServer' plus a MongoDB connection."));
+        }
+
+        var report = await sync.SyncAsync(direction, ct);
+
+        await audit.RecordAsync(
+            "database.sync_drive_data",
+            direction.ToString(),
+            "Mongo/SqlServer",
+            report.Success ? report.Message : "Failed",
+            RemoteAddress(),
+            ct);
+
+        return report.Success
+            ? Ok(ApiResponse<DriveSyncReport>.Ok(report))
+            : StatusCode(500, ApiResponse<DriveSyncReport>.Fail(report.Message));
+    }
+
     // --- branding & hallmark -------------------------------------------------------------
 
     // --- brand channels: one look (watermark + end card) per YouTube channel --------------

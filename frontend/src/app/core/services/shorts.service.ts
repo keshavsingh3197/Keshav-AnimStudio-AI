@@ -7,11 +7,13 @@ import { ApiResponse } from '../models/api.models';
 import {
   LibraryBulk, LibraryPage, LibraryQuery, ShortsActive, ShortsBulkResponse, ShortsDriveCheck, ShortsOverview, YouTubeBulkPublishBody,
 } from '../models/shorts.models';
+import { MediaTicketService } from './media-ticket.service';
 
 /** The Shorts page's calls: every short across projects, and the bulk actions on them. */
 @Injectable({ providedIn: 'root' })
 export class ShortsService {
   private readonly http = inject(HttpClient);
+  private readonly media = inject(MediaTicketService);
   private readonly base = `${environment.apiUrl}/api/shorts`;
 
   /** Every short (or every render, with scope 'all'), its Drive and YouTube state, stock and alerts. */
@@ -115,5 +117,17 @@ export class ShortsService {
     return this.http.get(`${this.library}/download/${encodeURIComponent(handoffId)}`, {
       params: { markUsed, autoArchive }, responseType: 'blob',
     });
+  }
+
+  /** Direct signed inline stream URL for previewing/sampling a library item in a <video> player. */
+  streamUrl(handoffId: string): string {
+    return this.media.sign(`${this.library}/download/${encodeURIComponent(handoffId)}?inline=true&markUsed=false`);
+  }
+
+  /** Direct signed JPEG frame URL for a library item's render job. */
+  frameUrl(jobId: string, atSeconds = 1.2, width = 360): string {
+    return this.media.sign(
+      `${environment.apiUrl}/api/youtube/render-jobs/${encodeURIComponent(jobId)}/frame?at=${atSeconds}&width=${width}`,
+    );
   }
 }

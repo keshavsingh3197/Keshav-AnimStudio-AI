@@ -45,6 +45,10 @@ export interface LibraryItem {
   archived: boolean;
   drivePath: string;
   driveUrl: string | null;
+  width?: number | null;
+  height?: number | null;
+  hasLocalPreview?: boolean;
+  format?: 'short' | 'square' | 'video' | null;
 }
 
 export interface LibraryTopicCount {

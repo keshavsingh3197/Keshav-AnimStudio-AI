@@ -647,6 +647,15 @@ public sealed record ClipMergeRequest
     /// </summary>
     [MaxLength(ClipMergeSpec.MaxClips + 1)]
     public List<ClipSlotRequest>? Slots { get; init; }
+
+    /// <summary>Copy the finished export to Google Drive as soon as it has rendered.</summary>
+    public bool SaveToDrive { get; init; }
+
+    /// <summary>Whose Drive and folder: the channel's own Drive, or its folder on the personal one. Null is the personal Drive.</summary>
+    [RegularExpression("^UC[A-Za-z0-9_-]{22}$")] public string? DriveChannelId { get; init; }
+
+    /// <summary>A folder for this export; empty uses the channel's (or the Drive's) default.</summary>
+    [StringLength(100)] public string? DriveFolderName { get; init; }
 }
 
 /// <summary>

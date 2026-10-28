@@ -1087,6 +1087,14 @@ export interface AutoShortsPreview {
 
 export interface ClipMergeBody {
   exportName?: string;
+  /** The shared calendar/Drive topic this export is for. */
+  topicId?: string | null;
+  /** Copy the finished export to Google Drive as soon as it has rendered. */
+  saveToDrive?: boolean;
+  /** Whose Drive and folder; null is the personal Drive. */
+  driveChannelId?: string | null;
+  /** A folder for this export; empty uses the channel's (or the Drive's) default. */
+  driveFolderName?: string | null;
   assetIds: string[];
   fit: ClipFit;
   /** #rrggbb fill for the Contain bars; omitted is black. */
@@ -1682,3 +1690,7 @@ export interface ServerLogsResponse {
   activeFile: string | null;
   entries: ServerLogEntry[];
 }
+
+/** Result of the admin drive-data sync between MongoDB and SQL Server. */
+export interface DriveSyncResult { name: string; copied: number; updated: number; skipped: number; }
+export interface DriveSyncReport { success: boolean; message: string; details: DriveSyncResult[]; }

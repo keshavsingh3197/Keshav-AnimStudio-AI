@@ -1,11 +1,16 @@
 using System.ComponentModel.DataAnnotations;
 using AnimStudio.Api.Common;
+using AnimStudio.Api.Security;
 using AnimStudio.Application.Abstractions.Persistence;
+using AnimStudio.Application.Abstractions.Storage;
 using AnimStudio.Application.Planning;
+using AnimStudio.Application.Publishing;
 using AnimStudio.Application.Security;
+using AnimStudio.Domain.Jobs;
 using AnimStudio.Domain.Planning;
 using AnimStudio.Domain.Publishing;
 using AnimStudio.Infrastructure.Publishing;
+using AnimStudio.Infrastructure.Storage;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AnimStudio.Api.Controllers;
@@ -27,6 +32,10 @@ public sealed class ShortsLibraryController(
     IGoogleDriveConnectionRepository connections,
     IContentTopicRepository topics,
     IProjectRepository projects,
+    IRenderJobRepository jobs,
+    IObjectStore store,
+    AppDataPaths dataPaths,
+    PhoneHandoffManager handoffManager,
     ContentPlanningService planning,
     GoogleDriveConnectionStore drive,
     GoogleDriveClient driveClient,
@@ -44,8 +53,7 @@ public sealed class ShortsLibraryController(
     [HttpGet("items")]
     public async Task<ActionResult<ApiResponse<LibraryPageResponse>>> Items([FromQuery] LibraryQuery query, CancellationToken ct)
     {
-        var (copies, topicMap) = await LoadAsync(ct);
-        var names = await ProjectNamesAsync(ct);
+        var (copies, topicMap, jobMap, names) = await LoadAsync(ct);
 
         var matching = Filter(copies, query, topicMap).ToList();
         var sorted = (query.Sort switch
@@ -59,7 +67,7 @@ public sealed class ShortsLibraryController(
         var pageSize = Math.Clamp(query.PageSize, 1, MaxPageSize);
         var pages = Math.Max(1, (int)Math.Ceiling(sorted.Count / (double)pageSize));
         var page = Math.Clamp(query.Page, 1, pages);
-        var items = sorted.Skip((page - 1) * pageSize).Take(pageSize).Select(h => ToItem(h, topicMap, names)).ToList();
+        var items = sorted.Skip((page - 1) * pageSize).Take(pageSize).Select(h => ToItem(h, topicMap, names, jobMap)).ToList();
 
         var live = copies.Where(h => !h.Archived).ToList();
         var counts = new LibraryCounts(
@@ -81,7 +89,7 @@ public sealed class ShortsLibraryController(
     [HttpGet("ids")]
     public async Task<ActionResult<ApiResponse<IReadOnlyList<string>>>> Ids([FromQuery] LibraryQuery query, CancellationToken ct)
     {
-        var (copies, topicMap) = await LoadAsync(ct);
+        var (copies, topicMap, _, _) = await LoadAsync(ct);
         IReadOnlyList<string> ids = [.. Filter(copies, query, topicMap).Select(h => h.Id)];
         return Ok(ApiResponse<IReadOnlyList<string>>.Ok(ids));
     }
@@ -104,8 +112,11 @@ public sealed class ShortsLibraryController(
         var result = await ForEachCopyAsync(request.HandoffIds, async (h, token, file, target) =>
         {
             string[] folders = h.Archived ? ArchivePath(folder) : folder is null ? [] : DriveCopies.TopicPath(folder);
-            var folderId = await drive.EnsureFolderPathAsync(target, folders, token, ct);
-            await driveClient.MoveFileAsync(token, file, folderId, file.Name, ct);
+            if (token is not null && file is not null)
+            {
+                var folderId = await drive.EnsureFolderPathAsync(target, folders, token, ct);
+                await driveClient.MoveFileAsync(token, file, folderId, file.Name, ct);
+            }
             h.TopicId = topic?.Id;
             h.Topic = folder;
             h.DriveSubfolders = [.. folders];
@@ -123,12 +134,30 @@ public sealed class ShortsLibraryController(
             if (request.Used)
             {
                 h.UsedAt ??= DateTime.UtcNow;
-                if (request.Archive && !h.Archived) await ArchiveOnDriveAsync(h, token, file, target, ct);
+                if (request.Archive && !h.Archived)
+                {
+                    if (token is not null && file is not null)
+                        await ArchiveOnDriveAsync(h, token, file, target, ct);
+                    else
+                    {
+                        h.Archived = true;
+                        h.DriveSubfolders = [.. ArchivePath(h.Topic)];
+                    }
+                }
             }
             else
             {
                 h.UsedAt = null;
-                if (h.Archived) await UnarchiveOnDriveAsync(h, token, file, target, ct);
+                if (h.Archived)
+                {
+                    if (token is not null && file is not null)
+                        await UnarchiveOnDriveAsync(h, token, file, target, ct);
+                    else
+                    {
+                        h.Archived = false;
+                        h.DriveSubfolders = h.Topic is null ? [] : [.. DriveCopies.TopicPath(h.Topic)];
+                    }
+                }
             }
         }, ct);
         return Ok(ApiResponse<LibraryBulkResponse>.Ok(result));
@@ -161,13 +190,16 @@ public sealed class ShortsLibraryController(
     {
         IReadOnlyList<string> ids = request?.HandoffIds is { Count: > 0 } given
             ? given
-            : [.. (await OwnCopiesAsync(ct)).Where(h => h.UsedAt is not null && !h.Archived).Select(h => h.Id).Take(MaxBulk)];
+            : [.. (await LoadAsync(ct)).Copies.Where(h => h.UsedAt is not null && !h.Archived).Select(h => h.Id).Take(MaxBulk)];
 
         var result = await ForEachCopyAsync(ids, async (h, token, file, target) =>
         {
             var folders = ArchivePath(h.Topic);
-            var folderId = await drive.EnsureFolderPathAsync(target, folders, token, ct);
-            await driveClient.MoveFileAsync(token, file, folderId, file.Name, ct);
+            if (token is not null && file is not null)
+            {
+                var folderId = await drive.EnsureFolderPathAsync(target, folders, token, ct);
+                await driveClient.MoveFileAsync(token, file, folderId, file.Name, ct);
+            }
             h.UsedAt ??= DateTime.UtcNow;
             h.Archived = true;
             h.DriveSubfolders = [.. folders];
@@ -182,8 +214,11 @@ public sealed class ShortsLibraryController(
         var result = await ForEachCopyAsync(request.HandoffIds, async (h, token, file, target) =>
         {
             string[] folders = h.Topic is null ? [] : DriveCopies.TopicPath(h.Topic);
-            var folderId = await drive.EnsureFolderPathAsync(target, folders, token, ct);
-            await driveClient.MoveFileAsync(token, file, folderId, file.Name, ct);
+            if (token is not null && file is not null)
+            {
+                var folderId = await drive.EnsureFolderPathAsync(target, folders, token, ct);
+                await driveClient.MoveFileAsync(token, file, folderId, file.Name, ct);
+            }
             h.Archived = false;
             h.DriveSubfolders = [.. folders];
         }, ct);
@@ -191,54 +226,114 @@ public sealed class ShortsLibraryController(
     }
 
     /// <summary>
-    /// Streams the copy from Drive to whatever device is asking (browser or phone app). With
-    /// <paramref name="markUsed"/> it is marked used once Drive has finished sending it.
+    /// Streams the copy from Drive (or local render storage) to whatever device is asking (browser or phone app).
+    /// With <paramref name="inline"/> it streams inline for video preview/sampling; with <paramref name="markUsed"/>
+    /// it is marked used once downloaded.
     /// </summary>
+    [AllowMediaTicket]
     [HttpGet("download/{handoffId}")]
-    public async Task<IActionResult> Download(string handoffId, [FromQuery] bool markUsed, [FromQuery] bool autoArchive = true, CancellationToken ct = default)
+    public async Task<IActionResult> Download(
+        string handoffId,
+        [FromQuery] bool markUsed,
+        [FromQuery] bool autoArchive = true,
+        [FromQuery] bool inline = false,
+        CancellationToken ct = default)
     {
         var h = await OwnedAsync(handoffId, ct);
-        if (h is null || h.DriveFileId is null || h.DriveMissing || !OnDriveStates.Contains(h.State)) return NotFound();
+        if (h is null || h.State == PhoneHandoffState.Cancelled) return NotFound();
 
-        try
+        var fileName = h.DriveFileName ?? PhoneHandoffManager.FileNameFor(h.Title);
+        var servedLocally = false;
+
+        // When previewing inline or when the copy is not on Drive yet, prefer the local render output if present (supports byte-range seeking).
+        if (inline || h.DriveFileId is null || h.DriveMissing || !OnDriveStates.Contains(h.State))
         {
-            var target = new DriveTarget(currentUser.UserId, h.DriveChannelId, h.DriveFolderName);
-            var token = await drive.GetAccessTokenAsync(target, ct);
-            await driveClient.DownloadAsync(token, h.DriveFileId, length =>
+            var job = await jobs.GetAsync(h.JobId, ct);
+            if (job is not null && string.Equals(job.UserId, currentUser.UserId, StringComparison.Ordinal) && job.OutputStorageKey is not null)
             {
-                Response.ContentType = "video/mp4";
-                if (length is { } size) Response.ContentLength = size;
-                Response.Headers.ContentDisposition = new System.Net.Mime.ContentDisposition
+                try
                 {
-                    FileName = h.DriveFileName ?? PhoneHandoffManager.FileNameFor(h.Title),
-                    DispositionType = "attachment"
-                }.ToString();
-                return Task.FromResult(Response.Body);
-            }, ct);
-        }
-        catch (YouTubePublishException ex) when (!Response.HasStarted)
-        {
-            logger.LogWarning("Downloading Drive copy {HandoffId} failed: {Code}", h.Id, ex.Code);
-            return ex.Code == "drive-not-found"
-                ? NotFound(ApiResponse<bool>.Fail(ex.Message, new ApiError(ex.Code, ex.Message)))
-                : BadRequest(ApiResponse<bool>.Fail(ex.Message, new ApiError(ex.Code, ex.Message)));
+                    if (inline)
+                    {
+                        var previewPath = await RenderPreviewFile.EnsureAsync(store, dataPaths, job, ct);
+                        return PhysicalFile(previewPath, "video/mp4", enableRangeProcessing: true);
+                    }
+                    var stream = await store.OpenAsync(job.OutputStorageKey, ct);
+                    if (stream is not null)
+                    {
+                        Response.ContentType = "video/mp4";
+                        if (job.OutputSizeBytes is { } size) Response.ContentLength = size;
+                        Response.Headers.ContentDisposition = new System.Net.Mime.ContentDisposition
+                        {
+                            FileName = fileName,
+                            DispositionType = "attachment"
+                        }.ToString();
+                        await using (stream)
+                        {
+                            await stream.CopyToAsync(Response.Body, ct);
+                        }
+                        servedLocally = true;
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    logger.LogWarning("Serving local render for handoff {HandoffId} failed ({Type}); falling back to Drive.", h.Id, ex.GetType().Name);
+                }
+            }
         }
 
-        if (markUsed && h.UsedAt is null)
+        if (!servedLocally)
+        {
+            if (h.DriveFileId is null || h.DriveMissing || !OnDriveStates.Contains(h.State)) return NotFound();
+
+            try
+            {
+                var target = new DriveTarget(currentUser.UserId, h.DriveChannelId, h.DriveFolderName);
+                var token = await drive.GetAccessTokenAsync(target, ct);
+                await driveClient.DownloadAsync(token, h.DriveFileId, length =>
+                {
+                    Response.ContentType = "video/mp4";
+                    if (length is { } size) Response.ContentLength = size;
+                    Response.Headers.ContentDisposition = new System.Net.Mime.ContentDisposition
+                    {
+                        FileName = fileName,
+                        DispositionType = inline ? "inline" : "attachment"
+                    }.ToString();
+                    return Task.FromResult(Response.Body);
+                }, ct);
+            }
+            catch (YouTubePublishException ex) when (!Response.HasStarted)
+            {
+                logger.LogWarning("Downloading Drive copy {HandoffId} failed: {Code}", h.Id, ex.Code);
+                return ex.Code == "drive-not-found"
+                    ? NotFound(ApiResponse<bool>.Fail(ex.Message, new ApiError(ex.Code, ex.Message)))
+                    : BadRequest(ApiResponse<bool>.Fail(ex.Message, new ApiError(ex.Code, ex.Message)));
+            }
+        }
+
+        if (!inline && markUsed && h.UsedAt is null)
         {
             h.UsedAt = DateTime.UtcNow;
             if (autoArchive && !h.Archived)
             {
-                try
+                if (h.DriveFileId is not null && !h.DriveMissing)
                 {
-                    var target = new DriveTarget(currentUser.UserId, h.DriveChannelId, h.DriveFolderName);
-                    var token = await drive.GetAccessTokenAsync(target, CancellationToken.None);
-                    var file = await driveClient.GetFileAsync(token, h.DriveFileId, CancellationToken.None);
-                    if (file is { Trashed: false }) await ArchiveOnDriveAsync(h, token, file, target, CancellationToken.None);
+                    try
+                    {
+                        var target = new DriveTarget(currentUser.UserId, h.DriveChannelId, h.DriveFolderName);
+                        var token = await drive.GetAccessTokenAsync(target, CancellationToken.None);
+                        var file = await driveClient.GetFileAsync(token, h.DriveFileId, CancellationToken.None);
+                        if (file is { Trashed: false }) await ArchiveOnDriveAsync(h, token, file, target, CancellationToken.None);
+                    }
+                    catch (YouTubePublishException ex)
+                    {
+                        logger.LogWarning("Archiving downloaded copy {HandoffId} failed: {Code}", h.Id, ex.Code);
+                    }
                 }
-                catch (YouTubePublishException ex)
+                else
                 {
-                    logger.LogWarning("Archiving downloaded copy {HandoffId} failed: {Code}", h.Id, ex.Code);
+                    h.Archived = true;
+                    h.DriveSubfolders = [.. ArchivePath(h.Topic)];
                 }
             }
             await handoffs.UpsertAsync(h, CancellationToken.None);
@@ -279,30 +374,128 @@ public sealed class ShortsLibraryController(
     private static ContentTopic? TopicOf(PhoneHandoff h, IReadOnlyDictionary<string, ContentTopic> topicMap) =>
         h.TopicId is { } id && topicMap.TryGetValue(id, out var t) ? t : null;
 
-    private static LibraryItemResponse ToItem(PhoneHandoff h, IReadOnlyDictionary<string, ContentTopic> topicMap, IReadOnlyDictionary<string, string> names)
+    private static LibraryItemResponse ToItem(
+        PhoneHandoff h,
+        IReadOnlyDictionary<string, ContentTopic> topicMap,
+        IReadOnlyDictionary<string, string> names,
+        IReadOnlyDictionary<string, RenderJob> jobMap)
     {
         var topic = TopicOf(h, topicMap);
+        var job = jobMap.GetValueOrDefault(h.JobId);
+        var width = job?.Width;
+        var height = job?.Height;
+        var hasLocalPreview = job is { OutputStorageKey: not null, Status: RenderJobStatus.Completed or RenderJobStatus.CompletedWithWarnings };
+        var format = width is > 0 && height is > 0
+            ? (height > width ? "short" : height == width ? "square" : "video")
+            : null;
+        var duration = h.DurationSeconds ?? job?.Diagnostics?.OutputDurationSeconds;
+        var sizeBytes = h.TotalBytes > 0 ? h.TotalBytes : job?.OutputSizeBytes;
         return new LibraryItemResponse(
             h.Id, h.JobId, h.ProjectId, names.GetValueOrDefault(h.ProjectId, string.Empty), h.Title,
-            h.DurationSeconds, h.TotalBytes > 0 ? h.TotalBytes : null, h.CreatedAt,
+            duration, sizeBytes, h.CreatedAt,
             topic?.Id, topic?.Name, topic?.Color, h.UsedAt, h.Archived,
             PhoneHandoffManager.DrivePath(h),
-            h.DriveFileId is null ? null : $"https://drive.google.com/file/d/{Uri.EscapeDataString(h.DriveFileId)}/view");
+            h.DriveFileId is null ? null : $"https://drive.google.com/file/d/{Uri.EscapeDataString(h.DriveFileId)}/view",
+            width, height, hasLocalPreview, format);
     }
 
     private static string[] ArchivePath(string? topicFolder) =>
         topicFolder is null ? [DriveCopies.ArchiveFolder] : [DriveCopies.ArchiveFolder, topicFolder];
 
-    private async Task<Dictionary<string, string>> ProjectNamesAsync(CancellationToken ct) =>
-        (await projects.ListAsync(currentUser.UserId, ct)).ToDictionary(p => p.Id, p => p.Name, StringComparer.Ordinal);
-
-    private async Task<(IReadOnlyList<PhoneHandoff> Copies, IReadOnlyDictionary<string, ContentTopic> Topics)> LoadAsync(CancellationToken ct)
+    private async Task<(
+        IReadOnlyList<PhoneHandoff> Copies,
+        IReadOnlyDictionary<string, ContentTopic> Topics,
+        IReadOnlyDictionary<string, RenderJob> Jobs,
+        IReadOnlyDictionary<string, string> ProjectNames)> LoadAsync(CancellationToken ct)
     {
-        var copies = await OwnCopiesAsync(ct);
-        var all = await topics.ListByUserAsync(currentUser.UserId, ct);
-        if (await MigrateLegacyTopicsAsync(copies, all, ct))
-            all = await topics.ListByUserAsync(currentUser.UserId, ct);
-        return (copies, all.ToDictionary(t => t.Id, StringComparer.Ordinal));
+        var ownedProjects = await projects.ListAsync(currentUser.UserId, ct);
+        var projectNames = ownedProjects.ToDictionary(p => p.Id, p => p.Name, StringComparer.Ordinal);
+        var jobMap = new Dictionary<string, RenderJob>(StringComparer.Ordinal);
+        foreach (var p in ownedProjects)
+        {
+            foreach (var j in await jobs.ListByProjectAsync(p.Id, ct))
+            {
+                jobMap[j.Id] = j;
+            }
+        }
+
+        var allHandoffs = (await handoffs.ListByUserAsync(currentUser.UserId, null, MaxRecords, ct)).ToList();
+        var allTopics = await topics.ListByUserAsync(currentUser.UserId, ct);
+        if (await MigrateLegacyTopicsAsync(allHandoffs, allTopics, ct))
+            allTopics = await topics.ListByUserAsync(currentUser.UserId, ct);
+        var topicMap = allTopics.ToDictionary(t => t.Id, StringComparer.Ordinal);
+
+        // Ensure any completed render job that has a TopicId (from Auto Shorts or Video Export)
+        // is linked to its topic in the library and queued to Drive if Drive is connected.
+        var handoffsByJobId = allHandoffs
+            .Where(h => h.State != PhoneHandoffState.Cancelled)
+            .GroupBy(h => h.JobId, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(h => h.CreatedAt).First(), StringComparer.Ordinal);
+
+        DriveTarget? defaultDriveTarget = null;
+        var resolvedDefaultDrive = false;
+
+        foreach (var job in jobMap.Values)
+        {
+            if (job.TopicId is null || !topicMap.TryGetValue(job.TopicId, out var jobTopic)) continue;
+            var ready = job.Status is RenderJobStatus.Completed or RenderJobStatus.CompletedWithWarnings && job.OutputStorageKey is not null;
+
+            if (handoffsByJobId.TryGetValue(job.Id, out var existingHandoff))
+            {
+                if (existingHandoff.TopicId is null)
+                {
+                    existingHandoff.TopicId = jobTopic.Id;
+                    existingHandoff.Topic ??= DriveCopies.TopicFolderName(jobTopic);
+                    if (existingHandoff.DriveSubfolders.Count == 0 && existingHandoff.Topic is not null)
+                    {
+                        existingHandoff.DriveSubfolders = [.. DriveCopies.TopicPath(existingHandoff.Topic)];
+                    }
+                    await handoffs.UpsertAsync(existingHandoff, ct);
+                }
+                continue;
+            }
+
+            if (!ready) continue;
+
+            if (!resolvedDefaultDrive)
+            {
+                resolvedDefaultDrive = true;
+                try
+                {
+                    defaultDriveTarget = await drive.ResolveAsync(currentUser.UserId, null, null, ct);
+                }
+                catch (YouTubePublishException)
+                {
+                    defaultDriveTarget = null;
+                }
+            }
+
+            var projectName = projectNames.GetValueOrDefault(job.ProjectId);
+            var title = DriveLayout.TitleFor(job, projectName);
+            var target = defaultDriveTarget ?? new DriveTarget(currentUser.UserId, null, "AnimStudio Shorts");
+            var state = defaultDriveTarget is not null ? PhoneHandoffState.Sending : PhoneHandoffState.Saved;
+            var created = DriveCopies.SaveOnly(currentUser.UserId, job, projectName, null, title, target, state, jobTopic);
+            created.TotalBytes = job.OutputSizeBytes ?? 0;
+            await handoffs.UpsertAsync(created, ct);
+            if (defaultDriveTarget is not null)
+            {
+                handoffManager.StartSending(created, job.OutputStorageKey!, job.OutputSizeBytes ?? 0);
+            }
+            allHandoffs.Add(created);
+            handoffsByJobId[job.Id] = created;
+        }
+
+        var copies = allHandoffs
+            .Where(h =>
+                (h.DriveFileId is not null && !h.DriveMissing && OnDriveStates.Contains(h.State))
+                || (h.State != PhoneHandoffState.Cancelled
+                    && h.TopicId is not null
+                    && jobMap.TryGetValue(h.JobId, out var rj)
+                    && rj.OutputStorageKey is not null
+                    && rj.Status is RenderJobStatus.Completed or RenderJobStatus.CompletedWithWarnings))
+            .ToList();
+
+        return (copies, topicMap, jobMap, projectNames);
     }
 
     /// <summary>
@@ -353,19 +546,20 @@ public sealed class ShortsLibraryController(
         return created;
     }
 
-    private async Task<IReadOnlyList<PhoneHandoff>> OwnCopiesAsync(CancellationToken ct) =>
-        [.. (await handoffs.ListByUserAsync(currentUser.UserId, null, MaxRecords, ct))
-            .Where(h => h.DriveFileId is not null && !h.DriveMissing && OnDriveStates.Contains(h.State))];
-
     private async Task<PhoneHandoff?> OwnedAsync(string id, CancellationToken ct)
     {
         var h = await handoffs.GetAsync(id, ct);
         return h is not null && string.Equals(h.UserId, currentUser.UserId, StringComparison.Ordinal) ? h : null;
     }
 
-    /// <summary>Runs a Drive change on each copy that is still on Drive, saving it afterwards; one failure doesn't stop the rest.</summary>
+    /// <summary>
+    /// Runs a change on each copy, moving it on Drive when it is on Drive and saving the updated
+    /// handoff record; local topic-tagged copies without a Drive file yet are updated in the DB too.
+    /// </summary>
     private async Task<LibraryBulkResponse> ForEachCopyAsync(
-        IEnumerable<string> ids, Func<PhoneHandoff, string, GoogleDriveFileInfo, DriveTarget, Task> change, CancellationToken ct)
+        IEnumerable<string> ids,
+        Func<PhoneHandoff, string?, GoogleDriveFileInfo?, DriveTarget, Task> change,
+        CancellationToken ct)
     {
         var tokens = new Dictionary<string, string?>(StringComparer.Ordinal);
         int done = 0, failed = 0;
@@ -374,11 +568,31 @@ public sealed class ShortsLibraryController(
         foreach (var id in ids.Distinct(StringComparer.Ordinal).Take(MaxBulk))
         {
             var h = await OwnedAsync(id, ct);
-            if (h?.DriveFileId is null || h.DriveMissing || !OnDriveStates.Contains(h.State)) { failed++; continue; }
+            if (h is null || h.State == PhoneHandoffState.Cancelled) { failed++; continue; }
+
+            var target = new DriveTarget(currentUser.UserId, h.DriveChannelId, h.DriveFolderName);
+
+            // If the copy isn't on Drive yet (e.g. a local topic-tagged export), still apply the metadata/status change locally.
+            if (h.DriveFileId is null || !OnDriveStates.Contains(h.State))
+            {
+                try
+                {
+                    await change(h, null, null, target);
+                    await handoffs.UpsertAsync(h, ct);
+                    done++;
+                }
+                catch (YouTubePublishException ex)
+                {
+                    failed++;
+                    firstError ??= ex.Message;
+                }
+                continue;
+            }
+
+            if (h.DriveMissing) { failed++; continue; }
 
             try
             {
-                var target = new DriveTarget(currentUser.UserId, h.DriveChannelId, h.DriveFolderName);
                 var key = h.DriveChannelId ?? string.Empty;
                 if (!tokens.TryGetValue(key, out var token))
                 {
@@ -433,7 +647,8 @@ public sealed record LibraryItemResponse(
     string HandoffId, string JobId, string ProjectId, string ProjectName, string Title,
     double? DurationSeconds, long? SizeBytes, DateTime CreatedAt,
     string? TopicId, string? TopicName, string? TopicColor, DateTime? UsedAt, bool Archived,
-    string DrivePath, string? DriveUrl);
+    string DrivePath, string? DriveUrl,
+    int? Width = null, int? Height = null, bool HasLocalPreview = false, string? Format = null);
 
 public sealed record LibraryCounts(int Active, int Unused, int Used, int Archived, int NoTopic);
 

@@ -3,6 +3,7 @@ using AnimStudio.Api.Contracts;
 using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Abstractions.Rendering;
 using AnimStudio.Application.Clips;
+using AnimStudio.Application.Publishing;
 using AnimStudio.Application.Security;
 using AnimStudio.Application.Shorts;
 using AnimStudio.Domain.Assets;
@@ -147,15 +148,42 @@ public sealed class ClipsController(
     /// </summary>
     [HttpPost("api/projects/{projectId}/clips/merge")]
     public async Task<ActionResult<ApiResponse<RenderJobResponse>>> Merge(
-        string projectId, [FromBody] ClipMergeRequest request, CancellationToken ct)
+        string projectId, [FromBody] ClipMergeRequest request,
+        [FromServices] GoogleDriveConnectionStore drive, [FromServices] IPhoneHandoffRepository handoffs,
+        CancellationToken ct)
     {
+        ContentTopic? topic;
         try
         {
-            await DriveCopies.ResolveTopicAsync(topicRepository, currentUser.UserId, request.TopicId, ct);
+            topic = await DriveCopies.ResolveTopicAsync(topicRepository, currentUser.UserId, request.TopicId, ct);
         }
         catch (YouTubePublishException ex)
         {
             return BadRequest(ApiResponse<RenderJobResponse>.Fail(ex.Message, new ApiError(ex.Code, ex.Message, Field: "topicId")));
+        }
+
+        DriveTarget? target = null;
+        if (request.SaveToDrive)
+        {
+            try
+            {
+                target = await drive.ResolveAsync(currentUser.UserId, request.DriveChannelId, request.DriveFolderName, ct);
+            }
+            catch (YouTubePublishException ex)
+            {
+                return BadRequest(ApiResponse<RenderJobResponse>.Fail(ex.Message, new ApiError(ex.Code, ex.Message, Field: "drive")));
+            }
+        }
+        else if (topic is not null)
+        {
+            try
+            {
+                target = await drive.ResolveAsync(currentUser.UserId, request.DriveChannelId, request.DriveFolderName, ct);
+            }
+            catch (YouTubePublishException)
+            {
+                // If no Drive is connected yet, the export still proceeds with its TopicId saved on the RenderJob.
+            }
         }
 
         var command = new ClipMergeCommand
@@ -288,6 +316,14 @@ public sealed class ClipsController(
 
         var job = await clips.QueueAsync(projectId, command, ct);
 
+        if (target is not null)
+        {
+            var projectName = (await projects.GetAsync(projectId, ct))?.Name;
+            var title = DriveLayout.TitleFor(job, projectName);
+            await handoffs.UpsertAsync(DriveCopies.SaveOnly(
+                currentUser.UserId, job, projectName, request.DriveChannelId, title, target, PhoneHandoffState.WaitingForRender, topic), ct);
+        }
+
         return Accepted(ApiResponse<RenderJobResponse>.Ok(job.ToResponse()));
     }
 
@@ -332,6 +368,17 @@ public sealed class ClipsController(
             catch (YouTubePublishException ex)
             {
                 return BadRequest(ApiResponse<AutoShortsResponse>.Fail(ex.Message, new ApiError(ex.Code, ex.Message, Field: "drive")));
+            }
+        }
+        else if (topic is not null)
+        {
+            try
+            {
+                target = await drive.ResolveAsync(currentUser.UserId, request.DriveChannelId, request.DriveFolderName, ct);
+            }
+            catch (YouTubePublishException)
+            {
+                // If no Drive is connected yet, the batch still proceeds with TopicId on each RenderJob.
             }
         }
 

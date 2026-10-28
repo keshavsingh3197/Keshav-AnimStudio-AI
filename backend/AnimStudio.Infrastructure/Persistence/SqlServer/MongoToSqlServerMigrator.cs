@@ -43,7 +43,10 @@ public sealed class MongoToSqlServerMigrator(
             // 3. Scenes
             results.Add(await MigrateScenesAsync(conn, ct).ConfigureAwait(false));
 
-            // 4. Assets
+            // 4. Asset folders (before assets so the drive/topic folder tree is in sync)
+            results.Add(await MigrateAssetFoldersAsync(conn, ct).ConfigureAwait(false));
+
+            // 4b. Assets
             results.Add(await MigrateAssetsAsync(conn, ct).ConfigureAwait(false));
 
             // 5. Scripts
@@ -190,6 +193,40 @@ public sealed class MongoToSqlServerMigrator(
         }
 
         return new MigrationCollectionResult(MongoCollections.Scenes, migrated, skipped);
+    }
+
+    private async Task<MigrationCollectionResult> MigrateAssetFoldersAsync(SqlConnection conn, CancellationToken ct)
+    {
+        var collection = mongo.GetCollection<AssetFolder>(MongoCollections.AssetFolders);
+        var items = await collection.Find(FilterDefinition<AssetFolder>.Empty).ToListAsync(ct).ConfigureAwait(false);
+        int migrated = 0, skipped = 0;
+
+        foreach (var item in items)
+        {
+            const string checkSql = "SELECT COUNT(1) FROM AssetFolders WHERE Id = @Id";
+            await using var checkCmd = new SqlCommand(checkSql, conn);
+            checkCmd.Parameters.AddWithValue("@Id", item.Id);
+            if (Convert.ToInt32(await checkCmd.ExecuteScalarAsync(ct).ConfigureAwait(false)) > 0)
+            {
+                skipped++;
+                continue;
+            }
+
+            const string insertSql = """
+                INSERT INTO AssetFolders (Id, ProjectId, Name, ParentId, CreatedAt)
+                VALUES (@Id, @ProjectId, @Name, @ParentId, @CreatedAt)
+                """;
+            await using var insertCmd = new SqlCommand(insertSql, conn);
+            insertCmd.Parameters.AddWithValue("@Id", item.Id);
+            insertCmd.Parameters.AddWithValue("@ProjectId", item.ProjectId);
+            insertCmd.Parameters.AddWithValue("@Name", item.Name);
+            insertCmd.Parameters.AddWithValue("@ParentId", (object?)item.ParentId ?? DBNull.Value);
+            insertCmd.Parameters.AddWithValue("@CreatedAt", item.CreatedAt);
+            await insertCmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            migrated++;
+        }
+
+        return new MigrationCollectionResult(MongoCollections.AssetFolders, migrated, skipped);
     }
 
     private async Task<MigrationCollectionResult> MigrateAssetsAsync(SqlConnection conn, CancellationToken ct)

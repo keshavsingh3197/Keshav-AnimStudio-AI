@@ -32,6 +32,7 @@
       </ul>
       <div class="as-done-actions">
         <a class="as-btn" [routerLink]="['/shorts']" [queryParams]="{ batch: batch.batchId }" (click)="close()">Open on Shorts page</a>
+        <a class="as-btn" [routerLink]="['/shorts/library']" [queryParams]="topicId() ? { topic: topicId() } : {}" (click)="close()">📂 Open Drive Library</a>
         <button class="as-btn as-btn-cta" type="button" (click)="queued.set(null)">Make another batch</button>
       </div>
     </div>
@@ -365,7 +366,7 @@
 
         <h4>6 · Google Drive</h4>
         <div class="as-field">
-          <app-topic-picker label="Topic (files the shorts in the Drive library and links them to the calendar)" [(value)]="topicId" />
+          <app-topic-picker label="Topic (files the shorts in the Drive library and links them to the calendar)" [value]="topicId()" (valueChange)="pickTopic($event)" />
         </div>
         @if (drives() === null) {
           <p class="as-hint">Checking Google Drive…</p>

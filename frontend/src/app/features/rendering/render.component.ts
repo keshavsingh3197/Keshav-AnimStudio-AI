@@ -128,6 +128,99 @@ export class RenderComponent implements OnDestroy {
     return this.filteredJobs().slice(start, start + this.pageSize());
   });
 
+  readonly selectedIds = signal<ReadonlySet<string>>(new Set());
+  private readonly selectedJobs = computed(() => {
+    const ids = this.selectedIds();
+    return this.jobs().filter((j) => ids.has(j.jobId));
+  });
+  readonly selectedCount = computed(() => this.selectedJobs().length);
+  readonly selectedActive = computed(() => this.selectedJobs().filter((j) => !isTerminal(j.status)));
+  readonly selectedFinished = computed(() => this.selectedJobs().filter((j) => isTerminal(j.status)));
+  readonly allActiveJobs = computed(() => this.jobs().filter((j) => !isTerminal(j.status)));
+  readonly pageAllSelected = computed(() => {
+    const page = this.pagedJobs();
+    const ids = this.selectedIds();
+    return page.length > 0 && page.every((j) => ids.has(j.jobId));
+  });
+  readonly allFilteredSelected = computed(() => {
+    const all = this.filteredJobs();
+    const ids = this.selectedIds();
+    return all.length > 0 && all.every((j) => ids.has(j.jobId));
+  });
+
+  toggleSelect(jobId: string): void {
+    this.selectedIds.update((s) => {
+      const next = new Set(s);
+      if (!next.delete(jobId)) next.add(jobId);
+      return next;
+    });
+  }
+
+  togglePage(): void {
+    const page = this.pagedJobs();
+    const clear = this.pageAllSelected();
+    this.selectedIds.update((s) => {
+      const next = new Set(s);
+      for (const j of page) clear ? next.delete(j.jobId) : next.add(j.jobId);
+      return next;
+    });
+  }
+
+  selectAllFiltered(): void {
+    this.selectedIds.update((s) => new Set([...s, ...this.filteredJobs().map((j) => j.jobId)]));
+  }
+
+  clearSelection(): void {
+    this.selectedIds.set(new Set());
+  }
+
+  cancelSelected(): void {
+    this.bulkCancel(this.selectedActive().map((j) => j.jobId));
+  }
+
+  cancelAllActive(): void {
+    const ids = this.allActiveJobs().map((j) => j.jobId);
+    if (ids.length === 0) return;
+    if (!confirm(`Cancel ${ids.length} active ${ids.length === 1 ? 'render' : 'renders'}?`)) return;
+    this.bulkCancel(ids);
+  }
+
+  private bulkCancel(ids: string[]): void {
+    if (ids.length === 0) return;
+    this.status.run(this.api.bulkCancelJobs(ids), () => {
+      this.refreshJobs();
+      this.status.notify([`Cancelled ${ids.length} ${ids.length === 1 ? 'render' : 'renders'}.`]);
+    });
+  }
+
+  deleteSelected(): void {
+    const ids = this.selectedFinished().map((j) => j.jobId);
+    if (ids.length === 0) return;
+    const skipped = this.selectedActive().length;
+    const note = skipped > 0 ? `\n${skipped} still running ${skipped === 1 ? 'render is' : 'renders are'} kept - cancel first.` : '';
+    if (!confirm(`Permanently delete ${ids.length} ${ids.length === 1 ? 'render' : 'renders'} and their files? YouTube videos are not touched.${note}`)) return;
+
+    this.status.run(this.api.bulkDeleteJobs(ids), (result) => {
+      const gone = new Set(result.done);
+      this.jobs.update((list) => list.filter((j) => !gone.has(j.jobId)));
+      this.selectedIds.update((s) => new Set([...s].filter((id) => !gone.has(id))));
+      if (this.job() && gone.has(this.job()!.jobId)) {
+        this.job.set(this.jobs()[0] ?? null);
+      }
+      this.status.notify([`Deleted ${result.done.length} ${result.done.length === 1 ? 'render' : 'renders'}.`]);
+    });
+  }
+
+  private refreshJobs(): void {
+    const projectId = this.store.projectId();
+    if (!projectId) return;
+    this.api.listJobs(projectId).subscribe((list) => {
+      this.jobs.set(list);
+      const cur = this.job();
+      if (cur) this.job.set(list.find((j) => j.jobId === cur.jobId) ?? cur);
+    });
+  }
+
   readonly rangeLabel = computed(() => {
     const total = this.filteredJobs().length;
     if (total === 0) return 'No renders';
@@ -842,7 +935,13 @@ export class RenderComponent implements OnDestroy {
     const current = this.job();
     if (!current) return;
 
-    this.status.run(this.api.cancelJob(current.jobId));
+    this.status.run(this.api.cancelJob(current.jobId), () => {
+      this.api.job(current.jobId).subscribe((job) => {
+        this.job.set(job);
+        this.jobs.update((list) => list.map((j) => (j.jobId === job.jobId ? job : j)));
+        if (isTerminal(job.status)) this.stopPolling();
+      });
+    });
   }
 
   watch(job: RenderJob): void {

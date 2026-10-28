@@ -363,7 +363,34 @@
       @if (hasActiveFilters()) {
         <button type="button" class="secondary small" (click)="clearFilters()">Clear</button>
       }
+      @if (allActiveJobs().length > 0) {
+        <button type="button" class="secondary small rp-cancel-all" (click)="cancelAllActive()"
+                [disabled]="status.busy()" title="Stop every queued or running render">
+          ⏹ Cancel all active ({{ allActiveJobs().length }})
+        </button>
+      }
     </div>
+
+    @if (selectedCount() > 0) {
+      <div class="rp-bulkbar" role="toolbar" aria-label="Bulk actions">
+        <strong>{{ selectedCount() }} selected</strong>
+        @if (!allFilteredSelected() && filteredJobs().length > selectedCount()) {
+          <button type="button" class="rp-link-btn" (click)="selectAllFiltered()">Select all {{ filteredJobs().length }} matching</button>
+        }
+        <span class="rp-bulk-spacer"></span>
+        @if (selectedActive().length > 0) {
+          <button type="button" class="secondary small" (click)="cancelSelected()" [disabled]="status.busy()">
+            ⏹ Cancel {{ selectedActive().length }} running
+          </button>
+        }
+        @if (selectedFinished().length > 0) {
+          <button type="button" class="secondary small rp-danger" (click)="deleteSelected()" [disabled]="status.busy()">
+            🗑 Delete {{ selectedFinished().length }}
+          </button>
+        }
+        <button type="button" class="secondary small" (click)="clearSelection()">Clear selection</button>
+      </div>
+    }
 
     @if (pagedJobs().length === 0) {
       <div class="rp-empty">
@@ -371,9 +398,15 @@
         <button type="button" class="secondary small" (click)="clearFilters()">Clear filters</button>
       </div>
     } @else {
+      <label class="rp-selectall">
+        <input type="checkbox" [checked]="pageAllSelected()" (change)="togglePage()" aria-label="Select all renders on this page" />
+        <span class="muted">Select page</span>
+      </label>
       <ul class="rp-list">
         @for (item of pagedJobs(); track item.jobId) {
-          <li class="rp-row" [class.selected]="job()?.jobId === item.jobId" [class.has-issue]="jobHasIssue(item.jobId)">
+          <li class="rp-row" [class.selected]="job()?.jobId === item.jobId" [class.checked]="selectedIds().has(item.jobId)" [class.has-issue]="jobHasIssue(item.jobId)">
+            <input type="checkbox" class="rp-check" [checked]="selectedIds().has(item.jobId)"
+                   (change)="toggleSelect(item.jobId)" [attr.aria-label]="'Select ' + displayName(item)" />
             <span [class]="'rp-format-badge ' + jobFormat(item).toLowerCase()" aria-hidden="true">{{ jobAspect(item) }}</span>
 
             <div class="rp-row-main">

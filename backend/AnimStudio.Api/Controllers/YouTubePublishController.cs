@@ -592,6 +592,7 @@ public sealed partial class YouTubePublishController(
     /// One frame of the render as a JPEG, for the publish dialog's thumbnail picker. The frame
     /// picked is grabbed again at full size when publishing, so this one can be small.
     /// </summary>
+    [AllowMediaTicket]
     [HttpGet("render-jobs/{jobId}/frame")]
     public async Task<IActionResult> Frame(string jobId, [FromQuery] double at, [FromQuery] int? width, CancellationToken ct)
     {

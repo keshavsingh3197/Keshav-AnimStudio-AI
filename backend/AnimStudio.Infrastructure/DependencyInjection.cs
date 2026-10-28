@@ -151,6 +151,7 @@ public static class DependencyInjection
             if (hasMongoConfig)
             {
                 services.AddScoped<MongoToSqlServerMigrator>();
+                services.AddScoped<DriveDataSyncService>();
             }
         }
         else

@@ -888,6 +888,14 @@ public sealed class SqlRenderJobRepository(ISqlConnectionFactory factory, TimePr
         }
     }
 
+    public async Task DeleteAsync(string jobId, CancellationToken ct)
+    {
+        await using var conn = await factory.OpenConnectionAsync(ct).ConfigureAwait(false);
+        await using var cmd = new SqlCommand("DELETE FROM RenderJobs WHERE Id = @Id", conn);
+        cmd.Parameters.AddWithValue("@Id", jobId);
+        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+    }
+
     public async Task<IReadOnlyList<RenderJob>> ListActiveAsync(int limit, CancellationToken ct)
     {
         await using var conn = await factory.OpenConnectionAsync(ct).ConfigureAwait(false);

@@ -534,6 +534,12 @@ export class StudioStateService implements OnDestroy {
   readonly exportIncludeWatermark = signal<boolean>(true);
   /** End the export with the saved outro / "support us" QR card. Ignored when none is set up. */
   readonly exportIncludeOutro = signal<boolean>(true);
+  /** Shared calendar / Drive Library topic this export is filed under. */
+  readonly exportTopicId = signal<string | null>(null);
+  /** Copy the finished export to Google Drive as soon as it has rendered. */
+  readonly exportSaveToDrive = signal<boolean>(false);
+  readonly exportDriveChannelId = signal<string | null>(null);
+  readonly exportDriveFolderName = signal<string | null>(null);
 
   /** The project's brand channel's outro, which an export uses when the project has none of its own. */
   readonly globalOutro = signal<OutroBody | null>(null);
@@ -10001,6 +10007,10 @@ export class StudioStateService implements OnDestroy {
     this.status.run(
       this.api.mergeClips(projectId, {
         exportName: this.exportName() || this.defaultExportName(),
+        topicId: this.exportTopicId(),
+        saveToDrive: this.exportSaveToDrive(),
+        driveChannelId: this.exportSaveToDrive() ? this.exportDriveChannelId() : null,
+        driveFolderName: this.exportSaveToDrive() ? this.exportDriveFolderName() : null,
         assetIds: includedClips,
         fit: fitMode,
         backgroundColor: framing.backgroundColor,
@@ -10043,6 +10053,7 @@ export class StudioStateService implements OnDestroy {
         this.startExportTimer();
         this.startPolling(job.jobId);
         this.trackExport(job);
+        if (this.exportSaveToDrive() || this.exportTopicId()) this.activity.resumeServerWork();
         this.recordExportOnEdit(projectId, editId, job);
         this.openExportProgress();
         this.status.notify(['Export started successfully.']);
@@ -10081,6 +10092,10 @@ export class StudioStateService implements OnDestroy {
     this.status.run(
       this.api.mergeClips(projectId, {
         exportName: this.exportName() || this.defaultExportName(),
+        topicId: this.exportTopicId(),
+        saveToDrive: this.exportSaveToDrive(),
+        driveChannelId: this.exportSaveToDrive() ? this.exportDriveChannelId() : null,
+        driveFolderName: this.exportSaveToDrive() ? this.exportDriveFolderName() : null,
         assetIds: ids,
         fit: fitMode,
         backgroundColor: framing.backgroundColor,
@@ -10124,6 +10139,7 @@ export class StudioStateService implements OnDestroy {
         this.startExportTimer();
         this.startPolling(job.jobId);
         this.trackExport(job);
+        if (this.exportSaveToDrive() || this.exportTopicId()) this.activity.resumeServerWork();
         this.recordExportOnEdit(projectId, editId, job);
         this.openExportProgress();
         this.status.notify(['Started building vertical Short (9:16) video!']);

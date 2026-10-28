@@ -129,6 +129,38 @@ export class ClipStudioComponent implements OnDestroy {
         relativeTo: this.route, queryParams: { youtubePublish: null }, queryParamsHandling: 'merge', replaceUrl: true,
       });
     }
+
+    // Load Drive connections when the Export modal opens so Topic & Save to Drive are ready immediately.
+    effect(() => {
+      if (this.state.exportModalOpen()) {
+        untracked(() => this.ensureDrivesLoaded());
+      }
+    });
+  }
+
+  ensureDrivesLoaded(): void {
+    if (this.drives() !== null) return;
+    this.youtube.driveConnections().pipe(catchError(() => of([] as GoogleDriveStatus[]))).subscribe((list) => {
+      this.drives.set(list);
+      const first = list.find((d) => d.connected && !d.needsReconnect) ?? list[0];
+      if (first) this.pickDriveChannel(first.channelId ?? '');
+      if (this.topicId() && this.anyDriveConnected()) {
+        this.state.exportSaveToDrive.set(true);
+      }
+    });
+  }
+
+  pickExportTopic(id: string | null): void {
+    this.topicId.set(id);
+    this.state.exportTopicId.set(id);
+    if (id && this.anyDriveConnected()) {
+      this.state.exportSaveToDrive.set(true);
+    }
+  }
+
+  setExportDriveFolder(folder: string): void {
+    this.driveFolder.set(folder);
+    this.state.exportDriveFolderName.set(folder.trim() || null);
   }
 
   // --- Finished export: upload it to YouTube as a draft, or copy its description ---
@@ -184,8 +216,11 @@ export class ClipStudioComponent implements OnDestroy {
 
   pickDriveChannel(channelId: string): void {
     this.driveChannelId.set(channelId);
+    this.state.exportDriveChannelId.set(channelId || null);
     const target = (this.drives() ?? []).find((d) => (d.channelId ?? '') === channelId);
-    this.driveFolder.set(target?.folderName || 'AnimStudio Shorts');
+    const defaultFolder = target?.folderName || 'AnimStudio Shorts';
+    this.driveFolder.set(defaultFolder);
+    this.state.exportDriveFolderName.set(defaultFolder);
     this.driveFolders.set([]);
     if (target?.connected && !target.needsReconnect) {
       this.youtube.driveFolders(channelId || null).pipe(catchError(() => of([] as string[]))).subscribe((folders) => {

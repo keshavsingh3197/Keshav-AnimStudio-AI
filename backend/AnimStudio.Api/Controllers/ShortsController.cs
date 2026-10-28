@@ -286,16 +286,34 @@ public sealed class ShortsController(
                     else
                     {
                         present++;
-                        // Copies filed before the folders existed, or still under the old shared placeholder name.
+                        // Copies filed before the folders existed, still under the old shared placeholder name, or whose job has a topic not yet reflected on Drive.
                         var placeholder = string.Equals(h.DriveFileName, DriveLayout.PlaceholderFileName, StringComparison.OrdinalIgnoreCase);
-                        if (organize && (h.DriveSubfolders.Count == 0 || placeholder) && await LoadOwnedJobOrNullAsync(h.JobId, ct) is { } job)
+                        var job = organize ? await LoadOwnedJobOrNullAsync(h.JobId, ct) : null;
+                        var effectiveTopicId = h.TopicId ?? job?.TopicId;
+                        var needsTopicFiling = effectiveTopicId is not null && (h.TopicId != effectiveTopicId || h.Topic is null);
+                        if (organize && (h.DriveSubfolders.Count == 0 || placeholder || needsTopicFiling) && job is not null)
                         {
                             var projectName = await ProjectNameAsync(job.ProjectId, ct);
-                            var folders = DriveLayout.FoldersFor(projectName, job);
+                            ContentTopic? topic = null;
+                            if (effectiveTopicId is not null)
+                            {
+                                var loadedTopic = await topics.GetAsync(effectiveTopicId, ct);
+                                if (loadedTopic is not null && string.Equals(loadedTopic.UserId, userId, StringComparison.Ordinal))
+                                    topic = loadedTopic;
+                            }
+                            var topicFolder = topic is null ? null : DriveCopies.TopicFolderName(topic);
+                            var folders = topicFolder is not null
+                                ? (h.Archived ? [DriveCopies.ArchiveFolder, topicFolder] : DriveCopies.TopicPath(topicFolder))
+                                : DriveLayout.FoldersFor(projectName, job);
                             var folderId = await drive.EnsureFolderPathAsync(target, folders, token, ct);
                             if (placeholder) h.Title = DriveLayout.TitleFor(job, projectName);
                             var name = PhoneHandoffManager.FileNameFor(DriveLayout.FileTitleFor(h.Title, job));
                             await driveClient.MoveFileAsync(token, file!, folderId, name, ct);
+                            if (topic is not null)
+                            {
+                                h.TopicId = topic.Id;
+                                h.Topic = topicFolder;
+                            }
                             h.DriveSubfolders = [.. folders];
                             h.DriveFileName = name;
                             moved++;

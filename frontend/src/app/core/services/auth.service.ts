@@ -1,6 +1,6 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { Observable, catchError, finalize, map, of, shareReplay, tap, throwError, timeout } from 'rxjs';
+import { Observable, catchError, finalize, map, of, retry, shareReplay, tap, throwError, timeout, timer } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../models/api.models';
@@ -591,6 +591,12 @@ export class AuthService {
       );
   }
 
+  /** True when the server definitely refused the session (401/403) or sent no token back. */
+  isAuthRejection(err: unknown): boolean {
+    if (err instanceof HttpErrorResponse) return err.status === 401 || err.status === 403;
+    return err instanceof Error && err.message === 'Refresh response missing token.';
+  }
+
   refreshSession(): Observable<{ accessToken: string }> {
     if (this.refreshInProgress$) {
       return this.refreshInProgress$;
@@ -635,8 +641,16 @@ export class AuthService {
           }
           throw new Error('Refresh response missing token.');
         }),
+        // A dropped connection or a restarting server is not a rejected session: retry briefly.
+        retry({
+          count: 2,
+          delay: (err) => (this.isAuthRejection(err) ? throwError(() => err) : timer(1500)),
+        }),
         catchError((err) => {
-          this.saveAccessToken(null);
+          // Only a definite rejection ends the session; network/server errors keep the token.
+          if (this.isAuthRejection(err)) {
+            this.saveAccessToken(null);
+          }
           return throwError(() => err);
         }),
         finalize(() => {

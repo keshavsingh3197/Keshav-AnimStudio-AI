@@ -1212,6 +1212,57 @@
             </div>
           }
 
+          <!-- Topic & Google Drive Library Filing -->
+          <div class="export-form-group" style="margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.08);">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; gap: 8px; flex-wrap: wrap;">
+              <label style="font-weight: 600; font-size: 13px; color: #e2e8f0; margin: 0;">📂 Topic &amp; Google Drive Library</label>
+              <a routerLink="/shorts/library" (click)="state.closeExportModal()" style="font-size: 12px; color: #60a5fa; text-decoration: none;">Open Drive Library &rarr;</a>
+            </div>
+            <app-topic-picker
+              label="Topic (files this export under Topics/<Name> in the Drive library & links to Calendar)"
+              [value]="topicId()"
+              (valueChange)="pickExportTopic($event)" />
+            @if (anyDriveConnected()) {
+              <div style="margin-top: 10px; display: flex; flex-direction: column; gap: 8px;">
+                <label class="toggle-control-row" style="margin: 0; cursor: pointer;">
+                  <input type="checkbox" [ngModel]="state.exportSaveToDrive()" (ngModelChange)="state.exportSaveToDrive.set($event)" />
+                  <span>☁ Save to Google Drive automatically as soon as the export finishes</span>
+                </label>
+                @if (state.exportSaveToDrive()) {
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px;">
+                    <div class="export-drive-field">
+                      <label for="ex-modal-drive-acct" style="font-size: 11px; color: #94a3b8;">Drive account</label>
+                      <select id="ex-modal-drive-acct" class="export-input" [ngModel]="driveChannelId()" (ngModelChange)="pickDriveChannel($event)">
+                        @for (d of drives() ?? []; track d.channelId ?? '') {
+                          @if (d.connected && !d.needsReconnect) {
+                            <option [ngValue]="d.channelId ?? ''">
+                              {{ d.channelId ? d.channelTitle + (d.ownDrive ? ' (Channel Drive)' : ' (Personal Drive)') : 'Personal Google Drive' }}
+                              {{ d.accountEmail ? ' · ' + d.accountEmail : '' }}
+                            </option>
+                          }
+                        }
+                      </select>
+                    </div>
+                    <div class="export-drive-field">
+                      <label for="ex-modal-drive-folder" style="font-size: 11px; color: #94a3b8;">Root folder</label>
+                      <input id="ex-modal-drive-folder" type="text" class="export-input" maxlength="100"
+                             list="ex-modal-drive-folders"
+                             [ngModel]="driveFolder()" (ngModelChange)="setExportDriveFolder($event)"
+                             placeholder="AnimStudio Shorts" />
+                      <datalist id="ex-modal-drive-folders">
+                        @for (f of driveFolders(); track f) { <option [value]="f"></option> }
+                      </datalist>
+                    </div>
+                  </div>
+                }
+              </div>
+            } @else if (drives() !== null) {
+              <p style="margin: 6px 0 0; font-size: 12px; color: #94a3b8;">
+                Picked topics are still saved with this export and appear in your <a routerLink="/shorts/library" (click)="state.closeExportModal()" style="color: #60a5fa;">Drive Library</a>.
+              </p>
+            }
+          </div>
+
           <!-- System & Engine Capacity Info Footer -->
           <div class="export-limits-info">
             <span class="limits-icon">⚙</span>
@@ -1547,6 +1598,9 @@
                       } @else if (dc.state === 'Saved' || dc.state === 'WaitingForPhone') {
                         <div class="export-drive-done">
                           <span>✓ Saved to Google Drive: <strong>{{ dc.folderName }}</strong> / {{ dc.fileName }}</span>
+                          <a routerLink="/shorts/library" (click)="state.closeExportProgress()" class="btn btn-sm btn-outline-light">
+                            📂 Open Drive Library
+                          </a>
                           @if (dc.driveUrl) {
                             <a [href]="dc.driveUrl" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-info">
                               Open in Google Drive ↗

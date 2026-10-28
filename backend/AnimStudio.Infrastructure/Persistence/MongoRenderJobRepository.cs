@@ -126,6 +126,9 @@ public sealed class MongoRenderJobRepository(MongoDbService mongo, TimeProvider 
             Builders<RenderJob>.Update.Set(j => j.CancelRequested, true),
             cancellationToken: ct);
 
+    public Task DeleteAsync(string jobId, CancellationToken ct) =>
+        Collection.DeleteOneAsync(j => j.Id == jobId, ct);
+
     /// <summary>Ids of jobs that are not finished, used by the workspace janitor.</summary>
     public async Task<IReadOnlyList<string>> ListActiveJobIdsAsync(CancellationToken ct)
     {

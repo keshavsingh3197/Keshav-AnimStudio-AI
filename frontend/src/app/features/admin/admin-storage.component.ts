@@ -1,7 +1,7 @@
 import { DatePipe } from '@angular/common';
 import { Component, computed, inject, signal } from '@angular/core';
 
-import { StorageDetail, formatBytes } from '../../core/models/api.models';
+import { DriveSyncReport, StorageDetail, formatBytes } from '../../core/models/api.models';
 import { ApiService } from '../../core/services/api.service';
 import { StatusService } from '../../core/services/status.service';
 
@@ -121,6 +121,27 @@ import { StatusService } from '../../core/services/status.service';
               </ul>
             }
           </div>
+
+          @if (syncAvailable()) {
+          <div class="card st-card">
+            <div class="studio-card-head">
+              <div class="studio-card-title-group"><h3>Sync database</h3></div>
+            </div>
+            <p class="muted">Keep drive folders, topics, calendar posts and Drive copies the same in MongoDB and SQL Server. Newer topic and post edits win.</p>
+            <div class="st-quota">
+              <button type="button" (click)="sync('Both')" [disabled]="status.busy()">⇄ Sync both ways</button>
+              <button type="button" class="secondary" (click)="sync('MongoToSql')" [disabled]="status.busy()">Mongo → SQL</button>
+              <button type="button" class="secondary" (click)="sync('SqlToMongo')" [disabled]="status.busy()">SQL → Mongo</button>
+            </div>
+            @if (syncReport(); as r) {
+              <ul class="st-folders" style="margin-top: 0.75rem">
+                @for (x of r.details; track x.name) {
+                  <li><span class="name mono">{{ x.name }}</span><span></span><span class="size mono">{{ x.copied }} new, {{ x.updated }} updated</span><span class="files muted">{{ x.skipped }} same</span></li>
+                }
+              </ul>
+            }
+          </div>
+          }
         </div>
       } @else {
         <div class="card muted" style="display: flex; align-items: center; gap: 0.65rem">
@@ -162,6 +183,15 @@ export class AdminStorageComponent {
 
   readonly detail = signal<StorageDetail | null>(null);
   readonly quotaInput = signal<string | null>(null);
+  readonly syncReport = signal<DriveSyncReport | null>(null);
+  readonly syncAvailable = signal(false);
+
+  sync(direction: 'MongoToSql' | 'SqlToMongo' | 'Both'): void {
+    this.status.run(this.api.syncDriveData(direction), (r) => {
+      this.syncReport.set(r);
+      this.status.notify([r.message]);
+    });
+  }
 
   readonly percent = computed(() => {
     const s = this.detail()?.summary;
@@ -178,6 +208,10 @@ export class AdminStorageComponent {
 
   constructor() {
     this.load(false);
+    this.api.syncDriveDataAvailable().subscribe({
+      next: (ok) => this.syncAvailable.set(ok),
+      error: () => this.syncAvailable.set(false),
+    });
   }
 
   load(refresh: boolean): void {

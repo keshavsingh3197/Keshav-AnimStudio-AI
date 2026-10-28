@@ -119,6 +119,9 @@ public interface IRenderJobRepository
 
     Task CompleteAsync(RenderJob job, CancellationToken ct);
     Task RequestCancelAsync(string jobId, CancellationToken ct);
+
+    /// <summary>Removes a job record. Callers only delete finished jobs.</summary>
+    Task DeleteAsync(string jobId, CancellationToken ct);
     Task<IReadOnlyList<string>> ListActiveJobIdsAsync(CancellationToken ct);
 
     /// <summary>
