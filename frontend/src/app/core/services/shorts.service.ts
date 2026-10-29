@@ -112,6 +112,12 @@ export class ShortsService {
       .pipe(map((r) => r.data as LibraryBulk));
   }
 
+  /** Deletes the given copies (or, with none given, every used one); the Drive file goes to the Drive trash. */
+  deleteArchived(handoffIds?: string[]): Observable<LibraryBulk> {
+    return this.http.post<ApiResponse<LibraryBulk>>(`${this.library}/delete`, { handoffIds: handoffIds ?? null })
+      .pipe(map((r) => r.data as LibraryBulk));
+  }
+
   /** The copy's bytes, streamed from Drive through the server; with markUsed it is then marked used. */
   downloadCopy(handoffId: string, markUsed: boolean, autoArchive = true): Observable<Blob> {
     return this.http.get(`${this.library}/download/${encodeURIComponent(handoffId)}`, {

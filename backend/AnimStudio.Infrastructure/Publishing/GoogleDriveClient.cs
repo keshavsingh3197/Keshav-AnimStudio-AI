@@ -171,6 +171,15 @@ public sealed partial class GoogleDriveClient : IDisposable
         }
     }
 
+    /// <summary>Moves an app-made file to the Drive trash (recoverable there for 30 days).</summary>
+    public async Task TrashFileAsync(string accessToken, string fileId, CancellationToken ct)
+    {
+        if (!IsFileId(fileId)) return;
+        using (await SendJsonAsync(HttpMethod.Patch, $"{Api}files/{Uri.EscapeDataString(fileId)}?fields=id", new { trashed = true }, accessToken, "files.trash", ct).ConfigureAwait(false))
+        {
+        }
+    }
+
     /// <summary>
     /// Streams an app-made file's content into the stream <paramref name="open"/> returns. The
     /// destination is only opened once Drive has agreed to send the file, so a failure can still

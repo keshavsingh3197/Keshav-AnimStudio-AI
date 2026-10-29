@@ -6,6 +6,7 @@ import { Observable } from 'rxjs';
 
 import { LibraryBulk, LibraryItem, LibraryPage, LibraryQuery, LibraryView } from '../../core/models/shorts.models';
 import { ShortsService } from '../../core/services/shorts.service';
+import { YouTubePublishService } from '../../core/services/youtube-publish.service';
 import { TopicPickerComponent } from '../../shared/topic-picker.component';
 
 type Sort = NonNullable<LibraryQuery['sort']>;
@@ -38,8 +39,8 @@ type FormatFilter = 'all' | 'short' | 'video';
             ☁ Sync Drive
           </button>
           <button type="button" class="lp-btn" (click)="reload()" [disabled]="busy() || loading()">↻ Refresh</button>
-          <button type="button" class="lp-btn primary" (click)="archiveUsed()" [disabled]="busy() || !(data()?.counts?.used)">
-            Archive {{ data()?.counts?.used ?? 0 }} used
+          <button type="button" class="lp-btn danger" (click)="deleteUsed()" [disabled]="busy() || !(data()?.counts?.used)">
+            🗑 Delete {{ data()?.counts?.used ?? 0 }} used
           </button>
         </div>
       </header>
@@ -93,6 +94,20 @@ type FormatFilter = 'all' | 'short' | 'video';
 
       @if (message(); as m) { <p class="lp-msg" role="status">{{ m }}</p> }
 
+      @if (driveState() === 'missing' || driveState() === 'reconnect') {
+        <section class="lp-card lp-connect" role="alert">
+          <div>
+            <strong>{{ driveState() === 'reconnect' ? 'Reconnect Google Drive' : 'Connect Google Drive' }}</strong>
+            <p class="muted">{{ driveState() === 'reconnect'
+              ? 'Google needs you to sign in again before AnimStudio can reach your saved shorts.'
+              : 'Connect your Google Drive once and your shorts and videos are saved, organised by topic, and available to fetch and download here.' }}</p>
+          </div>
+          <button type="button" class="lp-btn primary" (click)="connectDrive()" [disabled]="driveBusy()">
+            {{ driveBusy() ? 'Opening Google…' : (driveState() === 'reconnect' ? 'Reconnect Google Drive' : 'Connect Google Drive') }}
+          </button>
+        </section>
+      }
+
       <section class="lp-card">
         <div class="lp-bar">
           <label class="lp-check"><input type="checkbox" [checked]="allOnPageSelected()" (change)="togglePage()" /> Page</label>
@@ -123,6 +138,7 @@ type FormatFilter = 'all' | 'short' | 'video';
           } @else {
             <button type="button" class="lp-btn" (click)="archiveSelected()" [disabled]="busy() || !selected().size">Archive</button>
           }
+          <button type="button" class="lp-btn danger" (click)="deleteSelected()" [disabled]="busy() || !selected().size">🗑 Delete</button>
         </div>
 
         <div class="lp-move">
@@ -132,9 +148,9 @@ type FormatFilter = 'all' | 'short' | 'video';
             {{ moveTarget() ? 'Move to topic' : 'Remove from topic' }}
           </button>
           <span class="lp-spacer"></span>
-          <label class="lp-check" title="Used shorts move to Archive/&lt;topic&gt; on Drive automatically">
+          <label class="lp-check" title="Used shorts are deleted automatically (Drive file moves to the Drive trash)">
             <input type="checkbox" [ngModel]="autoArchive()" (ngModelChange)="autoArchive.set($event)" />
-            Auto-archive when used
+            Auto-delete when used
           </label>
         </div>
 
@@ -396,6 +412,9 @@ type FormatFilter = 'all' | 'short' | 'video';
     .lp-link { background: none; border: none; color: var(--brand, #a78bfa); cursor: pointer; font: inherit; font-size: 0.82rem; padding: 0; }
     .lp-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
     .lp-msg { margin: 0; padding: 8px 12px; border: 1px solid var(--border, #30363d); border-radius: 8px; font-size: 0.85rem; background: rgba(56, 139, 253, 0.1); }
+    .lp-connect { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-color: rgba(56, 139, 253, 0.5); }
+    .lp-connect p { margin: 4px 0 0; }
+    .lp-btn.danger { color: #ff7b72; border-color: rgba(248, 81, 73, 0.5); }
     .lp-check { display: flex; align-items: center; gap: 6px; font-size: 0.82rem; cursor: pointer; }
     .lp-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; --w: 210px; grid-template-columns: repeat(auto-fill, minmax(var(--w), 1fr)); }
     .lp-items.loading, .lp-table-wrap.loading { opacity: 0.55; }
@@ -494,6 +513,10 @@ type FormatFilter = 'all' | 'short' | 'video';
 export class ShortsLibraryPageComponent implements OnDestroy {
   private readonly api = inject(ShortsService);
   private readonly route = inject(ActivatedRoute);
+  private readonly youtube = inject(YouTubePublishService);
+
+  readonly driveState = signal<'unknown' | 'ok' | 'missing' | 'reconnect'>('unknown');
+  readonly driveBusy = signal(false);
 
   readonly pageSizes = [10, 25, 50, 100];
   readonly modes: { id: ViewMode; label: string; icon: string }[] = [
@@ -577,6 +600,35 @@ export class ShortsLibraryPageComponent implements OnDestroy {
       this.topicId.set(initialTopic);
     }
     this.reload();
+    this.checkDriveConnection();
+  }
+
+  private checkDriveConnection(): void {
+    this.youtube.driveConnections().subscribe({
+      next: (list) => {
+        if (list.some((d) => d.connected && !d.needsReconnect)) this.driveState.set('ok');
+        else this.driveState.set(list.some((d) => d.connected && d.needsReconnect) ? 'reconnect' : 'missing');
+      },
+      error: () => this.driveState.set('unknown'),
+    });
+  }
+
+  connectDrive(): void {
+    this.driveBusy.set(true);
+    this.youtube.startDriveConnect('/shorts/library').subscribe({
+      next: (url) => {
+        if (!url.startsWith('https://accounts.google.com/')) {
+          this.driveBusy.set(false);
+          this.message.set('Unexpected Google sign-in URL.');
+          return;
+        }
+        window.location.assign(url);
+      },
+      error: (e: Error) => {
+        this.driveBusy.set(false);
+        this.message.set(e.message || 'Could not connect Google Drive.');
+      },
+    });
   }
 
   ngOnDestroy(): void {
@@ -766,7 +818,7 @@ export class ShortsLibraryPageComponent implements OnDestroy {
   }
 
   setUsed(used: boolean): void {
-    this.run(this.api.markUsed([...this.selected()], used, this.autoArchive()), (r) => this.report(r, used ? (this.autoArchive() ? 'marked used and archived' : 'marked used') : 'marked unused'));
+    this.run(this.api.markUsed([...this.selected()], used, this.autoArchive()), (r) => this.report(r, used ? (this.autoArchive() ? 'marked used and deleted' : 'marked used') : 'marked unused'));
   }
 
   /** Direct 1-click Used / Unused toggle on an individual card or row. */
@@ -774,7 +826,7 @@ export class ShortsLibraryPageComponent implements OnDestroy {
     const nextUsed = !item.usedAt;
     this.run(
       this.api.markUsed([item.handoffId], nextUsed, this.autoArchive()),
-      (r) => this.report(r, nextUsed ? (this.autoArchive() ? 'marked used and archived' : 'marked used') : 'marked unused'),
+      (r) => this.report(r, nextUsed ? (this.autoArchive() ? 'marked used and deleted' : 'marked used') : 'marked unused'),
     );
   }
 
@@ -782,14 +834,20 @@ export class ShortsLibraryPageComponent implements OnDestroy {
     this.run(this.api.archive([...this.selected()]), (r) => this.report(r, 'archived'));
   }
 
-  archiveUsed(): void {
+  deleteUsed(): void {
     const n = this.data()?.counts.used ?? 0;
-    if (!confirm(`Move ${n} used items to the Archive folder on Drive?`)) return;
-    this.run(this.api.archive(), (r) => this.report(r, 'archived'));
+    if (!confirm(`Delete ${n} used items? Their Google Drive files move to the Drive trash.`)) return;
+    this.run(this.api.deleteArchived(), (r) => this.report(r, 'deleted'));
   }
 
   restoreSelected(): void {
     this.run(this.api.restore([...this.selected()]), (r) => this.report(r, 'restored'));
+  }
+
+  deleteSelected(): void {
+    const n = this.selected().size;
+    if (!confirm(`Delete ${n} item${n === 1 ? '' : 's'}? Their Google Drive files move to the Drive trash.`)) return;
+    this.run(this.api.deleteArchived([...this.selected()]), (r) => this.report(r, 'deleted'));
   }
 
   downloadOne(item: LibraryItem): void {
@@ -833,7 +891,7 @@ export class ShortsLibraryPageComponent implements OnDestroy {
     }
     this.busy.set(false);
     if (ok > 0) {
-      this.message.set(`Downloaded ${ok} and marked ${ok === 1 ? 'it' : 'them'} used${this.autoArchive() ? ' - moved to Archive' : ''}.`);
+      this.message.set(`Downloaded ${ok} and marked ${ok === 1 ? 'it' : 'them'} used${this.autoArchive() ? ' - deleted from the library' : ''}.`);
       this.reload(false);
     }
   }

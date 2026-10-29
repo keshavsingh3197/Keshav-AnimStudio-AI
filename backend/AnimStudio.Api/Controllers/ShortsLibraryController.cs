@@ -45,6 +45,7 @@ public sealed class ShortsLibraryController(
     private const int MaxRecords = 2000;
     private const int MaxPageSize = 100;
     private const int MaxBulk = 200;
+    private const string DeletedCode = "library-deleted";
 
     private static readonly PhoneHandoffState[] OnDriveStates =
         [PhoneHandoffState.Saved, PhoneHandoffState.WaitingForPhone, PhoneHandoffState.Applied, PhoneHandoffState.Expired];
@@ -134,15 +135,9 @@ public sealed class ShortsLibraryController(
             if (request.Used)
             {
                 h.UsedAt ??= DateTime.UtcNow;
-                if (request.Archive && !h.Archived)
+                if (request.Archive)
                 {
-                    if (token is not null && file is not null)
-                        await ArchiveOnDriveAsync(h, token, file, target, ct);
-                    else
-                    {
-                        h.Archived = true;
-                        h.DriveSubfolders = [.. ArchivePath(h.Topic)];
-                    }
+                    await DeleteCopyAsync(h, token, file, ct);
                 }
             }
             else
@@ -223,6 +218,31 @@ public sealed class ShortsLibraryController(
             h.DriveSubfolders = [.. folders];
         }, ct);
         return Ok(ApiResponse<LibraryBulkResponse>.Ok(result));
+    }
+
+    /// <summary>Deletes archived or used copies: the Drive file goes to the Drive trash and the copy leaves the library for good. With no ids, every used copy.</summary>
+    [HttpPost("delete")]
+    public async Task<ActionResult<ApiResponse<LibraryBulkResponse>>> Delete([FromBody] LibraryArchiveRequest? request, CancellationToken ct)
+    {
+        IReadOnlyList<string> ids = request?.HandoffIds is { Count: > 0 } given
+            ? given
+            : [.. (await LoadAsync(ct)).Copies.Where(h => h.UsedAt is not null).Select(h => h.Id).Take(MaxBulk)];
+
+        var result = await ForEachCopyAsync(ids, async (h, token, file, target) =>
+        {
+            if (!h.Archived && h.UsedAt is null) throw new YouTubePublishException("not-used", "Only used or archived items can be deleted.");
+            await DeleteCopyAsync(h, token, file, ct);
+        }, ct);
+        return Ok(ApiResponse<LibraryBulkResponse>.Ok(result));
+    }
+
+    private async Task DeleteCopyAsync(PhoneHandoff h, string? token, GoogleDriveFileInfo? file, CancellationToken ct)
+    {
+        if (token is not null && file is not null) await driveClient.TrashFileAsync(token, file.Id, ct);
+        h.UsedAt ??= DateTime.UtcNow;
+        h.State = PhoneHandoffState.Cancelled;
+        h.ErrorCode = DeletedCode;
+        h.Error = "Deleted from the library.";
     }
 
     /// <summary>
@@ -314,7 +334,7 @@ public sealed class ShortsLibraryController(
         if (!inline && markUsed && h.UsedAt is null)
         {
             h.UsedAt = DateTime.UtcNow;
-            if (autoArchive && !h.Archived)
+            if (autoArchive)
             {
                 if (h.DriveFileId is not null && !h.DriveMissing)
                 {
@@ -323,17 +343,16 @@ public sealed class ShortsLibraryController(
                         var target = new DriveTarget(currentUser.UserId, h.DriveChannelId, h.DriveFolderName);
                         var token = await drive.GetAccessTokenAsync(target, CancellationToken.None);
                         var file = await driveClient.GetFileAsync(token, h.DriveFileId, CancellationToken.None);
-                        if (file is { Trashed: false }) await ArchiveOnDriveAsync(h, token, file, target, CancellationToken.None);
+                        await DeleteCopyAsync(h, token, file, CancellationToken.None);
                     }
                     catch (YouTubePublishException ex)
                     {
-                        logger.LogWarning("Archiving downloaded copy {HandoffId} failed: {Code}", h.Id, ex.Code);
+                        logger.LogWarning("Deleting downloaded copy {HandoffId} failed: {Code}", h.Id, ex.Code);
                     }
                 }
                 else
                 {
-                    h.Archived = true;
-                    h.DriveSubfolders = [.. ArchivePath(h.Topic)];
+                    await DeleteCopyAsync(h, null, null, CancellationToken.None);
                 }
             }
             await handoffs.UpsertAsync(h, CancellationToken.None);
@@ -435,9 +454,13 @@ public sealed class ShortsLibraryController(
         DriveTarget? defaultDriveTarget = null;
         var resolvedDefaultDrive = false;
 
+        // A copy deleted from the library must not be recreated from its topic-tagged render.
+        var deletedJobIds = allHandoffs.Where(h => h.ErrorCode == DeletedCode).Select(h => h.JobId).ToHashSet(StringComparer.Ordinal);
+
         foreach (var job in jobMap.Values)
         {
             if (job.TopicId is null || !topicMap.TryGetValue(job.TopicId, out var jobTopic)) continue;
+            if (deletedJobIds.Contains(job.Id)) continue;
             var ready = job.Status is RenderJobStatus.Completed or RenderJobStatus.CompletedWithWarnings && job.OutputStorageKey is not null;
 
             if (handoffsByJobId.TryGetValue(job.Id, out var existingHandoff))
