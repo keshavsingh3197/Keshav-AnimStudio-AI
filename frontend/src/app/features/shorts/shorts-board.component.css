@@ -317,3 +317,10 @@
   .sb-name { max-width: none; }
   .sb-row > label, .sb-label { width: 100%; }
 }
+
+/* Large-library helpers */
+.sb-more { display: flex; gap: 12px; align-items: center; justify-content: center; padding: 10px 0; list-style: none; margin: 0; }
+.sb-more-groups { padding: 16px 0 28px; }
+.sb-range { margin: 4px 2px 8px; font-size: 0.78rem; }
+.sb-bulk { position: sticky; top: 0; z-index: 5; backdrop-filter: blur(6px); }
+.sb-group { content-visibility: auto; contain-intrinsic-size: auto 64px; }

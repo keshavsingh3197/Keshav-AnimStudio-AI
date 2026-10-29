@@ -33,6 +33,13 @@ const STATUS_FILTERS: readonly { id: StatusFilter; label: string }[] = [
 const BUSY_POLL_MS = 4000;
 const IDLE_POLL_MS = 60000;
 
+/** Large libraries: render in windows so 100k renders never means 100k DOM rows. */
+const GROUPS_PAGE = 20;
+const ROWS_PAGE = 50;
+const ALERTS_COLLAPSED = 3;
+const POOLS_COLLAPSED = 8;
+const SEARCH_DEBOUNCE_MS = 250;
+
 /**
  * Every short - grouped into the Auto Shorts batch it came from - with where each one has
  * gone, and bulk actions to send many at once: save to Google Drive, publish to YouTube,
@@ -70,7 +77,10 @@ export class ShortsBoardComponent {
   readonly scope = signal<'shorts' | 'all'>('shorts');
   readonly statusFilter = signal<StatusFilter>('all');
   readonly projectFilter = signal<string>('');
+  /** What is typed; `search` follows it after a pause so each keystroke doesn't re-filter everything. */
+  readonly searchText = signal('');
   readonly search = signal('');
+  private searchTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly projects = computed(() => {
     const seen = new Map<string, string>();
@@ -90,21 +100,56 @@ export class ShortsBoardComponent {
     });
   });
 
+  /** One pass over the data for all chip counts (not one pass per chip). */
   readonly filterCounts = computed(() => {
     const all = this.overview()?.shorts ?? [];
     const counts = {} as Record<StatusFilter, number>;
-    for (const f of STATUS_FILTERS) counts[f.id] = all.filter((r) => this.matches(r, f.id)).length;
+    for (const f of STATUS_FILTERS) counts[f.id] = 0;
+    for (const r of all) for (const f of STATUS_FILTERS) if (this.matches(r, f.id)) counts[f.id]++;
     return counts;
   });
 
   readonly groups = computed(() => groupShorts(this.rows()));
 
+  /** How many batches are drawn; "Show more" raises it. */
+  readonly groupLimit = signal(GROUPS_PAGE);
+  readonly visibleGroups = computed(() => this.groups().slice(0, this.groupLimit()));
+  readonly hiddenGroups = computed(() => Math.max(0, this.groups().length - this.groupLimit()));
+  readonly rowLimits = signal<Record<string, number>>({});
+
+  /** Per-batch counts, computed once per data change and only for the batches on screen. */
+  readonly stats = computed(() => {
+    const map = new Map<string, { ready: number; rendering: number; failed: number; youtube: number; drive: number }>();
+    for (const g of this.visibleGroups()) {
+      const s = { ready: 0, rendering: 0, failed: 0, youtube: 0, drive: 0 };
+      for (const r of g.rows) {
+        if (isReady(r)) s.ready++;
+        if (!isTerminal(r.job.status)) s.rendering++;
+        if (r.job.status === 'Failed') s.failed++;
+        if (isOnYouTube(r)) s.youtube++;
+        if (isOnDrive(r)) s.drive++;
+      }
+      map.set(g.key, s);
+    }
+    return map;
+  });
+
+  readonly alertsOpen = signal(false);
+  readonly poolsOpen = signal(false);
   readonly alerts = computed(() => {
     const list = this.overview()?.alerts ?? [];
     const project = this.projectId();
     return project ? list.filter((a) => !a.projectId || a.projectId === project) : list;
   });
+  readonly shownAlerts = computed(() => this.alertsOpen() ? this.alerts() : this.alerts().slice(0, ALERTS_COLLAPSED));
 
+  /** Projects that need attention (out of stock) come first; the rest can be expanded. */
+  readonly sortedPools = computed(() => {
+    const pools = [...(this.overview()?.pools ?? [])];
+    const stock = (p: { unusedVideos: number; unusedImages: number }) => p.unusedVideos + p.unusedImages;
+    return pools.sort((a, b) => stock(a) - stock(b) || a.projectName.localeCompare(b.projectName));
+  });
+  readonly shownPools = computed(() => this.poolsOpen() ? this.sortedPools() : this.sortedPools().slice(0, POOLS_COLLAPSED));
   // --- selection
   readonly selected = signal<ReadonlySet<string>>(new Set());
   readonly selectedRows = computed(() => (this.overview()?.shorts ?? []).filter((r) => this.selected().has(r.job.jobId)));
@@ -147,7 +192,7 @@ export class ShortsBoardComponent {
   private scrolledTo: string | null = null;
 
   constructor() {
-    inject(DestroyRef).onDestroy(() => this.stopTimer());
+    inject(DestroyRef).onDestroy(() => { this.stopTimer(); if (this.searchTimer !== null) clearTimeout(this.searchTimer); });
 
     // Reload whenever what is asked for changes.
     effect(() => {
@@ -155,8 +200,40 @@ export class ShortsBoardComponent {
       this.scope();
       untracked(() => this.load());
     });
+
+    // A new filter starts from the top again.
+    effect(() => {
+      this.statusFilter(); this.projectFilter(); this.search();
+      untracked(() => { this.groupLimit.set(GROUPS_PAGE); this.rowLimits.set({}); });
+    });
   }
 
+  onSearch(value: string): void {
+    this.searchText.set(value);
+    if (this.searchTimer !== null) clearTimeout(this.searchTimer);
+    this.searchTimer = setTimeout(() => this.search.set(value), SEARCH_DEBOUNCE_MS);
+  }
+
+  showMoreGroups(): void { this.groupLimit.update((n) => n + GROUPS_PAGE); }
+  showAllGroups(): void { this.groupLimit.set(this.groups().length); }
+
+  visibleRows(group: ShortsGroup): ShortRow[] {
+    const n = this.rowLimits()[group.key] ?? ROWS_PAGE;
+    return group.rows.length > n ? group.rows.slice(0, n) : group.rows;
+  }
+
+  hiddenRows(group: ShortsGroup): number {
+    return Math.max(0, group.rows.length - (this.rowLimits()[group.key] ?? ROWS_PAGE));
+  }
+
+  showMoreRows(group: ShortsGroup, all = false): void {
+    this.rowLimits.update((m) => ({ ...m, [group.key]: all ? group.rows.length : (m[group.key] ?? ROWS_PAGE) + ROWS_PAGE }));
+  }
+
+  /** Opens every shown batch, or folds them all away. */
+  setAllOpen(open: boolean): void {
+    this.toggled.set(new Set(this.visibleGroups().filter((g, i) => this.isOpen(g, i) !== open).map((g) => g.key)));
+  }
   load(): void {
     this.stopTimer();
     this.shorts.overview(this.projectId(), this.scope()).pipe(
@@ -198,13 +275,7 @@ export class ShortsBoardComponent {
   }
 
   groupStats(group: ShortsGroup): { ready: number; rendering: number; failed: number; youtube: number; drive: number } {
-    return {
-      ready: group.rows.filter(isReady).length,
-      rendering: group.rows.filter((r) => !isTerminal(r.job.status)).length,
-      failed: group.rows.filter((r) => r.job.status === 'Failed').length,
-      youtube: group.rows.filter(isOnYouTube).length,
-      drive: group.rows.filter(isOnDrive).length,
-    };
+    return this.stats().get(group.key) ?? { ready: 0, rendering: 0, failed: 0, youtube: 0, drive: 0 };
   }
 
   // --- selection
@@ -462,7 +533,16 @@ export class ShortsBoardComponent {
 
   private schedule(): void {
     this.stopTimer();
-    this.timer = setTimeout(() => this.load(), this.busy() ? BUSY_POLL_MS : IDLE_POLL_MS);
+    // A hidden tab doesn't poll; it refreshes once when it is looked at again.
+    this.timer = setTimeout(() => {
+      if (typeof document !== 'undefined' && document.hidden) { this.waitForVisible(); return; }
+      this.load();
+    }, this.busy() ? BUSY_POLL_MS : IDLE_POLL_MS);
+  }
+
+  private waitForVisible(): void {
+    const onVisible = () => { if (!document.hidden) { document.removeEventListener('visibilitychange', onVisible); this.load(); } };
+    document.addEventListener('visibilitychange', onVisible);
   }
 
   private stopTimer(): void {
