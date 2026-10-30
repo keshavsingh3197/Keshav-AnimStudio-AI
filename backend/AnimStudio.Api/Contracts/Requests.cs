@@ -237,6 +237,18 @@ public sealed record CreateSubProjectRequest
     public string? Description { get; init; }
 
     public bool UseSharedAssets { get; init; } = true;
+
+    /// <summary>Also copy the parent's own files into the new sub-project (independent of the parent afterwards).</summary>
+    public bool CopyAssets { get; init; }
+}
+
+public sealed record SetParentProjectRequest
+{
+    /// <summary>The project to go under; null or empty makes this one top-level again.</summary>
+    [StringLength(64)] public string? ParentProjectId { get; init; }
+
+    /// <summary>"share" (live link, the default), "copy" (independent copies of the parent's files) or "none".</summary>
+    [RegularExpression("^(share|copy|none)$")] public string AssetMode { get; init; } = "share";
 }
 
 public sealed record CreateSceneRequest

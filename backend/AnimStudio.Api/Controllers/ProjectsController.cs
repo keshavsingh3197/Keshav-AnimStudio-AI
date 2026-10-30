@@ -16,6 +16,7 @@ namespace AnimStudio.Api.Controllers;
 public sealed class ProjectsController(
     IProjectRepository projects,
     ProjectEditingService editing,
+    ProjectHierarchyService hierarchy,
     IAiSettingsRepository aiSettingsRepo,
     ICurrentUser currentUser,
     IOptionsMonitor<AdminOptions> adminOptions,
@@ -213,16 +214,32 @@ public sealed class ProjectsController(
                 DefaultWatermark = parent.Settings.DefaultWatermark,
                 DefaultOutro = parent.Settings.DefaultOutro,
                 DefaultImageDurationSeconds = parent.Settings.DefaultImageDurationSeconds,
-                UseSharedAssets = request.UseSharedAssets
+                UseSharedAssets = request.UseSharedAssets && !request.CopyAssets
             },
             CreatedAt = now,
             UpdatedAt = now
         };
 
         await projects.InsertAsync(subProject, ct);
+        if (request.CopyAssets)
+            await hierarchy.CopyParentAssetsAsync(parent.Id, subProject.Id, currentUser.UserId, ct);
 
         return CreatedAtAction(nameof(Get), new { id = subProject.Id },
             ApiResponse<ProjectResponse>.Ok(subProject.ToResponse(0)));
+    }
+
+    /// <summary>
+    /// Makes an existing project a sub-project of another (or top-level again when no parent is
+    /// given), with its files shared live, copied, or kept apart.
+    /// </summary>
+    [HttpPut("{id}/parent")]
+    public async Task<ActionResult<ApiResponse<ProjectResponse>>> SetParent(
+        string id, [FromBody] SetParentProjectRequest request, CancellationToken ct)
+    {
+        var mode = request.AssetMode switch { "copy" => ParentAssetMode.Copy, "none" => ParentAssetMode.None, _ => ParentAssetMode.Share };
+        var project = await hierarchy.SetParentAsync(id, currentUser.UserId, request.ParentProjectId, mode, ct);
+        var subProjects = await projects.ListSubProjectsAsync(id, ct);
+        return Ok(ApiResponse<ProjectResponse>.Ok(project.ToResponse(subProjects.Count)));
     }
 
     [HttpPost("{id}/duplicate")]

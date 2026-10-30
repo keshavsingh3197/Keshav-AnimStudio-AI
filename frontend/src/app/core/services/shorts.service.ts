@@ -70,6 +70,12 @@ export class ShortsService {
 
   private readonly library = `${environment.apiUrl}/api/shorts/library`;
 
+  /** Reads every connected Drive's Topics / Archive folders and adds what the library doesn't know yet. */
+  importFromDrive(): Observable<{ drives: number; added: number; topicsAdded: number; revived: number; skippedDrives: number }> {
+    return this.http.post<ApiResponse<{ drives: number; added: number; topicsAdded: number; revived: number; skippedDrives: number }>>(
+      `${this.library}/import-drive`, {}).pipe(map((r) => r.data as { drives: number; added: number; topicsAdded: number; revived: number; skippedDrives: number }));
+  }
+
   /** One page of the Drive library for the filters, with the counts the filter chips show. */
   libraryItems(query: LibraryQuery): Observable<LibraryPage> {
     return this.http.get<ApiResponse<LibraryPage>>(`${this.library}/items`, { params: this.libraryParams(query) })

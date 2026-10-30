@@ -9,7 +9,7 @@ import {
   AdminProviderTest, AdminUsage, AiCapabilities, ApiResponse, Asset, AssetSearchOptions, AssetSearchResult, BundleApplyBody,
   VoiceoverBody, VoiceoverVoices, MyVoice, VoiceScriptDictation, VoiceScriptPolish, MediaTranscript,
   BundleImportResult, BundlePreview, Character, CharacterBody, AutoShortsBody, AutoShortsPreview, AutoShortsResult, ClipMergeBody, ClipOrder,
-  ClipStudio, CreateProjectBody, CreateSubProjectBody,
+  ClipStudio, CreateProjectBody, CreateSubProjectBody, SetParentBody,
   CreateSceneBody, DialogueBody, IngestCapabilities, IngestResult, IngestSummary,
   PlacementBody, Project, RenderJob, ExportTimelineFormat, RendererStatus, Scene, SceneAudioBody, SceneDetail,
   SceneGenerationResult, ScriptDetail, ScriptSummary, UpdateProjectBody, UpdateSceneBody,
@@ -147,6 +147,11 @@ export class ApiService {
 
   createSubProject(parentId: string, body: CreateSubProjectBody): Observable<Project> {
     return this.unwrap(this.http.post<ApiResponse<Project>>(`${this.base}/api/projects/${parentId}/subprojects`, body));
+  }
+
+  /** Puts an existing project under another (or back to top level), with its files shared, copied or kept apart. */
+  setProjectParent(projectId: string, body: SetParentBody): Observable<Project> {
+    return this.unwrap(this.http.put<ApiResponse<Project>>(`${this.base}/api/projects/${projectId}/parent`, body));
   }
 
   duplicateProject(projectId: string, name?: string): Observable<Project> {

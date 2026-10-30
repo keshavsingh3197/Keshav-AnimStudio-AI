@@ -11,6 +11,8 @@ namespace AnimStudio.Infrastructure.Publishing;
 public sealed record GoogleDriveAccount(string? Name, string? Email);
 
 /// <summary>A file as Drive describes it: enough to tell whether it is still there, and where.</summary>
+public sealed record GoogleDriveChild(string Id, string Name, bool IsFolder, string MimeType, long Size, DateTime? CreatedAt);
+
 public sealed record GoogleDriveFileInfo(string Id, string Name, bool Trashed, IReadOnlyList<string> Parents);
 
 /// <summary>
@@ -211,6 +213,37 @@ public sealed partial class GoogleDriveClient : IDisposable
             await using var source = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
             await source.CopyToAsync(destination, 81920, ct).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>The app-made items directly inside <paramref name="parentId"/>: sub-folders and files.</summary>
+    public async Task<IReadOnlyList<GoogleDriveChild>> ListChildrenAsync(string accessToken, string parentId, CancellationToken ct)
+    {
+        if (!IsFileId(parentId)) return [];
+
+        var list = new List<GoogleDriveChild>();
+        string? pageToken = null;
+        do
+        {
+            var query = $"'{parentId}' in parents and trashed=false";
+            var url = $"{Api}files?q={Uri.EscapeDataString(query)}&fields=nextPageToken,files(id,name,mimeType,size,createdTime)&pageSize=200&spaces=drive"
+                + (pageToken is null ? string.Empty : "&pageToken=" + Uri.EscapeDataString(pageToken));
+            using var found = await SendJsonAsync(HttpMethod.Get, url, null, accessToken, "files.list", ct).ConfigureAwait(false);
+            if (found.RootElement.TryGetProperty("files", out var files) && files.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var f in files.EnumerateArray())
+                {
+                    if (ReadString(f, "id") is not { } id || !IsFileId(id) || ReadString(f, "name") is not { } name) continue;
+                    var mime = ReadString(f, "mimeType") ?? string.Empty;
+                    long.TryParse(ReadString(f, "size"), out var size);
+                    DateTime.TryParse(ReadString(f, "createdTime"), System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var created);
+                    list.Add(new GoogleDriveChild(id, Shorten(name, 300)!, mime == FolderMimeType, mime, size, created == default ? null : created));
+                }
+            }
+            pageToken = ReadString(found.RootElement, "nextPageToken");
+        }
+        while (pageToken is not null && list.Count < 5000);
+        return list;
     }
 
     /// <summary>

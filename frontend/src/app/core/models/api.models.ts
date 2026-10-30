@@ -108,6 +108,17 @@ export interface CreateSubProjectBody {
   name: string;
   description?: string | null;
   useSharedAssets: boolean;
+  /** Also copy the parent's own files into the new sub-project. */
+  copyAssets?: boolean;
+}
+
+/** How a project's files relate to its parent's: live link, independent copies, or none. */
+export type ParentAssetMode = 'share' | 'copy' | 'none';
+
+export interface SetParentBody {
+  /** Null makes the project top-level again. */
+  parentProjectId: string | null;
+  assetMode: ParentAssetMode;
 }
 
 export interface AssetFolder {

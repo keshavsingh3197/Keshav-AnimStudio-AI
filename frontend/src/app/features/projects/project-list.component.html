@@ -323,6 +323,9 @@
         <span>project(s) selected</span>
       </div>
       <div class="bulk-buttons">
+        <button type="button" class="btn-bulk-clear" (click)="openMoveSelected()">
+          Move to project…
+        </button>
         <button type="button" class="btn-bulk-danger" (click)="deleteSelected()">
           Delete Selected
         </button>
@@ -370,7 +373,8 @@
     @if (viewMode() === 'grid') {
       <div class="projects-grid">
         @for (project of paginatedProjects; track project.id) {
-          <div class="project-card" [class.is-selected]="selectedProjectIds.has(project.id)" [class.menu-open]="activeMenuProjectId() === project.id" (click)="openInClips(project.id)">
+          <div class="project-card" draggable="true" [class.is-selected]="selectedProjectIds.has(project.id)" [class.is-dragging]="dragProjectIds().includes(project.id)" [class.is-drop-target]="dropTargetId() === project.id" [class.menu-open]="activeMenuProjectId() === project.id" (click)="openInClips(project.id)"
+               (dragstart)="onProjectDragStart(project, $event)" (dragend)="onProjectDragEnd()" (dragover)="onProjectDragOver(project, $event)" (dragleave)="onProjectDragLeave(project)" (drop)="onProjectDrop(project, $event)">
             <!-- Top Card Overlay Buttons: Checkbox & Pin -->
             <div class="card-overlay-top" (click)="$event.stopPropagation()">
               <input type="checkbox" class="project-checkbox"
@@ -484,6 +488,10 @@
                       <button type="button" class="dropdown-item" (click)="openCreateSubProject(project, $event)">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                         Add Sub-project
+                      </button>
+                      <button type="button" class="dropdown-item" (click)="openMoveProject(project, $event)">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+                        Move to project…
                       </button>
                       <button type="button" class="dropdown-item" (click)="duplicateProject(project, $event)">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
@@ -617,7 +625,8 @@
           </thead>
           <tbody>
             @for (project of paginatedProjects; track project.id) {
-              <tr class="table-row" [class.is-selected]="selectedProjectIds.has(project.id)">
+              <tr class="table-row" draggable="true" [class.is-selected]="selectedProjectIds.has(project.id)" [class.is-dragging]="dragProjectIds().includes(project.id)" [class.is-drop-target]="dropTargetId() === project.id"
+                  (dragstart)="onProjectDragStart(project, $event)" (dragend)="onProjectDragEnd()" (dragover)="onProjectDragOver(project, $event)" (dragleave)="onProjectDragLeave(project)" (drop)="onProjectDrop(project, $event)">
                 <td>
                   <input type="checkbox" class="project-checkbox"
                          [checked]="selectedProjectIds.has(project.id)"
@@ -721,6 +730,10 @@
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                         Add Sub-project
                       </button>
+                      <button type="button" class="dropdown-item" (click)="openMoveProject(project, $event)">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+                              Move to project…
+                            </button>
                       <button type="button" class="dropdown-item" (click)="duplicateProject(project, $event)">
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                               Duplicate
@@ -847,6 +860,85 @@
   <app-asset-thumbnail-picker [projectId]="tp.id" (picked)="setThumbnailFromAsset($event)" (closed)="thumbPickerProject.set(null)" />
 }
 
+@if (movingProjects().length > 0) {
+  <div class="modal-backdrop" style="position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 1000;" (click)="cancelMoveProject()" (keydown.escape)="cancelMoveProject()">
+    <div style="background: #161b22; border: 1px solid var(--border); border-radius: 12px; width: 100%; max-width: 500px; padding: 1.5rem; box-shadow: 0 20px 40px rgba(0,0,0,0.5);" (click)="$event.stopPropagation()">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <div style="min-width: 0;">
+          <h2 style="font-size: 1.15rem; font-weight: 600; color: #f1f5f9; margin: 0;">Move into another project</h2>
+          <p style="font-size: 0.8rem; color: #94a3b8; margin: 0.2rem 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+            @if (movingProjects().length === 1) { Project: <strong>{{ movingProjects()[0].name }}</strong> }
+            @else { <strong>{{ movingProjects().length }} projects</strong> selected }
+          </p>
+        </div>
+        <button type="button" (click)="cancelMoveProject()" aria-label="Close" style="background: transparent; border: none; color: #94a3b8; font-size: 1.2rem; cursor: pointer;">✕</button>
+      </div>
+
+      @if (movingProjects().length > 1) {
+        <div style="display: flex; flex-wrap: wrap; gap: 0.35rem; margin-bottom: 0.9rem; max-height: 72px; overflow: auto;">
+          @for (m of movingProjects(); track m.id) {
+            <span style="font-size: 0.75rem; color: #cbd5e1; background: rgba(99,102,241,0.15); border-radius: 999px; padding: 0.15rem 0.6rem; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ m.name }}</span>
+          }
+        </div>
+      }
+
+      @if (moveCandidates(movingProjects()).length === 0) {
+        <p style="font-size: 0.85rem; color: #fbbf24;">There is no other project to move this under.</p>
+      } @else {
+        <div style="display: flex; flex-direction: column; gap: 1rem;">
+          <div>
+            <label for="moveSearchInput" style="display: block; font-size: 0.85rem; font-weight: 500; color: #e2e8f0; margin-bottom: 0.35rem;">Parent project</label>
+            <input id="moveSearchInput" type="search" autofocus placeholder="Search projects…" autocomplete="off"
+                   [ngModel]="moveSearch()" (ngModelChange)="moveSearch.set($event)"
+                   style="width: 100%; box-sizing: border-box; padding: 0.5rem 0.75rem; border-radius: 6px; border: 1px solid var(--border); background: #0d1117; color: #fff; font-size: 0.9rem; margin-bottom: 0.5rem;" />
+            <div role="listbox" style="max-height: 220px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; background: #0d1117;">
+              @for (c of filteredMoveCandidates(movingProjects()); track c.id) {
+                <button type="button" role="option" [attr.aria-selected]="moveParentId === c.id" (click)="moveParentId = c.id" (dblclick)="moveParentId = c.id; submitMoveProject()"
+                        [style.background]="moveParentId === c.id ? 'rgba(99,102,241,0.25)' : 'transparent'"
+                        style="display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 0.5rem; text-align: left; padding: 0.5rem 0.75rem; border: none; color: #e2e8f0; font-size: 0.88rem; cursor: pointer;">
+                  <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ c.name }}</span>
+                  @if (moveParentId === c.id) { <span style="color: #818cf8;">✓</span> }
+                </button>
+              } @empty {
+                <p style="margin: 0; padding: 0.75rem; font-size: 0.82rem; color: #94a3b8;">No projects match "{{ moveSearch() }}".</p>
+              }
+            </div>
+          </div>
+
+          <div style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 8px; padding: 0.9rem; display: flex; flex-direction: column; gap: 0.7rem;">
+            <span style="font-size: 0.88rem; font-weight: 500; color: #f1f5f9;">Assets</span>
+            <label style="display: flex; gap: 0.6rem; cursor: pointer; margin: 0;">
+              <input type="radio" name="moveAssetMode" value="share" [(ngModel)]="moveAssetMode" />
+              <span style="font-size: 0.82rem; color: #cbd5e1;"><strong>Share (linked)</strong> – both see the same pool, new uploads appear on both sides.</span>
+            </label>
+            <label style="display: flex; gap: 0.6rem; cursor: pointer; margin: 0;">
+              <input type="radio" name="moveAssetMode" value="copy" [(ngModel)]="moveAssetMode" />
+              <span style="font-size: 0.82rem; color: #cbd5e1;"><strong>Copy the parent's assets</strong> into this project; they stay independent afterwards.</span>
+            </label>
+            <label style="display: flex; gap: 0.6rem; cursor: pointer; margin: 0;">
+              <input type="radio" name="moveAssetMode" value="none" [(ngModel)]="moveAssetMode" />
+              <span style="font-size: 0.82rem; color: #cbd5e1;"><strong>Keep apart</strong> – only this project's own files.</span>
+            </label>
+            <p style="margin: 0; font-size: 0.75rem; color: #94a3b8; line-height: 1.4;">Files this project already uses from a family it leaves are copied in automatically so scenes and cast keep working.</p>
+          </div>
+        </div>
+      }
+
+      <div style="display: flex; justify-content: space-between; gap: 0.75rem; margin-top: 1rem;">
+        <div>
+          @if (hasMovingChild()) {
+            <button type="button" (click)="submitMoveProject(true)" [disabled]="moveBusy()" style="padding: 0.5rem 1rem; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: #fbbf24; cursor: pointer;">Make top-level</button>
+          }
+        </div>
+        <div style="display: flex; gap: 0.75rem;">
+          <button type="button" (click)="cancelMoveProject()" [disabled]="moveBusy()" style="padding: 0.5rem 1rem; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: #94a3b8; cursor: pointer;">Cancel</button>
+          <button type="button" (click)="submitMoveProject()" [disabled]="!moveParentId || moveBusy() || moveCandidates(movingProjects()).length === 0" style="padding: 0.5rem 1.25rem; border-radius: 6px; border: none; background: #6366f1; color: #fff; font-weight: 500; cursor: pointer;">{{ moveBusy() ? 'Moving…' : 'Move' }}</button>
+        </div>
+      </div>
+    </div>
+  </div>
+}
+
 @if (creatingSubProjectFor(); as parent) {
   <div class="modal-backdrop" style="position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 1000;" (click)="cancelCreateSubProject()">
     <div class="subproject-modal-card" style="background: #161b22; border: 1px solid var(--border); border-radius: 12px; width: 100%; max-width: 500px; padding: 1.5rem; box-shadow: 0 20px 40px rgba(0,0,0,0.5);" (click)="$event.stopPropagation()">
@@ -869,14 +961,27 @@
           <textarea [(ngModel)]="subProjectDescription" placeholder="Notes for this sub-project..." rows="2" style="width: 100%; padding: 0.5rem 0.75rem; border-radius: 6px; border: 1px solid var(--border); background: #0d1117; color: #fff; font-size: 0.85rem;"></textarea>
         </div>
 
-        <div style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 8px; padding: 0.9rem;">
+        <div style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 8px; padding: 0.9rem; display: flex; flex-direction: column; gap: 0.7rem;">
+          <span style="font-size: 0.88rem; font-weight: 500; color: #f1f5f9;">Assets from "{{ parent.name }}"</span>
           <label style="display: flex; align-items: flex-start; gap: 0.6rem; cursor: pointer; margin: 0;">
-            <input type="checkbox" [(ngModel)]="subProjectUseSharedAssets" style="margin-top: 0.2rem;" />
+            <input type="radio" name="subAssetMode" value="share" [(ngModel)]="subProjectAssetMode" style="margin-top: 0.2rem;" />
             <div>
-              <span style="font-size: 0.88rem; font-weight: 500; color: #f1f5f9;">Use the project's shared assets</span>
-              <p style="margin: 0.25rem 0 0; font-size: 0.78rem; color: #94a3b8; line-height: 1.4;">
-                Your uploads are always added to the shared pool so other sub-projects can use them.
-              </p>
+              <span style="font-size: 0.85rem; color: #f1f5f9;">Share (linked)</span>
+              <p style="margin: 0.2rem 0 0; font-size: 0.75rem; color: #94a3b8; line-height: 1.4;">Both see the same pool. Files added to either show up in the other.</p>
+            </div>
+          </label>
+          <label style="display: flex; align-items: flex-start; gap: 0.6rem; cursor: pointer; margin: 0;">
+            <input type="radio" name="subAssetMode" value="copy" [(ngModel)]="subProjectAssetMode" style="margin-top: 0.2rem;" />
+            <div>
+              <span style="font-size: 0.85rem; color: #f1f5f9;">Copy the parent's assets</span>
+              <p style="margin: 0.2rem 0 0; font-size: 0.75rem; color: #94a3b8; line-height: 1.4;">Independent copies now; later changes don't affect each other.</p>
+            </div>
+          </label>
+          <label style="display: flex; align-items: flex-start; gap: 0.6rem; cursor: pointer; margin: 0;">
+            <input type="radio" name="subAssetMode" value="none" [(ngModel)]="subProjectAssetMode" style="margin-top: 0.2rem;" />
+            <div>
+              <span style="font-size: 0.85rem; color: #f1f5f9;">Start empty</span>
+              <p style="margin: 0.2rem 0 0; font-size: 0.75rem; color: #94a3b8; line-height: 1.4;">Only this sub-project's own uploads.</p>
             </div>
           </label>
         </div>

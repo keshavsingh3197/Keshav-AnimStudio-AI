@@ -5,7 +5,7 @@ import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 
 import {
-  BrandChannel, CANVAS_PRESETS, DEFAULT_BRAND_CHANNEL, DISTRIBUTION_INTENTS, Project, aspectRatioLabel, videoFormat,
+  BrandChannel, CANVAS_PRESETS, DEFAULT_BRAND_CHANNEL, DISTRIBUTION_INTENTS, ParentAssetMode, Project, aspectRatioLabel, videoFormat,
 } from '../../core/models/api.models';
 import { ApiService } from '../../core/services/api.service';
 import { StatusService } from '../../core/services/status.service';
@@ -42,7 +42,16 @@ export class ProjectListComponent {
   readonly creatingSubProjectFor = signal<Project | null>(null);
   subProjectName = '';
   subProjectDescription = '';
-  subProjectUseSharedAssets = true;
+  subProjectAssetMode: ParentAssetMode = 'share';
+
+  // Move a project under another (or back out)
+  readonly movingProjects = signal<Project[]>([]);
+  moveParentId = '';
+  readonly moveSearch = signal('');
+  readonly moveBusy = signal(false);
+  readonly dragProjectIds = signal<string[]>([]);
+  readonly dropTargetId = signal<string | null>(null);
+  moveAssetMode: ParentAssetMode = 'share';
 
   // View & Filter State
   readonly viewMode = signal<'grid' | 'table'>('grid');
@@ -182,7 +191,7 @@ export class ProjectListComponent {
     const count = this.subProjectsCount(parent);
     this.subProjectName = `${parent.name} - Part ${count + 1}`;
     this.subProjectDescription = '';
-    this.subProjectUseSharedAssets = true;
+    this.subProjectAssetMode = 'share';
   }
 
   cancelCreateSubProject(): void {
@@ -197,7 +206,8 @@ export class ProjectListComponent {
       this.api.createSubProject(parent.id, {
         name: this.subProjectName.trim(),
         description: this.subProjectDescription.trim() || undefined,
-        useSharedAssets: this.subProjectUseSharedAssets,
+        useSharedAssets: this.subProjectAssetMode === 'share',
+        copyAssets: this.subProjectAssetMode === 'copy',
       }),
       (subProject) => {
         this.projects.update((list) => [
@@ -211,6 +221,143 @@ export class ProjectListComponent {
         void this.router.navigate(['/projects', subProject.id, 'clips']);
       }
     );
+  }
+
+  /** Top-level projects the given projects can be moved under: not themselves. */
+  moveCandidates(moving: Project[]): Project[] {
+    const ids = new Set(moving.map((m) => m.id));
+    return this.projects().filter((p) => !p.parentProjectId && !ids.has(p.id));
+  }
+
+  /** Candidates narrowed by the search box (name or description). */
+  filteredMoveCandidates(moving: Project[]): Project[] {
+    const q = this.moveSearch().trim().toLowerCase();
+    const list = this.moveCandidates(moving);
+    return q ? list.filter((p) => p.name.toLowerCase().includes(q) || (p.description ?? '').toLowerCase().includes(q)) : list;
+  }
+
+  /** Projects that own sub-projects cannot be nested (one level only). */
+  movable(list: Project[]): Project[] {
+    return list.filter((p) => this.subProjectsCount(p) === 0);
+  }
+
+  openMoveProject(project: Project, event?: Event, targetId?: string): void {
+    event?.stopPropagation();
+    this.closeMenus();
+    this.openMoveProjects([project], targetId);
+  }
+
+  openMoveSelected(): void {
+    const list = this.projects().filter((p) => this.selectedProjectIds.has(p.id));
+    this.openMoveProjects(list);
+  }
+
+  openMoveProjects(list: Project[], targetId?: string): void {
+    const movable = this.movable(list);
+    if (movable.length === 0) {
+      this.status.showError('Projects that contain sub-projects cannot be moved. Move their sub-projects out first.');
+      return;
+    }
+    if (movable.length < list.length) {
+      this.status.showNotice(`${list.length - movable.length} project(s) with sub-projects were skipped.`);
+    }
+    this.movingProjects.set(movable);
+    this.moveSearch.set('');
+    const candidates = this.moveCandidates(movable);
+    const first = movable[0];
+    const preferred = targetId ?? (movable.length === 1 ? first.parentProjectId : null) ?? '';
+    this.moveParentId = candidates.some((c) => c.id === preferred) ? preferred : '';
+    this.moveAssetMode = movable.length === 1 && first.parentProjectId && first.useSharedAssets === false ? 'none' : 'share';
+  }
+
+  hasMovingChild(): boolean {
+    return this.movingProjects().some((p) => !!p.parentProjectId);
+  }
+
+  cancelMoveProject(): void {
+    if (this.moveBusy()) return;
+    this.movingProjects.set([]);
+  }
+
+  // Drag & drop: dropping project card(s) on another project opens the move dialog.
+  onProjectDragStart(project: Project, event: DragEvent): void {
+    const ids = this.selectedProjectIds.has(project.id) ? [...this.selectedProjectIds] : [project.id];
+    this.dragProjectIds.set(ids);
+    event.dataTransfer?.setData('text/plain', ids.join(','));
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+  }
+
+  onProjectDragEnd(): void {
+    this.dragProjectIds.set([]);
+    this.dropTargetId.set(null);
+  }
+
+  canDropOn(target: Project): boolean {
+    const ids = this.dragProjectIds();
+    return ids.length > 0 && !ids.includes(target.id) && !target.parentProjectId;
+  }
+
+  onProjectDragOver(target: Project, event: DragEvent): void {
+    if (!this.canDropOn(target)) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    if (this.dropTargetId() !== target.id) this.dropTargetId.set(target.id);
+  }
+
+  onProjectDragLeave(target: Project): void {
+    if (this.dropTargetId() === target.id) this.dropTargetId.set(null);
+  }
+
+  onProjectDrop(target: Project, event: DragEvent): void {
+    if (!this.canDropOn(target)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const ids = new Set(this.dragProjectIds());
+    this.onProjectDragEnd();
+    this.openMoveProjects(this.projects().filter((p) => ids.has(p.id)), target.id);
+  }
+
+  /** Moves every project under the chosen parent; no parent (makeTopLevel) makes them top-level again. */
+  async submitMoveProject(makeTopLevel = false): Promise<void> {
+    const moving = this.movingProjects();
+    if (moving.length === 0 || (!makeTopLevel && !this.moveParentId) || this.moveBusy()) return;
+
+    this.moveBusy.set(true);
+    let moved = 0;
+    let lastParentId: string | null = null;
+    try {
+      for (const project of moving) {
+        const updated = await firstValueFrom(this.api.setProjectParent(project.id, {
+          parentProjectId: makeTopLevel ? null : this.moveParentId,
+          assetMode: makeTopLevel ? 'none' : this.moveAssetMode,
+        }));
+        moved++;
+        lastParentId = updated.parentProjectId ?? null;
+        this.projects.update((list) => list.map((p) => {
+          if (p.id === updated.id) return updated;
+          if (p.id === project.parentProjectId && p.id !== updated.parentProjectId) return { ...p, subProjectCount: Math.max(0, (p.subProjectCount ?? 1) - 1) };
+          if (p.id === updated.parentProjectId && p.id !== project.parentProjectId) return { ...p, subProjectCount: (p.subProjectCount ?? 0) + 1 };
+          return p;
+        }));
+        this.selectedProjectIds.delete(project.id);
+      }
+      this.movingProjects.set([]);
+    } catch (err) {
+      this.status.showError(`Moved ${moved} of ${moving.length} project(s): ${(err as { message?: string })?.message ?? 'request failed'}`);
+      this.movingProjects.set(moving.slice(moved));
+    } finally {
+      this.moveBusy.set(false);
+    }
+
+    if (lastParentId) {
+      const set = new Set(this.expandedProjectIds());
+      set.add(lastParentId);
+      this.expandedProjectIds.set(set);
+    }
+    if (moved > 0) {
+      const noun = moved === 1 ? `"${moving[0].name}"` : `${moved} projects`;
+      this.status.notify([makeTopLevel ? `${noun} ${moved === 1 ? 'is' : 'are'} top-level again.` : `${noun} moved into the parent project.`]);
+    }
   }
 
   get filteredAndSortedProjects(): Project[] {

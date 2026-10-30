@@ -214,6 +214,7 @@ public static class DependencyInjection
         // --- editing
         services.AddScoped<ProjectStatusService>();
         services.AddScoped<ProjectEditingService>();
+        services.AddScoped<ProjectHierarchyService>();
         services.AddScoped<CharacterEditingService>();
         services.AddScoped<SceneEditingService>();
         services.AddScoped<AssetLibraryService>();

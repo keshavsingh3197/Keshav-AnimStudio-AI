@@ -2,7 +2,7 @@ import { DatePipe, DecimalPipe } from '@angular/common';
 import { Component, HostListener, OnDestroy, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { Observable } from 'rxjs';
+import { Observable, catchError, map, of, switchMap } from 'rxjs';
 
 import { LibraryBulk, LibraryItem, LibraryPage, LibraryQuery, LibraryView } from '../../core/models/shorts.models';
 import { ShortsService } from '../../core/services/shorts.service';
@@ -601,6 +601,15 @@ export class ShortsLibraryPageComponent implements OnDestroy {
     }
     this.reload();
     this.checkDriveConnection();
+    this.api.importFromDrive().subscribe({
+      next: (imp) => {
+        if (imp.added > 0 || imp.topicsAdded > 0) {
+          this.message.set(`${imp.added} video(s) imported from Google Drive.`);
+          this.reload(false);
+        }
+      },
+      error: () => undefined,
+    });
   }
 
   private checkDriveConnection(): void {
@@ -778,11 +787,15 @@ export class ShortsLibraryPageComponent implements OnDestroy {
 
   syncDrive(): void {
     this.busy.set(true);
-    this.message.set('Checking Google Drive and organizing topic folders…');
-    this.api.checkDrive(true).subscribe({
-      next: (res) => {
+    this.message.set('Reading your Google Drives and organizing topic folders…');
+    this.api.importFromDrive().pipe(
+      catchError(() => of(null)),
+      switchMap((imp) => this.api.checkDrive(true).pipe(map((res) => ({ imp, res })))),
+    ).subscribe({
+      next: ({ imp, res }) => {
         this.busy.set(false);
-        this.message.set(`Drive synced: ${res.present} present, ${res.moved} organized into folders.`);
+        const found = imp ? ` ${imp.added} imported from ${imp.drives} Drive(s)${imp.topicsAdded ? `, ${imp.topicsAdded} new topic(s)` : ''}.` : '';
+        this.message.set(`Drive synced: ${res.present} present, ${res.moved} organized into folders.${found}`);
         this.reload(false);
       },
       error: () => {

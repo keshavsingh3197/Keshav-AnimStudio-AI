@@ -1433,3 +1433,7 @@
 
 /* Filters size to their content instead of the global full-width select rule */
 .toolbar-left .toolbar-select { width: auto; flex: 0 0 auto; min-width: 150px; max-width: 220px; }
+
+.project-card.is-dragging, .table-row.is-dragging { opacity: 0.45; }
+.project-card.is-drop-target { outline: 2px dashed #818cf8; outline-offset: 2px; background: rgba(99, 102, 241, 0.12); }
+.table-row.is-drop-target { outline: 2px dashed #818cf8; outline-offset: -2px; background: rgba(99, 102, 241, 0.12); }

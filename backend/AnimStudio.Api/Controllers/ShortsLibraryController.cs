@@ -95,6 +95,131 @@ public sealed class ShortsLibraryController(
         return Ok(ApiResponse<IReadOnlyList<string>>.Ok(ids));
     }
 
+    /// <summary>
+    /// Builds the library straight from the connected Google Drives, with nothing needed in the
+    /// database first: every video under <c>Topics/&lt;name&gt;</c> or <c>Archive[/&lt;name&gt;]</c>
+    /// of each Drive's folder gets a library record (and a calendar topic by folder name), unless
+    /// one already points at that Drive file.
+    /// </summary>
+    [HttpPost("import-drive")]
+    public async Task<ActionResult<ApiResponse<LibraryImportResponse>>> ImportFromDrive(CancellationToken ct)
+    {
+        var userId = currentUser.UserId;
+        var targets = new Dictionary<string, DriveTarget>(StringComparer.Ordinal);
+        var skippedDrives = 0;
+        foreach (var status in await drive.ListAsync(userId, ct))
+        {
+            if (!status.Connected) continue;
+            try
+            {
+                var t = await drive.ResolveAsync(userId, status.ChannelId, null, ct);
+                targets.TryAdd($"{t.DriveChannelId}|{t.FolderName}", t);
+            }
+            catch (YouTubePublishException)
+            {
+                skippedDrives++;
+            }
+        }
+
+        var known = (await handoffs.ListByUserAsync(userId, null, MaxRecords * 5, ct))
+            .Where(h => h.DriveFileId is not null)
+            .GroupBy(h => h.DriveFileId!, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+
+        var byName = new Dictionary<string, ContentTopic>(StringComparer.OrdinalIgnoreCase);
+        foreach (var t in await topics.ListByUserAsync(userId, ct))
+        {
+            byName.TryAdd(DriveCopies.TopicFolderName(t), t);
+            byName.TryAdd(t.Name, t);
+        }
+
+        int added = 0, topicsAdded = 0, revived = 0;
+        foreach (var target in targets.Values)
+        {
+            try
+            {
+                var token = await drive.GetAccessTokenAsync(target, ct);
+                var rootId = await drive.EnsureFolderAsync(target, token, ct);
+                var root = await driveClient.ListChildrenAsync(token, rootId, ct);
+
+                // (folder id, topic folder name or null, archived)
+                var sources = new List<(string Id, string? Topic, bool Archived)>();
+                foreach (var area in root.Where(c => c.IsFolder))
+                {
+                    var archived = string.Equals(area.Name, DriveCopies.ArchiveFolder, StringComparison.OrdinalIgnoreCase);
+                    if (!archived && !string.Equals(area.Name, DriveCopies.TopicsFolder, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (archived) sources.Add((area.Id, null, true));
+                    foreach (var topicFolder in await driveClient.ListChildrenAsync(token, area.Id, ct))
+                    {
+                        if (topicFolder.IsFolder) sources.Add((topicFolder.Id, topicFolder.Name, archived));
+                    }
+                }
+
+                foreach (var (folderId, topicName, archived) in sources)
+                {
+                    ContentTopic? topic = null;
+                    if (topicName is not null && !byName.TryGetValue(topicName, out topic))
+                    {
+                        topic = await planning.CreateTopicAsync(userId,
+                            new ContentTopicCommand(topicName, null, null, null, null, null, null, null, 3, 21, true, true, null, null, false), ct);
+                        byName[topicName] = topic;
+                        topicsAdded++;
+                    }
+
+                    foreach (var file in await driveClient.ListChildrenAsync(token, folderId, ct))
+                    {
+                        if (file.IsFolder || !file.MimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase)) continue;
+                        if (known.TryGetValue(file.Id, out var existing))
+                        {
+                            if (existing.DriveMissing)
+                            {
+                                existing.DriveMissing = false;
+                                await handoffs.UpsertAsync(existing, ct);
+                                revived++;
+                            }
+                            continue;
+                        }
+
+                        var title = Path.GetFileNameWithoutExtension(file.Name);
+                        var folderName = topic is null ? null : DriveCopies.TopicFolderName(topic);
+                        var created = new PhoneHandoff
+                        {
+                            Id = Guid.NewGuid().ToString("N"),
+                            UserId = userId,
+                            JobId = "drive-" + file.Id,
+                            Title = string.IsNullOrWhiteSpace(title) ? file.Name : title,
+                            SaveOnly = true,
+                            DriveChannelId = target.DriveChannelId,
+                            DriveFolderName = target.FolderName,
+                            DriveFileId = file.Id,
+                            DriveFileName = file.Name,
+                            TopicId = topic?.Id,
+                            Topic = folderName,
+                            Archived = archived,
+                            UsedAt = archived ? file.CreatedAt ?? DateTime.UtcNow : null,
+                            DriveSubfolders = [.. archived ? ArchivePath(folderName) : folderName is null ? [] : DriveCopies.TopicPath(folderName)],
+                            TotalBytes = file.Size,
+                            BytesSent = file.Size,
+                            State = PhoneHandoffState.Saved,
+                            CreatedAt = file.CreatedAt ?? DateTime.UtcNow,
+                            SentAt = file.CreatedAt,
+                        };
+                        await handoffs.UpsertAsync(created, ct);
+                        known[file.Id] = created;
+                        added++;
+                    }
+                }
+            }
+            catch (YouTubePublishException ex)
+            {
+                logger.LogWarning("Could not read a Google Drive for the library: {Code}", ex.Code);
+                skippedDrives++;
+            }
+        }
+
+        return Ok(ApiResponse<LibraryImportResponse>.Ok(new LibraryImportResponse(targets.Count - skippedDrives, added, topicsAdded, revived, skippedDrives)));
+    }
+
     /// <summary>Files the copies under a topic (moving them on Drive), or out of any topic when none is named.</summary>
     [HttpPost("move")]
     public async Task<ActionResult<ApiResponse<LibraryBulkResponse>>> Move([FromBody] LibraryMoveRequest request, CancellationToken ct)
@@ -714,3 +839,5 @@ public sealed record LibraryRestoreRequest
 }
 
 public sealed record LibraryBulkResponse(int Done, int Failed, string? Error);
+
+public sealed record LibraryImportResponse(int Drives, int Added, int TopicsAdded, int Revived, int SkippedDrives);
