@@ -46,3 +46,11 @@
 .dp-attention { margin: 0; padding: 0.35rem 0.6rem; border-radius: var(--radius-sm); }
 
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+@media (max-width: 560px) {
+  .dp-head { flex-wrap: wrap; }
+  .dp-title { flex-basis: calc(100% - 4rem); white-space: normal; }
+  .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .steps li { white-space: normal; }
+  .dp-notes { max-height: none; overflow-wrap: anywhere; }
+}

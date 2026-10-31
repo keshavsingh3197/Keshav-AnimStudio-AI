@@ -26,7 +26,7 @@ import { createPasskeyErrorMessage, getPasskeyAssertion, isPasskeySupported, Ser
 
           <div class="modal-body">
             @if (errorMessage()) {
-              <div class="alert alert-error">
+              <div class="alert alert-error" role="alert">
                 <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                 <span>{{ errorMessage() }}</span>
               </div>
@@ -107,13 +107,13 @@ import { createPasskeyErrorMessage, getPasskeyAssertion, isPasskeySupported, Ser
                 <div class="info-callout">
                   <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
                   <span>
-                    Powered by Keshav Singh Central SSO (<code>id.keshavsingh.in</code>). Accounts registered here are securely scoped to AnimStudio.
+                    Use your Central SSO password here, not a device PIN or passkey. To use a passkey, choose the passkey button below.
                   </span>
                 </div>
 
                 <div class="modal-actions">
                   <button type="button" class="btn btn-secondary" (click)="auth.closeAuthModal()">Cancel</button>
-                  <button type="submit" class="btn btn-primary" [disabled]="loading() || !email || !password">
+                  <button type="submit" class="btn btn-primary" [disabled]="loading() || passkeyLoading() || !email || !password">
                     @if (loading()) {
                       <span class="spinner"></span> Signing in...
                     } @else {
@@ -516,7 +516,7 @@ export class LoginModalComponent {
   }
 
   submitLogin() {
-    if (!this.email || !this.password) return;
+    if (this.loading() || this.passkeyLoading() || !this.email || !this.password) return;
 
     this.loading.set(true);
     this.errorMessage.set(null);
@@ -567,7 +567,7 @@ export class LoginModalComponent {
   submitTwoFactor() {
     const code = this.twoFactorCode.trim();
     const token = this.twoFactorToken();
-    if (!code) return;
+    if (this.loading() || this.passkeyLoading() || !code) return;
 
     this.loading.set(true);
     this.errorMessage.set(null);

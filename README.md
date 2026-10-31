@@ -66,6 +66,20 @@ Craft viral Shorts, Reels, YouTube videos, animated stories, and narrated slides
 - **Usage and deletion safety**: Downloads mark videos used. Auto-delete remains on by default, but downloads and marking used ask for confirmation before removing library records and sending Drive copies to trash. Turn it off under **Download & usage settings** to keep used videos. Archive and delete remain separate actions.
 - **Transient failure recovery**: Library reads retry network/server failures twice with backoff, within a 60-second overall limit. If they still fail, previous results remain visible with actions disabled and a Retry button. Authentication/validation failures and state-changing operations are not automatically retried.
 
+### Content Calendar
+- **Responsive planning**: Agenda and progress views wrap on phones; the monthly calendar scrolls inside its own container so post labels and 44 px day/add controls remain usable. Topic and publish-day controls expose their selected states.
+- **Reliable updates**: Refresh reloads both topics and posts. Topic-loading failures remain visible independently of successful post loads, and outdated requests cannot replace the current view. Ready actions prevent duplicate submissions.
+- **Post controls**: Open posts with native title buttons. Keyboard activation of the separate Ready button no longer opens the post editor. New posts preserve a topic's midnight publish time.
+
+### Sign-in troubleshooting
+
+The active page and its nested routed components are recreated when the data owner changes (guest to member, account switch, or session loss), so signing in from a page such as the Drive library loads that account's data without a manual browser refresh. The current URL, query parameters, and fragment are retained; local page state and selections reset rather than carrying another account's state forward. Renewing a token or updating the same account's profile does not reset the page. The shell also refreshes access links and the Shorts badge.
+- An **Active** account can still have a temporary password/2FA lockout. AnimStudio forwards Central SSO's HTTP 423 response; it does not disable the account itself.
+- The password form requires the Central SSO password, not a device PIN or passkey. Choose **Sign in with Passkey** for the separate Central SSO flow. Existing sessions and passkey eligibility are governed by the identity service.
+- Avoid repeated password attempts during a lockout. Wait for it to expire or use the identity portal's supported recovery options; ask an identity administrator to inspect lockout expiry and failed-sign-in audit events if it persists.
+- `token.reuse_detected` is different from password lockout: the identity service received an already-rotated refresh token and revoked sessions. The identity proxy does not keep cookies in its pooled HTTP handler; it forwards each browser's cookie explicitly. Session-rotation POSTs are never automatically retried, and same-origin tabs serialize refreshes with Web Locks when supported. These safeguards do not bypass identity-service replay detection.
+- On a matching production subdomain, the proxy preserves the shared SSO cookie domain and removes the legacy host-only copy. On localhost or an unrelated host it uses a host-only cookie. Previously created stale cookies may require signing in again after updating the API. Same-origin locks do not coordinate simultaneous refreshes from different portal origins.
+
 ### 🎵 Music Release Kit
 - **Distributor-Ready Master**: Two-pass loudness normalisation to -14 LUFS / -1 dBTP (or -16 / -11), 16- or 24-bit WAV at 44.1/48/96 kHz.
 - **Artwork & Promo Videos**: 3000×3000 cover, a full-length 16:9 YouTube visualizer, and an 8-second 9:16 loop for Spotify Canvas, Reels and Shorts.

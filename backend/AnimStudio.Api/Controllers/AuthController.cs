@@ -438,17 +438,35 @@ public sealed class AuthController(
             var cookie = SetCookieHeaderValue.Parse(new StringSegment(cookieHeader));
             if (string.Equals(cookie.Name.Value, "ks_sso", StringComparison.OrdinalIgnoreCase))
             {
-                // The IdP's cookie domain does not match the API host. Re-scope the
-                // session cookie to this host so the browser accepts it on localhost
-                // and sends it back to the API on subsequent credentialed requests.
-                cookie.Domain = null;
-                cookie.Path = "/";
-                cookie.SameSite = Microsoft.Net.Http.Headers.SameSiteMode.None;
-                cookie.Secure = true;
+                AdaptSsoCookie(cookie, Request.Host.Host);
+                if (cookie.Domain.HasValue)
+                {
+                    // Remove the host-only copy written by older proxy versions; it can
+                    // shadow the shared cookie after another portal rotates the session.
+                    Response.Cookies.Delete("ks_sso", new CookieOptions
+                    {
+                        Path = "/",
+                        Secure = true,
+                        SameSite = Microsoft.AspNetCore.Http.SameSiteMode.None,
+                    });
+                }
             }
 
             Response.Headers.Append(HeaderNames.SetCookie, cookie.ToString());
         }
+    }
+
+    internal static void AdaptSsoCookie(SetCookieHeaderValue cookie, string host)
+    {
+        var domain = cookie.Domain.Value?.TrimStart('.');
+        var domainMatches = !string.IsNullOrWhiteSpace(domain) &&
+            (host.Equals(domain, StringComparison.OrdinalIgnoreCase) ||
+             host.EndsWith("." + domain, StringComparison.OrdinalIgnoreCase));
+        if (!domainMatches)
+            cookie.Domain = null;
+        cookie.Path = "/";
+        cookie.SameSite = Microsoft.Net.Http.Headers.SameSiteMode.None;
+        cookie.Secure = true;
     }
 }
 

@@ -1,4 +1,4 @@
-import { Component, ElementRef, effect, inject, signal, viewChild } from '@angular/core';
+import { Component, ElementRef, computed, effect, inject, signal, untracked, viewChild } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
 import { AdminAccess } from '../core/models/api.models';
@@ -219,7 +219,9 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
       }
 
       <app-project-hub-modal [(isOpen)]="showVideoModal"></app-project-hub-modal>
-      <router-outlet></router-outlet>
+      @for (scope of pageScopes(); track scope.key) {
+        <router-outlet></router-outlet>
+      }
     </main>
 
     <app-activity-panel></app-activity-panel>
@@ -731,15 +733,23 @@ export class AppShellComponent {
 
   readonly showVideoModal = signal(false);
   readonly mobileNavOpen = signal(false);
+  // Recreate the active route tree only when its data owner changes, not on token renewal.
+  private readonly pageScope = computed(() => {
+    const user = this.auth.user();
+    return this.auth.isAuthenticated() && user
+      ? `member:${user.userId}`
+      : `guest:${this.auth.guestId()}`;
+  });
+  readonly pageScopes = computed(() => [{ key: this.pageScope() }]);
   /** Warnings and errors on the Shorts page - failed renders or copies, used-up stock, a missed weekly goal. */
   readonly shortsAttention = signal(0);
   private readonly shorts = inject(ShortsService);
   readonly year = new Date().getFullYear();
   private readonly banner = viewChild<ElementRef<HTMLElement>>('banner');
 
-  private refreshShortsAttention(): void {
+  private refreshShortsAttention() {
     // A badge is a nicety: if the overview can't be read, there is simply no badge.
-    this.shorts.overview().subscribe({
+    return this.shorts.overview().subscribe({
       next: (o) => this.shortsAttention.set(o.alerts.filter((a) => a.severity !== 'info').length),
       error: () => undefined,
     });
@@ -780,8 +790,27 @@ export class AppShellComponent {
   }
 
   constructor() {
-    this.refreshShortsAttention();
-    setInterval(() => this.refreshShortsAttention(), SHORTS_ATTENTION_MS);
+    effect((onCleanup) => {
+      this.pageScope();
+      untracked(() => {
+        this.access.set(null);
+        this.shortsAttention.set(0);
+        let attention = this.refreshShortsAttention();
+        const attentionTimer = setInterval(() => {
+          attention.unsubscribe();
+          attention = this.refreshShortsAttention();
+        }, SHORTS_ATTENTION_MS);
+        const access = this.api.adminAccess().subscribe({
+          next: (value) => this.access.set(value),
+          error: () => this.access.set(null),
+        });
+        onCleanup(() => {
+          clearInterval(attentionTimer);
+          attention.unsubscribe();
+          access.unsubscribe();
+        });
+      });
+    });
 
     /**
      * Brings a new banner into view.
@@ -808,12 +837,5 @@ export class AppShellComponent {
       }
     });
 
-    // Asked once per visit. A failure here must not put a banner over the whole
-    // application: not knowing whether to show a link is not an error worth reporting, so
-    // this deliberately bypasses the shared error handling.
-    this.api.adminAccess().subscribe({
-      next: (access) => this.access.set(access),
-      error: () => this.access.set(null),
-    });
   }
 }

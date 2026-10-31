@@ -40,7 +40,7 @@ const COLORS = ['#6c8cff', '#a855f7', '#06b6d4', '#22d36b', '#f59e0b', '#f44350'
           <div class="swatches">
             @for (c of colors; track c) {
               <button type="button" class="swatch" [style.background]="c" [class.on]="color === c"
-                      (click)="color = c" [attr.aria-label]="'Colour ' + c"></button>
+                      (click)="color = c" [attr.aria-label]="'Colour ' + c" [attr.aria-pressed]="color === c"></button>
             }
           </div>
         </div>
@@ -49,7 +49,7 @@ const COLORS = ['#6c8cff', '#a855f7', '#06b6d4', '#22d36b', '#f59e0b', '#f44350'
           <label>Publish days</label>
           <div class="day-toggles">
             @for (d of weekDays; track d) {
-              <button type="button" class="day" [class.on]="days().includes(d)" (click)="toggleDay(d)">{{ short(d) }}</button>
+              <button type="button" class="day" [class.on]="days().includes(d)" [attr.aria-pressed]="days().includes(d)" (click)="toggleDay(d)">{{ short(d) }}</button>
             }
           </div>
           <p class="muted small">Every chosen day gets a planned post automatically. Leave all off to add posts by hand.</p>
