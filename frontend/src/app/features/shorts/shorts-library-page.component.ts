@@ -9,7 +9,9 @@ import { LibraryBulk, LibraryItem, LibraryPage, LibraryQuery, LibraryView } from
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
 import { ShortsService } from '../../core/services/shorts.service';
 import { YouTubePublishService } from '../../core/services/youtube-publish.service';
-import { TopicPickerComponent } from '../../shared/topic-picker.component';
+import { ContentTopic } from '../../core/models/calendar.models';
+import { ContentCalendarService } from '../../core/services/content-calendar.service';
+import { newTopicRequest } from '../../shared/topic-picker.component';
 
 type Sort = NonNullable<LibraryQuery['sort']>;
 type ViewMode = 'xl' | 'large' | 'medium' | 'small' | 'list' | 'details' | 'tiles' | 'content';
@@ -24,10 +26,10 @@ type FormatFilter = 'all' | NonNullable<LibraryQuery['format']>;
 @Component({
   selector: 'app-shorts-library-page',
   standalone: true,
-  imports: [FormsModule, RouterLink, TopicPickerComponent, DatePipe, DecimalPipe],
+  imports: [FormsModule, RouterLink, DatePipe, DecimalPipe],
   template: `
     <div class="lp studio-wide-page">
-      <div class="lp-content" [attr.inert]="sampleItem() ? '' : null">
+      <div class="lp-content" [attr.inert]="sampleItem() || moveDialog() ? '' : null">
       <header class="lp-head" [attr.inert]="busy() ? '' : null">
         <div>
           <h2>Drive &amp; Topics Library</h2>
@@ -163,19 +165,17 @@ type FormatFilter = 'all' | NonNullable<LibraryQuery['format']>;
           <button type="button" class="lp-btn" (click)="setUsed(false)" [disabled]="busy() || !selected().size">
             ↺ Mark unused
           </button>
+          <button type="button" class="lp-btn move-btn" (click)="openMove([...selected()])" [disabled]="busy() || !selected().size"
+                  aria-haspopup="dialog" title="Choose a topic for the selected videos">
+            <svg class="lp-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" /><path d="M10 13h6m0 0l-2-2m2 2l-2 2" /></svg>
+            Move to topic…
+          </button>
           @if (view() === 'archived') {
             <button type="button" class="lp-btn" (click)="restoreSelected()" [disabled]="busy() || !selected().size">Restore</button>
           } @else {
             <button type="button" class="lp-btn" (click)="archiveSelected()" [disabled]="busy() || !selected().size">Archive</button>
           }
           <button type="button" class="lp-btn danger" (click)="deleteSelected()" [disabled]="busy() || !selected().size">🗑 Delete</button>
-        </div>
-        <div class="lp-move" [attr.inert]="loading() || busy() || loadError() ? '' : null">
-          <span class="lp-move-label">File selected under topic</span>
-          <app-topic-picker [(value)]="moveTarget" emptyLabel="No topic" [refresh]="data()?.topics?.length" />
-          <button type="button" class="lp-btn" (click)="moveSelected()" [disabled]="busy() || !selected().size">
-            {{ moveTarget() ? 'Move to topic' : 'Remove from topic' }}
-          </button>
         </div>
         @if (selected().size > selectedOnPage().length) {
           <p class="lp-hint muted">Selection includes other pages. Mark, archive, restore, move and delete apply to all {{ selected().size }} selected items; downloads apply to {{ selectedOnPage().length }} on this page.</p>
@@ -255,6 +255,11 @@ type FormatFilter = 'all' | NonNullable<LibraryQuery['format']>;
                                 [title]="i.usedAt ? 'Mark as unused again' : 'Mark as used'">
                           {{ i.usedAt ? '↺ Unused' : '✓ Use' }}
                         </button>
+                        <button type="button" class="lp-btn sm icon-btn" (click)="openMove([i.handoffId])" [disabled]="busy()" aria-haspopup="dialog"
+                                title="Move to a topic" [attr.aria-label]="'Move to topic: ' + i.title">
+                          <svg class="lp-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" /></svg>
+                          Move
+                        </button>
                         @if (i.driveUrl) {
                           <a class="lp-btn sm icon-only" [href]="i.driveUrl" target="_blank" rel="noopener" title="Open in Google Drive" [attr.aria-label]="'Open ' + i.title + ' in Google Drive (new tab)'">
                             <svg class="lp-ico" viewBox="0 0 24 24" aria-hidden="true">
@@ -314,24 +319,31 @@ type FormatFilter = 'all' | NonNullable<LibraryQuery['format']>;
                 </div>
 
                 <div class="lp-acts">
-                  <button type="button" class="lp-btn sm icon-btn" (click)="openSample(i)" title="Play video sample" [attr.aria-label]="'Sample ' + i.title">
+                  <button type="button" class="lp-btn sm icon-btn grow act-sample" (click)="openSample(i)" title="Play video sample" [attr.aria-label]="'Sample ' + i.title">
                     <svg class="lp-ico" viewBox="0 0 24 24" aria-hidden="true"><polygon points="6,4 20,12 6,20" fill="currentColor" stroke="none" /></svg>
                     <span class="act-lbl">Sample</span>
                   </button>
-                  <button type="button" class="lp-btn sm dl-btn icon-btn" (click)="downloadOne(i)" [disabled]="busy()" title="Download MP4 (marks as used)" [attr.aria-label]="'Download ' + i.title + ' (marks as used)'">
+                  <button type="button" class="lp-btn sm dl-btn icon-btn grow" (click)="downloadOne(i)" [disabled]="busy()" title="Download MP4 (marks as used)" [attr.aria-label]="'Download ' + i.title + ' (marks as used)'">
                     <svg class="lp-ico" viewBox="0 0 24 24" aria-hidden="true">
                       <path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
                     </svg>
                     <span class="act-lbl">Download</span>
                   </button>
-                  <button type="button" class="lp-btn sm use-btn" [class.is-used]="!!i.usedAt"
+                  <button type="button" class="lp-btn sm use-btn icon-btn grow" [class.is-used]="!!i.usedAt"
                           (click)="toggleItemUsed(i)" [disabled]="busy()"
                           [title]="i.usedAt ? 'Mark as unused again' : 'Mark as used'" [attr.aria-label]="(i.usedAt ? 'Mark unused: ' : 'Mark used: ') + i.title">
-                    <span class="act-ico">{{ i.usedAt ? '↺' : '✓' }}</span>
+                    <svg class="lp-ico" viewBox="0 0 24 24" aria-hidden="true">
+                      @if (i.usedAt) { <path d="M3 12a9 9 0 109-9 9 9 0 00-6.4 2.6L3 8M3 3v5h5" /> } @else { <path d="M5 12.5l4.5 4.5L19 7.5" /> }
+                    </svg>
                     <span class="act-lbl">{{ i.usedAt ? 'Unused' : 'Mark used' }}</span>
                   </button>
+                  <button type="button" class="lp-btn sm icon-btn grow" (click)="openMove([i.handoffId])" [disabled]="busy()" aria-haspopup="dialog"
+                          [title]="i.topicName ? 'Move from ' + i.topicName + ' to another topic' : 'Move to a topic'" [attr.aria-label]="'Move to topic: ' + i.title">
+                    <svg class="lp-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" /></svg>
+                    <span class="act-lbl">Move</span>
+                  </button>
                   @if (i.driveUrl) {
-                    <a class="lp-btn sm icon-only" [href]="i.driveUrl" target="_blank" rel="noopener" title="Open in Google Drive" [attr.aria-label]="'Open ' + i.title + ' in Google Drive (new tab)'">
+                    <a class="lp-btn sm icon-btn grow act-drive" [href]="i.driveUrl" target="_blank" rel="noopener" title="Open in Google Drive" [attr.aria-label]="'Open ' + i.title + ' in Google Drive (new tab)'">
                       <svg class="lp-ico" viewBox="0 0 24 24" aria-hidden="true">
                         <path d="M14 3h7v7m0-7L10 14M5 5h5M5 5v14h14v-5" />
                       </svg>
@@ -357,6 +369,75 @@ type FormatFilter = 'all' | NonNullable<LibraryQuery['format']>;
         </nav>
       </section>
       </div>
+
+      <!-- MOVE TO TOPIC DIALOG -->
+      @if (moveDialog(); as mv) {
+        <div class="lp-modal-backdrop lp-move-backdrop" (click)="closeMove()">
+          <div #moveDialogEl class="lp-modal lp-move-modal" role="dialog" aria-modal="true" tabindex="-1" aria-labelledby="lp-move-title" (click)="$event.stopPropagation()">
+            <header class="lp-modal-head">
+              <div class="lp-modal-title-wrap">
+                <h3 id="lp-move-title">Move {{ mv.ids.length === 1 ? '1 video' : mv.ids.length + ' videos' }} to a topic</h3>
+                <p class="lp-modal-sub">The Google Drive {{ mv.ids.length === 1 ? 'file is' : 'files are' }} also moved into the chosen topic's folder.</p>
+              </div>
+              <button type="button" class="lp-modal-close" (click)="closeMove()" [disabled]="moveSaving()" aria-label="Close">✕</button>
+            </header>
+
+            <label class="lp-field">
+              <span>Find a topic</span>
+              <input #moveSearchEl class="lp-input" type="search" autocomplete="off" placeholder="Type to filter topics"
+                     [ngModel]="moveSearch()" (ngModelChange)="moveSearch.set($event)" [disabled]="moveSaving()" />
+            </label>
+
+            @if (moveTopicsLoading()) {
+              <p class="lp-hint muted" role="status">Loading topics…</p>
+            } @else if (moveTopicsError()) {
+              <p class="lp-msg lp-error" role="alert">
+                {{ moveTopicsError() }}
+                <button type="button" class="lp-link" (click)="loadMoveTopics()">Retry</button>
+              </p>
+            }
+
+            <div class="lp-topic-list" role="group" aria-label="Topics">
+              @if (moveShowsNone()) {
+                <button type="button" class="lp-topic-opt" [class.on]="moveChoice() === null" [attr.aria-pressed]="moveChoice() === null"
+                        (click)="moveChoice.set(null)" [disabled]="moveSaving()">
+                  <span class="lp-dot none"></span>
+                  <span class="lp-topic-name">No topic <small class="muted">— remove from its topic</small></span>
+                  <span class="lp-topic-count">{{ data()?.counts?.noTopic ?? 0 }}</span>
+                </button>
+              }
+              @for (t of moveList(); track t.id) {
+                <button type="button" class="lp-topic-opt" [class.on]="moveChoice() === t.id" [attr.aria-pressed]="moveChoice() === t.id"
+                        (click)="moveChoice.set(t.id)" [disabled]="moveSaving()">
+                  <span class="lp-dot" [style.background]="t.color || '#6c8cff'"></span>
+                  <span class="lp-topic-name">{{ t.name }} @if (mv.currentTopicId === t.id) { <small class="muted">— current</small> }</span>
+                  <span class="lp-topic-count" [attr.aria-label]="moveCount(t.id) + ' videos'">{{ moveCount(t.id) }}</span>
+                </button>
+              } @empty {
+                @if (!moveTopicsLoading() && !moveTopicsError()) {
+                  <p class="lp-hint muted">{{ moveSearch().trim() ? 'No topic matches that search.' : 'No topics yet. Create one below.' }}</p>
+                }
+              }
+            </div>
+
+            <form class="lp-topic-new" (ngSubmit)="createMoveTopic()">
+              <input class="lp-input" name="newTopic" maxlength="80" placeholder="Or create a new topic, e.g. Mahadev" aria-label="New topic name"
+                     [ngModel]="newTopicName()" (ngModelChange)="newTopicName.set($event)" [disabled]="moveSaving() || creatingTopic()" />
+              <button type="submit" class="lp-btn" [disabled]="moveSaving() || creatingTopic() || !newTopicName().trim()">
+                {{ creatingTopic() ? 'Creating…' : '+ Create' }}
+              </button>
+            </form>
+            @if (moveError()) { <p class="lp-msg lp-error" role="alert">{{ moveError() }}</p> }
+
+            <footer class="lp-modal-foot">
+              <button type="button" class="lp-btn" (click)="closeMove()" [disabled]="moveSaving()">Cancel</button>
+              <button type="button" class="lp-btn primary" (click)="confirmMove()" [disabled]="moveSaving() || creatingTopic() || moveChoice() === undefined">
+                {{ moveSaving() ? 'Moving…' : moveChoice() === undefined ? 'Choose a topic' : moveChoice() === null ? 'Remove from topic' : 'Move to ' + moveChoiceName() }}
+              </button>
+            </footer>
+          </div>
+        </div>
+      }
 
       <!-- VIDEO SAMPLE & QUICK ACTIONS MODAL -->
       @if (sampleItem(); as s) {
@@ -434,9 +515,7 @@ type FormatFilter = 'all' | NonNullable<LibraryQuery['format']>;
     .lp-head p { margin: 0; max-width: 680px; font-size: 0.84rem; line-height: 1.45; }
     .lp-head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
     .lp-card { background: var(--panel, #161b22); border: 1px solid var(--border, #30363d); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
-    .lp-filters, .lp-chips, .lp-bar, .lp-move, .lp-pager { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-    .lp-move app-topic-picker { min-width: 240px; }
-    .lp-move-label { font-size: 0.82rem; color: var(--muted, #8b949e); }
+    .lp-filters, .lp-chips, .lp-bar, .lp-pager { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     .lp-spacer { flex: 1; }
     .lp-input { width: auto; background: transparent; color: inherit; border: 1px solid var(--border, #30363d); border-radius: 8px; padding: 7px 10px; font: inherit; font-size: 0.85rem; }
     .lp-input option { color: #000; }
@@ -485,7 +564,12 @@ type FormatFilter = 'all' | NonNullable<LibraryQuery['format']>;
     .lp-badge.used { background: #238636; }
     .lp-badge.unused { background: rgba(31, 111, 235, 0.85); }
     .lp-tags { display: flex; gap: 4px; flex-wrap: wrap; }
-    .lp-acts { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: auto; padding-top: 4px; }
+    .lp-acts { display: flex; gap: 4px; align-items: stretch; flex-wrap: wrap; margin-top: auto; padding-top: 2px; }
+    .lp-acts .grow { flex: 1 1 0; min-width: 30px; padding-inline: 4px; justify-content: center; }
+    .lp-acts .act-lbl { display: none; }
+    .m-small .act-sample, .m-small .act-drive { display: none; }
+    .lp-item { container-type: inline-size; }
+    @container (min-width: 480px) { .lp-acts .act-lbl { display: inline; } }
     .lp-btn.sm { padding: 4px 8px; font-size: 0.75rem; border-radius: 6px; }
     .lp-btn.icon-only { padding: 4px 6px; }
     .lp-items.m-xl { --w: 300px; }
@@ -493,6 +577,7 @@ type FormatFilter = 'all' | NonNullable<LibraryQuery['format']>;
     .lp-items.m-medium { --w: 185px; }
     .lp-items.m-small { --w: 130px; gap: 8px; }
     .m-small .lp-meta, .m-small .lp-tags, .m-small .act-lbl { display: none; }
+    .m-small .lp-acts .act-lbl, .m-list .lp-acts .act-lbl { display: none; }
     .m-small .lp-title { font-size: 0.74rem; }
     .m-small .lp-acts { justify-content: space-between; gap: 4px; }
     .m-medium .lp-meta { font-size: 0.72rem; }
@@ -574,8 +659,7 @@ type FormatFilter = 'all' | NonNullable<LibraryQuery['format']>;
     .lp-thumb-expand:focus-visible, .lp-link:focus-visible, summary:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 3px; }
     .lp-thumb-overlay:focus-visible { outline-offset: -4px; }
     .lp-bulk { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px; border: 1px solid var(--border, #30363d); border-radius: 10px; background: rgba(124, 58, 237, 0.08); }
-    .lp-move { padding: 4px 0; }
-    .lp-move app-topic-picker { min-width: 0; flex: 1 1 240px; max-width: 420px; }
+    .lp-btn.move-btn { border-color: rgba(88, 166, 255, 0.5); color: #79c0ff; }
     .lp-download-settings { border-top: 1px solid var(--border, #30363d); padding-top: 10px; }
     .lp-download-settings summary { cursor: pointer; font-size: 0.82rem; padding: 6px 0; }
     .lp-download-settings summary span { display: inline-block; margin-left: 8px; color: #f2cc60; font-size: 0.75rem; }
@@ -620,6 +704,23 @@ type FormatFilter = 'all' | NonNullable<LibraryQuery['format']>;
     .lp-modal-video { max-height: 55dvh; }
     .lp-modal-nav { font-size: 0.8rem; }
     @media (min-width: 2400px) { .lp { max-width: 2800px; } }
+    .lp-move-backdrop { z-index: 1300; }
+    .lp-move-modal { width: min(560px, 100%); }
+    .lp-move-modal .lp-modal-sub { margin: 0; }
+    .lp-topic-list { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; max-height: min(44dvh, 360px); overscroll-behavior: contain; }
+    .lp-topic-opt { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; box-sizing: border-box; padding: 8px 12px; text-align: left; color: inherit; background: transparent; border: 1px solid var(--border, #30363d); border-radius: 10px; cursor: pointer; font: inherit; font-size: 0.88rem; box-shadow: none; }
+    .lp-topic-opt:hover:not(:disabled) { border-color: #6e7681; background: rgba(255, 255, 255, 0.04); }
+    .lp-topic-opt:focus-visible, .lp-topic-new .lp-input:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 2px; }
+    .lp-topic-opt.on { border-color: var(--brand, #7c3aed); background: color-mix(in srgb, var(--brand, #7c3aed) 16%, transparent); }
+    .lp-topic-opt.on::after { content: '✓'; font-weight: 700; color: #d2a8ff; }
+    .lp-topic-opt:disabled { opacity: 0.55; cursor: default; }
+    .lp-topic-opt .lp-dot { margin: 0; }
+    .lp-dot.none { background: transparent; border: 1px dashed #6e7681; box-sizing: border-box; }
+    .lp-topic-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+    .lp-topic-count { font-size: 0.74rem; color: var(--muted, #8b949e); border: 1px solid var(--border, #30363d); border-radius: 999px; padding: 1px 8px; }
+    .lp-topic-new { display: flex; gap: 8px; align-items: center; }
+    .lp-topic-new .lp-input { flex: 1; }
+    .lp-move-modal .lp-modal-foot { justify-content: flex-end; }
     @media (max-width: 1100px) {
       .lp-filters { grid-template-columns: repeat(4, minmax(0, 1fr)); }
       .lp-search { grid-column: 1 / -1; }
@@ -630,16 +731,19 @@ type FormatFilter = 'all' | NonNullable<LibraryQuery['format']>;
       .lp-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .lp-input { font-size: 16px; }
       .lp-btn, .lp-btn.sm, .lp-chip, .lp-link { min-height: 44px; }
+      .lp-acts .grow { min-width: 40px; }
       .lp-head-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
       .lp-head-actions .lp-btn { font-size: 0.76rem; padding: 8px; }
       .lp-bulk .lp-btn { flex: 1 1 110px; }
-      .lp-move-label, .lp-move app-topic-picker, .lp-move > .lp-btn { flex-basis: 100%; max-width: 100%; }
       .lp-pager .lp-spacer { display: none; }
       .lp-pager { justify-content: center; }
       .lp-pager > .muted { flex-basis: 100%; text-align: center; }
       .lp-modal { padding: 12px; border-radius: 12px; }
       .lp-modal-actions, .lp-modal-nav { width: 100%; }
       .lp-modal-actions > * { flex: 1 1 120px; }
+      .lp-move-modal .lp-modal-foot > .lp-btn { flex: 1 1 120px; }
+      .lp-topic-new { flex-wrap: wrap; }
+      .lp-topic-new .lp-btn { flex: 1 1 100%; }
     }
     @media (prefers-reduced-motion: reduce) {
       .lp-btn, .lp-chip, .lp-item, .lp-thumb-img, .lp-thumb-overlay, .lp-play-circle { transition: none; }
@@ -653,7 +757,10 @@ export class ShortsLibraryPageComponent implements OnDestroy {
   private readonly youtube = inject(YouTubePublishService);
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly calendar = inject(ContentCalendarService);
   private readonly sampleDialog = viewChild<ElementRef<HTMLElement>>('sampleDialog');
+  private readonly moveDialogEl = viewChild<ElementRef<HTMLElement>>('moveDialogEl');
+  private readonly moveSearchEl = viewChild<ElementRef<HTMLInputElement>>('moveSearchEl');
   private sampleOrigin: HTMLElement | null = null;
 
   readonly driveState = signal<'unknown' | 'ok' | 'missing' | 'reconnect'>('unknown');
@@ -692,7 +799,30 @@ export class ShortsLibraryPageComponent implements OnDestroy {
 
   readonly selected = signal<ReadonlySet<string>>(new Set());
   readonly usedBatchCount = computed(() => Math.min(200, this.data()?.counts.used ?? 0));
-  readonly moveTarget = signal<string | null>(null);
+  readonly moveDialog = signal<{ ids: string[]; currentTopicId: string | null } | null>(null);
+  /** undefined: nothing chosen yet; null: file under no topic. */
+  readonly moveChoice = signal<string | null | undefined>(undefined);
+  readonly moveSearch = signal('');
+  readonly moveTopics = signal<ContentTopic[]>([]);
+  readonly moveTopicsLoading = signal(false);
+  readonly moveTopicsError = signal<string | null>(null);
+  readonly moveSaving = signal(false);
+  readonly moveError = signal<string | null>(null);
+  readonly newTopicName = signal('');
+  readonly creatingTopic = signal(false);
+  readonly moveList = computed(() => {
+    const q = this.moveSearch().trim().toLowerCase();
+    return this.moveTopics()
+      .filter((t) => !q || t.name.toLowerCase().includes(q))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  });
+  readonly moveShowsNone = computed(() => {
+    const q = this.moveSearch().trim().toLowerCase();
+    return !q || 'no topic'.includes(q);
+  });
+  readonly moveChoiceName = computed(() => this.moveTopics().find((t) => t.id === this.moveChoice())?.name ?? 'topic');
+  private moveOrigin: HTMLElement | null = null;
+  private moveRequest = 0;
   readonly autoArchive = signal(true);
 
   /** Inline video sample playing inside a card, or full modal sample item. */
@@ -743,6 +873,7 @@ export class ShortsLibraryPageComponent implements OnDestroy {
       const dialog = this.sampleDialog()?.nativeElement;
       if (dialog) dialog.querySelector<HTMLButtonElement>('.lp-modal-close')?.focus();
     });
+    effect(() => { this.moveSearchEl()?.nativeElement.focus(); });
     const initialTopic = this.route.snapshot.queryParamMap.get('topic');
     if (initialTopic) {
       this.topicId.set(initialTopic);
@@ -797,7 +928,9 @@ export class ShortsLibraryPageComponent implements OnDestroy {
 
   @HostListener('document:keydown.escape')
   onEscape(): void {
-    if (this.sampleItem()) {
+    if (this.moveDialog()) {
+      this.closeMove();
+    } else if (this.sampleItem()) {
       this.closeSample();
     } else if (this.playingInlineId()) {
       this.playingInlineId.set(null);
@@ -806,9 +939,9 @@ export class ShortsLibraryPageComponent implements OnDestroy {
 
   @HostListener('document:keydown', ['$event'])
   onDialogKey(event: KeyboardEvent): void {
-    const dialog = this.sampleDialog()?.nativeElement;
+    const dialog = (this.moveDialogEl() ?? this.sampleDialog())?.nativeElement;
     if (!dialog || event.key !== 'Tab') return;
-    const controls = [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], video[controls], [tabindex="0"]')];
+    const controls = [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), a[href], video[controls], [tabindex="0"]')];
     const first = controls[0];
     const last = controls.at(-1);
     if (!first || !last) return;
@@ -1060,8 +1193,102 @@ export class ShortsLibraryPageComponent implements OnDestroy {
     });
   }
 
-  moveSelected(): void {
-    this.run(this.api.moveToTopic([...this.selected()], this.moveTarget()), (r) => this.report(r, 'moved'));
+  openMove(ids: string[]): void {
+    if (!ids.length || this.busy()) return;
+    this.moveOrigin = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const only = ids.length === 1 ? this.pageItems().find((i) => i.handoffId === ids[0]) : undefined;
+    this.playingInlineId.set(null);
+    this.moveChoice.set(undefined);
+    this.moveSearch.set('');
+    this.newTopicName.set('');
+    this.moveError.set(null);
+    this.moveDialog.set({ ids: [...ids], currentTopicId: only?.topicId ?? null });
+    this.loadMoveTopics();
+  }
+
+  closeMove(): void {
+    if (this.moveSaving()) return;
+    this.moveRequest++;
+    this.moveTopicsLoading.set(false);
+    this.moveDialog.set(null);
+    const origin = this.moveOrigin;
+    this.moveOrigin = null;
+    afterNextRender(() => { if (origin?.isConnected) origin.focus(); }, { injector: this.injector });
+  }
+
+  loadMoveTopics(): void {
+    const request = ++this.moveRequest;
+    this.moveTopicsLoading.set(true);
+    this.moveTopicsError.set(null);
+    this.calendar.listTopics().pipe(timeout(30_000), takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (topics) => {
+        if (request !== this.moveRequest) return;
+        this.moveTopics.set(topics.filter((t) => !t.archived));
+        this.moveTopicsLoading.set(false);
+      },
+      error: () => {
+        if (request !== this.moveRequest) return;
+        this.moveTopicsLoading.set(false);
+        this.moveTopicsError.set('Could not load your topics. Check your connection and retry.');
+      },
+    });
+  }
+
+  moveCount(topicId: string): number {
+    return this.data()?.topics.find((t) => t.topicId === topicId)?.shorts ?? 0;
+  }
+
+  createMoveTopic(): void {
+    const name = this.newTopicName().trim();
+    if (!name || this.creatingTopic() || this.moveSaving()) return;
+    const existing = this.moveTopics().find((t) => t.name.toLowerCase() === name.toLowerCase());
+    if (existing) {
+      this.moveChoice.set(existing.id);
+      this.newTopicName.set('');
+      this.moveSearch.set('');
+      return;
+    }
+    this.creatingTopic.set(true);
+    this.moveError.set(null);
+    this.calendar.createTopic(newTopicRequest(name)).pipe(timeout(30_000), takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (topic) => {
+        this.creatingTopic.set(false);
+        this.moveTopics.update((list) => [...list, topic]);
+        this.moveChoice.set(topic.id);
+        this.newTopicName.set('');
+        this.moveSearch.set('');
+      },
+      error: () => {
+        this.creatingTopic.set(false);
+        this.moveError.set('Could not create that topic. Try again.');
+      },
+    });
+  }
+
+  confirmMove(): void {
+    const dialog = this.moveDialog();
+    const choice = this.moveChoice();
+    if (!dialog || choice === undefined || this.moveSaving() || this.creatingTopic()) return;
+    const destination = choice === null ? 'their topic' : this.moveChoiceName();
+    this.moveSaving.set(true);
+    this.moveError.set(null);
+    this.busy.set(true);
+    this.api.moveToTopic(dialog.ids, choice).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (result) => {
+        this.busy.set(false);
+        this.moveSaving.set(false);
+        const moved = new Set(dialog.ids);
+        this.selected.update((current) => new Set([...current].filter((id) => !moved.has(id))));
+        this.report(result, choice === null ? 'removed from their topic' : `moved to ${destination}`);
+        this.closeMove();
+        this.reload(false);
+      },
+      error: () => {
+        this.busy.set(false);
+        this.moveSaving.set(false);
+        this.moveError.set('Could not move the videos. Please try again.');
+      },
+    });
   }
 
   setUsed(used: boolean): void {

@@ -6,6 +6,15 @@ import { ContentCalendarService } from '../core/services/content-calendar.servic
 
 const NEW = '__new';
 
+/** The request for a topic that only needs a name; the calendar fills in sensible planning defaults. */
+export function newTopicRequest(name: string): ContentTopicRequest {
+  return {
+    name, description: null, color: '', channelId: null, channelTitle: null, days: [],
+    publishTime: '18:00', timeZone: 'UTC', leadDays: 3, planAheadDays: 21,
+    autoSchedule: true, autoLinkUploads: true, tags: [], checklist: [], archived: false,
+  };
+}
+
 /**
  * Picks one of the shared topics (the content calendar's own list) - or none - and can make
  * a new one on the spot. Used wherever a short is created, uploaded or filed, so a topic is
@@ -97,12 +106,7 @@ export class TopicPickerComponent {
     }
 
     this.saving.set(true);
-    const body: ContentTopicRequest = {
-      name, description: null, color: '', channelId: null, channelTitle: null, days: [],
-      publishTime: '18:00', timeZone: 'UTC', leadDays: 3, planAheadDays: 21,
-      autoSchedule: true, autoLinkUploads: true, tags: [], checklist: [], archived: false,
-    };
-    this.calendar.createTopic(body).subscribe({
+    this.calendar.createTopic(newTopicRequest(name)).subscribe({
       next: (t) => { this.saving.set(false); this.topics.update((l) => [...l, t]); this.finish(t); },
       error: () => { this.saving.set(false); this.error.set('Could not create the topic.'); },
     });
