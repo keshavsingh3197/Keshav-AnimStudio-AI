@@ -294,7 +294,7 @@
     </div>
 
     @if (outroForm.kind === 'Card') {
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 1.5rem; margin-bottom: 1.25rem;">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr)); gap: 1.5rem; margin-bottom: 1.25rem;">
         <!-- Left: card content -->
         <div>
           <div class="form-group" appFileDrop="image/png,image/jpeg,image/webp" (filesDropped)="uploadOutroQr($event[0])">
@@ -441,7 +441,7 @@
     }
 
     @if (outroForm.kind === 'Video' || outroForm.kind === 'Image') {
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 1.5rem; margin-bottom: 1.25rem;">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr)); gap: 1.5rem; margin-bottom: 1.25rem;">
         <!-- Left: Upload & Config -->
         <div>
           <div class="form-group"
@@ -618,7 +618,7 @@
       </div>
     </div>
 
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.5rem; align-items: center; margin-bottom: 1.25rem;">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 1.5rem; align-items: center; margin-bottom: 1.25rem;">
       <div class="slider-container">
         <div class="slider-meta">
           <label class="form-label" style="margin-bottom: 0;">Custom Duration (Seconds)</label>

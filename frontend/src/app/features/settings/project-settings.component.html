@@ -158,7 +158,7 @@
       </div>
     </div>
 
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; margin-bottom: 1.25rem;">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 1.25rem; margin-bottom: 1.25rem;">
       <div class="form-group">
         @if (store.project()?.parentProjectId) {
           <div class="subproject-banner" style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 10px; padding: 1.1rem; margin-bottom: 1.25rem; grid-column: 1 / -1;">
@@ -353,7 +353,7 @@
     </div>
 
     @if (form.defaultWatermarkKind !== 'None') {
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; margin-bottom: 1.25rem;">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 1.25rem; margin-bottom: 1.25rem;">
         <!-- Left: Controls -->
         <div>
           @if (form.defaultWatermarkKind === 'Text') {
@@ -550,7 +550,7 @@
     </div>
 
     @if (form.defaultOutroKind !== 'None') {
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; margin-bottom: 1.25rem;">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 1.25rem; margin-bottom: 1.25rem;">
         <!-- Left: Outro Asset & Transition Configuration -->
         <div>
           @if (form.defaultOutroKind === 'Video') {

@@ -168,16 +168,16 @@ const NO_DESIGN = { outfit: '#2f6fd6', pants: '#26324a', skin: '#eebd96', gloves
     </section>
   `,
   styles: `
-    .mc { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; color: var(--text, #e8ebf4); }
+    .mc { box-sizing: border-box; width: 100%; min-width: 0; max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; color: var(--text, #e8ebf4); }
     .mc-head h1 { margin: 0 0 6px; font-size: 1.6rem; }
     .mc-head p { margin: 0 0 20px; opacity: 0.8; max-width: 60ch; }
-    .mc-grid { display: grid; grid-template-columns: minmax(280px, 380px) 1fr; gap: 24px; align-items: start; }
-    @media (max-width: 800px) { .mc-grid { grid-template-columns: 1fr; } }
-    .mc-panel { display: flex; flex-direction: column; gap: 14px; }
+    .mc-grid { display: grid; grid-template-columns: minmax(0, 380px) minmax(0, 1fr); gap: 24px; align-items: start; }
+    @media (max-width: 800px) { .mc-grid { grid-template-columns: minmax(0, 1fr); } }
+    .mc-panel { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
     .mc-field { display: flex; flex-direction: column; gap: 6px; font-size: 0.9rem; }
     .mc-field select, .mc-field input[type='file'] { padding: 6px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.18); background: rgba(255, 255, 255, 0.05); color: inherit; }
     .mc-check { display: flex; gap: 8px; align-items: center; font-size: 0.9rem; }
-    .mc-actions { display: flex; gap: 10px; }
+    .mc-actions { display: flex; flex-wrap: wrap; gap: 10px; }
     .mc-btn { display: inline-block; padding: 10px 16px; border-radius: 10px; border: 0; cursor: pointer; font-weight: 600; background: #6a5cff; color: #fff; text-decoration: none; }
     .mc-btn[disabled] { opacity: 0.5; cursor: not-allowed; }
     .mc-btn-quiet { background: rgba(255, 255, 255, 0.12); }
@@ -528,4 +528,3 @@ export class MotionCopyComponent {
     this.resultUrl.set(null);
   }
 }
-

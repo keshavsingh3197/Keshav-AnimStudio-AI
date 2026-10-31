@@ -1242,6 +1242,16 @@ app-timeline-dock {
 }
 
 /* Responsive Breakpoints */
+.mobile-workspace-switcher {
+  display: none;
+}
+
+@media (max-width: 1600px) {
+  .editor-workspace {
+    overflow-y: auto;
+  }
+}
+
 @media (max-width: 1400px) {
   .flowedit-layout {
     grid-template-columns: 290px minmax(0, 1fr) 310px;
@@ -1255,9 +1265,43 @@ app-timeline-dock {
 }
 
 @media (max-width: 900px) {
+  .editor-workspace {
+    height: auto;
+    min-height: calc(100svh - 56px);
+    overflow: visible;
+  }
+  .editor-workspace.is-fullscreen {
+    height: 100dvh;
+    overflow-y: auto;
+  }
+  .mobile-workspace-switcher {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .4rem;
+    padding: .6rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .mobile-workspace-switcher button {
+    flex: 1 1 auto;
+    min-height: 44px;
+    padding: .5rem .65rem;
+    background: var(--surface-2);
+    color: var(--text-dim);
+    border-color: var(--border);
+    box-shadow: none;
+    white-space: normal;
+  }
+  .mobile-workspace-switcher button.active {
+    background: var(--brand-subtle);
+    color: var(--brand-bright);
+    border-color: var(--brand);
+  }
   .flowedit-layout {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(260px, 1fr) 250px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(320px, 50svh) 300px;
+  }
+  .flowedit-layout:not([data-mobile-panel="preview"]) {
+    grid-template-rows: minmax(350px, 70svh);
   }
   app-media-dock,
   app-inspector-dock {
@@ -1270,6 +1314,17 @@ app-timeline-dock {
   app-timeline-dock {
     grid-column: 1 !important;
     grid-row: 2 !important;
+  }
+  .flowedit-layout[data-mobile-panel="media"] app-media-dock,
+  .flowedit-layout[data-mobile-panel="inspector"] app-inspector-dock {
+    display: flex;
+    grid-column: 1;
+    grid-row: 1;
+    min-height: 0;
+  }
+  .flowedit-layout:not([data-mobile-panel="preview"]) app-video-viewport,
+  .flowedit-layout:not([data-mobile-panel="preview"]) app-timeline-dock {
+    display: none;
   }
 }
 

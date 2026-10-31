@@ -36,7 +36,29 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
       <div class="wrap topbar-inner">
         <a routerLink="/projects" class="brand">AnimStudio<span>AI</span></a>
 
-        <nav class="topbar-nav" aria-label="Main Studio Navigation">
+        <button
+          type="button"
+          class="mobile-nav-toggle"
+          (click)="toggleMobileNav()"
+          [attr.aria-expanded]="mobileNavOpen()"
+          aria-controls="studio-navigation"
+          [attr.aria-label]="mobileNavOpen() ? 'Close studio navigation' : 'Open studio navigation'">
+          <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" aria-hidden="true">
+            @if (mobileNavOpen()) {
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            } @else {
+              <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+            }
+          </svg>
+          <span>{{ mobileNavOpen() ? 'Close' : 'Menu' }}</span>
+        </button>
+
+        <nav
+          id="studio-navigation"
+          class="topbar-nav"
+          [class.mobile-open]="mobileNavOpen()"
+          (click)="closeMobileNav()"
+          aria-label="Main Studio Navigation">
           @for (tab of uiNav.visibleNavItems(); track tab.id) {
             @if (tab.id === 'clips') {
               <button type="button" (click)="openVideoModal()" class="topbar-navlink topbar-navbtn" [title]="tab.description || tab.label">
@@ -302,6 +324,10 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
       display: none;
     }
 
+    .mobile-nav-toggle {
+      display: none;
+    }
+
     .topbar-divider {
       width: 1px;
       height: 1.15rem;
@@ -325,6 +351,7 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
       white-space: nowrap;
       transition: color .15s ease, background .15s ease, border-color .15s ease, box-shadow .15s ease;
       position: relative;
+      flex-shrink: 0;
     }
 
     .topbar-navbtn {
@@ -612,6 +639,81 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
       opacity: 0.45;
       cursor: not-allowed;
     }
+
+    @media (max-width: 900px) {
+      .topbar-inner {
+        flex-wrap: wrap;
+        gap: .45rem .65rem;
+      }
+
+      .mobile-nav-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+        order: 2;
+        min-height: 42px;
+        padding: .45rem .75rem;
+        color: var(--text-dim);
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+        box-shadow: none;
+      }
+
+      .topbar-nav {
+        display: none;
+        order: 4;
+        flex: 1 1 100%;
+        width: 100%;
+        min-width: 0;
+        justify-content: stretch;
+        padding: .5rem;
+      }
+
+      .topbar-nav.mobile-open {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        max-height: min(65svh, 520px);
+        overflow-x: hidden;
+        overflow-y: auto;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--surface);
+        box-shadow: var(--shadow-md);
+      }
+
+      .topbar-navlink {
+        min-width: 0;
+        min-height: 44px;
+        padding: .55rem;
+        white-space: normal;
+        line-height: 1.25;
+      }
+
+      .topbar-navlink > span:not(.topbar-badge):not(.topbar-live-dot) {
+        overflow-wrap: anywhere;
+      }
+
+      .topbar-end {
+        order: 3;
+        flex: 1 1 100%;
+        margin-left: 0;
+        max-width: 100%;
+        overflow-x: auto;
+        scrollbar-width: none;
+      }
+
+      .topbar-end::-webkit-scrollbar {
+        display: none;
+      }
+
+      .topbar-end > * {
+        flex-shrink: 0;
+      }
+
+      .topbar-end .topbar-navlink {
+        white-space: nowrap;
+      }
+    }
   `],
 })
 
@@ -628,6 +730,7 @@ export class AppShellComponent {
   readonly activityPanel = viewChild(ActivityPanelComponent);
 
   readonly showVideoModal = signal(false);
+  readonly mobileNavOpen = signal(false);
   /** Warnings and errors on the Shorts page - failed renders or copies, used-up stock, a missed weekly goal. */
   readonly shortsAttention = signal(0);
   private readonly shorts = inject(ShortsService);
@@ -666,6 +769,14 @@ export class AppShellComponent {
 
   openVideoModal() {
     this.showVideoModal.set(true);
+  }
+
+  toggleMobileNav(): void {
+    this.mobileNavOpen.update((open) => !open);
+  }
+
+  closeMobileNav(): void {
+    this.mobileNavOpen.set(false);
   }
 
   constructor() {

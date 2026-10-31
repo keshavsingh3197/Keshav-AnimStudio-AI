@@ -19,10 +19,13 @@
   grid-template-columns: minmax(0, 1.4fr) minmax(320px, 1fr);
   gap: 1.15rem;
   align-items: start;
+  width: 100%;
+  min-width: 0;
 }
 @media (max-width: 1000px) { .co-grid { grid-template-columns: minmax(0, 1fr); } }
-.co-col { display: grid; gap: 1.15rem; min-width: 0; }
-.co-col > .card { margin: 0; }
+.co-col { display: grid; gap: 1.15rem; width: 100%; min-width: 0; }
+.co-col > .card { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; margin: 0; }
+.co-stage-card { min-width: 0; }
 .co-h3 { margin: 0 0 .85rem; display: flex; align-items: center; gap: .55rem; }
 .co-step {
   display: inline-grid; place-items: center; width: 1.7rem; height: 1.7rem; border-radius: 50%;
@@ -121,6 +124,21 @@ kbd {
 .co-studio { margin: .85rem 0 0; }
 .co-actions { display: flex; gap: .55rem; flex-wrap: wrap; align-items: center; margin-top: .95rem; }
 .co-project { width: auto; max-width: 14rem; }
+
+@media (max-width: 600px) {
+  .co-stage.portrait,
+  .co-stage.square {
+    width: min(100%, 70vh);
+  }
+
+  .co-record-row {
+    flex-wrap: wrap;
+  }
+
+  .co-center {
+    overflow-wrap: anywhere;
+  }
+}
 
 /* ---------------------------------------------------------------- steps */
 

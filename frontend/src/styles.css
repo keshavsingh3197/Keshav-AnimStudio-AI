@@ -231,6 +231,10 @@ button {
   transition: transform .12s ease, opacity .15s ease, box-shadow .18s ease, border-color .15s ease, background .15s ease, color .15s ease;
 }
 
+button > svg {
+  flex-shrink: 0;
+}
+
 button:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow: 0 0 0 2px var(--brand-glow), 0 6px 18px rgba(108, 140, 255, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.25);
@@ -480,7 +484,7 @@ tbody tr:hover {
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
   gap: .95rem;
   margin-bottom: .65rem;
 }
@@ -4356,7 +4360,7 @@ audio { height: 2.2rem; vertical-align: middle; }
 }
 
 .volume-vertical-slider {
-  -webkit-appearance: slider-vertical !important;
+  appearance: auto !important;
   writing-mode: vertical-lr !important;
   direction: rtl !important;
   width: 6px !important;
@@ -5947,6 +5951,8 @@ tr.is-drag-over td {
   display: flex;
   align-items: center;
   gap: 0.65rem;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
 .studio-card-title-group h3 {
@@ -6033,4 +6039,63 @@ tr.is-drag-over td {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), inset 0 0 0 1px rgba(108, 140, 255, 0.25);
 }
 
+@media (min-width: 2200px) {
+  .wrap:has(.program-monitor-card),
+  .wrap:has(.render-output-card),
+  .wrap:has(.storyboard-grid),
+  .wrap:has(.pw-studio-header),
+  .wrap:has(.projects-dashboard-page),
+  .wrap:has(.studio-wide-page),
+  .wrap.wrap-wide {
+    max-width: min(94vw, 2400px);
+  }
+}
 
+@media (min-width: 3000px) {
+  .wrap:has(.program-monitor-card),
+  .wrap:has(.render-output-card),
+  .wrap:has(.storyboard-grid),
+  .wrap:has(.pw-studio-header),
+  .wrap:has(.projects-dashboard-page),
+  .wrap:has(.studio-wide-page),
+  .wrap.wrap-wide {
+    max-width: min(94vw, 3000px);
+  }
+}
+
+@media (max-width: 700px) {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    overflow-x: clip;
+  }
+
+  .wrap:not(:has(.editor-workspace)) {
+    width: 100%;
+    max-width: 100%;
+    padding-left: max(.75rem, env(safe-area-inset-left));
+    padding-right: max(.75rem, env(safe-area-inset-right));
+  }
+
+  input[type="text"],
+  input[type="url"],
+  input[type="search"],
+  input[type="email"],
+  input[type="password"],
+  textarea,
+  select {
+    font-size: 16px;
+  }
+
+  img,
+  video {
+    max-width: 100%;
+  }
+
+  .row:not(.g-2) {
+    margin-inline: 0;
+    min-width: 0;
+  }
+}

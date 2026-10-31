@@ -19,6 +19,8 @@
       <span class="muted">/</span>
       <div class="cut-switch">
         <button type="button" class="cut-btn" (click)="cutMenuOpen.set(!cutMenuOpen())"
+                [attr.aria-expanded]="cutMenuOpen()"
+                aria-haspopup="menu"
                 [title]="'Switch to another video or Short of this project'">
           <span class="cut-name">{{ state.currentEdit()?.name ?? 'Loading…' }}</span>
           <span class="cut-caret">▾</span>
@@ -134,16 +136,17 @@
             title="Bring clips, music, voice, images or text in from another video - of this project or another">
       ⇣ Import
     </button>
-    <a [routerLink]="['/projects', state.store.projectId(), 'media-tools']" [queryParams]="{ tab: 'chunker' }" style="text-decoration:none">
-      <button class="hdr-btn" type="button">Chunk Video</button>
-    </a>
+    <a class="hdr-btn" [routerLink]="['/projects', state.store.projectId(), 'media-tools']" [queryParams]="{ tab: 'chunker' }" style="text-decoration:none">Chunk Video</a>
     <button class="hdr-btn" type="button" (click)="state.showShortcutsModal.set(true)">Shortcuts</button>
-    <button class="hdr-btn" type="button" (click)="state.toggleAppFullscreen()" title="Toggle fullscreen editor">
+    <button class="hdr-btn" type="button" (click)="state.toggleAppFullscreen()" title="Toggle fullscreen editor"
+            [attr.aria-label]="state.appFullscreen() ? 'Exit fullscreen editor' : 'Enter fullscreen editor'"
+            [attr.aria-pressed]="state.appFullscreen()">
       @if (state.appFullscreen()) { ✕ } @else { ⛶ }
     </button>
     <!-- 3-Mode Screen Display: Standard, Window Full, Machine/PC Fullscreen -->
     <div class="screen-mode-wrap">
       <button class="hdr-btn" type="button" (click)="state.toggleScreenModeDropdown($event)"
+              [attr.aria-expanded]="state.screenModeDropdownOpen()"
               [title]="state.screenMode() === 'display' ? 'Display Mode: PC Fullscreen (F11)' : (state.screenMode() === 'window' ? 'Display Mode: Full in Window' : 'Display Mode: Standard Window')">
         <span class="hdr-icon">
           @if (state.screenMode() === 'display') { 🖥 }
@@ -203,4 +206,3 @@
     </button>
   </div>
 </div>
-

@@ -664,6 +664,25 @@
   font-weight: 600;
 }
 
+@media (max-width: 600px) {
+  .channel-pick-selector {
+    width: 100%;
+    min-width: 0;
+    flex-shrink: 1;
+  }
+  .logo-preview-card,
+  .logo-preview-actions {
+    flex-wrap: wrap;
+  }
+  .segmented-row {
+    max-width: 100%;
+  }
+  .segment-btn {
+    max-width: 100%;
+    white-space: normal;
+  }
+}
+
 /* ── Outro Player & End-Card Preview ────────────────────────────── */
 .outro-preview-box {
   position: relative;

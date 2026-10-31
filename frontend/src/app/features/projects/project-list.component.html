@@ -37,7 +37,7 @@
   <!-- Quick Start Creation Cards Grid -->
   <section class="creation-launchpad">
     <div class="launchpad-grid">
-      <div class="launchpad-card" (click)="start('clips')">
+      <button type="button" class="launchpad-card" (click)="start('clips')">
         <div class="card-icon-wrap icon-purple">
           <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none">
             <polygon points="23 7 16 12 23 17 23 7"></polygon>
@@ -53,9 +53,9 @@
           <span>Create Project</span>
           <span class="arrow">&rarr;</span>
         </div>
-      </div>
+      </button>
 
-      <div class="launchpad-card" (click)="start('prompt')">
+      <button type="button" class="launchpad-card" (click)="start('prompt')">
         <div class="card-icon-wrap icon-blue">
           <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none">
             <path d="M12 2L14.8 8.5L22 9.3L16.5 14L18.2 21L12 17.3L5.8 21L7.5 14L2 9.3L9.2 8.5L12 2Z"></path>
@@ -70,9 +70,9 @@
           <span>Launch AI</span>
           <span class="arrow">&rarr;</span>
         </div>
-      </div>
+      </button>
 
-      <div class="launchpad-card" (click)="start('import')">
+      <button type="button" class="launchpad-card" (click)="start('import')">
         <div class="card-icon-wrap icon-emerald">
           <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none">
             <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
@@ -90,9 +90,9 @@
           <span>Import Audio</span>
           <span class="arrow">&rarr;</span>
         </div>
-      </div>
+      </button>
 
-      <div class="launchpad-card" (click)="start('bundle')">
+      <button type="button" class="launchpad-card" (click)="start('bundle')">
         <div class="card-icon-wrap icon-amber">
           <svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2" fill="none">
             <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
@@ -109,26 +109,29 @@
           <span>Upload CSV</span>
           <span class="arrow">&rarr;</span>
         </div>
-      </div>
+      </button>
     </div>
   </section>
 
-  <!-- Interactive Project Creation Drawer / Tray -->
+  <!-- Project creation dialog -->
   @if (starting(); as point) {
-    <section class="creation-drawer-card">
-      <div class="drawer-header">
-        <div class="drawer-title-group">
-          <span class="studio-icon-badge purple">
-            <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none">
-              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-            </svg>
-          </span>
-          <h3>{{ heading(point) }}</h3>
+    <div class="creation-modal-backdrop" (click)="cancelStart()">
+      <section class="creation-drawer-card" role="dialog" aria-modal="true" aria-labelledby="creation-dialog-title"
+               (click)="$event.stopPropagation()">
+        <div class="drawer-header">
+          <div class="drawer-title-group">
+            <span class="studio-icon-badge purple">
+              <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+              </svg>
+            </span>
+            <h3 id="creation-dialog-title">{{ heading(point) }}</h3>
+          </div>
+          <button type="button" class="btn-close-drawer" (click)="cancelStart()" title="Close creation dialog"
+                  aria-label="Close creation dialog">✕</button>
         </div>
-        <button type="button" class="btn-close-drawer" (click)="cancelStart()" title="Close creation tray">✕</button>
-      </div>
 
-      <div class="drawer-body">
+        <div class="drawer-body">
         <!-- Project Name Input -->
         <div class="drawer-field-group">
           <label for="projectNameInput" class="drawer-label">Project Title</label>
@@ -146,17 +149,20 @@
           <label class="drawer-label">Select Canvas Format &amp; Aspect Ratio</label>
           <div class="format-presets-grid">
             @for (preset of presets; track preset.label) {
-              <div class="format-preset-card"
+              <button type="button" class="format-preset-card"
                    [class.active]="presetIndex === $index"
+                   [attr.aria-pressed]="presetIndex === $index"
                    (click)="presetIndex = $index">
                 <div class="preset-box-wrap">
-                  <div class="preset-box-shape" [style.aspect-ratio]="preset.width + '/' + preset.height"></div>
+                  <div class="preset-box-shape"
+                       [style.width.px]="preset.width >= preset.height ? 48 : 48 * preset.width / preset.height"
+                       [style.height.px]="preset.height >= preset.width ? 48 : 48 * preset.height / preset.width"></div>
                 </div>
                 <div class="preset-details">
                   <span class="preset-name">{{ preset.label }}</span>
                   <span class="preset-res">{{ preset.width }}&times;{{ preset.height }}</span>
                 </div>
-              </div>
+              </button>
             }
           </div>
         </div>
@@ -201,16 +207,17 @@
             </div>
           }
         </div>
-      </div>
+        </div>
 
-      <div class="drawer-footer">
-        <button type="button" class="btn-cancel" (click)="cancelStart()">Cancel</button>
-        <button type="button" class="btn-create-primary" (click)="create()" [disabled]="status.busy() || !name.trim()">
-          <span>Create &amp; Open Editor</span>
-          <span class="arrow">&rarr;</span>
-        </button>
-      </div>
-    </section>
+        <div class="drawer-footer">
+          <button type="button" class="btn-cancel" (click)="cancelStart()">Cancel</button>
+          <button type="button" class="btn-create-primary" (click)="create()" [disabled]="status.busy() || !name.trim()">
+            <span>Create &amp; Open Editor</span>
+            <span class="arrow">&rarr;</span>
+          </button>
+        </div>
+      </section>
+    </div>
   }
 
   <!-- Studio Toolbar: Search, Filters, View Modes -->
@@ -226,7 +233,8 @@
         </span>
         <input type="search" class="search-field"
                placeholder="Search projects by title or description..."
-               [(ngModel)]="searchTerm" />
+               [(ngModel)]="searchTerm"
+               (ngModelChange)="currentPage.set(1)" />
         @if (searchTerm) {
           <button type="button" class="search-clear-btn" (click)="searchTerm = ''">✕</button>
         }
@@ -290,6 +298,8 @@
         <button type="button" class="view-btn"
                 [class.active]="viewMode() === 'grid'"
                 (click)="saveViewMode('grid')"
+                [attr.aria-pressed]="viewMode() === 'grid'"
+                aria-label="Grid card view"
                 title="Grid Card View">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
             <rect x="3" y="3" width="7" height="7" rx="1"></rect>
@@ -301,6 +311,8 @@
         <button type="button" class="view-btn"
                 [class.active]="viewMode() === 'table'"
                 (click)="saveViewMode('table')"
+                [attr.aria-pressed]="viewMode() === 'table'"
+                aria-label="Table list view"
                 title="Table List View">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
             <line x1="8" y1="6" x2="21" y2="6"></line>
@@ -347,24 +359,19 @@
           <line x1="2" y1="12" x2="22" y2="12"/>
         </svg>
       </div>
-      <h3 class="empty-title">No projects match your filter</h3>
+      <h3 class="empty-title">
+        {{ hasActiveFilters ? 'No projects match these filters' : 'Your next production starts here' }}
+      </h3>
       <p class="empty-desc">
-        @if (searchTerm || statusFilter !== 'All' || aspectFilter !== 'All') {
-          Try clearing your search term or resetting filters to see all projects.
+        @if (hasActiveFilters) {
+          Try adjusting your search or filters to see more projects.
         } @else {
-          You haven't created any productions yet. Click "New Project" above to get started!
+          Choose a creation path above or start a new project to bring your next idea to life.
         }
       </p>
-      @if (searchTerm || statusFilter !== 'All' || aspectFilter !== 'All') {
-        <button type="button" class="btn-empty-reset" (click)="searchTerm = ''; statusFilter = 'All'; aspectFilter = 'All'">
+      @if (hasActiveFilters) {
+        <button type="button" class="btn-empty-reset" (click)="clearFilters()">
           Reset All Filters
-        </button>
-      } @else {
-        <button type="button" class="btn-new-project" (click)="start('clips')">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-          </svg>
-          Create First Project
         </button>
       }
     </div>
@@ -380,10 +387,12 @@
               <input type="checkbox" class="project-checkbox"
                      [checked]="selectedProjectIds.has(project.id)"
                      (change)="toggleSelection(project.id, $event)"
+                     [attr.aria-label]="'Select ' + project.name"
                      title="Select project" />
 
               <button type="button" class="btn-pin-star"
                       [class.pinned]="isPinned(project.id)"
+                      [attr.aria-pressed]="isPinned(project.id)"
                       (click)="togglePin(project, $event)"
                       [attr.aria-label]="isPinned(project.id) ? 'Unpin project' : 'Pin project to top'"
                       [attr.title]="isPinned(project.id) ? 'Unpin project' : 'Pin project to top'">
@@ -462,12 +471,14 @@
             <div class="project-card-footer">
               <div class="card-title-row">
                 <h3 class="project-card-title" [title]="project.name">
-                  {{ project.name }}
+                  <a [routerLink]="['/projects', project.id, 'clips']" (click)="$event.stopPropagation()">{{ project.name }}</a>
                 </h3>
 
                 <!-- Context Menu Toggle Button -->
                 <div class="menu-container" (click)="$event.stopPropagation()">
-                  <button type="button" class="btn-menu-dots" (click)="toggleProjectMenu(project.id, $event)">
+                  <button type="button" class="btn-menu-dots" (click)="toggleProjectMenu(project.id, $event)"
+                          [attr.aria-label]="'Actions for ' + project.name"
+                          [attr.aria-expanded]="activeMenuProjectId() === project.id">
                     ⋮
                   </button>
 
@@ -612,6 +623,7 @@
             <tr>
               <th style="width: 44px">
                 <input type="checkbox" class="project-checkbox"
+                       aria-label="Select all visible projects"
                        [checked]="isAllSelected()"
                        (change)="toggleAll($event)" />
               </th>
@@ -629,6 +641,7 @@
                   (dragstart)="onProjectDragStart(project, $event)" (dragend)="onProjectDragEnd()" (dragover)="onProjectDragOver(project, $event)" (dragleave)="onProjectDragLeave(project)" (drop)="onProjectDrop(project, $event)">
                 <td>
                   <input type="checkbox" class="project-checkbox"
+                         [attr.aria-label]="'Select ' + project.name"
                          [checked]="selectedProjectIds.has(project.id)"
                          (change)="toggleSelection(project.id, $event)" />
                 </td>

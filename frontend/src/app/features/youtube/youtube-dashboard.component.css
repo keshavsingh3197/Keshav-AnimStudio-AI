@@ -675,6 +675,8 @@ button.yt-kpi-button:disabled { cursor: default; }
   display: inline-flex; align-items: center; justify-content: center;
   width: 2rem; height: 1.8rem; border-radius: 6px; border: 0; background: transparent;
   color: var(--muted); cursor: pointer; transition: all 0.15s ease;
+  padding: 0;
+  flex-shrink: 0;
 }
 .yt-view-btn:hover { color: #fff; }
 .yt-view-btn.is-active {
@@ -996,10 +998,13 @@ button.yt-kpi-button:disabled { cursor: default; }
 
 @media (max-width: 680px) {
   .yt-head { flex-direction: column; align-items: stretch; }
-  .yt-channel-stats-grid, .yt-kpis { grid-template-columns: 1fr; }
-  .yt-video-card { grid-template-columns: 1fr; }
+  .yt-channel-stats-grid, .yt-kpis { grid-template-columns: minmax(0, 1fr); }
+  .yt-kpi { min-width: 0; white-space: normal; }
+  .yt-kpi-engagement { flex-wrap: wrap; }
+  .yt-video-stats-panel { flex-wrap: wrap; min-width: 0; }
+  .yt-video-card { grid-template-columns: minmax(0, 1fr); min-width: 0; }
   .yt-thumb { width: 100%; aspect-ratio: 16 / 9; }
   .yt-toolbar-right { width: 100%; }
   .yt-search-wrap { width: 100%; }
-  .yt-grid-container { grid-template-columns: 1fr; }
+  .yt-grid-container { grid-template-columns: minmax(0, 1fr); }
 }

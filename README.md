@@ -48,6 +48,7 @@ Craft viral Shorts, Reels, YouTube videos, animated stories, and narrated slides
 
 ### 🎞️ Video Studio 2.0
 - **Multi-Track Timeline**: Synchronized video and audio tracks with playhead scrubbing, live waveform visualization, and thumbnail previews.
+- **Mobile Workspace Panels**: On phones and tablets up to 900 px wide, switch between **Preview & timeline**, **Media library**, and **Inspector** without losing the open edit. Editor actions wrap onto additional rows instead of disappearing off-screen.
 - **Precision Trimming & Splitting**: Split clips at playhead needle, trim In/Out points, duplicate clips, and arrange sequences effortlessly.
 - **Seamless Live Transitions**: Real-time crossfades, directional slides, and wipe transitions with FFmpeg `xfade` integration.
 - **Smart Aspect Ratio Switching**: Instant toggle between **16:9 (YouTube)**, **9:16 (Shorts/TikTok/Reels)**, **1:1 (Instagram)**, and **4:5** with automatic letterbox (Contain) or smart crop (Cover) scaling.

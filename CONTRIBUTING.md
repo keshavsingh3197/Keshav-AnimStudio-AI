@@ -105,6 +105,13 @@ npm run build
 - Keep components modular, accessible, and responsive.
 - Ensure the bundle builds cleanly with zero TypeScript errors (`npm run build`).
 
+### UI validation
+- Visit both global features and project workspaces when changing shared controls.
+- Check phone (320/390 px), tablet (768 px), laptop (1366 px), and ultrawide (3440 px) CSS viewports. Confirm the actual browser viewport when browser zoom is enabled.
+- Verify icon-only controls retain their SVG dimensions, have accessible names, and expose toggle state where applicable.
+- Exercise menus, tabs, dialog cancellation, and keyboard activation. Do not use real projects to test deletion, publishing, or costly generation without approval.
+- Keep intentional table/timeline scrolling within its container; fix overflowing cards and form grids rather than clipping away their actions.
+
 ---
 
 ## Submitting a Pull Request

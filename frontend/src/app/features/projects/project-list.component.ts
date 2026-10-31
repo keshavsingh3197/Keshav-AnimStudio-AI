@@ -161,6 +161,23 @@ export class ProjectListComponent {
     }).length;
   }
 
+  get hasActiveFilters(): boolean {
+    return !!this.searchTerm.trim() ||
+      this.statusFilter !== 'All' ||
+      this.aspectFilter !== 'All' ||
+      this.contentFilter !== 'All' ||
+      this.channelFilter !== 'All';
+  }
+
+  clearFilters(): void {
+    this.searchTerm = '';
+    this.statusFilter = 'All';
+    this.aspectFilter = 'All';
+    this.contentFilter = 'All';
+    this.channelFilter = 'All';
+    this.currentPage.set(1);
+  }
+
   toggleExpandSubProjects(projectId: string, event?: Event): void {
     if (event) event.stopPropagation();
     const next = new Set(this.expandedProjectIds());
@@ -481,6 +498,11 @@ export class ProjectListComponent {
   start(point: StartingPoint): void {
     this.starting.set(point);
     if (!this.name.trim()) this.name = this.suggestedName();
+  }
+
+  @HostListener('window:keydown.escape')
+  closeCreationDialogOnEscape(): void {
+    if (this.starting()) this.cancelStart();
   }
 
   cancelStart(): void {

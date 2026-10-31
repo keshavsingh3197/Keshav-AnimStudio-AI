@@ -16,7 +16,18 @@
 
   <!-- Main 4-Section NLE Workspace -->
   @if (state.studio(); as studio) {
-    <div class="flowedit-layout">
+    <div class="mobile-workspace-switcher" role="group" aria-label="Editor workspace panels">
+      <button type="button" [class.active]="mobilePanel() === 'preview'"
+              [attr.aria-pressed]="mobilePanel() === 'preview'" aria-controls="studio-workspace-panels"
+              (click)="mobilePanel.set('preview')">Preview &amp; timeline</button>
+      <button type="button" [class.active]="mobilePanel() === 'media'"
+              [attr.aria-pressed]="mobilePanel() === 'media'" aria-controls="studio-workspace-panels"
+              (click)="mobilePanel.set('media')">Media library</button>
+      <button type="button" [class.active]="mobilePanel() === 'inspector'"
+              [attr.aria-pressed]="mobilePanel() === 'inspector'" aria-controls="studio-workspace-panels"
+              (click)="mobilePanel.set('inspector')">Inspector</button>
+    </div>
+    <div id="studio-workspace-panels" class="flowedit-layout" [attr.data-mobile-panel]="mobilePanel()">
       <!-- Col 1: Media Library Dock -->
       <app-media-dock></app-media-dock>
 

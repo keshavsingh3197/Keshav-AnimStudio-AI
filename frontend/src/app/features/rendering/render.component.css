@@ -127,7 +127,7 @@ button.small { padding: .3rem .65rem; font-size: .8rem; }
 .rp-zoom input { width: 90px; }
 
 .rp-side { display: grid; gap: .8rem; min-width: 0; }
-.rp-primary-actions { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+.rp-primary-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; }
 .rp-primary-actions button { width: 100%; }
 .rp-yt-btn { background: #e62117; color: #fff; }
 .rp-yt-btn:hover:not(:disabled) { box-shadow: 0 0 0 2px rgba(230, 33, 23, .35); }
@@ -286,10 +286,13 @@ button.small { padding: .3rem .65rem; font-size: .8rem; }
 
 /* ---------- narrow screens ---------- */
 @media (max-width: 900px) {
-  .rp-output { grid-template-columns: 1fr; }
+  .rp-output { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (max-width: 640px) {
+  .rp-primary-actions { grid-template-columns: minmax(0, 1fr); }
+  .rp-panel-head { flex-wrap: wrap; }
+  .rp-more-actions button { white-space: normal; }
   .rp-head-actions { width: 100%; }
   .rp-head-actions button { flex: 1 1 auto; }
   .rp-stage { grid-template-columns: 1.4rem minmax(0, 1fr) auto; }

@@ -1,10 +1,14 @@
 /* =========================================================
    TABS
    ========================================================= */
+:host { display: block; min-width: 0; }
+
 .mt-head-left { display: flex; align-items: center; gap: 14px; min-width: 0; }
 
 .tabs-bar {
   display: inline-flex;
+  max-width: 100%;
+  flex-wrap: wrap;
   gap: 0.4rem;
   padding: 5px;
   border-radius: var(--radius, 11px);
@@ -15,6 +19,9 @@
 }
 
 .tab-btn {
+  min-width: 0;
+  white-space: normal;
+  text-align: center;
   padding: 0.55rem 1.25rem;
   font-weight: 700;
   font-size: 0.88rem;
@@ -40,6 +47,44 @@
   border-color: rgba(108, 140, 255, 0.45);
   background: linear-gradient(135deg, rgba(108, 140, 255, 0.24), rgba(168, 85, 247, 0.14));
   box-shadow: 0 2px 12px rgba(108, 140, 255, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+@media (max-width: 600px) {
+  .mt-head-left {
+    align-items: flex-start;
+  }
+
+  .dl-card .section-head {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .tabs-bar {
+    display: flex;
+    width: 100%;
+    flex-direction: column;
+  }
+
+  .tab-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .probe-input-group,
+  .media-preview-card {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .thumb-wrapper {
+    width: min(100%, 240px);
+    min-width: 0;
+    margin-inline: auto;
+  }
+
+  .media-preview-card > * {
+    min-width: 0;
+  }
 }
 
 /* =========================================================

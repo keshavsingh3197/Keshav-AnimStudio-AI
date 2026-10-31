@@ -66,7 +66,7 @@ export function channelSummary(c: BrandChannel | null | undefined): string {
     </div>
   `,
   styles: [`
-    :host { display: inline-block; position: relative; min-width: 260px; z-index: 40; }
+    :host { display: inline-block; position: relative; min-width: min(260px, 100%); max-width: 100%; z-index: 40; }
     .cp-current {
       display: flex; align-items: center; gap: 10px; width: 100%;
       padding: 8px 12px; border-radius: 10px; cursor: pointer; text-align: left;
@@ -116,6 +116,12 @@ export function channelSummary(c: BrandChannel | null | undefined): string {
     .cp-list li.selected { background: rgba(108, 140, 255, 0.16); box-shadow: inset 3px 0 0 var(--brand, #6c8cff); }
     .cp-empty { color: var(--muted, #8b9bb4); font-size: .8rem; cursor: default !important; text-align: center; padding: 14px 8px !important; }
     .cp-more { font-size: .72rem; color: var(--muted, #8b9bb4); padding: 8px 8px 2px; border-top: 1px solid rgba(148, 163, 184, 0.1); margin-top: 4px; }
+    @media (max-width: 600px) {
+      :host { width: 100%; min-width: 0; }
+      .cp-pop { width: 100%; }
+      .cp-current { min-width: 0; white-space: normal; }
+      .cp-search { font-size: 16px; }
+    }
   `],
 })
 export class ChannelPickerComponent {

@@ -51,6 +51,7 @@ import { lastApplied, loadStoredLibrary, spokenText } from './components/inspect
 })
 export class ClipStudioComponent implements OnDestroy {
   readonly state = inject(StudioStateService);
+  readonly mobilePanel = signal<'preview' | 'media' | 'inspector'>('preview');
 
   /** Only the id: a reload of the same project must not throw the open timeline away. */
   private readonly openProjectId = computed(() => this.state.store.project()?.id ?? null);

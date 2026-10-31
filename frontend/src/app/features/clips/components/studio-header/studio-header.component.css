@@ -296,3 +296,41 @@ button.cut-item {
 .cut-status.st-none { background: transparent; color: #64748b; border-color: #334155; }
 .cut-menu-sep { height: 1px; margin: 6px 0; background: var(--border, #1e2433); }
 .cut-action { color: var(--brand, #93c5fd); font-weight: 600; }
+
+@media (max-width: 1600px) {
+  .studio-header {
+    flex-wrap: wrap;
+    height: auto;
+  }
+  .studio-header-right {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 700px) {
+  .studio-header-left,
+  .studio-breadcrumb {
+    flex-wrap: wrap;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .studio-header-center {
+    min-width: 0;
+  }
+  .hdr-btn {
+    min-height: 40px;
+    max-width: 100%;
+    white-space: normal;
+  }
+  .cut-menu {
+    position: fixed;
+    top: auto;
+    bottom: 12px;
+    left: 12px;
+    right: 12px;
+    width: auto;
+    max-width: none;
+  }
+}

@@ -677,8 +677,33 @@
 }
 
 @media (max-width: 768px) {
+  .settings-top-actions {
+    width: 100%;
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+  .channel-picker {
+    min-width: 0;
+    max-width: 100%;
+    flex-wrap: wrap;
+  }
+  .channel-picker .form-select {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .settings-card {
+    padding: 1rem;
+    min-width: 0;
+  }
+  .card-section-head {
+    flex-wrap: wrap;
+  }
+  .segment-btn {
+    max-width: 100%;
+    white-space: normal;
+  }
   .dimension-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 0.5rem;
   }
   .dim-separator {

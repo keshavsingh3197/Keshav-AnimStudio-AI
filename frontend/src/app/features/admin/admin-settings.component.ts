@@ -127,6 +127,7 @@ import { AdminSettingsService, WebSetting, WebSettingsOverview } from '../../cor
     .ws-row:first-of-type { border-top: 0; padding-top: 0.2rem; }
     .ws-row.changed .ws-info label { color: var(--brand-bright); }
     @media (max-width: 720px) { .ws-row { grid-template-columns: 1fr; } }
+    .ws-info { min-width: 0; overflow-wrap: anywhere; }
     .ws-info label { font-weight: 700; color: var(--text); font-size: 0.9rem; }
     .ws-info p { margin: .2rem 0; }
     .ws-edit { display: flex; flex-wrap: wrap; gap: .45rem .6rem; align-items: center; align-content: flex-start; }
