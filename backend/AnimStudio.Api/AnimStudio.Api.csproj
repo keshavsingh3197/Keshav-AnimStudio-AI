@@ -35,6 +35,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="AnimStudio.Integration.Tests" />
     <ProjectReference Include="..\AnimStudio.Application\AnimStudio.Application.csproj" />
     <ProjectReference Include="..\AnimStudio.Infrastructure\AnimStudio.Infrastructure.csproj" />
   </ItemGroup>

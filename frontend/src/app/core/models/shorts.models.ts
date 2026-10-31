@@ -21,6 +21,7 @@ export type LibraryView = 'active' | 'unused' | 'used' | 'archived' | 'all';
 
 export interface LibraryQuery {
   search?: string;
+  format?: 'short' | 'video' | 'square' | 'unknown';
   /** A topic id, or 'none' for shorts without one. */
   topicId?: string;
   view?: LibraryView;
@@ -48,7 +49,7 @@ export interface LibraryItem {
   width?: number | null;
   height?: number | null;
   hasLocalPreview?: boolean;
-  format?: 'short' | 'square' | 'video' | null;
+  format?: 'short' | 'square' | 'video' | 'unknown' | null;
 }
 
 export interface LibraryTopicCount {

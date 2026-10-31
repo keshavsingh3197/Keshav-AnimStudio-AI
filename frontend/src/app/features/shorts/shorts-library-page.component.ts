@@ -1,17 +1,19 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { Component, HostListener, OnDestroy, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, ElementRef, HostListener, Injector, OnDestroy, afterNextRender, computed, effect, inject, signal, viewChild } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { Observable, catchError, map, of, switchMap } from 'rxjs';
+import { Observable, TimeoutError, switchMap, timeout } from 'rxjs';
 
 import { LibraryBulk, LibraryItem, LibraryPage, LibraryQuery, LibraryView } from '../../core/models/shorts.models';
+import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
 import { ShortsService } from '../../core/services/shorts.service';
 import { YouTubePublishService } from '../../core/services/youtube-publish.service';
 import { TopicPickerComponent } from '../../shared/topic-picker.component';
 
 type Sort = NonNullable<LibraryQuery['sort']>;
 type ViewMode = 'xl' | 'large' | 'medium' | 'small' | 'list' | 'details' | 'tiles' | 'content';
-type FormatFilter = 'all' | 'short' | 'video';
+type FormatFilter = 'all' | NonNullable<LibraryQuery['format']>;
 
 /**
  * The shorts & exported videos on Drive (and topic-tagged renders) as a library:
@@ -25,11 +27,11 @@ type FormatFilter = 'all' | 'short' | 'video';
   imports: [FormsModule, RouterLink, TopicPickerComponent, DatePipe, DecimalPipe],
   template: `
     <div class="lp studio-wide-page">
-      <header class="lp-head">
+      <div class="lp-content" [attr.inert]="sampleItem() ? '' : null">
+      <header class="lp-head" [attr.inert]="busy() ? '' : null">
         <div>
           <h2>Drive &amp; Topics Library</h2>
-          <p class="muted">Shorts and exported videos filed under your topics and saved to Google Drive. Sample any video inline,
-            download with one click, and mark items used so you never post the same video twice.</p>
+          <p class="muted">Your exported videos, organised by topic. Preview before posting, download MP4s, and track what you have already used.</p>
         </div>
         <div class="lp-head-actions">
           <a routerLink="/shorts" class="lp-btn">← Shorts Studio</a>
@@ -40,51 +42,68 @@ type FormatFilter = 'all' | 'short' | 'video';
           </button>
           <button type="button" class="lp-btn" (click)="reload()" [disabled]="busy() || loading()">↻ Refresh</button>
           <button type="button" class="lp-btn danger" (click)="deleteUsed()" [disabled]="busy() || !(data()?.counts?.used)">
-            🗑 Delete {{ data()?.counts?.used ?? 0 }} used
+            🗑 Delete {{ usedBatchCount() }} used
           </button>
         </div>
       </header>
 
-      <section class="lp-card">
+      <section class="lp-overview" aria-label="Library overview" [attr.inert]="busy() ? '' : null">
+        @for (v of views(); track v.id) {
+          <button type="button" class="lp-stat" [class.on]="view() === v.id" [attr.aria-pressed]="view() === v.id" (click)="setView(v.id)">
+            <strong>{{ v.count | number }}</strong><span>{{ v.label }}</span>
+          </button>
+        }
+      </section>
+
+      <section class="lp-card" [attr.inert]="busy() ? '' : null">
         <div class="lp-filters">
-          <input class="lp-input grow" type="search" maxlength="100" placeholder="Search by video title, project or topic…"
+          <label class="lp-field lp-search"><span>Search library</span>
+          <input class="lp-input" type="search" maxlength="100" placeholder="Video title, project or topic…"
                  [ngModel]="search()" (ngModelChange)="onSearch($event)" />
-          <select class="lp-input" [ngModel]="formatFilter()" (ngModelChange)="formatFilter.set($event)" aria-label="Format">
-            <option value="all">All formats (Shorts &amp; Videos)</option>
+          </label>
+          <label class="lp-field"><span>Format</span>
+          <select class="lp-input" [ngModel]="formatFilter()" (ngModelChange)="setFormat($event)">
+            <option value="all">All formats</option>
             <option value="short">📱 Shorts (9:16)</option>
             <option value="video">🎬 Landscape Videos (16:9)</option>
+            <option value="square">Square (1:1)</option>
+            <option value="unknown">Unknown dimensions</option>
           </select>
-          <select class="lp-input" [ngModel]="mode()" (ngModelChange)="setMode($event)" aria-label="View">
+          </label>
+          <label class="lp-field"><span>Layout</span>
+          <select class="lp-input" [ngModel]="mode()" (ngModelChange)="setMode($event)">
             @for (m of modes; track m.id) { <option [value]="m.id">{{ m.icon }} {{ m.label }}</option> }
           </select>
-          <select class="lp-input" [ngModel]="sort()" (ngModelChange)="setSort($event)" aria-label="Sort">
+          </label>
+          <label class="lp-field"><span>Sort by</span>
+          <select class="lp-input" [ngModel]="sort()" (ngModelChange)="setSort($event)">
             <option value="newest">Newest first</option>
             <option value="oldest">Oldest first</option>
             <option value="name">Name A–Z</option>
             <option value="used">Recently used</option>
           </select>
-          <select class="lp-input" [ngModel]="pageSize()" (ngModelChange)="setPageSize($event)" aria-label="Per page">
+          </label>
+          <label class="lp-field"><span>Items per page</span>
+          <select class="lp-input" [ngModel]="pageSize()" (ngModelChange)="setPageSize($event)">
             @for (n of pageSizes; track n) { <option [ngValue]="n">{{ n }} / page</option> }
           </select>
+          </label>
         </div>
 
-        <div class="lp-chips">
-          @for (v of views(); track v.id) {
-            <button type="button" class="lp-chip" [class.on]="view() === v.id" (click)="setView(v.id)">
-              {{ v.label }} <small>{{ v.count }}</small>
-            </button>
-          }
+        <div class="lp-filter-summary">
+          <span class="muted">{{ loading() ? 'Updating results…' : rangeText() }} · {{ activeTopicName() }}</span>
+          @if (hasFilters()) { <button type="button" class="lp-btn" (click)="resetFilters()">Reset filters</button> }
         </div>
 
-        <div class="lp-chips">
-          <button type="button" class="lp-chip" [class.on]="!topicId()" (click)="setTopic('')">
+        <div class="lp-chips" role="group" aria-label="Filter by topic">
+          <button type="button" class="lp-chip" [class.on]="!topicId()" [attr.aria-pressed]="!topicId()" (click)="setTopic('')">
             📁 All topics <small>{{ data()?.counts?.active ?? 0 }}</small>
           </button>
-          <button type="button" class="lp-chip" [class.on]="topicId() === 'none'" (click)="setTopic('none')">
+          <button type="button" class="lp-chip" [class.on]="topicId() === 'none'" [attr.aria-pressed]="topicId() === 'none'" (click)="setTopic('none')">
             No topic <small>{{ data()?.counts?.noTopic ?? 0 }}</small>
           </button>
           @for (t of data()?.topics ?? []; track t.topicId) {
-            <button type="button" class="lp-chip" [class.on]="topicId() === t.topicId" (click)="setTopic(t.topicId)"
+            <button type="button" class="lp-chip" [class.on]="topicId() === t.topicId" [attr.aria-pressed]="topicId() === t.topicId" (click)="setTopic(t.topicId)"
                     [title]="t.unused + ' unused of ' + t.shorts + ' total in ' + t.name">
               <span class="lp-dot" [style.background]="t.color"></span>{{ t.name }} <small>{{ t.unused }}/{{ t.shorts }}</small>
             </button>
@@ -93,6 +112,12 @@ type FormatFilter = 'all' | 'short' | 'video';
       </section>
 
       @if (message(); as m) { <p class="lp-msg" role="status">{{ m }}</p> }
+      @if (loadError()) {
+        <div class="lp-msg lp-error" role="alert">{{ loadErrorMessage() }}
+          @if (data()) { <span>Previous results are shown below; their actions are disabled until the library reloads.</span> }
+          <button type="button" class="lp-btn" (click)="reload()" [disabled]="loading()">Retry</button>
+        </div>
+      }
 
       @if (driveState() === 'missing' || driveState() === 'reconnect') {
         <section class="lp-card lp-connect" role="alert">
@@ -108,24 +133,29 @@ type FormatFilter = 'all' | 'short' | 'video';
         </section>
       }
 
-      <section class="lp-card">
+      <section class="lp-card" [attr.aria-busy]="loading() || busy()">
         <div class="lp-bar">
-          <label class="lp-check"><input type="checkbox" [checked]="allOnPageSelected()" (change)="togglePage()" /> Page</label>
-          <span class="muted">{{ selected().size }} selected</span>
+          <label class="lp-check"><input type="checkbox" [checked]="allOnPageSelected()" [indeterminate]="someOnPageSelected()" [disabled]="loading() || busy() || loadError() || !pageItems().length" (change)="togglePage()" /> Select page</label>
+          <span class="muted" role="status">{{ selected().size }} selected</span>
           @if (allOnPageSelected() && (data()?.total ?? 0) > pageItems().length && selected().size < (data()?.total ?? 0)) {
-            <button type="button" class="lp-link" (click)="selectAllMatching()" [disabled]="busy()">
+            <button type="button" class="lp-link" (click)="selectAllMatching()" [disabled]="busy() || loading()">
               Select all {{ data()?.total }} matching
             </button>
           }
           @if (selected().size) {
-            <button type="button" class="lp-link" (click)="selected.set(empty)">Clear</button>
+            <button type="button" class="lp-link" (click)="selected.set(empty)" [disabled]="busy()">Clear selection</button>
           }
           <span class="lp-spacer"></span>
-          <button type="button" class="lp-btn dl-btn" (click)="downloadSelected()" [disabled]="busy() || !selected().size">
+          <span class="muted">{{ loading() ? 'Loading library…' : rangeText() }}</span>
+        </div>
+        @if (selected().size) {
+        <div class="lp-bulk" role="group" aria-label="Selected video actions" [attr.inert]="loading() || busy() || loadError() ? '' : null">
+          <button type="button" class="lp-btn dl-btn" (click)="downloadSelected()" [disabled]="busy() || loading() || !selectedOnPage().length"
+                  title="Downloads selected videos on this page. Other bulk actions apply to the full selection.">
             <svg class="lp-ico" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
             </svg>
-            Download @if (selected().size) { ({{ selected().size }}) }
+            Download page selection ({{ selectedOnPage().length }})
           </button>
           <button type="button" class="lp-btn" (click)="setUsed(true)" [disabled]="busy() || !selected().size">
             ✓ Mark used
@@ -140,26 +170,34 @@ type FormatFilter = 'all' | 'short' | 'video';
           }
           <button type="button" class="lp-btn danger" (click)="deleteSelected()" [disabled]="busy() || !selected().size">🗑 Delete</button>
         </div>
-
-        <div class="lp-move">
+        <div class="lp-move" [attr.inert]="loading() || busy() || loadError() ? '' : null">
           <span class="lp-move-label">File selected under topic</span>
           <app-topic-picker [(value)]="moveTarget" emptyLabel="No topic" [refresh]="data()?.topics?.length" />
           <button type="button" class="lp-btn" (click)="moveSelected()" [disabled]="busy() || !selected().size">
             {{ moveTarget() ? 'Move to topic' : 'Remove from topic' }}
           </button>
-          <span class="lp-spacer"></span>
+        </div>
+        @if (selected().size > selectedOnPage().length) {
+          <p class="lp-hint muted">Selection includes other pages. Mark, archive, restore, move and delete apply to all {{ selected().size }} selected items; downloads apply to {{ selectedOnPage().length }} on this page.</p>
+        }
+        }
+        <details class="lp-download-settings">
+          <summary>Download &amp; usage settings <span>{{ autoArchive() ? 'Auto-delete ON' : 'Keep used videos' }}</span></summary>
           <label class="lp-check" title="Used shorts are deleted automatically (Drive file moves to the Drive trash)">
-            <input type="checkbox" [ngModel]="autoArchive()" (ngModelChange)="autoArchive.set($event)" />
+            <input type="checkbox" [ngModel]="autoArchive()" (ngModelChange)="autoArchive.set($event)" [disabled]="busy()" />
             Auto-delete when used
           </label>
-        </div>
+          <p class="lp-hint muted">Downloads mark videos used. With auto-delete enabled, downloading or marking used also moves the Drive copy to trash. You will be asked to confirm first. Archiving is a separate action.</p>
+        </details>
+        @if (busy()) { <p class="lp-hint" role="status">{{ progress() || 'Applying your changes…' }}</p> }
 
+        <div class="lp-results" [class.unavailable]="loadError()" [attr.inert]="loading() || busy() || loadError() ? '' : null">
         @if (mode() === 'details') {
           <div class="lp-table-wrap" [class.loading]="loading()">
             <table class="lp-table">
               <thead>
                 <tr>
-                  <th class="c-sel"><input type="checkbox" [checked]="allOnPageSelected()" (change)="togglePage()" aria-label="Select page" /></th>
+                  <th class="c-sel"><input type="checkbox" [checked]="allOnPageSelected()" [indeterminate]="someOnPageSelected()" (change)="togglePage()" aria-label="Select page" /></th>
                   <th class="c-sample">Sample</th>
                   <th><button type="button" class="lp-th" (click)="sortBy('name')">Name {{ arrow('name') }}</button></th>
                   <th>Project</th>
@@ -189,7 +227,7 @@ type FormatFilter = 'all' | 'short' | 'video';
                     <td>@if (i.topicName) { <span class="lp-tag"><span class="lp-dot" [style.background]="i.topicColor"></span>{{ i.topicName }}</span> } @else { <span class="muted">—</span> }</td>
                     <td>
                       <span class="lp-fmt-badge" [class.video]="i.format === 'video'">
-                        {{ i.format === 'video' ? '16:9 Video' : i.format === 'square' ? '1:1' : '9:16 Short' }}
+                        {{ formatLabel(i) }}
                       </span>
                     </td>
                     <td class="muted">@if (i.durationSeconds) { {{ i.durationSeconds | number: '1.0-0' }}s }</td>
@@ -218,7 +256,7 @@ type FormatFilter = 'all' | 'short' | 'video';
                           {{ i.usedAt ? '↺ Unused' : '✓ Use' }}
                         </button>
                         @if (i.driveUrl) {
-                          <a class="lp-btn sm icon-only" [href]="i.driveUrl" target="_blank" rel="noopener" title="Open in Google Drive">
+                          <a class="lp-btn sm icon-only" [href]="i.driveUrl" target="_blank" rel="noopener" title="Open in Google Drive" [attr.aria-label]="'Open ' + i.title + ' in Google Drive (new tab)'">
                             <svg class="lp-ico" viewBox="0 0 24 24" aria-hidden="true">
                               <path d="M14 3h7v7m0-7L10 14M5 5h5M5 5v14h14v-5" />
                             </svg>
@@ -228,7 +266,7 @@ type FormatFilter = 'all' | 'short' | 'video';
                     </td>
                   </tr>
                 } @empty {
-                  <tr><td colspan="11" class="lp-empty muted">{{ emptyText() }}</td></tr>
+                  <tr><td colspan="11" class="lp-empty muted">{{ emptyText() }} @if (hasFilters() && !loading()) { <button type="button" class="lp-btn" (click)="resetFilters()">Reset filters</button> }</td></tr>
                 }
               </tbody>
             </table>
@@ -241,21 +279,21 @@ type FormatFilter = 'all' | 'short' | 'video';
                   <input type="checkbox" [checked]="selected().has(i.handoffId)" (change)="toggle(i.handoffId)" [attr.aria-label]="'Select ' + i.title" />
                 </label>
 
-                <div class="lp-thumb" [class.wide]="i.format === 'video'" [style.--tc]="i.topicColor || '#6c8cff'" (click)="onThumbClick(i)">
+                <div class="lp-thumb" [class.wide]="i.format === 'video'" [class.square]="i.format === 'square'" [style.--tc]="i.topicColor || '#6c8cff'">
                   @if (playingInlineId() === i.handoffId) {
-                    <video class="lp-inline-video" [src]="streamUrl(i)" controls autoplay playsinline (click)="$event.stopPropagation()"></video>
-                    <button type="button" class="lp-thumb-close" (click)="stopInline($event)" title="Stop sample">✕</button>
-                    <button type="button" class="lp-thumb-expand" (click)="openSample(i, $event)" title="Expand player">⤢</button>
+                    <video class="lp-inline-video" [src]="streamUrl(i)" controls autoplay playsinline preload="metadata" (error)="onPreviewError(i)"></video>
+                    <button type="button" class="lp-thumb-close" (click)="stopInline($event)" aria-label="Stop sample" title="Stop sample">✕</button>
+                    <button type="button" class="lp-thumb-expand" (click)="openSample(i, $event)" aria-label="Expand player" title="Expand player">⤢</button>
                   } @else {
                     @if (showThumb(i)) {
                       <img class="lp-thumb-img" [src]="thumbUrl(i)" alt="" loading="lazy" (error)="onThumbError(i.handoffId)" />
                     }
-                    <div class="lp-thumb-overlay">
+                    <button type="button" class="lp-thumb-overlay" (click)="onThumbClick(i)" [attr.aria-label]="'Preview ' + i.title">
                       <span class="lp-play-circle" title="Click to play video sample">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><polygon points="8,5 20,12 8,19" fill="currentColor" /></svg>
                       </span>
-                    </div>
-                    <span class="lp-fmt-pill">{{ i.format === 'video' ? '16:9' : i.format === 'square' ? '1:1' : '9:16' }}</span>
+                    </button>
+                    <span class="lp-fmt-pill">{{ formatLabel(i) }}</span>
                     @if (i.durationSeconds) { <span class="lp-dur">{{ i.durationSeconds | number: '1.0-0' }}s</span> }
                     @if (i.usedAt) {
                       <span class="lp-badge used" [title]="'Marked used ' + (i.usedAt | date:'short')">✓ Used</span>
@@ -266,7 +304,7 @@ type FormatFilter = 'all' | 'short' | 'video';
                 </div>
 
                 <div class="lp-main">
-                  <span class="lp-title" [title]="i.title" (click)="openSample(i)">{{ i.title || 'Short' }}</span>
+                  <button type="button" class="lp-title" [title]="i.title" (click)="openSample(i)">{{ i.title || 'Short' }}</button>
                   <span class="lp-meta muted">{{ i.projectName }} · {{ i.createdAt | date: 'mediumDate' }}@if (i.sizeBytes) { · {{ mb(i.sizeBytes) }} MB }</span>
                   @if (mode() === 'content') { <span class="lp-meta muted">📁 {{ i.drivePath }}</span> }
                   <span class="lp-tags">
@@ -276,11 +314,11 @@ type FormatFilter = 'all' | 'short' | 'video';
                 </div>
 
                 <div class="lp-acts">
-                  <button type="button" class="lp-btn sm icon-btn" (click)="openSample(i)" title="Play video sample">
+                  <button type="button" class="lp-btn sm icon-btn" (click)="openSample(i)" title="Play video sample" [attr.aria-label]="'Sample ' + i.title">
                     <svg class="lp-ico" viewBox="0 0 24 24" aria-hidden="true"><polygon points="6,4 20,12 6,20" fill="currentColor" stroke="none" /></svg>
                     <span class="act-lbl">Sample</span>
                   </button>
-                  <button type="button" class="lp-btn sm dl-btn icon-btn" (click)="downloadOne(i)" [disabled]="busy()" title="Download MP4 (marks as used)">
+                  <button type="button" class="lp-btn sm dl-btn icon-btn" (click)="downloadOne(i)" [disabled]="busy()" title="Download MP4 (marks as used)" [attr.aria-label]="'Download ' + i.title + ' (marks as used)'">
                     <svg class="lp-ico" viewBox="0 0 24 24" aria-hidden="true">
                       <path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
                     </svg>
@@ -288,12 +326,12 @@ type FormatFilter = 'all' | 'short' | 'video';
                   </button>
                   <button type="button" class="lp-btn sm use-btn" [class.is-used]="!!i.usedAt"
                           (click)="toggleItemUsed(i)" [disabled]="busy()"
-                          [title]="i.usedAt ? 'Mark as unused again' : 'Mark as used'">
+                          [title]="i.usedAt ? 'Mark as unused again' : 'Mark as used'" [attr.aria-label]="(i.usedAt ? 'Mark unused: ' : 'Mark used: ') + i.title">
                     <span class="act-ico">{{ i.usedAt ? '↺' : '✓' }}</span>
                     <span class="act-lbl">{{ i.usedAt ? 'Unused' : 'Mark used' }}</span>
                   </button>
                   @if (i.driveUrl) {
-                    <a class="lp-btn sm icon-only" [href]="i.driveUrl" target="_blank" rel="noopener" title="Open in Google Drive">
+                    <a class="lp-btn sm icon-only" [href]="i.driveUrl" target="_blank" rel="noopener" title="Open in Google Drive" [attr.aria-label]="'Open ' + i.title + ' in Google Drive (new tab)'">
                       <svg class="lp-ico" viewBox="0 0 24 24" aria-hidden="true">
                         <path d="M14 3h7v7m0-7L10 14M5 5h5M5 5v14h14v-5" />
                       </svg>
@@ -302,26 +340,28 @@ type FormatFilter = 'all' | 'short' | 'video';
                 </div>
               </li>
             } @empty {
-              <li class="lp-empty muted">{{ emptyText() }}</li>
+              <li class="lp-empty muted">{{ emptyText() }} @if (hasFilters() && !loading()) { <button type="button" class="lp-btn" (click)="resetFilters()">Reset filters</button> }</li>
             }
           </ul>
         }
+        </div>
 
         <nav class="lp-pager" aria-label="Pagination">
           <span class="muted">{{ rangeText() }}</span>
           <span class="lp-spacer"></span>
-          <button type="button" class="lp-btn" (click)="go(1)" [disabled]="page() <= 1">«</button>
-          <button type="button" class="lp-btn" (click)="go(page() - 1)" [disabled]="page() <= 1">‹ Prev</button>
+          <button type="button" class="lp-btn" (click)="go(1)" [disabled]="loading() || busy() || page() <= 1" aria-label="First page">«</button>
+          <button type="button" class="lp-btn" (click)="go(page() - 1)" [disabled]="loading() || busy() || page() <= 1">‹ Prev</button>
           <span>Page {{ page() }} of {{ data()?.pages ?? 1 }}</span>
-          <button type="button" class="lp-btn" (click)="go(page() + 1)" [disabled]="page() >= (data()?.pages ?? 1)">Next ›</button>
-          <button type="button" class="lp-btn" (click)="go(data()?.pages ?? 1)" [disabled]="page() >= (data()?.pages ?? 1)">»</button>
+          <button type="button" class="lp-btn" (click)="go(page() + 1)" [disabled]="loading() || busy() || page() >= (data()?.pages ?? 1)">Next ›</button>
+          <button type="button" class="lp-btn" (click)="go(data()?.pages ?? 1)" [disabled]="loading() || busy() || page() >= (data()?.pages ?? 1)" aria-label="Last page">»</button>
         </nav>
       </section>
+      </div>
 
       <!-- VIDEO SAMPLE & QUICK ACTIONS MODAL -->
       @if (sampleItem(); as s) {
         <div class="lp-modal-backdrop" (click)="closeSample()">
-          <div class="lp-modal" role="dialog" aria-modal="true" [attr.aria-label]="s.title || 'Video Sample'" (click)="$event.stopPropagation()">
+          <div #sampleDialog class="lp-modal" role="dialog" aria-modal="true" tabindex="-1" [attr.aria-label]="s.title || 'Video Sample'" (click)="$event.stopPropagation()">
             <header class="lp-modal-head">
               <div class="lp-modal-title-wrap">
                 <h3>{{ s.title || 'Short' }}</h3>
@@ -341,13 +381,15 @@ type FormatFilter = 'all' | 'short' | 'video';
             </header>
 
             <div class="lp-modal-player-box" [class.wide]="s.format === 'video'">
-              <video class="lp-modal-video" [src]="streamUrl(s)" controls autoplay playsinline></video>
+              <video class="lp-modal-video" [src]="streamUrl(s)" controls autoplay playsinline preload="metadata" (error)="onPreviewError(s)"></video>
             </div>
+            @if (previewError()) { <p class="lp-msg lp-error" role="alert">{{ previewError() }}</p> }
 
             <div class="lp-modal-meta-bar">
               <span class="muted">📁 {{ s.drivePath || 'Local Topic Library' }}</span>
               <span class="lp-spacer"></span>
-              @if (s.usedAt) {
+              @if (s.archived) { <span class="lp-tag">Archived</span> }
+              @else if (s.usedAt) {
                 <span class="lp-tag used">✓ Used ({{ s.usedAt | date: 'short' }})</span>
               } @else {
                 <span class="lp-tag unused">● Unused — ready to post</span>
@@ -357,6 +399,7 @@ type FormatFilter = 'all' | 'short' | 'video';
             <footer class="lp-modal-foot">
               <div class="lp-modal-nav">
                 <button type="button" class="lp-btn" (click)="stepSample(-1)" [disabled]="sampleIndex() <= 0">‹ Prev</button>
+                <span class="muted">{{ sampleIndex() + 1 }} / {{ pageItems().length }}</span>
                 <button type="button" class="lp-btn" (click)="stepSample(1)" [disabled]="sampleIndex() < 0 || sampleIndex() >= pageItems().length - 1">Next ›</button>
               </div>
               <div class="lp-modal-actions">
@@ -507,13 +550,111 @@ type FormatFilter = 'all' | 'short' | 'video';
     .lp-modal-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 8px; border-top: 1px solid #21262d; }
     .lp-modal-nav, .lp-modal-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
-    @media (max-width: 720px) { .m-tiles, .m-content { grid-template-columns: 1fr; } }
+    .lp { width: 100%; max-width: 1760px; padding: clamp(12px, 2vw, 24px); }
+    .lp-content { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+    .lp-head { padding: 8px 0; }
+    .lp-head h2 { font-size: clamp(1.35rem, 2vw, 1.8rem); }
+    .lp-card { min-width: 0; padding: clamp(12px, 1.5vw, 20px); }
+    .lp-overview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .lp-stat { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; padding: 16px; text-align: left; color: inherit; background: var(--panel, #161b22); border: 1px solid var(--border, #30363d); border-radius: 12px; box-shadow: none; }
+    .lp-stat strong { font-size: 1.6rem; line-height: 1.2; }
+    .lp-stat span { font-size: 0.8rem; color: var(--muted, #8b949e); }
+    .lp-stat.on { border-color: var(--brand, #7c3aed); background: color-mix(in srgb, var(--brand, #7c3aed) 12%, var(--panel, #161b22)); }
+    .lp-stat.on span { color: inherit; }
+    .lp-filters { display: grid; grid-template-columns: minmax(200px, 2fr) repeat(4, minmax(0, 1fr)); align-items: end; gap: 12px; }
+    .lp-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 0.78rem; color: var(--muted, #8b949e); }
+    .lp-input { width: 100%; min-width: 0; min-height: 44px; box-sizing: border-box; color: var(--text, #e6edf3); background: var(--bg, #0d1117); }
+    .lp-filter-summary { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; font-size: 0.82rem; }
+    .lp-btn, .lp-chip, .lp-link { min-height: 40px; box-sizing: border-box; justify-content: center; max-width: 100%; box-shadow: none; }
+    .lp-btn.sm { min-height: 36px; }
+    .lp-chip { white-space: normal; text-align: left; overflow-wrap: anywhere; }
+    .lp-dot { flex-shrink: 0; }
+    .lp-btn:focus-visible, .lp-chip:focus-visible, .lp-stat:focus-visible, .lp-title:focus-visible,
+    .lp-thumb-overlay:focus-visible, .lp-modal-close:focus-visible, .lp-thumb-close:focus-visible,
+    .lp-thumb-expand:focus-visible, .lp-link:focus-visible, summary:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 3px; }
+    .lp-thumb-overlay:focus-visible { outline-offset: -4px; }
+    .lp-bulk { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px; border: 1px solid var(--border, #30363d); border-radius: 10px; background: rgba(124, 58, 237, 0.08); }
+    .lp-move { padding: 4px 0; }
+    .lp-move app-topic-picker { min-width: 0; flex: 1 1 240px; max-width: 420px; }
+    .lp-download-settings { border-top: 1px solid var(--border, #30363d); padding-top: 10px; }
+    .lp-download-settings summary { cursor: pointer; font-size: 0.82rem; padding: 6px 0; }
+    .lp-download-settings summary span { display: inline-block; margin-left: 8px; color: #f2cc60; font-size: 0.75rem; }
+    .lp-download-settings .lp-check { margin-top: 8px; }
+    .lp-hint { margin: 4px 0; font-size: 0.8rem; line-height: 1.5; overflow-wrap: anywhere; }
+    .lp-check { min-height: 40px; }
+    .lp-check input, .lp-pick input { flex-shrink: 0; }
+    .lp-pick { padding: 7px; min-width: 32px; min-height: 32px; box-sizing: border-box; align-items: center; justify-content: center; }
+    .lp-results, .lp-table-wrap, .lp-item { min-width: 0; max-width: 100%; }
+    .lp-results.unavailable { opacity: 0.55; }
+    .lp-table-wrap { overscroll-behavior-x: contain; }
+    .lp-items { grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--w)), 1fr)); align-items: stretch; }
+    .lp-thumb { width: 100%; }
+    .lp-thumb.square { aspect-ratio: 1; }
+    .lp-thumb-overlay { padding: 0; width: 100%; height: 100%; border: 0; border-radius: 0; color: #fff; box-shadow: none; }
+    .lp-thumb-overlay:hover { transform: none; }
+    .lp-fmt-pill, .lp-dur, .lp-badge { pointer-events: none; }
+    .lp-thumb-close, .lp-thumb-expand { width: 36px; height: 36px; padding: 0; }
+    .lp-thumb-expand { right: 48px; }
+    .lp-title { display: block; width: 100%; min-width: 0; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; color: inherit; text-align: left; font: inherit; font-weight: 600; }
+    .lp-meta { overflow-wrap: anywhere; }
+    .lp-tag { max-width: 100%; white-space: normal; overflow-wrap: anywhere; box-sizing: border-box; }
+    .m-list { grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr)); }
+    .m-tiles { grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); }
+    .m-content { grid-template-columns: minmax(0, 1fr); }
+    .m-list .lp-item, .m-tiles .lp-item, .m-content .lp-item { display: grid; grid-template-columns: auto minmax(0, 1fr); }
+    .m-list .lp-item { grid-template-columns: auto auto minmax(0, 1fr); }
+    .m-list .lp-acts, .m-tiles .lp-acts, .m-content .lp-acts { grid-column: 1 / -1; flex-wrap: wrap; justify-content: flex-end; }
+    .m-list .lp-acts { padding-top: 0; }
+    .m-list .lp-thumb.wide, .m-tiles .lp-thumb.wide, .m-content .lp-thumb.wide { aspect-ratio: 16 / 9; }
+    .lp-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; line-height: 1.6; }
+    td.lp-empty { display: table-cell; }
+    td.lp-empty .lp-btn { display: flex; margin: 12px auto 0; }
+    .lp-error { border-color: rgba(248, 81, 73, 0.5); background: rgba(248, 81, 73, 0.08); }
+    .lp-msg { overflow-wrap: anywhere; }
+    .lp-modal-backdrop { box-sizing: border-box; padding: 12px; }
+    .lp-modal { box-sizing: border-box; width: min(900px, 100%); max-height: calc(100dvh - 24px); overflow-y: auto; overscroll-behavior: contain; }
+    .lp-modal-title-wrap { min-width: 0; }
+    .lp-modal-title-wrap h3, .lp-modal-meta-bar { overflow-wrap: anywhere; }
+    .lp-modal-close { flex-shrink: 0; width: 44px; height: 44px; padding: 0; display: grid; place-items: center; }
+    .lp-modal-player-box { flex-shrink: 0; min-height: 120px; max-height: 55dvh; }
+    .lp-modal-video { max-height: 55dvh; }
+    .lp-modal-nav { font-size: 0.8rem; }
+    @media (min-width: 2400px) { .lp { max-width: 2800px; } }
+    @media (max-width: 1100px) {
+      .lp-filters { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .lp-search { grid-column: 1 / -1; }
+    }
+    @media (max-width: 600px) {
+      .lp-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .lp-stat { padding: 12px; }
+      .lp-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .lp-input { font-size: 16px; }
+      .lp-btn, .lp-btn.sm, .lp-chip, .lp-link { min-height: 44px; }
+      .lp-head-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+      .lp-head-actions .lp-btn { font-size: 0.76rem; padding: 8px; }
+      .lp-bulk .lp-btn { flex: 1 1 110px; }
+      .lp-move-label, .lp-move app-topic-picker, .lp-move > .lp-btn { flex-basis: 100%; max-width: 100%; }
+      .lp-pager .lp-spacer { display: none; }
+      .lp-pager { justify-content: center; }
+      .lp-pager > .muted { flex-basis: 100%; text-align: center; }
+      .lp-modal { padding: 12px; border-radius: 12px; }
+      .lp-modal-actions, .lp-modal-nav { width: 100%; }
+      .lp-modal-actions > * { flex: 1 1 120px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .lp-btn, .lp-chip, .lp-item, .lp-thumb-img, .lp-thumb-overlay, .lp-play-circle { transition: none; }
+      .lp-thumb:hover .lp-thumb-img, .lp-thumb:hover .lp-play-circle { transform: none; }
+    }
   `],
 })
 export class ShortsLibraryPageComponent implements OnDestroy {
   private readonly api = inject(ShortsService);
   private readonly route = inject(ActivatedRoute);
   private readonly youtube = inject(YouTubePublishService);
+  private readonly injector = inject(Injector);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly sampleDialog = viewChild<ElementRef<HTMLElement>>('sampleDialog');
+  private sampleOrigin: HTMLElement | null = null;
 
   readonly driveState = signal<'unknown' | 'ok' | 'missing' | 'reconnect'>('unknown');
   readonly driveBusy = signal(false);
@@ -536,6 +677,10 @@ export class ShortsLibraryPageComponent implements OnDestroy {
   readonly loading = signal(false);
   readonly busy = signal(false);
   readonly message = signal<string | null>(null);
+  readonly loadError = signal(false);
+  readonly loadErrorMessage = signal('');
+  readonly previewError = signal<string | null>(null);
+  readonly progress = signal<string | null>(null);
 
   readonly search = signal('');
   readonly topicId = signal('');
@@ -546,6 +691,7 @@ export class ShortsLibraryPageComponent implements OnDestroy {
   readonly pageSize = signal(25);
 
   readonly selected = signal<ReadonlySet<string>>(new Set());
+  readonly usedBatchCount = computed(() => Math.min(200, this.data()?.counts.used ?? 0));
   readonly moveTarget = signal<string | null>(null);
   readonly autoArchive = signal(true);
 
@@ -554,13 +700,11 @@ export class ShortsLibraryPageComponent implements OnDestroy {
   readonly sampleItem = signal<LibraryItem | null>(null);
   readonly failedThumbs = signal<ReadonlySet<string>>(new Set());
 
-  readonly pageItems = computed(() => {
-    const raw = this.data()?.items ?? [];
-    const fmt = this.formatFilter();
-    if (fmt === 'all') return raw;
-    if (fmt === 'video') return raw.filter((i) => i.format === 'video');
-    return raw.filter((i) => i.format !== 'video');
-  });
+  readonly pageItems = computed(() => this.data()?.items ?? []);
+  readonly selectedOnPage = computed(() => this.pageItems().filter(i => this.selected().has(i.handoffId)));
+  readonly someOnPageSelected = computed(() => this.selectedOnPage().length > 0 && !this.allOnPageSelected());
+  readonly activeTopicName = computed(() => this.topicId() === 'none' ? 'No topic'
+    : this.topicId() ? this.data()?.topics.find(t => t.topicId === this.topicId())?.name ?? 'Selected topic' : 'All topics');
 
   readonly sampleIndex = computed(() => {
     const cur = this.sampleItem();
@@ -595,30 +739,37 @@ export class ShortsLibraryPageComponent implements OnDestroy {
   private requestId = 0;
 
   constructor() {
+    effect(() => {
+      const dialog = this.sampleDialog()?.nativeElement;
+      if (dialog) dialog.querySelector<HTMLButtonElement>('.lp-modal-close')?.focus();
+    });
     const initialTopic = this.route.snapshot.queryParamMap.get('topic');
     if (initialTopic) {
       this.topicId.set(initialTopic);
     }
     this.reload();
     this.checkDriveConnection();
-    this.api.importFromDrive().subscribe({
+    this.api.importFromDrive().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (imp) => {
         if (imp.added > 0 || imp.topicsAdded > 0) {
           this.message.set(`${imp.added} video(s) imported from Google Drive.`);
           this.reload(false);
         }
       },
-      error: () => undefined,
+      error: () => this.message.set('Could not import videos from Drive. Existing library items are still available; use Sync Drive to retry.'),
     });
   }
 
   private checkDriveConnection(): void {
-    this.youtube.driveConnections().subscribe({
+    this.youtube.driveConnections().pipe(timeout(30_000), takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (list) => {
         if (list.some((d) => d.connected && !d.needsReconnect)) this.driveState.set('ok');
         else this.driveState.set(list.some((d) => d.connected && d.needsReconnect) ? 'reconnect' : 'missing');
       },
-      error: () => this.driveState.set('unknown'),
+      error: () => {
+        this.driveState.set('unknown');
+        this.message.set('Could not check the Google Drive connection. Refresh to retry.');
+      },
     });
   }
 
@@ -650,6 +801,37 @@ export class ShortsLibraryPageComponent implements OnDestroy {
       this.closeSample();
     } else if (this.playingInlineId()) {
       this.playingInlineId.set(null);
+    }
+  }
+
+  @HostListener('document:keydown', ['$event'])
+  onDialogKey(event: KeyboardEvent): void {
+    const dialog = this.sampleDialog()?.nativeElement;
+    if (!dialog || event.key !== 'Tab') return;
+    const controls = [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], video[controls], [tabindex="0"]')];
+    const first = controls[0];
+    const last = controls.at(-1);
+    if (!first || !last) return;
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog)) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  formatLabel(item: LibraryItem): string {
+    return item.format === 'video' ? '16:9 Video' : item.format === 'square' ? '1:1 Square'
+      : item.format === 'short' ? '9:16 Short' : 'Unknown format';
+  }
+
+  onPreviewError(item: LibraryItem): void {
+    const text = `Could not play "${item.title || 'short'}". Try opening it in Google Drive${item.driveUrl ? ' using the Drive link' : ' after syncing the library'}.`;
+    if (this.sampleItem()?.handoffId === item.handoffId) this.previewError.set(text);
+    else {
+      this.playingInlineId.set(null);
+      this.message.set(text);
     }
   }
 
@@ -693,19 +875,24 @@ export class ShortsLibraryPageComponent implements OnDestroy {
 
   openSample(item: LibraryItem, event?: Event): void {
     event?.stopPropagation();
+    this.sampleOrigin = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    this.previewError.set(null);
     this.playingInlineId.set(null);
     this.sampleItem.set(item);
   }
 
   closeSample(): void {
     this.sampleItem.set(null);
+    this.previewError.set(null);
+    const origin = this.sampleOrigin;
+    afterNextRender(() => { if (origin?.isConnected) origin.focus(); }, { injector: this.injector });
   }
 
   stepSample(delta: -1 | 1): void {
     const idx = this.sampleIndex();
     const list = this.pageItems();
     const next = list[idx + delta];
-    if (next) this.sampleItem.set(next);
+    if (next) { this.previewError.set(null); this.sampleItem.set(next); }
   }
 
   private savedMode(): ViewMode {
@@ -714,17 +901,19 @@ export class ShortsLibraryPageComponent implements OnDestroy {
   }
 
   setMode(m: ViewMode): void {
+    this.playingInlineId.set(null);
     this.mode.set(m);
     localStorage.setItem('shorts.library.view', m);
   }
 
   emptyText(): string {
-    return this.loading() ? 'Loading…'
+    return this.loadError() ? 'Library unavailable. Use Retry above.'
+      : this.loading() ? 'Loading…'
       : this.hasFilters() ? 'No videos or shorts match these filters.'
       : 'Nothing here yet. Videos and shorts appear once exported with a topic or saved to Google Drive.';
   }
 
-  /** Details column headers sort the server-side list; a second click flips the direction. */
+  /** Date switches direction; name sorts A-Z and status sorts recently used first. */
   sortBy(col: 'name' | 'date' | 'used'): void {
     const next: Sort = col === 'name' ? 'name' : col === 'used' ? 'used' : this.sort() === 'newest' ? 'oldest' : 'newest';
     this.setSort(next);
@@ -739,22 +928,36 @@ export class ShortsLibraryPageComponent implements OnDestroy {
 
   onSearch(value: string): void {
     this.search.set(value);
+    ++this.requestId;
+    this.loading.set(true);
     if (this.debounce) clearTimeout(this.debounce);
     this.debounce = setTimeout(() => { this.page.set(1); this.reload(); }, 300);
   }
 
   setView(v: LibraryView): void { this.view.set(v); this.page.set(1); this.reload(); }
+  setFormat(f: FormatFilter): void { this.formatFilter.set(f); this.page.set(1); this.reload(); }
   setTopic(id: string): void { this.topicId.set(id); this.page.set(1); this.reload(); }
   setSort(s: Sort): void { this.sort.set(s); this.page.set(1); this.reload(); }
   setPageSize(n: number): void { this.pageSize.set(Number(n)); this.page.set(1); this.reload(); }
   go(p: number): void { this.page.set(Math.max(1, p)); this.reload(false); }
 
+  resetFilters(): void {
+    this.search.set('');
+    this.topicId.set('');
+    this.view.set('active');
+    this.formatFilter.set('all');
+    this.page.set(1);
+    this.reload();
+  }
+
   private query(): LibraryQuery {
+    const format = this.formatFilter();
     return {
       search: this.search().trim() || undefined,
       topicId: this.topicId() || undefined,
       view: this.view(),
       sort: this.sort(),
+      format: format === 'all' ? undefined : format,
       page: this.page(),
       pageSize: this.pageSize(),
     };
@@ -762,10 +965,13 @@ export class ShortsLibraryPageComponent implements OnDestroy {
 
   /** Loads the current page; a filter change also drops the selection (it may no longer be visible). */
   reload(clearSelection = true): void {
+    if (this.debounce) { clearTimeout(this.debounce); this.debounce = null; }
     const id = ++this.requestId;
     this.loading.set(true);
+    this.loadError.set(false);
+    this.playingInlineId.set(null);
     if (clearSelection) this.selected.set(new Set());
-    this.api.libraryItems(this.query()).subscribe({
+    this.api.libraryItems(this.query()).pipe(timeout(60_000), takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => {
         if (id !== this.requestId) return;
         this.data.set(d);
@@ -775,12 +981,18 @@ export class ShortsLibraryPageComponent implements OnDestroy {
         if (curSample) {
           const updated = d.items.find((i) => i.handoffId === curSample.handoffId);
           if (updated) this.sampleItem.set(updated);
+          else this.closeSample();
         }
       },
-      error: () => {
+      error: (error: unknown) => {
         if (id !== this.requestId) return;
         this.loading.set(false);
-        this.message.set('Could not load the Drive library.');
+        this.loadError.set(true);
+        this.loadErrorMessage.set(error instanceof TimeoutError
+          ? 'The library took too long to respond. The backend may be restarting or busy. Try again shortly.'
+          : error instanceof ApiFailure ? `${error.message}${error.hint ? ' ' + error.hint : ''}`
+            : 'Could not update the library. Check your connection and try again.');
+        this.selected.set(new Set());
       },
     });
   }
@@ -788,19 +1000,23 @@ export class ShortsLibraryPageComponent implements OnDestroy {
   syncDrive(): void {
     this.busy.set(true);
     this.message.set('Reading your Google Drives and organizing topic folders…');
+    let imported = '';
     this.api.importFromDrive().pipe(
-      catchError(() => of(null)),
-      switchMap((imp) => this.api.checkDrive(true).pipe(map((res) => ({ imp, res })))),
+      switchMap((imp) => {
+        imported = `${imp.added} imported from ${imp.drives} Drive(s)${imp.topicsAdded ? `, ${imp.topicsAdded} new topic(s)` : ''}${imp.skippedDrives ? `; ${imp.skippedDrives} Drive(s) could not be checked` : ''}.`;
+        return this.api.checkDrive(true);
+      }),
+      takeUntilDestroyed(this.destroyRef),
     ).subscribe({
-      next: ({ imp, res }) => {
+      next: (res) => {
         this.busy.set(false);
-        const found = imp ? ` ${imp.added} imported from ${imp.drives} Drive(s)${imp.topicsAdded ? `, ${imp.topicsAdded} new topic(s)` : ''}.` : '';
-        this.message.set(`Drive synced: ${res.present} present, ${res.moved} organized into folders.${found}`);
+        this.message.set(`Drive checked: ${res.present} present, ${res.moved} organized, ${res.missing} missing, ${res.failed} failed${res.error ? `: ${res.error}` : '.'} ${imported}`);
         this.reload(false);
       },
       error: () => {
         this.busy.set(false);
-        this.message.set('Could not sync Google Drive right now.');
+        this.message.set(`${imported ? imported + ' ' : ''}Could not complete Drive sync. Please try again.`);
+        this.reload(false);
       },
     });
   }
@@ -808,6 +1024,7 @@ export class ShortsLibraryPageComponent implements OnDestroy {
   toggle(id: string): void {
     const next = new Set(this.selected());
     if (!next.delete(id)) next.add(id);
+    if (!this.checkSelectionLimit(next.size)) return;
     this.selected.set(next);
   }
 
@@ -816,13 +1033,30 @@ export class ShortsLibraryPageComponent implements OnDestroy {
     const ids = this.pageItems().map((i) => i.handoffId);
     if (this.allOnPageSelected()) ids.forEach((id) => next.delete(id));
     else ids.forEach((id) => next.add(id));
+    if (!this.checkSelectionLimit(next.size)) return;
     this.selected.set(next);
   }
 
+  private checkSelectionLimit(count: number): boolean {
+    if (count <= 200) return true;
+    this.message.set('Bulk actions support up to 200 videos at a time. Narrow the filters or clear your selection before selecting more.');
+    return false;
+  }
+
   selectAllMatching(): void {
-    this.api.libraryIds(this.query()).subscribe({
-      next: (ids) => this.selected.set(new Set(ids)),
-      error: () => this.message.set('Could not select every match.'),
+    const request = this.requestId;
+    this.busy.set(true);
+    this.api.libraryIds(this.query()).pipe(timeout(60_000), takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (ids) => {
+        this.busy.set(false);
+        if (request !== this.requestId) return;
+        if (ids.length > 200) {
+          this.message.set('Bulk actions support up to 200 videos at a time. Narrow the topic or format filters, or select individual pages.');
+          return;
+        }
+        this.selected.set(new Set(ids));
+      },
+      error: () => { this.busy.set(false); this.message.set('Could not select every match.'); },
     });
   }
 
@@ -831,12 +1065,14 @@ export class ShortsLibraryPageComponent implements OnDestroy {
   }
 
   setUsed(used: boolean): void {
+    if (used && !this.confirmAutoDelete(this.selected().size, 'Mark used')) return;
     this.run(this.api.markUsed([...this.selected()], used, this.autoArchive()), (r) => this.report(r, used ? (this.autoArchive() ? 'marked used and deleted' : 'marked used') : 'marked unused'));
   }
 
   /** Direct 1-click Used / Unused toggle on an individual card or row. */
   toggleItemUsed(item: LibraryItem): void {
     const nextUsed = !item.usedAt;
+    if (nextUsed && !this.confirmAutoDelete(1, 'Mark used')) return;
     this.run(
       this.api.markUsed([item.handoffId], nextUsed, this.autoArchive()),
       (r) => this.report(r, nextUsed ? (this.autoArchive() ? 'marked used and deleted' : 'marked used') : 'marked unused'),
@@ -848,7 +1084,7 @@ export class ShortsLibraryPageComponent implements OnDestroy {
   }
 
   deleteUsed(): void {
-    const n = this.data()?.counts.used ?? 0;
+    const n = this.usedBatchCount();
     if (!confirm(`Delete ${n} used items? Their Google Drive files move to the Drive trash.`)) return;
     this.run(this.api.deleteArchived(), (r) => this.report(r, 'deleted'));
   }
@@ -864,17 +1100,17 @@ export class ShortsLibraryPageComponent implements OnDestroy {
   }
 
   downloadOne(item: LibraryItem): void {
-    if (!this.confirmReuse([item])) return;
+    if (!this.confirmReuse([item]) || !this.confirmAutoDelete(1, 'Download')) return;
     void this.downloadAll([item]);
   }
 
   downloadSelected(): void {
-    const chosen = this.pageItems().filter((i) => this.selected().has(i.handoffId));
+    const chosen = this.selectedOnPage();
     if (chosen.length === 0) {
       this.message.set('Downloads run for the items on this page; select them here first.');
       return;
     }
-    if (!this.confirmReuse(chosen)) return;
+    if (!this.confirmReuse(chosen) || !this.confirmAutoDelete(chosen.length, 'Download')) return;
     void this.downloadAll(chosen);
   }
 
@@ -884,13 +1120,20 @@ export class ShortsLibraryPageComponent implements OnDestroy {
     return used === 0 || confirm(`${used} of these ${used === 1 ? 'is' : 'are'} already marked used. Download anyway?`);
   }
 
+  private confirmAutoDelete(count: number, action: string): boolean {
+    return !this.autoArchive() || confirm(`${action} ${count} video${count === 1 ? '' : 's'}? Auto-delete is ON: this also removes ${count === 1 ? 'it' : 'them'} from the library and sends the Google Drive ${count === 1 ? 'copy' : 'copies'} to trash.`);
+  }
+
   private async downloadAll(items: LibraryItem[]): Promise<void> {
     this.busy.set(true);
+    const autoDelete = this.autoArchive();
     let ok = 0;
+    const failed: string[] = [];
     for (const i of items) {
+      this.progress.set(`Downloading ${ok + failed.length + 1} of ${items.length}…`);
       try {
         const blob = await new Promise<Blob>((resolve, reject) =>
-          this.api.downloadCopy(i.handoffId, true, this.autoArchive()).subscribe({ next: resolve, error: reject }));
+          this.api.downloadCopy(i.handoffId, true, autoDelete).subscribe({ next: resolve, error: reject }));
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -899,14 +1142,14 @@ export class ShortsLibraryPageComponent implements OnDestroy {
         setTimeout(() => URL.revokeObjectURL(url), 60_000);
         ok++;
       } catch {
-        this.message.set(`Could not download "${i.title || 'short'}".`);
+        failed.push(i.title || 'short');
       }
     }
     this.busy.set(false);
-    if (ok > 0) {
-      this.message.set(`Downloaded ${ok} and marked ${ok === 1 ? 'it' : 'them'} used${this.autoArchive() ? ' - deleted from the library' : ''}.`);
-      this.reload(false);
-    }
+    this.progress.set(null);
+    this.message.set(`${ok} download${ok === 1 ? '' : 's'} requested and marked used${autoDelete && ok ? '; auto-delete requested' : ''}.${failed.length ? ` ${failed.length} failed: ${failed.join(', ')}. Try again.` : ' Check your browser downloads; allow multiple downloads if prompted.'}`);
+    this.selected.set(new Set());
+    this.reload(false);
   }
 
   private report(r: LibraryBulk, verb: string): void {
@@ -918,7 +1161,7 @@ export class ShortsLibraryPageComponent implements OnDestroy {
   private run(call: Observable<LibraryBulk>, then: (r: LibraryBulk) => void): void {
     this.busy.set(true);
     this.message.set(null);
-    call.subscribe({
+    call.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.busy.set(false); then(r); this.selected.set(new Set()); this.reload(false); },
       error: () => { this.busy.set(false); this.message.set('That did not work. Please try again.'); },
     });

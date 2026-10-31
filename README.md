@@ -58,6 +58,14 @@ Craft viral Shorts, Reels, YouTube videos, animated stories, and narrated slides
 - **Timeline Music Cues**: Place multiple audio tracks at specific timestamps with independent volume sliders.
 - **Intelligent Audio Ducking**: Automatically lower or mute video sound when a background music cue begins playing.
 
+### Drive & Topics Library
+- **Find and organise exports**: Search video titles, project names, and topics; filter portrait, landscape, square, or unknown formats across the entire library before pagination. Reset filters in one click.
+- **Responsive browsing**: Eight layouts, touch-friendly controls, library counts, and a scrollable details table support phones, tablets, laptops, and ultrawide screens.
+- **Accessible previews**: Keyboard-accessible thumbnails and titles open samples; the preview dialog keeps keyboard focus inside, closes with Escape, and returns focus to its opener.
+- **Clear bulk actions**: Page selection shows partial selection. Select all matching items for bulk actions up to 200 videos; downloads explicitly target selected items on the current page.
+- **Usage and deletion safety**: Downloads mark videos used. Auto-delete remains on by default, but downloads and marking used ask for confirmation before removing library records and sending Drive copies to trash. Turn it off under **Download & usage settings** to keep used videos. Archive and delete remain separate actions.
+- **Transient failure recovery**: Library reads retry network/server failures twice with backoff, within a 60-second overall limit. If they still fail, previous results remain visible with actions disabled and a Retry button. Authentication/validation failures and state-changing operations are not automatically retried.
+
 ### 🎵 Music Release Kit
 - **Distributor-Ready Master**: Two-pass loudness normalisation to -14 LUFS / -1 dBTP (or -16 / -11), 16- or 24-bit WAV at 44.1/48/96 kHz.
 - **Artwork & Promo Videos**: 3000×3000 cover, a full-length 16:9 YouTube visualizer, and an 8-second 9:16 loop for Spotify Canvas, Reels and Shorts.

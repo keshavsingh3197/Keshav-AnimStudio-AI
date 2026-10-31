@@ -56,7 +56,7 @@ public sealed class ShortsLibraryController(
     {
         var (copies, topicMap, jobMap, names) = await LoadAsync(ct);
 
-        var matching = Filter(copies, query, topicMap).ToList();
+        var matching = Filter(copies, query, topicMap, jobMap, names).ToList();
         var sorted = (query.Sort switch
         {
             "oldest" => matching.OrderBy(h => h.CreatedAt),
@@ -90,8 +90,8 @@ public sealed class ShortsLibraryController(
     [HttpGet("ids")]
     public async Task<ActionResult<ApiResponse<IReadOnlyList<string>>>> Ids([FromQuery] LibraryQuery query, CancellationToken ct)
     {
-        var (copies, topicMap, _, _) = await LoadAsync(ct);
-        IReadOnlyList<string> ids = [.. Filter(copies, query, topicMap).Select(h => h.Id)];
+        var (copies, topicMap, jobMap, names) = await LoadAsync(ct);
+        IReadOnlyList<string> ids = [.. Filter(copies, query, topicMap, jobMap, names).Select(h => h.Id)];
         return Ok(ApiResponse<IReadOnlyList<string>>.Ok(ids));
     }
 
@@ -485,8 +485,9 @@ public sealed class ShortsLibraryController(
         return new EmptyResult();
     }
 
-    private static IEnumerable<PhoneHandoff> Filter(
-        IEnumerable<PhoneHandoff> copies, LibraryQuery q, IReadOnlyDictionary<string, ContentTopic> topicMap)
+    internal static IEnumerable<PhoneHandoff> Filter(
+        IEnumerable<PhoneHandoff> copies, LibraryQuery q, IReadOnlyDictionary<string, ContentTopic> topicMap,
+        IReadOnlyDictionary<string, RenderJob> jobMap, IReadOnlyDictionary<string, string> names)
     {
         var view = q.View ?? "active";
         var search = q.Search?.Trim();
@@ -495,6 +496,7 @@ public sealed class ShortsLibraryController(
             if (view == "archived" ? !h.Archived : view != "all" && h.Archived) return false;
             if (view == "unused" && h.UsedAt is not null) return false;
             if (view == "used" && h.UsedAt is null) return false;
+            if (q.Format is { } format && FormatOf(jobMap.GetValueOrDefault(h.JobId)) != format) return false;
 
             if (!string.IsNullOrEmpty(q.TopicId))
             {
@@ -507,6 +509,7 @@ public sealed class ShortsLibraryController(
                 var topicName = TopicOf(h, topicMap)?.Name;
                 var hit = h.Title.Contains(search, StringComparison.CurrentCultureIgnoreCase)
                           || (h.DriveFileName?.Contains(search, StringComparison.CurrentCultureIgnoreCase) ?? false)
+                          || (names.GetValueOrDefault(h.ProjectId)?.Contains(search, StringComparison.CurrentCultureIgnoreCase) ?? false)
                           || (topicName?.Contains(search, StringComparison.CurrentCultureIgnoreCase) ?? false);
                 if (!hit) return false;
             }
@@ -517,6 +520,11 @@ public sealed class ShortsLibraryController(
     /// <summary>The copy's topic as it exists now; a topic deleted from the calendar counts as none.</summary>
     private static ContentTopic? TopicOf(PhoneHandoff h, IReadOnlyDictionary<string, ContentTopic> topicMap) =>
         h.TopicId is { } id && topicMap.TryGetValue(id, out var t) ? t : null;
+
+    private static string FormatOf(RenderJob? job) =>
+        job is { Width: > 0, Height: > 0 }
+            ? job.Height > job.Width ? "short" : job.Height == job.Width ? "square" : "video"
+            : "unknown";
 
     private static LibraryItemResponse ToItem(
         PhoneHandoff h,
@@ -529,9 +537,7 @@ public sealed class ShortsLibraryController(
         var width = job?.Width;
         var height = job?.Height;
         var hasLocalPreview = job is { OutputStorageKey: not null, Status: RenderJobStatus.Completed or RenderJobStatus.CompletedWithWarnings };
-        var format = width is > 0 && height is > 0
-            ? (height > width ? "short" : height == width ? "square" : "video")
-            : null;
+        var format = FormatOf(job);
         var duration = h.DurationSeconds ?? job?.Diagnostics?.OutputDurationSeconds;
         var sizeBytes = h.TotalBytes > 0 ? h.TotalBytes : job?.OutputSizeBytes;
         return new LibraryItemResponse(
@@ -786,6 +792,9 @@ public sealed record LibraryQuery
 
     /// <summary><c>newest</c> (default), <c>oldest</c>, <c>name</c> or <c>used</c>.</summary>
     [RegularExpression("^(newest|oldest|name|used)$")] public string? Sort { get; init; }
+
+    /// <summary>Filter before pagination and bulk selection; missing dimensions are <c>unknown</c>.</summary>
+    [RegularExpression("^(short|video|square|unknown)$")] public string? Format { get; init; }
 
     public int Page { get; init; } = 1;
     public int PageSize { get; init; } = 25;

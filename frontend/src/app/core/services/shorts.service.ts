@@ -1,9 +1,10 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { Observable, map } from 'rxjs';
+import { Observable, map, retry, throwError, timer } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../models/api.models';
+import { ApiFailure } from '../interceptors/api-error.interceptor';
 import {
   LibraryBulk, LibraryPage, LibraryQuery, ShortsActive, ShortsBulkResponse, ShortsDriveCheck, ShortsOverview, YouTubeBulkPublishBody,
 } from '../models/shorts.models';
@@ -69,6 +70,13 @@ export class ShortsService {
   }
 
   private readonly library = `${environment.apiUrl}/api/shorts/library`;
+  private readonly libraryReadRetry = {
+    count: 2,
+    delay: (error: unknown, attempt: number) => error instanceof ApiFailure &&
+      (error.status === 0 || error.status === 408 || error.status >= 500)
+        ? timer(attempt * 1000)
+        : throwError(() => error),
+  };
 
   /** Reads every connected Drive's Topics / Archive folders and adds what the library doesn't know yet. */
   importFromDrive(): Observable<{ drives: number; added: number; topicsAdded: number; revived: number; skippedDrives: number }> {
@@ -79,13 +87,13 @@ export class ShortsService {
   /** One page of the Drive library for the filters, with the counts the filter chips show. */
   libraryItems(query: LibraryQuery): Observable<LibraryPage> {
     return this.http.get<ApiResponse<LibraryPage>>(`${this.library}/items`, { params: this.libraryParams(query) })
-      .pipe(map((r) => r.data as LibraryPage));
+      .pipe(retry(this.libraryReadRetry), map((r) => r.data as LibraryPage));
   }
 
   /** Every id the filters match, across pages. */
   libraryIds(query: LibraryQuery): Observable<string[]> {
     return this.http.get<ApiResponse<string[]>>(`${this.library}/ids`, { params: this.libraryParams(query) })
-      .pipe(map((r) => r.data ?? []));
+      .pipe(retry(this.libraryReadRetry), map((r) => r.data ?? []));
   }
 
   private libraryParams(q: LibraryQuery): HttpParams {

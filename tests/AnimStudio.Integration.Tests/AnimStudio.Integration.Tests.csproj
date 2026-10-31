@@ -19,6 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\backend\AnimStudio.Api\AnimStudio.Api.csproj" />
     <ProjectReference Include="..\..\backend\AnimStudio.Infrastructure\AnimStudio.Infrastructure.csproj" />
   </ItemGroup>
 
