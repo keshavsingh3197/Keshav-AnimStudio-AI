@@ -121,6 +121,44 @@ public sealed class MediaTranscriptionService(
         var hint = command.Language is not null && Languages.Contains(command.Language) ? command.Language : null;
         var truncated = asset.Probe.DurationSeconds is { } seconds && seconds > MaxLength.TotalSeconds;
 
+        var (lines, providers, detected) = await RecognizeAsync(asset.StorageKey, hint, MaxLength,
+            new AiCallContext(command.ProjectId, command.UserId), ct).ConfigureAwait(false);
+
+        var subRip = ToSubRip(lines);
+        var language = detected ?? hint;
+        var saved = command.SaveAsSubtitle
+            ? await SaveAsync(asset, subRip, ct).ConfigureAwait(false)
+            : null;
+
+        logger.LogInformation(
+            "Transcribed {Lines} line(s) from asset {AssetId} in project {ProjectId} with {Providers}; saved: {Saved}.",
+            lines.Count, asset.Id, command.ProjectId, string.Join(",", providers), saved is not null);
+
+        return new MediaTranscription(lines, subRip, language, string.Join(", ", providers), truncated, saved);
+    }
+
+    /// <summary>
+    /// What is sung or said in a finished render, for writing its YouTube details when YouTube has
+    /// no captions for it. Only the first <paramref name="maxLength"/> is heard - enough to name
+    /// the subject. The caller has already checked the render is the user's own; nothing is saved.
+    /// </summary>
+    public async Task<string> TranscribeRenderAsync(
+        string outputStorageKey, string projectId, string userId, string? language, TimeSpan maxLength, CancellationToken ct)
+    {
+        if (!extractor.IsAvailable)
+            throw new MediaTranscriptionException("ffmpeg-unavailable",
+                "ffmpeg isn't available on this server, so the sound can't be read out of the render.");
+
+        var hint = language is not null && Languages.Contains(language) ? language : null;
+        var (lines, _, _) = await RecognizeAsync(outputStorageKey, hint, maxLength, new AiCallContext(projectId, userId), ct)
+            .ConfigureAwait(false);
+        return string.Join('\n', lines.Select(l => l.Text));
+    }
+
+    /// <summary>The speech in a stored file, part by part, one file at a time across the server.</summary>
+    private async Task<(List<MediaTranscriptLine> Lines, List<string> Providers, string? Language)> RecognizeAsync(
+        string storageKey, string? hint, TimeSpan maxLength, AiCallContext context, CancellationToken ct)
+    {
         if (!await Slot.WaitAsync(TimeSpan.FromSeconds(30), ct).ConfigureAwait(false))
             throw new MediaTranscriptionException("transcription-busy",
                 "Another file is being transcribed right now. Try again when it has finished.");
@@ -136,7 +174,7 @@ public sealed class MediaTranscriptionService(
             IReadOnlyList<SpeechAudioPart> parts;
             try
             {
-                parts = await extractor.ExtractAsync(workspace, asset.StorageKey, PartLength, MaxLength, ct)
+                parts = await extractor.ExtractAsync(workspace, storageKey, PartLength, maxLength, ct)
                     .ConfigureAwait(false);
             }
             catch (SpeechAudioExtractionException ex)
@@ -157,9 +195,9 @@ public sealed class MediaTranscriptionService(
                         LanguageHint = hint,
                         // The storage key names immutable bytes, so it and the part's place in
                         // them identify the audio without reading it again to hash it.
-                        CacheFingerprint = Fingerprint(asset.StorageKey, i)
+                        CacheFingerprint = Fingerprint(storageKey, i)
                     },
-                    new AiCallContext(command.ProjectId, command.UserId), ct).ConfigureAwait(false);
+                    context, ct).ConfigureAwait(false);
 
                 // A part that is all music or silence comes back empty; that is not a failure
                 // of the file, only a stretch of it with nobody speaking.
@@ -180,17 +218,7 @@ public sealed class MediaTranscriptionService(
         if (lines.Count == 0)
             throw new MediaTranscriptionException("no-speech", "No speech was heard in this file.");
 
-        var subRip = ToSubRip(lines);
-        var language = detected ?? hint;
-        var saved = command.SaveAsSubtitle
-            ? await SaveAsync(asset, subRip, ct).ConfigureAwait(false)
-            : null;
-
-        logger.LogInformation(
-            "Transcribed {Lines} line(s) from asset {AssetId} in project {ProjectId} with {Providers}; saved: {Saved}.",
-            lines.Count, asset.Id, command.ProjectId, string.Join(",", providers), saved is not null);
-
-        return new MediaTranscription(lines, subRip, language, string.Join(", ", providers), truncated, saved);
+        return (lines, providers, detected);
     }
 
     /// <summary>

@@ -6,13 +6,16 @@ import { RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
 
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
+import { ContentTopic } from '../../core/models/calendar.models';
 import {
   MAX_THUMBNAIL_UPLOAD_BYTES, YouTubeCategory, YouTubeCheckupPlaylist, YouTubeCheckupVideo, YouTubePrivacy, YouTubeSuggestEngine, YouTubeThumbnailChoice,
   YouTubeVideoEditContext,
 } from '../../core/models/youtube.models';
 import { ApiService } from '../../core/services/api.service';
+import { ContentCalendarService } from '../../core/services/content-calendar.service';
 import { YouTubePublishService } from '../../core/services/youtube-publish.service';
 import { AssetThumbnailPickerComponent } from '../../shared/asset-thumbnail-picker.component';
+import { fold, rank, search } from './checkup-match';
 import { seoChecks, seoScore } from './checkup-seo';
 import {
   Draft, HASHTAGS, RowState, YOUTUBE_LANGUAGES, draftChecklist, draftDiffers, earliestScheduleLocal, fitTags, hasFooter, insertAboveFooter, scheduleDiffers, scheduleProblem,
@@ -24,6 +27,12 @@ const FRAME_SPOTS = [0.1, 0.26, 0.42, 0.58, 0.74, 0.9];
 
 /** YouTube video ids are 11 URL-safe characters; nothing else is ever put in the player's URL. */
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
+
+/** The most search results drawn at once; a channel can have thousands of playlists. */
+const PICKER_LIMIT = 50;
+
+/** Colours a topic made from the dialog can get, so new ones don't all look alike in the calendar. */
+const TOPIC_COLORS = ['#6c8cff', '#f59e0b', '#10b981', '#ef4444', '#a855f7', '#06b6d4', '#ec4899'];
 
 type ThumbMode = 'current' | 'youtube' | 'frame' | 'library' | 'upload';
 
@@ -54,6 +63,7 @@ const YOUTUBE_STILLS: readonly { key: string; label: string; file: string }[] = 
 export class CheckupVideoEditorComponent {
   private readonly api = inject(YouTubePublishService);
   private readonly assets = inject(ApiService);
+  private readonly calendar = inject(ContentCalendarService);
   private readonly sanitizer = inject(DomSanitizer);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
@@ -65,6 +75,9 @@ export class CheckupVideoEditorComponent {
   readonly state = input.required<RowState>();
   readonly playlists = input<YouTubeCheckupPlaylist[]>([]);
   readonly playlistsKnown = input(true);
+  readonly topics = input<ContentTopic[]>([]);
+  /** A topic was created from the dialog; the page adds it to its list. */
+  readonly topicCreated = output<ContentTopic>();
   readonly categories = input<YouTubeCategory[]>([]);
   /** "3 of 25" in the current list, for the header. */
   readonly position = input('');
@@ -324,6 +337,11 @@ export class CheckupVideoEditorComponent {
     this.ytStillPick.set(null);
     this.libraryOpen.set(false);
     this.thumbSize.set(null);
+    this.playlistQuery.set('');
+    this.topicQuery.set('');
+    this.topicOpen.set(false);
+    this.topicError.set(null);
+    this.topicBusy.set(false);
     this.clearFrames();
     // The side panel and the form keep their scroll position across Previous/Next; start both at the top.
     setTimeout(() => {
@@ -466,7 +484,129 @@ export class CheckupVideoEditorComponent {
     const d = this.draft();
     if (!d) return;
     const has = d.addPlaylistIds.includes(playlistId);
-    this.set({ addPlaylistIds: has ? d.addPlaylistIds.filter((p) => p !== playlistId) : [...d.addPlaylistIds, playlistId] });
+    this.set({
+      addPlaylistIds: has ? d.addPlaylistIds.filter((p) => p !== playlistId) : [...d.addPlaylistIds, playlistId],
+      autoPlaylistIds: (d.autoPlaylistIds ?? []).filter((p) => p !== playlistId),
+    });
+    this.playlistQuery.set('');
+  }
+
+  // --- playlists: searched rather than listed, so a channel with thousands stays usable
+
+  readonly playlistQuery = signal('');
+  private readonly playlistById = computed(() => new Map(this.playlists().map((p) => [p.id, p])));
+  /** What the video is about, in words, for matching playlists and topics against. */
+  private readonly videoText = computed(() => {
+    const d = this.draft();
+    return d ? `${d.title}\n${d.tagsText}\n${d.description.slice(0, 600)}` : this.video().title;
+  });
+  readonly inPlaylists = computed(() => this.video().playlistIds.map((id) => this.playlistById().get(id)).filter((p): p is YouTubeCheckupPlaylist => !!p));
+  readonly pickedPlaylists = computed(() => (this.draft()?.addPlaylistIds ?? []).map((id) => this.playlistById().get(id)).filter((p): p is YouTubeCheckupPlaylist => !!p));
+  private readonly takenPlaylists = computed(() => new Set([...this.video().playlistIds, ...(this.draft()?.addPlaylistIds ?? [])]));
+  readonly suggestedPlaylists = computed(() => {
+    const free = this.playlists().filter((p) => !this.takenPlaylists().has(p.id));
+    return rank(free, (p) => p.title, this.videoText(), this.currentTopic()?.name).slice(0, 4).map((r) => r.item);
+  });
+  readonly playlistResults = computed(() => {
+    if (!this.playlistQuery().trim()) return [];
+    return search(this.playlists(), this.playlistQuery(), (p) => p.title).filter((p) => !this.takenPlaylists().has(p.id));
+  });
+  readonly playlistResultsShown = computed(() => this.playlistResults().slice(0, PICKER_LIMIT));
+
+  /** Enter in the search box adds the first match. */
+  addFirstPlaylist(event: Event): void {
+    event.preventDefault();
+    const first = this.playlistResultsShown()[0];
+    if (first) this.togglePlaylist(first.id);
+  }
+
+  // --- topic: the content series the video belongs to; it steers the AI and the playlist picks
+
+  readonly topicQuery = signal('');
+  readonly topicOpen = signal(false);
+  readonly topicBusy = signal(false);
+  readonly topicError = signal<string | null>(null);
+  readonly currentTopic = computed(() => {
+    const id = this.draft()?.topicId;
+    return id ? this.topics().find((t) => t.id === id) ?? null : null;
+  });
+  readonly topicResults = computed(() => search(this.topics(), this.topicQuery(), (t) => t.name).slice(0, PICKER_LIMIT));
+  /** "Create topic" is offered only for a name that isn't one already. */
+  readonly canCreateTopic = computed(() => {
+    const name = this.topicQuery().trim();
+    return name.length > 0 && name.length <= 80 && !this.topics().some((t) => fold(t.name) === fold(name));
+  });
+  /** The topic the video's words point to, offered when none is picked yet. */
+  readonly suggestedTopic = computed(() => {
+    if (this.currentTopic()) return null;
+    const best = rank(this.topics(), (t) => [t.name, ...t.tags].join(' '), this.videoText(), null, 0.6)[0];
+    return best?.item ?? null;
+  });
+  readonly topicTagsToAdd = computed(() => {
+    const have = new Set(splitTags(this.draft()?.tagsText ?? '').map((t) => t.toLowerCase()));
+    return (this.currentTopic()?.tags ?? []).filter((t) => !have.has(t.toLowerCase()));
+  });
+
+  pickTopic(topic: ContentTopic | null): void {
+    this.set({ topicId: topic?.id ?? null });
+    this.topicQuery.set('');
+    this.topicOpen.set(false);
+    this.topicError.set(null);
+  }
+
+  addTopicTags(): void {
+    const d = this.draft();
+    if (d) this.set({ tagsText: fitTags([...splitTags(d.tagsText), ...this.topicTagsToAdd()]).join(', ') });
+  }
+
+  /** Enter picks the first match, or creates the typed topic when nothing matches. */
+  onTopicEnter(event: Event): void {
+    event.preventDefault();
+    const first = this.topicResults()[0];
+    if (first && !this.canCreateTopic()) this.pickTopic(first);
+    else if (this.canCreateTopic()) this.createTopic();
+  }
+
+  /** A new topic for this channel, with no posting cadence - it can be planned in the calendar later. */
+  createTopic(): void {
+    const name = this.topicQuery().trim();
+    if (!this.canCreateTopic() || this.topicBusy()) return;
+    const generation = this.generation;
+    this.topicBusy.set(true);
+    this.topicError.set(null);
+    this.calendar.createTopic({
+      name,
+      description: null,
+      color: TOPIC_COLORS[this.topics().length % TOPIC_COLORS.length],
+      channelId: this.channelId(),
+      channelTitle: null,
+      days: [],
+      publishTime: '18:00',
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+      leadDays: 3,
+      planAheadDays: 21,
+      autoSchedule: false,
+      autoLinkUploads: false,
+      tags: [],
+      checklist: [],
+      archived: false,
+    }).subscribe({
+      next: (topic) => {
+        this.topicBusy.set(false);
+        this.topicCreated.emit(topic);
+        if (generation === this.generation) this.pickTopic(topic);
+      },
+      error: (e: unknown) => {
+        this.topicBusy.set(false);
+        if (generation === this.generation) this.topicError.set(message(e));
+      },
+    });
+  }
+
+  /** Who wrote the last suggestion, in words. */
+  engineName(id: string | undefined): string {
+    if (!id) return '';
+    return this.engines().find((e) => e.id === id)?.name ?? (id === 'free-local-seo' ? 'Free built-in engine' : id);
   }
 
   tags(text: string): string[] {

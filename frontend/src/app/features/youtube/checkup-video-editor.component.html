@@ -457,9 +457,85 @@
             </div>
           }
 
+          @if (d.writtenBy) {
+            <div class="ve-ai-status">
+              <span>Last written by <strong>{{ engineName(d.writtenBy) }}</strong></span>
+              <span class="ve-sep">·</span>
+              @switch (d.transcriptSource) {
+                @case ('youtube-captions') { <span class="ve-ai-ok">✓ from the video's YouTube captions</span> }
+                @case ('render-audio') { <span class="ve-ai-ok">✓ from what is sung in the AnimStudio render</span> }
+                @default { <span class="ve-ai-warn">no transcript - written from title, description and tags</span> }
+              }
+              @if (currentTopic(); as t) {
+                <span class="ve-sep">·</span><span>topic <strong>{{ t.name }}</strong></span>
+              }
+            </div>
+            @for (n of d.aiNotes ?? []; track n) {
+              <div class="ve-alert-warn">ℹ️ {{ n }}</div>
+            }
+          }
+
           @if (st.error) {
             <div class="ve-alert-error" role="alert">⚠️ {{ st.error }}</div>
           }
+
+          <!-- Topic: the content series this video belongs to -->
+          <div class="ve-field-group ve-topic-group">
+            <div class="ve-field-header">
+              <label for="ve-topic-input" class="ve-label">Topic <span class="ve-sublabel">(steers the AI, tags and playlist picks)</span></label>
+              <div class="ve-field-tools">
+                @if (topicTagsToAdd().length) {
+                  <button type="button" class="ve-tool-chip" (click)="addTopicTags()" [title]="topicTagsToAdd().join(', ')">
+                    + Topic tags ({{ topicTagsToAdd().length }})
+                  </button>
+                }
+                <a routerLink="/calendar" class="ve-link-btn" title="Plan posts and cadence for topics">Manage topics ↗</a>
+              </div>
+            </div>
+            @if (currentTopic(); as t) {
+              <div class="ve-picked-row">
+                <span class="ve-picked-chip" [style.border-color]="t.color">
+                  <span class="ve-topic-dot" [style.background]="t.color"></span>{{ t.name }}
+                  <button type="button" class="ve-tag-remove" (click)="pickTopic(null)" [attr.aria-label]="'Remove topic ' + t.name">✕</button>
+                </span>
+              </div>
+            } @else {
+              <div class="ve-combo">
+                <input id="ve-topic-input" type="text" class="ve-input" maxlength="80" autocomplete="off"
+                       placeholder="Search topics, or type a new one…"
+                       [ngModel]="topicQuery()" (ngModelChange)="topicQuery.set($event); topicOpen.set(true)"
+                       (focus)="topicOpen.set(true)" (blur)="topicOpen.set(false)" (keydown.enter)="onTopicEnter($event)" (keydown.escape)="topicOpen.set(false); $event.stopPropagation()"
+                       role="combobox" [attr.aria-expanded]="topicOpen()" aria-controls="ve-topic-list" />
+                @if (topicOpen() && (topicResults().length || canCreateTopic())) {
+                  <ul id="ve-topic-list" class="ve-combo-list" role="listbox">
+                    @for (t of topicResults(); track t.id) {
+                      <li role="option" aria-selected="false">
+                        <button type="button" class="ve-combo-item" (mousedown)="$event.preventDefault()" (click)="pickTopic(t)">
+                          <span class="ve-topic-dot" [style.background]="t.color"></span>{{ t.name }}
+                        </button>
+                      </li>
+                    }
+                    @if (canCreateTopic()) {
+                      <li role="option" aria-selected="false">
+                        <button type="button" class="ve-combo-item ve-combo-create" (mousedown)="$event.preventDefault()" (click)="createTopic()" [disabled]="topicBusy()">
+                          {{ topicBusy() ? 'Creating…' : '+ Create topic “' + topicQuery().trim() + '”' }}
+                        </button>
+                      </li>
+                    }
+                  </ul>
+                }
+              </div>
+              @if (suggestedTopic(); as s) {
+                <div class="ve-suggestions-row">
+                  <span class="ve-suggestions-label">Looks like:</span>
+                  <button type="button" class="ve-suggestion-chip" (click)="pickTopic(s)">+ {{ s.name }}</button>
+                </div>
+              }
+            }
+            @if (topicError(); as e) {
+              <span class="ve-schedule-msg ve-error" role="alert">{{ e }}</span>
+            }
+          </div>
           @for (w of st.warnings; track w) {
             <div class="ve-alert-warn">⚠️ {{ w }}</div>
           }
@@ -757,20 +833,50 @@
                   Manage in YouTube Studio ↗
                 </a>
               </div>
-              <div class="ve-playlists-grid">
-                @for (p of playlists(); track p.id) {
-                  @if (v.playlistIds.includes(p.id)) {
-                    <label class="ve-playlist-item is-existing">
-                      <input type="checkbox" checked disabled />
-                      <span class="ve-playlist-title">{{ p.title }}</span>
-                      <span class="ve-playlist-badge">Already Added</span>
-                    </label>
-                  } @else {
-                    <label class="ve-playlist-item" [class.selected]="d.addPlaylistIds.includes(p.id)">
-                      <input type="checkbox" [checked]="d.addPlaylistIds.includes(p.id)" (change)="togglePlaylist(p.id)" />
-                      <span class="ve-playlist-title">{{ p.title }}</span>
-                    </label>
+              @if (inPlaylists().length || pickedPlaylists().length) {
+                <div class="ve-picked-row">
+                  @for (p of inPlaylists(); track p.id) {
+                    <span class="ve-picked-chip is-existing" title="Already in this playlist">✓ {{ p.title }}</span>
                   }
+                  @for (p of pickedPlaylists(); track p.id) {
+                    <span class="ve-picked-chip is-new">
+                      + {{ p.title }}
+                      @if ((d.autoPlaylistIds ?? []).includes(p.id)) { <span class="ve-playlist-badge">auto-picked</span> }
+                      <button type="button" class="ve-tag-remove" (click)="togglePlaylist(p.id)" [attr.aria-label]="'Remove ' + p.title">✕</button>
+                    </span>
+                  }
+                </div>
+              }
+              @if (suggestedPlaylists().length) {
+                <div class="ve-suggestions-row">
+                  <span class="ve-suggestions-label">Best fits:</span>
+                  <div class="ve-suggestions-chips">
+                    @for (p of suggestedPlaylists(); track p.id) {
+                      <button type="button" class="ve-suggestion-chip" (click)="togglePlaylist(p.id)">+ {{ p.title }}</button>
+                    }
+                  </div>
+                </div>
+              }
+              <div class="ve-combo">
+                <input type="search" class="ve-input" autocomplete="off" aria-label="Search playlists"
+                       [placeholder]="'Search ' + playlists().length.toLocaleString() + ' playlists…'"
+                       [ngModel]="playlistQuery()" (ngModelChange)="playlistQuery.set($event)"
+                       (keydown.enter)="addFirstPlaylist($event)" (keydown.escape)="playlistQuery.set(''); $event.stopPropagation()" />
+                @if (playlistQuery().trim()) {
+                  <ul class="ve-combo-list" role="listbox" aria-label="Matching playlists">
+                    @for (p of playlistResultsShown(); track p.id) {
+                      <li role="option" aria-selected="false">
+                        <button type="button" class="ve-combo-item" (click)="togglePlaylist(p.id)">
+                          {{ p.title }} <span class="ve-sublabel">{{ p.itemCount }} videos</span>
+                        </button>
+                      </li>
+                    } @empty {
+                      <li class="ve-combo-empty">No playlist matches “{{ playlistQuery().trim() }}”.</li>
+                    }
+                    @if (playlistResults().length > playlistResultsShown().length) {
+                      <li class="ve-combo-empty">{{ playlistResults().length - playlistResultsShown().length }} more - keep typing to narrow.</li>
+                    }
+                  </ul>
                 }
               </div>
             </fieldset>

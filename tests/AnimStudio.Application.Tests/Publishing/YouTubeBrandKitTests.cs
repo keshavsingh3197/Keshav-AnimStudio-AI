@@ -1,4 +1,5 @@
 using AnimStudio.Application.Publishing;
+using AnimStudio.Domain.Ai;
 using AnimStudio.Domain.Publishing;
 
 namespace AnimStudio.Application.Tests.Publishing;
@@ -100,5 +101,90 @@ public sealed class YouTubeBrandKitTests
 
         Assert.Empty(errors);
         Assert.Equal(["Acme", "Bhakti"], branding!.Hashtags);
+    }
+
+    private static AiSettings Studio() => new()
+    {
+        StudioBranding = new ChannelBranding
+        {
+            StudioUrl = "https://studio.example.com/",
+            CreatorUrl = "https://example.com/",
+            EngineName = "AnimStudio",
+            VisualsCredit = "Studio 3D",
+            Hashtags = ["AnimStudio"],
+            Tags = ["animstudio"],
+        },
+    };
+
+    [Fact]
+    public void Effective_inherits_studio_defaults_and_fills_name_and_link_from_youtube()
+    {
+        var publishing = new ChannelPublishSettings { YouTubeChannelId = "UC1234567890abcdefghijkl", YouTubeChannelTitle = "Acme Bhakti", YouTubeChannelHandle = "@acme" };
+
+        var effective = YouTubeBrandKit.Effective(Studio(), publishing)!;
+
+        Assert.Equal("Acme Bhakti", effective.ChannelName);
+        Assert.Equal("https://youtube.com/@acme", effective.ChannelUrl);
+        Assert.Equal("https://studio.example.com/", effective.StudioUrl);
+        Assert.Equal("AnimStudio", effective.EngineName);
+        Assert.Equal(["AnimStudio"], effective.Hashtags);
+    }
+
+    [Fact]
+    public void Effective_lets_a_channel_override_field_by_field()
+    {
+        var publishing = new ChannelPublishSettings
+        {
+            YouTubeChannelId = "UC1234567890abcdefghijkl",
+            Branding = new ChannelBranding { ChannelName = "Acme", VisualsCredit = "  ", Hashtags = ["Acme"] },
+        };
+
+        var effective = YouTubeBrandKit.Effective(Studio(), publishing)!;
+
+        Assert.Equal("Acme", effective.ChannelName);
+        Assert.Equal("Studio 3D", effective.VisualsCredit);
+        Assert.Equal(["Acme"], effective.Hashtags);
+        Assert.Equal(["animstudio"], effective.Tags);
+        Assert.Equal("https://www.youtube.com/channel/UC1234567890abcdefghijkl", effective.ChannelUrl);
+    }
+
+    [Fact]
+    public void Effective_is_null_when_nothing_is_set_so_the_omkr_fallback_still_applies()
+    {
+        var publishing = new ChannelPublishSettings { YouTubeChannelTitle = "Acme", YouTubeChannelHandle = "acme", Branding = new ChannelBranding() };
+
+        var effective = YouTubeBrandKit.Effective(new AiSettings(), publishing);
+
+        Assert.Null(effective);
+        Assert.Equal("OMKR", YouTubeBrandKit.Resolve(effective, "devotional-omkr").ChannelName);
+    }
+
+    [Fact]
+    public void Effective_never_builds_a_link_from_an_unsafe_handle()
+    {
+        var publishing = new ChannelPublishSettings { YouTubeChannelHandle = "evil/../x?y", YouTubeChannelTitle = "A <b>" };
+
+        var effective = YouTubeBrandKit.Effective(Studio(), publishing)!;
+
+        Assert.Null(effective.ChannelUrl);
+        Assert.Equal("A b", effective.ChannelName);
+    }
+
+    [Fact]
+    public void NormalizeStudio_drops_per_channel_fields_and_checks_links()
+    {
+        var (ok, okErrors) = YouTubeBrandKit.NormalizeStudio(Brand());
+        Assert.Empty(okErrors);
+        Assert.Null(ok!.ChannelName);
+        Assert.Null(ok.ChannelUrl);
+        Assert.Equal("https://studio.example.com/", ok.StudioUrl);
+
+        var (bad, errors) = YouTubeBrandKit.NormalizeStudio(new ChannelBranding { StudioUrl = "http://studio.example.com/" });
+        Assert.Null(bad);
+        Assert.Contains(errors, e => e.Code == "branding-url-invalid");
+
+        var (empty, none) = YouTubeBrandKit.NormalizeStudio(new ChannelBranding { ChannelName = "Only a name" });
+        Assert.Empty(none);
+        Assert.Null(empty);
     }
 }

@@ -279,7 +279,7 @@ public sealed partial class YouTubePublishController(
 
         return await WriteSuggestionAsync(summary, style, request, job.ProjectId,
             d => YouTubePublishValidator.WithFooter(d, footer), "render " + job.Id, ct,
-            branding: brandSettings?.PublishingFor(project?.Settings.BrandChannelId)?.Branding, footer: footer,
+            branding: YouTubeBrandKit.Effective(brandSettings, brandSettings?.PublishingFor(project?.Settings.BrandChannelId)), footer: footer,
             // Each description carries the render's chapters, credits and the footer, so picking one is complete.
             addDetails: d => YouTubeMetadataSuggester.ComposeDescription(d, renderDetails, null));
     }
@@ -305,6 +305,13 @@ public sealed partial class YouTubePublishController(
         var brief = YouTubeMetadataSuggester.CleanBrief(request?.Brief);
         var toneText = YouTubeMetadataSuggester.ToneText(request?.Tone);
         var requestedProvider = request?.ProviderId?.Trim();
+
+        // Without this a new take is the same prompt again, and a model answers it with near-identical
+        // titles. The offered titles ride in the summary, which the prompt fences as data.
+        var avoid = YouTubeMetadataSuggester.CleanAvoidTitles(request?.AvoidTitles);
+        if (avoid.Count > 0)
+            summary += "\nTitles already offered for this video (write new ones with different opening words and angles; " +
+                       "do not repeat or lightly reword any of these):\n- " + string.Join("\n- ", avoid);
 
         // 1. Direct 100% Free Built-in Local SEO Engine (zero API key, instant, offline-ready)
         if (string.Equals(requestedProvider, YouTubeFreeSeoEngine.FreeLocalProviderId, StringComparison.OrdinalIgnoreCase))
@@ -394,7 +401,8 @@ public sealed partial class YouTubePublishController(
                 PromptTemplateKey = rendered.TemplateKey,
                 PromptTemplateVersion = rendered.Version,
                 MaxOutputTokens = 4000,
-                Temperature = 0.6,
+                // A new take asks for range more than for the safest wording.
+                Temperature = request?.Fresh == true ? 0.95 : 0.6,
                 BypassCache = request?.Fresh == true,
                 ProviderId = engine
             }, new AiCallContext(projectId, currentUser.UserId), ct);
@@ -821,7 +829,12 @@ public sealed record YouTubePublishRequest(string? ChannelId, YouTubeVideoMetada
     [System.ComponentModel.DataAnnotations.MaxLength(64)] string? PlanItemId = null);
 public sealed record YouTubeVideosRefreshRequest(string? ProjectId, bool Force);
 
-public sealed record YouTubeSuggestRequest(string? Language, bool Fresh, string? Tone = null, string? Brief = null, string? ProviderId = null);
+/// <param name="AvoidTitles">Titles already offered for this video; a new take writes different ones.</param>
+/// <param name="TopicId">The caller's content topic the video belongs to; null looks for its planned post's topic.</param>
+public sealed record YouTubeSuggestRequest(string? Language, bool Fresh, string? Tone = null, string? Brief = null, string? ProviderId = null,
+    IReadOnlyList<string>? AvoidTitles = null, string? TopicId = null);
+/// <param name="TranscriptSource">"youtube-captions", "render-audio", or null when nothing sung or said was available.</param>
+/// <param name="Notes">Plain lines for the dialog about what the details could and couldn't be written from.</param>
 public sealed record YouTubeSuggestResponse(
     string Title,
     string Description,
@@ -832,7 +845,10 @@ public sealed record YouTubeSuggestResponse(
     IReadOnlyList<string> TagIdeas,
     string? PinnedComment = null,
     string? EngagementComment = null,
-    string? TranscriptText = null);
+    string? TranscriptText = null,
+    string? TranscriptSource = null,
+    string? TopicId = null,
+    IReadOnlyList<string>? Notes = null);
 public sealed record YouTubeSuggestEngine(string Id, string Name, bool RunsLocally);
 public sealed record YouTubeSuggestOptionsResponse(IReadOnlyList<YouTubeSuggestEngine> Engines, IReadOnlyList<string> Tones);
 

@@ -33,7 +33,12 @@ public sealed class ChannelPublishSettings
     /// <summary>Posted as a comment on every upload once it is on YouTube; the dialog can change it per video.</summary>
     public string? FirstComment { get; set; }
 
-    /// <summary>Names and links the AI-written details carry (credits, subscribe lines, hashtags). Null uses the studio's own.</summary>
+    /// <summary>
+    /// This channel's overrides for the names and links the AI-written details carry (credits,
+    /// subscribe lines, hashtags). A blank field - or null for all of them - inherits the studio-wide
+    /// <c>AiSettings.StudioBranding</c>, and the channel name and YouTube link fall back to this
+    /// channel's YouTube identity. Read it through <c>YouTubeBrandKit.Effective</c>, never directly.
+    /// </summary>
     public ChannelBranding? Branding { get; set; }
 
     /// <summary>A copy for a duplicated channel - minus the YouTube link, which belongs to the original.</summary>

@@ -97,6 +97,70 @@ public sealed class AdminChannelPublishingController(
         return Ok(ApiResponse<ChannelPublishSettings>.Ok(normalized));
     }
 
+    /// <summary>
+    /// The studio-wide AI branding every channel inherits (studio and creator links, credits,
+    /// tagline, hashtags, tags). An empty object when none is set, so the form always has a shape.
+    /// </summary>
+    [HttpGet("studio-defaults")]
+    public async Task<ActionResult<ApiResponse<ChannelBranding>>> GetStudioDefaults(CancellationToken ct)
+    {
+        var stored = await settingsRepo.GetAsync(ct);
+        return Ok(ApiResponse<ChannelBranding>.Ok(stored?.StudioBranding?.Copy() ?? new ChannelBranding()));
+    }
+
+    /// <summary>
+    /// Replaces the studio-wide AI branding. Checked with the same rules as a channel's own
+    /// (https-only links, short plain text, allowlisted hashtag characters); the channel name and
+    /// YouTube link are dropped, since those are per channel. An all-blank body clears the defaults.
+    /// </summary>
+    [HttpPut("studio-defaults")]
+    public async Task<ActionResult<ApiResponse<ChannelBranding>>> UpdateStudioDefaults(
+        [FromBody] ChannelBranding? request, CancellationToken ct)
+    {
+        if (request is null)
+        {
+            const string message = "Send the studio branding to save.";
+            return BadRequest(ApiResponse<ChannelBranding>.Fail(message, new ApiError("branding-missing", message)));
+        }
+
+        var (normalized, errors) = YouTubeBrandKit.NormalizeStudio(request);
+        if (errors.Count > 0)
+        {
+            return BadRequest(ApiResponse<ChannelBranding>.Fail(errors[0].Message,
+                [.. errors.Select(e => new ApiError(e.Code, e.Message, Field: e.Field))]));
+        }
+
+        var stored = await settingsRepo.GetAsync(ct) ?? new AiSettings();
+        var before = stored.StudioBranding;
+        stored.StudioBranding = normalized;
+        await settingsRepo.SaveAsync(stored, ct);
+
+        await audit.RecordAsync(
+            "branding.studio-defaults-updated",
+            "global-branding",
+            Describe(before),
+            Describe(normalized),
+            HttpContext.Connection.RemoteIpAddress?.ToString(),
+            ct);
+
+        return Ok(ApiResponse<ChannelBranding>.Ok(normalized?.Copy() ?? new ChannelBranding()));
+
+        // Which fields are set, not their values: enough to see what changed without copying text into the log.
+        static string Describe(ChannelBranding? b)
+        {
+            if (b is null || !YouTubeBrandKit.HasAny(b)) return "none";
+            var set = new List<string>();
+            if (!string.IsNullOrWhiteSpace(b.Tagline)) set.Add("tagline");
+            if (!string.IsNullOrWhiteSpace(b.StudioUrl)) set.Add("studio link");
+            if (!string.IsNullOrWhiteSpace(b.CreatorUrl)) set.Add("creator link");
+            if (!string.IsNullOrWhiteSpace(b.EngineName)) set.Add("tool");
+            if (!string.IsNullOrWhiteSpace(b.VisualsCredit)) set.Add("visuals");
+            if (b.Hashtags.Count > 0) set.Add($"{b.Hashtags.Count} hashtags");
+            if (b.Tags.Count > 0) set.Add($"{b.Tags.Count} tags");
+            return string.Join(", ", set);
+        }
+    }
+
     private static bool TryChannel(AiSettings settings, string? channelId, out BrandChannel? channel)
     {
         channel = settings.FindChannel(channelId);

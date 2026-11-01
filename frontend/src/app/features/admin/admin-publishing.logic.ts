@@ -236,6 +236,66 @@ export function emptyBranding(): ChannelBranding {
   };
 }
 
+/** The single-line branding fields, in form order. */
+export type BrandTextField = 'channelName' | 'tagline' | 'channelUrl' | 'studioUrl' | 'creatorUrl' | 'engineName' | 'visualsCredit';
+
+/** The fields that are the same for every channel, and so live in the studio-wide defaults. */
+export const SHARED_BRAND_FIELDS: readonly BrandTextField[] = ['tagline', 'studioUrl', 'creatorUrl', 'engineName', 'visualsCredit'];
+
+export type BrandSource = 'studio' | 'youtube';
+
+/** What a blank field shows instead, and where it comes from. */
+export interface Inherited {
+  value: string | null;
+  source: BrandSource | null;
+}
+
+export interface InheritedBranding {
+  fields: Record<BrandTextField, Inherited>;
+  hashtags: string[];
+  tags: string[];
+  /** False while neither the channel nor the studio has set anything: nothing is added then, not even the YouTube values. */
+  active: boolean;
+}
+
+const filled = (v: string | null | undefined): string | null => ((v ?? '').trim() ? (v ?? '').trim() : null);
+
+export function hasAnyBranding(b: ChannelBranding | null | undefined): boolean {
+  if (!b) return false;
+  return (['channelName', 'tagline', 'channelUrl', 'studioUrl', 'creatorUrl', 'engineName', 'visualsCredit'] as const).some((k) => !!filled(b[k]))
+    || (b.hashtags?.length ?? 0) > 0 || (b.tags?.length ?? 0) > 0;
+}
+
+/** The channel's YouTube address, built the way the server builds it (YouTubeBrandKit.AutoChannelUrl). */
+export function autoChannelUrl(handle: string | null | undefined, channelId: string | null | undefined): string | null {
+  const h = (handle ?? '').trim().replace(/^@+/, '');
+  if (h && h.length <= 100 && /^[\p{L}\p{M}\p{N}._-]+$/u.test(h)) return `https://youtube.com/@${h}`;
+  const id = (channelId ?? '').trim();
+  return id && id.length <= 64 && /^[A-Za-z0-9_-]+$/.test(id) ? `https://www.youtube.com/channel/${id}` : null;
+}
+
+/**
+ * What each blank branding field of a channel falls back to - mirrors YouTubeBrandKit.Effective on the
+ * server: the studio-wide default, else (name and link only) the linked YouTube channel.
+ */
+export function inheritedBranding(
+  studio: ChannelBranding | null | undefined, settings: ChannelPublishSettings | null | undefined, brandName: string | null | undefined,
+): InheritedBranding {
+  const from = (value: string | null, source: BrandSource): Inherited => (value ? { value, source } : { value: null, source: null });
+  const name = filled((settings?.youTubeChannelTitle ?? brandName ?? '').replace(/[<>]/g, ''));
+  const fields = {
+    channelName: from(name, 'youtube'),
+    channelUrl: from(autoChannelUrl(settings?.youTubeChannelHandle, settings?.youTubeChannelId), 'youtube'),
+  } as Record<BrandTextField, Inherited>;
+  for (const k of SHARED_BRAND_FIELDS) fields[k] = from(filled(studio?.[k]), 'studio');
+  return {
+    fields,
+    hashtags: [...(studio?.hashtags ?? [])],
+    tags: [...(studio?.tags ?? [])],
+    active: hasAnyBranding(settings?.branding) || hasAnyBranding(studio),
+  };
+}
+
 // ----------------------------------------------------------------------------------------- health
 
 export type HealthLevel = 'ok' | 'info' | 'warn' | 'err';
@@ -344,15 +404,44 @@ export interface BulkChoice {
   tags: BulkTagMode;
   descriptionFooter: boolean;
   firstComment: boolean;
+  /**
+   * The shared AI branding fields (tagline, links, credits, hashtags, tags) as the form has them -
+   * blanks included, which clears a target's own value so it inherits the studio defaults again.
+   * The channel name and YouTube link are each channel's own and are never copied.
+   */
+  branding: boolean;
 }
 
 export const NO_BULK: BulkChoice = {
   privacy: false, categoryId: false, madeForKids: false, notifySubscribers: false, tags: 'off', descriptionFooter: false, firstComment: false,
+  branding: false,
 };
 
 export function bulkFieldCount(c: BulkChoice): number {
-  return [c.privacy, c.categoryId, c.madeForKids, c.notifySubscribers, c.tags !== 'off', c.descriptionFooter, c.firstComment].filter(Boolean).length;
+  return [c.privacy, c.categoryId, c.madeForKids, c.notifySubscribers, c.tags !== 'off', c.descriptionFooter, c.firstComment, c.branding]
+    .filter(Boolean).length;
 }
+
+/** How many branding fields a channel sets itself (the rest inherit). */
+export function brandOverrideCount(b: ChannelBranding | null | undefined): number {
+  if (!b) return 0;
+  return (['channelName', 'tagline', 'channelUrl', 'studioUrl', 'creatorUrl', 'engineName', 'visualsCredit'] as const).filter((k) => !!filled(b[k])).length
+    + ((b.hashtags?.length ?? 0) > 0 ? 1 : 0) + ((b.tags?.length ?? 0) > 0 ? 1 : 0);
+}
+
+/** The target's branding with the source's shared fields copied over; the target keeps its own name and link. */
+export function copySharedBranding(source: ChannelBranding | null | undefined, target: ChannelBranding | null | undefined): ChannelBranding | null {
+  const next: ChannelBranding = { ...emptyBranding(), ...(target ?? {}), hashtags: [...(source?.hashtags ?? [])], tags: [...(source?.tags ?? [])] };
+  for (const k of SHARED_BRAND_FIELDS) next[k] = filled(source?.[k]);
+  next.channelName = filled(target?.channelName);
+  next.channelUrl = filled(target?.channelUrl);
+  return hasAnyBranding(next) ? next : null;
+}
+
+const overridesLabel = (b: ChannelBranding | null | undefined): string => {
+  const n = brandOverrideCount(b);
+  return n === 0 ? 'all inherited' : `${n} own value${n === 1 ? '' : 's'}`;
+};
 
 export interface BulkChange {
   field: string;
@@ -434,6 +523,14 @@ export function planBulk(
     after.firstComment = text || null;
     changes.push({ field: 'First comment', from: (target.firstComment ?? '').trim() ? shorten(target.firstComment ?? '') : 'none', to: text ? shorten(text) : 'cleared' });
   }
+  if (choice.branding) {
+    const next = copySharedBranding(source.branding, target.branding);
+    const norm = (b: ChannelBranding | null | undefined) => JSON.stringify(hasAnyBranding(b) ? copySharedBranding(b, b) : null);
+    if (norm(next) !== norm(target.branding)) {
+      after.branding = next;
+      changes.push({ field: 'AI branding', from: overridesLabel(target.branding), to: overridesLabel(next) });
+    }
+  }
 
   return { after, changes, blocked };
 }
@@ -443,6 +540,7 @@ export function bulkStamp(source: ChannelPublishSettings | null, choice: BulkCho
   if (!source) return '';
   return JSON.stringify([
     choice, source.privacy, source.categoryId, source.madeForKids, source.notifySubscribers, source.tags, source.descriptionFooter, source.firstComment,
+    source.branding ?? null,
   ]);
 }
 
@@ -456,6 +554,7 @@ export function describeChoice(c: BulkChoice): string {
   if (c.tags !== 'off') parts.push(c.tags === 'add' ? 'tags (added)' : 'tags (replaced)');
   if (c.descriptionFooter) parts.push('footer');
   if (c.firstComment) parts.push('first comment');
+  if (c.branding) parts.push('AI branding');
   return parts.join(', ');
 }
 

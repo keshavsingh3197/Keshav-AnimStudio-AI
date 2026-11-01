@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.RegularExpressions;
+using AnimStudio.Domain.Ai;
 using AnimStudio.Domain.Publishing;
 
 namespace AnimStudio.Application.Publishing;
@@ -31,6 +32,101 @@ public static partial class YouTubeBrandKit
     /// <summary>The channel's branding; when it has set none, the studio's own for the OMKR devotional tone and nothing otherwise.</summary>
     public static ChannelBranding Resolve(ChannelBranding? branding, string? toneId = null) =>
         branding ?? (string.Equals(toneId, "devotional-omkr", StringComparison.Ordinal) ? Default : new ChannelBranding());
+
+    /// <summary>
+    /// The branding a channel's videos actually carry, merged field by field:
+    /// <list type="number">
+    /// <item>the channel's own value (<see cref="ChannelPublishSettings.Branding"/>) when it typed one;</item>
+    /// <item>else the studio-wide default (<c>AiSettings.StudioBranding</c>) - tagline, studio and
+    /// creator links, tool and visuals credits, hashtags and tags (a non-empty list overrides as a whole);</item>
+    /// <item>else, for the channel name and YouTube link only, what the linked YouTube channel says:
+    /// its title (or <paramref name="brandChannelName"/>), and <c>youtube.com/@handle</c> or the
+    /// <c>/channel/UC…</c> address.</item>
+    /// </list>
+    /// </summary>
+    /// <remarks>
+    /// Null when neither the channel nor the studio has set anything, so <see cref="Resolve"/> keeps
+    /// its OMKR-tone fallback for a server nobody has branded yet. The YouTube-derived values alone
+    /// don't count as "set": they fill in a branding someone asked for, they don't switch it on -
+    /// otherwise linking a channel would quietly add credits to descriptions that had none.
+    /// The result is a fresh object; nothing stored is modified.
+    /// </remarks>
+    public static ChannelBranding? Effective(AiSettings? settings, ChannelPublishSettings? publishing, string? brandChannelName = null)
+    {
+        var own = publishing?.Branding;
+        var studio = settings?.StudioBranding;
+        if (!HasAny(own) && !HasAny(studio)) return null;
+
+        static string? Pick(params string?[] values) =>
+            values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v))?.Trim();
+        static List<string> PickList(List<string>? first, List<string>? second) =>
+            first is { Count: > 0 } ? [.. first] : second is { Count: > 0 } ? [.. second] : [];
+
+        return new ChannelBranding
+        {
+            ChannelName = Pick(own?.ChannelName, AutoChannelName(publishing, brandChannelName)),
+            Tagline = Pick(own?.Tagline, studio?.Tagline),
+            ChannelUrl = Pick(own?.ChannelUrl, AutoChannelUrl(publishing)),
+            StudioUrl = Pick(own?.StudioUrl, studio?.StudioUrl),
+            CreatorUrl = Pick(own?.CreatorUrl, studio?.CreatorUrl),
+            EngineName = Pick(own?.EngineName, studio?.EngineName),
+            VisualsCredit = Pick(own?.VisualsCredit, studio?.VisualsCredit),
+            Hashtags = PickList(own?.Hashtags, studio?.Hashtags),
+            Tags = PickList(own?.Tags, studio?.Tags),
+        };
+    }
+
+    /// <summary>
+    /// The channel's name as viewers know it, from its YouTube link (else the brand channel's name),
+    /// tidied the way <see cref="Normalize"/> tidies typed text: it lands in a description, where
+    /// YouTube refuses &lt; and &gt;.
+    /// </summary>
+    public static string? AutoChannelName(ChannelPublishSettings? publishing, string? brandChannelName = null)
+    {
+        foreach (var candidate in new[] { publishing?.YouTubeChannelTitle, brandChannelName })
+        {
+            var clean = ControlRun().Replace(candidate ?? string.Empty, " ").Replace("<", string.Empty).Replace(">", string.Empty).Trim();
+            if (clean.Length > 0) return clean.Length > 80 ? clean[..80].TrimEnd() : clean;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The channel's public YouTube address, built from what YouTube reported: the <c>@handle</c>
+    /// form when known (what people share), else the permanent <c>/channel/UC…</c> one. Both parts
+    /// are checked against an allowlist first, so a stored value can never smuggle a different
+    /// host or path into a description.
+    /// </summary>
+    public static string? AutoChannelUrl(ChannelPublishSettings? publishing)
+    {
+        var handle = (publishing?.YouTubeChannelHandle ?? string.Empty).Trim().TrimStart('@');
+        if (handle.Length is > 0 and <= 100 && HandleBody().IsMatch(handle)) return $"https://youtube.com/@{handle}";
+
+        var id = (publishing?.YouTubeChannelId ?? string.Empty).Trim();
+        return id.Length is > 0 and <= 64 && ChannelIdBody().IsMatch(id) ? $"https://www.youtube.com/channel/{id}" : null;
+    }
+
+    /// <summary>Whether a branding has anything typed into it at all.</summary>
+    public static bool HasAny(ChannelBranding? b) =>
+        b is not null && (
+            new[] { b.ChannelName, b.Tagline, b.ChannelUrl, b.StudioUrl, b.CreatorUrl, b.EngineName, b.VisualsCredit }
+                .Any(v => !string.IsNullOrWhiteSpace(v))
+            || b.Hashtags is { Count: > 0 } || b.Tags is { Count: > 0 });
+
+    /// <summary>
+    /// Checks the studio-wide defaults with the same rules as a channel's (<see cref="Normalize"/>),
+    /// then drops the channel name and YouTube link: those are per channel by nature, and a studio
+    /// value would put one channel's subscribe link under every other channel's videos.
+    /// Nothing left after that is stored as null.
+    /// </summary>
+    public static (ChannelBranding? Branding, IReadOnlyList<YouTubeCheck> Errors) NormalizeStudio(ChannelBranding? input)
+    {
+        var (normalized, errors) = Normalize(input);
+        if (normalized is null) return (null, errors);
+        normalized.ChannelName = null;
+        normalized.ChannelUrl = null;
+        return (HasAny(normalized) ? normalized : null, errors);
+    }
 
     /// <summary>The branding as plain facts for the prompt (the prompt fences them as data).</summary>
     public static string PromptText(ChannelBranding branding)
@@ -245,4 +341,11 @@ public static partial class YouTubeBrandKit
 
     [GeneratedRegex(@"[\p{C}\s]+", RegexOptions.CultureInvariant)]
     private static partial Regex ControlRun();
+
+    /// <summary>A YouTube handle without its "@": letters, marks, digits, '.', '_' and '-' (YouTube's own charset).</summary>
+    [GeneratedRegex(@"^[\p{L}\p{M}\p{N}._-]+$", RegexOptions.CultureInvariant)]
+    private static partial Regex HandleBody();
+
+    [GeneratedRegex(@"^[A-Za-z0-9_-]+$", RegexOptions.CultureInvariant)]
+    private static partial Regex ChannelIdBody();
 }

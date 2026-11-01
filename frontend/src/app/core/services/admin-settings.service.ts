@@ -75,7 +75,11 @@ export interface ChannelPublishSettings {
   descriptionFooter: string | null;
   /** Posted as a comment on every upload; the publish dialog can change it per video. */
   firstComment?: string | null;
-  /** Credits, links and hashtags the AI-written details carry; null leaves them out (the OMKR tone uses the studio's own). */
+  /**
+   * This channel's overrides for the credits, links and hashtags the AI-written details carry. A blank
+   * field (or null for all) inherits the studio-wide defaults; the channel name and YouTube link fall
+   * back to the linked YouTube channel. With nothing set anywhere, the OMKR tone uses the studio's own.
+   */
   branding?: ChannelBranding | null;
 }
 
@@ -110,6 +114,19 @@ export class AdminSettingsService {
   savePublishing(channel: string | null, body: ChannelPublishSettings): Observable<ChannelPublishSettings> {
     return this.http
       .put<ApiResponse<ChannelPublishSettings>>(`${this.base}/branding/publishing${channelQuery(channel)}`, body)
+      .pipe(map((r) => r.data!));
+  }
+
+  /** The studio-wide AI branding every channel inherits; channel name and YouTube link are never part of it. */
+  studioBranding(): Observable<ChannelBranding> {
+    return this.http
+      .get<ApiResponse<ChannelBranding>>(`${this.base}/branding/publishing/studio-defaults`)
+      .pipe(map((r) => r.data!));
+  }
+
+  saveStudioBranding(body: ChannelBranding): Observable<ChannelBranding> {
+    return this.http
+      .put<ApiResponse<ChannelBranding>>(`${this.base}/branding/publishing/studio-defaults`, body)
       .pipe(map((r) => r.data!));
   }
 }
