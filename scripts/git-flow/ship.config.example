@@ -1,0 +1,28 @@
+# Optional per-repo defaults for ship.ps1 / ship.sh.
+# Copy to ship.config (same folder) and uncomment what you need. Command-line options win.
+# Everything else - owner, repo, host, default branch - is detected from the git remote.
+
+# Branch naming: nickname (brave-otter) | sequential (work-001) | date (20261101-1830)
+# BRANCH_STYLE=nickname
+# BRANCH_PREFIX=feature/
+
+# Keep an existing numbered convention, e.g. Anim001, Anim002 ...
+# BRANCH_STYLE=sequential
+# BRANCH_PREFIX=Anim
+
+# Merge the PR yourself once GitHub allows it: none | squash | merge | rebase
+# MERGE_METHOD=none
+
+# Seconds between PR status checks while waiting for the merge.
+# POLL_SECONDS=20
+
+# Delete the local branch after its PR is merged.
+# DELETE_MERGED=true
+
+# Open the PR in a browser while waiting for a manual merge.
+# OPEN_BROWSER=true
+
+# Only needed when detection is wrong.
+# REMOTE=origin
+# BASE_BRANCH=main
+# GITHUB_HOST=github.com
