@@ -1,693 +1,933 @@
-<div class="branding-container">
+<div class="br-page" [attr.data-section]="section() ?? 'all'">
+ <div class="br-main" [style.--br-top]="topOffset() + 'px'">
+
   <!-- Header -->
-  <div class="branding-header">
-    <div class="branding-header-title">
-      <div class="branding-header-icon">{{ heading().icon }}</div>
+  <header class="page-head br-head">
+    <div class="br-head-main">
+      <div class="studio-icon-badge br-head-badge" aria-hidden="true">
+        @switch (section()) {
+          @case ('outro') {
+            <svg class="ico ico-lg" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8M12 18v3"/><path d="m10 8 5 3-5 3z"/></svg>
+          }
+          @case ('chunking') {
+            <svg class="ico ico-lg" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>
+          }
+          @default {
+            <svg class="ico ico-lg" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          }
+        }
+      </div>
       <div>
-        <h2>{{ heading().title }}</h2>
-        <p>{{ heading().subtitle }}</p>
+        <div class="br-inline br-head-row">
+          <h2>{{ heading().title }}</h2>
+          @if (hasUnsaved()) { <span class="pill warn">&#9679; Unsaved changes</span> }
+        </div>
+        <p class="muted">{{ heading().subtitle }}</p>
       </div>
     </div>
-    <div class="branding-top-actions">
-      <button type="button" class="btn-outline" (click)="reload()" [disabled]="status.busy()">
-        ↻ Reload Settings
+    <div class="br-inline">
+      <button type="button" class="secondary" (click)="requestReload()" [disabled]="status.busy() || loading()">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        Reload
       </button>
     </div>
-  </div>
+  </header>
 
-  @if (shows('watermark') || shows('outro')) {
   <!-- Which channel these settings belong to -->
-  <div class="branding-card branding-card-wide channel-bar">
-    <div class="channel-pick-row">
-      <div class="channel-pick-selector">
-        <span class="form-label" style="margin: 0 0 4px; display: block;">Editing Channel</span>
+  @if (shows('watermark') || shows('outro')) {
+    <section class="card br-channel" aria-label="Channel">
+      <div class="br-channel-pick">
+        <span class="br-eyebrow">Editing channel</span>
         <app-channel-picker [channels]="channels()" [selectedId]="selectedChannelId()"
                             (selectedIdChange)="selectChannel($event)" />
       </div>
-      <div class="channel-pick-meta">
-        <span class="channel-pill-info">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-          Channel-Scoped Branding
-        </span>
-        <p class="channel-pick-hint">
-          Watermark &amp; hallmark settings belong to <strong>{{ selectedChannel()?.name || 'Default' }}</strong>. Projects on this channel follow these settings unless overridden.
-          <a routerLink="/admin/channels">Manage Channels &rarr;</a>
-        </p>
-      </div>
-    </div>
-  </div>
-  }
-
-  @if (shows('watermark')) {
-  <!-- Card 1: Studio Hallmark & Watermark -->
-  <div class="branding-card branding-card-wide">
-    <div class="card-section-head">
-      <div>
-        <h3>🛡️ Hallmark &amp; Watermark <span class="channel-heading-name">· {{ selectedChannel()?.name ?? 'Default' }}</span></h3>
-        <p>Set a server-wide hallmark or logo watermark. All projects can inherit this branding automatically for consistent attribution.</p>
-      </div>
-      @if (saveSuccess()) {
-        <div class="save-toast-pill">
-          <span>✓</span> Hallmark Saved
-        </div>
-      }
-    </div>
-
-    <!-- Style Selector -->
-    <div class="form-group">
-      <label class="form-label">Hallmark Style</label>
-      <div class="segmented-row style-selector-grid">
-        @for (k of watermarkKinds; track k.kind) {
-          <button type="button" class="segment-btn"
-                  [class.active]="form.kind === k.kind"
-                  (click)="setWatermarkKind(k.kind)">
-            @switch (k.kind) {
-              @case ('None') { <span>⊘</span> }
-              @case ('Text') { <span>✎</span> }
-              @case ('Logo') { <span>🖼</span> }
-            }
-            <span>{{ k.label }}</span>
+      <p class="br-channel-note">
+        These settings belong to <strong>{{ selectedChannel()?.name || 'Default' }}</strong>. Projects on this channel follow them unless a project sets its own.
+        <a routerLink="/admin/channels">Manage channels &rarr;</a>
+      </p>
+      <div class="br-channel-actions">
+        <button type="button" class="secondary small" (click)="openCopy()" [disabled]="!canCopy()"
+                [attr.title]="otherChannels().length ? null : 'There is only one channel'">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          Copy from another channel&hellip;
+        </button>
+        @if (shows('watermark')) {
+          <button type="button" class="secondary small" (click)="openApply()" [disabled]="!canCopy() || wm.draft().kind === 'None'"
+                  [attr.title]="otherChannels().length ? null : 'There is only one channel'">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+            Apply to all channels&hellip;
           </button>
         }
       </div>
-    </div>
-
-    @if (form.kind !== 'None') {
-      <div class="wm-editor-grid">
-        <!-- Left Column: Controls -->
-        <div class="wm-controls-col">
-          @if (form.kind === 'Text') {
-            <div class="form-group">
-              <label class="form-label" for="admin-wm-text">Hallmark Text / Brand Name</label>
-              <input class="form-input" id="admin-wm-text" type="text" [(ngModel)]="form.text"
-                     placeholder="e.g. AnimStudio AI or © 2026 Keshav Studios" maxlength="200" />
-            </div>
-
-            <div style="display: grid; grid-template-columns: 80px 1fr; gap: 0.75rem; margin-bottom: 1.25rem;">
-              <div class="form-group" style="margin-bottom: 0;">
-                <label class="form-label" for="admin-wm-color">Color</label>
-                <input class="form-input" id="admin-wm-color" type="color" [(ngModel)]="form.color"
-                       style="height: 38px; padding: 2px 4px; cursor: pointer;" />
-              </div>
-              <div class="slider-container">
-                <div class="slider-meta">
-                  <div class="slider-meta-left">
-                    <label class="form-label" style="margin-bottom: 0;">Backplate Shading</label>
-                    <span class="slider-sub">Dark contrast shadow behind text</span>
-                  </div>
-                  <span class="slider-val-badge">{{ (form.backplate * 100) | number: '1.0-0' }}%</span>
-                </div>
-                <input class="form-range" id="admin-wm-backplate" type="range" min="0" max="0.9" step="0.05"
-                       [(ngModel)]="form.backplate" />
-              </div>
-            </div>
-          }
-
-          @if (form.kind === 'Logo') {
-            <div class="form-group" appFileDrop="image/png,image/jpeg,image/webp" (filesDropped)="uploadLogo($event[0])">
-              <label class="form-label">Studio Logo Image</label>
-              @if (form.logoAssetId) {
-                <div class="logo-preview-card">
-                  <div class="logo-preview-thumb">
-                    @if (logoPreviewUrl(); as url) {
-                      <img [src]="url" alt="Logo thumbnail" />
-                    } @else {
-                      <span style="font-size: 1.4rem;">🖼</span>
-                    }
-                  </div>
-                  <div class="logo-preview-info">
-                    <span class="logo-preview-name">{{ form.logoAssetId }}</span>
-                    <span class="logo-preview-sub">Active watermark image</span>
-                  </div>
-                  <div class="logo-preview-actions">
-                    <label class="btn-outline btn-sm" style="cursor: pointer;">
-                      <input type="file" accept="image/png,image/jpeg,image/webp" (change)="onUploadLogo($event)" style="display: none;" />
-                      <span>↻ Replace</span>
-                    </label>
-                    <button type="button" class="btn-outline btn-sm danger" (click)="clearLogo()">
-                      ✕ Remove
-                    </button>
-                  </div>
-                </div>
-              } @else {
-                <div class="logo-dropzone">
-                  <label class="btn-outline" style="cursor: pointer;">
-                    <input type="file" accept="image/png,image/jpeg,image/webp" (change)="onUploadLogo($event)" style="display: none;" />
-                    <span>⬆ Upload New Logo (PNG / JPG / WEBP)</span>
-                  </label>
-                  <span class="file-drop-hint">or drop a file here / paste with Ctrl+V</span>
-                </div>
-              }
-              <p style="margin: 0.35rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
-                Logo is stored securely in server storage. High-resolution transparent PNG with minimal padding is recommended.
-              </p>
-            </div>
-          }
-
-          <!-- Position Picker Grid -->
-          <div class="form-group">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.45rem;">
-              <label class="form-label" style="margin-bottom: 0;">Position Placement</label>
-              <span class="pos-active-indicator">{{ formatPosLabel(form.position) }}</span>
-            </div>
-            <div class="position-grid">
-              @for (p of watermarkPositions; track p) {
-                <button type="button" class="pos-btn"
-                        [class.active]="form.position === p"
-                        (click)="setWatermarkPosition(p)">
-                  {{ formatPosLabel(p) }}
-                </button>
-              }
-            </div>
-          </div>
-
-          <!-- Fine Tuning Sliders -->
-          <div class="sliders-stack">
-            <div class="slider-container">
-              <div class="slider-meta">
-                <div class="slider-meta-left">
-                  <label class="form-label" style="margin-bottom: 0;">Opacity</label>
-                  <span class="slider-sub">Transparency of the watermark overlay</span>
-                </div>
-                <span class="slider-val-badge">{{ (form.opacity * 100) | number: '1.0-0' }}%</span>
-              </div>
-              <input class="form-range" id="admin-wm-opac" type="range" min="0.15" max="1" step="0.05"
-                     [(ngModel)]="form.opacity" />
-            </div>
-
-            <div class="slider-container">
-              <div class="slider-meta">
-                <div class="slider-meta-left">
-                  <label class="form-label" style="margin-bottom: 0;">Size (% of Canvas Height)</label>
-                  <span class="slider-sub">Scales proportionally across all video resolutions</span>
-                </div>
-                <span class="slider-val-badge">{{ form.height }}%</span>
-              </div>
-              <input class="form-range" id="admin-wm-height" type="range" min="2" max="25" step="0.5"
-                     [(ngModel)]="form.height" />
-            </div>
-
-            <div class="slider-container">
-              <div class="slider-meta">
-                <div class="slider-meta-left">
-                  <label class="form-label" style="margin-bottom: 0;">Margin from Edge</label>
-                  <span class="slider-sub">Inset safe margin from video boundary</span>
-                </div>
-                <span class="slider-val-badge">{{ form.margin }}%</span>
-              </div>
-              <input class="form-range" id="admin-wm-margin" type="range" min="1" max="15" step="0.5"
-                     [(ngModel)]="form.margin" />
-            </div>
-          </div>
+      @if (channelsError(); as err) {
+        <div class="br-note br-channel-warn" data-tone="warn" role="alert">
+          <span>Couldn't load the channel list ({{ err }}). Only the default channel is shown.</span>
+          <button type="button" class="secondary small" (click)="retryChannels()">Retry</button>
         </div>
+      }
+    </section>
+  }
 
-        <!-- Right Column: Interactive Canvas Mockup -->
-        <div class="wm-preview-col">
-          <div class="preview-header-bar">
-            <label class="form-label" style="margin-bottom: 0;">Interactive Live Preview</label>
-            <div class="preview-badge-status">
-              <span class="pulse-dot"></span>
-              <span>Real-Time Simulation</span>
+  @if (loading()) {
+    <!-- Loading: the shape of the page, so nothing jumps when it arrives -->
+    <div class="br-skeleton" role="status" aria-live="polite" aria-label="Loading settings">
+      <div class="br-skel-col">
+        <div class="br-skel br-skel-card"></div>
+        <div class="br-skel br-skel-card tall"></div>
+        <div class="br-skel br-skel-card"></div>
+      </div>
+      <div class="br-skel-col">
+        <div class="br-skel br-skel-stage"></div>
+      </div>
+    </div>
+  } @else if (loadError(); as err) {
+    <div class="empty br-error" role="alert">
+      <svg class="ico ico-xl" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <h3>Couldn't load these settings</h3>
+      <p>{{ err }}</p>
+      <button type="button" (click)="reload()">Try again</button>
+    </div>
+  } @else {
+
+    <!-- ═════════ Watermark ═════════ -->
+    @if (shows('watermark')) {
+      @let w = wm.draft();
+      <div class="br-editor">
+        <div class="br-controls">
+
+          <section class="card br-group" aria-labelledby="wm-style-h">
+            <div class="br-gh"><span class="br-step" aria-hidden="true">1</span><h3 id="wm-style-h">Mark style</h3></div>
+            <p class="hint">What is stamped on every video of {{ selectedChannel()?.name || 'this channel' }}.</p>
+            <div class="br-options" role="radiogroup" aria-labelledby="wm-style-h">
+              @for (k of watermarkKinds; track k.kind) {
+                <label class="br-option" [class.is-on]="w.kind === k.kind">
+                  <input type="radio" name="wm-kind" [value]="k.kind" [checked]="w.kind === k.kind" (change)="setWatermarkKind(k.kind)" />
+                  <span class="br-option-ico" aria-hidden="true">
+                    @switch (k.kind) {
+                      @case ('None') { <svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><line x1="5.6" y1="5.6" x2="18.4" y2="18.4"/></svg> }
+                      @case ('Text') { <svg class="ico" viewBox="0 0 24 24"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg> }
+                      @case ('Logo') { <svg class="ico" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg> }
+                    }
+                  </span>
+                  <span class="br-option-text"><strong>{{ k.title }}</strong><small>{{ k.hint }}</small></span>
+                </label>
+              }
             </div>
-          </div>
+          </section>
 
-          <div class="mockup-wrapper">
-            <div class="mockup-header-row">
-              <div class="aspect-toggle" role="group" aria-label="Preview format">
-                @for (a of previewAspects; track a.label) {
-                  <button type="button" [class.active]="previewAspect() === a" (click)="previewAspect.set(a)">{{ a.label }}</button>
+          @if (w.kind === 'None') {
+            <div class="empty br-empty">
+              <svg class="ico ico-xl" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><line x1="5.6" y1="5.6" x2="18.4" y2="18.4"/></svg>
+              <h3>Videos on this channel export without a watermark</h3>
+              <p>Add a brand name or a logo to credit your channel on every video.</p>
+              <div class="br-inline br-empty-actions">
+                <button type="button" (click)="setWatermarkKind('Text')">Add a text mark</button>
+                <button type="button" class="secondary" (click)="setWatermarkKind('Logo')">Use a logo</button>
+              </div>
+            </div>
+          }
+
+          @if (w.kind === 'Text') {
+            <section class="card br-group" aria-labelledby="wm-text-h">
+              <div class="br-gh"><span class="br-step" aria-hidden="true">2</span><h3 id="wm-text-h">Text</h3></div>
+              <label class="br-label" for="wm-text">Brand text</label>
+              <input id="wm-text" type="text" maxlength="200" autocomplete="off" [value]="w.text"
+                     placeholder="e.g. AnimStudio AI or © 2026 Keshav Studios" aria-describedby="wm-text-count"
+                     (input)="wm.patch({ text: textOf($event) }, 'text')" />
+              <div class="br-count" id="wm-text-count">{{ w.text.length }} / {{ wmLimits.textMax }}</div>
+              @if (wmTextNote(); as n) { <p class="br-note" [attr.data-tone]="n.tone">{{ n.text }}</p> }
+
+              <div class="br-fields">
+                <div class="br-field">
+                  <label class="br-label" for="wm-color-hex">Text colour</label>
+                  <div class="br-color">
+                    <input type="color" [value]="w.color" aria-label="Pick the text colour" (input)="onWmColor($event)" />
+                    <input id="wm-color-hex" type="text" class="mono" maxlength="7" spellcheck="false" autocomplete="off"
+                           [value]="w.color.toUpperCase()" (input)="onWmColorHex($event)" (blur)="syncHex($event, w.color)" />
+                  </div>
+                </div>
+                <app-brand-range label="Shading" unit="%" [min]="wmLimits.backplate.min" [max]="wmLimits.backplate.max" [step]="5"
+                                 [value]="pct(w.backplate)" (valueChange)="setBackplate($event)"
+                                 hint="A dark plate behind the text so it stays readable on bright scenes." />
+              </div>
+
+              <div class="br-contrast" [attr.data-verdict]="contrast().verdict" role="group" aria-label="Readability check">
+                <div class="br-contrast-head">
+                  <strong>Readability</strong>
+                  <span class="pill" [class.ok]="contrast().verdict === 'good'" [class.warn]="contrast().verdict === 'fair'" [class.err]="contrast().verdict === 'poor'">
+                    {{ contrast().verdict === 'good' ? 'Good' : contrast().verdict === 'fair' ? 'Fair' : 'Poor' }}
+                  </span>
+                </div>
+                <ul class="br-tones">
+                  @for (t of tones(); track t.id) {
+                    <li>
+                      <span class="br-tone" [style.background]="t.bg" aria-hidden="true"><span [style.color]="t.ink" [style.background]="t.plate" [style.box-shadow]="t.ring">Aa</span></span>
+                      <span class="br-tone-name">{{ t.label }}</span>
+                      <span class="br-tone-ratio" [class.is-low]="t.ratio < 3">{{ t.ratio }}:1</span>
+                    </li>
+                  }
+                </ul>
+                <p class="hint">{{ contrastMessage() }}</p>
+                @if (contrastFix(); as fix) {
+                  <button type="button" class="secondary small" (click)="applyShading(fix)">Raise shading to {{ pct(fix) }}%</button>
                 }
               </div>
-              <div class="mockup-metrics">
-                <span class="metric-pill">{{ previewAspect().width }} &times; {{ previewAspect().height }}</span>
-                <span class="metric-pill accent">{{ formatPosLabel(form.position) }} &bull; {{ (form.opacity * 100) | number: '1.0-0' }}%</span>
+            </section>
+          }
+
+          @if (w.kind === 'Logo') {
+            <section class="card br-group" aria-labelledby="wm-logo-h">
+              <div class="br-gh"><span class="br-step" aria-hidden="true">2</span><h3 id="wm-logo-h">Logo image</h3></div>
+              <div class="br-drop" appFileDrop="image/png,image/jpeg,image/webp" (filesDropped)="uploadLogo($event[0])">
+                @if (w.logoAssetId) {
+                  <div class="br-asset">
+                    <div class="br-asset-thumb checker">
+                      @if (logoUrl(); as url) { <img [src]="url" alt="Current logo" /> }
+                    </div>
+                    <div class="br-asset-info">
+                      <strong>Logo attached</strong>
+                      <small class="mono">{{ w.logoAssetId }}</small>
+                    </div>
+                    <div class="br-asset-actions">
+                      <label class="br-pick">
+                        <input type="file" class="sr-only" accept="image/png,image/jpeg,image/webp" (change)="onUploadLogo($event)" />
+                        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        Replace
+                      </label>
+                      <button type="button" class="secondary small br-danger" (click)="clearLogo()">Remove</button>
+                    </div>
+                  </div>
+                } @else {
+                  <div class="br-dropzone">
+                    <svg class="ico ico-xl" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                    <strong>No logo yet</strong>
+                    <span class="br-dim">Drop an image here, paste it with Ctrl+V, or browse.</span>
+                    <label class="br-pick br-pick-primary">
+                      <input type="file" class="sr-only" accept="image/png,image/jpeg,image/webp" (change)="onUploadLogo($event)" />
+                      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                      Upload a logo
+                    </label>
+                  </div>
+                }
               </div>
-            </div>
+              @if (logoNote(); as n) { <p class="br-note" [attr.data-tone]="n.tone" [attr.role]="n.tone === 'error' ? 'alert' : 'status'">{{ n.text }}</p> }
+              <p class="hint">PNG, JPG or WEBP up to 25 MB. A high-resolution PNG with a transparent background and little padding looks best. Logos are stored on the server, never in the browser.</p>
+            </section>
+          }
 
-            <div class="preview-stage">
-              <app-watermark-preview
-                [watermark]="formAsBody()"
-                [width]="previewAspect().width"
-                [height]="previewAspect().height"
-                [logoUrl]="logoPreviewUrl()"
-                [boxHeight]="previewAspect().height > previewAspect().width ? 280 : 200"
-                [label]="previewAspect().width + '×' + previewAspect().height" />
-            </div>
+          @if (w.kind !== 'None') {
+            <section class="card br-group" aria-labelledby="wm-pos-h">
+              <div class="br-gh">
+                <span class="br-step" aria-hidden="true">3</span><h3 id="wm-pos-h">Position</h3>
+                <span class="br-tag br-gh-end">{{ positionLabel(w.position) }}</span>
+              </div>
+              <p class="hint">Pick a spot here, or drag the mark in the preview. Arrow keys work on both.</p>
+              <div class="br-posgrid" role="radiogroup" aria-labelledby="wm-pos-h" (keydown)="onGridKey($event)">
+                @for (row of positionRows; track $index) {
+                  @if (row.clear) {
+                    <div class="br-pos-clear" aria-hidden="true"><span>Centre of the frame stays clear</span></div>
+                  } @else {
+                    @for (p of row.cells; track p) {
+                      <label class="br-pos" [class.is-on]="w.position === p">
+                        <input type="radio" name="wm-pos" [id]="'wm-pos-' + p" [value]="p" [checked]="w.position === p"
+                               [attr.aria-label]="positionLabel(p)" (change)="setPosition(p)" />
+                        <span class="br-pos-arrow" aria-hidden="true">{{ positionArrow(p) }}</span>
+                        <span class="br-pos-name">{{ positionLabel(p) }}</span>
+                      </label>
+                    }
+                  }
+                }
+              </div>
+              <p class="hint">A mark in the middle would cover what viewers came to see, so only the corners and the top and bottom edges are offered.</p>
+              @if (placementNote(); as hint) {
+                <p class="br-note" data-tone="info">{{ hint }}</p>
+              }
+            </section>
 
-            <div class="mockup-caption">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-              <span>Drawn with the renderer's actual safe-area insets. What you see is the exact export scaled down.</span>
-            </div>
-          </div>
+            <section class="card br-group" aria-labelledby="wm-size-h">
+              <div class="br-gh"><span class="br-step" aria-hidden="true">4</span><h3 id="wm-size-h">Size &amp; visibility</h3></div>
+              <div class="br-chips" role="group" aria-label="Quick looks">
+                @for (look of looks; track look.id) {
+                  <button type="button" class="br-chip" [class.is-on]="activeLook() === look.id" [attr.aria-pressed]="activeLook() === look.id" (click)="applyLook(look)">
+                    {{ look.label }} <small>{{ look.hint }}</small>
+                  </button>
+                }
+              </div>
+              <div class="br-ranges">
+                <app-brand-range label="Opacity" unit="%" [min]="wmLimits.opacity.min" [max]="wmLimits.opacity.max" [step]="5"
+                                 [value]="pct(w.opacity)" (valueChange)="setOpacity($event)"
+                                 hint="How see-through the mark is. Below 50% it can fade away when YouTube re-compresses the video." />
+                <app-brand-range label="Size" unit="%" [min]="wmLimits.height.min" [max]="wmLimits.height.max" [step]="0.5"
+                                 [value]="w.height" (valueChange)="setHeight($event)"
+                                 hint="The mark's height as a share of the video's height, so it scales to every resolution." />
+                <app-brand-range label="Margin from the edge" unit="%" [min]="wmLimits.margin.min" [max]="wmLimits.margin.max" [step]="0.5"
+                                 [value]="w.margin" (valueChange)="setMargin($event)"
+                                 hint="The gap between the mark and the nearest edges, as a share of the video's height." />
+              </div>
+              @for (n of wmStyleNotes(); track n.text) {
+                <p class="br-note" [attr.data-tone]="n.tone">{{ n.text }}</p>
+              }
+              <div class="br-group-foot">
+                <button type="button" class="secondary small" (click)="resetStyle()">
+                  <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+                  Reset style to defaults
+                </button>
+                <span class="br-dim">Position, opacity, size, margin, colour and shading. The text or logo is kept.</span>
+              </div>
+            </section>
+          }
         </div>
+
+        <aside class="card br-preview" aria-labelledby="wm-prev-h">
+          <div class="br-prev-head br-extra">
+            <h3 id="wm-prev-h" class="br-live"><span class="br-live-dot" aria-hidden="true"></span>Live preview</h3>
+            <span class="br-dim mono">{{ aspect().width }} &times; {{ aspect().height }}</span>
+          </div>
+
+          <div class="br-toolbar">
+            <div class="br-seg" role="radiogroup" aria-label="Preview format">
+              @for (a of aspects; track a.label) {
+                <label class="br-seg-item" [class.is-on]="aspect().label === a.label">
+                  <input type="radio" name="wm-aspect" [value]="a.label" [checked]="aspect().label === a.label" (change)="aspect.set(a)" />
+                  <span>{{ a.label }}</span>
+                </label>
+              }
+            </div>
+            <label class="switch br-switch">
+              <input type="checkbox" [checked]="guides()" (change)="guides.set(checkedOf($event))" />
+              <span class="track" aria-hidden="true"></span>
+              <span>Guides</span>
+            </label>
+          </div>
+
+          <app-brand-watermark-stage [draft]="w" [aspect]="aspect()" [logoUrl]="logoUrl()" [guides]="guides()"
+                                     [backdrop]="backdrop()" (positionChange)="setPosition($event)" />
+
+          <div class="br-backdrops" role="radiogroup" aria-label="Preview backdrop">
+            <span class="br-eyebrow br-extra">Test on</span>
+            @for (b of backdropOptions; track b.id) {
+              <label class="br-bd" [class.is-on]="backdrop() === b.id">
+                <input type="radio" name="wm-backdrop" [value]="b.id" [checked]="backdrop() === b.id" (change)="backdrop.set(b.id)" />
+                <span class="br-bd-chip" [attr.data-bd]="b.id" aria-hidden="true"></span>
+                <span>{{ b.label }}</span>
+              </label>
+            }
+          </div>
+
+          @if (w.kind !== 'None') {
+            <p class="br-placement br-extra">
+              <span class="br-tag">{{ positionLabel(w.position) }}</span>
+              <span>{{ trimNumber(w.height) }}% tall &middot; {{ insetPct() }}% from the edge &middot; {{ pct(w.opacity) }}% opaque</span>
+            </p>
+          }
+
+          @if (guides()) {
+            <ul class="br-legend br-extra" aria-label="What the guides show">
+              <li><i class="lg safe" aria-hidden="true"></i>Safe area</li>
+              <li><i class="lg inset" aria-hidden="true"></i>Where the mark's edge sits</li>
+              <li><i class="lg zone" aria-hidden="true"></i>App &amp; player UI (approx.)</li>
+            </ul>
+          }
+          <p class="br-fineprint br-extra">Drawn with the renderer's own geometry, so this is the export scaled down.</p>
+        </aside>
       </div>
     }
 
-    <!-- Action Bar -->
-    <div class="card-action-bar">
-      @if (saveSuccess()) {
-        <div class="save-status-text">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-          <span>All watermark settings successfully saved to {{ selectedChannel()?.name ?? 'current channel' }}.</span>
-        </div>
-      } @else {
-        <span class="action-bar-hint">Changes apply to all future video exports on this channel.</span>
-      }
-      <button type="button" class="btn-primary-glow" (click)="save()" [disabled]="status.busy()">
-        @if (status.busy()) {
-          <span class="spinner" style="width: 13px; height: 13px;"></span> Saving&hellip;
-        } @else {
-          Save Global Hallmark
-        }
-      </button>
-    </div>
-  </div>
-  }
+    <!-- ═════════ End card ═════════ -->
+    @if (shows('outro')) {
+      @let o = outro.draft();
+      <div class="br-editor">
+        <div class="br-controls">
 
-  @if (shows('outro')) {
-  <!-- Card 2: Global Channel Outro & End-Card Bumper -->
-  <div class="branding-card branding-card-wide">
-    <div class="card-section-head">
-      <div>
-        <h3>🎬 Channel Outro &amp; End-Card Bumper <span class="channel-heading-name">· {{ selectedChannel()?.name ?? 'Default' }}</span></h3>
-        <p>Attach a small channel outro video (e.g. subscribe animation, channel stinger) or static end-card graphic at the end of every video.</p>
-      </div>
-      @if (saveOutroSuccess()) {
-        <div class="save-toast-pill">
-          <span>✓</span> Outro Settings Saved
-        </div>
-      }
-    </div>
-
-    <!-- Outro Kind Selector -->
-    <div class="form-group">
-      <label class="form-label">Outro Bumper Type</label>
-      <div class="segmented-row">
-        @for (k of outroKinds; track k.kind) {
-          <button type="button" class="segment-btn"
-                  [class.active]="outroForm.kind === k.kind"
-                  (click)="setOutroKind(k.kind)">
-            {{ k.label }}
-          </button>
-        }
-      </div>
-    </div>
-
-    @if (outroForm.kind === 'Card') {
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 1.5rem; margin-bottom: 1.25rem;">
-        <!-- Left: card content -->
-        <div>
-          <div class="form-group" appFileDrop="image/png,image/jpeg,image/webp" (filesDropped)="uploadOutroQr($event[0])">
-            <label class="form-label">QR Code Image (PNG / JPG / WEBP)</label>
-            <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
-              <label class="btn-outline" style="cursor: pointer;">
-                <input type="file" accept="image/png,image/jpeg,image/webp"
-                       (change)="onUploadOutroQr($event)" style="display: none;" />
-                <span>⬆ {{ outroForm.qrAssetId ? 'Replace QR Code' : 'Upload QR Code' }}</span>
-              </label>
-              <span class="file-drop-hint">or drop a file here / paste with Ctrl+V</span>
-              @if (outroForm.qrAssetId) {
-                <button type="button" class="btn-outline" (click)="cropCurrentQr()">✂ Crop / rotate</button>
-                <button type="button" class="btn-outline" style="color: #f87171; border-color: rgba(239,68,68,0.3);" (click)="clearOutroQr()">
-                  ✕ Remove QR
-                </button>
+          <section class="card br-group" aria-labelledby="oc-kind-h">
+            <div class="br-gh"><span class="br-step" aria-hidden="true">1</span><h3 id="oc-kind-h">What the video ends with</h3></div>
+            <p class="hint">Shown after the last scene of every video on {{ selectedChannel()?.name || 'this channel' }}.</p>
+            <div class="br-options four" role="radiogroup" aria-labelledby="oc-kind-h">
+              @for (k of outroKinds; track k.kind) {
+                <label class="br-option" [class.is-on]="o.kind === k.kind">
+                  <input type="radio" name="oc-kind" [value]="k.kind" [checked]="o.kind === k.kind" (change)="setOutroKind(k.kind)" />
+                  <span class="br-option-ico" aria-hidden="true">
+                    @switch (k.kind) {
+                      @case ('None') { <svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><line x1="5.6" y1="5.6" x2="18.4" y2="18.4"/></svg> }
+                      @case ('Video') { <svg class="ico" viewBox="0 0 24 24"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg> }
+                      @case ('Image') { <svg class="ico" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg> }
+                      @case ('Card') { <svg class="ico" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM20 14v.01M14 20v.01M20 20v.01M17 17v3"/></svg> }
+                    }
+                  </span>
+                  <span class="br-option-text"><strong>{{ k.title }}</strong><small>{{ k.hint }}</small></span>
+                </label>
               }
             </div>
-            <p style="margin: 0.35rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
-              Your UPI / Ko-fi / Patreon / membership QR. You can crop it down to just the code before it is saved. It is placed on a white square with a quiet zone, so it scans on any background colour.
-            </p>
-            @if (qrCropSource(); as src) {
-              <app-image-crop-dialog [source]="src" [square]="true" title="Crop the QR code" fileName="qr-code.png"
-                                     (cropped)="onQrCropped($event)" (cancelled)="qrCropSource.set(null)" />
+          </section>
+
+          @if (o.kind === 'None') {
+            <div class="empty br-empty">
+              <svg class="ico ico-xl" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8M12 18v3"/></svg>
+              <h3>Videos on this channel just end</h3>
+              <p>A support card with a QR code is the quickest way to turn viewers into supporters.</p>
+              <div class="br-inline br-empty-actions">
+                <button type="button" (click)="setOutroKind('Card')">Make a support card</button>
+              </div>
+            </div>
+          }
+
+          @if (o.kind === 'Card') {
+            <section class="card br-group" aria-labelledby="oc-qr-h">
+              <div class="br-gh"><span class="br-step" aria-hidden="true">2</span><h3 id="oc-qr-h">QR code</h3></div>
+              <p class="hint">Your UPI, Ko-fi, Patreon or membership code. It sits on a white square with a quiet zone, so it scans on any background colour.</p>
+              <div class="br-drop" appFileDrop="image/png,image/jpeg,image/webp" (filesDropped)="uploadOutroQr($event[0])">
+                @if (o.qrAssetId) {
+                  <div class="br-asset">
+                    <div class="br-asset-thumb qr">
+                      @if (qrImageUrl(); as qr) { <img [src]="qr" alt="Current QR code" (load)="onQrLoaded($event)" (error)="onQrBroken()" /> }
+                    </div>
+                    <div class="br-asset-info">
+                      <strong>QR code attached</strong>
+                      @if (qrInfo(); as q) { <small [class.is-warn]="q.tone === 'warn'">{{ q.text }}</small> }
+                    </div>
+                    <div class="br-asset-actions">
+                      <label class="br-pick">
+                        <input type="file" class="sr-only" accept="image/png,image/jpeg,image/webp" (change)="onUploadOutroQr($event)" />
+                        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        Replace
+                      </label>
+                      <button type="button" class="secondary small" (click)="cropCurrentQr()">
+                        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.13 1L6 16a2 2 0 0 0 2 2h15"/><path d="M1 6.13L16 6a2 2 0 0 1 2 2v15"/></svg>
+                        Crop / rotate
+                      </button>
+                      <button type="button" class="secondary small br-danger" (click)="clearOutroQr()">Remove</button>
+                    </div>
+                  </div>
+                } @else {
+                  <div class="br-dropzone">
+                    <svg class="ico ico-xl" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM20 14v.01M14 20v.01M20 20v.01M17 17v3"/></svg>
+                    <strong>No QR code yet</strong>
+                    <span class="br-dim">Drop an image here, paste it with Ctrl+V, or browse. You can crop it to just the code next.</span>
+                    <label class="br-pick br-pick-primary">
+                      <input type="file" class="sr-only" accept="image/png,image/jpeg,image/webp" (change)="onUploadOutroQr($event)" />
+                      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                      Upload a QR code
+                    </label>
+                  </div>
+                }
+              </div>
+              @if (qrNote(); as n) { <p class="br-note" [attr.data-tone]="n.tone" [attr.role]="n.tone === 'error' ? 'alert' : 'status'">{{ n.text }}</p> }
+              <p class="hint">PNG, JPG or WEBP up to 25 MB. Use an image of at least 160 px so phones can scan it from a screen.</p>
+            </section>
+
+            <section class="card br-group" aria-labelledby="oc-text-h">
+              <div class="br-gh"><span class="br-step" aria-hidden="true">3</span><h3 id="oc-text-h">Wording</h3></div>
+              <p class="hint">Start from a ready-made language, then edit freely. Hindi and other Indian scripts are drawn with a font that has their letters.</p>
+              <div class="br-langs" role="group" aria-label="Wording by language">
+                @for (p of languagePresets; track p.id) {
+                  <button type="button" class="br-lang" [class.is-on]="activeLanguage() === p.id" [attr.aria-pressed]="activeLanguage() === p.id" (click)="applyLanguagePreset(p)">
+                    <span class="br-lang-name">{{ p.label }}</span>
+                    <span class="br-lang-sample" [style.background]="o.backgroundHex" [style.color]="o.textHex">
+                      <span [attr.lang]="scriptLang(p.headline)">{{ p.headline }}</span>
+                      @if (p.headline2) { <span class="sec" [attr.lang]="scriptLang(p.headline2)">{{ p.headline2 }}</span> }
+                    </span>
+                  </button>
+                }
+              </div>
+
+              <label class="br-label" for="oc-h1">Headline <span class="br-dim">(above the code)</span></label>
+              <input id="oc-h1" type="text" maxlength="80" autocomplete="off" [value]="o.headline" [attr.lang]="scriptLang(o.headline)"
+                     placeholder="Support us for more videos like this" (input)="patchOutro({ headline: textOf($event) }, 'headline')" />
+              <input type="text" class="br-second" maxlength="80" autocomplete="off" [value]="o.headlineSecondary" [attr.lang]="scriptLang(o.headlineSecondary)"
+                     aria-label="Headline, second language (optional)" placeholder="Second language (optional), e.g. इस तरह के और वीडियो के लिए हमारा समर्थन करें"
+                     (input)="patchOutro({ headlineSecondary: textOf($event) }, 'headlineSecondary')" />
+              <div class="br-count">{{ o.headline.length }} / {{ outroLimits.headlineMax }} &middot; second line {{ o.headlineSecondary.length }} / {{ outroLimits.headlineMax }}</div>
+
+              <label class="br-label" for="oc-s1">Small text <span class="br-dim">(below the code)</span></label>
+              <input id="oc-s1" type="text" maxlength="120" autocomplete="off" [value]="o.subtext" [attr.lang]="scriptLang(o.subtext)"
+                     placeholder="Scan the QR code · upi://… / ko-fi.com/…" (input)="patchOutro({ subtext: textOf($event) }, 'subtext')" />
+              <input type="text" class="br-second" maxlength="120" autocomplete="off" [value]="o.subtextSecondary" [attr.lang]="scriptLang(o.subtextSecondary)"
+                     aria-label="Small text, second language (optional)" placeholder="Second language (optional), e.g. QR कोड स्कैन करें"
+                     (input)="patchOutro({ subtextSecondary: textOf($event) }, 'subtextSecondary')" />
+              <div class="br-count">{{ o.subtext.length }} / {{ outroLimits.subtextMax }} &middot; second line {{ o.subtextSecondary.length }} / {{ outroLimits.subtextMax }}</div>
+              <p class="hint">A second-language line sits just under its partner, a little smaller and softer.</p>
+              @if (cardNote(); as n) { <p class="br-note" [attr.data-tone]="n.tone" role="status">{{ n.text }}</p> }
+            </section>
+
+            <section class="card br-group" aria-labelledby="oc-look-h">
+              <div class="br-gh"><span class="br-step" aria-hidden="true">4</span><h3 id="oc-look-h">Look</h3></div>
+              <div class="br-fields">
+                <div class="br-field">
+                  <label class="br-label" for="oc-bg-hex">Background</label>
+                  <div class="br-color">
+                    <input type="color" [value]="o.backgroundHex" aria-label="Pick the background colour" (input)="onOutroColor('backgroundHex', $event)" />
+                    <input id="oc-bg-hex" type="text" class="mono" maxlength="7" spellcheck="false" autocomplete="off"
+                           [value]="o.backgroundHex.toUpperCase()" (input)="onOutroColorHex('backgroundHex', $event)" (blur)="syncHex($event, o.backgroundHex)" />
+                  </div>
+                </div>
+                <div class="br-field">
+                  <label class="br-label" for="oc-fg-hex">Text colour</label>
+                  <div class="br-color">
+                    <input type="color" [value]="o.textHex" aria-label="Pick the text colour" (input)="onOutroColor('textHex', $event)" />
+                    <input id="oc-fg-hex" type="text" class="mono" maxlength="7" spellcheck="false" autocomplete="off"
+                           [value]="o.textHex.toUpperCase()" (input)="onOutroColorHex('textHex', $event)" (blur)="syncHex($event, o.textHex)" />
+                  </div>
+                </div>
+              </div>
+              @if (colorContrast(); as ratio) {
+                <p class="br-contrast-line" [class.is-low]="ratio < 4.5">
+                  <span class="pill" [class.ok]="ratio >= 4.5" [class.warn]="ratio < 4.5">{{ ratio }}:1</span>
+                  {{ ratio >= 4.5 ? 'Text and background contrast well.' : 'Text and background are close in brightness.' }}
+                </p>
+              }
+              <div class="br-label" id="oc-anim-l">Animation</div>
+              <div class="br-seg wide" role="radiogroup" aria-labelledby="oc-anim-l">
+                <label class="br-seg-item" [class.is-on]="o.animation === 'Rise'">
+                  <input type="radio" name="oc-anim" value="Rise" [checked]="o.animation === 'Rise'" (change)="patchOutro({ animation: 'Rise' })" />
+                  <span>Pieces rise in, one by one</span>
+                </label>
+                <label class="br-seg-item" [class.is-on]="o.animation === 'None'">
+                  <input type="radio" name="oc-anim" value="None" [checked]="o.animation === 'None'" (change)="patchOutro({ animation: 'None' })" />
+                  <span>All at once</span>
+                </label>
+              </div>
+            </section>
+
+            <section class="card br-group" aria-labelledby="oc-time-h">
+              <div class="br-gh"><span class="br-step" aria-hidden="true">5</span><h3 id="oc-time-h">Timing</h3></div>
+              <app-brand-range label="Card length" unit="s" [min]="outroLimits.duration.min" [max]="outroLimits.duration.max" [step]="0.5"
+                               [value]="o.durationSeconds" (valueChange)="patchOutro({ durationSeconds: $event }, 'duration')"
+                               hint="5 to 10 seconds gives viewers time to get their phone out and scan." />
+              <div class="br-label" id="oc-fade-l">Entrance</div>
+              <div class="br-seg wide" role="radiogroup" aria-labelledby="oc-fade-l">
+                <label class="br-seg-item" [class.is-on]="o.transition !== 'None'">
+                  <input type="radio" name="oc-fade" value="fade" [checked]="o.transition !== 'None'" (change)="setCardFade(true)" />
+                  <span>Fade up from black</span>
+                </label>
+                <label class="br-seg-item" [class.is-on]="o.transition === 'None'">
+                  <input type="radio" name="oc-fade" value="cut" [checked]="o.transition === 'None'" (change)="setCardFade(false)" />
+                  <span>Hard cut</span>
+                </label>
+              </div>
+              @if (o.transition !== 'None') {
+                <app-brand-range label="Fade length" unit="s" [min]="outroLimits.fadeSeconds.min" [max]="outroLimits.fadeSeconds.max" [step]="0.1"
+                                 [value]="fadeSeconds()" (valueChange)="setFadeSeconds($event)" [hint]="fadeHint()" />
+              }
+              <p class="hint">The card fades in on its own, so adding it never forces the whole video to re-encode.</p>
+            </section>
+          }
+
+          @if (o.kind === 'Video' || o.kind === 'Image') {
+            <section class="card br-group" aria-labelledby="oc-media-h">
+              <div class="br-gh"><span class="br-step" aria-hidden="true">2</span><h3 id="oc-media-h">{{ o.kind === 'Video' ? 'Bumper video' : 'End graphic' }}</h3></div>
+              <div class="br-drop" [appFileDrop]="mediaAccept()" (filesDropped)="uploadOutro($event[0])">
+                @if (o.assetId) {
+                  <div class="br-asset">
+                    <div class="br-asset-thumb checker">
+                      @if (o.kind === 'Image' && outroMediaUrl(); as url) { <img [src]="url" alt="Current end graphic" /> }
+                      @else { <svg class="ico ico-lg" viewBox="0 0 24 24" aria-hidden="true"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg> }
+                    </div>
+                    <div class="br-asset-info">
+                      <strong>{{ o.kind === 'Video' ? 'Video attached' : 'Graphic attached' }}</strong>
+                      <small class="mono">{{ o.assetId }}</small>
+                    </div>
+                    <div class="br-asset-actions">
+                      <label class="br-pick">
+                        <input type="file" class="sr-only" [accept]="mediaAccept()" (change)="onUploadOutro($event)" />
+                        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        Replace
+                      </label>
+                      <button type="button" class="secondary small br-danger" (click)="clearOutro()">Remove</button>
+                    </div>
+                  </div>
+                } @else {
+                  <div class="br-dropzone">
+                    <svg class="ico ico-xl" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    <strong>{{ o.kind === 'Video' ? 'No bumper video yet' : 'No graphic yet' }}</strong>
+                    <span class="br-dim">Drop a file here, paste it with Ctrl+V, or browse.</span>
+                    <label class="br-pick br-pick-primary">
+                      <input type="file" class="sr-only" [accept]="mediaAccept()" (change)="onUploadOutro($event)" />
+                      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                      {{ o.kind === 'Video' ? 'Upload a video' : 'Upload a graphic' }}
+                    </label>
+                  </div>
+                }
+              </div>
+              @if (mediaNote(); as n) { <p class="br-note" [attr.data-tone]="n.tone" [attr.role]="n.tone === 'error' ? 'alert' : 'status'">{{ n.text }}</p> }
+              <p class="hint">
+                @if (o.kind === 'Video') { MP4, WebM or MOV up to 25 MB. A short stinger of 3 to 10 seconds with your branding or a call to action works best. }
+                @else { PNG, JPG or WEBP up to 25 MB. A 1920&times;1080 graphic suits YouTube end screens and social handles. }
+              </p>
+            </section>
+
+            <section class="card br-group" aria-labelledby="oc-trans-h">
+              <div class="br-gh"><span class="br-step" aria-hidden="true">3</span><h3 id="oc-trans-h">Timing &amp; transition</h3></div>
+              @if (o.kind === 'Image') {
+                <app-brand-range label="Show the graphic for" unit="s" [min]="outroLimits.duration.min" [max]="outroLimits.duration.max" [step]="0.5"
+                                 [value]="o.durationSeconds" (valueChange)="patchOutro({ durationSeconds: $event }, 'duration')"
+                                 hint="How long the graphic stays on screen at the end of the video." />
+              } @else {
+                <p class="hint">The bumper plays for its own length.</p>
+              }
+              <div class="br-label" id="oc-trans-l">Transition into the end card</div>
+              <div class="br-seg multi" role="radiogroup" aria-labelledby="oc-trans-l">
+                @for (t of outroTransitions; track t) {
+                  <label class="br-seg-item" [class.is-on]="o.transition === t">
+                    <input type="radio" name="oc-trans" [value]="t" [checked]="o.transition === t" (change)="setTransition(t)" />
+                    <span>{{ transitionLabel(t) }}</span>
+                  </label>
+                }
+              </div>
+              @if (o.transition !== 'None') {
+                <app-brand-range label="Transition length" unit="s" [min]="outroLimits.fadeSeconds.min" [max]="outroLimits.fadeSeconds.max" [step]="0.1"
+                                 [value]="fadeSeconds()" (valueChange)="setFadeSeconds($event)" [hint]="fadeHint()" />
+              }
+              <p class="br-note" data-tone="info">Any transition makes exports re-encode the whole video, which is slower. &ldquo;Hard cut&rdquo; lets them join the end card without re-encoding.</p>
+            </section>
+          }
+        </div>
+
+        <aside class="card br-preview" aria-labelledby="oc-prev-h">
+          <div class="br-prev-head br-extra">
+            <h3 id="oc-prev-h" class="br-live"><span class="br-live-dot" aria-hidden="true"></span>Preview</h3>
+            <span class="br-dim mono">{{ endFormatInfo().width }} &times; {{ endFormatInfo().height }}</span>
+          </div>
+
+          <div class="br-toolbar">
+            <div class="br-seg" role="radiogroup" aria-label="Video format">
+              @for (f of endFormats; track f.id) {
+                <label class="br-seg-item" [class.is-on]="endFormat() === f.id" [attr.title]="f.name">
+                  <input type="radio" name="oc-format" [value]="f.id" [checked]="endFormat() === f.id" (change)="endFormat.set(f.id)" />
+                  <span>{{ f.label }}</span>
+                </label>
+              }
+            </div>
+            @if (o.kind !== 'None') {
+              <div class="br-seg" role="radiogroup" aria-label="Preview type">
+                <label class="br-seg-item" [class.is-on]="previewMode() === 'layout'">
+                  <input type="radio" name="oc-mode" value="layout" [checked]="previewMode() === 'layout'" (change)="previewMode.set('layout')" />
+                  <span>Layout</span>
+                </label>
+                <label class="br-seg-item" [class.is-on]="previewMode() === 'render'">
+                  <input type="radio" name="oc-mode" value="render" [checked]="previewMode() === 'render'" (change)="previewMode.set('render')" />
+                  <span>Exact render</span>
+                </label>
+              </div>
             }
           </div>
 
-          <div class="form-group">
-            <label class="form-label">Language</label>
-            <div class="segmented-row">
-              @for (p of cardLanguagePresets; track p.label) {
-                <button type="button" class="segment-btn" (click)="applyCardLanguagePreset(p)">{{ p.label }}</button>
+          @if (o.kind === 'None') {
+            <div class="br-frame-wrap" data-theme="dark">
+              <div class="br-frame" [style.--ar]="endFormatInfo().width / endFormatInfo().height">
+                <div class="br-frame-msg"><strong>No end card</strong><span>The video ends on its last scene.</span></div>
+              </div>
+            </div>
+          } @else if (previewMode() === 'layout') {
+            @if (o.kind === 'Card') {
+              <app-brand-endcard-mock [headline]="o.headline" [headlineSecondary]="o.headlineSecondary" [subtext]="o.subtext"
+                                      [subtextSecondary]="o.subtextSecondary" [background]="o.backgroundHex" [foreground]="o.textHex"
+                                      [qrUrl]="qrImageUrl()" [width]="endFormatInfo().width" [height]="endFormatInfo().height" />
+            } @else {
+              <div class="br-frame-wrap" data-theme="dark">
+                <div class="br-frame" [style.--ar]="endFormatInfo().width / endFormatInfo().height">
+                  @if (outroMediaUrl(); as url) {
+                    @if (o.kind === 'Video') {
+                      <video [src]="url" controls playsinline preload="metadata"></video>
+                    } @else {
+                      <img [src]="url" alt="End graphic as it will be shown" />
+                      <span class="br-frame-tag">&#9201; {{ trimNumber(o.durationSeconds) }} s</span>
+                    }
+                  } @else {
+                    <div class="br-frame-msg"><strong>No file yet</strong><span>Upload one on the left to preview it here.</span></div>
+                  }
+                </div>
+              </div>
+            }
+            <p class="br-fineprint br-extra">The layout is instant but approximate: fonts and line fitting are the renderer's. Switch to &ldquo;Exact render&rdquo; to see the real thing.</p>
+          } @else {
+            <div class="br-frame-wrap" data-theme="dark">
+              <div class="br-frame" [style.--ar]="endFormatInfo().width / endFormatInfo().height">
+                @if (outroPreviewBusy()) {
+                  <div class="br-frame-msg"><span class="spinner" aria-hidden="true"></span><strong>Rendering the exact video&hellip;</strong><span>This takes a few seconds.</span></div>
+                } @else if (outroPreviewUrl(); as url) {
+                  <video [src]="url" controls autoplay playsinline></video>
+                } @else {
+                  <div class="br-frame-msg"><strong>Not rendered yet</strong><span>Render it to see exactly what exports will end with.</span></div>
+                }
+              </div>
+            </div>
+            @if (outroPreviewError(); as err) {
+              <p class="br-note" data-tone="error" role="alert">{{ err }}</p>
+            }
+            @if (renderStale()) {
+              <p class="br-note" data-tone="warn">Out of date: the card or the format has changed since this was rendered.</p>
+            }
+            <div class="br-inline br-render-actions">
+              <button type="button" (click)="renderPreview()" [disabled]="outroPreviewBusy()">
+                <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                {{ outroPreviewUrl() ? 'Render again' : 'Render' }} {{ endFormatInfo().label }}
+              </button>
+              @if (outroPreviewBusy()) {
+                <button type="button" class="secondary" (click)="cancelRender()">Cancel</button>
+              }
+              @if (outroPreviewUrl() && !outroPreviewBusy()) {
+                <button type="button" class="secondary" (click)="downloadOutroPreview()">
+                  <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Download MP4
+                </button>
               }
             </div>
-            <p style="margin: 0.35rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
-              Fills in ready-made wording - edit it freely afterwards. Hindi and other Indian scripts are drawn with a font that has their letters.
-            </p>
-          </div>
+            <p class="br-fineprint br-extra">Renders exactly what exports will end with, from the form as it is now (save to make exports use it). Download it to add to videos already on YouTube.</p>
+          }
+        </aside>
+      </div>
+    }
 
-          <div class="form-group">
-            <label class="form-label" for="outro-headline">Headline (above the code)</label>
-            <input id="outro-headline" class="form-control" type="text" maxlength="80"
-                   placeholder="Support us for more videos like this"
-                   [(ngModel)]="outroForm.headline" />
-            <input id="outro-headline-2" class="form-control" type="text" maxlength="80"
-                   style="margin-top: 0.4rem;" aria-label="Headline, second language"
-                   placeholder="Second language (optional) - e.g. इस तरह के और वीडियो के लिए हमारा समर्थन करें"
-                   [(ngModel)]="outroForm.headlineSecondary" />
-          </div>
+    <!-- ═════════ Video chunking ═════════ -->
+    @if (shows('chunking')) {
+      @let c = chunk.draft();
+      <div class="br-editor">
+        <div class="br-controls">
 
-          <div class="form-group">
-            <label class="form-label" for="outro-subtext">Small text (below the code)</label>
-            <input id="outro-subtext" class="form-control" type="text" maxlength="120"
-                   placeholder="Scan the QR code · upi://… / ko-fi.com/…"
-                   [(ngModel)]="outroForm.subtext" />
-            <input id="outro-subtext-2" class="form-control" type="text" maxlength="120"
-                   style="margin-top: 0.4rem;" aria-label="Small text, second language"
-                   placeholder="Second language (optional) - e.g. QR कोड स्कैन करें"
-                   [(ngModel)]="outroForm.subtextSecondary" />
-            <p style="margin: 0.35rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
-              A second-language line sits just under its partner, a little smaller and softer.
-            </p>
-          </div>
-
-          <div style="display: flex; gap: 1.25rem; flex-wrap: wrap;">
-            <div class="form-group">
-              <label class="form-label" for="outro-bg">Background</label>
-              <input id="outro-bg" type="color" [(ngModel)]="outroForm.backgroundHex" />
+          <section class="card br-group" aria-labelledby="ck-h">
+            <div class="br-gh"><span class="br-step" aria-hidden="true">1</span><h3 id="ck-h">Clip length</h3></div>
+            <p class="hint">When Media Tools or automated ingest splits a long video, podcast or recording, it cuts consecutive clips of this length.</p>
+            <div class="br-chips" role="group" aria-label="Quick clip lengths">
+              @for (p of chunkPresets; track p.seconds) {
+                <button type="button" class="br-chip" [class.is-on]="c.chunkSeconds === p.seconds" [attr.aria-pressed]="c.chunkSeconds === p.seconds" (click)="setChunkSeconds(p.seconds)">
+                  {{ p.seconds }} s
+                  @if (p.recommended) { <small>Recommended</small> }
+                  @else if (p.shorts) { <small>Shorts</small> }
+                  @else if (p.note) { <small>{{ p.note }}</small> }
+                </button>
+              }
             </div>
-            <div class="form-group">
-              <label class="form-label" for="outro-fg">Text colour</label>
-              <input id="outro-fg" type="color" [(ngModel)]="outroForm.textHex" />
+            <app-brand-range label="Clip length" unit="s" [min]="3" [max]="180" [step]="1" [inputMin]="1" [inputMax]="600"
+                             [value]="c.chunkSeconds" (valueChange)="setChunkSeconds($event)"
+                             [hint]="'That is ' + formatDuration(c.chunkSeconds) + '. 10 to 15 seconds suits AI prompt generation and quick scene edits; up to 60 seconds suits Shorts and reels.'" />
+            @if (chunkError(); as err) { <p class="br-note" data-tone="error" role="alert">{{ err }}</p> }
+            @if (shortsNote(); as s) { <p class="br-note" [attr.data-tone]="c.chunkSeconds <= 60 ? 'ok' : 'info'">{{ s }}</p> }
+          </section>
+
+          <section class="card br-group" aria-labelledby="im-h">
+            <div class="br-gh"><span class="br-step" aria-hidden="true">2</span><h3 id="im-h">Default image duration</h3></div>
+            <p class="hint">How long an image plays when it is added to the editor timeline. A project can override this in its own settings.</p>
+            <div class="br-chips" role="group" aria-label="Quick image durations">
+              @for (sec of imagePresets; track sec) {
+                <button type="button" class="br-chip" [class.is-on]="c.imageSeconds === sec" [attr.aria-pressed]="c.imageSeconds === sec" (click)="setImageSeconds(sec)">{{ sec }} s</button>
+              }
             </div>
-            <div class="form-group">
-              <label class="form-label" for="outro-anim">Animation</label>
-              <select id="outro-anim" class="form-select form-select-sm" [(ngModel)]="outroForm.animation">
-                <option value="Rise">Pieces rise in, one by one</option>
-                <option value="None">None - all at once</option>
+            <app-brand-range label="Image duration" unit="s" [min]="1" [max]="30" [step]="0.5" [inputMin]="0.5" [inputMax]="120"
+                             [value]="c.imageSeconds" (valueChange)="setImageSeconds($event)"
+                             [hint]="imageExample() ?? ''" />
+            @if (imageError(); as err) { <p class="br-note" data-tone="error" role="alert">{{ err }}</p> }
+          </section>
+        </div>
+
+        <aside class="card br-preview" aria-labelledby="ck-prev-h">
+          <div class="br-prev-head br-extra">
+            <h3 id="ck-prev-h" class="br-live"><span class="br-live-dot" aria-hidden="true"></span>What you get</h3>
+          </div>
+          <div class="br-plan-top">
+            <div class="br-example">
+              <label class="br-label" for="ck-example">Example video</label>
+              <select id="ck-example" (change)="exampleSeconds.set(numberOf($event))">
+                @for (e of chunkExamples; track e.seconds) {
+                  <option [value]="e.seconds" [selected]="exampleSeconds() === e.seconds">{{ e.label }} long</option>
+                }
               </select>
             </div>
-          </div>
-
-          <div class="slider-container" style="margin-bottom: 1.25rem;">
-            <div class="slider-meta">
-              <label class="form-label" style="margin-bottom: 0;">End Card Duration</label>
-              <span class="slider-val-badge">{{ outroForm.durationSeconds }}s</span>
-            </div>
-            <input class="form-range" type="range" min="1" max="30" step="0.5"
-                   [(ngModel)]="outroForm.durationSeconds" />
-            <p style="margin: 0.25rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
-              5–10 seconds gives viewers time to get their phone out and scan.
-            </p>
-          </div>
-
-          <div class="form-group">
-            <label class="form-label">Fade In</label>
-            <div class="segmented-row">
-              <button type="button" class="segment-btn" [class.active]="outroForm.transition !== 'None'"
-                      (click)="setOutroTransition('Fade')">Fade up from black</button>
-              <button type="button" class="segment-btn" [class.active]="outroForm.transition === 'None'"
-                      (click)="setOutroTransition('None')">Hard cut</button>
-            </div>
-            <p style="margin: 0.35rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
-              The card fades in on its own, so adding it never forces the whole video to re-encode.
-            </p>
-          </div>
-        </div>
-
-        <!-- Right: what the card is made of -->
-        <div>
-          <label class="form-label">QR Code</label>
-          <div class="mockup-wrapper">
-            <div class="outro-preview-box" [style.background]="outroForm.backgroundHex">
-              <div style="text-align: center; padding: 1.25rem; width: 100%;">
-                <div [style.color]="outroForm.textHex" style="font-weight: 700; font-size: 1rem; margin-bottom: 0.75rem;">
-                  {{ outroForm.headline || 'Headline' }}
-                </div>
-                @if (outroForm.headlineSecondary) {
-                  <div [style.color]="outroForm.textHex" style="font-size: 0.82rem; opacity: 0.85; margin: -0.5rem 0 0.75rem;">
-                    {{ outroForm.headlineSecondary }}
-                  </div>
-                }
-                @if (qrImageUrl(); as qr) {
-                  <img [src]="qr" alt="QR code" style="width: 40%; max-width: 160px; background: #fff; padding: 6px; image-rendering: pixelated;" />
-                } @else {
-                  <div style="display: inline-block; width: 120px; height: 120px; background: #fff; color: #555; font-size: 0.75rem; line-height: 120px;">QR code</div>
-                }
-                <div [style.color]="outroForm.textHex" style="font-size: 0.8rem; margin-top: 0.75rem; opacity: 0.9;">
-                  {{ outroForm.subtext }}
-                </div>
-                @if (outroForm.subtextSecondary) {
-                  <div [style.color]="outroForm.textHex" style="font-size: 0.72rem; margin-top: 0.15rem; opacity: 0.8;">
-                    {{ outroForm.subtextSecondary }}
-                  </div>
-                }
+            @if (chunkPlan(); as plan) {
+              <div class="br-big" aria-live="polite">
+                <strong>{{ plan.count }}</strong>
+                <span>{{ plan.count === 1 ? 'clip' : 'clips' }}</span>
               </div>
-            </div>
-            <p style="margin: 0; font-size: 0.78rem; color: #8b9bb4; text-align: center;">
-              Rough layout only. Use “Render Preview” below to see the exact card.
-            </p>
-          </div>
-        </div>
-      </div>
-    }
-
-    @if (outroForm.kind === 'Video' || outroForm.kind === 'Image') {
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 1.5rem; margin-bottom: 1.25rem;">
-        <!-- Left: Upload & Config -->
-        <div>
-          <div class="form-group"
-               [appFileDrop]="outroForm.kind === 'Video' ? 'video/mp4,video/webm,video/quicktime' : 'image/png,image/jpeg,image/webp'"
-               (filesDropped)="uploadOutro($event[0])">
-            <label class="form-label">
-              Upload Outro {{ outroForm.kind === 'Video' ? 'Video (MP4 / WebM / MOV)' : 'Graphic (PNG / JPG / WEBP)' }}
-            </label>
-            <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
-              <label class="btn-outline" style="cursor: pointer;">
-                <input type="file"
-                       [accept]="outroForm.kind === 'Video' ? 'video/mp4,video/webm,video/quicktime' : 'image/png,image/jpeg,image/webp'"
-                       (change)="onUploadOutro($event)" style="display: none;" />
-                <span>⬆ Upload Channel Outro File</span>
-              </label>
-              <span class="file-drop-hint">or drop a file here / paste with Ctrl+V</span>
-              @if (outroForm.assetId) {
-                <button type="button" class="btn-outline" style="color: #f87171; border-color: rgba(239,68,68,0.3);" (click)="clearOutro()">
-                  ✕ Remove Outro
-                </button>
-              }
-            </div>
-            <p style="margin: 0.35rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
-              @if (outroForm.kind === 'Video') {
-                Short 3 to 10 second outro stingers with channel branding or call-to-actions work best.
-              } @else {
-                High-resolution end-screen cards (1920&times;1080) for YouTube end cards or social handles.
-              }
-            </p>
+            }
           </div>
 
-          @if (outroForm.kind === 'Image') {
-            <div class="slider-container" style="margin-bottom: 1.25rem;">
-              <div class="slider-meta">
-                <label class="form-label" style="margin-bottom: 0;">End-Card Display Duration</label>
-                <span class="slider-val-badge">{{ outroForm.durationSeconds }}s</span>
+          @if (chunkPlan(); as plan) {
+            <p class="br-explain br-extra">
+              A {{ exampleLabel() }} video becomes <strong>{{ plan.count }} {{ plan.count === 1 ? 'clip' : 'clips' }}</strong>: {{ planSentence() }}.
+            </p>
+            @if (timeline(); as bars) {
+              <div class="br-timeline" role="img" [attr.aria-label]="plan.count + ' clips laid end to end'">
+                @for (b of bars; track $index) { <i [style.flex-grow]="b.flex" [class.is-tail]="b.last"></i> }
               </div>
-              <input class="form-range" type="range" min="1" max="15" step="0.5"
-                     [(ngModel)]="outroForm.durationSeconds" />
-              <p style="margin: 0.25rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
-                Duration the graphic stays visible at the end of the video before completion.
-              </p>
-            </div>
+            } @else {
+              <div class="br-timeline ruled" role="img" [attr.aria-label]="plan.count + ' clips laid end to end'"></div>
+            }
+            @if (plan.tailIsShort) {
+              <p class="br-note br-extra" data-tone="warn">The last clip would be only {{ formatDuration(plan.lastSeconds) }}. The server keeps a short tail as a clip of its own.</p>
+            }
           }
 
-          <div class="form-group">
-            <label class="form-label">Transition Into Outro</label>
-            <div class="segmented-row">
-              @for (t of outroTransitions; track t) {
-                <button type="button" class="segment-btn"
-                        [class.active]="outroForm.transition === t"
-                        (click)="setOutroTransition(t)">
-                  {{ t }}
-                </button>
-              }
-            </div>
-            <p style="margin: 0.35rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
-              Crossfade or dissolve between the final video scene and the channel outro bumper.
-            </p>
-          </div>
-        </div>
-
-        <!-- Right: Outro Media Preview -->
-        <div>
-          <label class="form-label">Outro Bumper Player / Preview</label>
-          <div class="mockup-wrapper">
-            <div class="mockup-header-row">
-              <span>Channel Bumper Preview (16:9)</span>
-              <span style="color: #93c5fd; font-family: ui-monospace, monospace;">Transition: {{ outroForm.transition }}</span>
-            </div>
-
-            <div class="outro-preview-box">
-              @if (outroMediaUrl(); as url) {
-                @if (outroForm.kind === 'Video') {
-                  <video class="outro-preview-video" [src]="url" controls playsinline preload="metadata"></video>
-                  <div class="outro-badge-overlay">
-                    <span>▶ Outro Video</span>
-                  </div>
-                } @else {
-                  <img class="outro-preview-image" [src]="url" alt="End-card graphic" />
-                  <div class="outro-badge-overlay">
-                    <span>⏱ {{ outroForm.durationSeconds }}s End-Card</span>
-                  </div>
+          <div class="br-table-wrap br-extra">
+            <table class="br-table">
+              <caption class="sr-only">Clips per video length at {{ formatDuration(c.chunkSeconds) }} each</caption>
+              <thead><tr><th scope="col">Video</th><th scope="col">Clips</th></tr></thead>
+              <tbody>
+                @for (e of examplePlans(); track e.seconds) {
+                  <tr [class.is-on]="e.seconds === exampleSeconds()"><td>{{ e.label }}</td><td>{{ e.count }}</td></tr>
                 }
-              } @else {
-                <div style="text-align: center; padding: 2rem 1rem; color: #8b9bb4;">
-                  <div style="font-size: 2.2rem; margin-bottom: 0.5rem; opacity: 0.6;">📺</div>
-                  <div style="font-size: 0.88rem; font-weight: 600; color: #c9d1d9;">No outro media uploaded yet</div>
-                  <div style="font-size: 0.78rem; margin-top: 0.25rem;">
-                    Upload an MP4 video or PNG end-card on the left to preview it here.
-                  </div>
-                </div>
-              }
-            </div>
-            <p style="margin: 0; font-size: 0.78rem; color: #8b9bb4; text-align: center;">
-              Appended smoothly at the tail end of exported videos.
-            </p>
+              </tbody>
+            </table>
           </div>
-        </div>
+        </aside>
       </div>
     }
 
-    @if (outroForm.kind !== 'None') {
-      <!-- The exact end video exports will finish with, rendered on demand -->
-      <div class="form-group" style="border-top: 1px solid rgba(255,255,255,0.08); padding-top: 1rem;">
-        <label class="form-label">Preview &amp; Download the End Video</label>
-        <p style="margin: 0 0 0.6rem; font-size: 0.78rem; color: #8b9bb4;">
-          Renders exactly what exports will end with, from the form as it is now (save to make exports use it).
-          Download it to add to videos already on YouTube.
-        </p>
-        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
-          <button type="button" class="btn-outline" [disabled]="outroPreviewBusy()" (click)="previewOutro('landscape')">▶ Landscape 16:9</button>
-          <button type="button" class="btn-outline" [disabled]="outroPreviewBusy()" (click)="previewOutro('vertical')">▶ Shorts 9:16</button>
-          <button type="button" class="btn-outline" [disabled]="outroPreviewBusy()" (click)="previewOutro('square')">▶ Square 1:1</button>
-          @if (outroPreviewBusy()) {
-            <span style="font-size: 0.8rem; color: #93c5fd;">Rendering…</span>
-          }
-        </div>
-        @if (outroPreviewError(); as err) {
-          <p style="margin: 0.5rem 0 0; font-size: 0.8rem; color: #f87171;">{{ err }}</p>
+    <!-- ═════════ Save bar ═════════ -->
+    <div class="br-bar" [class.is-dirty]="hasUnsaved()" [class.has-error]="!!saveError()" role="region" aria-label="Save changes">
+      <div class="br-bar-status" role="status" aria-live="polite">
+        @if (saving()) {
+          <span class="spinner" aria-hidden="true"></span><strong>Saving&hellip;</strong>
+        } @else if (saveError(); as err) {
+          <span class="br-dot err" aria-hidden="true"></span>
+          <span class="br-bar-text"><strong>Not saved.</strong> <span class="br-dim">{{ err }}</span></span>
+        } @else if (hasUnsaved()) {
+          <span class="br-dot warn" aria-hidden="true"></span>
+          <span class="br-bar-text"><strong>Unsaved changes</strong> <span class="br-dim br-summary">{{ changeSummary() }}</span></span>
+        } @else if (recentlySaved()) {
+          <span class="br-dot ok" aria-hidden="true"></span>
+          <span class="br-bar-text"><strong>Saved</strong> <span class="br-dim">at {{ savedAtLabel() }}</span></span>
+        } @else {
+          <span class="br-dot idle" aria-hidden="true"></span>
+          <span class="br-bar-text"><strong>All changes saved</strong></span>
         }
-        @if (outroPreviewUrl(); as url) {
-          <div style="margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-start;">
-            <video [src]="url" controls autoplay playsinline
-                   [style.max-width]="outroPreviewFormat() === 'landscape' ? '520px' : '260px'"
-                   style="width: 100%; border-radius: 8px; background: #000;"></video>
-            <button type="button" class="btn-primary-glow" (click)="downloadOutroPreview()">
-              ⬇ Download End Video (MP4, {{ outroPreviewFormat() }})
-            </button>
-          </div>
+        @if (flash(); as f) {
+          <span class="br-flash">{{ f.text }}
+            @if (f.undo && activeStore().canUndo()) { <button type="button" class="br-link" (click)="undo()">Undo</button> }
+          </span>
         }
+        @if (blockers().length) { <span class="br-bar-blocker">{{ blockers()[0] }}</span> }
       </div>
-    }
-
-    <div style="display: flex; justify-content: flex-end; margin-top: 1rem;">
-      <button type="button" class="btn-primary-glow" (click)="saveOutro()" [disabled]="status.busy()">
-        Save Global Outro Settings
-      </button>
+      <div class="br-bar-actions">
+        <button type="button" class="secondary small br-icon" (click)="undo()" [disabled]="!activeStore().canUndo()" title="Undo (Ctrl+Z)" aria-label="Undo">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+        </button>
+        <button type="button" class="secondary small br-icon" (click)="redo()" [disabled]="!activeStore().canRedo()" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+        </button>
+        <button type="button" class="secondary" (click)="requestDiscard()" [disabled]="!hasUnsaved() || saving()" title="Discard unsaved changes (Esc)">Discard</button>
+        <button type="button" class="br-save" (click)="saveAll()" [disabled]="!canSave()" [attr.title]="'Save changes (' + saveKey + ')'">
+          @if (saving()) { <span class="spinner" aria-hidden="true"></span> Saving&hellip; } @else { Save changes <kbd>{{ saveKey }}</kbd> }
+        </button>
+      </div>
     </div>
-  </div>
+  }
+ </div>
+
+  <!-- ═════════ Dialogs ═════════ -->
+  @if (dialog() === 'discard') {
+    <app-brand-dialog title="Discard unsaved changes?" tone="warn" (dismissed)="closeDialog()">
+      <p>These edits will be thrown away and the page goes back to what is saved. You can still undo it straight afterwards.</p>
+      <ng-container [ngTemplateOutlet]="changeList" [ngTemplateOutletContext]="{ $implicit: allChanges() }" />
+      <div bdActions>
+        <button type="button" class="secondary" data-autofocus (click)="closeDialog()">Keep editing</button>
+        <button type="button" class="br-danger-solid" (click)="confirmDiscard()">Discard changes</button>
+      </div>
+    </app-brand-dialog>
   }
 
-  @if (shows('chunking')) {
-  <!-- Card 3: Global Video Chunking & Splitting -->
-  <div class="branding-card">
-    <div class="card-section-head">
-      <div>
-        <h3>✂️ Global Video Chunking &amp; Splitting</h3>
-        <p>Set default segment duration when chopping long videos, podcast recordings, or YouTube Shorts into clips.</p>
+  @if (prompt(); as p) {
+    <app-brand-dialog [title]="'Save before you ' + p.verb + '?'" tone="warn" [busy]="saving()" (dismissed)="promptStay()">
+      <p>You have unsaved changes. Save them, discard them, or stay and keep editing.</p>
+      <ng-container [ngTemplateOutlet]="changeList" [ngTemplateOutletContext]="{ $implicit: allChanges() }" />
+      @if (blockers().length) { <p class="br-note" data-tone="error" role="alert">{{ blockers()[0] }}</p> }
+      <div bdActions>
+        <button type="button" class="secondary" data-autofocus [disabled]="saving()" (click)="promptStay()">Keep editing</button>
+        <button type="button" class="secondary br-danger" [disabled]="saving()" (click)="promptDiscard()">Discard &amp; continue</button>
+        <button type="button" [disabled]="!canSave()" (click)="promptSave()">
+          @if (saving()) { <span class="spinner" aria-hidden="true"></span> Saving&hellip; } @else { Save &amp; continue }
+        </button>
       </div>
-      @if (chunkDurationSaved()) {
-        <div class="save-toast-pill">
-          <span>✓</span> Chunk Duration Updated
-        </div>
+    </app-brand-dialog>
+  }
+
+  @if (dialog() === 'copy') {
+    <app-brand-dialog [title]="copyTarget() === 'outro' ? 'Copy the end card from another channel' : 'Copy the watermark from another channel'"
+                      (dismissed)="closeDialog()">
+      <p>Pick a channel. Its {{ copyTarget() === 'outro' ? 'end card' : 'watermark' }} is copied into the form here; nothing is saved until you press Save, and Undo brings your own version back.</p>
+      @if (otherChannels().length > 6) {
+        <input type="search" class="br-copy-search" aria-label="Search channels" placeholder="Search {{ otherChannels().length }} channels…"
+               [value]="copyQuery()" (input)="copyQuery.set(textOf($event))" />
       }
-    </div>
-
-    <!-- Quick Presets -->
-    <div class="form-group">
-      <label class="form-label">Quick Duration Presets</label>
-      <div class="chunk-presets-grid">
-        @for (sec of chunkPresets; track sec) {
-          <button type="button" class="chunk-preset-chip"
-                  [class.active]="defaultChunkDuration() === sec"
-                  (click)="setChunkDurationPreset(sec)">
-            {{ sec }} Seconds
-            @if (sec === 10) {
-              <span style="font-size: 0.7rem; opacity: 0.8;">(Recommended)</span>
-            } @else if (sec === 60) {
-              <span style="font-size: 0.7rem; opacity: 0.8;">(Shorts Cap)</span>
-            }
-          </button>
+      <ul class="br-copy-list" role="radiogroup" aria-label="Channel to copy from">
+        @for (ch of copyListed(); track ch.id) {
+          <li>
+            <label class="br-copy-item" [class.is-on]="copySourceId() === ch.id">
+              <input type="radio" name="copy-source" [value]="ch.id" [checked]="copySourceId() === ch.id" (change)="copySourceId.set(ch.id)" />
+              <span class="br-copy-name">{{ ch.name }} @if (ch.isDefault) { <span class="br-tag">default</span> }</span>
+              <span class="br-dim">{{ channelSummary(ch) }}</span>
+            </label>
+          </li>
+        } @empty {
+          <li class="br-dim br-copy-none">No channel matches &ldquo;{{ copyQuery() }}&rdquo;.</li>
         }
-      </div>
-    </div>
+      </ul>
+      @if (copyHidden() > 0) { <p class="br-dim">{{ copyHidden() }} more. Type to narrow the list.</p> }
 
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.5rem; align-items: center; margin-bottom: 1.25rem;">
-      <div class="slider-container">
-        <div class="slider-meta">
-          <label class="form-label" style="margin-bottom: 0;">Custom Duration (Seconds)</label>
-          <span class="slider-val-badge">{{ defaultChunkDuration() }}s</span>
-        </div>
-        <input class="form-range" type="range" min="3" max="180" step="1"
-               [ngModel]="defaultChunkDuration()" (ngModelChange)="defaultChunkDuration.set($event)" />
+      @if (copySource(); as src) {
+        @if (copyChanges().length) {
+          <h3 class="br-dlg-h">What will change here</h3>
+          <ng-container [ngTemplateOutlet]="changeList" [ngTemplateOutletContext]="{ $implicit: copyChanges() }" />
+        } @else {
+          <p class="br-note" data-tone="info">This form already matches {{ src.name }}, so there is nothing to copy.</p>
+        }
+      }
+      <div bdActions>
+        <button type="button" class="secondary" (click)="closeDialog()">Cancel</button>
+        <button type="button" data-autofocus [disabled]="!copySource() || copyChanges().length === 0" (click)="confirmCopy()">Copy settings</button>
       </div>
+    </app-brand-dialog>
+  }
 
-      <div>
-        <label class="form-label" for="default-chunk-sec">Exact Seconds</label>
-        <input class="form-input" id="default-chunk-sec" type="number" min="1" max="600" step="1"
-               style="max-width: 180px; font-weight: 700; font-family: ui-monospace, monospace;"
-               [ngModel]="defaultChunkDuration()" (ngModelChange)="defaultChunkDuration.set($event)" />
-      </div>
-    </div>
-
-    <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 8px; padding: 0.85rem 1.1rem; margin-bottom: 1.25rem;">
-      <p style="margin: 0; font-size: 0.82rem; color: #8b9bb4; line-height: 1.5;">
-        💡 <strong>How chunk duration works</strong>: When splitting videos in Media Tools or during automated ingest, videos are divided into consecutive chunks matching this length. 10&ndash;15 seconds is optimal for AI prompt generation and rapid scene editing, while 60 seconds targets full-length mobile reels.
+  @if (dialog() === 'apply') {
+    <app-brand-dialog title="Apply this watermark to all channels" tone="danger" [busy]="applyBusy()" (dismissed)="closeDialog()">
+      <p>
+        The watermark in this form replaces the watermark of {{ applyChanging().length === 1 ? 'the channel' : 'each channel' }} listed below.
+        End cards are not touched. {{ wm.dirty() ? 'Your unsaved edits are saved to ' + (selectedChannel()?.name || 'this channel') + ' too.' : '' }}
       </p>
-    </div>
-
-    <div style="display: flex; justify-content: flex-end;">
-      <button type="button" class="btn-primary-glow" (click)="saveChunkDuration()" [disabled]="status.busy()">
-        Save Default Chunk Duration
-      </button>
-    </div>
-  </div>
-
-  <!-- Card 4: Global image duration on the timeline -->
-  <div class="branding-card">
-    <div class="card-section-head">
-      <div>
-        <h3>🖼️ Default Image Duration</h3>
-        <p>How long an image plays when it is added to the editor timeline. A project can override this in its own settings.</p>
-      </div>
-      @if (imageDurationSaved()) {
-        <div class="save-toast-pill">
-          <span>✓</span> Image Duration Updated
-        </div>
+      @if (applyChanging().length) {
+        <ul class="br-apply-list">
+          @for (item of applyChanging(); track item.channel.id) {
+            <li>
+              <strong>{{ item.channel.name }}</strong>
+              <ng-container [ngTemplateOutlet]="changeList" [ngTemplateOutletContext]="{ $implicit: item.changes }" />
+            </li>
+          }
+        </ul>
+      } @else {
+        <p class="br-note" data-tone="info">Every other channel already has this watermark.</p>
       }
-    </div>
-
-    <div class="form-group">
-      <label class="form-label">Quick Duration Presets</label>
-      <div class="chunk-presets-grid">
-        @for (sec of imagePresets; track sec) {
-          <button type="button" class="chunk-preset-chip"
-                  [class.active]="defaultImageDuration() === sec"
-                  (click)="defaultImageDuration.set(sec)">
-            {{ sec }} Seconds
-          </button>
-        }
+      @if (applyMatching().length && applyChanging().length) {
+        <p class="br-dim">Already the same, left alone: {{ applyMatching().length }} {{ applyMatching().length === 1 ? 'channel' : 'channels' }}.</p>
+      }
+      @if (applyBusy()) {
+        <p class="br-progress" role="status"><span class="spinner" aria-hidden="true"></span>Updating channels&hellip; {{ applyDone() }} of {{ applyTotal() }} done. Please keep this page open.</p>
+      }
+      @if (applyError(); as err) { <p class="br-note" data-tone="error" role="alert">{{ err }}</p> }
+      <div bdActions>
+        <button type="button" class="secondary" data-autofocus [disabled]="applyBusy()" (click)="closeDialog()">Cancel</button>
+        <button type="button" class="br-danger-solid" [disabled]="applyBusy() || applyTotal() === 0" (click)="confirmApply()">
+          Apply to {{ applyTotal() }} {{ applyTotal() === 1 ? 'channel' : 'channels' }}
+        </button>
       </div>
-    </div>
+    </app-brand-dialog>
+  }
 
-    <div style="margin-bottom: 1.25rem;">
-      <label class="form-label" for="default-image-sec">Exact Seconds</label>
-      <input class="form-input" id="default-image-sec" type="number" min="0.5" max="120" step="0.5"
-             style="max-width: 180px; font-weight: 700; font-family: ui-monospace, monospace;"
-             [ngModel]="defaultImageDuration()" (ngModelChange)="defaultImageDuration.set($event)" />
-    </div>
+  <ng-template #changeList let-items>
+    <ul class="br-changes">
+      @for (item of items; track item.key) {
+        <li>
+          <span class="br-change-label">{{ item.label }}</span>
+          <span class="br-change-from">{{ item.from }}</span>
+          <span class="br-change-arrow" aria-hidden="true">&rarr;</span>
+          <span class="sr-only">changes to</span>
+          <span class="br-change-to">{{ item.to }}</span>
+        </li>
+      }
+    </ul>
+  </ng-template>
 
-    <div style="display: flex; justify-content: flex-end;">
-      <button type="button" class="btn-primary-glow" (click)="saveImageDuration()" [disabled]="status.busy()">
-        Save Default Image Duration
-      </button>
-    </div>
-  </div>
+  <!-- The crop dialog lives out here: inside a card it would be pinned to the card, not the screen -->
+  @if (qrCropSource(); as src) {
+    <app-image-crop-dialog [source]="src" [square]="true" title="Crop the QR code" fileName="qr-code.png"
+                           (cropped)="onQrCropped($event)" (cancelled)="qrCropSource.set(null)" />
   }
 </div>

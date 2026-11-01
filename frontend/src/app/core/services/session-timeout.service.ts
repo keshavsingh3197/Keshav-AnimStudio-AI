@@ -5,7 +5,7 @@ import { StatusService } from './status.service';
 export const SESSION_TIMEOUT_STORAGE_KEY = 'animstudio_session_timeout_min';
 export const SESSION_WARNING_STORAGE_KEY = 'animstudio_session_warning_min';
 
-export const DEFAULT_TIMEOUT_MINUTES = 30;
+export const DEFAULT_TIMEOUT_MINUTES = 120;
 export const DEFAULT_WARNING_MINUTES = 2;
 const ACTIVITY_THROTTLE_MS = 3000;
 const SLIDING_TOKEN_REFRESH_THRESHOLD_MS = 2 * 60 * 1000; // 2 minutes before token expires

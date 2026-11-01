@@ -237,6 +237,18 @@ public sealed record CreateSubProjectRequest
     public string? Description { get; init; }
 
     public bool UseSharedAssets { get; init; } = true;
+
+    /// <summary>Also copy the parent's own files into the new sub-project (independent of the parent afterwards).</summary>
+    public bool CopyAssets { get; init; }
+}
+
+public sealed record SetParentProjectRequest
+{
+    /// <summary>The project to go under; null or empty makes this one top-level again.</summary>
+    [StringLength(64)] public string? ParentProjectId { get; init; }
+
+    /// <summary>"share" (live link, the default), "copy" (independent copies of the parent's files) or "none".</summary>
+    [RegularExpression("^(share|copy|none)$")] public string AssetMode { get; init; } = "share";
 }
 
 public sealed record CreateSceneRequest
@@ -647,6 +659,15 @@ public sealed record ClipMergeRequest
     /// </summary>
     [MaxLength(ClipMergeSpec.MaxClips + 1)]
     public List<ClipSlotRequest>? Slots { get; init; }
+
+    /// <summary>Copy the finished export to Google Drive as soon as it has rendered.</summary>
+    public bool SaveToDrive { get; init; }
+
+    /// <summary>Whose Drive and folder: the channel's own Drive, or its folder on the personal one. Null is the personal Drive.</summary>
+    [RegularExpression("^UC[A-Za-z0-9_-]{22}$")] public string? DriveChannelId { get; init; }
+
+    /// <summary>A folder for this export; empty uses the channel's (or the Drive's) default.</summary>
+    [StringLength(100)] public string? DriveFolderName { get; init; }
 }
 
 /// <summary>

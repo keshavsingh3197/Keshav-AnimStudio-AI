@@ -63,7 +63,7 @@ import { AuthService } from '../../core/services/auth.service';
     }
 
     .nf-card {
-      background: linear-gradient(180deg, rgba(20, 26, 42, 0.9) 0%, rgba(13, 17, 28, 0.95) 100%);
+      background: linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 90%, transparent) 0%, color-mix(in srgb, var(--surface) 95%, transparent) 100%);
       border: 1px solid rgba(148, 163, 184, 0.16);
       border-radius: 16px;
       padding: 3rem 2.5rem;
@@ -85,7 +85,7 @@ import { AuthService } from '../../core/services/auth.service';
       font-weight: 800;
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      color: #93c5fd;
+      color: var(--text-dim);
       background: rgba(59, 130, 246, 0.12);
       border: 1px solid rgba(59, 130, 246, 0.28);
       padding: 3px 10px;
@@ -106,7 +106,7 @@ import { AuthService } from '../../core/services/auth.service';
       justify-content: center;
       background: radial-gradient(circle, rgba(99, 102, 241, 0.2) 0%, rgba(99, 102, 241, 0.02) 70%);
       border: 1px solid rgba(99, 102, 241, 0.3);
-      color: #a5b4fc;
+      color: var(--text-dim);
       margin-bottom: 1.5rem;
       box-shadow: 0 0 24px rgba(99, 102, 241, 0.15);
     }
@@ -116,13 +116,13 @@ import { AuthService } from '../../core/services/auth.service';
       font-weight: 800;
       letter-spacing: -0.025em;
       margin: 0 0 0.65rem;
-      color: #f1f5f9;
+      color: var(--text);
     }
 
     .nf-desc {
       font-size: 0.92rem;
       line-height: 1.55;
-      color: #94a3b8;
+      color: var(--text-dim);
       margin: 0 0 2rem;
     }
 
@@ -161,13 +161,13 @@ import { AuthService } from '../../core/services/auth.service';
     }
 
     .btn-secondary {
-      background: rgba(255, 255, 255, 0.06);
-      border-color: rgba(255, 255, 255, 0.12);
-      color: #e2e8f0;
+      background: var(--ov-2);
+      border-color: var(--ov-4);
+      color: var(--text);
     }
     .btn-secondary:hover {
-      background: rgba(255, 255, 255, 0.1);
-      border-color: rgba(255, 255, 255, 0.2);
+      background: var(--ov-3);
+      border-color: var(--ov-5);
       transform: translateY(-1px);
     }
   `],

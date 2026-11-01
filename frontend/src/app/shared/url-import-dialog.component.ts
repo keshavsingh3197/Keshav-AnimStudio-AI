@@ -199,7 +199,7 @@ const MAX_TITLE_IN_NAME = 80;
     </div>
   `,
   styles: [`
-    .ui-backdrop { position: fixed; inset: 0; z-index: 2000; background: rgba(4, 6, 14, .76);
+    .ui-backdrop { position: fixed; inset: 0; z-index: 2000; background: color-mix(in srgb, var(--bg) 76%, transparent);
       backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
       display: flex; align-items: center; justify-content: center; padding: 16px; }
     .ui-dialog { width: min(650px, 100%); max-height: 90vh; display: flex; flex-direction: column; gap: 12px;
@@ -208,7 +208,7 @@ const MAX_TITLE_IN_NAME = 80;
     .ui-head { display: flex; align-items: center; justify-content: space-between; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
     .ui-head strong { font-size: 1.02rem; font-weight: 800; }
     .ui-x { background: var(--surface-2); border: 1px solid var(--border); border-radius: 7px; padding: 3px 8px; color: var(--muted); font-size: .95rem; cursor: pointer; box-shadow: none; }
-    .ui-x:hover:not(:disabled) { color: #fff; border-color: var(--border-bright); background: var(--surface-3); transform: none; box-shadow: none; }
+    .ui-x:hover:not(:disabled) { color: var(--text); border-color: var(--border-bright); background: var(--surface-3); transform: none; box-shadow: none; }
     .ui-text { width: 100%; resize: vertical; background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
       border-radius: 8px; padding: 10px 12px; font: 0.82rem/1.55 ui-monospace, monospace; }
     .ui-hint, .ui-note { font-size: .74rem; color: var(--muted); margin: 0; }
@@ -219,8 +219,8 @@ const MAX_TITLE_IN_NAME = 80;
     .ui-foot { display: flex; justify-content: flex-end; gap: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
     .ui-btn { background: var(--surface-2); color: var(--text-dim); border: 1px solid var(--border); border-radius: 7px;
       padding: 6px 14px; font-size: .82rem; font-weight: 600; cursor: pointer; box-shadow: none; }
-    .ui-btn:hover:not(:disabled) { border-color: var(--border-bright); color: #fff; background: var(--surface-3); }
-    .ui-btn.primary { background: linear-gradient(135deg, var(--brand) 0%, var(--brand-dim) 100%); border-color: rgba(255,255,255,0.16); color: #fff; }
+    .ui-btn:hover:not(:disabled) { border-color: var(--border-bright); color: var(--text); background: var(--surface-3); }
+    .ui-btn.primary { background: linear-gradient(135deg, var(--brand) 0%, var(--brand-dim) 100%); border-color: var(--ov-4); color: #fff; }
     .ui-btn:disabled { opacity: .45; cursor: not-allowed; }
     .ui-progress { display: flex; align-items: center; gap: 10px; font-size: .76rem; font-weight: 600; color: var(--text-dim); }
     .ui-bar { flex: 1; height: 7px; background: var(--surface-2); border-radius: 99px; overflow: hidden; }

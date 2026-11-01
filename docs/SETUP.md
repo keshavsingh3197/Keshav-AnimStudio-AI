@@ -435,8 +435,10 @@ On Render, set `YouTube__Publish__ClientId` / `YouTube__Publish__ClientSecret` i
 YouTube channel, visibility, category, audience, notify, **default tags** and a **description
 footer**. Every upload for a project on that brand channel starts from these:
 
-- The footer is appended below the description.
-- The default tags appear as chips. They're added to the video's own tags, and any of them can be left out for one video.
+- The footer is appended below the description. The page counts its UTF-8 bytes (the limit is 2500, so every video keeps room for its own text) and previews how it sits under a description.
+- The default tags appear as chips. They're added to the video's own tags, and any of them can be left out for one video. The page keeps them inside YouTube's 500-character tag budget as you type.
+- Each channel in the list shows whether it is ready to publish (a linked channel that needs reconnecting, a missing comment permission, no default visibility). *Check connections* asks YouTube about every connection, which is what turns up an expired one.
+- *Apply to other channels* copies chosen defaults (visibility, category, audience, notifications, tags, footer, first comment) to several channels at once. It shows what will change for each channel first, saves them one at a time, and can undo.
 
 **4. Publishing flow.** Open the dialog, then:
 
@@ -452,7 +454,36 @@ no `<` / `>`, audience required. Videos over 15 minutes need a verified channel.
 
 ---
 
-## 8. Troubleshooting
+## 8. Optional — Access requests (sign-up and approval)
+
+The sign-in dialog offers **Request access**. A request creates **no account**: it waits in
+*Admin → Sign-ups & members* until an administrator approves or rejects it.
+
+How it stays safe on a single sign-on shared with your other sites:
+
+- Requests are held by the central identity service (`https://id.keshavsingh.in`, or the local
+  one when `Jwt:Issuer` is not `keshavsingh-idp`) and tagged `[AnimStudio]`, so this app lists
+  and decides only its own.
+- Approving **always** grants the single `StudioUser` role. The request cannot ask for more and
+  the browser's role field is ignored. The identity service refuses `StudioUser` accounts on every
+  other app that uses the same sign-on, so an account approved here cannot sign in to them.
+- The form is limited to 5 requests per 15 minutes per address, has a hidden honeypot field, and
+  answers identically whether or not the email is already known. Passwords (12+ characters) go
+  straight to the identity service, which stores only a hash; this server never stores or logs one.
+- Approvals, rejections, opening or closing requests, and switching members off or on are all
+  recorded in *Admin → Activity*.
+
+Stop taking requests without a deploy from *Sign-ups & members → Accepting requests*, or set
+`Admin:Signup:Enabled` to `false`.
+
+**Requirement on the identity service:** it must accept `StudioUser` as an assignable role, on its
+own and never next to another role (`AppScopedRoles` in the identity service repository). Until it
+does, an approval answers *"…has to allow the StudioUser role for approvals before this can work"*
+and nothing is changed.
+
+---
+
+## 9. Troubleshooting
 
 | Symptom | Cause and fix |
 | --- | --- |
@@ -468,3 +499,4 @@ no `<` / `>`, audience required. Videos over 15 minutes need a verified channel.
 | WSL: `exec: node: Permission denied` | The Windows npm shim is being used. Install Node **inside** WSL via nvm. |
 | `mongod: command not found` in WSL | MongoDB installed on Windows only. Use Docker, install it inside WSL, or point at Atlas. |
 | `/api/admin` returns 403 | `Admin:Mode` is `LocalOnly` (default) and the request is not from this machine. `LocalOnly` is refused outright in Production — use `Jwt` there. |
+| Approving a sign-up fails with *"…has to allow the StudioUser role…"* | The identity service does not list `StudioUser` as an assignable role yet — section 8. |

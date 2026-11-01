@@ -29,7 +29,7 @@
 </div>
 
 @if (showAiHelper()) {
-  <div class="card" style="border-color: rgba(108, 140, 255, 0.4); background: linear-gradient(180deg, rgba(108, 140, 255, 0.07) 0%, rgba(15, 17, 23, 0.9) 100%)">
+  <div class="card" style="border-color: rgba(108, 140, 255, 0.4); background: linear-gradient(180deg, rgba(108, 140, 255, 0.07) 0%, color-mix(in srgb, var(--surface) 90%, transparent) 100%)">
     <div class="studio-card-head">
       <div class="studio-card-title-group">
         <div class="studio-icon-badge purple">
@@ -67,7 +67,7 @@
     <textarea id="ai-notes" rows="4" [(ngModel)]="aiVideoNotes"
               placeholder="Paste rough dialogue, bullet points, or a story idea. The prompt instructs the AI to format and pace timestamps accurately."></textarea>
 
-    <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-top: .75rem">
+    <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 1rem; margin-top: .75rem">
       <div>
         <div class="row" style="justify-content: space-between; margin-bottom: .35rem">
           <label style="margin: 0">1. Copy Prompt for AI Chat</label>

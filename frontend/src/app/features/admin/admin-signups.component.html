@@ -1,0 +1,212 @@
+<div class="page-head" style="margin-top: 0">
+  <div style="display: flex; align-items: flex-start; gap: 0.85rem">
+    <div class="studio-icon-badge emerald" style="width: 2.6rem; height: 2.6rem; margin-top: 2px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+      </svg>
+    </div>
+    <div>
+      <div class="row" style="gap: 0.5rem; margin-bottom: 0.15rem">
+        <h2 style="margin: 0">Sign-ups &amp; Members</h2>
+        @if (counts().pending > 0) {
+          <span class="pill warn">{{ counts().pending }} waiting</span>
+        }
+      </div>
+      <p class="muted">Decide who may use AnimStudio. Approved people can sign in to AnimStudio only.</p>
+    </div>
+  </div>
+  <div class="row">
+    <label class="switch" [title]="open() ? 'The sign-in dialog offers “Request access”' : 'The sign-in dialog does not offer “Request access”'">
+      <input type="checkbox" [checked]="open() === true" [disabled]="open() === null || openBusy()" (change)="toggleOpen()" />
+      <span class="track"></span>
+      <span>Accepting requests</span>
+    </label>
+    <button type="button" class="secondary" (click)="reload()" [disabled]="loading()">↻ Refresh</button>
+  </div>
+</div>
+
+<div class="sg-callout">
+  <span class="sg-callout-icon" aria-hidden="true">🔒</span>
+  <p>
+    Approving creates a single-sign-on account with the <strong>AnimStudio-only</strong> role. The identity service refuses that role
+    on every other site, so a person approved here can use AnimStudio and nothing else. This screen cannot grant any other role, and it only
+    shows requests made from AnimStudio and accounts that hold nothing but that role.
+  </p>
+</div>
+
+@if (notice(); as n) {
+  <div class="notice notice-info sg-flash" role="status">
+    <span>{{ n }}</span>
+    <button type="button" class="sg-x" (click)="notice.set(null)" aria-label="Dismiss">✕</button>
+  </div>
+}
+@if (error(); as e) {
+  <div class="notice error sg-flash" role="alert">
+    <span>{{ e }}</span>
+    <button type="button" class="sg-x" (click)="error.set(null)" aria-label="Dismiss">✕</button>
+  </div>
+}
+
+<div class="sg-bar">
+  <div class="sg-tabs" role="tablist">
+    <button type="button" role="tab" [class.is-active]="tab() === 'requests'" [attr.aria-selected]="tab() === 'requests'" (click)="setTab('requests')">
+      Requests <span class="sg-count" [class.hot]="counts().pending > 0">{{ counts().pending }}</span>
+    </button>
+    <button type="button" role="tab" [class.is-active]="tab() === 'members'" [attr.aria-selected]="tab() === 'members'" (click)="setTab('members')">
+      Members @if (membersLoaded()) { <span class="sg-count">{{ members().length }}</span> }
+    </button>
+  </div>
+
+  <div class="sg-search">
+    <input type="search" placeholder="{{ tab() === 'requests' ? 'Search name, email or note…' : 'Search members…' }}" aria-label="Search"
+           [ngModel]="query()" (ngModelChange)="query.set($event)" maxlength="100" />
+  </div>
+</div>
+
+@if (tab() === 'requests') {
+  <div class="sg-chips" role="group" aria-label="Filter requests">
+    <button type="button" class="sg-chip" [class.is-active]="filter() === 'pending'" (click)="setFilter('pending')">Waiting <span>{{ counts().pending }}</span></button>
+    <button type="button" class="sg-chip" [class.is-active]="filter() === 'approved'" (click)="setFilter('approved')">Approved <span>{{ counts().approved }}</span></button>
+    <button type="button" class="sg-chip" [class.is-active]="filter() === 'rejected'" (click)="setFilter('rejected')">Rejected <span>{{ counts().rejected }}</span></button>
+    <button type="button" class="sg-chip" [class.is-active]="filter() === 'all'" (click)="setFilter('all')">All <span>{{ counts().all }}</span></button>
+  </div>
+
+  @if (pendingShown().length > 0) {
+    <div class="sg-bulk" [class.is-active]="selectedCount() > 0">
+      <label class="sg-check">
+        <input type="checkbox" [checked]="allPendingSelected()" (change)="toggleAll()" />
+        <span>{{ selectedCount() > 0 ? selectedCount() + ' selected' : 'Select all waiting' }}</span>
+      </label>
+      @if (selectedCount() > 0) {
+        <button type="button" class="sg-btn sg-approve" (click)="ask('approve', selectedIds())">✓ Approve {{ selectedCount() }}</button>
+        <button type="button" class="sg-btn sg-reject" (click)="ask('reject', selectedIds())">✕ Reject {{ selectedCount() }}</button>
+        <button type="button" class="sg-link" (click)="clearSelection()">Clear</button>
+      }
+    </div>
+  }
+
+  @if (deciding(); as d) {
+    <div class="sg-confirm" [class.is-reject]="d.kind === 'reject'" role="alertdialog" aria-label="Confirm decision">
+      <div class="sg-confirm-text">
+        @if (d.kind === 'approve') {
+          <strong>Approve {{ d.ids.length }} request{{ d.ids.length === 1 ? '' : 's' }}?</strong>
+          <span>They become AnimStudio-only accounts and can sign in straight away with the password they chose.</span>
+        } @else {
+          <strong>Reject {{ d.ids.length }} request{{ d.ids.length === 1 ? '' : 's' }}?</strong>
+          <span>No account is created. The applicant isn't told why.</span>
+        }
+      </div>
+      <input type="text" class="sg-note" maxlength="400" placeholder="Note for the record (optional, never shown to the applicant)"
+             [ngModel]="note()" (ngModelChange)="note.set($event)" (keydown.enter)="confirm()" />
+      <div class="sg-confirm-actions">
+        <button type="button" class="sg-btn" [class.sg-approve]="d.kind === 'approve'" [class.sg-reject]="d.kind === 'reject'" (click)="confirm()" [disabled]="!!working()">
+          @if (working()) { <span class="spinner"></span> Working… } @else { {{ d.kind === 'approve' ? 'Yes, approve' : 'Yes, reject' }} }
+        </button>
+        <button type="button" class="sg-link" (click)="cancel()" [disabled]="!!working()">Cancel</button>
+      </div>
+    </div>
+  }
+
+  @if (!loaded()) {
+    <div class="empty muted">Loading requests&hellip;</div>
+  } @else if (rows().length === 0) {
+    <div class="empty">
+      @if (query().trim()) {
+        Nobody matches “{{ query() }}”.
+      } @else if (filter() === 'pending') {
+        <strong>Nothing is waiting.</strong>
+        <div class="muted">New requests from the sign-in dialog will appear here.</div>
+      } @else {
+        Nothing here yet.
+      }
+    </div>
+  } @else {
+    <ul class="sg-list">
+      @for (r of rows(); track r.id) {
+        <li class="sg-item" [class.is-selected]="selected().has(r.id)" [class.is-deciding]="isDeciding(r.id)">
+          @if (r.status === 'Pending') {
+            <label class="sg-pick" title="Select"><input type="checkbox" [checked]="selected().has(r.id)" (change)="toggle(r.id)" [attr.aria-label]="'Select ' + r.displayName" /></label>
+          } @else {
+            <span class="sg-pick"></span>
+          }
+          <span class="sg-avatar" aria-hidden="true">{{ initials(r.displayName, r.email) }}</span>
+          <div class="sg-main">
+            <div class="sg-name">
+              <strong>{{ r.displayName }}</strong>
+              <span class="pill" [class]="'pill ' + tone(r.status)">{{ r.status === 'Pending' ? 'Waiting' : r.status }}</span>
+            </div>
+            <div class="sg-email mono">{{ r.email }}</div>
+            @if (r.reason) {
+              <p class="sg-reason">“{{ r.reason }}”</p>
+            }
+            @if (r.status !== 'Pending') {
+              <div class="muted sg-decision">
+                {{ r.status === 'Approved' ? 'Approved' : 'Rejected' }}
+                @if (r.decidedAt) { <span [title]="r.decidedAt | date: 'medium'">{{ ago(r.decidedAt) }}</span> }
+                @if (r.decisionNote) { · note: {{ r.decisionNote }} }
+              </div>
+            }
+          </div>
+          <div class="sg-when muted" [title]="r.createdAt | date: 'medium'">Requested<br /><strong>{{ ago(r.createdAt) }}</strong></div>
+          <div class="sg-actions">
+            @if (r.status === 'Pending') {
+              <button type="button" class="sg-btn sg-approve" (click)="ask('approve', [r.id])" [disabled]="!!working()">✓ Approve</button>
+              <button type="button" class="sg-btn sg-reject" (click)="ask('reject', [r.id])" [disabled]="!!working()">✕ Reject</button>
+            }
+          </div>
+        </li>
+      }
+    </ul>
+  }
+} @else {
+  <!-- Approved accounts: AnimStudio-only, nothing else -->
+  @if (!membersLoaded()) {
+    <div class="empty muted">Loading members&hellip;</div>
+  } @else if (memberRows().length === 0) {
+    <div class="empty">
+      @if (query().trim()) { Nobody matches “{{ query() }}”. } @else {
+        <strong>No AnimStudio-only members yet.</strong>
+        <div class="muted">People you approve on the Requests tab show up here.</div>
+      }
+    </div>
+  } @else {
+    <div class="card sg-members">
+      <div class="studio-table-wrap">
+        <table>
+          <thead><tr><th>Member</th><th>Status</th><th>2-step</th><th>Last sign-in</th><th>Joined</th><th></th></tr></thead>
+          <tbody>
+            @for (m of memberRows(); track m.id) {
+              <tr [class.is-off]="!m.isActive">
+                <td>
+                  <div class="sg-member">
+                    <span class="sg-avatar sm" aria-hidden="true">{{ initials(m.displayName, m.email) }}</span>
+                    <div><strong>{{ m.displayName || '—' }}</strong><div class="mono muted" style="font-size: 0.78rem">{{ m.email }}</div></div>
+                  </div>
+                </td>
+                <td><span class="pill" [class]="'pill ' + (m.isActive ? 'ok' : 'err')">{{ m.isActive ? 'Active' : 'Switched off' }}</span></td>
+                <td class="muted">{{ m.twoFactorEnabled ? 'On' : 'Off' }}</td>
+                <td class="muted" style="white-space: nowrap">{{ m.lastLoginAt ? ago(m.lastLoginAt) : 'never' }}</td>
+                <td class="muted" style="white-space: nowrap">{{ m.createdAt | date: 'mediumDate' }}</td>
+                <td style="text-align: right; white-space: nowrap">
+                  @if (memberConfirm() === m.id) {
+                    <span class="muted" style="margin-right: 0.4rem">{{ m.isActive ? 'Switch off and sign them out?' : 'Let them sign in again?' }}</span>
+                    <button type="button" class="sg-btn" [class.sg-reject]="m.isActive" [class.sg-approve]="!m.isActive" (click)="setMemberActive(m, !m.isActive)">Yes</button>
+                    <button type="button" class="sg-link" (click)="memberConfirm.set(null)">No</button>
+                  } @else {
+                    <button type="button" class="secondary small" (click)="askMember(m.id)" [disabled]="memberBusy() === m.id">
+                      {{ memberBusy() === m.id ? 'Working…' : (m.isActive ? 'Switch off' : 'Switch on') }}
+                    </button>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      <p class="hint" style="margin-top: 0.75rem">
+        Switching someone off ends their sessions straight away and stops them signing in; their projects are kept.
+        Only accounts that hold the AnimStudio-only role and nothing else are shown - every other account is managed in the identity service.
+      </p>
+    </div>
+  }
+}

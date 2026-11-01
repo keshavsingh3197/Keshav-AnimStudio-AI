@@ -1,4 +1,4 @@
-import { Component, ElementRef, effect, inject, signal, viewChild } from '@angular/core';
+import { Component, ElementRef, computed, effect, inject, signal, untracked, viewChild } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
 import { AdminAccess } from '../core/models/api.models';
@@ -12,6 +12,7 @@ import { AuthService } from '../core/services/auth.service';
 import { ShortsService } from '../core/services/shorts.service';
 import { SessionTimeoutService } from '../core/services/session-timeout.service';
 import { StatusService } from '../core/services/status.service';
+import { ThemeService } from '../core/services/theme.service';
 import { UiNavigationService } from '../core/services/ui-navigation.service';
 
 /** How often the Shorts badge is re-read; alerts change on the scale of renders and days, not seconds. */
@@ -36,7 +37,29 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
       <div class="wrap topbar-inner">
         <a routerLink="/projects" class="brand">AnimStudio<span>AI</span></a>
 
-        <nav class="topbar-nav" aria-label="Main Studio Navigation">
+        <button
+          type="button"
+          class="mobile-nav-toggle"
+          (click)="toggleMobileNav()"
+          [attr.aria-expanded]="mobileNavOpen()"
+          aria-controls="studio-navigation"
+          [attr.aria-label]="mobileNavOpen() ? 'Close studio navigation' : 'Open studio navigation'">
+          <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" aria-hidden="true">
+            @if (mobileNavOpen()) {
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            } @else {
+              <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+            }
+          </svg>
+          <span>{{ mobileNavOpen() ? 'Close' : 'Menu' }}</span>
+        </button>
+
+        <nav
+          id="studio-navigation"
+          class="topbar-nav"
+          [class.mobile-open]="mobileNavOpen()"
+          (click)="closeMobileNav()"
+          aria-label="Main Studio Navigation">
           @for (tab of uiNav.visibleNavItems(); track tab.id) {
             @if (tab.id === 'clips') {
               <button type="button" (click)="openVideoModal()" class="topbar-navlink topbar-navbtn" [title]="tab.description || tab.label">
@@ -102,6 +125,17 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
         </nav>
 
         <div class="topbar-end">
+          <button type="button" class="theme-toggle" role="switch" [attr.aria-checked]="theme.theme() === 'light'"
+                  (click)="theme.toggle()"
+                  [attr.aria-label]="theme.theme() === 'dark' ? 'Light theme' : 'Dark theme'"
+                  [title]="theme.theme() === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'">
+            @if (theme.theme() === 'dark') {
+              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+            } @else {
+              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+            }
+            <span class="theme-toggle-label">{{ theme.theme() === 'dark' ? 'Dark' : 'Light' }}</span>
+          </button>
           @if (activity.items().length > 0) {
             <button type="button" class="topbar-activity" (click)="activityPanel()?.toggle()"
                     [class.is-running]="activity.running().length > 0"
@@ -197,7 +231,9 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
       }
 
       <app-project-hub-modal [(isOpen)]="showVideoModal"></app-project-hub-modal>
-      <router-outlet></router-outlet>
+      @for (scope of pageScopes(); track scope.key) {
+        <router-outlet></router-outlet>
+      }
     </main>
 
     <app-activity-panel></app-activity-panel>
@@ -302,6 +338,10 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
       display: none;
     }
 
+    .mobile-nav-toggle {
+      display: none;
+    }
+
     .topbar-divider {
       width: 1px;
       height: 1.15rem;
@@ -325,6 +365,7 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
       white-space: nowrap;
       transition: color .15s ease, background .15s ease, border-color .15s ease, box-shadow .15s ease;
       position: relative;
+      flex-shrink: 0;
     }
 
     .topbar-navbtn {
@@ -340,12 +381,12 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
 
     .topbar-navlink:hover {
       color: var(--text);
-      background: rgba(255, 255, 255, 0.04);
-      border-color: rgba(255, 255, 255, 0.06);
+      background: var(--ov-1);
+      border-color: var(--ov-2);
     }
 
     .topbar-navlink.active {
-      color: #ffffff;
+      color: var(--text);
       background: linear-gradient(180deg, rgba(108, 140, 255, 0.18) 0%, rgba(108, 140, 255, 0.08) 100%);
       border-color: rgba(108, 140, 255, 0.35);
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 2px 10px rgba(61, 98, 230, 0.16);
@@ -402,11 +443,36 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
       flex-shrink: 0;
     }
 
-    .topbar-session-timer {
+    .theme-toggle {
       display: inline-flex;
       align-items: center;
+      gap: .4rem;
+      min-height: 36px;
+      padding: .3rem .7rem;
+      border-radius: 99px;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text-dim);
+      font-size: .78rem;
+      font-weight: 600;
+      box-shadow: none;
+    }
+
+    .theme-toggle:hover:not(:disabled) {
+      border-color: var(--border-bright);
+      background: var(--surface-3);
+      color: var(--text);
+      box-shadow: none;
+    }
+
+    @media (max-width: 600px) {
+      .theme-toggle { min-height: 44px; }
+    }
+
+    .topbar-session-timer {
+      align-items: center;
       gap: .3rem;
-      color: #a7f3d0;
+      color: var(--c-green);
       font-size: .72rem;
       font-variant-numeric: tabular-nums;
       font-weight: 700;
@@ -414,11 +480,11 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
     }
 
     .topbar-session-timer.warning {
-      color: #fbbf24;
+      color: var(--c-yellow);
     }
 
     .topbar-session-timer.urgent {
-      color: #f87171;
+      color: var(--c-red);
     }
 
     .topbar-busy {
@@ -478,7 +544,7 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
       padding: .36rem .68rem;
       font-size: .82rem;
       border: 1px solid var(--border);
-      background: rgba(255, 255, 255, 0.025);
+      background: var(--ov-1);
     }
 
     .topbar-banners {
@@ -508,8 +574,8 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
       gap: 0.45rem;
       padding: 0.22rem 0.55rem;
       border-radius: 99px;
-      background: rgba(255, 255, 255, 0.04);
-      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: var(--ov-1);
+      border: 1px solid var(--ov-3);
       font-size: 0.78rem;
     }
 
@@ -521,14 +587,14 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
     }
 
     .guest-label {
-      color: #94a3b8;
+      color: var(--text-dim);
       font-weight: 600;
     }
 
     .topbar-signin-btn {
       background: linear-gradient(135deg, rgba(79, 70, 229, 0.4) 0%, rgba(59, 130, 246, 0.4) 100%);
       border: 1px solid rgba(108, 140, 255, 0.4);
-      color: #c7d2fe;
+      color: var(--text-dim);
       border-radius: 99px;
       padding: 0.16rem 0.58rem;
       font-size: 0.76rem;
@@ -550,7 +616,7 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
       gap: 0.45rem;
       padding: 0.18rem 0.5rem 0.18rem 0.22rem;
       border-radius: 99px;
-      background: rgba(255, 255, 255, 0.04);
+      background: var(--ov-1);
       border: 1px solid rgba(108, 140, 255, 0.25);
       font-size: 0.78rem;
     }
@@ -569,7 +635,7 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
     }
 
     .user-name {
-      color: #e2e8f0;
+      color: var(--text);
       font-weight: 600;
       max-width: 130px;
       overflow: hidden;
@@ -584,7 +650,7 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
       padding: 0.1rem 0.35rem;
       background: rgba(108, 140, 255, 0.2);
       border: 1px solid rgba(108, 140, 255, 0.45);
-      color: #8bb0ff;
+      color: var(--c-blue);
       border-radius: 4px;
     }
 
@@ -604,13 +670,88 @@ const SHORTS_ATTENTION_MS = 5 * 60 * 1000;
     }
 
     .btn-logout:hover:not(:disabled) {
-      color: #f87171;
+      color: var(--c-red);
       background: rgba(239, 68, 68, 0.12);
     }
 
     .btn-logout:disabled {
       opacity: 0.45;
       cursor: not-allowed;
+    }
+
+    @media (max-width: 900px) {
+      .topbar-inner {
+        flex-wrap: wrap;
+        gap: .45rem .65rem;
+      }
+
+      .mobile-nav-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: .4rem;
+        order: 2;
+        min-height: 42px;
+        padding: .45rem .75rem;
+        color: var(--text-dim);
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+        box-shadow: none;
+      }
+
+      .topbar-nav {
+        display: none;
+        order: 4;
+        flex: 1 1 100%;
+        width: 100%;
+        min-width: 0;
+        justify-content: stretch;
+        padding: .5rem;
+      }
+
+      .topbar-nav.mobile-open {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        max-height: min(65svh, 520px);
+        overflow-x: hidden;
+        overflow-y: auto;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--surface);
+        box-shadow: var(--shadow-md);
+      }
+
+      .topbar-navlink {
+        min-width: 0;
+        min-height: 44px;
+        padding: .55rem;
+        white-space: normal;
+        line-height: 1.25;
+      }
+
+      .topbar-navlink > span:not(.topbar-badge):not(.topbar-live-dot) {
+        overflow-wrap: anywhere;
+      }
+
+      .topbar-end {
+        order: 3;
+        flex: 1 1 100%;
+        margin-left: 0;
+        max-width: 100%;
+        overflow-x: auto;
+        scrollbar-width: none;
+      }
+
+      .topbar-end::-webkit-scrollbar {
+        display: none;
+      }
+
+      .topbar-end > * {
+        flex-shrink: 0;
+      }
+
+      .topbar-end .topbar-navlink {
+        white-space: nowrap;
+      }
     }
   `],
 })
@@ -619,6 +760,7 @@ export class AppShellComponent {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
   readonly auth = inject(AuthService);
+  readonly theme = inject(ThemeService);
   readonly sessionTimeout = inject(SessionTimeoutService);
   readonly uiNav = inject(UiNavigationService);
 
@@ -628,15 +770,24 @@ export class AppShellComponent {
   readonly activityPanel = viewChild(ActivityPanelComponent);
 
   readonly showVideoModal = signal(false);
+  readonly mobileNavOpen = signal(false);
+  // Recreate the active route tree only when its data owner changes, not on token renewal.
+  private readonly pageScope = computed(() => {
+    const user = this.auth.user();
+    return this.auth.isAuthenticated() && user
+      ? `member:${user.userId}`
+      : `guest:${this.auth.guestId()}`;
+  });
+  readonly pageScopes = computed(() => [{ key: this.pageScope() }]);
   /** Warnings and errors on the Shorts page - failed renders or copies, used-up stock, a missed weekly goal. */
   readonly shortsAttention = signal(0);
   private readonly shorts = inject(ShortsService);
   readonly year = new Date().getFullYear();
   private readonly banner = viewChild<ElementRef<HTMLElement>>('banner');
 
-  private refreshShortsAttention(): void {
+  private refreshShortsAttention() {
     // A badge is a nicety: if the overview can't be read, there is simply no badge.
-    this.shorts.overview().subscribe({
+    return this.shorts.overview().subscribe({
       next: (o) => this.shortsAttention.set(o.alerts.filter((a) => a.severity !== 'info').length),
       error: () => undefined,
     });
@@ -668,9 +819,36 @@ export class AppShellComponent {
     this.showVideoModal.set(true);
   }
 
+  toggleMobileNav(): void {
+    this.mobileNavOpen.update((open) => !open);
+  }
+
+  closeMobileNav(): void {
+    this.mobileNavOpen.set(false);
+  }
+
   constructor() {
-    this.refreshShortsAttention();
-    setInterval(() => this.refreshShortsAttention(), SHORTS_ATTENTION_MS);
+    effect((onCleanup) => {
+      this.pageScope();
+      untracked(() => {
+        this.access.set(null);
+        this.shortsAttention.set(0);
+        let attention = this.refreshShortsAttention();
+        const attentionTimer = setInterval(() => {
+          attention.unsubscribe();
+          attention = this.refreshShortsAttention();
+        }, SHORTS_ATTENTION_MS);
+        const access = this.api.adminAccess().subscribe({
+          next: (value) => this.access.set(value),
+          error: () => this.access.set(null),
+        });
+        onCleanup(() => {
+          clearInterval(attentionTimer);
+          attention.unsubscribe();
+          access.unsubscribe();
+        });
+      });
+    });
 
     /**
      * Brings a new banner into view.
@@ -697,12 +875,5 @@ export class AppShellComponent {
       }
     });
 
-    // Asked once per visit. A failure here must not put a banner over the whole
-    // application: not knowing whether to show a link is not an error worth reporting, so
-    // this deliberately bypasses the shared error handling.
-    this.api.adminAccess().subscribe({
-      next: (access) => this.access.set(access),
-      error: () => this.access.set(null),
-    });
   }
 }

@@ -1,50 +1,170 @@
 <div class="page-head" style="margin-top: 0">
-  <div style="display: flex; align-items: flex-start; gap: 0.85rem">
-    <div class="studio-icon-badge" style="width: 2.6rem; height: 2.6rem; margin-top: 2px">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <div class="ad-title">
+    <div class="studio-icon-badge">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
       </svg>
     </div>
     <div>
-      <div class="row" style="gap: 0.5rem; margin-bottom: 0.15rem">
-        <h2 style="margin: 0">AI Usage &amp; Cache Telemetry</h2>
+      <div class="row">
+        <h2>AI Usage &amp; Cache Telemetry</h2>
         <span class="pill brand">Last {{ days() }} days</span>
       </div>
-      <p class="muted">Monitor provider call volumes, cache reuse ratios, and failure rates across the studio.</p>
+      <p class="muted">Provider call volumes, how much the cache saved, and which provider is failing &mdash; in UTC days.</p>
     </div>
   </div>
-  <div class="row">
-    <span class="muted">Showing</span>
-    @for (option of [7, 14, 30, 90]; track option) {
-      <button type="button" class="small" [class]="days() === option ? 'small' : 'secondary small'"
-              (click)="setDays(option)">
-        {{ option }} days
-      </button>
-    }
-    <button type="button" class="secondary small" (click)="reload()">↻ Refresh</button>
+  <div class="row us-actions">
+    <div class="us-range" role="group" aria-label="Time window">
+      @for (option of dayOptions; track option) {
+        <button type="button" class="ad-chip" [class.is-active]="days() === option" [attr.aria-pressed]="days() === option"
+                (click)="setDays(option)">{{ option }} days</button>
+      }
+    </div>
+    <button type="button" class="secondary" (click)="exportCsv()" [disabled]="dayRows().length === 0"
+            title="Download the day-by-day rows the filters show">⬇ Export CSV</button>
+    <button type="button" class="secondary" (click)="reload()" [disabled]="loading()">
+      @if (loading()) { <span class="spinner" aria-hidden="true"></span> }
+      ↻ Refresh
+    </button>
   </div>
 </div>
 
-@if (nothingYet()) {
-  <div class="empty">
-    <p>No AI calls have been made.</p>
-    <p class="muted">
-      Expected if you are working from bundles &mdash; that path never calls a provider.
-    </p>
+@if (failure(); as message) {
+  <div class="notice error ad-flash" role="alert">
+    <span>{{ message }}</span>
+    <button type="button" class="ad-link" (click)="reload()">Try again</button>
   </div>
-} @else {
-  <div class="sb-kpi-strip">
-    <div class="sb-kpi-card">
-      <span class="sb-kpi-label">Active Providers</span>
-      <strong class="sb-kpi-val mono">{{ totals().length }}</strong>
+}
+
+@if (!usage() && !failure()) {
+  <div class="ad-kpis" aria-hidden="true">
+    @for (n of [1, 2, 3, 4, 5]; track n) {
+      <div class="ad-kpi">
+        <span class="ad-skel" style="height: 0.7rem; width: 55%"></span>
+        <span class="ad-skel" style="height: 1.4rem; width: 35%; margin-top: 0.3rem"></span>
+      </div>
+    }
+  </div>
+  <div class="card" aria-hidden="true"><span class="ad-skel" style="height: 9rem; width: 100%"></span></div>
+  <span class="ad-sr" role="status">Loading usage…</span>
+} @else if (usage() && nothingYet()) {
+  <div class="card ad-empty">
+    <span class="ad-empty-ico" aria-hidden="true">📊</span>
+    <strong>No AI calls in the last {{ days() }} days</strong>
+    <p>
+      Expected if you are working from bundles &mdash; that path never calls a provider. Once a provider answers
+      (or the cache answers for it), every request is counted here by day.
+    </p>
+    <a class="ad-btn" routerLink="/admin/providers">Open AI providers</a>
+  </div>
+} @else if (usage()) {
+  @if (warnings().length > 0) {
+    <div class="notice error us-warn" role="alert">
+      <div>
+        <strong>{{ warnings().length === 1 ? 'A provider is' : 'Some providers are' }} failing often.</strong>
+        <ul>
+          @for (w of warnings(); track w.key) {
+            <li>
+              <span class="mono">{{ w.providerId }}</span> ({{ w.capability }}) failed {{ w.failures }} of {{ w.fresh }}
+              fresh calls &mdash; {{ percent(w.failRate) }}.
+            </li>
+          }
+        </ul>
+        <span class="muted">Check its key, daily limit and timeout, or move it down the fallback order.</span>
+      </div>
+      <a class="ad-btn" routerLink="/admin/providers">Open AI providers</a>
     </div>
-    <div class="sb-kpi-card">
-      <span class="sb-kpi-label">Daily Records</span>
-      <strong class="sb-kpi-val mono">{{ byDay().length }}</strong>
+  }
+
+  <div class="ad-toolbar" role="search">
+    <div class="ad-search">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+      </svg>
+      <input #search type="search" placeholder="Search a provider…" aria-label="Search providers"
+             [value]="query()" (input)="query.set(search.value); focus.set(null)" (keydown.escape)="query.set('')" />
     </div>
-    <div class="sb-kpi-card">
-      <span class="sb-kpi-label">Window</span>
-      <strong class="sb-kpi-val mono">{{ days() }}d</strong>
+    @if (capabilities().length > 1) {
+      <div class="ad-chips us-caps" role="group" aria-label="Filter by what the provider does">
+        <button type="button" class="ad-chip" [class.is-active]="capability() === 'all'" [attr.aria-pressed]="capability() === 'all'"
+                (click)="setCapability('all')">All</button>
+        @for (c of capabilities(); track c.id) {
+          <button type="button" class="ad-chip" [class.is-active]="capability() === c.id" [attr.aria-pressed]="capability() === c.id"
+                  (click)="setCapability(c.id)">{{ c.id }} <span>{{ c.requests }}</span></button>
+        }
+      </div>
+    }
+    <span class="ad-grow"></span>
+    @if (hasFilters()) {
+      <button type="button" class="ad-link" (click)="clearFilters()">Clear filters</button>
+    }
+  </div>
+
+  @if (focus()) {
+    <div class="us-focusbar" role="status">
+      Showing only <strong class="mono">{{ focusLabel() }}</strong>
+      <button type="button" class="ad-link" (click)="focus.set(null)">Show all providers</button>
+    </div>
+  }
+
+  <div class="ad-kpis">
+    <div class="ad-kpi">
+      <span class="ad-kpi-label">Requests</span>
+      <strong class="ad-kpi-val">{{ sums().requests }}</strong>
+      <span class="ad-kpi-sub">every attempted call</span>
+    </div>
+    <div class="ad-kpi" [class.is-ok]="sums().requests > 0 && sums().hitRate >= 0.5">
+      <span class="ad-kpi-label">Served from cache</span>
+      <strong class="ad-kpi-val">{{ sums().cacheHits }}</strong>
+      <span class="ad-kpi-sub">{{ percent(sums().hitRate) }} of requests &mdash; cost nothing</span>
+    </div>
+    <div class="ad-kpi">
+      <span class="ad-kpi-label">Fresh calls</span>
+      <strong class="ad-kpi-val">{{ sums().fresh }}</strong>
+      <span class="ad-kpi-sub">went to a provider</span>
+    </div>
+    <div class="ad-kpi" [class.is-err]="sums().failures > 0 && sums().failRate >= 0.1" [class.is-warn]="sums().failures > 0 && sums().failRate < 0.1">
+      <span class="ad-kpi-label">Failed</span>
+      <strong class="ad-kpi-val">{{ sums().failures }}</strong>
+      <span class="ad-kpi-sub">{{ percent(sums().failRate) }} of fresh calls</span>
+    </div>
+    <div class="ad-kpi">
+      <span class="ad-kpi-label">Busiest day</span>
+      @if (busiest(); as b) {
+        <strong class="ad-kpi-val us-small">{{ b.label }}</strong>
+        <span class="ad-kpi-sub">{{ b.requests }} requests</span>
+      } @else {
+        <strong class="ad-kpi-val">&mdash;</strong>
+        <span class="ad-kpi-sub">no activity</span>
+      }
+    </div>
+  </div>
+
+  <div class="card us-chart">
+    <div class="studio-card-head">
+      <div class="studio-card-title-group">
+        <h3>Requests per day</h3>
+        <span class="pill">{{ sums().providers }} {{ sums().providers === 1 ? 'provider' : 'providers' }}</span>
+      </div>
+      <div class="us-legend" aria-hidden="true">
+        <span><i class="us-dot fresh"></i>Fresh</span>
+        <span><i class="us-dot cache"></i>Cache</span>
+        <span><i class="us-dot fail"></i>Failed</span>
+      </div>
+    </div>
+    <div class="us-bars" role="img" [attr.aria-label]="'Requests per day over the last ' + days() + ' days. Busiest day: ' + (busiest()?.label ?? 'none')">
+      @for (b of series(); track b.day) {
+        <div class="us-col" [title]="barTitle(b)">
+          <div class="us-stack" [style.height]="barHeight(b.requests)">
+            @if (b.failures > 0) { <i class="us-seg fail" [style.flex-grow]="b.failures"></i> }
+            @if (b.rest > 0) { <i class="us-seg fresh" [style.flex-grow]="b.rest"></i> }
+            @if (b.cacheHits > 0) { <i class="us-seg cache" [style.flex-grow]="b.cacheHits"></i> }
+          </div>
+        </div>
+      }
+    </div>
+    <div class="us-axis" aria-hidden="true">
+      @for (label of axis(); track $index) { <span>{{ label }}</span> }
     </div>
   </div>
 
@@ -54,46 +174,66 @@
         <h3>By provider</h3>
         <span class="pill brand">{{ totals().length }}</span>
       </div>
+      <span class="muted us-hint-inline">Select a provider to focus the chart and the daily rows on it.</span>
     </div>
-    <div class="studio-table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Provider</th><th>For</th><th>Calls made</th>
-            <th>Served from cache</th><th>Failed</th><th>Share</th>
-          </tr>
-        </thead>
-        <tbody>
-          @for (total of totals(); track total.providerId) {
+    @if (totals().length === 0) {
+      <div class="ad-empty">
+        <span class="ad-empty-ico" aria-hidden="true">🔎</span>
+        <strong>No provider matches</strong>
+        <button type="button" class="ad-btn" (click)="clearFilters()">Clear filters</button>
+      </div>
+    } @else {
+      <div class="studio-table-wrap">
+        <table class="us-table">
+          <thead>
             <tr>
-              <td class="mono"><strong>{{ total.providerId }}</strong></td>
-              <td><span class="pill">{{ total.capability }}</span></td>
-              <td class="mono">{{ total.requests }}</td>
-              <td class="mono">
-                {{ total.cacheHits }}
-                @if (total.cacheHits > 0) {
-                  <span class="pill ok" style="margin-left: 0.35rem">{{ hitRate(total) }}%</span>
-                }
-              </td>
-              <td>
-                @if (total.failures > 0) {
-                  <span class="pill err">{{ total.failures }}</span>
-                } @else {
-                  <span class="muted">0</span>
-                }
-              </td>
-              <td style="width: 28%">
-                <div class="spark"><i [style.width]="width(total)"></i></div>
-              </td>
+              <th [attr.aria-sort]="ariaSort('name')"><button type="button" class="us-th" (click)="sortBy('name')">Provider @if (sortKey() === 'name') { <span>{{ sortDesc() ? '▼' : '▲' }}</span> }</button></th>
+              <th [attr.aria-sort]="ariaSort('requests')"><button type="button" class="us-th" (click)="sortBy('requests')">Requests @if (sortKey() === 'requests') { <span>{{ sortDesc() ? '▼' : '▲' }}</span> }</button></th>
+              <th [attr.aria-sort]="ariaSort('fresh')"><button type="button" class="us-th" (click)="sortBy('fresh')">Fresh calls @if (sortKey() === 'fresh') { <span>{{ sortDesc() ? '▼' : '▲' }}</span> }</button></th>
+              <th [attr.aria-sort]="ariaSort('cache')"><button type="button" class="us-th" (click)="sortBy('cache')">From cache @if (sortKey() === 'cache') { <span>{{ sortDesc() ? '▼' : '▲' }}</span> }</button></th>
+              <th [attr.aria-sort]="ariaSort('failed')"><button type="button" class="us-th" (click)="sortBy('failed')">Failed @if (sortKey() === 'failed') { <span>{{ sortDesc() ? '▼' : '▲' }}</span> }</button></th>
+              <th [attr.aria-sort]="ariaSort('rate')"><button type="button" class="us-th" (click)="sortBy('rate')">Failure rate @if (sortKey() === 'rate') { <span>{{ sortDesc() ? '▼' : '▲' }}</span> }</button></th>
+              <th>Share</th>
+              <th>Last active</th>
             </tr>
-          }
-        </tbody>
-      </table>
-    </div>
-    <p class="hint" style="margin-top: 0.75rem">
-      A call served from cache spent nothing: the same prompt, model and seed produce the
-      same result, so it is fetched rather than re-generated. That ratio is what decides
-      whether a free tier survives a long project.
+          </thead>
+          <tbody>
+            @for (t of sortedTotals(); track t.key) {
+              <tr [class.is-focus]="focus() === t.key">
+                <td>
+                  <button type="button" class="us-focus" (click)="toggleFocus(t)" [attr.aria-pressed]="focus() === t.key"
+                          [title]="focus() === t.key ? 'Show all providers' : 'Focus on this provider'">
+                    <strong class="mono">{{ t.providerId }}</strong>
+                    <span class="pill">{{ t.capability }}</span>
+                  </button>
+                </td>
+                <td class="mono">{{ t.requests }}</td>
+                <td class="mono">{{ t.fresh }}</td>
+                <td class="mono">
+                  {{ t.cacheHits }}
+                  @if (t.cacheHits > 0) { <span class="pill ok us-pct">{{ percent(t.hitRate) }}</span> }
+                </td>
+                <td>
+                  @if (t.failures > 0) { <span class="pill err">{{ t.failures }}</span> } @else { <span class="muted mono">0</span> }
+                </td>
+                <td class="mono" [class.us-bad]="t.fresh >= 5 && t.failRate >= 0.25">
+                  {{ t.fresh === 0 ? '—' : percent(t.failRate) }}
+                </td>
+                <td class="us-share">
+                  <div class="spark" [attr.aria-label]="share(t) + ' of requests'"><i [style.width]="share(t)"></i></div>
+                  <span class="muted mono">{{ share(t) }}</span>
+                </td>
+                <td class="muted mono">{{ t.lastDay || '—' }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+    <p class="hint us-note">
+      A request is any attempted call. A call served from cache spent nothing: the same prompt, model and seed produce the
+      same result, so it is fetched rather than re-generated. That ratio is what decides whether a free tier survives a
+      long project. The failure rate is failures as a share of fresh calls &mdash; the ones that actually left for a provider.
     </p>
   </div>
 
@@ -101,37 +241,46 @@
     <div class="studio-card-head">
       <div class="studio-card-title-group">
         <h3>Day by day</h3>
-        <span class="pill">{{ byDay().length }} rows</span>
+        <span class="pill">{{ dayRows().length }} rows</span>
       </div>
     </div>
-    <div class="studio-table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Day</th><th>Provider</th><th>Calls</th><th>Units</th>
-            <th>Cache</th><th>Failed</th>
-          </tr>
-        </thead>
-        <tbody>
-          @for (row of byDay(); track row.day + row.providerId + row.capability) {
-            <tr>
-              <td class="mono">{{ row.day }}</td>
-              <td class="mono">{{ row.providerId }}</td>
-              <td class="mono">{{ row.requests }}</td>
-              <td class="muted mono">{{ row.units }}</td>
-              <td class="muted mono">{{ row.cacheHits }}</td>
-              <td>
-                @if (row.failures > 0) {
-                  <span class="pill err">{{ row.failures }}</span>
-                } @else {
-                  <span class="muted mono">0</span>
-                }
-              </td>
-            </tr>
-          }
-        </tbody>
-      </table>
-    </div>
+    @if (dayRows().length === 0) {
+      <div class="ad-empty">
+        <span class="ad-empty-ico" aria-hidden="true">🔎</span>
+        <strong>Nothing to show for these filters</strong>
+        <button type="button" class="ad-btn" (click)="clearFilters()">Clear filters</button>
+      </div>
+    } @else {
+      <div class="studio-table-wrap">
+        <table>
+          <thead>
+            <tr><th>Day</th><th>Provider</th><th>For</th><th>Requests</th><th>From cache</th><th>Fresh</th><th>Failed</th><th>Units</th></tr>
+          </thead>
+          <tbody>
+            @for (row of visibleDayRows(); track row.day + '|' + row.providerId + '|' + row.capability) {
+              <tr>
+                <td class="mono">{{ row.day }}</td>
+                <td class="mono">{{ row.providerId }}</td>
+                <td><span class="pill">{{ row.capability }}</span></td>
+                <td class="mono">{{ row.requests }}</td>
+                <td class="muted mono">{{ row.cacheHits }}</td>
+                <td class="muted mono">{{ fresh(row) }}</td>
+                <td>
+                  @if (row.failures > 0) { <span class="pill err">{{ row.failures }}</span> } @else { <span class="muted mono">0</span> }
+                </td>
+                <td class="muted mono">{{ row.units }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      @if (dayRows().length > visibleDayRows().length) {
+        <div class="us-more">
+          <span class="muted">Showing {{ visibleDayRows().length }} of {{ dayRows().length }}</span>
+          <button type="button" class="ad-btn" (click)="shown.set(shown() + 25)">Show 25 more</button>
+          <button type="button" class="ad-link" (click)="shown.set(dayRows().length)">Show all</button>
+        </div>
+      }
+    }
   </div>
 }
-

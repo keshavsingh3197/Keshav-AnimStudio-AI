@@ -36,18 +36,18 @@ import { MusicLibraryComponent } from './music-library.component';
     </div>
   `,
   styles: [`
-    .mp-backdrop { position: fixed; inset: 0; z-index: 2000; background: rgba(4, 6, 12, .75); backdrop-filter: blur(8px);
+    .mp-backdrop { position: fixed; inset: 0; z-index: 2000; background: color-mix(in srgb, var(--bg) 75%, transparent); backdrop-filter: blur(8px);
       display: flex; align-items: center; justify-content: center; padding: 18px; }
     .mp-dialog { width: min(1040px, 100%); max-height: 90vh; display: flex; flex-direction: column; gap: 12px;
-      background: linear-gradient(180deg, rgba(21, 26, 38, 0.98), rgba(14, 17, 24, 0.99)); color: var(--text, #eef1f8);
+      background: linear-gradient(180deg, var(--surface-2), var(--surface)); color: var(--text, #eef1f8);
       border: 1px solid var(--border-bright, #2f3a56); border-radius: 16px; padding: 16px 18px;
       box-shadow: 0 24px 64px rgba(0,0,0,.68), inset 0 1px 0 rgba(255, 255, 255, 0.06); }
-    .mp-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+    .mp-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--ov-2); }
     .mp-title-wrap { display: flex; align-items: center; gap: 12px; min-width: 0; }
     .mp-title-wrap strong { display: block; font-size: 1rem; font-weight: 800; letter-spacing: -0.01em; }
     .mp-hint { display: block; font-size: .76rem; color: var(--muted, #7681a3); margin-top: 2px; }
-    .mp-x { background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border, #1f2637); border-radius: 8px; padding: 4px 10px; color: var(--muted, #7681a3); font-size: .95rem; cursor: pointer; }
-    .mp-x:hover { color: #fff; background: rgba(255, 255, 255, 0.08); transform: none; }
+    .mp-x { background: var(--ov-1); border: 1px solid var(--border, #1f2637); border-radius: 8px; padding: 4px 10px; color: var(--muted, #7681a3); font-size: .95rem; cursor: pointer; }
+    .mp-x:hover { color: var(--text); background: var(--ov-3); transform: none; }
     .mp-body { overflow-y: auto; min-height: 0; padding-right: 4px; }
   `],
 })

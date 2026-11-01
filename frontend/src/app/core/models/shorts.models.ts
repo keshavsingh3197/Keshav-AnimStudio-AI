@@ -21,6 +21,7 @@ export type LibraryView = 'active' | 'unused' | 'used' | 'archived' | 'all';
 
 export interface LibraryQuery {
   search?: string;
+  format?: 'short' | 'video' | 'square' | 'unknown';
   /** A topic id, or 'none' for shorts without one. */
   topicId?: string;
   view?: LibraryView;
@@ -45,6 +46,10 @@ export interface LibraryItem {
   archived: boolean;
   drivePath: string;
   driveUrl: string | null;
+  width?: number | null;
+  height?: number | null;
+  hasLocalPreview?: boolean;
+  format?: 'short' | 'square' | 'video' | 'unknown' | null;
 }
 
 export interface LibraryTopicCount {
@@ -90,6 +95,8 @@ export interface ShortsDriveCheck {
   moved: number;
   failed: number;
   error: string | null;
+  /** Gone from Drive and taken out of the library (only when asked to remove missing copies). */
+  removed: number;
 }
 
 export interface ShortRow {

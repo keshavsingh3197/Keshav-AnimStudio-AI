@@ -1,0 +1,44 @@
+<div class="te" [class.is-over]="over() || !!error()">
+  <div class="te-box" (click)="focus()">
+    @if (tags().length > 0) {
+      <ul class="te-chips" [attr.aria-label]="'Current ' + rules().noun + 's'">
+        @for (t of tags(); track t) {
+          <li class="te-chip">
+            <span class="te-text" [title]="t">{{ prefix() }}{{ t }}</span>
+            <button type="button" class="te-x" (click)="remove(t); $event.stopPropagation()" [attr.aria-label]="'Remove ' + t">
+              <app-ico name="x" [size]="12" />
+            </button>
+          </li>
+        }
+      </ul>
+    }
+    <input #field type="text" class="te-input" autocomplete="off" spellcheck="false" [id]="inputId()"
+           [placeholder]="tags().length === 0 ? placeholder() : 'Add another…'"
+           [attr.aria-describedby]="inputId() + '-help'" [attr.aria-invalid]="over() || error() ? 'true' : null"
+           (input)="onInput($event)" (keydown)="onKey($event)" (paste)="onPaste($event)" (blur)="commit()" />
+  </div>
+
+  <div class="te-foot" [id]="inputId() + '-help'">
+    <span class="te-note" [class.is-warn]="note()?.kind === 'warn'" role="status" aria-live="polite">
+      @if (error(); as e) { <span class="te-err">{{ e }}</span> }
+      @else if (note(); as n) { {{ n.text }} }
+    </span>
+    <span class="te-meter" [class.is-over]="over()" [class.is-warn]="warn()">
+      @if (budget(); as b) {
+        <span title="YouTube counts the tags as typed, with commas between them and quotes around any tag that has a space.">
+          {{ b.used }} / {{ b.limit }} {{ b.unit }} · {{ b.left >= 0 ? b.left + ' left' : (-b.left) + ' over' }}
+        </span>
+        <span class="te-sep" aria-hidden="true">·</span>
+      }
+      <span>{{ tags().length }} / {{ rules().maxCount }} {{ rules().noun }}s</span>
+      @if (tags().length > 0) {
+        <button type="button" class="te-clear" (click)="clear()">Clear all</button>
+      }
+    </span>
+  </div>
+
+  @if (budget(); as b) {
+    <div class="te-bar" role="progressbar" [attr.aria-valuenow]="b.used" aria-valuemin="0" [attr.aria-valuemax]="b.limit"
+         [attr.aria-label]="'Tag budget used'"><i [style.width.%]="percent()"></i></div>
+  }
+</div>

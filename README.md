@@ -48,6 +48,7 @@ Craft viral Shorts, Reels, YouTube videos, animated stories, and narrated slides
 
 ### 🎞️ Video Studio 2.0
 - **Multi-Track Timeline**: Synchronized video and audio tracks with playhead scrubbing, live waveform visualization, and thumbnail previews.
+- **Mobile Workspace Panels**: On phones and tablets up to 900 px wide, switch between **Preview & timeline**, **Media library**, and **Inspector** without losing the open edit. Editor actions wrap onto additional rows instead of disappearing off-screen.
 - **Precision Trimming & Splitting**: Split clips at playhead needle, trim In/Out points, duplicate clips, and arrange sequences effortlessly.
 - **Seamless Live Transitions**: Real-time crossfades, directional slides, and wipe transitions with FFmpeg `xfade` integration.
 - **Smart Aspect Ratio Switching**: Instant toggle between **16:9 (YouTube)**, **9:16 (Shorts/TikTok/Reels)**, **1:1 (Instagram)**, and **4:5** with automatic letterbox (Contain) or smart crop (Cover) scaling.
@@ -56,6 +57,33 @@ Craft viral Shorts, Reels, YouTube videos, animated stories, and narrated slides
 - **Background Music Bed**: Loopable ambient audio track with master volume control.
 - **Timeline Music Cues**: Place multiple audio tracks at specific timestamps with independent volume sliders.
 - **Intelligent Audio Ducking**: Automatically lower or mute video sound when a background music cue begins playing.
+
+### Drive & Topics Library
+- **Find and organise exports**: Search video titles, project names, and topics; filter portrait, landscape, square, or unknown formats across the entire library before pagination. Reset filters in one click.
+- **Responsive browsing**: Eight layouts, touch-friendly controls, library counts, and a scrollable details table support phones, tablets, laptops, and ultrawide screens.
+- **Accessible previews**: Keyboard-accessible thumbnails and titles open samples; the preview dialog keeps keyboard focus inside, closes with Escape, and returns focus to its opener.
+- **Clear bulk actions**: Page selection shows partial selection. Select all matching items for bulk actions up to 200 videos; downloads explicitly target selected items on the current page.
+- **Usage and deletion safety**: Downloads mark videos used. Auto-delete remains on by default, but downloads and marking used ask for confirmation before removing library records and sending Drive copies to trash. Turn it off under **Download & usage settings** to keep used videos. Archive and delete remain separate actions.
+- **Transient failure recovery**: Library reads retry network/server failures twice with backoff, within a 60-second overall limit. If they still fail, previous results remain visible with actions disabled and a Retry button. Authentication/validation failures and state-changing operations are not automatically retried.
+
+### Content Calendar
+- **Responsive planning**: Agenda and progress views wrap on phones; the monthly calendar scrolls inside its own container so post labels and 44 px day/add controls remain usable. Topic and publish-day controls expose their selected states.
+- **Reliable updates**: Refresh reloads both topics and posts. Topic-loading failures remain visible independently of successful post loads, and outdated requests cannot replace the current view. Ready actions prevent duplicate submissions.
+- **Post controls**: Open posts with native title buttons. Keyboard activation of the separate Ready button no longer opens the post editor. New posts preserve a topic's midnight publish time.
+
+### Themes
+- **Light and dark**: Dark is the default. The **Dark/Light** switch in the top bar changes the theme, remembers it in that browser, and keeps open tabs in step. The saved choice is applied before first paint, so there is no flash of the wrong theme.
+- **Token-based**: Colours live in `styles.css` as tokens keyed on `data-theme` (surfaces, text, borders, status colours, plus `--ov-*` translucent overlays and `--sunk-*` wells). New UI should use tokens instead of hard-coded colours; native controls follow the theme through `color-scheme`.
+- **Dark by design**: The video editor and Camera Studio, and media preview frames (outro, subtitle and render previews) always use the dark palette, because preview and timeline colour accuracy matters there. Mark any new colour-critical surface with `data-theme="dark"`.
+
+### Sign-in troubleshooting
+
+- After signing in or switching accounts, the active page and its nested routed components are recreated, so a page such as the Drive library loads that account's data without a manual browser refresh. The URL, query parameters and fragment are kept; local page state and selections reset rather than carrying another account's state forward. Renewing a token or updating the same account's profile does not reset the page. The shell also refreshes access links and the Shorts badge.
+- An **Active** account can still have a temporary password/2FA lockout. AnimStudio forwards Central SSO's HTTP 423 response; it does not disable the account itself.
+- The password form requires the Central SSO password, not a device PIN or passkey. Choose **Sign in with Passkey** for the separate Central SSO flow. Existing sessions and passkey eligibility are governed by the identity service.
+- Avoid repeated password attempts during a lockout. Wait for it to expire or use the identity portal's supported recovery options; ask an identity administrator to inspect lockout expiry and failed-sign-in audit events if it persists.
+- `token.reuse_detected` is different from password lockout: the identity service received an already-rotated refresh token and revoked sessions. The identity proxy does not keep cookies in its pooled HTTP handler; it forwards each browser's cookie explicitly. Session-rotation POSTs are never automatically retried, and same-origin tabs serialize refreshes with Web Locks when supported. These safeguards do not bypass identity-service replay detection.
+- On a matching production subdomain, the proxy preserves the shared SSO cookie domain and removes the legacy host-only copy. On localhost or an unrelated host it uses a host-only cookie. Previously created stale cookies may require signing in again after updating the API. Same-origin locks do not coordinate simultaneous refreshes from different portal origins.
 
 ### 🎵 Music Release Kit
 - **Distributor-Ready Master**: Two-pass loudness normalisation to -14 LUFS / -1 dBTP (or -16 / -11), 16- or 24-bit WAV at 44.1/48/96 kHz.

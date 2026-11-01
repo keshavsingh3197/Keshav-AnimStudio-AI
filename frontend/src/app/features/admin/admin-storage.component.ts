@@ -1,205 +1,355 @@
 import { DatePipe } from '@angular/common';
 import { Component, computed, inject, signal } from '@angular/core';
 
-import { StorageDetail, formatBytes } from '../../core/models/api.models';
+import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
+import { DriveSyncReport, StorageDetail, StorageFolder, formatBytes } from '../../core/models/api.models';
 import { ApiService } from '../../core/services/api.service';
 import { StatusService } from '../../core/services/status.service';
+import { csvCell } from '../youtube/csv';
+import { downloadText, fileStamp, parseUtc, relativeTime } from './admin-format';
+
+type Direction = 'MongoToSql' | 'SqlToMongo' | 'Both';
+type SortKey = 'bytes' | 'files' | 'name';
+
+const GB = 1024 ** 3;
+const MAX_QUOTA_GB = 1_000_000;
+const QUOTA_PRESETS = [50, 100, 250, 500, 1000] as const;
+/** The meter turns amber here, and red when the quota is reached. */
+const WARN_AT = 85;
+const SEGMENT_COLOURS = ['#6c8cff', '#22d36b', '#f59e0b', '#a78bfa', '#38bdf8', '#f472b6'];
+
+interface Segment {
+  name: string;
+  bytes: number;
+  files: number;
+  colour: string;
+  /** Width as a share of the whole bar. */
+  width: number;
+}
+
+const DIRECTIONS: Record<Direction, { label: string; detail: string }> = {
+  Both: {
+    label: 'Sync both ways',
+    detail: 'Copies new and changed records in both directions. Where a topic or post was edited in both, the newer edit wins.',
+  },
+  MongoToSql: {
+    label: 'MongoDB → SQL Server',
+    detail: 'Copies drive folders, topics, calendar posts and Drive copies from MongoDB into SQL Server.',
+  },
+  SqlToMongo: {
+    label: 'SQL Server → MongoDB',
+    detail: 'Copies drive folders, topics, calendar posts and Drive copies from SQL Server into MongoDB.',
+  },
+};
 
 /**
  * Where the media goes: how much of the store is used, which folders hold it, and the
  * quota the project hub's storage bar fills against.
+ *
+ * A quota only changes what the bar fills against - it never deletes or blocks anything -
+ * so setting one below the current usage is allowed, once it has been said out loud.
  */
 @Component({
   selector: 'app-admin-storage',
   imports: [DatePipe],
-  template: `
-    <section class="st">
-      <header class="page-head" style="margin-top: 0">
-        <div style="display: flex; align-items: flex-start; gap: 0.85rem">
-          <div class="studio-icon-badge emerald" style="width: 2.6rem; height: 2.6rem; margin-top: 2px">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
-            </svg>
-          </div>
-          <div>
-            <div class="row" style="gap: 0.5rem; margin-bottom: 0.15rem">
-              <h2 style="margin: 0">Storage</h2>
-              @if (detail(); as d) {
-                <span class="pill brand">{{ d.summary.provider }}</span>
-              }
-            </div>
-            <p class="muted">Uploaded clips, generated media and finished renders. The project hub's bar shows the same numbers.</p>
-          </div>
-        </div>
-        <button type="button" class="secondary" (click)="load(true)" [disabled]="status.busy()">↻ Measure now</button>
-      </header>
-
-      @if (detail(); as d) {
-        @if (!d.summary.isMeasurable) {
-          <div class="notice">{{ d.summary.provider }} storage is not measured from this server; set a quota anyway to keep the bar meaningful.</div>
-        }
-
-        <div class="sb-kpi-strip">
-          <div class="sb-kpi-card">
-            <span class="sb-kpi-label">Used Storage</span>
-            <strong class="sb-kpi-val mono">{{ bytes(d.summary.usedBytes) }}</strong>
-          </div>
-          <div class="sb-kpi-card">
-            <span class="sb-kpi-label">Stored Files</span>
-            <strong class="sb-kpi-val mono">{{ d.fileCount }}</strong>
-          </div>
-          @if (d.diskFreeBytes !== null) {
-            <div class="sb-kpi-card">
-              <span class="sb-kpi-label">Drive Free Space</span>
-              <strong class="sb-kpi-val mono" style="color: var(--ok)">{{ bytes(d.diskFreeBytes) }}</strong>
-            </div>
-          }
-          <div class="sb-kpi-card">
-            <span class="sb-kpi-label">Quota Limit</span>
-            <strong class="sb-kpi-val mono">{{ d.quotaGb ? d.quotaGb + ' GB' : 'Uncapped' }}</strong>
-          </div>
-        </div>
-
-        <div class="card st-meter" [class.warn]="percent() >= 85" [class.full]="percent() >= 100">
-          <div class="st-meter-row">
-            <strong>{{ bytes(d.summary.usedBytes) }}</strong>
-            <span class="muted">
-              @if (d.summary.capacityBytes) {
-                of {{ bytes(d.summary.capacityBytes) }}
-                ({{ d.summary.capacitySource === 'quota' ? 'quota' : 'whole drive - no quota set' }})
-                &middot; {{ percent().toFixed(0) }}%
-              }
-            </span>
-          </div>
-          <div class="st-track"><div class="st-fill" [style.width.%]="Math.min(100, percent())"></div></div>
-          <div class="st-sub muted">
-            {{ d.fileCount }} files
-            @if (d.diskFreeBytes !== null) { &middot; {{ bytes(d.diskFreeBytes) }} free on the drive }
-            &middot; measured {{ d.summary.measuredAt | date: 'shortTime' }}
-          </div>
-        </div>
-
-        <div class="st-grid">
-          <div class="card st-card">
-            <div class="studio-card-head">
-              <div class="studio-card-title-group">
-                <h3>Quota</h3>
-              </div>
-            </div>
-            <p class="muted">The space set aside for this studio. Leave empty to measure against the whole drive.</p>
-            <div class="st-quota">
-              <input type="number" min="1" step="1" placeholder="No quota" [value]="d.quotaGb ?? ''"
-                     (input)="quotaInput.set($any($event.target).value)" />
-              <span class="muted">GB</span>
-              <button type="button" (click)="saveQuota()" [disabled]="status.busy() || !quotaValid()">Save</button>
-              @if (d.quotaGb !== null) {
-                <button type="button" class="secondary" (click)="clearQuota()" [disabled]="status.busy()">Remove quota</button>
-              }
-            </div>
-            @if (!quotaValid()) { <p class="err">Enter a whole number of GB from 1 up, or leave it empty.</p> }
-          </div>
-
-          <div class="card st-card">
-            <div class="studio-card-head">
-              <div class="studio-card-title-group">
-                <h3>By folder</h3>
-                <span class="pill">{{ d.folders.length }}</span>
-              </div>
-            </div>
-            @if (d.folders.length === 0) {
-              <p class="muted">Nothing stored yet.</p>
-            } @else {
-              <ul class="st-folders">
-                @for (f of d.folders; track f.name) {
-                  <li>
-                    <span class="name mono">{{ f.name }}</span>
-                    <span class="bar"><span [style.width.%]="d.summary.usedBytes ? (f.bytes / d.summary.usedBytes) * 100 : 0"></span></span>
-                    <span class="size mono">{{ bytes(f.bytes) }}</span>
-                    <span class="files muted">{{ f.files }} files</span>
-                  </li>
-                }
-              </ul>
-            }
-          </div>
-        </div>
-      } @else {
-        <div class="card muted" style="display: flex; align-items: center; gap: 0.65rem">
-          <span class="spinner"></span> Measuring&hellip;
-        </div>
-      }
-    </section>
-  `,
-  styles: [`
-    .st-meter-row { display: flex; gap: 8px; align-items: baseline; margin-bottom: 10px; }
-    .st-meter-row strong { font-size: 1.45rem; font-weight: 800; }
-    .st-track { height: 10px; border-radius: 99px; background: var(--surface-2); border: 1px solid var(--border-subtle); overflow: hidden; }
-    .st-fill { height: 100%; background: linear-gradient(90deg, var(--brand-dim), var(--brand)); border-radius: 99px; transition: width .3s; }
-    .st-meter.warn .st-fill { background: var(--warn); }
-    .st-meter.full .st-fill { background: var(--err); }
-    .st-sub { font-size: .78rem; margin-top: 8px; }
-    .st-grid { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(320px, 2fr); gap: 1.1rem; }
-    @media (max-width: 900px) { .st-grid { grid-template-columns: 1fr; } }
-    .st-card { margin-bottom: 0; }
-    .st-card h3 { margin: 0; font-size: 1rem; }
-    .st-card p { font-size: .84rem; margin: 0 0 12px; }
-    .st-quota { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-    .st-quota input { width: 120px; }
-    .err { color: var(--err); font-size: 0.82rem; margin-top: 0.5rem; }
-    .st-folders { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-    .st-folders li { display: grid; grid-template-columns: minmax(90px, 1fr) 2fr auto auto; gap: 12px; align-items: center; font-size: .84rem; }
-    .st-folders .bar { height: 7px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
-    .st-folders .bar span { display: block; height: 100%; background: linear-gradient(90deg, var(--brand-dim), var(--brand)); border-radius: 99px; }
-    .st-folders .size { font-variant-numeric: tabular-nums; }
-    .st-folders .files { font-size: .75rem; }
-    .notice { margin-bottom: 1rem; }
-  `],
+  templateUrl: './admin-storage.component.html',
+  styleUrls: ['./admin-ui.css', './admin-storage.component.css'],
 })
 export class AdminStorageComponent {
   private readonly api = inject(ApiService);
   readonly status = inject(StatusService);
-  readonly Math = Math;
   readonly bytes = formatBytes;
 
+  readonly presets = QUOTA_PRESETS;
+  readonly directions = DIRECTIONS;
+  readonly directionKeys: readonly Direction[] = ['Both', 'MongoToSql', 'SqlToMongo'];
+
   readonly detail = signal<StorageDetail | null>(null);
+  readonly loading = signal(true);
+  readonly measuring = signal(false);
+  readonly failure = signal<string | null>(null);
+  readonly now = signal(Date.now());
+
+  /** Null = untouched; empty = no quota; otherwise what was typed. */
   readonly quotaInput = signal<string | null>(null);
+  readonly confirmLow = signal(false);
+  readonly savingQuota = signal(false);
+  readonly flash = signal<{ tone: 'ok' | 'err'; text: string } | null>(null);
+
+  readonly query = signal('');
+  readonly sortKey = signal<SortKey>('bytes');
+  readonly sortDesc = signal(true);
+
+  readonly syncAvailable = signal(false);
+  readonly syncReport = signal<DriveSyncReport | null>(null);
+  readonly syncAsk = signal<Direction | null>(null);
+  readonly syncRunning = signal<Direction | null>(null);
+  readonly syncFailure = signal<string | null>(null);
+  readonly syncFinishedAt = signal<number | null>(null);
 
   readonly percent = computed(() => {
     const s = this.detail()?.summary;
     return s?.capacityBytes ? (s.usedBytes / s.capacityBytes) * 100 : 0;
   });
 
-  /** Null = untouched; empty = no quota; otherwise a positive whole number. */
-  readonly quotaValid = computed(() => {
+  readonly state = computed<'ok' | 'warn' | 'full'>(() => {
+    const p = this.percent();
+    return p >= 100 ? 'full' : p >= WARN_AT ? 'warn' : 'ok';
+  });
+
+  readonly headline = computed(() => {
+    const d = this.detail();
+    if (!d || !d.summary.capacityBytes) return '';
+    const left = d.summary.capacityBytes - d.summary.usedBytes;
+    if (left <= 0) return `Over by ${formatBytes(-left)}`;
+    return `${formatBytes(left)} left`;
+  });
+
+  /** Null = untouched; 'invalid' = not a whole number of GB; otherwise the parsed value (null = no quota). */
+  readonly quotaDraft = computed<number | null | 'invalid' | 'untouched'>(() => {
     const raw = this.quotaInput();
-    if (raw === null || raw.trim() === '') return true;
+    if (raw === null) return 'untouched';
+    if (raw.trim() === '') return null;
     const n = Number(raw);
-    return Number.isInteger(n) && n >= 1 && n <= 1_000_000;
+    return Number.isInteger(n) && n >= 1 && n <= MAX_QUOTA_GB ? n : 'invalid';
+  });
+
+  readonly quotaValid = computed(() => this.quotaDraft() !== 'invalid');
+  readonly quotaDirty = computed(() => {
+    const draft = this.quotaDraft();
+    return draft !== 'untouched' && draft !== 'invalid' && draft !== (this.detail()?.quotaGb ?? null);
+  });
+
+  /** What the bar would read at the quota being typed. */
+  readonly preview = computed(() => {
+    const draft = this.quotaDraft();
+    const used = this.detail()?.summary.usedBytes ?? 0;
+    if (typeof draft !== 'number') return null;
+    const pct = (used / (draft * GB)) * 100;
+    return { pct, state: pct >= 100 ? 'full' : pct >= WARN_AT ? 'warn' : 'ok' } as const;
+  });
+
+  readonly belowUsage = computed(() => this.preview()?.state === 'full');
+
+  readonly diskFreePct = computed(() => {
+    const d = this.detail();
+    return d && d.diskTotalBytes && d.diskFreeBytes !== null ? (d.diskFreeBytes / d.diskTotalBytes) * 100 : null;
+  });
+
+  readonly diskLow = computed(() => {
+    const d = this.detail();
+    const pct = this.diskFreePct();
+    return !!d && d.diskFreeBytes !== null && (d.diskFreeBytes < 5 * GB || (pct !== null && pct < 10));
+  });
+
+  /** The meter is cut into the biggest folders so "what is using it" needs no second look. */
+  readonly segments = computed<Segment[]>(() => {
+    const d = this.detail();
+    if (!d || d.summary.usedBytes <= 0) return [];
+
+    const whole = Math.max(d.summary.capacityBytes ?? 0, d.summary.usedBytes);
+    const sorted = [...d.folders].filter((f) => f.bytes > 0).sort((a, b) => b.bytes - a.bytes);
+    const top = sorted.slice(0, SEGMENT_COLOURS.length - 1);
+    const rest = sorted.slice(top.length);
+
+    const parts: Segment[] = top.map((f, i) => ({
+      name: f.name, bytes: f.bytes, files: f.files, colour: SEGMENT_COLOURS[i], width: (f.bytes / whole) * 100,
+    }));
+    if (rest.length > 0) {
+      const bytes = rest.reduce((s, f) => s + f.bytes, 0);
+      parts.push({
+        name: `${rest.length} other ${rest.length === 1 ? 'folder' : 'folders'}`, bytes,
+        files: rest.reduce((s, f) => s + f.files, 0), colour: SEGMENT_COLOURS[SEGMENT_COLOURS.length - 1],
+        width: (bytes / whole) * 100,
+      });
+    }
+    return parts;
+  });
+
+  readonly folderRows = computed(() => {
+    const d = this.detail();
+    if (!d) return [];
+
+    const terms = this.query().trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const dir = this.sortDesc() ? -1 : 1;
+    const key = this.sortKey();
+
+    return d.folders
+      .filter((f) => terms.every((t) => f.name.toLowerCase().includes(t)))
+      .sort((a, b) => {
+        const order = key === 'name' ? a.name.localeCompare(b.name) : key === 'files' ? a.files - b.files : a.bytes - b.bytes;
+        return order * dir || b.bytes - a.bytes;
+      });
+  });
+
+  readonly measuredAgo = computed(() => {
+    const at = parseUtc(this.detail()?.summary.measuredAt);
+    return Number.isNaN(at) ? '' : relativeTime(at, this.now());
+  });
+
+  readonly syncTotals = computed(() => {
+    const report = this.syncReport();
+    if (!report) return null;
+    return {
+      copied: report.details.reduce((s, x) => s + x.copied, 0),
+      updated: report.details.reduce((s, x) => s + x.updated, 0),
+      skipped: report.details.reduce((s, x) => s + x.skipped, 0),
+    };
   });
 
   constructor() {
     this.load(false);
-  }
-
-  load(refresh: boolean): void {
-    this.status.run(this.api.adminStorage(refresh), (d) => this.detail.set(d));
-  }
-
-  saveQuota(): void {
-    const raw = this.quotaInput();
-    if (raw === null || !this.quotaValid()) return;
-    const quota = raw.trim() === '' ? null : Number(raw);
-    this.status.run(this.api.updateStorageQuota(quota), (d) => {
-      this.detail.set(d);
-      this.quotaInput.set(null);
-      this.status.notify([quota === null ? 'Storage quota removed.' : `Storage quota set to ${quota} GB.`]);
+    this.api.syncDriveDataAvailable().subscribe({
+      next: (ok) => this.syncAvailable.set(ok),
+      error: () => this.syncAvailable.set(false),
     });
+  }
+
+  /** `refresh` re-walks the disk instead of using the server's recent measurement. */
+  load(refresh: boolean): void {
+    if (refresh) this.measuring.set(true);
+    else this.loading.set(true);
+
+    this.api.adminStorage(refresh).subscribe({
+      next: (d) => {
+        this.detail.set(d);
+        this.failure.set(null);
+        this.loading.set(false);
+        this.measuring.set(false);
+        this.now.set(Date.now());
+      },
+      error: (failure: unknown) => {
+        this.loading.set(false);
+        this.measuring.set(false);
+        this.failure.set(this.messageOf(failure, 'Storage could not be measured.'));
+      },
+    });
+  }
+
+  // --- quota ---------------------------------------------------------------------------
+
+  onQuotaInput(value: string): void {
+    this.quotaInput.set(value);
+    this.confirmLow.set(false);
+    this.flash.set(null);
+  }
+
+  usePreset(gb: number): void {
+    this.onQuotaInput(String(gb));
+  }
+
+  resetQuotaInput(): void {
+    this.quotaInput.set(null);
+    this.confirmLow.set(false);
+  }
+
+  /** A quota below what is already stored is allowed, but only after it has been said out loud. */
+  saveQuota(): void {
+    const draft = this.quotaDraft();
+    if (draft === 'untouched' || draft === 'invalid' || this.savingQuota()) return;
+    if (this.belowUsage() && !this.confirmLow()) {
+      this.confirmLow.set(true);
+      return;
+    }
+    this.applyQuota(draft);
   }
 
   clearQuota(): void {
-    this.status.run(this.api.updateStorageQuota(null), (d) => {
-      this.detail.set(d);
-      this.quotaInput.set(null);
-      this.status.notify(['Storage quota removed.']);
+    this.applyQuota(null);
+  }
+
+  private applyQuota(quota: number | null): void {
+    this.savingQuota.set(true);
+    this.flash.set(null);
+
+    this.api.updateStorageQuota(quota).subscribe({
+      next: (d) => {
+        this.savingQuota.set(false);
+        this.detail.set(d);
+        this.quotaInput.set(null);
+        this.confirmLow.set(false);
+        const text = quota === null ? 'Storage quota removed.' : `Storage quota set to ${quota} GB.`;
+        this.flash.set({ tone: 'ok', text });
+        this.status.notify([text]);
+      },
+      error: (failure: unknown) => {
+        this.savingQuota.set(false);
+        this.flash.set({ tone: 'err', text: this.messageOf(failure, 'The quota could not be saved.') });
+      },
     });
+  }
+
+  // --- folders -------------------------------------------------------------------------
+
+  sortBy(key: SortKey): void {
+    if (this.sortKey() === key) {
+      this.sortDesc.update((d) => !d);
+    } else {
+      this.sortKey.set(key);
+      this.sortDesc.set(key !== 'name');
+    }
+  }
+
+  ariaSort(key: SortKey): 'ascending' | 'descending' | 'none' {
+    return this.sortKey() !== key ? 'none' : this.sortDesc() ? 'descending' : 'ascending';
+  }
+
+  /** Folders folded into "other" share its colour, so every row in the table maps to the bar. */
+  colourOf(folder: StorageFolder): string {
+    return this.segments().find((s) => s.name === folder.name)?.colour ?? SEGMENT_COLOURS[SEGMENT_COLOURS.length - 1];
+  }
+
+  share(folder: StorageFolder): number {
+    const used = this.detail()?.summary.usedBytes ?? 0;
+    return used === 0 ? 0 : (folder.bytes / used) * 100;
+  }
+
+  pct(value: number): string {
+    return value > 0 && value < 1 ? '<1%' : `${Math.round(value)}%`;
+  }
+
+  exportCsv(): void {
+    const d = this.detail();
+    if (!d || d.folders.length === 0) return;
+
+    const used = d.summary.usedBytes;
+    const lines = [...d.folders].sort((a, b) => b.bytes - a.bytes).map((f) =>
+      [f.name, f.bytes, f.files, used === 0 ? 0 : ((f.bytes / used) * 100).toFixed(2)].map(csvCell).join(','));
+
+    downloadText(`animstudio-storage-${fileStamp()}.csv`,
+      [['Folder', 'Bytes', 'Files', 'Share of used %'].join(','), ...lines].join('\r\n'));
+  }
+
+  // --- database sync -------------------------------------------------------------------
+
+  askSync(direction: Direction): void {
+    this.syncFailure.set(null);
+    this.syncAsk.set(direction);
+  }
+
+  runSync(): void {
+    const direction = this.syncAsk();
+    if (!direction || this.syncRunning()) return;
+
+    this.syncAsk.set(null);
+    this.syncRunning.set(direction);
+    this.syncFailure.set(null);
+
+    this.api.syncDriveData(direction).subscribe({
+      next: (report) => {
+        this.syncRunning.set(null);
+        this.syncReport.set(report);
+        this.syncFinishedAt.set(Date.now());
+        this.status.notify([report.message]);
+      },
+      error: (failure: unknown) => {
+        this.syncRunning.set(null);
+        this.syncFailure.set(this.messageOf(failure, 'The sync could not be run.'));
+      },
+    });
+  }
+
+  private messageOf(failure: unknown, fallback: string): string {
+    return failure instanceof ApiFailure ? failure.message : fallback;
   }
 }

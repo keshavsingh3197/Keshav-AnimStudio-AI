@@ -1,63 +1,289 @@
 <div class="page-head" style="margin-top: 0">
-  <div style="display: flex; align-items: flex-start; gap: 0.85rem">
-    <div class="studio-icon-badge" style="width: 2.6rem; height: 2.6rem; margin-top: 2px">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <div class="ad-title">
+    <div class="studio-icon-badge">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
       </svg>
     </div>
     <div>
-      <div class="row" style="gap: 0.5rem; margin-bottom: 0.15rem">
-        <h2 style="margin: 0">Administrative Audit Log</h2>
+      <div class="row">
+        <h2>Administrative Audit Log</h2>
         <span class="pill brand">Append-only</span>
       </div>
-      <p class="muted">The 50 most recent configuration and administrative changes.</p>
+      <p class="muted">Every configuration and administrative change: what it was, who made it and from where.</p>
     </div>
   </div>
-  <div class="row">
-    <button type="button" class="secondary" (click)="reload()" [disabled]="status.busy()">
+  <div class="row act-actions">
+    <label class="switch" title="Reload every 30 seconds while this tab is open">
+      <input type="checkbox" [checked]="auto()" (change)="setAuto($any($event.target).checked)" />
+      <span class="track"></span>
+      <span class="muted">Live</span>
+    </label>
+    <button type="button" class="secondary" (click)="exportCsv()" [disabled]="filtered().length === 0"
+            title="Download what the filters show as a spreadsheet">
+      ⬇ Export CSV
+    </button>
+    <button type="button" class="secondary" (click)="reload()" [disabled]="loading()">
+      @if (loading()) { <span class="spinner" aria-hidden="true"></span> }
       ↻ Refresh
     </button>
   </div>
 </div>
 
-@if (entries().length === 0) {
-  <div class="empty">Nothing has been changed here yet.</div>
-} @else {
-  <div class="card">
-    <div class="studio-card-head">
-      <div class="studio-card-title-group">
-        <h3>Audit Trail</h3>
-        <span class="pill">{{ entries().length }} entries</span>
-      </div>
-    </div>
-    <div class="studio-table-wrap">
-      <table>
-        <thead>
-          <tr><th>When</th><th>What</th><th>Before</th><th>After</th><th>By</th></tr>
-        </thead>
-        <tbody>
-          @for (entry of entries(); track entry.atUtc + entry.action + entry.target) {
-            <tr>
-              <td class="muted mono" style="white-space: nowrap; font-size: 0.8rem">{{ entry.atUtc | date: 'short' }}</td>
-              <td>
-                <strong>{{ describe(entry) }}</strong>
-                @if (entry.target) {
-                  <div class="mono muted" style="font-size: 0.78rem">{{ entry.target }}</div>
-                }
-              </td>
-              <td class="mono muted">{{ entry.before ?? '—' }}</td>
-              <td class="mono">{{ entry.after ?? '—' }}</td>
-              <td class="muted">
-                {{ entry.actorUserId ?? 'unknown' }}
-                @if (entry.remoteAddress) {
-                  <div class="mono" style="font-size: 0.76rem">{{ entry.remoteAddress }}</div>
-                }
-              </td>
-            </tr>
-          }
-        </tbody>
-      </table>
-    </div>
+@if (failure(); as message) {
+  <div class="notice error ad-flash" role="alert">
+    <span>{{ message }}</span>
+    <button type="button" class="ad-link" (click)="reload()">Try again</button>
   </div>
 }
 
+@if (loading() && rows().length === 0 && !failure()) {
+  <div class="ad-kpis" aria-hidden="true">
+    @for (n of [1, 2, 3, 4, 5]; track n) {
+      <div class="ad-kpi">
+        <span class="ad-skel" style="height: 0.7rem; width: 55%"></span>
+        <span class="ad-skel" style="height: 1.4rem; width: 35%; margin-top: 0.3rem"></span>
+      </div>
+    }
+  </div>
+  <div class="card" aria-hidden="true">
+    @for (n of [1, 2, 3, 4, 5, 6]; track n) {
+      <div class="act-skel-row">
+        <span class="ad-skel" style="width: 2.2rem; height: 2.2rem; border-radius: 10px"></span>
+        <span class="act-skel-lines">
+          <span class="ad-skel" style="height: 0.85rem; width: 45%"></span>
+          <span class="ad-skel" style="height: 0.7rem; width: 28%"></span>
+        </span>
+        <span class="ad-skel" style="height: 0.8rem; width: 4.5rem"></span>
+      </div>
+    }
+  </div>
+  <span class="ad-sr" role="status">Loading the audit log…</span>
+} @else if (rows().length === 0) {
+  @if (!failure()) {
+    <div class="card ad-empty">
+      <span class="ad-empty-ico" aria-hidden="true">📜</span>
+      <strong>Nothing has been changed here yet</strong>
+      <p>
+        The first provider key, channel, sign-up decision or setting you change will appear here,
+        newest first, with who made it and from where.
+      </p>
+    </div>
+  }
+} @else {
+  <div class="ad-kpis">
+    <div class="ad-kpi">
+      <span class="ad-kpi-label">Entries loaded</span>
+      <strong class="ad-kpi-val">{{ stats().total }}</strong>
+      <span class="ad-kpi-sub">newest first</span>
+    </div>
+    <div class="ad-kpi">
+      <span class="ad-kpi-label">Last 24 hours</span>
+      <strong class="ad-kpi-val">{{ stats().last24 }}</strong>
+      <span class="ad-kpi-sub">{{ stats().last24 === 1 ? 'change' : 'changes' }}</span>
+    </div>
+    <div class="ad-kpi" [class.is-warn]="stats().sensitive > 0">
+      <span class="ad-kpi-label">Security-relevant</span>
+      <strong class="ad-kpi-val">{{ stats().sensitive }}</strong>
+      <span class="ad-kpi-sub">access, keys, members</span>
+    </div>
+    <div class="ad-kpi">
+      <span class="ad-kpi-label">People involved</span>
+      <strong class="ad-kpi-val">{{ stats().people }}</strong>
+      <span class="ad-kpi-sub">distinct accounts</span>
+    </div>
+    @if (stats().newest; as newest) {
+      <div class="ad-kpi">
+        <span class="ad-kpi-label">Latest change</span>
+        <strong class="ad-kpi-val act-latest">{{ relative(newest.time) }}</strong>
+        <span class="ad-kpi-sub act-clip" [title]="newest.kind.label">{{ newest.kind.label }}</span>
+      </div>
+    }
+  </div>
+
+  <div class="ad-toolbar" role="search">
+    <div class="ad-search">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+      </svg>
+      <input #search type="search" placeholder="Search action, target, person or address…" aria-label="Search the audit log"
+             [value]="query()" (input)="query.set(search.value)" (keydown.escape)="query.set('')" />
+    </div>
+    <select class="ad-select" aria-label="Time range" (change)="range.set($any($event.target).value)">
+      @for (r of ranges; track r.id) {
+        <option [value]="r.id" [selected]="r.id === range()">{{ r.label }}</option>
+      }
+    </select>
+    <select class="ad-select" aria-label="Person" (change)="actor.set($any($event.target).value)">
+      <option value="all" [selected]="actor() === 'all'">Everyone</option>
+      @for (a of actors(); track a.id) {
+        <option [value]="a.id" [selected]="a.id === actor()">{{ a.label }} ({{ a.count }})</option>
+      }
+    </select>
+    <button type="button" class="ad-chip" [class.is-active]="sensitiveOnly()" [attr.aria-pressed]="sensitiveOnly()"
+            (click)="sensitiveOnly.set(!sensitiveOnly())" title="Only changes to access, keys, members and connections">
+      🔒 Security-relevant only
+    </button>
+    <span class="ad-grow"></span>
+    @if (hasFilters()) {
+      <button type="button" class="ad-link" (click)="clearFilters()">Clear filters</button>
+    }
+  </div>
+
+  <div class="ad-chips" role="group" aria-label="Filter by category">
+    <button type="button" class="ad-chip" [class.is-active]="category() === 'all'" [attr.aria-pressed]="category() === 'all'"
+            (click)="category.set('all')">
+      All <span>{{ categoryCounts().all }}</span>
+    </button>
+    @for (c of categories; track c.id) {
+      @let n = categoryCounts().byId.get(c.id) ?? 0;
+      <button type="button" class="ad-chip" [class.is-active]="category() === c.id" [attr.aria-pressed]="category() === c.id"
+              [disabled]="n === 0 && category() !== c.id" (click)="category.set(c.id)">
+        {{ c.icon }} {{ c.label }} <span>{{ n }}</span>
+      </button>
+    }
+  </div>
+
+  <div class="card act-card">
+    <div class="studio-card-head">
+      <div class="studio-card-title-group">
+        <h3>Audit trail</h3>
+        <span class="pill brand">
+          {{ filtered().length }}@if (hasFilters()) { of {{ rows().length }} }
+        </span>
+      </div>
+      @if (filtered().length > 0) {
+        <div class="row">
+          <button type="button" class="ad-link" (click)="expandAll()">Expand all</button>
+          <button type="button" class="ad-link" (click)="collapseAll()" [disabled]="open().size === 0">Collapse all</button>
+        </div>
+      }
+    </div>
+
+    @if (filtered().length === 0) {
+      <div class="ad-empty">
+        <span class="ad-empty-ico" aria-hidden="true">🔎</span>
+        <strong>No entries match these filters</strong>
+        <p>Try a wider time range, another category, or fewer search words.</p>
+        <button type="button" class="ad-btn" (click)="clearFilters()">Clear filters</button>
+      </div>
+    } @else {
+      @for (g of groups(); track g.key) {
+        <section class="act-day">
+          <h4 class="act-day-head">
+            <span>{{ g.label }}</span>
+            <span class="act-day-count">{{ g.rows.length }}</span>
+          </h4>
+          <ul class="act-list">
+            @for (r of g.rows; track r.id) {
+              <li class="act-row" [class.is-open]="isOpen(r)" [class.is-sensitive]="r.kind.sensitive">
+                <button type="button" class="act-main" (click)="toggle(r)"
+                        [attr.aria-expanded]="isOpen(r)" [attr.aria-controls]="'audit-' + r.id">
+                  <span class="act-ico" [attr.data-tone]="r.kind.tone" aria-hidden="true">{{ r.category.icon }}</span>
+                  <span class="act-what">
+                    <span class="act-title">
+                      <strong>{{ r.kind.label }}</strong>
+                      @if (r.kind.sensitive) { <span class="pill warn act-pill">Security</span> }
+                    </span>
+                    <span class="act-sub">
+                      <span class="act-cat">{{ r.category.label }}</span>
+                      @if (r.entry.target) { <span class="mono act-target">{{ r.entry.target }}</span> }
+                      @if (r.entry.after) {
+                        <span class="act-change">{{ r.entry.before ? r.entry.before + ' → ' : '' }}{{ r.entry.after }}</span>
+                      }
+                    </span>
+                  </span>
+                  <span class="act-who" [title]="r.entry.actorUserId ?? 'unknown'">{{ actorName(r) }}</span>
+                  <time class="act-when" [attr.datetime]="r.entry.atUtc" [title]="whenLong(r)">{{ relative(r.time) }}</time>
+                  <span class="act-caret" aria-hidden="true">▸</span>
+                </button>
+
+                @if (isOpen(r)) {
+                  <div class="act-detail" [id]="'audit-' + r.id">
+                    <div class="act-diff">
+                      <div class="act-diff-col">
+                        <span class="act-label">Before</span>
+                        @if (r.entry.before) {
+                          <pre class="act-pre">{{ r.entry.before }}</pre>
+                        } @else {
+                          <span class="muted">Nothing recorded</span>
+                        }
+                      </div>
+                      <span class="act-arrow" aria-hidden="true">→</span>
+                      <div class="act-diff-col is-after">
+                        <span class="act-label">After</span>
+                        @if (r.entry.after) {
+                          <pre class="act-pre">{{ r.entry.after }}</pre>
+                        } @else {
+                          <span class="muted">Nothing recorded</span>
+                        }
+                      </div>
+                    </div>
+                    <dl class="act-meta">
+                      <div>
+                        <dt>When</dt>
+                        <dd>{{ whenLong(r) }}</dd>
+                      </div>
+                      <div>
+                        <dt>Who</dt>
+                        <dd class="mono">
+                          {{ r.entry.actorUserId ?? 'unknown' }}
+                          @if (r.entry.actorUserId) {
+                            <button type="button" class="ad-link" (click)="copy(r.entry.actorUserId, 'a' + r.id)">
+                              {{ copied() === 'a' + r.id ? 'Copied' : 'Copy' }}
+                            </button>
+                          }
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>From</dt>
+                        <dd class="mono">{{ r.entry.remoteAddress ?? '—' }}</dd>
+                      </div>
+                      <div>
+                        <dt>Action code</dt>
+                        <dd class="mono">{{ r.entry.action }}</dd>
+                      </div>
+                      @if (r.entry.target) {
+                        <div>
+                          <dt>Target</dt>
+                          <dd class="mono">
+                            {{ r.entry.target }}
+                            <button type="button" class="ad-link" (click)="copy(r.entry.target, 't' + r.id)">
+                              {{ copied() === 't' + r.id ? 'Copied' : 'Copy' }}
+                            </button>
+                          </dd>
+                        </div>
+                      }
+                    </dl>
+                  </div>
+                }
+              </li>
+            }
+          </ul>
+        </section>
+      }
+    }
+
+    <div class="act-foot">
+      <span class="muted">
+        Showing the newest {{ rows().length }}{{ rows().length >= limit() ? ' (the limit)' : '' }}.
+        @if (atCeiling()) {
+          This is the most a single view loads; older entries stay in the database.
+        }
+      </span>
+      <span class="row">
+        <label class="act-size muted">
+          Load
+          <select class="ad-select" aria-label="How many entries to load" (change)="setLimit(+$any($event.target).value)">
+            @for (size of pageSizes; track size) {
+              <option [value]="size" [selected]="size === limit()">{{ size }}</option>
+            }
+          </select>
+        </label>
+        @if (canLoadMore()) {
+          <button type="button" class="ad-btn" (click)="loadMore()" [disabled]="loading()">Load more</button>
+        }
+      </span>
+    </div>
+  </div>
+}

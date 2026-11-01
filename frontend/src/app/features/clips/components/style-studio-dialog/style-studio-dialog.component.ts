@@ -56,7 +56,7 @@ function parseAccentSegments(line: string): AccentSegment[] {
             <h2>Short-Form Styles, Camera FX &amp; Direct-Response Layouts</h2>
             <p>Apply viral hooks, dynamic split-screens, cosmic cards, Ken Burns motion, 1-word pop captions, or cinematic grades directly to your timeline.</p>
           </div>
-          <button type="button" class="ss-close" (click)="close()" title="Close (Esc)">✕</button>
+          <button type="button" class="ss-close" (click)="close()" title="Close (Esc)" aria-label="Close styles studio">✕</button>
         </div>
 
         <!-- Top Navigation Segmented Tabs -->
@@ -623,6 +623,7 @@ function parseAccentSegments(line: string): AccentSegment[] {
       background: rgba(255, 255, 255, 0.06); border: 1px solid #334155; color: #cbd5e1;
       display: flex; align-items: center; justify-content: center; transition: all 0.15s ease;
       flex-shrink: 0;
+      padding: 0;
     }
     .ss-close:hover { background: rgba(239, 68, 68, 0.25); border-color: #ef4444; color: #fff; }
 
@@ -661,7 +662,7 @@ function parseAccentSegments(line: string): AccentSegment[] {
       padding: 18px 24px; overflow-y: auto; flex: 1; min-height: 0; box-sizing: border-box;
     }
     @media (max-width: 980px) {
-      .ss-body { grid-template-columns: 1fr; }
+      .ss-body { grid-template-columns: minmax(0, 1fr); }
     }
     .ss-left-panel { min-width: 0; display: flex; flex-direction: column; }
     .ss-tab-pane { display: flex; flex-direction: column; gap: 14px; }
@@ -680,7 +681,7 @@ function parseAccentSegments(line: string): AccentSegment[] {
       display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;
     }
     @media (max-width: 680px) {
-      .ss-cards-grid { grid-template-columns: 1fr; }
+      .ss-cards-grid { grid-template-columns: minmax(0, 1fr); }
     }
     .ss-card {
       display: flex !important; flex-direction: column !important; align-items: stretch !important;
@@ -1100,6 +1101,21 @@ function parseAccentSegments(line: string): AccentSegment[] {
       box-shadow: 0 4px 16px rgba(250, 204, 21, 0.35); transition: all 0.15s ease;
     }
     .ss-btn-submit:hover { filter: brightness(1.08); }
+    @media (max-width: 680px) {
+      .ss-backdrop { padding: 12px; }
+      .ss-dialog { width: 100%; height: auto; max-height: calc(100svh - 24px); overflow-y: auto; }
+      .ss-head, .ss-nav-bar, .ss-body, .ss-foot { padding: 12px; }
+      .ss-head > div { min-width: 0; }
+      .ss-head-tags, .ss-tabs, .ss-scope-switch, .ss-scope-pills,
+      .ss-pane-header, .ss-card-header, .ss-mon-header, .ss-shot-pills,
+      .ss-mon-controls, .ss-foot-buttons { flex-wrap: wrap; }
+      .ss-body { flex: none; overflow: visible; }
+      .ss-tab, .ss-card, .ss-btn-apply-primary, .ss-btn-submit { white-space: normal; }
+      .ss-card { min-width: 0; max-width: 100%; }
+      .ss-right-monitor { min-width: 0; }
+      .ss-foot-buttons { width: 100%; }
+      .ss-foot-buttons button { flex: 1 1 auto; }
+    }
   `],
 })
 export class StyleStudioDialogComponent implements OnInit, OnDestroy {

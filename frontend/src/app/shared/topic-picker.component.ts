@@ -6,6 +6,15 @@ import { ContentCalendarService } from '../core/services/content-calendar.servic
 
 const NEW = '__new';
 
+/** The request for a topic that only needs a name; the calendar fills in sensible planning defaults. */
+export function newTopicRequest(name: string): ContentTopicRequest {
+  return {
+    name, description: null, color: '', channelId: null, channelTitle: null, days: [],
+    publishTime: '18:00', timeZone: 'UTC', leadDays: 3, planAheadDays: 21,
+    autoSchedule: true, autoLinkUploads: true, tags: [], checklist: [], archived: false,
+  };
+}
+
 /**
  * Picks one of the shared topics (the content calendar's own list) - or none - and can make
  * a new one on the spot. Used wherever a short is created, uploaded or filed, so a topic is
@@ -43,10 +52,10 @@ const NEW = '__new';
     .tp-row { display: flex; align-items: center; gap: 6px; }
     .tp-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; border: 1px solid var(--border, #30363d); }
     .tp-select, .tp-input { flex: 1; min-width: 0; background: transparent; color: inherit; border: 1px solid var(--border, #30363d); border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 0.85rem; }
-    .tp-select option { color: #000; }
+    .tp-select option { color: var(--text); background: var(--surface-2); }
     .tp-btn { background: transparent; color: inherit; border: 1px solid var(--border, #30363d); border-radius: 8px; padding: 5px 10px; cursor: pointer; font: inherit; font-size: 0.8rem; }
     .tp-btn:disabled { opacity: 0.5; cursor: default; }
-    .tp-error { margin: 0; color: #f85149; font-size: 0.78rem; }
+    .tp-error { margin: 0; color: var(--c-red); font-size: 0.78rem; }
   `],
 })
 export class TopicPickerComponent {
@@ -97,12 +106,7 @@ export class TopicPickerComponent {
     }
 
     this.saving.set(true);
-    const body: ContentTopicRequest = {
-      name, description: null, color: '', channelId: null, channelTitle: null, days: [],
-      publishTime: '18:00', timeZone: 'UTC', leadDays: 3, planAheadDays: 21,
-      autoSchedule: true, autoLinkUploads: true, tags: [], checklist: [], archived: false,
-    };
-    this.calendar.createTopic(body).subscribe({
+    this.calendar.createTopic(newTopicRequest(name)).subscribe({
       next: (t) => { this.saving.set(false); this.topics.update((l) => [...l, t]); this.finish(t); },
       error: () => { this.saving.set(false); this.error.set('Could not create the topic.'); },
     });

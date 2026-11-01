@@ -3,7 +3,7 @@
 .cal-modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(3, 5, 10, 0.66);
+  background: color-mix(in srgb, var(--bg) 66%, transparent);
   z-index: 90;
 }
 
@@ -70,4 +70,20 @@
 @media (max-width: 560px) {
   .grid-2 { grid-template-columns: 1fr; }
   .cal-modal { top: auto; bottom: 0; transform: translateX(-50%); width: 100vw; border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+}
+
+.cal-modal-backdrop { z-index: 1200; }
+.cal-modal { z-index: 1201; box-sizing: border-box; max-height: calc(100dvh - 2rem); }
+.cal-modal-head, .cal-modal-foot { flex-shrink: 0; }
+.cal-modal-head h2 { min-width: 0; overflow-wrap: anywhere; }
+.cal-modal-head button { width: 44px; height: 44px; padding: 0; flex-shrink: 0; }
+.cal-modal-body { min-height: 0; min-width: 0; }
+.cal-modal button { min-height: 44px; }
+.cal-modal input:not([type='checkbox']), .cal-modal select, .cal-modal textarea { max-width: 100%; min-width: 0; box-sizing: border-box; }
+.swatch { width: 44px; height: 44px; }
+.cal-modal button:focus-visible { outline: 2px solid var(--brand-bright); outline-offset: 2px; }
+@media (max-width: 560px) {
+  .cal-modal { width: calc(100% - 1rem); max-height: calc(100dvh - env(safe-area-inset-top)); }
+  .cal-modal-foot { padding-bottom: max(0.9rem, env(safe-area-inset-bottom)); }
+  .cal-modal input, .cal-modal select, .cal-modal textarea { font-size: 16px; }
 }

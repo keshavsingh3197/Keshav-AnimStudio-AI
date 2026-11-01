@@ -213,7 +213,7 @@
         </div>
 
         @if (isInFamily()) {
-          <div class="ownership-filter-segment" style="display: flex; gap: 0.2rem; background: rgba(255,255,255,0.06); padding: 0.2rem; border-radius: 6px; border: 1px solid var(--border);">
+          <div class="ownership-filter-segment" style="display: flex; gap: 0.2rem; background: var(--ov-2); padding: 0.2rem; border-radius: 6px; border: 1px solid var(--border);">
             <button type="button" class="btn-filter-pill" (click)="ownershipFilter.set('all'); currentPage.set(1)" [style.background]="ownershipFilter() === 'all' ? 'rgba(99,102,241,0.3)' : 'transparent'" [style.color]="ownershipFilter() === 'all' ? '#fff' : '#94a3b8'" style="padding: 3px 8px; font-size: 0.78rem; border: none; border-radius: 4px; cursor: pointer;">All</button>
             <button type="button" class="btn-filter-pill" (click)="ownershipFilter.set('own'); currentPage.set(1)" [style.background]="ownershipFilter() === 'own' ? 'rgba(99,102,241,0.3)' : 'transparent'" [style.color]="ownershipFilter() === 'own' ? '#fff' : '#94a3b8'" style="padding: 3px 8px; font-size: 0.78rem; border: none; border-radius: 4px; cursor: pointer;">Own</button>
             <button type="button" class="btn-filter-pill" (click)="ownershipFilter.set('shared'); currentPage.set(1)" [style.background]="ownershipFilter() === 'shared' ? 'rgba(99,102,241,0.3)' : 'transparent'" [style.color]="ownershipFilter() === 'shared' ? '#fff' : '#94a3b8'" style="padding: 3px 8px; font-size: 0.78rem; border: none; border-radius: 4px; cursor: pointer;">Shared</button>
@@ -328,7 +328,7 @@
               <div class="asset-card-title-row">
                 <span class="asset-name" [title]="asset.name">{{ asset.name }}</span>
                 @if (isSharedAsset(asset)) {
-                  <span class="shared-chip" title="Shared from another project in this collection" style="background: rgba(99, 102, 241, 0.2); color: #a5b4fc; font-size: 0.68rem; font-weight: 600; padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(99, 102, 241, 0.4); margin-left: auto; flex-shrink: 0;">Shared</span>
+                  <span class="shared-chip" title="Shared from another project in this collection" style="background: rgba(99, 102, 241, 0.2); color: var(--text-dim); font-size: 0.68rem; font-weight: 600; padding: 2px 6px; border-radius: 4px; border: 1px solid rgba(99, 102, 241, 0.4); margin-left: auto; flex-shrink: 0;">Shared</span>
                 }
               </div>
 
@@ -415,7 +415,7 @@
                 <td style="word-break: break-all;">
                   <strong class="asset-table-name" (click)="openPreview(asset)">{{ asset.name }}</strong>
                   @if (isSharedAsset(asset)) {
-                    <span class="shared-chip" title="Shared from another project in this collection" style="background: rgba(99, 102, 241, 0.2); color: #a5b4fc; font-size: 0.68rem; font-weight: 600; padding: 2px 5px; border-radius: 4px; border: 1px solid rgba(99, 102, 241, 0.4); margin-left: 6px;">Shared</span>
+                    <span class="shared-chip" title="Shared from another project in this collection" style="background: rgba(99, 102, 241, 0.2); color: var(--text-dim); font-size: 0.68rem; font-weight: 600; padding: 2px 5px; border-radius: 4px; border: 1px solid rgba(99, 102, 241, 0.4); margin-left: 6px;">Shared</span>
                   }
                 </td>
                 <td>

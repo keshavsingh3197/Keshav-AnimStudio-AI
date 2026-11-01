@@ -102,12 +102,12 @@
         <span [class]="'badge-format ' + (format() === 'Short' ? 'short' : format() === 'Square' ? 'square' : '')">
           {{ format() }}
         </span>
-        <span style="font-weight: 600; color: #fff; font-size: 0.9rem;">{{ aspect() }}</span>
+        <span style="font-weight: 600; color: var(--text); font-size: 0.9rem;">{{ aspect() }}</span>
       </div>
     </div>
 
-    <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1.25rem;">
-      <p style="margin: 0; font-size: 0.83rem; color: #8b9bb4; line-height: 1.5;">
+    <div style="background: var(--ov-1); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1.25rem;">
+      <p style="margin: 0; font-size: 0.83rem; color: var(--muted); line-height: 1.5;">
         @if (format() === 'Short') {
           <strong>Upright 9:16 format</strong>: Ideal for YouTube Shorts, Instagram Reels, and TikTok (3 minutes or less).
         } @else if (format() === 'Square') {
@@ -124,19 +124,19 @@
       <label class="form-label">Frame Rate (FPS)</label>
       <div class="segmented-row">
         <button type="button" class="segment-btn" [class.active]="form.fps === 24" (click)="setFps(24)">
-          24 fps <span style="font-weight: 400; color: #8b9bb4; font-size: 0.75rem;">(Cinema)</span>
+          24 fps <span style="font-weight: 400; color: var(--muted); font-size: 0.75rem;">(Cinema)</span>
         </button>
         <button type="button" class="segment-btn" [class.active]="form.fps === 25" (click)="setFps(25)">
-          25 fps <span style="font-weight: 400; color: #8b9bb4; font-size: 0.75rem;">(PAL / Broadcast)</span>
+          25 fps <span style="font-weight: 400; color: var(--muted); font-size: 0.75rem;">(PAL / Broadcast)</span>
         </button>
         <button type="button" class="segment-btn" [class.active]="form.fps === 30" (click)="setFps(30)">
-          30 fps <span style="font-weight: 400; color: #8b9bb4; font-size: 0.75rem;">(Standard Web)</span>
+          30 fps <span style="font-weight: 400; color: var(--muted); font-size: 0.75rem;">(Standard Web)</span>
         </button>
         <button type="button" class="segment-btn" [class.active]="form.fps === 60" (click)="setFps(60)">
-          60 fps <span style="font-weight: 400; color: #8b9bb4; font-size: 0.75rem;">(High Smoothness)</span>
+          60 fps <span style="font-weight: 400; color: var(--muted); font-size: 0.75rem;">(High Smoothness)</span>
         </button>
       </div>
-      <p style="margin: 0.35rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
+      <p style="margin: 0.35rem 0 0; font-size: 0.78rem; color: var(--muted);">
         Changing frame rate rescales scene frame counts server-side without altering real-world scene duration.
       </p>
     </div>
@@ -158,16 +158,16 @@
       </div>
     </div>
 
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; margin-bottom: 1.25rem;">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 1.25rem; margin-bottom: 1.25rem;">
       <div class="form-group">
         @if (store.project()?.parentProjectId) {
           <div class="subproject-banner" style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 10px; padding: 1.1rem; margin-bottom: 1.25rem; grid-column: 1 / -1;">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
               <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <span style="font-weight: 600; font-size: 0.95rem; color: #a5b4fc;">📁 Sub-project</span>
-                <span style="font-size: 0.8rem; color: #94a3b8;">This production belongs to a project collection</span>
+                <span style="font-weight: 600; font-size: 0.95rem; color: var(--text-dim);">📁 Sub-project</span>
+                <span style="font-size: 0.8rem; color: var(--text-dim);">This production belongs to a project collection</span>
               </div>
-              <a class="btn-link" [routerLink]="['/projects', store.project()?.parentProjectId, 'settings']" style="font-size: 0.85rem; color: #818cf8; text-decoration: none; font-weight: 500;">
+              <a class="btn-link" [routerLink]="['/projects', store.project()?.parentProjectId, 'settings']" style="font-size: 0.85rem; color: var(--brand); text-decoration: none; font-weight: 500;">
                 View Parent Project &rarr;
               </a>
             </div>
@@ -175,8 +175,8 @@
               <label class="checkbox-label" style="display: flex; align-items: flex-start; gap: 0.6rem; cursor: pointer;">
                 <input type="checkbox" [(ngModel)]="form.useSharedAssets" style="margin-top: 0.25rem;" />
                 <div>
-                  <span style="font-weight: 500; font-size: 0.88rem; color: #f1f5f9;">Use project's shared assets</span>
-                  <p style="margin: 0.2rem 0 0; font-size: 0.8rem; color: #94a3b8;">
+                  <span style="font-weight: 500; font-size: 0.88rem; color: var(--text);">Use project's shared assets</span>
+                  <p style="margin: 0.2rem 0 0; font-size: 0.8rem; color: var(--text-dim);">
                     When enabled, this sub-project can view and use all assets from the parent project and sibling sub-projects. Your uploads are always shared with the rest of the project family.
                   </p>
                 </div>
@@ -184,7 +184,7 @@
             </div>
           </div>
         }
-        <label class="form-label" for="project-name">Project Title <span style="color: #f87171;">*</span></label>
+        <label class="form-label" for="project-name">Project Title <span style="color: var(--c-red);">*</span></label>
         <input class="form-input" id="project-name" type="text" [(ngModel)]="form.name" placeholder="Enter project name..." />
       </div>
 
@@ -215,12 +215,12 @@
              style="max-width: 180px;"
              [placeholder]="'Studio default: ' + studioImageDuration() + 's'"
              [(ngModel)]="form.imageDurationSeconds" />
-      <p style="margin: 0.25rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
+      <p style="margin: 0.25rem 0 0; font-size: 0.78rem; color: var(--muted);">
         How long each image plays when it is added to the timeline. Leave blank to use the studio default.
       </p>
     </div>
 
-    <div style="background: #0d1117; border: 1px solid var(--border); border-radius: 10px; padding: 1.1rem; margin-bottom: 1.25rem;">
+    <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1.1rem; margin-bottom: 1.25rem;">
       <div class="form-group" style="margin-bottom: form.backgroundMusicAssetId ? '1rem' : '0'">
         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.45rem;">
           <label class="form-label" style="margin-bottom: 0;">Background Music Soundtrack Bed</label>
@@ -253,7 +253,7 @@
             <span class="slider-val-badge">{{ form.musicVolumePercent }}%</span>
           </div>
           <input class="form-range" type="range" [(ngModel)]="form.musicVolumePercent" min="0" max="100" step="1" />
-          <p style="margin: 0.25rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
+          <p style="margin: 0.25rem 0 0; font-size: 0.78rem; color: var(--muted);">
             The soundtrack loops seamlessly across scenes and automatically ducks beneath voiceovers.
           </p>
         </div>
@@ -296,7 +296,7 @@
       @if (globalWatermark() && globalWatermark()?.kind !== 'None') {
         <div class="hallmark-badge-group">
           <div class="status-dot-pulse"></div>
-          <span style="font-size: 0.85rem; color: #fff; font-weight: 500;">
+          <span style="font-size: 0.85rem; color: var(--text); font-weight: 500;">
             "{{ selectedChannel()?.name ?? 'Default' }}" channel hallmark: <strong>{{ globalWatermark()?.kind }}</strong> ({{ globalWatermark()?.position }})
           </span>
         </div>
@@ -304,7 +304,7 @@
           Sync from Channel Hallmark
         </button>
       } @else {
-        <div style="font-size: 0.84rem; color: #8b9bb4;">
+        <div style="font-size: 0.84rem; color: var(--muted);">
           No global server-wide hallmark configured yet.
         </div>
         <a routerLink="/admin/branding/watermark" style="font-size: 0.84rem; color: var(--brand, #6c8cff); text-decoration: none; font-weight: 600;">
@@ -326,7 +326,7 @@
           ✎ Custom for this project
         </button>
       </div>
-      <p class="field-hint" style="margin: 0.4rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
+      <p class="field-hint" style="margin: 0.4rem 0 0; font-size: 0.78rem; color: var(--muted);">
         @if (form.followChannelWatermark) {
           Shown below as the channel has it. Change it in
           <a routerLink="/admin/branding/watermark" style="color: var(--brand, #6c8cff);">Settings → Watermark</a>
@@ -353,7 +353,7 @@
     </div>
 
     @if (form.defaultWatermarkKind !== 'None') {
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; margin-bottom: 1.25rem;">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 1.25rem; margin-bottom: 1.25rem;">
         <!-- Left: Controls -->
         <div>
           @if (form.defaultWatermarkKind === 'Text') {
@@ -452,7 +452,7 @@
           <div class="watermark-mockup-wrapper">
             <div class="mockup-header-row">
               <span>Preview Viewport (16:9 Ratio)</span>
-              <span style="color: #93c5fd; font-family: ui-monospace, monospace;">{{ form.defaultWatermarkPosition }}</span>
+              <span style="color: var(--text-dim); font-family: ui-monospace, monospace;">{{ form.defaultWatermarkPosition }}</span>
             </div>
 
             <div class="watermark-viewport"
@@ -469,7 +469,7 @@
                        [style.opacity]="form.defaultWatermarkOpacity"
                        style="object-fit: contain; max-width: 180px;" />
                 } @else {
-                  <div class="mockup-watermark-item" style="padding: 6px 12px; background: rgba(0,0,0,0.6); border-radius: 4px; font-size: 0.75rem; color: #8b9bb4; border: 1px dashed #374151;">
+                  <div class="mockup-watermark-item" style="padding: 6px 12px; background: var(--sunk-3); border-radius: 4px; font-size: 0.75rem; color: var(--muted); border: 1px dashed var(--border-bright);">
                     No logo image selected
                   </div>
                 }
@@ -479,7 +479,7 @@
                      [style.color]="form.defaultWatermarkColor"
                      [style.opacity]="form.defaultWatermarkOpacity"
                      [style.background]="'rgba(0,0,0,' + form.defaultWatermarkBackplate + ')'"
-                     style="padding: 4px 10px; border-radius: 4px; font-weight: 600; letter-spacing: 0.02em; border: 1px solid rgba(255,255,255,0.08); backdrop-filter: blur(2px);">
+                     style="padding: 4px 10px; border-radius: 4px; font-weight: 600; letter-spacing: 0.02em; border: 1px solid var(--ov-3); backdrop-filter: blur(2px);">
                   {{ form.defaultWatermarkText || '@MyStudio' }}
                 </div>
               }
@@ -518,7 +518,7 @@
       @if (globalOutro() && globalOutro()?.kind !== 'None') {
         <div class="hallmark-badge-group">
           <div class="status-dot-pulse"></div>
-          <span style="font-size: 0.85rem; color: #fff; font-weight: 500;">
+          <span style="font-size: 0.85rem; color: var(--text); font-weight: 500;">
             "{{ selectedChannel()?.name ?? 'Default' }}" channel outro: <strong>{{ globalOutro()?.kind }}</strong> ({{ globalOutro()?.transition }} transition)
           </span>
         </div>
@@ -526,7 +526,7 @@
           Sync from Channel Outro
         </button>
       } @else {
-        <div style="font-size: 0.84rem; color: #8b9bb4;">
+        <div style="font-size: 0.84rem; color: var(--muted);">
           No global studio outro configured on server.
         </div>
         <a routerLink="/admin/branding/end-card" style="font-size: 0.84rem; color: var(--brand, #6c8cff); text-decoration: none; font-weight: 600;">
@@ -550,7 +550,7 @@
     </div>
 
     @if (form.defaultOutroKind !== 'None') {
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; margin-bottom: 1.25rem;">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 1.25rem; margin-bottom: 1.25rem;">
         <!-- Left: Outro Asset & Transition Configuration -->
         <div>
           @if (form.defaultOutroKind === 'Video') {
@@ -570,7 +570,7 @@
                 </label>
                 <span class="file-drop-hint">or drop / Ctrl+V</span>
                 @if (form.defaultOutroAssetId) {
-                  <button type="button" class="btn-outline" style="color: #f87171; border-color: rgba(239,68,68,0.3); font-size: 0.8rem; padding: 4px 10px;" (click)="clearOutroMedia()">
+                  <button type="button" class="btn-outline" style="color: var(--c-red); border-color: rgba(239,68,68,0.3); font-size: 0.8rem; padding: 4px 10px;" (click)="clearOutroMedia()">
                     ✕ Clear
                   </button>
                 }
@@ -595,7 +595,7 @@
                 </label>
                 <span class="file-drop-hint">or drop / Ctrl+V</span>
                 @if (form.defaultOutroAssetId) {
-                  <button type="button" class="btn-outline" style="color: #f87171; border-color: rgba(239,68,68,0.3); font-size: 0.8rem; padding: 4px 10px;" (click)="clearOutroMedia()">
+                  <button type="button" class="btn-outline" style="color: var(--c-red); border-color: rgba(239,68,68,0.3); font-size: 0.8rem; padding: 4px 10px;" (click)="clearOutroMedia()">
                     ✕ Clear
                   </button>
                 }
@@ -609,7 +609,7 @@
               </div>
               <input class="form-range" type="range" min="1" max="15" step="0.5"
                      [(ngModel)]="form.defaultOutroDurationSeconds" />
-              <p style="margin: 0.25rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
+              <p style="margin: 0.25rem 0 0; font-size: 0.78rem; color: var(--muted);">
                 Duration this graphic holds at the end of the video.
               </p>
             </div>
@@ -626,7 +626,7 @@
                 </button>
               }
             </div>
-            <p style="margin: 0.35rem 0 0; font-size: 0.78rem; color: #8b9bb4;">
+            <p style="margin: 0.35rem 0 0; font-size: 0.78rem; color: var(--muted);">
               Transition style connecting the final scene to this outro bumper.
             </p>
           </div>
@@ -638,10 +638,10 @@
           <div class="watermark-mockup-wrapper">
             <div class="mockup-header-row">
               <span>Channel Bumper Preview (16:9)</span>
-              <span style="color: #93c5fd; font-family: ui-monospace, monospace;">{{ form.defaultOutroTransition }} Transition</span>
+              <span style="color: var(--text-dim); font-family: ui-monospace, monospace;">{{ form.defaultOutroTransition }} Transition</span>
             </div>
 
-            <div class="outro-preview-box">
+            <div class="outro-preview-box" data-theme="dark">
               @if (outroMediaUrl(); as url) {
                 @if (form.defaultOutroKind === 'Video') {
                   <video class="outro-preview-video" [src]="url" controls playsinline preload="metadata"></video>
@@ -655,20 +655,20 @@
                   </div>
                 }
               } @else {
-                <div style="text-align: center; padding: 2rem 1rem; color: #8b9bb4;">
+                <div style="text-align: center; padding: 2rem 1rem; color: var(--muted);">
                   <div class="studio-icon-badge" style="margin: 0 auto 0.5rem;">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                       <rect x="2" y="7" width="20" height="15" rx="2" ry="2"/><polyline points="17 2 12 7 7 2"/>
                     </svg>
                   </div>
-                  <div style="font-size: 0.88rem; font-weight: 600; color: #c9d1d9;">No outro media selected</div>
+                  <div style="font-size: 0.88rem; font-weight: 600; color: var(--text-dim);">No outro media selected</div>
                   <div style="font-size: 0.78rem; margin-top: 0.25rem;">
                     Select an outro clip or end-card from the left to preview it here.
                   </div>
                 </div>
               }
             </div>
-            <p style="margin: 0; font-size: 0.78rem; color: #8b9bb4; text-align: center;">
+            <p style="margin: 0; font-size: 0.78rem; color: var(--muted); text-align: center;">
               Appended at the end of the video during project rendering.
             </p>
           </div>
@@ -727,7 +727,7 @@
 
     @if (confirmingDelete()) {
       <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; padding: 1rem; margin-bottom: 1rem;">
-        <p style="margin: 0 0 0.75rem; color: #fca5a5; font-size: 0.88rem; font-weight: 600;">
+        <p style="margin: 0 0 0.75rem; color: var(--c-red); font-size: 0.88rem; font-weight: 600;">
           Are you completely sure? This action cannot be reversed.
         </p>
         <div style="display: flex; gap: 0.75rem;">

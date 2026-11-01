@@ -76,7 +76,7 @@ button.small { padding: .3rem .65rem; font-size: .8rem; }
 }
 .rp-bar-fill::after {
   content: ''; position: absolute; inset: 0 auto 0 -100%; width: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .25), transparent);
+  background: linear-gradient(90deg, transparent, var(--ov-5), transparent);
   animation: rp-shimmer 1.6s infinite;
 }
 .rp-bar-fill.failed { background: var(--err); }
@@ -127,7 +127,7 @@ button.small { padding: .3rem .65rem; font-size: .8rem; }
 .rp-zoom input { width: 90px; }
 
 .rp-side { display: grid; gap: .8rem; min-width: 0; }
-.rp-primary-actions { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+.rp-primary-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; }
 .rp-primary-actions button { width: 100%; }
 .rp-yt-btn { background: #e62117; color: #fff; }
 .rp-yt-btn:hover:not(:disabled) { box-shadow: 0 0 0 2px rgba(230, 33, 23, .35); }
@@ -188,9 +188,20 @@ button.small { padding: .3rem .65rem; font-size: .8rem; }
 
 .rp-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .rp-row {
-  display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: .75rem;
+  display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto; align-items: center; gap: .75rem;
   padding: .6rem .75rem; border-top: 1px solid var(--border);
 }
+.rp-check, .rp-selectall input { width: 1rem; height: 1rem; margin: 0; cursor: pointer; accent-color: var(--brand); }
+.rp-selectall { display: inline-flex; align-items: center; gap: .4rem; margin-bottom: .4rem; font-size: .85rem; cursor: pointer; }
+.rp-row.checked { background: color-mix(in oklab, var(--brand) 12%, transparent); }
+.rp-bulkbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-bottom: .75rem;
+  padding: .5rem .75rem; border: 1px solid var(--brand); border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--brand) 10%, transparent);
+}
+.rp-bulk-spacer { flex: 1 1 auto; }
+.rp-danger { color: var(--err); border-color: color-mix(in oklab, var(--err) 50%, transparent); }
+.rp-cancel-all { margin-left: auto; }
 .rp-row:first-child { border-top: 0; }
 .rp-row:hover { background: color-mix(in oklab, var(--surface-2) 70%, transparent); }
 .rp-row.selected { background: color-mix(in oklab, var(--brand) 8%, transparent); box-shadow: inset 3px 0 0 var(--brand); }
@@ -215,7 +226,7 @@ button.small { padding: .3rem .65rem; font-size: .8rem; }
 .rp-yt-chip {
   display: inline-flex; align-items: center; gap: .2rem; padding: .05rem .45rem; border-radius: 99px;
   font-size: .7rem; font-weight: 700; text-decoration: none;
-  color: #ff6b6b; border: 1px solid rgba(230, 33, 23, .45); background: rgba(230, 33, 23, .1);
+  color: var(--c-red); border: 1px solid rgba(230, 33, 23, .45); background: rgba(230, 33, 23, .1);
 }
 .rp-yt-chip.ok { color: var(--ok); border-color: color-mix(in oklab, var(--ok) 40%, transparent); background: transparent; }
 .rp-yt-chip.processing, .rp-yt-chip.unknown { color: var(--text-dim); border-color: var(--border); background: transparent; }
@@ -275,16 +286,19 @@ button.small { padding: .3rem .65rem; font-size: .8rem; }
 
 /* ---------- narrow screens ---------- */
 @media (max-width: 900px) {
-  .rp-output { grid-template-columns: 1fr; }
+  .rp-output { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (max-width: 640px) {
+  .rp-primary-actions { grid-template-columns: minmax(0, 1fr); }
+  .rp-panel-head { flex-wrap: wrap; }
+  .rp-more-actions button { white-space: normal; }
   .rp-head-actions { width: 100%; }
   .rp-head-actions button { flex: 1 1 auto; }
   .rp-stage { grid-template-columns: 1.4rem minmax(0, 1fr) auto; }
   .rp-stage-sum { display: none; }
   .rp-toolbar select { flex: 1 1 45%; }
-  .rp-row { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .rp-row { grid-template-columns: auto auto minmax(0, 1fr) auto; }
   .rp-row-status { grid-column: 2; justify-content: flex-start; min-width: 0; }
   .rp-row-actions { grid-column: 3; grid-row: 1; }
   .rp-pager { justify-content: center; }

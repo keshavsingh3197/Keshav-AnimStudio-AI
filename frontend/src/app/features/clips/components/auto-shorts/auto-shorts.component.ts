@@ -390,8 +390,18 @@ export class AutoShortsComponent {
     this.youtube.driveConnections().pipe(catchError(() => of([] as GoogleDriveStatus[]))).subscribe((list) => {
       this.drives.set(list);
       const first = list.find((d) => d.connected && !d.needsReconnect);
-      if (first) this.pickDriveChannel(first.channelId ?? '');
+      if (first) {
+        this.pickDriveChannel(first.channelId ?? '');
+        if (this.topicId()) this.driveOn.set(true);
+      }
     });
+  }
+
+  pickTopic(id: string | null): void {
+    this.topicId.set(id);
+    if (id && this.anyDrive()) {
+      this.driveOn.set(true);
+    }
   }
 
   pickDriveChannel(channelId: string): void {

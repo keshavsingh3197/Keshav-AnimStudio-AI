@@ -66,11 +66,11 @@ export function channelSummary(c: BrandChannel | null | undefined): string {
     </div>
   `,
   styles: [`
-    :host { display: inline-block; position: relative; min-width: 260px; z-index: 40; }
+    :host { display: inline-block; position: relative; min-width: min(260px, 100%); max-width: 100%; z-index: 40; }
     .cp-current {
       display: flex; align-items: center; gap: 10px; width: 100%;
       padding: 8px 12px; border-radius: 10px; cursor: pointer; text-align: left;
-      background: linear-gradient(180deg, rgba(25, 31, 48, 0.85), rgba(15, 19, 32, 0.92));
+      background: linear-gradient(180deg, color-mix(in srgb, var(--surface-3) 85%, transparent), color-mix(in srgb, var(--surface) 92%, transparent));
       border: 1px solid rgba(148, 163, 184, 0.16); color: inherit;
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 8px rgba(0, 0, 0, 0.2);
       transition: all 0.16s ease;
@@ -84,14 +84,14 @@ export function channelSummary(c: BrandChannel | null | undefined): string {
       display: inline-flex; align-items: center; justify-content: center;
       width: 30px; height: 30px; border-radius: 8px;
       background: rgba(108, 140, 255, 0.14); border: 1px solid rgba(108, 140, 255, 0.28);
-      color: #a5b8ff; flex-shrink: 0;
+      color: var(--text-dim); flex-shrink: 0;
     }
     .cp-text { display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 1px; }
     .cp-name { font-weight: 700; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
     .cp-meta { font-size: 0.7rem; color: var(--muted, #8b9bb4); }
     .cp-tag {
       font-size: 0.58rem; text-transform: uppercase; letter-spacing: .06em;
-      color: #a5b8ff; background: rgba(108, 140, 255, 0.16);
+      color: var(--text-dim); background: rgba(108, 140, 255, 0.16);
       border: 1px solid rgba(108, 140, 255, 0.3); border-radius: 999px;
       padding: 1px 6px; margin-left: 4px; font-weight: 700;
     }
@@ -99,14 +99,14 @@ export function channelSummary(c: BrandChannel | null | undefined): string {
     .cp-caret.open { transform: rotate(180deg); color: var(--brand); }
     .cp-pop {
       position: absolute; z-index: 100; top: calc(100% + 6px); left: 0; width: max(100%, 340px);
-      background: linear-gradient(180deg, rgba(19, 24, 38, 0.98) 0%, rgba(11, 15, 25, 0.99) 100%);
+      background: linear-gradient(180deg, var(--surface-2) 0%, var(--surface) 100%);
       border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 12px;
       box-shadow: 0 20px 48px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.06);
       backdrop-filter: blur(16px); padding: 10px;
     }
     .cp-search {
       width: 100%; box-sizing: border-box; padding: 8px 12px; border-radius: 8px; margin-bottom: 8px;
-      border: 1px solid rgba(148, 163, 184, 0.2); background: rgba(6, 9, 17, 0.85); color: inherit;
+      border: 1px solid rgba(148, 163, 184, 0.2); background: color-mix(in srgb, var(--bg) 85%, transparent); color: inherit;
       font-size: 0.82rem;
     }
     .cp-search:focus { outline: none; border-color: var(--brand, #6c8cff); box-shadow: 0 0 0 3px rgba(108, 140, 255, 0.15); }
@@ -116,6 +116,12 @@ export function channelSummary(c: BrandChannel | null | undefined): string {
     .cp-list li.selected { background: rgba(108, 140, 255, 0.16); box-shadow: inset 3px 0 0 var(--brand, #6c8cff); }
     .cp-empty { color: var(--muted, #8b9bb4); font-size: .8rem; cursor: default !important; text-align: center; padding: 14px 8px !important; }
     .cp-more { font-size: .72rem; color: var(--muted, #8b9bb4); padding: 8px 8px 2px; border-top: 1px solid rgba(148, 163, 184, 0.1); margin-top: 4px; }
+    @media (max-width: 600px) {
+      :host { width: 100%; min-width: 0; }
+      .cp-pop { width: 100%; }
+      .cp-current { min-width: 0; white-space: normal; }
+      .cp-search { font-size: 16px; }
+    }
   `],
 })
 export class ChannelPickerComponent {

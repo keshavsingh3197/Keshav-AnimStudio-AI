@@ -399,7 +399,7 @@
                     @if (getSpriteToDisplay(character); as src) {
                       <img class="table-sprite-img" [src]="src" [alt]="character.name" />
                     } @else {
-                      <span style="font-weight: 700; color: #94a3b8;">{{ character.name.charAt(0) }}</span>
+                      <span style="font-weight: 700; color: var(--text-dim);">{{ character.name.charAt(0) }}</span>
                     }
                   </div>
                   @if (character.closedMouthAssetId && character.openMouthAssetId) {
@@ -415,21 +415,21 @@
                   }
                 </td>
                 <td>
-                  <div style="font-weight: 700; font-size: 0.95rem; color: #fff;">
+                  <div style="font-weight: 700; font-size: 0.95rem; color: var(--text);">
                     {{ character.name }}
                     @if (character.isNarrator) {
                       <span class="badge-tag badge-narrator" style="margin-left: 6px;">Narrator</span>
                     }
                   </div>
                   @if (character.description) {
-                    <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 2px;">{{ character.description }}</div>
+                    <div style="font-size: 0.8rem; color: var(--text-dim); margin-top: 2px;">{{ character.description }}</div>
                   }
                 </td>
                 <td>
                   @if (character.aliases.length > 0) {
-                    <span style="color: #cbd5e1;">{{ character.aliases.join(', ') }}</span>
+                    <span style="color: var(--text-dim);">{{ character.aliases.join(', ') }}</span>
                   } @else {
-                    <span style="color: #64748b;">&mdash;</span>
+                    <span style="color: var(--muted);">&mdash;</span>
                   }
                 </td>
                 <td>
@@ -438,13 +438,13 @@
                       class="color-indicator-dot"
                       [style.background]="character.subtitleColorHex || '#ffe164'"
                     ></span>
-                    <span style="font-family: monospace; font-size: 0.82rem; color: #e2e8f0;">
+                    <span style="font-family: monospace; font-size: 0.82rem; color: var(--text);">
                       {{ character.subtitleColorHex || '#ffe164' }}
                     </span>
                   </div>
                 </td>
                 <td>
-                  <span style="font-size: 0.82rem; color: #cbd5e1;">
+                  <span style="font-size: 0.82rem; color: var(--text-dim);">
                     {{ appearanceOf(character) || '&mdash;' }}
                   </span>
                 </td>
@@ -585,7 +585,7 @@
                     />
                   </label>
                   @if (isUploadingClosed()) {
-                    <span style="font-size: 0.78rem; color: #a78bfa;">Uploading...</span>
+                    <span style="font-size: 0.78rem; color: var(--muted);">Uploading...</span>
                   }
                   @if (form.closedMouthAssetId) {
                     <button type="button" class="btn-secondary btn-sm" (click)="clearClosedSprite()">
@@ -639,7 +639,7 @@
                     />
                   </label>
                   @if (isUploadingOpen()) {
-                    <span style="font-size: 0.78rem; color: #a78bfa;">Uploading...</span>
+                    <span style="font-size: 0.78rem; color: var(--muted);">Uploading...</span>
                   }
                   @if (form.openMouthAssetId) {
                     <button type="button" class="btn-secondary btn-sm" (click)="clearOpenSprite()">
@@ -658,11 +658,11 @@
           <div class="viewport-header">
             <span>Live Lip-Flap Motion Tester</span>
             @if (form.closedMouthAssetId && form.openMouthAssetId) {
-              <span style="color: #6ee7b7; font-size: 0.78rem;">✓ 2 Sprites Ready</span>
+              <span style="color: var(--c-green); font-size: 0.78rem;">✓ 2 Sprites Ready</span>
             } @else if (form.closedMouthAssetId || form.openMouthAssetId) {
-              <span style="color: #cbd5e1; font-size: 0.78rem;">Single Sprite</span>
+              <span style="color: var(--text-dim); font-size: 0.78rem;">Single Sprite</span>
             } @else {
-              <span style="color: #94a3b8; font-size: 0.78rem;">No Sprites</span>
+              <span style="color: var(--text-dim); font-size: 0.78rem;">No Sprites</span>
             }
           </div>
 
@@ -670,7 +670,7 @@
             @if (getFormSpriteToDisplay(); as activeSprite) {
               <img [src]="activeSprite" alt="Form Sprite Preview" />
             } @else {
-              <div style="color: #64748b; font-size: 0.88rem; font-style: italic;">
+              <div style="color: var(--muted); font-size: 0.88rem; font-style: italic;">
                 Select or upload sprites above to preview lip motion
               </div>
             }
@@ -688,7 +688,7 @@
                 <span>{{ isFormFlapping() ? 'Stop Motion Flap' : 'Play Motion Flap' }}</span>
               </button>
             } @else {
-              <span style="font-size: 0.78rem; color: #94a3b8;">
+              <span style="font-size: 0.78rem; color: var(--text-dim);">
                 Add both closed and open mouth sprites to test animated talking effect
               </span>
             }
@@ -741,8 +741,8 @@
           <p class="field-hint">Burnt-in subtitles for this character's lines are drawn in this colour.</p>
 
           <!-- Live Subtitle Theater Box -->
-          <div class="subtitle-theater-box">
-            <div style="font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; margin-bottom: 6px;">
+          <div class="subtitle-theater-box" data-theme="dark">
+            <div style="font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); margin-bottom: 6px;">
               Live Subtitle Preview Screen
             </div>
             <div

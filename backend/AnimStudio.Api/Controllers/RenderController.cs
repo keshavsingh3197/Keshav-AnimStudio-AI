@@ -143,11 +143,93 @@ public sealed class RenderController(
                 new ApiError("job-already-finished", "That render has already finished.")));
         }
 
-        // The flag is picked up by the worker's next progress write, which then stops the
-        // renderer - so cancelling does not need to reach into the process from here.
-        await jobs.RequestCancelAsync(jobId, ct);
+        await CancelJobAsync(job, ct);
 
         return Ok(ApiResponse<EmptyPayload>.Ok(EmptyPayload.Value));
+    }
+
+    /// <summary>Cancels every listed render that is still queued or running; finished ones are skipped.</summary>
+    [HttpPost("api/render-jobs/bulk-cancel")]
+    public async Task<ActionResult<ApiResponse<BulkRenderJobResult>>> BulkCancel(
+        [FromBody] BulkRenderJobRequest request, CancellationToken ct)
+    {
+        var done = new List<string>();
+        var skipped = new List<string>();
+
+        foreach (var id in NormalizeIds(request))
+        {
+            var job = await jobs.GetAsync(id, ct);
+            if (job is null || !string.Equals(job.UserId, currentUser.UserId, StringComparison.Ordinal)
+                || job.IsTerminal)
+            {
+                skipped.Add(id);
+                continue;
+            }
+
+            await CancelJobAsync(job, ct);
+            done.Add(id);
+        }
+
+        return Ok(ApiResponse<BulkRenderJobResult>.Ok(new BulkRenderJobResult(done, skipped)));
+    }
+
+    /// <summary>
+    /// Deletes the listed finished renders and their files. A render that is still running is
+    /// skipped - cancel it first - so a worker is never left writing to a record that is gone.
+    /// </summary>
+    [HttpPost("api/render-jobs/bulk-delete")]
+    public async Task<ActionResult<ApiResponse<BulkRenderJobResult>>> BulkDelete(
+        [FromBody] BulkRenderJobRequest request, CancellationToken ct)
+    {
+        var done = new List<string>();
+        var skipped = new List<string>();
+
+        foreach (var id in NormalizeIds(request))
+        {
+            var job = await jobs.GetAsync(id, ct);
+            if (job is null || !string.Equals(job.UserId, currentUser.UserId, StringComparison.Ordinal)
+                || !job.IsTerminal)
+            {
+                skipped.Add(id);
+                continue;
+            }
+
+            foreach (var key in new[] { job.OutputStorageKey, job.LogStorageKey })
+            {
+                if (string.IsNullOrEmpty(key)) continue;
+                try { await store.DeleteAsync(key, ct); }
+                catch (Exception ex) { logger.LogWarning(ex, "Could not delete {Key} for render {JobId}.", key, id); }
+            }
+
+            await jobs.DeleteAsync(id, ct);
+            done.Add(id);
+        }
+
+        return Ok(ApiResponse<BulkRenderJobResult>.Ok(new BulkRenderJobResult(done, skipped)));
+    }
+
+    private static List<string> NormalizeIds(BulkRenderJobRequest request) =>
+        (request.JobIds ?? []).Where(i => !string.IsNullOrWhiteSpace(i)).Distinct().Take(500).ToList();
+
+    private async Task CancelJobAsync(RenderJob job, CancellationToken ct)
+    {
+        // The flag is picked up by the worker's next progress write, which then stops the
+        // renderer - so cancelling does not need to reach into the process from here.
+        await jobs.RequestCancelAsync(job.Id, ct);
+
+        // No live worker will ever see the flag for a job that is still queued or whose
+        // worker died (lease expired), so those are closed here instead of hanging forever.
+        var now = clock.GetUtcNow().UtcDateTime;
+        var orphaned = job.Status == RenderJobStatus.Pending
+            || (job.Status == RenderJobStatus.Processing
+                && (job.LeaseExpiresAt is null || job.LeaseExpiresAt < now));
+        if (orphaned)
+        {
+            job.Status = RenderJobStatus.Cancelled;
+            job.CancelRequested = true;
+            job.Message = "Cancelled";
+            await jobs.CompleteAsync(job, ct);
+        }
     }
 
     /// <summary>
@@ -365,3 +447,7 @@ public sealed class RenderController(
 }
 
 public sealed record RenameRenderJobRequest(string? Name);
+
+public sealed record BulkRenderJobRequest(List<string>? JobIds);
+
+public sealed record BulkRenderJobResult(List<string> Done, List<string> Skipped);

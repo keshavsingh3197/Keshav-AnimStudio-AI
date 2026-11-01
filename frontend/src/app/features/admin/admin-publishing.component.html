@@ -1,0 +1,739 @@
+<div class="pb">
+  <div class="pb-cq">
+
+    <header class="page-head pb-head">
+      <div class="pb-head-main">
+        <div class="studio-icon-badge red pb-head-ico">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+          </svg>
+        </div>
+        <div>
+          <div class="row pb-title-row">
+            <h2>YouTube publishing</h2>
+            <span class="pill brand">{{ plural(brandChannels().length, 'channel') }}</span>
+          </div>
+          <p class="muted">Which YouTube channel each brand channel uploads to, and the details every upload starts with.</p>
+        </div>
+      </div>
+      <div class="pb-head-actions">
+        <button type="button" class="secondary" (click)="checkConnections()" [disabled]="checking() || yt()?.configured === false"
+                title="Ask YouTube whether each connection still works - this is what turns up an expired one">
+          <app-ico name="refresh" [class.is-spinning]="checking()" /> {{ checking() ? 'Checking…' : 'Check connections' }}
+        </button>
+        <button type="button" (click)="connect()" [disabled]="connecting() || yt()?.configured === false"
+                [title]="yt()?.configured === false ? 'YouTube sign-in isn’t set up on this server' : 'Sign in with Google and pick a YouTube channel'">
+          <app-ico name="plus" /> Connect a YouTube channel
+        </button>
+      </div>
+    </header>
+
+    @if (staleNotice(); as n) {
+      <div class="pb-alert is-info" role="status">
+        <app-ico name="info" />
+        <div class="pb-alert-body">{{ n }}</div>
+        <button type="button" class="pb-x" (click)="staleNotice.set(null)" aria-label="Dismiss"><app-ico name="x" [size]="14" /></button>
+      </div>
+    }
+    @if (actionError(); as e) {
+      <div class="pb-alert is-err" role="alert">
+        <app-ico name="alert" />
+        <div class="pb-alert-body">{{ e }}</div>
+        <button type="button" class="pb-x" (click)="actionError.set(null)" aria-label="Dismiss"><app-ico name="x" [size]="14" /></button>
+      </div>
+    }
+    @if (stage() === 'ready') {
+    @if (ytState() === 'error') {
+      <div class="pb-alert is-warn" role="status">
+        <app-ico name="alert" />
+        <div class="pb-alert-body"><strong>Couldn’t read the YouTube connections.</strong> Connection health is hidden until they load; nothing was changed.</div>
+        <button type="button" class="secondary small" (click)="loadYouTube()">Retry</button>
+      </div>
+    } @else if (yt()?.configured === false) {
+      <div class="pb-alert is-info" role="status">
+        <app-ico name="info" />
+        <div class="pb-alert-body">
+          <strong>Publishing to YouTube isn’t set up on this server yet.</strong>
+          Set the OAuth client in Application settings → YouTube, and the client secret in user-secrets.
+        </div>
+      </div>
+    }
+    @if (reconnectCount() > 0) {
+      <div class="pb-alert is-warn" role="alert">
+        <app-ico name="alert" />
+        <div class="pb-alert-body">
+          <strong>{{ plural(reconnectCount(), 'channel') }} need{{ reconnectCount() === 1 ? 's' : '' }} to be reconnected.</strong>
+          Google no longer accepts the saved access, so uploads to {{ reconnectCount() === 1 ? 'it' : 'them' }} fail until you sign in again.
+        </div>
+        <div class="pb-alert-actions">
+          <button type="button" class="small" (click)="connect()" [disabled]="connecting()">Reconnect</button>
+          <button type="button" class="secondary small" (click)="setFilter('attention')">Show them</button>
+        </div>
+      </div>
+    }
+    @if (checkReport(); as r) {
+      <div class="pb-alert" [class.is-warn]="r.failed.length > 0" [class.is-ok]="r.failed.length === 0" role="status">
+        <app-ico [name]="r.failed.length > 0 ? 'alert' : 'check'" />
+        <div class="pb-alert-body">
+          @if (r.failed.length === 0) {
+            <strong>All {{ plural(r.count, 'connection') }} work.</strong> Checked with YouTube just now.
+          } @else {
+            <strong>{{ r.failed.length }} of {{ plural(r.count, 'connection') }} need attention:</strong>
+            @for (f of r.failed; track f.channelId) { <span class="pb-fail"><b>{{ f.channelTitle }}</b> - {{ f.reason }}</span> }
+          }
+        </div>
+        <button type="button" class="pb-x" (click)="checkReport.set(null)" aria-label="Dismiss"><app-ico name="x" [size]="14" /></button>
+      </div>
+    }
+    }
+
+    <div class="pb-kpis" role="group" aria-label="Summary">
+      @if (stage() === 'loading') {
+        @for (i of [0, 1, 2, 3]; track i) { <div class="pb-kpi is-skeleton" aria-hidden="true"><span class="pb-skel" style="width: 5rem"></span><span class="pb-skel" style="width: 3rem; height: 1.5rem"></span><span class="pb-skel" style="width: 7rem"></span></div> }
+      } @else {
+        <button type="button" class="pb-kpi" [class.is-active]="listFilter() === 'all'" (click)="setFilter('all')">
+          <span class="pb-kpi-label">Brand channels</span><strong class="pb-kpi-val">{{ kpis().total }}</strong><span class="pb-kpi-sub">uploads start from each one’s defaults</span>
+        </button>
+        <button type="button" class="pb-kpi" [class.is-active]="listFilter() === 'linked'" (click)="setFilter('linked')">
+          <span class="pb-kpi-label">Linked to YouTube</span><strong class="pb-kpi-val">{{ kpis().linked }}</strong><span class="pb-kpi-sub">upload straight to their channel</span>
+        </button>
+        <button type="button" class="pb-kpi" [class.is-alert]="kpis().attention > 0" [class.is-good]="kpis().attention === 0 && kpis().unread === 0"
+                [class.is-active]="listFilter() === 'attention'" (click)="setFilter('attention')">
+          <span class="pb-kpi-label">Need attention</span><strong class="pb-kpi-val">{{ kpis().attention }}</strong>
+          <span class="pb-kpi-sub">{{ kpis().unread > 0 ? 'checking ' + kpis().unread + ' more…' : kpis().attention === 0 ? 'nothing to fix' : 'reconnect or fix defaults' }}</span>
+        </button>
+        <button type="button" class="pb-kpi" [class.is-active]="listFilter() === 'unlinked'" (click)="setFilter('unlinked')">
+          <span class="pb-kpi-label">Not linked</span><strong class="pb-kpi-val">{{ kpis().unlinked }}</strong><span class="pb-kpi-sub">ask which channel each time</span>
+        </button>
+      }
+    </div>
+
+    @switch (stage()) {
+      @case ('loading') {
+        <div class="pb-layout" aria-busy="true" aria-label="Loading channels">
+          <div class="card pb-list">
+            <span class="pb-skel" style="height: 2.4rem"></span>
+            @for (i of skeletons; track i) { <span class="pb-skel" style="height: 3.1rem; margin-top: 0.5rem"></span> }
+          </div>
+          <div class="pb-editor">
+            @for (i of [0, 1, 2]; track i) { <div class="card pb-card"><span class="pb-skel" style="width: 9rem; height: 1.2rem"></span><span class="pb-skel" style="height: 5.5rem; margin-top: 0.8rem"></span></div> }
+          </div>
+        </div>
+      }
+      @case ('error') {
+        <div class="card pb-fail-card" role="alert">
+          <app-ico name="alert" [size]="26" />
+          <strong>Couldn’t load the brand channels.</strong>
+          <p class="muted">{{ loadError() }}</p>
+          <button type="button" (click)="loadBrands()"><app-ico name="refresh" /> Try again</button>
+        </div>
+      }
+      @default {
+        <div class="pb-layout">
+
+          <!-- ============================================================ channel list -->
+          <aside class="card pb-list" aria-label="Brand channels">
+            <button type="button" class="pb-picker-toggle" (click)="pickerOpen.set(!pickerOpen())" [attr.aria-expanded]="pickerOpen()" aria-controls="pb-list-body">
+              <span class="pb-avatar">
+                @if (safePicture(currentBrand()?.youTubeThumbnailUrl); as pic) { <img [src]="pic" alt="" referrerpolicy="no-referrer" /> } @else { {{ initial(currentBrand()?.name ?? '?') }} }
+              </span>
+              <span class="pb-picker-text"><small>Editing</small><strong>{{ currentBrand()?.name }}</strong></span>
+              <app-ico name="chevronDown" [size]="16" />
+            </button>
+
+            <div class="pb-list-body" id="pb-list-body" [class.is-open]="pickerOpen()">
+              <div class="pb-search">
+                <app-ico name="search" [size]="15" />
+                <input #search type="search" autocomplete="off" spellcheck="false" placeholder="Search channels…" aria-label="Search channels" aria-keyshortcuts="/"
+                       [value]="query()" (input)="onQuery($event)" (keydown.escape)="onQueryKey($event)" />
+                @if (query()) {
+                  <button type="button" class="pb-search-clear" (click)="query.set('')" aria-label="Clear search"><app-ico name="x" [size]="14" /></button>
+                } @else {
+                  <kbd class="pb-kbd" aria-hidden="true">/</kbd>
+                }
+              </div>
+              <div class="pb-chips" role="group" aria-label="Show channels">
+                <button type="button" class="pb-chip" [class.is-active]="listFilter() === 'all'" [attr.aria-pressed]="listFilter() === 'all'" (click)="setFilter('all')">All <span>{{ counts().all }}</span></button>
+                <button type="button" class="pb-chip" [class.is-active]="listFilter() === 'attention'" [attr.aria-pressed]="listFilter() === 'attention'" (click)="setFilter('attention')">Attention <span>{{ counts().attention }}</span></button>
+                <button type="button" class="pb-chip" [class.is-active]="listFilter() === 'linked'" [attr.aria-pressed]="listFilter() === 'linked'" (click)="setFilter('linked')">Linked <span>{{ counts().linked }}</span></button>
+                <button type="button" class="pb-chip" [class.is-active]="listFilter() === 'unlinked'" [attr.aria-pressed]="listFilter() === 'unlinked'" (click)="setFilter('unlinked')">Not linked <span>{{ counts().unlinked }}</span></button>
+              </div>
+
+              <ul class="pb-items" (keydown)="onListKey($event)">
+                @for (e of listed(); track e.key) {
+                  <li>
+                    <button type="button" class="pb-item" [class.is-current]="isCurrent(e.c)" [attr.aria-current]="isCurrent(e.c) ? 'true' : null" (click)="selectBrand(e.c)">
+                      <span class="pb-avatar">
+                        @if (safePicture(e.c.youTubeThumbnailUrl); as pic) { <img [src]="pic" alt="" referrerpolicy="no-referrer" loading="lazy" /> } @else { {{ initial(e.c.name) }} }
+                      </span>
+                      <span class="pb-item-text">
+                        <span class="pb-item-name"><strong [title]="e.c.name">{{ e.c.name }}</strong> @if (e.c.isDefault) { <span class="pb-badge">Default</span> }</span>
+                        <span class="pb-item-sub">{{ e.c.youTubeChannelId ? handleOf(e.c) : 'Not linked to YouTube' }}</span>
+                      </span>
+                      <span class="pb-item-meta">
+                        @if (e.settings; as s) {
+                          <span class="pb-vis" [attr.data-v]="(s.privacy || '').toLowerCase()">{{ privacyLabel(s.privacy) || 'No visibility' }}</span>
+                        } @else {
+                          <span class="pb-skel pb-skel-vis" aria-hidden="true"></span>
+                        }
+                        <span class="pb-health-dot" [attr.data-level]="e.health.level" [title]="e.health.label" aria-hidden="true"></span>
+                        <span class="pb-sr">{{ e.health.label }}</span>
+                      </span>
+                    </button>
+                  </li>
+                } @empty {
+                  <li class="pb-list-empty muted">
+                    @if (query() || listFilter() !== 'all') { No channel matches. <button type="button" class="pb-link" (click)="query.set(''); setFilter('all')">Clear filters</button> } @else { No channels yet. }
+                  </li>
+                }
+              </ul>
+              @if (visible().length > listed().length) {
+                <button type="button" class="secondary small pb-more" (click)="shown.set(shown() + 40)">Show more ({{ visible().length - listed().length }} left)</button>
+              }
+            </div>
+          </aside>
+
+          <!-- ============================================================ editor -->
+          <section class="pb-editor" aria-label="Publishing settings">
+            @if (currentBrand(); as b) {
+              <div class="pb-ed-head">
+                <span class="pb-avatar lg">
+                  @if (safePicture(b.youTubeThumbnailUrl); as pic) { <img [src]="pic" alt="" referrerpolicy="no-referrer" /> } @else { {{ initial(b.name) }} }
+                </span>
+                <div class="pb-ed-title">
+                  <div class="row">
+                    <h3>{{ b.name }}</h3>
+                    @if (b.isDefault) { <span class="pill brand">Default</span> }
+                    @if (health(); as h) {
+                      <span class="pill" [class.ok]="h.level === 'ok'" [class.warn]="h.level === 'warn'" [class.err]="h.level === 'err'">
+                        <app-ico [name]="levelIcon(h.level)" [size]="12" /> {{ h.level === 'ok' ? 'Ready to publish' : h.label }}
+                      </span>
+                    }
+                  </div>
+                  <div class="muted pb-ed-links">
+                    Its look:
+                    <a routerLink="/admin/branding/watermark" [queryParams]="b.isDefault ? null : { channel: b.id }">Watermark</a> ·
+                    <a routerLink="/admin/branding/end-card" [queryParams]="b.isDefault ? null : { channel: b.id }">End card</a> ·
+                    <a routerLink="/admin/channels">All channels</a>
+                  </div>
+                </div>
+              </div>
+            }
+
+            @if (pendingSwitch(); as target) {
+              <div class="pb-alert is-warn pb-switch" role="alertdialog" aria-labelledby="pb-switch-title">
+                <app-ico name="alert" />
+                <div class="pb-alert-body">
+                  <strong id="pb-switch-title">You have unsaved changes to “{{ currentBrand()?.name }}”.</strong>
+                  Open “{{ nameOf(target) }}” anyway?
+                </div>
+                <div class="pb-alert-actions">
+                  <button type="button" class="small" (click)="confirmSwitch(true)" [disabled]="!canSave() || saving()">Save and open</button>
+                  <button type="button" class="secondary small" (click)="confirmSwitch(false)">Discard and open</button>
+                  <button type="button" class="secondary small" (click)="pendingSwitch.set(null)">Keep editing</button>
+                </div>
+              </div>
+            }
+
+            @if (editor() === 'error') {
+              <div class="card pb-fail-card" role="alert">
+                <app-ico name="alert" [size]="24" />
+                <strong>Couldn’t load this channel’s settings.</strong>
+                <p class="muted">{{ editorError() }}</p>
+                <button type="button" (click)="loadSettings()"><app-ico name="refresh" /> Try again</button>
+              </div>
+            } @else if (form(); as f) {
+              <div class="pb-body" [class.is-loading]="editor() === 'loading'" [attr.inert]="editor() === 'loading' ? '' : null" [attr.aria-busy]="editor() === 'loading'">
+
+                @if (health(); as h) {
+                  @if (h.issues.length > 0) {
+                    <section class="card pb-health" aria-labelledby="pb-health-title">
+                      <h3 id="pb-health-title"><app-ico [name]="levelIcon(h.level)" [size]="16" /> Publishing health</h3>
+                      <ul>
+                        @for (i of h.issues; track i.id) {
+                          <li [attr.data-level]="i.level">
+                            <app-ico [name]="levelIcon(i.level)" [size]="15" />
+                            <div class="pb-health-text"><strong>{{ i.title }}</strong><span>{{ i.detail }}</span></div>
+                            @if (i.action) { <button type="button" class="secondary small" (click)="runAction(i.action)" [disabled]="i.action === 'reconnect' && connecting()">{{ actionLabel(i.action) }}</button> }
+                          </li>
+                        }
+                      </ul>
+                    </section>
+                  } @else {
+                    <div class="pb-ready" role="status"><app-ico name="check" [size]="15" /> Ready to publish: linked, connected and every default is valid.</div>
+                  }
+                }
+
+                <!-- ---------------------------------------------------- upload destination -->
+                <section class="card pb-card" id="pb-destination" aria-labelledby="pb-dest-title">
+                  <div class="studio-card-head">
+                    <div class="studio-card-title-group">
+                      <h3 id="pb-dest-title">Upload to</h3>
+                      <span class="pill brand">{{ currentBrand()?.name }}</span>
+                    </div>
+                  </div>
+                  <p class="muted small">The YouTube channel videos from <strong>{{ currentBrand()?.name }}</strong> are uploaded to.</p>
+
+                  @if (ytState() === 'loading') {
+                    <span class="pb-skel" style="height: 4rem"></span>
+                  } @else if (ytState() === 'error') {
+                    <div class="pb-note is-warn">Couldn’t read the YouTube connections. <button type="button" class="pb-link" (click)="loadYouTube()">Retry</button></div>
+                  } @else if (yt(); as st) {
+                    @if (!st.configured) {
+                      <p class="notice">Publishing to YouTube isn’t set up on this server yet: set the OAuth client in Application settings → YouTube, and the client secret in user-secrets.</p>
+                    }
+
+                    @if (f.youTubeChannelId) {
+                      <div class="pb-linked">
+                        <span class="pb-avatar lg">
+                          @if (pickedPicture(); as picture) { <img [src]="picture" alt="" referrerpolicy="no-referrer" /> } @else { {{ initial(f.youTubeChannelTitle || '?') }} }
+                        </span>
+                        <div class="pb-linked-text">
+                          <strong>{{ f.youTubeChannelTitle || f.youTubeChannelId }}</strong>
+                          <span class="muted small">{{ f.youTubeChannelHandle || f.youTubeChannelId }}</span>
+                          <span class="pb-conn">
+                            @if (!connection()) {
+                              <span class="pb-state is-warn"><app-ico name="alert" [size]="12" /> Not connected under your account</span>
+                            } @else if (connection()!.needsReconnect) {
+                              <span class="pb-state is-err"><app-ico name="alert" [size]="12" /> Reconnect needed</span>
+                            } @else {
+                              <span class="pb-state is-ok"><app-ico name="check" [size]="12" /> Connected by you</span>
+                              @if (!connection()!.canComment) { <span class="pb-state is-warn"><app-ico name="message" [size]="12" /> Can’t post comments</span> }
+                            }
+                            @if (connection(); as conn) {
+                              @if (conn.lastUploadAt) { <span class="muted small">Last upload {{ conn.lastUploadAt | date: 'mediumDate' }}</span> }
+                            }
+                          </span>
+                        </div>
+                        <div class="pb-linked-actions">
+                          @if (connection() === undefined || connection()?.needsReconnect || connection()?.canComment === false) {
+                            <button type="button" class="secondary small" (click)="connect()" [disabled]="connecting()"><app-ico name="refresh" [size]="13" /> Reconnect</button>
+                          }
+                          <button type="button" class="secondary small" (click)="copyYouTubeId()" title="Copy the YouTube channel ID ({{ f.youTubeChannelId }})">
+                            <app-ico [name]="copied() ? 'check' : 'copy'" [size]="13" /> {{ copied() ? 'Copied' : 'Copy ID' }}
+                          </button>
+                          <button type="button" class="secondary small" (click)="pickYouTube('')"><app-ico name="unlink" [size]="13" /> Unlink</button>
+                        </div>
+                      </div>
+                      @if (linkedElsewhere().get(f.youTubeChannelId); as owner) {
+                        <p class="pb-err">This YouTube channel is also linked to “{{ owner }}”. Each YouTube channel can only feed one brand channel: unlink it here or there.</p>
+                      }
+                    } @else {
+                      <p class="pb-note">Not linked: the Publish dialog asks which YouTube channel to use each time.</p>
+                    }
+
+                    <div class="pb-row">
+                      <div class="pb-field grow">
+                        <label for="pb-link">{{ f.youTubeChannelId ? 'Change to' : 'Link a YouTube channel' }}</label>
+                        <select id="pb-link" (change)="pickYouTube(val($event))">
+                          <option value="" [selected]="!f.youTubeChannelId">— Ask each time —</option>
+                          @for (c of st.channels; track c.channelId) {
+                            <option [value]="c.channelId" [selected]="c.channelId === f.youTubeChannelId"
+                                    [disabled]="linkedElsewhere().has(c.channelId) && c.channelId !== f.youTubeChannelId">
+                              {{ c.channelTitle }}{{ c.channelHandle ? ' (' + c.channelHandle + ')' : '' }}{{ linkedElsewhere().has(c.channelId) ? ' — used by ' + linkedElsewhere().get(c.channelId) : '' }}
+                            </option>
+                          }
+                          @if (f.youTubeChannelId && !connectedHere()) {
+                            <option [value]="f.youTubeChannelId" selected>{{ f.youTubeChannelTitle || f.youTubeChannelId }} (not connected by you)</option>
+                          }
+                        </select>
+                      </div>
+                      @if (st.configured) {
+                        <button type="button" class="secondary" (click)="connect()" [disabled]="connecting()"><app-ico name="plus" /> Connect another YouTube channel</button>
+                      }
+                    </div>
+                    @if (!st.channels.length) { <p class="muted small">You haven’t connected any YouTube channel yet.</p> }
+                    <p class="muted small">
+                      Channels are connected per user with Google sign-in. A YouTube channel can feed only one brand channel,
+                      and the brand channel takes its name and picture when you save.
+                    </p>
+                  }
+                </section>
+
+                <!-- ---------------------------------------------------- defaults -->
+                <section class="card pb-card" id="pb-defaults" aria-labelledby="pb-defaults-title">
+                  <div class="studio-card-head">
+                    <div class="studio-card-title-group"><h3 id="pb-defaults-title">Every upload starts with</h3><span class="pill">Defaults</span></div>
+                  </div>
+
+                  <fieldset class="pb-fieldset" id="pb-privacy" aria-describedby="pb-privacy-help">
+                    <legend>Visibility</legend>
+                    <div class="pb-radios">
+                      @for (o of privacyOptions; track o.id) {
+                        <label class="pb-radio" [class.is-on]="privacyOf(f) === o.id">
+                          <input type="radio" name="pb-privacy" [value]="o.id" [checked]="privacyOf(f) === o.id" (change)="patch({ privacy: o.id })" />
+                          <span class="pb-radio-title">{{ o.label }}</span>
+                          <span class="pb-radio-hint">{{ o.hint }}</span>
+                        </label>
+                      }
+                    </div>
+                    <p id="pb-privacy-help" class="pb-field-help" [class.pb-err]="!privacyOf(f)">
+                      @if (!privacyOf(f)) { This channel has no default visibility yet - choose one before saving. }
+                      @else if (privacyOf(f) === 'public') { Videos go live the moment they are uploaded. Pick Private or Unlisted if you review first. }
+                      @else { You can still change it for each video in the Publish dialog. }
+                    </p>
+                  </fieldset>
+
+                  <div class="pb-grid">
+                    <div class="pb-field">
+                      <label for="pb-category">Category</label>
+                      @if (categories().length > 0) {
+                        <select id="pb-category" (change)="patch({ categoryId: val($event) })">
+                          @for (c of categories(); track c.id) { <option [value]="c.id" [selected]="c.id === f.categoryId">{{ c.name }}</option> }
+                        </select>
+                      } @else {
+                        <select id="pb-category" disabled><option>{{ f.categoryId }}</option></select>
+                        <span class="pb-field-help">The category list couldn’t be loaded, so it can’t be changed right now.</span>
+                      }
+                    </div>
+
+                    <fieldset class="pb-fieldset">
+                      <legend>Audience</legend>
+                      <div class="pb-seg">
+                        <label class="pb-seg-opt" [class.is-on]="!f.madeForKids"><input type="radio" name="pb-kids" [checked]="!f.madeForKids" (change)="patch({ madeForKids: false })" /> Not made for kids</label>
+                        <label class="pb-seg-opt" [class.is-on]="f.madeForKids"><input type="radio" name="pb-kids" [checked]="f.madeForKids" (change)="patch({ madeForKids: true })" /> Made for kids</label>
+                      </div>
+                      <span class="pb-field-help">YouTube turns comments off on videos made for kids.</span>
+                    </fieldset>
+                  </div>
+
+                  <label class="switch pb-switch-row">
+                    <input type="checkbox" [checked]="f.notifySubscribers" (change)="patch({ notifySubscribers: checked($event) })" />
+                    <span class="track"></span>
+                    <span>Notify subscribers when a video is published</span>
+                  </label>
+                </section>
+
+                <!-- ---------------------------------------------------- tags -->
+                <section class="card pb-card" id="pb-tags" aria-labelledby="pb-tags-title">
+                  <div class="studio-card-head">
+                    <div class="studio-card-title-group"><h3 id="pb-tags-title">Channel tags</h3><span class="pill">{{ f.tags.length }}</span></div>
+                  </div>
+                  <label for="pb-tags-input">Added to every video <span class="muted small">(Enter or comma adds a tag; paste a list to add several)</span></label>
+                  <app-tag-editor inputId="pb-tags-input" [tags]="f.tags" (tagsChange)="patch({ tags: $event })" [rules]="channelTagRules" placeholder="e.g. AnimStudio, Animation" />
+                </section>
+
+                <!-- ---------------------------------------------------- footer -->
+                <section class="card pb-card" id="pb-footer" aria-labelledby="pb-footer-title">
+                  <div class="studio-card-head">
+                    <div class="studio-card-title-group"><h3 id="pb-footer-title">Description footer</h3><span class="pill">{{ footer().bytes }} bytes</span></div>
+                  </div>
+                  <label for="pb-footer-text">Added below every description <span class="muted small">(links, credits, a support message)</span></label>
+                  <textarea id="pb-footer-text" rows="6" [value]="f.descriptionFooter ?? ''" (input)="patch({ descriptionFooter: val($event) })"
+                            [attr.aria-invalid]="footer().over || footer().hasAngle ? 'true' : null" aria-describedby="pb-footer-meter"></textarea>
+                  <div class="pb-meter" id="pb-footer-meter" [class.is-over]="footer().over" [class.is-warn]="!footer().over && footer().left < 250">
+                    <div class="pb-meter-row">
+                      <span>
+                        @if (footer().hasAngle) { <span class="pb-err-inline">YouTube doesn’t allow &lt; or &gt; in a description. </span> }
+                        {{ footer().bytes }} / {{ maxFooter }} bytes · {{ footer().chars }} characters · {{ footer().lines }} {{ footer().lines === 1 ? 'line' : 'lines' }}
+                      </span>
+                      <span>{{ footer().left >= 0 ? footer().left + ' left' : (-footer().left) + ' over' }}</span>
+                    </div>
+                    <div class="pb-bar" role="progressbar" aria-label="Footer size" aria-valuemin="0" [attr.aria-valuemax]="maxFooter" [attr.aria-valuenow]="footer().bytes">
+                      <i [style.width.%]="footerPercent()"></i>
+                    </div>
+                    <span class="pb-field-help">YouTube counts bytes, not letters: emoji and non-Latin letters take several. Each video keeps {{ footer().roomForVideo > 0 ? footer().roomForVideo : 0 }} bytes for its own description.</span>
+                  </div>
+
+                  <div class="pb-preview" aria-label="Footer preview">
+                    <div class="pb-preview-head"><app-ico name="eye" [size]="14" /> Preview - how it sits under a description</div>
+                    <div class="pb-yt">
+                      <p class="pb-yt-sample">Your video’s own description comes first, then the footer below.</p>
+                      @if (footer().text) {
+                        <div class="pb-yt-footer">
+                          @for (line of footerLines(); track $index) {
+                            <div class="pb-yt-line">@for (part of lineParts(line); track $index) { @if (part.link) { <span class="pb-yt-link">{{ part.text }}</span> } @else { <span>{{ part.text }}</span> } }</div>
+                          }
+                        </div>
+                      } @else {
+                        <p class="pb-yt-empty">The footer is empty, so nothing is added.</p>
+                      }
+                    </div>
+                  </div>
+                </section>
+
+                <!-- ---------------------------------------------------- first comment -->
+                <section class="card pb-card" id="pb-comment" aria-labelledby="pb-comment-title">
+                  <div class="studio-card-head">
+                    <div class="studio-card-title-group"><h3 id="pb-comment-title">First comment</h3><span class="pill">{{ commentLength() }} / {{ maxComment }}</span></div>
+                  </div>
+                  <label for="pb-comment-text">Posted on every video once it’s uploaded <span class="muted small">(leave empty for none)</span></label>
+                  <textarea id="pb-comment-text" rows="3" [value]="f.firstComment ?? ''" (input)="patch({ firstComment: val($event) })"
+                            placeholder="Thanks for watching! New videos every week 🔔" aria-describedby="pb-comment-help"
+                            [attr.aria-invalid]="commentLength() > maxComment ? 'true' : null"></textarea>
+                  <div id="pb-comment-help" class="pb-field-help" [class.pb-err]="commentLength() > maxComment">
+                    @if (commentLength() > maxComment) { {{ commentLength() - maxComment }} characters over the limit. }
+                    @else if (commentNote(); as n) { <app-ico name="info" [size]="12" /> {{ n }} }
+                    @else { Viewers see it pinned under the video when the channel allows comments. }
+                  </div>
+                </section>
+
+                <!-- ---------------------------------------------------- AI branding -->
+                <details class="card pb-card pb-details" id="pb-branding" [open]="brandingOpen()" (toggle)="brandingOpen.set($any($event.target).open)">
+                  <summary>
+                    <span class="studio-card-title-group"><h3>AI branding</h3><span class="pill">Credits &amp; links</span></span>
+                    <app-ico name="chevronDown" [size]="16" />
+                  </summary>
+                  <p class="muted small">
+                    Added by the studio, exactly as typed, to every description the AI writes for this channel - a credits block, the
+                    subscribe line and your hashtags - and the channel link to the pinned comment. Leave a field empty to leave it out.
+                  </p>
+                  <div class="pb-row">
+                    <button type="button" class="secondary small" (click)="useOmkrBranding()">Use the OMKR preset</button>
+                    <button type="button" class="secondary small" (click)="clearBranding()" [disabled]="!f.branding">Clear branding</button>
+                  </div>
+                  <div class="pb-grid">
+                    <div class="pb-field">
+                      <label for="pb-b-channelName">Channel name</label>
+                      <input id="pb-b-channelName" type="text" [value]="brand().channelName ?? ''" (input)="patchBrand({ channelName: val($event) })" placeholder="OMKR" [attr.aria-invalid]="brandIssues().channelName ? 'true' : null" />
+                      @if (brandIssues().channelName; as e) { <span class="pb-err">{{ e }}</span> }
+                    </div>
+                    <div class="pb-field">
+                      <label for="pb-b-tagline">Tagline</label>
+                      <input id="pb-b-tagline" type="text" [value]="brand().tagline ?? ''" (input)="patchBrand({ tagline: val($event) })" placeholder="Devotional 3D Animations" [attr.aria-invalid]="brandIssues().tagline ? 'true' : null" />
+                      @if (brandIssues().tagline; as e) { <span class="pb-err">{{ e }}</span> }
+                    </div>
+                    <div class="pb-field">
+                      <label for="pb-b-channelUrl">YouTube channel link</label>
+                      <input id="pb-b-channelUrl" type="url" [value]="brand().channelUrl ?? ''" (input)="patchBrand({ channelUrl: val($event) })" placeholder="https://youtube.com/@your-channel" [attr.aria-invalid]="brandIssues().channelUrl ? 'true' : null" />
+                      @if (brandIssues().channelUrl; as e) { <span class="pb-err">{{ e }}</span> }
+                    </div>
+                    <div class="pb-field">
+                      <label for="pb-b-studioUrl">Studio link</label>
+                      <input id="pb-b-studioUrl" type="url" [value]="brand().studioUrl ?? ''" (input)="patchBrand({ studioUrl: val($event) })" placeholder="https://studio.example.com/" [attr.aria-invalid]="brandIssues().studioUrl ? 'true' : null" />
+                      @if (brandIssues().studioUrl; as e) { <span class="pb-err">{{ e }}</span> }
+                    </div>
+                    <div class="pb-field">
+                      <label for="pb-b-creatorUrl">Creator / portfolio link</label>
+                      <input id="pb-b-creatorUrl" type="url" [value]="brand().creatorUrl ?? ''" (input)="patchBrand({ creatorUrl: val($event) })" placeholder="https://example.com/" [attr.aria-invalid]="brandIssues().creatorUrl ? 'true' : null" />
+                      @if (brandIssues().creatorUrl; as e) { <span class="pb-err">{{ e }}</span> }
+                    </div>
+                    <div class="pb-field">
+                      <label for="pb-b-engineName">Animation tool credited</label>
+                      <input id="pb-b-engineName" type="text" [value]="brand().engineName ?? ''" (input)="patchBrand({ engineName: val($event) })" placeholder="AnimStudio" [attr.aria-invalid]="brandIssues().engineName ? 'true' : null" />
+                      @if (brandIssues().engineName; as e) { <span class="pb-err">{{ e }}</span> }
+                    </div>
+                    <div class="pb-field">
+                      <label for="pb-b-visualsCredit">Visuals credit</label>
+                      <input id="pb-b-visualsCredit" type="text" [value]="brand().visualsCredit ?? ''" (input)="patchBrand({ visualsCredit: val($event) })" placeholder="OMKR 3D Devotional Animations" [attr.aria-invalid]="brandIssues().visualsCredit ? 'true' : null" />
+                      @if (brandIssues().visualsCredit; as e) { <span class="pb-err">{{ e }}</span> }
+                    </div>
+                  </div>
+                  <div class="pb-field" id="pb-b-hashtags">
+                    <label for="pb-b-hashtags-input">Brand hashtags <span class="muted small">(without #; letters, numbers and _; up to 10)</span></label>
+                    <app-tag-editor inputId="pb-b-hashtags-input" prefix="#" [tags]="brand().hashtags" (tagsChange)="patchBrand({ hashtags: $event })" [rules]="hashtagRules"
+                                    [error]="brandIssues().hashtags" placeholder="e.g. OMKR AnimStudio" />
+                  </div>
+                  <div class="pb-field" id="pb-b-tags">
+                    <label for="pb-b-tags-input">Brand search tags <span class="muted small">(offered as extra tag ideas; up to 15)</span></label>
+                    <app-tag-editor inputId="pb-b-tags-input" [tags]="brand().tags" (tagsChange)="patchBrand({ tags: $event })" [rules]="brandTagRules"
+                                    [error]="brandIssues().tags" placeholder="e.g. omkr, omkr shiv" />
+                  </div>
+                </details>
+
+                <!-- ---------------------------------------------------- bulk apply -->
+                <section class="card pb-card pb-bulk" id="pb-bulk" aria-labelledby="pb-bulk-title">
+                  <div class="studio-card-head">
+                    <div class="studio-card-title-group"><h3 id="pb-bulk-title">Apply to other channels</h3><span class="pill">Bulk</span></div>
+                    <button type="button" class="secondary small" (click)="toggleBulk()" [attr.aria-expanded]="bulkOpen()" aria-controls="pb-bulk-body"
+                            [disabled]="bulkPhase() === 'reading' || bulkPhase() === 'applying' || brandChannels().length < 2">
+                      <app-ico name="layers" [size]="14" /> {{ bulkOpen() ? 'Close' : 'Choose channels…' }}
+                    </button>
+                  </div>
+                  <p class="muted small">
+                    Copy some of the values above to several channels at once. Nothing is saved until you have seen, channel by channel, exactly what would change.
+                    @if (brandChannels().length < 2) { <b>You need a second channel for this.</b> }
+                  </p>
+
+                  @if (bulkOpen()) {
+                    <div id="pb-bulk-body" class="pb-bulk-body">
+                      @switch (bulkPhase()) {
+                        @case ('pick') {
+                          <div class="pb-bulk-cols">
+                            <fieldset class="pb-fieldset pb-bulk-fields">
+                              <legend>1. What to copy <span class="muted small">(from the form above{{ dirty() ? ', including unsaved changes' : '' }})</span></legend>
+                              <label class="pb-check"><input type="checkbox" [checked]="bulkChoice().privacy" (change)="setBulk('privacy', checked($event))" /> <span><b>Visibility</b> <em>{{ privacyLabel(f.privacy) || 'not set' }}</em></span></label>
+                              <label class="pb-check"><input type="checkbox" [checked]="bulkChoice().categoryId" (change)="setBulk('categoryId', checked($event))" /> <span><b>Category</b> <em>{{ categoryName(f.categoryId) }}</em></span></label>
+                              <label class="pb-check"><input type="checkbox" [checked]="bulkChoice().madeForKids" (change)="setBulk('madeForKids', checked($event))" /> <span><b>Audience</b> <em>{{ f.madeForKids ? 'Made for kids' : 'Not made for kids' }}</em></span></label>
+                              <label class="pb-check"><input type="checkbox" [checked]="bulkChoice().notifySubscribers" (change)="setBulk('notifySubscribers', checked($event))" /> <span><b>Notify subscribers</b> <em>{{ f.notifySubscribers ? 'On' : 'Off' }}</em></span></label>
+                              <div class="pb-check-group">
+                                <label class="pb-check"><input type="checkbox" [checked]="bulkChoice().tags !== 'off'" (change)="setBulkTags(checked($event) ? 'add' : 'off')" /> <span><b>Tags</b> <em>{{ plural(f.tags.length, 'tag') }}</em></span></label>
+                                @if (bulkChoice().tags !== 'off') {
+                                  <div class="pb-sub-radios" role="radiogroup" aria-label="How to apply the tags">
+                                    <label><input type="radio" name="pb-bulk-tags" [checked]="bulkChoice().tags === 'add'" (change)="setBulkTags('add')" /> Add to each channel’s own tags</label>
+                                    <label><input type="radio" name="pb-bulk-tags" [checked]="bulkChoice().tags === 'replace'" (change)="setBulkTags('replace')" /> Replace each channel’s tags</label>
+                                  </div>
+                                }
+                              </div>
+                              <label class="pb-check"><input type="checkbox" [checked]="bulkChoice().descriptionFooter" (change)="setBulk('descriptionFooter', checked($event))" /> <span><b>Description footer</b> <em>{{ footer().text ? footer().bytes + ' bytes' : 'empty (clears it)' }}</em></span></label>
+                              <label class="pb-check"><input type="checkbox" [checked]="bulkChoice().firstComment" (change)="setBulk('firstComment', checked($event))" /> <span><b>First comment</b> <em>{{ commentLength() ? commentLength() + ' characters' : 'empty (clears it)' }}</em></span></label>
+                              @if (bulkSourceProblem(); as p) { <p class="pb-err">{{ p }} Fix it above first.</p> }
+                            </fieldset>
+
+                            <fieldset class="pb-fieldset pb-bulk-targets">
+                              <legend>2. Which channels <span class="muted small">({{ bulkTargets().size }} chosen)</span></legend>
+                              <div class="pb-bulk-tools">
+                                <div class="pb-search is-small">
+                                  <app-ico name="search" [size]="14" />
+                                  <input type="search" autocomplete="off" placeholder="Filter channels…" aria-label="Filter the channels to choose from" [value]="bulkQuery()" (input)="bulkQuery.set(val($event))" />
+                                </div>
+                                <button type="button" class="pb-link" (click)="selectShown()">Select shown</button>
+                                <button type="button" class="pb-link" (click)="clearTargets()" [disabled]="bulkTargets().size === 0">Clear</button>
+                              </div>
+                              <ul class="pb-targets">
+                                @for (e of bulkCandidates(); track e.key) {
+                                  <li>
+                                    <label class="pb-target" [class.is-on]="bulkTargets().has(e.key)">
+                                      <input type="checkbox" [checked]="bulkTargets().has(e.key)" (change)="toggleTarget(e.key, checked($event))" />
+                                      <span class="pb-avatar sm">@if (safePicture(e.c.youTubeThumbnailUrl); as pic) { <img [src]="pic" alt="" referrerpolicy="no-referrer" loading="lazy" /> } @else { {{ initial(e.c.name) }} }</span>
+                                      <span class="pb-target-name">{{ e.c.name }} @if (e.c.isDefault) { <span class="pb-badge">Default</span> }</span>
+                                      @if (e.settings; as s) { <span class="pb-vis" [attr.data-v]="(s.privacy || '').toLowerCase()">{{ privacyLabel(s.privacy) || '—' }}</span> }
+                                    </label>
+                                  </li>
+                                } @empty { <li class="muted pb-list-empty">No other channel matches.</li> }
+                              </ul>
+                            </fieldset>
+                          </div>
+                          <div class="pb-bulk-actions">
+                            <button type="button" (click)="previewBulk()" [disabled]="!canPreview()"><app-ico name="eye" /> Preview changes</button>
+                            <span class="muted small">
+                              @if (bulkCount() === 0) { Choose at least one thing to copy. } @else if (bulkTargets().size === 0) { Choose at least one channel. } @else { Nothing is saved yet. }
+                            </span>
+                          </div>
+                        }
+
+                        @case ('reading') {
+                          <div class="pb-progress" role="status" aria-live="polite">
+                            <span class="spinner"></span> Reading the current settings of {{ plural(bulkProgress().total, 'channel') }}… {{ bulkProgress().done }} of {{ bulkProgress().total }}
+                            <div class="pb-bar"><i [style.width.%]="bulkProgress().total ? (bulkProgress().done / bulkProgress().total) * 100 : 0"></i></div>
+                          </div>
+                        }
+
+                        @case ('preview') {
+                          <div class="pb-preview-summary" role="status">
+                            <strong>{{ bulkSummary().changing }}</strong> {{ bulkSummary().changing === 1 ? 'channel will' : 'channels will' }} change
+                            @if (bulkSummary().same > 0) { · {{ bulkSummary().same }} already match }
+                            @if (bulkSummary().blocked > 0) { · <span class="pb-err-inline">{{ bulkSummary().blocked }} can’t be changed</span> }
+                            <span class="muted small">({{ choiceSummary() }})</span>
+                          </div>
+                          @if (bulkStale()) {
+                            <div class="pb-alert is-warn" role="alert">
+                              <app-ico name="alert" />
+                              <div class="pb-alert-body"><strong>The form changed after this preview.</strong> Preview again so what you apply is what you saw.</div>
+                              <button type="button" class="small" (click)="previewBulk()" [disabled]="!canPreview()">Preview again</button>
+                            </div>
+                          }
+                          <div class="studio-table-wrap pb-preview-table">
+                            <table>
+                              <thead><tr><th scope="col">Channel</th><th scope="col">What changes</th></tr></thead>
+                              <tbody>
+                                @for (row of bulkRows(); track row.key) {
+                                  <tr [class.is-blocked]="row.error || row.plan?.blocked" [class.is-same]="!row.error && !row.plan?.blocked && row.plan?.changes?.length === 0">
+                                    <th scope="row" class="pb-pt-name">{{ row.name }}</th>
+                                    <td>
+                                      @if (row.error) {
+                                        <span class="pb-err-inline"><app-ico name="alert" [size]="12" /> {{ row.error }}</span>
+                                      } @else if (row.plan?.blocked; as why) {
+                                        <span class="pb-err-inline"><app-ico name="alert" [size]="12" /> {{ why }}</span>
+                                      } @else if (row.plan && row.plan.changes.length > 0) {
+                                        <ul class="pb-changes">
+                                          @for (ch of row.plan.changes; track ch.field) {
+                                            <li><span class="pb-ch-field">{{ ch.field }}</span> <span class="pb-ch-from">{{ ch.from }}</span> <app-ico name="chevronRight" [size]="11" /> <span class="pb-ch-to">{{ ch.to }}</span></li>
+                                          }
+                                        </ul>
+                                      } @else {
+                                        <span class="muted">Already matches - nothing to change.</span>
+                                      }
+                                    </td>
+                                  </tr>
+                                }
+                              </tbody>
+                            </table>
+                          </div>
+                          <div class="pb-bulk-actions">
+                            <button type="button" (click)="applyBulk()" [disabled]="bulkSummary().changing === 0 || bulkStale()"><app-ico name="send" /> {{ bulkLabel() }}</button>
+                            <button type="button" class="secondary" (click)="backToPick()">Back</button>
+                            <span class="muted small">Saved one channel at a time. You can undo afterwards.</span>
+                          </div>
+                        }
+
+                        @case ('applying') {
+                          <div class="pb-progress" role="status" aria-live="polite">
+                            <span class="spinner"></span> {{ bulkUndone() ? 'Restoring' : 'Saving' }} {{ bulkProgress().name || '…' }} - {{ bulkProgress().done }} of {{ bulkProgress().total }}
+                            <div class="pb-bar"><i [style.width.%]="bulkProgress().total ? (bulkProgress().done / bulkProgress().total) * 100 : 0"></i></div>
+                          </div>
+                        }
+
+                        @case ('done') {
+                          <div class="pb-preview-summary" role="status">
+                            @if (bulkUndone()) { <strong>Restored {{ plural(bulkOutcome().ok, 'channel') }}</strong> to what they had before. }
+                            @else { <strong>Saved {{ plural(bulkOutcome().ok, 'channel') }}.</strong> @if (bulkOutcome().failed > 0) { <span class="pb-err-inline">{{ bulkOutcome().failed }} failed.</span> } }
+                          </div>
+                          <ul class="pb-results">
+                            @for (row of bulkRows(); track row.key) {
+                              @if (resultOf(row.key); as res) {
+                                <li [class.is-ok]="res.ok" [class.is-bad]="!res.ok">
+                                  <app-ico [name]="res.ok ? 'check' : 'alert'" [size]="13" /> <b>{{ row.name }}</b> - {{ res.message }}
+                                </li>
+                              }
+                            }
+                          </ul>
+                          <div class="pb-bulk-actions">
+                            @if (!bulkUndone() && bulkUndo().length > 0) { <button type="button" class="secondary" (click)="undoBulk()"><app-ico name="undo" /> Undo these changes</button> }
+                            @if (!bulkUndone() && bulkOutcome().failed > 0) { <button type="button" class="secondary" (click)="retryFailed()"><app-ico name="refresh" /> Retry the failed</button> }
+                            <button type="button" (click)="resetBulk()">Done</button>
+                          </div>
+                        }
+                      }
+                    </div>
+                  }
+                </section>
+              </div>
+
+              <!-- ---------------------------------------------------- save bar -->
+              <div class="pb-savebar" [class.is-dirty]="dirty()" [class.is-idle]="!dirty() && !saving() && !saveError() && problems().length === 0 && !savedAt()">
+                @if (saveError(); as err) {
+                  <div class="pb-alert is-err pb-save-error" role="alert">
+                    <app-ico name="alert" />
+                    <div class="pb-alert-body"><strong>Couldn’t save.</strong> {{ err.message }}</div>
+                    @if (fieldForError(err.code); as target) { <button type="button" class="secondary small" (click)="goTo(target)">Go to the field</button> }
+                    <button type="button" class="pb-x" (click)="saveError.set(null)" aria-label="Dismiss"><app-ico name="x" [size]="14" /></button>
+                  </div>
+                }
+                <div class="pb-savebar-row">
+                  <div class="pb-save-state" role="status" aria-live="polite">
+                    @if (saving()) {
+                      <span class="spinner"></span> Saving…
+                    } @else if (editor() === 'loading') {
+                      <span class="spinner"></span> Loading…
+                    } @else if (problems().length > 0) {
+                      <app-ico name="alert" [size]="15" />
+                      <span class="pb-save-text">{{ plural(problems().length, 'problem') }} to fix before saving: {{ problems()[0].message }}</span>
+                      <button type="button" class="pb-link" (click)="goTo(problems()[0].id)">Show</button>
+                    } @else if (dirty()) {
+                      <span class="pb-dirty-dot"></span> <span class="pb-save-text">Unsaved changes</span>
+                    } @else if (savedAt(); as at) {
+                      <app-ico name="check" [size]="15" /> <span class="pb-save-text">Saved at {{ at | date: 'shortTime' }} - new publishes for this channel start with these details.</span>
+                    } @else {
+                      <span class="muted">No changes</span>
+                    }
+                  </div>
+                  <div class="pb-save-actions">
+                    <button type="button" class="secondary" (click)="discard()" [disabled]="!dirty() || saving()">Discard</button>
+                    <button type="button" (click)="save()" [disabled]="!canSave()"><app-ico name="save" /> Save <kbd class="pb-kbd-inline">Ctrl S</kbd></button>
+                  </div>
+                </div>
+              </div>
+            } @else {
+              <div class="pb-body" aria-busy="true" aria-label="Loading this channel’s settings">
+                @for (i of [0, 1, 2]; track i) { <div class="card pb-card"><span class="pb-skel" style="width: 9rem; height: 1.2rem"></span><span class="pb-skel" style="height: 5.5rem; margin-top: 0.8rem"></span></div> }
+              </div>
+            }
+          </section>
+        </div>
+      }
+    }
+
+  </div>
+  <div class="pb-sr" role="status" aria-live="polite">{{ liveMessage() }}</div>
+</div>

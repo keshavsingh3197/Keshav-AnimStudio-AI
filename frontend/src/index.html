@@ -6,6 +6,19 @@
   <link rel="icon" href="data:,">
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <meta name="theme-color" content="#07090e">
+  <script>
+    // Apply the saved theme before first paint so there is no flash. Dark is the default.
+    (function () {
+      var theme = 'dark';
+      try { if (localStorage.getItem('animstudio.theme') === 'light') theme = 'light'; } catch (e) {}
+      var root = document.documentElement;
+      root.setAttribute('data-theme', theme);
+      root.style.colorScheme = theme;
+      if (theme === 'light') document.querySelector('meta[name="theme-color"]').setAttribute('content', '#f2f5fb');
+    })();
+  </script>
 </head>
 <body>
   <app-root></app-root>

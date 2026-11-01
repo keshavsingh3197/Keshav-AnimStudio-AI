@@ -36,14 +36,14 @@
   font-size: 1.5rem;
   font-weight: 700;
   margin: 0;
-  color: #fff;
+  color: var(--text);
   letter-spacing: -0.02em;
 }
 
 .settings-header p {
   margin: 0.25rem 0 0;
   font-size: 0.88rem;
-  color: #8b9bb4;
+  color: var(--muted);
 }
 
 .settings-top-actions {
@@ -81,7 +81,7 @@
   font-size: 1.15rem;
   font-weight: 700;
   margin: 0;
-  color: #fff;
+  color: var(--text);
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -90,7 +90,7 @@
 .card-section-head p {
   margin: 0.2rem 0 0;
   font-size: 0.84rem;
-  color: #8b9bb4;
+  color: var(--muted);
 }
 
 /* ── Form Controls & Inputs ─────────────────────────────────────── */
@@ -102,7 +102,7 @@
   display: block;
   font-size: 0.82rem;
   font-weight: 600;
-  color: #c9d1d9;
+  color: var(--text-dim);
   margin-bottom: 0.45rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -110,7 +110,7 @@
 
 .form-label .sub {
   font-weight: 400;
-  color: #8b9bb4;
+  color: var(--muted);
   text-transform: none;
   letter-spacing: normal;
   margin-left: 0.35rem;
@@ -120,11 +120,11 @@
 .form-select,
 .form-textarea {
   width: 100%;
-  background: #0d1117;
+  background: var(--surface);
   border: 1px solid var(--border, #21293a);
   border-radius: 8px;
   padding: 0.65rem 0.85rem;
-  color: #fff;
+  color: var(--text);
   font-size: 0.9rem;
   transition: all 0.2s ease;
   box-sizing: border-box;
@@ -152,7 +152,7 @@
 }
 
 .preset-card-btn {
-  background: #0d1117;
+  background: var(--surface);
   border: 1px solid var(--border, #21293a);
   border-radius: 10px;
   padding: 0.85rem 1rem;
@@ -172,7 +172,7 @@
 }
 
 .preset-card-btn.active {
-  background: color-mix(in srgb, var(--brand, #6c8cff) 12%, #0d1117);
+  background: color-mix(in srgb, var(--brand, #6c8cff) 12%, var(--surface));
   border-color: var(--brand, #6c8cff);
   box-shadow: 0 0 0 1px var(--brand, #6c8cff), 0 6px 20px rgba(108, 140, 255, 0.2);
 }
@@ -189,8 +189,8 @@
   font-weight: 700;
   padding: 2px 6px;
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.08);
-  color: #93c5fd;
+  background: var(--ov-3);
+  color: var(--text-dim);
 }
 
 .preset-card-btn.active .preset-aspect-pill {
@@ -201,12 +201,12 @@
 .preset-title {
   font-size: 0.88rem;
   font-weight: 600;
-  color: #fff;
+  color: var(--text);
 }
 
 .preset-res {
   font-size: 0.75rem;
-  color: #8b9bb4;
+  color: var(--muted);
   font-family: ui-monospace, monospace;
 }
 
@@ -216,7 +216,7 @@
   grid-template-columns: 1fr auto 1fr auto;
   align-items: center;
   gap: 0.85rem;
-  background: #0d1117;
+  background: var(--surface);
   padding: 0.85rem 1.1rem;
   border-radius: 10px;
   border: 1px solid var(--border, #21293a);
@@ -224,7 +224,7 @@
 }
 
 .dim-separator {
-  color: #8b9bb4;
+  color: var(--muted);
   font-size: 1.2rem;
   font-weight: 300;
 }
@@ -244,19 +244,19 @@
   font-weight: 700;
   background: rgba(108, 140, 255, 0.15);
   border: 1px solid rgba(108, 140, 255, 0.35);
-  color: #93c5fd;
+  color: var(--text-dim);
 }
 
 .badge-format.short {
   background: rgba(34, 197, 94, 0.15);
   border-color: rgba(34, 197, 94, 0.35);
-  color: #86efac;
+  color: var(--c-green);
 }
 
 .badge-format.square {
   background: rgba(234, 179, 8, 0.15);
   border-color: rgba(234, 179, 8, 0.35);
-  color: #fde047;
+  color: var(--c-yellow);
 }
 
 /* ── Segmented Button Rows ──────────────────────────────────────── */
@@ -267,11 +267,11 @@
 }
 
 .segment-btn {
-  background: #0d1117;
+  background: var(--surface);
   border: 1px solid var(--border, #21293a);
   border-radius: 8px;
   padding: 0.55rem 1rem;
-  color: #c9d1d9;
+  color: var(--text-dim);
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
@@ -282,13 +282,13 @@
 .segment-btn:hover {
   background: var(--surface-2, #141923);
   border-color: color-mix(in srgb, var(--brand, #6c8cff) 40%, var(--border, #21293a));
-  color: #fff;
+  color: var(--text);
 }
 
 .segment-btn.active {
   background: color-mix(in srgb, var(--brand, #6c8cff) 20%, transparent);
   border-color: var(--brand, #6c8cff);
-  color: #fff;
+  color: var(--text);
   box-shadow: 0 0 0 1px var(--brand, #6c8cff);
 }
 
@@ -309,7 +309,7 @@
   font-family: ui-monospace, monospace;
   font-size: 0.78rem;
   font-weight: 700;
-  color: #93c5fd;
+  color: var(--text-dim);
   background: rgba(59, 130, 246, 0.15);
   border: 1px solid rgba(59, 130, 246, 0.3);
   padding: 2px 8px;
@@ -319,7 +319,7 @@
 .form-range {
   width: 100%;
   height: 6px;
-  background: #0d1117;
+  background: var(--surface);
   border-radius: 99px;
   outline: none;
   cursor: pointer;
@@ -335,7 +335,7 @@
   gap: 0.75rem;
   padding: 0.85rem 1.1rem;
   border-radius: 10px;
-  background: #0d1117;
+  background: var(--surface);
   border: 1px solid var(--border, #21293a);
   margin-bottom: 1.25rem;
 }
@@ -364,11 +364,11 @@
 }
 
 .pos-btn {
-  background: #0d1117;
+  background: var(--surface);
   border: 1px solid var(--border, #21293a);
   border-radius: 6px;
   padding: 0.5rem 0.65rem;
-  color: #8b9bb4;
+  color: var(--muted);
   font-size: 0.8rem;
   font-weight: 600;
   cursor: pointer;
@@ -378,19 +378,19 @@
 
 .pos-btn:hover {
   background: var(--surface-2, #141923);
-  color: #fff;
+  color: var(--text);
   border-color: color-mix(in srgb, var(--brand, #6c8cff) 40%, var(--border, #21293a));
 }
 
 .pos-btn.active {
   background: color-mix(in srgb, var(--brand, #6c8cff) 20%, transparent);
   border-color: var(--brand, #6c8cff);
-  color: #fff;
+  color: var(--text);
 }
 
 /* ── Interactive Live Watermark Canvas Mockup ───────────────────── */
 .watermark-mockup-wrapper {
-  background: #090c13;
+  background: var(--bg);
   border: 1px solid var(--border, #21293a);
   border-radius: 12px;
   padding: 1.25rem;
@@ -407,7 +407,7 @@
   width: 100%;
   max-width: 520px;
   font-size: 0.8rem;
-  color: #8b9bb4;
+  color: var(--muted);
 }
 
 .watermark-viewport {
@@ -415,10 +415,10 @@
   width: 100%;
   max-width: 520px;
   aspect-ratio: 16 / 9;
-  background: radial-gradient(circle at center, #172033 0%, #080b12 100%);
+  background: radial-gradient(circle at center, var(--surface-3) 0%, var(--bg) 100%);
   border-radius: 8px;
   overflow: hidden;
-  border: 2px solid #232c40;
+  border: 2px solid var(--border);
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.8);
   display: flex;
   transition: all 0.2s ease;
@@ -428,8 +428,8 @@
   position: absolute;
   inset: 0;
   background-image: 
-    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+    linear-gradient(to right, var(--ov-1) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--ov-1) 1px, transparent 1px);
   background-size: 24px 24px;
   pointer-events: none;
 }
@@ -442,7 +442,7 @@
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  border: 1px dashed rgba(255, 255, 255, 0.15);
+  border: 1px dashed var(--ov-4);
   pointer-events: none;
 }
 
@@ -472,7 +472,7 @@
   width: 44px;
   height: 24px;
   border-radius: 99px;
-  background: #0d1117;
+  background: var(--surface);
   border: 1px solid var(--border, #21293a);
   position: relative;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
@@ -510,12 +510,12 @@
 .toggle-title {
   font-size: 0.9rem;
   font-weight: 600;
-  color: #fff;
+  color: var(--text);
 }
 
 .toggle-desc {
   font-size: 0.82rem;
-  color: #8b9bb4;
+  color: var(--muted);
   line-height: 1.4;
 }
 
@@ -530,7 +530,7 @@
 }
 
 .danger-card h3 {
-  color: #fca5a5;
+  color: var(--c-red);
 }
 
 /* ── Save Notification Toast / Pill ─────────────────────────────── */
@@ -540,7 +540,7 @@
   gap: 6px;
   background: rgba(34, 197, 94, 0.18);
   border: 1px solid rgba(34, 197, 94, 0.4);
-  color: #86efac;
+  color: var(--c-green);
   font-size: 0.82rem;
   font-weight: 700;
   padding: 6px 14px;
@@ -577,7 +577,7 @@
   background: transparent;
   border: 1px solid var(--border, #21293a);
   border-radius: 8px;
-  color: #c9d1d9;
+  color: var(--text-dim);
   font-size: 0.85rem;
   font-weight: 600;
   padding: 6px 14px;
@@ -588,7 +588,7 @@
 .btn-outline:hover {
   border-color: var(--brand, #6c8cff);
   background: var(--surface-2, #141923);
-  color: #fff;
+  color: var(--text);
 }
 
 .btn-danger-solid {
@@ -610,7 +610,7 @@
 .btn-danger-outline {
   background: transparent;
   border: 1px solid rgba(239, 68, 68, 0.4);
-  color: #f87171;
+  color: var(--c-red);
   border-radius: 8px;
   font-size: 0.85rem;
   font-weight: 600;
@@ -635,10 +635,10 @@
   width: 100%;
   max-width: 520px;
   aspect-ratio: 16 / 9;
-  background: #080b12;
+  background: var(--bg);
   border-radius: 8px;
   overflow: hidden;
-  border: 2px solid #232c40;
+  border: 2px solid var(--border);
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.8);
   display: flex;
   align-items: center;
@@ -664,12 +664,12 @@
   left: 10px;
   background: rgba(0, 0, 0, 0.7);
   backdrop-filter: blur(4px);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid var(--ov-4);
   padding: 3px 8px;
   border-radius: 4px;
   font-size: 0.75rem;
   font-weight: 700;
-  color: #93c5fd;
+  color: rgba(255, 255, 255, 0.82);
   display: flex;
   align-items: center;
   gap: 5px;
@@ -677,8 +677,33 @@
 }
 
 @media (max-width: 768px) {
+  .settings-top-actions {
+    width: 100%;
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+  .channel-picker {
+    min-width: 0;
+    max-width: 100%;
+    flex-wrap: wrap;
+  }
+  .channel-picker .form-select {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .settings-card {
+    padding: 1rem;
+    min-width: 0;
+  }
+  .card-section-head {
+    flex-wrap: wrap;
+  }
+  .segment-btn {
+    max-width: 100%;
+    white-space: normal;
+  }
   .dimension-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 0.5rem;
   }
   .dim-separator {
@@ -693,7 +718,7 @@
 }
 
 /* Channel picker in the header: which YouTube channel's watermark + end card this project uses. */
-.channel-picker { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; color: #c9d1d9; font-weight: 600; }
+.channel-picker { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; color: var(--text-dim); font-weight: 600; }
 .channel-picker .form-select { min-width: 180px; padding: 6px 10px; }
 
 /* Watermark controls while the project follows its channel: visible, not editable. */

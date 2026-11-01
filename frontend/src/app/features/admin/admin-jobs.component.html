@@ -1,95 +1,337 @@
 <div class="page-head" style="margin-top: 0">
-  <div style="display: flex; align-items: flex-start; gap: 0.85rem">
-    <div class="studio-icon-badge amber" style="width: 2.6rem; height: 2.6rem; margin-top: 2px">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <div class="ad-title">
+    <div class="studio-icon-badge amber">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/>
       </svg>
     </div>
     <div>
-      <div class="row" style="gap: 0.5rem; margin-bottom: 0.15rem">
-        <h2 style="margin: 0">Render Queue &amp; Jobs</h2>
+      <div class="row">
+        <h2>Render Queue &amp; Jobs</h2>
         @if (loaded()) {
-          <span class="pill brand">{{ jobs().length }} recent</span>
+          <span class="pill brand">{{ rows().length }} loaded</span>
+          @if (stats().active > 0) { <span class="pill warn">{{ stats().active }} active</span> }
         }
       </div>
-      <p class="muted">The 40 most recent renders across all projects, newest first.</p>
+      <p class="muted">Renders across all projects, newest first. Watch a long one, cancel it, or queue a failed one again.</p>
     </div>
   </div>
-  <div class="row">
-    <button type="button" class="secondary" (click)="reload()" [disabled]="status.busy()">
+  <div class="row jb-actions">
+    <label class="switch" title="Refresh by itself: every 5 seconds while renders are active, every 30 seconds otherwise">
+      <input type="checkbox" [checked]="live()" (change)="setLive($any($event.target).checked)" />
+      <span class="track"></span>
+      <span class="muted">Live</span>
+    </label>
+    <button type="button" class="secondary" (click)="exportCsv()" [disabled]="visible().length === 0"
+            title="Download what the filters show as a spreadsheet">
+      ⬇ Export CSV
+    </button>
+    <button type="button" class="secondary" (click)="reload()" [disabled]="loading()">
+      @if (loading()) { <span class="spinner" aria-hidden="true"></span> }
       ↻ Refresh
     </button>
   </div>
 </div>
 
-@if (!loaded()) {
-  <div class="empty muted">Loading renders&hellip;</div>
-} @else if (jobs().length === 0) {
-  <div class="empty">Nothing has been rendered on this server yet.</div>
-} @else {
-  <div class="card">
-    <div class="studio-card-head">
-      <div class="studio-card-title-group">
-        <h3>Recent Render Jobs</h3>
-        <span class="pill">{{ jobs().length }}</span>
-      </div>
-    </div>
-    <div class="studio-table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Project</th><th>State</th><th>Progress</th>
-            <th>Started</th><th></th>
-          </tr>
-        </thead>
-        <tbody>
-          @for (job of jobs(); track job.id) {
-            <tr>
-              <td>
-                <a [routerLink]="['/projects', job.projectId, 'render']">
-                  <strong>{{ job.projectName ?? 'a deleted project' }}</strong>
-                </a>
-                <div class="mono muted" style="font-size: 0.76rem">{{ job.id }}</div>
-              </td>
-              <td>
-                <span class="pill" [class]="'pill ' + tone(job)">{{ job.status }}</span>
-                @if (job.attempts > 1) {
-                  <div class="muted" style="font-size: 0.76rem; margin-top: 0.2rem">attempt {{ job.attempts }}</div>
-                }
-              </td>
-              <td style="width: 28%">
-                @if (job.isTerminal) {
-                  <span class="muted">
-                    {{ job.scenesDone }} of {{ job.scenesTotal }} scenes
-                  </span>
-                } @else {
-                  <div class="bar"><i [style.width.%]="job.progress"></i></div>
-                  <div class="muted" style="font-size: 0.8rem; margin-top: 0.2rem">{{ job.stage }} &middot; {{ job.message }}</div>
-                }
-                @if (job.errorMessage) {
-                  <div class="muted" style="color: var(--err); font-size: 0.8rem; margin-top: 0.2rem">{{ job.errorMessage }}</div>
-                }
-              </td>
-              <td class="muted mono" style="font-size: 0.8rem">{{ job.createdAt | date: 'short' }}</td>
-              <td style="text-align: right">
-                @if (!job.isTerminal) {
-                  <button type="button" class="secondary small" (click)="cancel(job)">Cancel</button>
-                } @else if (canRetry(job)) {
-                  <button type="button" class="secondary small" (click)="retry(job)">
-                    ↻ Queue again
-                  </button>
-                }
-              </td>
-            </tr>
-          }
-        </tbody>
-      </table>
-    </div>
-    <p class="hint" style="margin-top: 0.75rem">
-      Queueing again resets the attempt count and clears the error, and is offered only for
-      a render that failed or was cancelled &mdash; requeuing a finished one would overwrite
-      the video it already produced.
-    </p>
+@if (failure(); as message) {
+  <div class="notice error ad-flash" role="alert">
+    <span>{{ message }}</span>
+    <button type="button" class="ad-link" (click)="reload()">Try again</button>
   </div>
 }
 
+@if (flash(); as f) {
+  <div class="notice ad-flash" [class.error]="f.tone === 'err'" [class.notice-info]="f.tone === 'ok'" role="status">
+    <span>{{ f.text }}</span>
+    <button type="button" class="ad-link" (click)="flash.set(null)">Dismiss</button>
+  </div>
+}
+
+@if (!loaded() && !failure()) {
+  <div class="ad-kpis" aria-hidden="true">
+    @for (n of [1, 2, 3, 4, 5]; track n) {
+      <div class="ad-kpi">
+        <span class="ad-skel" style="height: 0.7rem; width: 55%"></span>
+        <span class="ad-skel" style="height: 1.4rem; width: 35%; margin-top: 0.3rem"></span>
+      </div>
+    }
+  </div>
+  <div class="card" aria-hidden="true">
+    @for (n of [1, 2, 3, 4, 5]; track n) {
+      <div class="jb-skel-row">
+        <span class="ad-skel" style="width: 1.1rem; height: 1.1rem"></span>
+        <span class="jb-skel-lines">
+          <span class="ad-skel" style="height: 0.85rem; width: 38%"></span>
+          <span class="ad-skel" style="height: 0.7rem; width: 55%"></span>
+        </span>
+        <span class="ad-skel" style="height: 1.3rem; width: 5.5rem; border-radius: 99px"></span>
+      </div>
+    }
+  </div>
+  <span class="ad-sr" role="status">Loading renders…</span>
+} @else if (loaded() && rows().length === 0) {
+  <div class="card ad-empty">
+    <span class="ad-empty-ico" aria-hidden="true">🎞️</span>
+    <strong>Nothing has been rendered on this server yet</strong>
+    <p>When someone renders a project, it shows up here with its progress, how long it took, and what went wrong if it failed.</p>
+  </div>
+} @else if (loaded()) {
+  <div class="ad-kpis">
+    <div class="ad-kpi" [class.is-warn]="stats().active > 0">
+      <span class="ad-kpi-label">Active now</span>
+      <strong class="ad-kpi-val">{{ stats().active }}</strong>
+      <span class="ad-kpi-sub">{{ stats().rendering }} rendering · {{ stats().queued }} queued</span>
+    </div>
+    <div class="ad-kpi" [class.is-err]="stats().failed > 0">
+      <span class="ad-kpi-label">Failed</span>
+      <strong class="ad-kpi-val">{{ stats().failed }}</strong>
+      <span class="ad-kpi-sub">can be queued again</span>
+    </div>
+    <div class="ad-kpi">
+      <span class="ad-kpi-label">Completed</span>
+      <strong class="ad-kpi-val">{{ stats().done }}</strong>
+      <span class="ad-kpi-sub">{{ stats().warnings }} with warnings</span>
+    </div>
+    <div class="ad-kpi" [class.is-ok]="stats().rate !== null && stats().rate! >= 90" [class.is-warn]="stats().rate !== null && stats().rate! < 90">
+      <span class="ad-kpi-label">Success rate</span>
+      <strong class="ad-kpi-val">{{ stats().rate === null ? '—' : stats().rate + '%' }}</strong>
+      <span class="ad-kpi-sub">of finished renders</span>
+    </div>
+    <div class="ad-kpi">
+      <span class="ad-kpi-label">Average render</span>
+      <strong class="ad-kpi-val">{{ stats().average === null ? '—' : formatDuration(stats().average!) }}</strong>
+      <span class="ad-kpi-sub">queued to finished</span>
+    </div>
+  </div>
+
+  @if (stats().stale > 0) {
+    <div class="notice error ad-flash" role="alert">
+      <span>
+        <strong>{{ stats().stale }}</strong> {{ stats().stale === 1 ? 'render has' : 'renders have' }} been active for more than two
+        hours. If the worker restarted, cancel {{ stats().stale === 1 ? 'it' : 'them' }} and queue again.
+      </span>
+      <button type="button" class="ad-link" (click)="state.set('active')">Show active</button>
+    </div>
+  }
+
+  <div class="ad-toolbar" role="search">
+    <div class="ad-search">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+      </svg>
+      <input #search type="search" placeholder="Search project, job id, error…" aria-label="Search renders"
+             [value]="query()" (input)="query.set(search.value)" (keydown.escape)="query.set('')" />
+    </div>
+    <select class="ad-select" aria-label="Sort renders" (change)="sort.set($any($event.target).value)">
+      @for (s of sorts; track s.id) {
+        <option [value]="s.id" [selected]="s.id === sort()">{{ s.label }}</option>
+      }
+    </select>
+    <label class="jb-size muted">
+      Load
+      <select class="ad-select" aria-label="How many renders to load" (change)="setLimit(+$any($event.target).value)">
+        @for (size of sizes; track size) {
+          <option [value]="size" [selected]="size === limit()">{{ size }}</option>
+        }
+      </select>
+    </label>
+    <span class="ad-grow"></span>
+    @if (hasFilters()) {
+      <button type="button" class="ad-link" (click)="clearFilters()">Clear filters</button>
+    }
+  </div>
+
+  <div class="ad-chips" role="group" aria-label="Filter by state">
+    @for (s of states; track s.id) {
+      <button type="button" class="ad-chip" [class.is-active]="state() === s.id" [attr.aria-pressed]="state() === s.id"
+              [disabled]="counts()[s.id] === 0 && state() !== s.id" (click)="state.set(s.id)">
+        {{ s.label }} <span>{{ counts()[s.id] }}</span>
+      </button>
+    }
+  </div>
+
+  <div class="card jb-card">
+    <div class="studio-card-head">
+      <div class="studio-card-title-group">
+        <h3>Render jobs</h3>
+        <span class="pill brand">
+          {{ visible().length }}@if (hasFilters()) { of {{ rows().length }} }
+        </span>
+      </div>
+      @if (stats().failed > 0) {
+        <button type="button" class="ad-link" (click)="selectFailed()">Select all failed</button>
+      }
+    </div>
+
+    @if (visible().length === 0) {
+      <div class="ad-empty">
+        <span class="ad-empty-ico" aria-hidden="true">🔎</span>
+        <strong>No renders match these filters</strong>
+        <p>Try another state, or fewer search words.</p>
+        <button type="button" class="ad-btn" (click)="clearFilters()">Clear filters</button>
+      </div>
+    } @else {
+      <div class="jb-bulk" [class.is-active]="selected().size > 0">
+        <label class="jb-check">
+          <input type="checkbox" [checked]="allVisibleSelected()" (change)="toggleAllVisible()" aria-label="Select every render shown" />
+          @if (selected().size > 0) { <strong>{{ selected().size }} selected</strong> } @else { <span class="muted">Select</span> }
+        </label>
+        @if (selected().size > 0) {
+          @if (cancelable().length > 0) {
+            <button type="button" class="ad-btn jb-danger" (click)="askBulk('cancel')">Cancel {{ cancelable().length }}</button>
+          }
+          @if (retryable().length > 0) {
+            <button type="button" class="ad-btn" (click)="askBulk('retry')">↻ Queue {{ retryable().length }} again</button>
+          }
+          @if (cancelable().length === 0 && retryable().length === 0) {
+            <span class="muted">Finished renders cannot be changed.</span>
+          }
+          <button type="button" class="ad-link" (click)="clearSelection()">Clear</button>
+        }
+      </div>
+
+      @if (pending(); as p) {
+        @if (p.ids.length > 1) {
+          <div class="jb-confirm" [class.is-danger]="p.kind === 'cancel'" role="alertdialog" aria-label="Confirm">
+            <div class="jb-confirm-text">
+              <strong>
+                {{ p.kind === 'cancel' ? 'Cancel' : 'Queue again' }} {{ p.ids.length }} renders?
+              </strong>
+              <span>
+                @if (p.kind === 'cancel') {
+                  Work already done on these renders is lost, and each one can be queued again afterwards.
+                } @else {
+                  This resets the attempt count and clears each error. Finished videos are never touched.
+                }
+              </span>
+            </div>
+            <div class="jb-confirm-actions">
+              <button type="button" class="ad-btn" [class.jb-danger]="p.kind === 'cancel'" (click)="confirmPending()">
+                Yes, {{ p.kind === 'cancel' ? 'cancel them' : 'queue them' }}
+              </button>
+              <button type="button" class="ad-link" (click)="dismissPending()">Keep as is</button>
+            </div>
+          </div>
+        }
+      }
+
+      <ul class="jb-list">
+        @for (r of visible(); track r.job.id) {
+          <li class="jb-row" [class.is-selected]="isSelected(r)" [class.is-open]="isOpen(r)" [attr.data-group]="r.group">
+            <div class="jb-grid">
+              <input type="checkbox" class="jb-pick" [checked]="isSelected(r)" (change)="toggleSelected(r)"
+                     [attr.aria-label]="'Select the render of ' + (r.job.projectName ?? 'a deleted project')" />
+
+              <div class="jb-project">
+                @if (r.job.projectName) {
+                  <a [routerLink]="['/projects', r.job.projectId, 'render']"><strong>{{ r.job.projectName }}</strong></a>
+                } @else {
+                  <strong class="muted">a deleted project</strong>
+                }
+                <span class="mono jb-id">{{ r.job.id }}</span>
+              </div>
+
+              <div class="jb-state">
+                <span class="jb-state-top">
+                  <span class="pill" [class]="'pill ' + tone(r.job)">{{ label(r.job) }}</span>
+                  @if (r.job.attempts > 1) { <span class="muted jb-small">attempt {{ r.job.attempts }}</span> }
+                  @if (isStale(r)) { <span class="pill err" title="Active for more than two hours">stuck?</span> }
+                </span>
+                @if (r.group === 'active') {
+                  <span class="bar jb-bar" role="progressbar" [attr.aria-valuenow]="r.job.progress" aria-valuemin="0" aria-valuemax="100">
+                    <i [style.width.%]="r.job.progress"></i>
+                  </span>
+                  <span class="muted jb-small jb-clip" [title]="r.job.stage + ' · ' + (r.job.message ?? '')">
+                    {{ r.job.progress | number: '1.0-0' }}% · {{ r.job.stage }}@if (r.job.message) { · {{ r.job.message }} }
+                  </span>
+                } @else {
+                  <span class="muted jb-small">{{ r.job.scenesDone }} of {{ r.job.scenesTotal }} scenes</span>
+                }
+                @if (r.job.errorMessage) {
+                  <span class="jb-error" [title]="r.job.errorMessage">{{ r.job.errorMessage }}</span>
+                }
+              </div>
+
+              <div class="jb-when">
+                <span [title]="whenLong(r.created, r.job.createdAt)">{{ started(r) }}</span>
+                <span class="muted jb-small">{{ durationWord(r) }} {{ duration(r) }}</span>
+              </div>
+
+              <div class="jb-buttons">
+                @if (isWorking(r)) {
+                  <span class="spinner" aria-label="Working"></span>
+                } @else if (r.group === 'active') {
+                  @if (isPendingFor(r)) {
+                    <button type="button" class="ad-btn jb-danger" (click)="confirmPending()">Yes, cancel</button>
+                    <button type="button" class="ad-link" (click)="dismissPending()">Keep</button>
+                  } @else {
+                    <button type="button" class="ad-btn" (click)="askCancel(r)">Cancel</button>
+                  }
+                } @else if (canRetry(r)) {
+                  <button type="button" class="ad-btn" (click)="retry(r)">↻ Queue again</button>
+                }
+                <button type="button" class="jb-toggle" (click)="toggleOpen(r)" [attr.aria-expanded]="isOpen(r)"
+                        [attr.aria-controls]="'job-' + r.job.id" [attr.aria-label]="isOpen(r) ? 'Hide details' : 'Show details'">▸</button>
+              </div>
+            </div>
+
+            @if (isOpen(r)) {
+              <div class="jb-detail" [id]="'job-' + r.job.id">
+                <dl class="jb-facts">
+                  <div>
+                    <dt>Job id</dt>
+                    <dd class="mono">
+                      {{ r.job.id }}
+                      <button type="button" class="ad-link" (click)="copy(r.job.id, 'j' + r.job.id)">{{ copied() === 'j' + r.job.id ? 'Copied' : 'Copy' }}</button>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Project id</dt>
+                    <dd class="mono">{{ r.job.projectId }}</dd>
+                  </div>
+                  <div>
+                    <dt>Stage</dt>
+                    <dd>{{ r.job.stage }}@if (r.job.message) { · {{ r.job.message }} }</dd>
+                  </div>
+                  <div>
+                    <dt>Attempts</dt>
+                    <dd>{{ r.job.attempts }}</dd>
+                  </div>
+                  <div>
+                    <dt>Output video</dt>
+                    <dd>{{ r.job.hasOutput ? 'Saved' : 'None' }}</dd>
+                  </div>
+                  <div>
+                    <dt>Started</dt>
+                    <dd>{{ whenLong(r.created, r.job.createdAt) }}</dd>
+                  </div>
+                  <div>
+                    <dt>Finished</dt>
+                    <dd>{{ r.job.completedAt ? whenLong(r.completed, r.job.completedAt) : '—' }}</dd>
+                  </div>
+                </dl>
+                @if (r.job.errorMessage || r.job.errorCode) {
+                  <div class="jb-errbox">
+                    <span class="jb-label">
+                      Error @if (r.job.errorCode) { <span class="mono">{{ r.job.errorCode }}</span> }
+                      @if (r.job.errorMessage) {
+                        <button type="button" class="ad-link" (click)="copy(r.job.errorMessage, 'e' + r.job.id)">{{ copied() === 'e' + r.job.id ? 'Copied' : 'Copy' }}</button>
+                      }
+                    </span>
+                    <pre class="jb-pre">{{ r.job.errorMessage ?? 'No message was recorded.' }}</pre>
+                  </div>
+                }
+              </div>
+            }
+          </li>
+        }
+      </ul>
+    }
+
+    <p class="hint jb-hint">
+      Queueing again resets the attempt count and clears the error, and is offered only for a render that failed or was
+      cancelled &mdash; requeuing a finished one would overwrite the video it already produced.
+      @if (rows().length >= limit() && limit() < 200) { Only the newest {{ limit() }} are loaded; raise “Load” to see more. }
+    </p>
+  </div>
+}

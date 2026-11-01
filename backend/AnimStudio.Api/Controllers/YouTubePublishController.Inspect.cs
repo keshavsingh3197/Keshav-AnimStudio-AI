@@ -166,12 +166,14 @@ public sealed partial class YouTubePublishController
 
         var settings = await settingsRepo.GetAsync(ct);
         var footerChannel = owner?.ChannelId ?? chosen?.ChannelId;
-        var footer = footerChannel is null ? null : BrandFor(settings, footerChannel).Publishing?.DescriptionFooter;
+        var brandPublishing = footerChannel is null ? null : BrandFor(settings, footerChannel).Publishing;
+        var footer = brandPublishing?.DescriptionFooter;
 
-        var suggestRequest = new YouTubeSuggestRequest(request.Language ?? "en", Fresh: true, Tone: request.Tone ?? "auto",
+        var suggestRequest = new YouTubeSuggestRequest(YouTubeMetadataSuggester.NormalizeLanguage(request.Language), Fresh: true, Tone: request.Tone ?? "auto",
             Brief: request.Brief, ProviderId: request.ProviderId);
         var suggestion = await SuggestWithFallbackAsync(summary, style, suggestRequest, projectId,
-            d => YouTubePublishValidator.WithFooter(d.Trim(), footer), "inspect " + videoId, transcriptSnippet, extras, ct);
+            d => YouTubePublishValidator.WithFooter(d.Trim(), footer), "inspect " + videoId, transcriptSnippet, extras, ct,
+            brandPublishing?.Branding, footer);
 
         logger.LogInformation("User {UserId} inspected YouTube video {VideoId} (own: {Own}, songs: {Songs}, chapters: {Chapters})",
             currentUser.UserId, videoId, owner is not null, songs.Count, chapters.Count);

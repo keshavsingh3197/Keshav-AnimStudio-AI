@@ -278,8 +278,10 @@ public sealed partial class YouTubePublishController(
         var renderDetails = job.Timeline is { } t ? ExportTimelineFormatter.ToPublishingDetails(t) : null;
 
         return await WriteSuggestionAsync(summary, style, request, job.ProjectId,
+            d => YouTubePublishValidator.WithFooter(d, footer), "render " + job.Id, ct,
+            branding: brandSettings?.PublishingFor(project?.Settings.BrandChannelId)?.Branding, footer: footer,
             // Each description carries the render's chapters, credits and the footer, so picking one is complete.
-            d => YouTubeMetadataSuggester.ComposeDescription(d, renderDetails, footer), "render " + job.Id, ct);
+            addDetails: d => YouTubeMetadataSuggester.ComposeDescription(d, renderDetails, null));
     }
 
     /// <summary>
@@ -292,25 +294,24 @@ public sealed partial class YouTubePublishController(
     private async Task<ActionResult<ApiResponse<YouTubeSuggestResponse>>> WriteSuggestionAsync(
         string summary, string style, YouTubeSuggestRequest? request, string? projectId,
         Func<string, string> composeDescription, string subject, CancellationToken ct,
-        string? transcriptText = null, YouTubeSeoExtras? extras = null)
+        string? transcriptText = null, YouTubeSeoExtras? extras = null,
+        ChannelBranding? branding = null, string? footer = null, Func<string, string>? addDetails = null)
     {
-        // Real chapters and music credits go into every description, the model's or the free engine's.
-        if (extras is { IsEmpty: false })
-        {
-            var compose = composeDescription;
-            composeDescription = d => compose(YouTubeVideoInsights.AddChaptersAndCredits(d, extras));
-        }
+        var language = YouTubeMetadataSuggester.NormalizeLanguage(request?.Language);
+        var brand = YouTubeBrandKit.Resolve(branding, request?.Tone);
+        // The chapters, credits, links and hashtags go in code - the same for every engine's answer.
+        var composer = BrandComposer(brand, language, footer, extras, composeDescription, addDetails);
+        composeDescription = composer.Description;
         var brief = YouTubeMetadataSuggester.CleanBrief(request?.Brief);
-        var language = request?.Language is { } lang && YouTubeMetadataSuggester.Languages.Contains(lang) ? lang : "en";
         var toneText = YouTubeMetadataSuggester.ToneText(request?.Tone);
         var requestedProvider = request?.ProviderId?.Trim();
 
         // 1. Direct 100% Free Built-in Local SEO Engine (zero API key, instant, offline-ready)
         if (string.Equals(requestedProvider, YouTubeFreeSeoEngine.FreeLocalProviderId, StringComparison.OrdinalIgnoreCase))
         {
-            var localSuggestion = YouTubeFreeSeoEngine.Generate(summary, style, request?.Tone, language, brief, transcriptText, extras);
+            var localSuggestion = YouTubeFreeSeoEngine.Generate(summary, style, request?.Tone, language, brief, transcriptText, extras, brand);
             return Ok(ApiResponse<YouTubeSuggestResponse>.Ok(ToSuggestResponse(
-                localSuggestion, YouTubeFreeSeoEngine.FreeLocalProviderId, composeDescription)));
+                localSuggestion, YouTubeFreeSeoEngine.FreeLocalProviderId, composer)));
         }
 
         var isPollinationsFree = string.Equals(requestedProvider, YouTubeFreeSeoEngine.FreePollinationsProviderId, StringComparison.OrdinalIgnoreCase);
@@ -337,13 +338,14 @@ public sealed partial class YouTubePublishController(
             var variables = new Dictionary<string, string?>
             {
                 ["summary"] = summary,
-                ["language"] = language,
+                ["language"] = YouTubeMetadataSuggester.LanguageName(language),
                 ["style"] = declared.Contains("tone")
                     ? style
                     : $"{style}. Tone: {toneText}. Creator's notes: {briefText}",
             };
             if (declared.Contains("tone")) variables["tone"] = toneText;
             if (declared.Contains("brief")) variables["brief"] = briefText;
+            if (declared.Contains("brand")) variables["brand"] = YouTubeBrandKit.PromptText(brand);
 
             rendered = await prompts.RenderAsync(YouTubeMetadataSuggester.TemplateKey, variables, ct);
         }
@@ -359,23 +361,23 @@ public sealed partial class YouTubePublishController(
             var freeParsed = YouTubeMetadataSuggester.Parse(freeText);
             if (freeParsed is not null)
             {
-                var completed = YouTubeFreeSeoEngine.EnsureComplete(freeParsed, summary, style, request?.Tone, language, brief, transcriptText, extras);
+                var completed = YouTubeFreeSeoEngine.EnsureComplete(freeParsed, summary, style, request?.Tone, language, brief, transcriptText, extras, brand);
                 logger.LogInformation("Suggested YouTube details for {Subject} with {Provider}.", subject, YouTubeFreeSeoEngine.FreePollinationsProviderId);
                 return Ok(ApiResponse<YouTubeSuggestResponse>.Ok(ToSuggestResponse(
-                    completed, YouTubeFreeSeoEngine.FreePollinationsProviderId, composeDescription)));
+                    completed, YouTubeFreeSeoEngine.FreePollinationsProviderId, composer)));
             }
 
-            var fallbackLocal = YouTubeFreeSeoEngine.Generate(summary, style, request?.Tone, language, brief, transcriptText, extras);
+            var fallbackLocal = YouTubeFreeSeoEngine.Generate(summary, style, request?.Tone, language, brief, transcriptText, extras, brand);
             logger.LogInformation("Suggested YouTube details for {Subject} with {Provider} (fallback).", subject, YouTubeFreeSeoEngine.FreeLocalProviderId);
             return Ok(ApiResponse<YouTubeSuggestResponse>.Ok(ToSuggestResponse(
-                fallbackLocal, YouTubeFreeSeoEngine.FreeLocalProviderId, composeDescription)));
+                fallbackLocal, YouTubeFreeSeoEngine.FreeLocalProviderId, composer)));
         }
 
         if (rendered is null)
         {
-            var fallbackLocal = YouTubeFreeSeoEngine.Generate(summary, style, request?.Tone, language, brief, transcriptText, extras);
+            var fallbackLocal = YouTubeFreeSeoEngine.Generate(summary, style, request?.Tone, language, brief, transcriptText, extras, brand);
             return Ok(ApiResponse<YouTubeSuggestResponse>.Ok(ToSuggestResponse(
-                fallbackLocal, YouTubeFreeSeoEngine.FreeLocalProviderId, composeDescription)));
+                fallbackLocal, YouTubeFreeSeoEngine.FreeLocalProviderId, composer)));
         }
 
         if (!await SuggestSlots.WaitAsync(TimeSpan.FromSeconds(30), ct))
@@ -415,33 +417,55 @@ public sealed partial class YouTubePublishController(
             }
 
             // Auto mode: gracefully fall back to Free Built-in SEO Engine so the user is never blocked
-            var autoFallback = YouTubeFreeSeoEngine.Generate(summary, style, request?.Tone, language, brief, transcriptText, extras);
+            var autoFallback = YouTubeFreeSeoEngine.Generate(summary, style, request?.Tone, language, brief, transcriptText, extras, brand);
             logger.LogInformation("Suggested YouTube details for {Subject} with {Provider} (auto fallback).",
                 subject, YouTubeFreeSeoEngine.FreeLocalProviderId);
             return Ok(ApiResponse<YouTubeSuggestResponse>.Ok(ToSuggestResponse(
-                autoFallback, YouTubeFreeSeoEngine.FreeLocalProviderId, composeDescription)));
+                autoFallback, YouTubeFreeSeoEngine.FreeLocalProviderId, composer)));
         }
 
-        var fullSuggestion = YouTubeFreeSeoEngine.EnsureComplete(suggestion, summary, style, request?.Tone, language, brief, transcriptText, extras);
+        var fullSuggestion = YouTubeFreeSeoEngine.EnsureComplete(suggestion, summary, style, request?.Tone, language, brief, transcriptText, extras, brand);
         logger.LogInformation("Suggested YouTube details for {Subject} with {Provider}.",
             subject, outcome.Value!.Provenance.ProviderId);
         return Ok(ApiResponse<YouTubeSuggestResponse>.Ok(ToSuggestResponse(
-            fullSuggestion, outcome.Value.Provenance.ProviderId, composeDescription)));
+            fullSuggestion, outcome.Value.Provenance.ProviderId, composer)));
     }
 
+    /// <summary>What a suggestion's description and comment go through before the user sees them.</summary>
+    private sealed record SuggestComposer(Func<string, string> Description, Func<string?, string?> Comment, ChannelBranding Branding);
+
+    /// <summary>
+    /// The finishing for every description: <paramref name="addDetails"/> and the video's chapters and
+    /// music credits, then the channel's credits, links and hashtags, then <paramref name="finish"/>.
+    /// </summary>
+    private static SuggestComposer BrandComposer(
+        ChannelBranding brand, string language, string? footer, YouTubeSeoExtras? extras,
+        Func<string, string> finish, Func<string, string>? addDetails) =>
+        new(d => finish(YouTubeBrandKit.Compose(d, brand, language, footer, body =>
+            {
+                if (addDetails is not null) body = addDetails(body);
+                return extras is { IsEmpty: false } ? YouTubeVideoInsights.AddChaptersAndCredits(body, extras) : body;
+            })),
+            c => YouTubeBrandKit.WithLinks(c, brand, language),
+            brand);
+
     private static YouTubeSuggestResponse ToSuggestResponse(
-        YouTubeMetadataSuggestion suggestion, string providerId, Func<string, string> composeDescription) =>
-        new(
+        YouTubeMetadataSuggestion suggestion, string providerId, SuggestComposer composer)
+    {
+        var have = new HashSet<string>(suggestion.Tags.Concat(suggestion.TagIdeas), StringComparer.OrdinalIgnoreCase);
+        var ideas = suggestion.TagIdeas.Concat(composer.Branding.Tags.Where(t => have.Add(t))).ToList();
+        return new(
             suggestion.Title,
-            composeDescription(suggestion.Description),
+            composer.Description(suggestion.Description),
             suggestion.Tags,
             providerId,
             suggestion.TitleOptions,
-            [.. suggestion.DescriptionOptions.Select(composeDescription)],
-            suggestion.TagIdeas,
-            suggestion.PinnedComment,
+            [.. suggestion.DescriptionOptions.Select(composer.Description)],
+            ideas,
+            composer.Comment(suggestion.PinnedComment),
             suggestion.EngagementComment,
             suggestion.TranscriptText);
+    }
 
     /// <summary>Checks everything, then queues the upload. Returns at once with an upload to poll.</summary>
     [HttpPost("render-jobs/{jobId}/publish")]
@@ -592,6 +616,7 @@ public sealed partial class YouTubePublishController(
     /// One frame of the render as a JPEG, for the publish dialog's thumbnail picker. The frame
     /// picked is grabbed again at full size when publishing, so this one can be small.
     /// </summary>
+    [AllowMediaTicket]
     [HttpGet("render-jobs/{jobId}/frame")]
     public async Task<IActionResult> Frame(string jobId, [FromQuery] double at, [FromQuery] int? width, CancellationToken ct)
     {

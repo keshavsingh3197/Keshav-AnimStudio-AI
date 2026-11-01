@@ -32,7 +32,7 @@
   <!-- What wants attention -->
   @if (alerts().length > 0) {
     <ul class="sb-alerts">
-      @for (a of alerts(); track a.code + (a.projectId ?? '')) {
+      @for (a of shownAlerts(); track a.code + (a.projectId ?? '')) {
         <li class="sb-alert" [class.sb-error]="a.severity === 'error'" [class.sb-warning]="a.severity === 'warning'">
           <span>{{ a.message }}</span>
           @switch (a.code) {
@@ -44,13 +44,20 @@
           }
         </li>
       }
+      @if (alerts().length > 3) {
+        <li class="sb-more">
+          <button type="button" class="sb-link" (click)="alertsOpen.set(!alertsOpen())">
+            {{ alertsOpen() ? 'Show fewer alerts' : 'Show all ' + alerts().length + ' alerts' }}
+          </button>
+        </li>
+      }
     </ul>
   }
 
   <!-- Stock of unused clips per project -->
   @if (o.pools.length > 0 && !(compact() && o.pools.length === 1 && o.pools[0].batches === 0)) {
     <div class="sb-pools">
-      @for (p of o.pools; track p.projectId) {
+      @for (p of shownPools(); track p.projectId) {
         <div class="sb-pool" [class.sb-pool-empty]="p.videos + p.images > 0 && p.unusedVideos + p.unusedImages === 0">
           <div class="sb-pool-head">
             @if (!projectId()) { <a [routerLink]="['/projects', p.projectId, 'clips']">{{ p.projectName }}</a> } @else { <strong>Library stock</strong> }
@@ -66,11 +73,18 @@
         </div>
       }
     </div>
+    @if (o.pools.length > 8) {
+      <p class="sb-more">
+        <button type="button" class="sb-link" (click)="poolsOpen.set(!poolsOpen())">
+          {{ poolsOpen() ? 'Show fewer projects' : 'Show all ' + o.pools.length + ' projects (' + (o.pools.length - 8) + ' more)' }}
+        </button>
+      </p>
+    }
   }
 
   <!-- Filters -->
   <div class="sb-filters">
-    <input class="sb-search" type="search" placeholder="Search name, batch or project…" [ngModel]="search()" (ngModelChange)="search.set($event)" aria-label="Search shorts" />
+    <input class="sb-search" type="search" placeholder="Search name, batch or project…" [ngModel]="searchText()" (ngModelChange)="onSearch($event)" aria-label="Search shorts" />
     <div class="sb-chips" role="group" aria-label="Status">
       @for (f of statusFilters; track f.id) {
         <button type="button" class="sb-chip" [class.on]="statusFilter() === f.id" (click)="statusFilter.set(f.id)">
@@ -88,6 +102,8 @@
       <input type="checkbox" [ngModel]="scope() === 'all'" (ngModelChange)="scope.set($event ? 'all' : 'shorts')" /> All renders
     </label>
     <button type="button" class="sb-link" (click)="load()" [disabled]="loading()">↻ Refresh</button>
+    <button type="button" class="sb-link" (click)="setAllOpen(true)">Expand all</button>
+    <button type="button" class="sb-link" (click)="setAllOpen(false)">Collapse all</button>
     <button type="button" class="sb-link" (click)="checkDrive()" [disabled]="checkingDrive()"
             title="Ask Google Drive whether every copy is still there, and file older copies into Project / date + batch folders, and rename copies all called 'AnimStudio video'">
       {{ checkingDrive() ? 'Checking Drive…' : '☁ Check and tidy Drive' }}
@@ -193,8 +209,8 @@
   } @else if (rows().length > 0) {
     <div class="sb-quick">
       <span class="sb-muted">Quick select:</span>
-      <button type="button" class="sb-link" (click)="selectNeeding('youtube')">ready, not on YouTube</button>
-      <button type="button" class="sb-link" (click)="selectNeeding('drive')">ready, not on Drive</button>
+      <button type="button" class="sb-link" (click)="selectNeeding('youtube')">ready, not on YouTube ({{ filterCounts()['needs-youtube'] }})</button>
+      <button type="button" class="sb-link" (click)="selectNeeding('drive')">ready, not on Drive ({{ filterCounts()['needs-drive'] }})</button>
       @if (o.counts.failed > 0) { <button type="button" class="sb-link" (click)="selectNeeding('failed')">failed</button> }
     </div>
   }
@@ -209,7 +225,10 @@
       }
     </p>
   }
-  @for (g of groups(); track g.key; let i = $index) {
+  @if (groups().length > 0) {
+    <p class="sb-muted sb-range">Showing {{ visibleGroups().length }} of {{ groups().length }} batches · {{ rows().length }} shorts</p>
+  }
+  @for (g of visibleGroups(); track g.key; let i = $index) {
     <section class="sb-group" [id]="g.key">
       <header class="sb-group-head">
         <input type="checkbox" [checked]="groupSelection(g) === 'all'" [indeterminate]="groupSelection(g) === 'some'"
@@ -245,7 +264,7 @@
             </tr>
           </thead>
           <tbody>
-            @for (r of g.rows; track r.job.jobId) {
+            @for (r of visibleRows(g); track r.job.jobId) {
               @let rs = renderState(r);
               @let ds = driveState(r);
               @let ys = youtubeState(r);
@@ -279,7 +298,21 @@
             }
           </tbody>
         </table>
+        @if (hiddenRows(g) > 0) {
+          <div class="sb-more">
+            <button type="button" class="sb-link" (click)="showMoreRows(g)">Show {{ Math.min(50, hiddenRows(g)) }} more</button>
+            <button type="button" class="sb-link" (click)="showMoreRows(g, true)">Show all {{ g.rows.length }}</button>
+            <span class="sb-muted">{{ hiddenRows(g) }} hidden in this batch</span>
+          </div>
+        }
       }
     </section>
+  }
+  @if (hiddenGroups() > 0) {
+    <div class="sb-more sb-more-groups">
+      <button type="button" class="sb-btn" (click)="showMoreGroups()">Show 20 more batches</button>
+      <button type="button" class="sb-link" (click)="showAllGroups()">Show all {{ groups().length }}</button>
+      <span class="sb-muted">{{ hiddenGroups() }} older batches hidden - search or filter to find one fast</span>
+    </div>
   }
 }

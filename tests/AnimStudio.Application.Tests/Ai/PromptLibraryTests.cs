@@ -310,10 +310,12 @@ public class PromptLibraryTests
         var template = BuiltInPrompts.Find(BuiltInPrompts.VideoMetadata);
 
         Assert.NotNull(template);
-        Assert.Equal(4, template.Version);
+        Assert.Equal(7, template.Version);
         Assert.Contains("strongest evidence", template.Body, StringComparison.Ordinal);
         Assert.Contains("unverified context", template.Body, StringComparison.Ordinal);
         Assert.Contains("invent lyrics, scripture", template.Body, StringComparison.Ordinal);
+        Assert.Contains("first 125 characters", template.Body, StringComparison.Ordinal);
+        Assert.Contains("Hinglish", template.Body, StringComparison.Ordinal);
     }
 
     [Fact]

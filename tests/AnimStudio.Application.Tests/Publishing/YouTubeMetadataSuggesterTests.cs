@@ -84,6 +84,21 @@ public class YouTubeMetadataSuggesterTests
         Assert.Contains("funny", YouTubeMetadataSuggester.ToneText("funny"));
     }
 
+    [Theory]
+    [InlineData(null, "hi", "Hindi")]
+    [InlineData("", "hi", "Hindi")]
+    [InlineData("fr", "hi", "Hindi")]
+    [InlineData("hi", "hi", "Hindi")]
+    [InlineData("EN", "en", "English")]
+    [InlineData("hinglish", "hinglish", "Hinglish")]
+    [InlineData("MR", "mr", "Marathi")]
+    [InlineData("ta", "ta", "Tamil")]
+    public void Language_defaults_to_hindi_and_has_a_prompt_safe_name(string? code, string normalized, string name)
+    {
+        Assert.Equal(normalized, YouTubeMetadataSuggester.NormalizeLanguage(code));
+        Assert.Equal(name, YouTubeMetadataSuggester.LanguageName(code));
+    }
+
     [Fact]
     public void Summary_caps_a_long_script()
     {

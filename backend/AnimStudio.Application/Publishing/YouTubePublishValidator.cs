@@ -246,6 +246,9 @@ public static class YouTubePublishValidator
         var (firstComment, commentError) = YouTubeCommentRules.Normalize(input.FirstComment);
         if (commentError is not null) errors.Add(commentError);
 
+        var (branding, brandingErrors) = YouTubeBrandKit.Normalize(input.Branding);
+        errors.AddRange(brandingErrors);
+
         if (errors.Count > 0) return (null, errors);
 
         var title = Clean(input.YouTubeChannelTitle);
@@ -259,7 +262,8 @@ public static class YouTubePublishValidator
             NotifySubscribers = input.NotifySubscribers,
             Tags = tags,
             DescriptionFooter = footer.Length == 0 ? null : footer,
-            FirstComment = firstComment
+            FirstComment = firstComment,
+            Branding = branding
         }, errors);
     }
 

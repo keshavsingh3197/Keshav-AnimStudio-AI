@@ -1,5 +1,7 @@
 import { DatePipe } from '@angular/common';
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { timeout } from 'rxjs';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
@@ -75,6 +77,9 @@ const VIEW_KEY = 'animstudio.calendar.view';
 export class ContentCalendarComponent implements OnInit {
   private readonly api = inject(ContentCalendarService);
   private readonly route = inject(ActivatedRoute);
+  private readonly destroyRef = inject(DestroyRef);
+  private itemsRequest = 0;
+  private topicsRequest = 0;
 
   readonly statusLabels = STATUS_LABELS;
 
@@ -82,6 +87,9 @@ export class ContentCalendarComponent implements OnInit {
   readonly items = signal<ContentPlanItem[]>([]);
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
+  readonly topicsLoading = signal(true);
+  readonly topicsError = signal<string | null>(null);
+  readonly pendingStatus = signal<ReadonlySet<string>>(new Set());
 
   readonly view = signal<CalendarView>(readView());
   readonly filter = signal<QuickFilter>('all');
@@ -265,22 +273,41 @@ export class ContentCalendarComponent implements OnInit {
   // ---------------------------------------------------------------- loading
 
   loadTopics(): void {
-    this.api.listTopics().subscribe({
-      next: (list) => this.topics.set(list),
-      error: (err: unknown) => this.error.set(errorText(err, 'Topics could not be loaded.')),
+    const request = ++this.topicsRequest;
+    this.topicsLoading.set(true);
+    this.api.listTopics().pipe(timeout(60_000), takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (list) => {
+        if (request !== this.topicsRequest) return;
+        this.topics.set(list);
+        this.topicsLoading.set(false);
+        this.topicsError.set(null);
+      },
+      error: (err: unknown) => {
+        if (request !== this.topicsRequest) return;
+        this.topicsLoading.set(false);
+        this.topicsError.set(errorText(err, 'Topics could not be loaded.'));
+      },
     });
   }
 
+  refresh(): void {
+    this.loadTopics();
+    this.loadItems();
+  }
+
   loadItems(): void {
+    const request = ++this.itemsRequest;
     const [from, to] = this.range();
     this.loading.set(true);
-    this.api.listItems(from, to).subscribe({
+    this.api.listItems(from, to).pipe(timeout(60_000), takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (list) => {
+        if (request !== this.itemsRequest) return;
         this.items.set(list);
         this.loading.set(false);
         this.error.set(null);
       },
       error: (err: unknown) => {
+        if (request !== this.itemsRequest) return;
         this.loading.set(false);
         this.error.set(errorText(err, 'The calendar could not be loaded.'));
       },
@@ -381,7 +408,7 @@ export class ContentCalendarComponent implements OnInit {
       const topic = this.topicFilter() !== 'all' ? this.topicById().get(this.topicFilter()) : undefined;
       const [h, m] = (topic?.publishTime ?? '18:00').split(':').map(Number);
       const at = new Date(day);
-      at.setHours(h || 18, m || 0, 0, 0);
+      at.setHours(Number.isFinite(h) ? h : 18, Number.isFinite(m) ? m : 0, 0, 0);
       this.panelStartAt.set(at.toISOString());
     } else {
       this.panelStartAt.set(null);
@@ -408,10 +435,7 @@ export class ContentCalendarComponent implements OnInit {
   }
 
   markReady(item: ContentPlanItem): void {
-    this.api.setStatus(item.id, 'Ready').subscribe({
-      next: (saved) => this.postSaved(saved),
-      error: (err: unknown) => this.error.set(errorText(err, 'The status could not be changed.')),
-    });
+    this.quickStatus(item, 'Ready');
   }
 
   postSaved(saved: ContentPlanItem): void {
@@ -426,11 +450,18 @@ export class ContentCalendarComponent implements OnInit {
     this.items.update((list) => list.filter((i) => i.id !== id));
   }
 
-  quickStatus(item: ContentPlanItem, status: ContentPlanStatus, event: Event): void {
-    event.stopPropagation();
-    this.api.setStatus(item.id, status).subscribe({
-      next: (saved) => this.postSaved(saved),
-      error: (err: unknown) => this.error.set(errorText(err, 'The status could not be changed.')),
+  quickStatus(item: ContentPlanItem, status: ContentPlanStatus, event?: Event): void {
+    event?.stopPropagation();
+    if (this.pendingStatus().has(item.id)) return;
+    this.pendingStatus.update(ids => new Set([...ids, item.id]));
+    const finish = () => this.pendingStatus.update(ids => {
+      const next = new Set(ids);
+      next.delete(item.id);
+      return next;
+    });
+    this.api.setStatus(item.id, status).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (saved) => { finish(); this.postSaved(saved); },
+      error: (err: unknown) => { finish(); this.error.set(errorText(err, 'The status could not be changed.')); },
     });
   }
 

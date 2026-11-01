@@ -198,7 +198,7 @@ public sealed partial class YouTubePublishController
     public async Task<ActionResult<ApiResponse<PhoneHandoffStatus>>> SendToPhone(
         string jobId, [FromBody] SendToPhoneRequest? request,
         [FromServices] GoogleDriveConnectionStore drive, [FromServices] PhoneHandoffManager handoffs,
-        [FromServices] IPhoneHandoffRepository repository, CancellationToken ct)
+        [FromServices] IPhoneHandoffRepository repository, [FromServices] IContentTopicRepository topics, CancellationToken ct)
     {
         if (!currentUser.IsAuthenticated)
         {
@@ -250,17 +250,20 @@ public sealed partial class YouTubePublishController
 
         // The channel's own Drive if it has one, else the personal Drive in the channel's folder.
         DriveTarget target;
+        ContentTopic? topic;
         try
         {
             target = await drive.ResolveAsync(currentUser.UserId, connection.ChannelId, request.FolderName, ct);
+            topic = await DriveCopies.ResolveTopicAsync(topics, currentUser.UserId, request.TopicId ?? job.TopicId, ct);
         }
         catch (YouTubePublishException ex)
         {
-            return HandoffBadRequest(ex.Code, ex.Message, ex.Code == "drive-folder-invalid" ? "folderName" : "drive");
+            return HandoffBadRequest(ex.Code, ex.Message, ex.Code switch { "drive-folder-invalid" => "folderName", "topic-invalid" => "topicId", _ => "drive" });
         }
 
         var details = validation.Normalized!;
         var project = await projects.GetAsync(job.ProjectId, ct);
+        var topicFolder = topic is null ? null : DriveCopies.TopicFolderName(topic);
         var handoff = new PhoneHandoff
         {
             Id = Guid.NewGuid().ToString("N"),
@@ -281,7 +284,9 @@ public sealed partial class YouTubePublishController
             Muted = request.MuteAudio,
             DriveChannelId = target.DriveChannelId,
             DriveFolderName = target.FolderName,
-            DriveSubfolders = [.. DriveLayout.FoldersFor(project?.Name, job)],
+            TopicId = topic?.Id,
+            Topic = topicFolder,
+            DriveSubfolders = topicFolder is null ? [.. DriveLayout.FoldersFor(project?.Name, job)] : [.. DriveCopies.TopicPath(topicFolder)],
             DriveFileName = PhoneHandoffManager.FileNameFor(details.Title),
             TotalBytes = job.OutputSizeBytes ?? 0,
             State = PhoneHandoffState.Sending,
@@ -475,7 +480,8 @@ public sealed record SendToPhoneRequest(
     /// <summary>A folder on the Drive for this one send; empty uses the Drive's default folder.</summary>
     string? FolderName = null,
     /// <summary>Take the video's own sound out, for a Shorts sound to replace it.</summary>
-    bool MuteAudio = false);
+    bool MuteAudio = false,
+    [property: System.ComponentModel.DataAnnotations.RegularExpression("^[A-Za-z0-9_-]{1,64}$")] string? TopicId = null);
 
 public sealed record ApplyHandoffRequest(string? VideoId);
 

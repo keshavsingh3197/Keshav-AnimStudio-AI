@@ -1,0 +1,272 @@
+<div class="page-head" style="margin-top: 0">
+  <div class="ad-title">
+    <div class="studio-icon-badge">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>
+      </svg>
+    </div>
+    <div>
+      <div class="row">
+        <h2>Application settings</h2>
+        <span class="pill brand">Runtime Config</span>
+      </div>
+      <p class="muted">
+        Stored in the database and layered over appsettings.json. Changes apply immediately unless marked
+        <span class="ws-badge restart">after restart</span>.
+      </p>
+    </div>
+  </div>
+  <div class="row ws-actions">
+    <button type="button" class="secondary" (click)="copyOverrides()" [disabled]="overrides().length === 0"
+            title="Copy the values set here as JSON - what a fresh database would need re-entering">
+      {{ copied() ? '✓ Copied' : '⧉ Copy overrides' }}
+    </button>
+    <button type="button" class="secondary" (click)="downloadOverrides()" [disabled]="overrides().length === 0">⬇ Save .json</button>
+    <button type="button" class="secondary" (click)="refresh()" [disabled]="refreshing() || loading()" title="Reload settings from the database">
+      @if (refreshing()) { <span class="spinner" aria-hidden="true"></span> }
+      ↻ Refresh config
+    </button>
+  </div>
+</div>
+
+@if (failure(); as message) {
+  <div class="notice error ad-flash" role="alert">
+    <span>{{ message }}</span>
+    <button type="button" class="ad-link" (click)="load()">Try again</button>
+  </div>
+}
+
+@if (overview(); as o) {
+  @if (o.pendingRestartCount > 0) {
+    <div class="notice" role="status">
+      <strong>{{ o.pendingRestartCount }} {{ o.pendingRestartCount === 1 ? 'change waits' : 'changes wait' }} for a server restart</strong>
+      to take effect.
+      <button type="button" class="ad-link" (click)="filter.set('restart')">Show {{ o.pendingRestartCount === 1 ? 'it' : 'them' }}</button>
+    </div>
+  }
+
+  <div class="ad-kpis">
+    <div class="ad-kpi">
+      <span class="ad-kpi-label">Settings</span>
+      <strong class="ad-kpi-val">{{ o.settings.length }}</strong>
+      <span class="ad-kpi-sub">in {{ groupTotal() }} {{ groupTotal() === 1 ? 'group' : 'groups' }}</span>
+    </div>
+    <div class="ad-kpi">
+      <span class="ad-kpi-label">Set here</span>
+      <strong class="ad-kpi-val">{{ overrides().length }}</strong>
+      <span class="ad-kpi-sub">override appsettings.json</span>
+    </div>
+    <div class="ad-kpi" [class.is-warn]="dirtyKeys().length > 0">
+      <span class="ad-kpi-label">Unsaved</span>
+      <strong class="ad-kpi-val">{{ dirtyKeys().length }}</strong>
+      <span class="ad-kpi-sub">{{ dirtyKeys().length === 0 ? 'nothing pending' : 'edits not saved yet' }}</span>
+    </div>
+    <div class="ad-kpi" [class.is-warn]="o.pendingRestartCount > 0">
+      <span class="ad-kpi-label">Waiting for restart</span>
+      <strong class="ad-kpi-val">{{ o.pendingRestartCount }}</strong>
+      <span class="ad-kpi-sub">{{ o.loadedAt ? 'loaded ' + loadedAgo() : 'saved, not yet live' }}</span>
+    </div>
+  </div>
+
+  @if (dirtyKeys().length > 0) {
+    <div class="ws-savebar" role="region" aria-label="Unsaved changes">
+      <span class="ws-savebar-text">
+        <strong>{{ dirtyKeys().length }} unsaved {{ dirtyKeys().length === 1 ? 'change' : 'changes' }}</strong>
+        @if (invalidKeys().length > 0) {
+          <span class="ws-savebar-warn">{{ invalidKeys().length }} can't be saved until fixed</span>
+        }
+      </span>
+      <span class="ws-savebar-actions">
+        @if (confirmDiscard()) {
+          <span class="muted">Throw away every unsaved edit?</span>
+          <button type="button" class="ad-btn" (click)="discardAll()">Yes, discard</button>
+          <button type="button" class="ad-link" (click)="confirmDiscard.set(false)">Keep editing</button>
+        } @else {
+          <button type="button" (click)="saveAll()" [disabled]="saving() || validCount() === 0" title="Ctrl+S">
+            @if (saving()) { <span class="spinner" aria-hidden="true"></span> }
+            Save {{ invalidKeys().length === 0 ? 'all' : validCount() + ' valid' }}
+          </button>
+          <button type="button" class="secondary" (click)="confirmDiscard.set(true)" [disabled]="saving()">Discard</button>
+        }
+      </span>
+    </div>
+  }
+
+  <div class="ad-toolbar" role="search">
+    <div class="ad-search">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+      </svg>
+      <input #search type="search" placeholder="Filter settings by name, key or description…" aria-label="Filter settings"
+             [value]="query()" (input)="query.set(search.value)" (keydown.escape)="query.set('')" />
+    </div>
+    <span class="ad-grow"></span>
+    @if (hasFilters()) {
+      <button type="button" class="ad-link" (click)="clearFilters()">Clear filters</button>
+    }
+  </div>
+
+  <div class="ad-chips" role="group" aria-label="Show">
+    @for (f of filters; track f.id) {
+      <button type="button" class="ad-chip" [class.is-active]="filter() === f.id" [attr.aria-pressed]="filter() === f.id"
+              [disabled]="counts()[f.id] === 0 && filter() !== f.id" (click)="filter.set(f.id)">
+        {{ f.label }} <span>{{ counts()[f.id] }}</span>
+      </button>
+    }
+  </div>
+
+  @if (groups().length > 1) {
+    <nav class="ws-groups" aria-label="Jump to a group">
+      <span class="muted">Jump to</span>
+      @for (g of groups(); track g.name) {
+        <button type="button" class="ad-link" (click)="jumpTo(g.name)">
+          {{ g.name }}@if (g.unsaved > 0) { <span class="ws-dot" title="Has unsaved edits"></span> }
+        </button>
+      }
+    </nav>
+  }
+
+  @if (groups().length === 0) {
+    <div class="card ad-empty">
+      <span class="ad-empty-ico" aria-hidden="true">🔎</span>
+      <strong>No setting matches</strong>
+      <p>Try fewer words, or another view.</p>
+      <button type="button" class="ad-btn" (click)="clearFilters()">Clear filters</button>
+    </div>
+  }
+
+  @for (group of groups(); track group.name) {
+    <section class="card ws-card" [id]="'ws-group-' + group.name">
+      <div class="studio-card-head">
+        <button type="button" class="ws-collapse" (click)="toggleGroup(group.name)" [attr.aria-expanded]="!isCollapsed(group.name)"
+                [attr.aria-label]="(isCollapsed(group.name) ? 'Expand ' : 'Collapse ') + group.name">
+          <span class="ws-chevron" [class.is-open]="!isCollapsed(group.name)" aria-hidden="true">▸</span>
+          <h3>{{ group.name }}</h3>
+          <span class="pill">{{ group.settings.length }}{{ group.settings.length !== group.total ? ' of ' + group.total : '' }}</span>
+          @if (group.overridden > 0) { <span class="pill brand" title="Values set here">{{ group.overridden }} set here</span> }
+          @if (group.unsaved > 0) { <span class="pill warn">{{ group.unsaved }} unsaved</span> }
+        </button>
+      </div>
+
+      @if (!isCollapsed(group.name)) {
+        @for (s of group.settings; track s.key) {
+          @let dirty = isDirty(s);
+          @let issue = dirty ? problem(s) : null;
+          @let note = noteOf(s);
+          <div class="ws-row" [class.changed]="s.storedValue != null" [class.is-dirty]="dirty" [class.is-bad]="issue">
+            <div class="ws-info">
+              <div class="row ws-title">
+                <label [attr.for]="'ws-' + s.key">{{ s.label }}</label>
+                <span class="ws-badge" [class.restart]="!s.appliesLive">{{ s.appliesLive ? 'live' : 'after restart' }}</span>
+                @if (s.pendingRestart) { <span class="ws-badge warn">restart needed</span> }
+                @if (dirty) { <span class="ws-badge edit">edited</span> }
+              </div>
+              <p class="muted small">{{ s.description }}</p>
+              <div class="ws-meta">
+                <code class="muted small">{{ s.key }}</code>
+                <span class="muted small">
+                  · {{ s.storedValue != null ? 'set here' : 'from appsettings' }}
+                  @if (s.updatedAt) { · {{ updated(s) }}@if (who(s)) { by {{ who(s) }} } }
+                </span>
+              </div>
+              @if (s.storedValue != null) {
+                <div class="ws-default muted small">
+                  appsettings.json value: <code>{{ s.fileValue ?? 'built-in default' }}</code>
+                </div>
+              }
+            </div>
+
+            <div class="ws-edit">
+              @switch (s.type) {
+                @case ('Boolean') {
+                  <label class="switch">
+                    <input type="checkbox" [id]="'ws-' + s.key" [checked]="draftOf(s) === 'true'" [disabled]="isWorking(s)"
+                           (change)="setDraft(s, $any($event.target).checked ? 'true' : 'false')" />
+                    <span class="track"></span>
+                    <span>{{ draftOf(s) === 'true' ? 'On' : 'Off' }}</span>
+                  </label>
+                }
+                @case ('Choice') {
+                  <select [id]="'ws-' + s.key" [disabled]="isWorking(s)" (change)="setDraft(s, $any($event.target).value)">
+                    @for (c of s.choices ?? []; track c) { <option [value]="c" [selected]="c === draftOf(s)">{{ c }}</option> }
+                  </select>
+                }
+                @case ('Integer') {
+                  <input [id]="'ws-' + s.key" type="number" step="1" [min]="s.min ?? null" [max]="s.max ?? null" [disabled]="isWorking(s)"
+                         [value]="draftOf(s)" (input)="setDraft(s, $any($event.target).value)" (keydown.escape)="revert(s)" />
+                }
+                @case ('Number') {
+                  <input [id]="'ws-' + s.key" type="number" step="any" [min]="s.min ?? null" [max]="s.max ?? null" [disabled]="isWorking(s)"
+                         [value]="draftOf(s)" (input)="setDraft(s, $any($event.target).value)" (keydown.escape)="revert(s)" />
+                }
+                @default {
+                  <input [id]="'ws-' + s.key" [type]="s.type === 'Url' ? 'url' : 'text'" [attr.maxlength]="s.maxLength" [disabled]="isWorking(s)"
+                         [value]="draftOf(s)" (input)="setDraft(s, $any($event.target).value)" (keydown.escape)="revert(s)" autocomplete="off" />
+                }
+              }
+              @if (s.min != null && s.max != null) { <span class="muted small">{{ s.min }}–{{ s.max }}</span> }
+
+              <div class="ws-btns">
+                @if (isWorking(s)) { <span class="spinner" aria-label="Working"></span> }
+                <button type="button" class="small" (click)="save(s)" [disabled]="isWorking(s) || !dirty || !!issue">Save</button>
+                @if (dirty) {
+                  <button type="button" class="secondary small" (click)="revert(s)" [disabled]="isWorking(s)" title="Esc">Revert</button>
+                }
+                @if (s.storedValue != null && !dirty) {
+                  <button type="button" class="secondary small" (click)="askReset(s)" [disabled]="isWorking(s)"
+                          title="Go back to the appsettings.json value">Reset</button>
+                }
+              </div>
+            </div>
+
+            @if (issue) {
+              <p class="ws-msg err" role="alert">{{ issue }}</p>
+            } @else if (note) {
+              <p class="ws-msg" [class.ok]="note.tone === 'ok'" [class.warn]="note.tone === 'warn'" [class.err]="note.tone === 'err'"
+                 [attr.role]="note.tone === 'err' ? 'alert' : 'status'">{{ note.tone === 'err' ? '' : '✓ ' }}{{ note.text }}</p>
+            }
+
+            @if (confirmReset() === s.key) {
+              <div class="notice ws-confirm" role="alertdialog" aria-label="Confirm reset">
+                <span>
+                  <strong>Reset “{{ s.label }}”?</strong>
+                  It goes back to <code>{{ s.fileValue ?? 'the built-in default' }}</code> from appsettings.json.
+                </span>
+                <span class="ws-confirm-actions">
+                  <button type="button" class="ad-btn" (click)="reset(s)">Yes, reset</button>
+                  <button type="button" class="ad-link" (click)="confirmReset.set(null)">Cancel</button>
+                </span>
+              </div>
+            }
+          </div>
+        }
+      }
+    </section>
+  }
+
+  <p class="hint ws-foot">
+    Secrets, file paths and connection strings are never listed here &mdash; they stay in configuration.
+    Ctrl+S saves every valid edit at once.
+  </p>
+} @else if (!failure()) {
+  <div class="ad-kpis" aria-hidden="true">
+    @for (n of [1, 2, 3, 4]; track n) {
+      <div class="ad-kpi">
+        <span class="ad-skel" style="height: 0.7rem; width: 55%"></span>
+        <span class="ad-skel" style="height: 1.4rem; width: 35%; margin-top: 0.3rem"></span>
+      </div>
+    }
+  </div>
+  <div class="card" aria-hidden="true">
+    @for (n of [1, 2, 3, 4]; track n) {
+      <div class="ws-skel-row">
+        <span class="ws-skel-lines">
+          <span class="ad-skel" style="height: 0.85rem; width: 35%"></span>
+          <span class="ad-skel" style="height: 0.7rem; width: 65%"></span>
+        </span>
+        <span class="ad-skel" style="height: 2.2rem; width: 9rem"></span>
+      </div>
+    }
+  </div>
+  <span class="ad-sr" role="status">Loading settings…</span>
+}

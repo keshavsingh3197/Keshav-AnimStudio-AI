@@ -44,7 +44,9 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
         );
       }),
       catchError((refreshErr) => {
-        auth.clearLocalSession();
+        if (auth.isAuthRejection(refreshErr)) {
+          auth.clearLocalSession();
+        }
         // If it was a public session or access check, fall back to guest headers gracefully
         if (req.url.includes('/api/system/session') || req.url.includes('/api/system/admin-access')) {
           let guestHeaders = req.headers.delete('Authorization');
@@ -101,7 +103,9 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
           );
         }),
         catchError((refreshErr) => {
-          auth.clearLocalSession();
+          if (auth.isAuthRejection(refreshErr)) {
+            auth.clearLocalSession();
+          }
           return throwError(() => refreshErr);
         })
       );

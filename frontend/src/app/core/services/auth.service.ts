@@ -1,9 +1,10 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { Observable, catchError, finalize, map, of, shareReplay, tap, throwError, timeout } from 'rxjs';
+import { Observable, catchError, defer, finalize, firstValueFrom, from, map, of, shareReplay, tap, throwError, timeout } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
 import { ApiResponse } from '../models/api.models';
+import { ApiFailure } from '../interceptors/api-error.interceptor';
 import { StatusService } from './status.service';
 import {
   AnonymousAccessPolicy,
@@ -406,7 +407,7 @@ export class AuthService {
             const wait = Number.isFinite(retry) && retry > 0 ? ` Try again in about ${Math.ceil(retry / 60)} minute(s).` : ' Please wait a while and try again.';
             return of({
               success: false,
-              error: `This account is temporarily locked after too many failed sign-in attempts.${wait} You can also reset your password at id.keshavsingh.in.`,
+              error: `Central SSO temporarily blocked this password sign-in (HTTP 423).${wait} This is separate from the account being Active in the admin portal and does not prove that an existing session or passkey sign-in is blocked. Use Central SSO to check your sign-in options or reset your password.`,
             });
           }
           const message =
@@ -591,12 +592,18 @@ export class AuthService {
       );
   }
 
+  /** True when the server definitely refused the session (401/403) or sent no token back. */
+  isAuthRejection(err: unknown): boolean {
+    if (err instanceof HttpErrorResponse || err instanceof ApiFailure) return err.status === 401 || err.status === 403;
+    return err instanceof Error && err.message === 'Refresh response missing token.';
+  }
+
   refreshSession(): Observable<{ accessToken: string }> {
     if (this.refreshInProgress$) {
       return this.refreshInProgress$;
     }
 
-    this.refreshInProgress$ = this.http
+    const request$ = this.http
       .post<any>(
         `${this.base}/api/auth/session`,
         {},
@@ -635,15 +642,28 @@ export class AuthService {
           }
           throw new Error('Refresh response missing token.');
         }),
+        // Rotation may already have succeeded if a response is lost. Never replay this POST.
+        timeout(30_000),
         catchError((err) => {
-          this.saveAccessToken(null);
+          // Only a definite rejection ends the session; network/server errors keep the token.
+          if (this.isAuthRejection(err)) {
+            this.saveAccessToken(null);
+          }
           return throwError(() => err);
         }),
-        finalize(() => {
-          this.refreshInProgress$ = null;
-        }),
-        shareReplay(1)
       );
+
+    this.refreshInProgress$ = defer(() => {
+      if (typeof navigator !== 'undefined' && navigator.locks) {
+        return from(navigator.locks.request('animstudio-sso-refresh', () => firstValueFrom(request$)));
+      }
+      return request$;
+    }).pipe(
+      finalize(() => {
+        this.refreshInProgress$ = null;
+      }),
+      shareReplay(1)
+    );
 
     return this.refreshInProgress$;
   }

@@ -236,6 +236,29 @@ export function toneLabel(t: string): string {
     kids: '🧸 For Kids',
     motivational: '💪 Motivational',
     'clickbait-free': '✅ Honest / No Clickbait',
+    seo: '🔎 Search-first (SEO)',
+    curiosity: '🧲 Curiosity Hook',
+    storytelling: '📖 Storytelling',
   };
   return labels[t] ?? t;
+}
+
+/** The languages the AI can write in; the ids are the server's allowlist. */
+export const YOUTUBE_LANGUAGES: readonly { id: string; label: string }[] = [
+  { id: 'hi', label: 'Hindi (हिन्दी)' },
+  { id: 'hinglish', label: 'Hinglish (Hindi in English letters)' },
+  { id: 'en', label: 'English' },
+  { id: 'mr', label: 'Marathi (मराठी)' },
+  { id: 'gu', label: 'Gujarati (ગુજરાતી)' },
+  { id: 'bn', label: 'Bengali (বাংলা)' },
+  { id: 'ta', label: 'Tamil (தமிழ்)' },
+  { id: 'te', label: 'Telugu (తెలుగు)' },
+  { id: 'kn', label: 'Kannada (ಕನ್ನಡ)' },
+  { id: 'pa', label: 'Punjabi (ਪੰਜਾਬੀ)' },
+];
+
+/** The language's short name, for summaries. */
+export function languageLabel(id: string): string {
+  const label = YOUTUBE_LANGUAGES.find((l) => l.id === id)?.label ?? id;
+  return label.replace(/\s*\(.*\)$/, '');
 }

@@ -9,12 +9,12 @@ import {
   AdminProviderTest, AdminUsage, AiCapabilities, ApiResponse, Asset, AssetSearchOptions, AssetSearchResult, BundleApplyBody,
   VoiceoverBody, VoiceoverVoices, MyVoice, VoiceScriptDictation, VoiceScriptPolish, MediaTranscript,
   BundleImportResult, BundlePreview, Character, CharacterBody, AutoShortsBody, AutoShortsPreview, AutoShortsResult, ClipMergeBody, ClipOrder,
-  ClipStudio, CreateProjectBody, CreateSubProjectBody,
+  ClipStudio, CreateProjectBody, CreateSubProjectBody, SetParentBody,
   CreateSceneBody, DialogueBody, IngestCapabilities, IngestResult, IngestSummary,
   PlacementBody, Project, RenderJob, ExportTimelineFormat, RendererStatus, Scene, SceneAudioBody, SceneDetail,
   SceneGenerationResult, ScriptDetail, ScriptSummary, UpdateProjectBody, UpdateSceneBody,
   WatermarkBody, OutroBody, BrandChannel, BrandChannelSyncResult, DEFAULT_BRAND_CHANNEL, StorageSummary, StorageDetail,
-  ProjectEdit, CreateEditBody, UpdateEditBody, SaveEditDraftBody,
+  ProjectEdit, CreateEditBody, UpdateEditBody, SaveEditDraftBody, DriveSyncReport,
 } from '../models/api.models';
 import {
   AdminAccessControl,
@@ -147,6 +147,11 @@ export class ApiService {
 
   createSubProject(parentId: string, body: CreateSubProjectBody): Observable<Project> {
     return this.unwrap(this.http.post<ApiResponse<Project>>(`${this.base}/api/projects/${parentId}/subprojects`, body));
+  }
+
+  /** Puts an existing project under another (or back to top level), with its files shared, copied or kept apart. */
+  setProjectParent(projectId: string, body: SetParentBody): Observable<Project> {
+    return this.unwrap(this.http.put<ApiResponse<Project>>(`${this.base}/api/projects/${projectId}/parent`, body));
   }
 
   duplicateProject(projectId: string, name?: string): Observable<Project> {
@@ -492,6 +497,18 @@ export class ApiService {
       this.http.get<ApiResponse<RenderJob>>(`${this.base}/api/render-jobs/${jobId}`));
   }
 
+  bulkCancelJobs(jobIds: string[]): Observable<{ done: string[]; skipped: string[] }> {
+    return this.unwrap(
+      this.http.post<ApiResponse<{ done: string[]; skipped: string[] }>>(
+        `${this.base}/api/render-jobs/bulk-cancel`, { jobIds }));
+  }
+
+  bulkDeleteJobs(jobIds: string[]): Observable<{ done: string[]; skipped: string[] }> {
+    return this.unwrap(
+      this.http.post<ApiResponse<{ done: string[]; skipped: string[] }>>(
+        `${this.base}/api/render-jobs/bulk-delete`, { jobIds }));
+  }
+
   cancelJob(jobId: string): Observable<unknown> {
     return this.unwrap(
       this.http.post<ApiResponse<unknown>>(`${this.base}/api/render-jobs/${jobId}/cancel`, {}));
@@ -707,6 +724,14 @@ export class ApiService {
 
   updateAdminAccessControl(body: UpdateAccessControlRequest): Observable<AdminAccessControl> {
     return this.unwrap(this.http.put<ApiResponse<AdminAccessControl>>(`${this.admin}/access-control`, body));
+  }
+
+  syncDriveDataAvailable(): Observable<boolean> {
+    return this.unwrap(this.http.get<ApiResponse<boolean>>(`${this.admin}/sync-drive-data/available`));
+  }
+
+  syncDriveData(direction: 'MongoToSql' | 'SqlToMongo' | 'Both'): Observable<DriveSyncReport> {
+    return this.unwrap(this.http.post<ApiResponse<DriveSyncReport>>(`${this.admin}/sync-drive-data?direction=${direction}`, {}));
   }
 
   adminAllYouTubeChannels(): Observable<AdminYouTubeChannelItem[]> {

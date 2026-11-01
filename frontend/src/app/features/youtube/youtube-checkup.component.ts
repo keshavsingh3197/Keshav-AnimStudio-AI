@@ -1,5 +1,5 @@
 import { DatePipe } from '@angular/common';
-import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, ElementRef, HostListener, OnInit, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ActivatedRoute, RouterLink } from '@angular/router';
@@ -12,9 +12,10 @@ import {
 import { YouTubePublishService } from '../../core/services/youtube-publish.service';
 import { MAX_ANSWER_CHARS, MAX_PROMPT_VIDEOS, buildHandoffPrompt, parseHandoffAnswer } from './checkup-ai-handoff';
 import {
-  Draft, EMPTY_STATE, HASHTAG, HASHTAGS, RowState, draftDiffers, fitTags, fromLocalInput, scheduleDiffers, splitTags, toLocalInput, toneLabel,
+  Draft, EMPTY_STATE, HASHTAG, HASHTAGS, RowState, YOUTUBE_LANGUAGES, draftDiffers, fitTags, fromLocalInput, insertAboveFooter, languageLabel, scheduleDiffers, splitTags, toLocalInput, toneLabel,
 } from './checkup-draft';
 import { CheckupVideoEditorComponent } from './checkup-video-editor.component';
+import { csvCell } from './csv';
 
 /** The issues the page counts and filters by, in the order they're shown. */
 const ISSUE_LABELS: readonly { code: string; label: string }[] = [
@@ -40,7 +41,48 @@ export type ViewMode = 'list' | 'grid' | 'compact';
 type Sort = 'newest' | 'oldest' | 'most-missing' | 'title';
 
 /** Rows per page: enough to scan, few enough that 500 videos don't make one endless list. */
-const PAGE_SIZE = 25;
+export const PAGE_SIZES = [25, 50, 100] as const;
+const DEFAULT_PAGE_SIZE = 25;
+
+export type FormatFilter = 'all' | 'long' | 'short';
+export type PrivacyFilter = 'all' | 'public' | 'unlisted' | 'private';
+
+/** Remembered per browser: how the list is sorted, paged and narrowed. */
+const UI_KEY = 'animstudio.youtube.checkup.ui';
+interface UiPrefs { sort: Sort; pageSize: number; format: FormatFilter; privacy: PrivacyFilter }
+const SORTS: readonly Sort[] = ['newest', 'oldest', 'most-missing', 'title'];
+
+/** The AI choices (tone, language, engine, notes) are remembered, so each visit starts as the last ended. */
+const AI_KEY = 'animstudio.youtube.checkup.ai';
+function loadAiPrefs(): { tone: string; language: string; engine: string; brief: string } {
+  const fallback = { tone: 'auto', language: 'hi', engine: '', brief: '' };
+  try {
+    const raw = JSON.parse(localStorage.getItem(AI_KEY) ?? '{}') as Partial<typeof fallback>;
+    return {
+      tone: typeof raw.tone === 'string' ? raw.tone : fallback.tone,
+      language: YOUTUBE_LANGUAGES.some((l) => l.id === raw.language) ? raw.language! : fallback.language,
+      engine: typeof raw.engine === 'string' ? raw.engine : fallback.engine,
+      brief: typeof raw.brief === 'string' ? raw.brief.slice(0, 1000) : fallback.brief,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function loadUiPrefs(): UiPrefs {
+  const fallback: UiPrefs = { sort: 'newest', pageSize: DEFAULT_PAGE_SIZE, format: 'all', privacy: 'all' };
+  try {
+    const raw = JSON.parse(localStorage.getItem(UI_KEY) ?? '{}') as Partial<UiPrefs>;
+    return {
+      sort: SORTS.includes(raw.sort as Sort) ? raw.sort! : fallback.sort,
+      pageSize: (PAGE_SIZES as readonly number[]).includes(raw.pageSize as number) ? raw.pageSize! : fallback.pageSize,
+      format: ['all', 'long', 'short'].includes(raw.format as string) ? raw.format! : fallback.format,
+      privacy: ['all', 'public', 'unlisted', 'private'].includes(raw.privacy as string) ? raw.privacy! : fallback.privacy,
+    };
+  } catch {
+    return fallback;
+  }
+}
 
 /** How many of the newest videos a check reads. Fewer is quicker and spends less YouTube quota. */
 const CHECK_SIZES = [10, 25, 50, 100, 250, 500] as const;
@@ -97,11 +139,24 @@ export class YouTubeCheckupComponent implements OnInit {
   readonly loadingSeconds = signal(0);
   readonly error = signal<string | null>(null);
 
+  private readonly ui = loadUiPrefs();
+  readonly pageSizes = PAGE_SIZES;
+  readonly searchBox = viewChild<ElementRef<HTMLInputElement>>('searchBox');
+
   readonly filter = signal<Filter>('needs');
   readonly query = signal('');
-  readonly sort = signal<Sort>('newest');
+  readonly sort = signal<Sort>(this.ui.sort);
+  readonly format = signal<FormatFilter>(this.ui.format);
+  readonly privacy = signal<PrivacyFilter>(this.ui.privacy);
+  readonly onlyUnsaved = signal(false);
+  readonly pageSize = signal<number>(this.ui.pageSize);
   readonly page = signal(0);
   readonly viewMode = signal<ViewMode>(loadViewMode());
+
+  // Edit many drafts at once: tags and a description block added to every selected video.
+  readonly bulkOpen = signal(false);
+  readonly bulkTags = signal('');
+  readonly bulkDescription = signal('');
 
   // Video preview player modal
   readonly previewVideo = signal<YouTubeCheckupVideo | null>(null);
@@ -114,10 +169,12 @@ export class YouTubeCheckupComponent implements OnInit {
   });
 
   // AI settings shared by every draft.
-  readonly tone = signal('auto');
-  readonly language = signal('en');
-  readonly engine = signal('');
-  readonly brief = signal('');
+  readonly languages = YOUTUBE_LANGUAGES;
+  private readonly aiPrefs = loadAiPrefs();
+  readonly tone = signal(this.aiPrefs.tone);
+  readonly language = signal(this.aiPrefs.language);
+  readonly engine = signal(this.aiPrefs.engine);
+  readonly brief = signal(this.aiPrefs.brief);
 
   readonly states = signal<Record<string, RowState>>({});
   readonly open = signal<string | null>(null);
@@ -165,23 +222,57 @@ export class YouTubeCheckupComponent implements OnInit {
 
   readonly rows = computed(() => {
     const f = this.filter();
+    const format = this.format();
+    const privacy = this.privacy();
+    const unsaved = this.onlyUnsaved();
     const words = this.query().trim().toLowerCase().split(/\s+/).filter(Boolean);
     const shown = this.videos().filter((v) => {
       if (f === 'needs' && v.issues.length === 0) return false;
       if (f === 'complete' && v.issues.length > 0) return false;
       if (f !== 'needs' && f !== 'all' && f !== 'complete' && !v.issues.some((i) => i.code === f)) return false;
-      const text = `${v.title} ${v.description} ${v.tags.join(' ')}`.toLowerCase();
+      if (format !== 'all' && (format === 'short') !== v.isShort) return false;
+      if (privacy !== 'all' && v.privacy !== privacy) return false;
+      if (unsaved && !this.hasChanges(v)) return false;
+      const text = `${v.title} ${v.description} ${v.tags.join(' ')} ${v.videoId}`.toLowerCase();
       return words.every((w) => text.includes(w));
     });
     return sortVideos(shown, this.sort());
   });
 
-  readonly pageCount = computed(() => Math.max(1, Math.ceil(this.rows().length / PAGE_SIZE)));
+  readonly hasExtraFilters = computed(() =>
+    this.format() !== 'all' || this.privacy() !== 'all' || this.onlyUnsaved() || this.query().trim() !== '');
+
+  /** Videos whose draft differs from what is on YouTube - lost if the page is closed. */
+  readonly unsavedCount = computed(() => this.videos().filter((v) => this.hasChanges(v)).length);
+
+  /** What the current list holds, so a narrowed view still says what is in it. */
+  readonly listStats = computed(() => {
+    let shorts = 0, missing = 0;
+    for (const v of this.rows()) {
+      if (v.isShort) shorts++;
+      missing += v.issues.length;
+    }
+    return { shorts, videos: this.rows().length - shorts, missing };
+  });
+
+  readonly pageCount = computed(() => Math.max(1, Math.ceil(this.rows().length / this.pageSize())));
   /** The page actually shown; clamped so a narrower filter never leaves an empty page. */
   readonly pageIndex = computed(() => Math.min(this.page(), this.pageCount() - 1));
-  readonly pageRows = computed(() => this.rows().slice(this.pageIndex() * PAGE_SIZE, (this.pageIndex() + 1) * PAGE_SIZE));
-  readonly pageFrom = computed(() => (this.rows().length === 0 ? 0 : this.pageIndex() * PAGE_SIZE + 1));
-  readonly pageTo = computed(() => Math.min(this.rows().length, (this.pageIndex() + 1) * PAGE_SIZE));
+  readonly pageRows = computed(() => this.rows().slice(this.pageIndex() * this.pageSize(), (this.pageIndex() + 1) * this.pageSize()));
+  readonly pageFrom = computed(() => (this.rows().length === 0 ? 0 : this.pageIndex() * this.pageSize() + 1));
+  readonly pageTo = computed(() => Math.min(this.rows().length, (this.pageIndex() + 1) * this.pageSize()));
+  readonly pageButtons = computed<(number | null)[]>(() => {
+    const last = this.pageCount() - 1;
+    const cur = this.pageIndex();
+    const wanted = [...new Set([0, cur - 1, cur, cur + 1, last])].filter((p) => p >= 0 && p <= last).sort((a, b) => a - b);
+    const out: (number | null)[] = [];
+    wanted.forEach((p, i) => {
+      if (i > 0 && p - wanted[i - 1] > 1) out.push(null);
+      out.push(p);
+    });
+    return out;
+  });
+  readonly pageAllSelected = computed(() => this.pageRows().length > 0 && this.pageRows().every((v) => this.selected().has(v.videoId)));
 
   readonly selectedVideos = computed(() => this.videos().filter((v) => this.selected().has(v.videoId)));
   /** The video open in the edit dialog, and its neighbours in the filtered, sorted list. */
@@ -192,7 +283,7 @@ export class YouTubeCheckupComponent implements OnInit {
   readonly hasNext = computed(() => this.openIndex() >= 0 && this.openIndex() < this.rows().length - 1);
   readonly aiSummary = computed(() => {
     const engine = this.engines().find((e) => e.id === this.engine())?.name ?? 'Auto engine';
-    return `${engine}, tone ${this.tone()}, ${this.language() === 'hi' ? 'Hindi' : 'English'}`;
+    return `${engine}, tone ${this.tone()}, ${languageLabel(this.language())}`;
   });
 
   /** Selected drafts that would change something - an untouched draft isn't worth a YouTube call. */
@@ -200,6 +291,10 @@ export class YouTubeCheckupComponent implements OnInit {
 
   constructor() {
     inject(DestroyRef).onDestroy(() => this.stopTimer());
+    effect(() => {
+      const prefs = { tone: this.tone(), language: this.language(), engine: this.engine(), brief: this.brief() };
+      try { localStorage.setItem(AI_KEY, JSON.stringify(prefs)); } catch { /* private window: not remembered */ }
+    });
   }
 
   ngOnInit(): void {
@@ -219,6 +314,7 @@ export class YouTubeCheckupComponent implements OnInit {
       if (!o) return;
       this.engines.set(o.engines);
       this.tones.set(o.tones);
+      if (!o.tones.includes(this.tone())) this.tone.set('auto');
     });
   }
 
@@ -282,6 +378,67 @@ export class YouTubeCheckupComponent implements OnInit {
   setSort(sort: Sort): void {
     this.sort.set(sort);
     this.page.set(0);
+    this.saveUi();
+  }
+
+  setFormat(format: FormatFilter): void {
+    this.format.set(format);
+    this.page.set(0);
+    this.saveUi();
+  }
+
+  setPrivacy(privacy: PrivacyFilter): void {
+    this.privacy.set(privacy);
+    this.page.set(0);
+    this.saveUi();
+  }
+
+  setOnlyUnsaved(on: boolean): void {
+    this.onlyUnsaved.set(on);
+    this.page.set(0);
+  }
+
+  setPageSize(size: number): void {
+    this.pageSize.set(Number(size));
+    this.page.set(0);
+    this.saveUi();
+  }
+
+  resetFilters(): void {
+    this.filter.set('all');
+    this.query.set('');
+    this.format.set('all');
+    this.privacy.set('all');
+    this.onlyUnsaved.set(false);
+    this.page.set(0);
+    this.saveUi();
+  }
+
+  private saveUi(): void {
+    const prefs: UiPrefs = { sort: this.sort(), pageSize: this.pageSize(), format: this.format(), privacy: this.privacy() };
+    try { localStorage.setItem(UI_KEY, JSON.stringify(prefs)); } catch { /* private window: just not remembered */ }
+  }
+
+  /** Starts the one-by-one review: opens the first video in the list, and "Save & next" walks on from there. */
+  reviewFirst(): void {
+    const first = this.rows()[0];
+    if (!first) return;
+    this.page.set(0);
+    this.openEditor(first);
+  }
+
+  @HostListener('window:beforeunload', ['$event'])
+  warnUnsaved(e: BeforeUnloadEvent): void {
+    if (this.unsavedCount() > 0) e.preventDefault();
+  }
+
+  @HostListener('document:keydown', ['$event'])
+  onKey(e: KeyboardEvent): void {
+    if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || this.previewVideo() || this.open()) return;
+    const t = e.target as HTMLElement | null;
+    if (t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName))) return;
+    const box = this.searchBox()?.nativeElement;
+    if (box) { e.preventDefault(); box.focus(); box.select(); }
   }
 
   setViewMode(mode: ViewMode): void {
@@ -295,6 +452,31 @@ export class YouTubeCheckupComponent implements OnInit {
 
   closePreview(): void {
     this.previewVideo.set(null);
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscape(): void {
+    if (this.previewVideo()) this.closePreview();
+  }
+
+  /** The audit as a spreadsheet: every video the filters show, with what each one is missing. */
+  exportAudit(): void {
+    const rows = this.rows();
+    if (rows.length === 0) return;
+    const header = ['Title', 'Video ID', 'URL', 'Published', 'Privacy', 'Format', 'Issues', 'Issue codes', 'Description chars', 'Tags', 'Playlists'];
+    const lines = rows.map((v) => [
+      v.title, v.videoId, v.videoUrl, v.publishedAt ?? '', v.privacy ?? '', v.isShort ? 'Short' : 'Video',
+      v.issues.map((i) => i.message).join('; '), v.issues.map((i) => i.code).join(' '),
+      v.description.length, v.tags.length, v.playlistIds.length,
+    ].map(csvCell).join(','));
+    const blob = new Blob(['﻿' + [header.join(','), ...lines].join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `youtube-details-audit-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    this.notice.set(`Exported ${rows.length} video${rows.length === 1 ? '' : 's'} to CSV.`);
   }
 
   goToPage(index: number): void {
@@ -313,6 +495,11 @@ export class YouTubeCheckupComponent implements OnInit {
 
   state(videoId: string): RowState {
     return this.states()[videoId] ?? EMPTY_STATE;
+  }
+
+  /** 0-100: how many of the checks this video passes. */
+  rowScore(v: YouTubeCheckupVideo): number {
+    return Math.max(0, Math.round(((ISSUE_LABELS.length - v.issues.length) / ISSUE_LABELS.length) * 100));
   }
 
   hasChanges(v: YouTubeCheckupVideo): boolean {
@@ -334,7 +521,7 @@ export class YouTubeCheckupComponent implements OnInit {
     const index = this.openIndex() + step;
     const v = this.rows()[index];
     if (!v) return;
-    this.page.set(Math.floor(index / PAGE_SIZE));
+    this.page.set(Math.floor(index / this.pageSize()));
     this.openEditor(v);
   }
 
@@ -368,8 +555,8 @@ export class YouTubeCheckupComponent implements OnInit {
     this.patch(v.videoId, { draft: this.draftFrom(v), error: null, warnings: [], saved: false });
   }
 
-  suggest(v: YouTubeCheckupVideo): void {
-    this.runSuggest(v).subscribe();
+  suggest(v: YouTubeCheckupVideo, fresh = false): void {
+    this.runSuggest(v, fresh).subscribe();
   }
 
   playlistTitle(id: string): string {
@@ -398,6 +585,48 @@ export class YouTubeCheckupComponent implements OnInit {
 
   selectShown(): void {
     this.selected.set(new Set(this.rows().map((v) => v.videoId)));
+  }
+
+  /** Ticks, or unticks if all are already ticked, every video on the current page. */
+  togglePage(): void {
+    const all = this.pageAllSelected();
+    this.selected.update((s) => {
+      const next = new Set(s);
+      for (const v of this.pageRows()) { if (all) next.delete(v.videoId); else next.add(v.videoId); }
+      return next;
+    });
+  }
+
+  /** Adds the typed tags to every selected video's draft, keeping what each has and the tag-length budget. */
+  addTagsToSelected(): void {
+    const add = splitTags(this.bulkTags());
+    const targets = this.selectedVideos();
+    if (add.length === 0 || targets.length === 0) return;
+    for (const v of targets) {
+      if (!this.state(v.videoId).draft) this.patch(v.videoId, { draft: this.draftFrom(v) });
+      const d = this.state(v.videoId).draft!;
+      this.setDraft(v.videoId, { tagsText: fitTags([...splitTags(d.tagsText), ...add]).join(', ') });
+    }
+    this.bulkTags.set('');
+    this.notice.set(`Added ${add.length} tag${add.length === 1 ? '' : 's'} to ${targets.length} draft${targets.length === 1 ? '' : 's'}. Review, then Save.`);
+  }
+
+  /** Appends a block of text (links, credits, hashtags) to the end of every selected video's description draft, once. */
+  addDescriptionToSelected(): void {
+    const block = this.bulkDescription().trim();
+    const targets = this.selectedVideos();
+    if (!block || targets.length === 0) return;
+    let changed = 0;
+    for (const v of targets) {
+      if (!this.state(v.videoId).draft) this.patch(v.videoId, { draft: this.draftFrom(v) });
+      const d = this.state(v.videoId).draft!;
+      const next = insertAboveFooter(d.description, block, null);
+      if (next !== d.description) { this.setDraft(v.videoId, { description: next }); changed++; }
+    }
+    this.bulkDescription.set('');
+    this.notice.set(changed === 0
+      ? 'Every selected description already has that text.'
+      : `Added the text to ${changed} description${changed === 1 ? '' : 's'}. Review, then Save.`);
   }
 
   clearSelection(): void {
@@ -535,13 +764,13 @@ export class YouTubeCheckupComponent implements OnInit {
   }
 
   /** Emits once: whether a draft was written. Never errors - the row shows what went wrong. */
-  private runSuggest(v: YouTubeCheckupVideo): Observable<boolean> {
+  private runSuggest(v: YouTubeCheckupVideo, fresh = false): Observable<boolean> {
     return new Observable<boolean>((sub) => {
       if (!this.state(v.videoId).draft) this.patch(v.videoId, { draft: this.draftFrom(v) });
       this.patch(v.videoId, { busy: 'suggest', error: null });
       return this.api.suggestForVideo(this.channelId(), v.videoId, {
         language: this.language(),
-        fresh: false,
+        fresh,
         tone: this.tone(),
         brief: this.brief().trim() || undefined,
         providerId: this.engine() || undefined,
@@ -672,6 +901,10 @@ export class YouTubeCheckupComponent implements OnInit {
 
   toneLabel(t: string): string {
     return toneLabel(t);
+  }
+
+  languageLabel(id: string): string {
+    return languageLabel(id);
   }
 
   generateUrlSeo(): void {

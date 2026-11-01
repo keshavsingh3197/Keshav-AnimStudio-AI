@@ -1,0 +1,64 @@
+.st-actions { gap: 0.6rem; flex-wrap: wrap; margin-left: auto; }
+.st-small { font-size: 0.78rem; }
+
+.st-meter { margin-bottom: 1rem; }
+.st-meter-row { display: flex; gap: 0.6rem; align-items: baseline; flex-wrap: wrap; margin-bottom: 0.7rem; }
+.st-meter-row strong { font-size: 1.45rem; font-weight: 800; }
+.st-state { align-self: center; margin-left: auto; }
+.st-track {
+  position: relative; display: flex; height: 14px; border-radius: 99px; overflow: hidden; background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+}
+.st-seg { display: block; height: 100%; min-width: 2px; transition: width 0.3s ease; }
+.st-seg + .st-seg { border-left: 1px solid rgba(0, 0, 0, 0.35); }
+.st-meter[data-state='warn'] .st-track { border-color: rgba(245, 158, 11, 0.55); }
+.st-meter[data-state='full'] .st-track { border-color: rgba(244, 67, 80, 0.7); }
+.st-tick { position: absolute; top: 0; bottom: 0; width: 2px; background: rgba(255, 255, 255, 0.4); }
+.st-legend { display: flex; flex-wrap: wrap; gap: 0.35rem 1.1rem; list-style: none; margin: 0.7rem 0 0; padding: 0; font-size: 0.78rem; }
+.st-legend li { display: inline-flex; align-items: center; gap: 0.4rem; }
+.st-legend i, .st-dot { width: 0.7rem; height: 0.7rem; border-radius: 3px; display: inline-block; flex: 0 0 auto; }
+.st-dot { margin-right: 0.5rem; vertical-align: -1px; }
+.st-sub { font-size: 0.78rem; margin-top: 0.7rem; }
+
+.st-grid { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(340px, 1.7fr); gap: 1.1rem; align-items: start; }
+.st-wide { grid-column: 1 / -1; }
+@media (max-width: 900px) { .st-grid { grid-template-columns: minmax(0, 1fr); } }
+.st-card { margin-bottom: 0; min-width: 0; }
+.st-card .studio-card-head { flex-wrap: wrap; gap: 0.5rem 0.8rem; }
+.st-card h3 { margin: 0; font-size: 1rem; }
+.st-card > p { font-size: 0.84rem; margin: 0 0 0.8rem; }
+
+.st-quota { display: flex; gap: 0.5rem; align-items: center; }
+.st-quota input { width: 9rem; }
+.st-presets { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.7rem 0; }
+.st-error { color: var(--err); font-size: 0.82rem; margin: 0.4rem 0 0; }
+.st-preview {
+  display: flex; align-items: center; gap: 0.7rem; margin: 0.4rem 0 0.8rem; padding: 0.5rem 0.75rem; border-radius: 10px;
+  background: var(--ov-1); border: 1px solid var(--ov-3); font-size: 0.82rem;
+}
+.st-preview[data-state='warn'] { border-color: rgba(245, 158, 11, 0.5); }
+.st-preview[data-state='full'] { border-color: rgba(244, 67, 80, 0.55); }
+.st-mini { flex: 0 0 5.5rem; height: 7px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
+.st-mini i { display: block; height: 100%; background: var(--ok); }
+.st-preview[data-state='warn'] .st-mini i { background: var(--warn); }
+.st-preview[data-state='full'] .st-mini i { background: var(--err); }
+.st-quota-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.4rem; }
+.st-confirm { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.6rem 1rem; margin: 0.6rem 0; }
+.st-confirm-actions { display: inline-flex; align-items: center; gap: 0.5rem; }
+
+.st-search { flex: 0 1 13rem; min-width: 9rem; }
+.st-th {
+  display: inline-flex; align-items: center; gap: 0.3rem; padding: 0; border: 0; background: transparent; box-shadow: none; color: inherit;
+  font: inherit; font-weight: 700; text-transform: inherit; letter-spacing: inherit; cursor: pointer;
+}
+.st-th:hover { background: transparent; box-shadow: none; transform: none; color: var(--text); }
+.st-th span { font-size: 0.62rem; color: var(--brand-bright); }
+.st-share { min-width: 8rem; }
+.st-share .spark { display: inline-block; width: 4.5rem; vertical-align: middle; margin-right: 0.45rem; }
+
+.st-sync-buttons { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.st-report { margin: 0.8rem 0 0.4rem; }
+.st-sync-totals { display: flex; flex-wrap: wrap; gap: 0.4rem 1.4rem; margin: 0.4rem 0 0.7rem; font-size: 0.84rem; color: var(--muted); }
+.st-sync-totals strong { color: var(--text); font-variant-numeric: tabular-nums; }
+
+@media (prefers-reduced-motion: reduce) { .st-seg { transition: none; } }
