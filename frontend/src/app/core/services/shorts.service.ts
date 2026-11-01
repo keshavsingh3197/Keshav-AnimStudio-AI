@@ -145,6 +145,11 @@ export class ShortsService {
     return this.media.sign(`${this.library}/download/${encodeURIComponent(handoffId)}?inline=true&markUsed=false`);
   }
 
+  /** Direct signed thumbnail URL for a library item: a frame of the local render, or Drive's own thumbnail. */
+  thumbnailUrl(handoffId: string, width = 360): string {
+    return this.media.sign(`${this.library}/thumbnail/${encodeURIComponent(handoffId)}?width=${width}`);
+  }
+
   /** Direct signed JPEG frame URL for a library item's render job. */
   frameUrl(jobId: string, atSeconds = 1.2, width = 360): string {
     return this.media.sign(

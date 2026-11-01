@@ -121,10 +121,24 @@ public sealed class ShortsLibraryController(
             }
         }
 
-        var known = (await handoffs.ListByUserAsync(userId, null, MaxRecords * 5, ct))
+        var all = await handoffs.ListByUserAsync(userId, null, MaxRecords * 5, ct);
+        var known = all
             .Where(h => h.DriveFileId is not null)
             .GroupBy(h => h.DriveFileId!, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+
+        // Copies whose Drive file id never reached this database (e.g. sent from another server,
+        // or a send here that failed) are linked to the Drive file by name - only when exactly
+        // one copy could be meant, so two shorts with the same title are never mixed up.
+        var unlinked = all
+            .Where(h => h.DriveFileId is null && h.State != PhoneHandoffState.Cancelled)
+            .SelectMany(h => new[] { h.DriveFileName, PhoneHandoffManager.FileNameFor(h.Title) }
+                .Where(n => !string.IsNullOrEmpty(n))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Select(n => (Name: n!, Handoff: h)))
+            .GroupBy(x => x.Name, StringComparer.OrdinalIgnoreCase)
+            .Where(g => g.Select(x => x.Handoff.Id).Distinct(StringComparer.Ordinal).Count() == 1)
+            .ToDictionary(g => g.Key, g => g.First().Handoff, StringComparer.OrdinalIgnoreCase);
 
         var byName = new Dictionary<string, ContentTopic>(StringComparer.OrdinalIgnoreCase);
         foreach (var t in await topics.ListByUserAsync(userId, ct))
@@ -180,8 +194,32 @@ public sealed class ShortsLibraryController(
                             continue;
                         }
 
-                        var title = Path.GetFileNameWithoutExtension(file.Name);
                         var folderName = topic is null ? null : DriveCopies.TopicFolderName(topic);
+                        if (unlinked.Remove(file.Name, out var match) && match.DriveFileId is null)
+                        {
+                            match.DriveChannelId = target.DriveChannelId;
+                            match.DriveFolderName = target.FolderName;
+                            match.DriveFileId = file.Id;
+                            match.DriveFileName = file.Name;
+                            match.DriveMissing = false;
+                            match.TopicId ??= topic?.Id;
+                            match.Topic ??= folderName;
+                            match.Archived = archived;
+                            match.DriveSubfolders = [.. archived ? ArchivePath(match.Topic) : match.Topic is null ? [] : DriveCopies.TopicPath(match.Topic)];
+                            if (match.TotalBytes <= 0) match.TotalBytes = file.Size;
+                            match.BytesSent = match.TotalBytes;
+                            // A phone handoff found this late isn't watched for its upload again; its details can still be applied by hand.
+                            match.State = match.SaveOnly ? PhoneHandoffState.Saved : PhoneHandoffState.Expired;
+                            match.ErrorCode = null;
+                            match.Error = null;
+                            match.SentAt ??= file.CreatedAt ?? DateTime.UtcNow;
+                            await handoffs.UpsertAsync(match, ct);
+                            known[file.Id] = match;
+                            revived++;
+                            continue;
+                        }
+
+                        var title = Path.GetFileNameWithoutExtension(file.Name);
                         var created = new PhoneHandoff
                         {
                             Id = Guid.NewGuid().ToString("N"),
@@ -429,7 +467,8 @@ public sealed class ShortsLibraryController(
 
         if (!servedLocally)
         {
-            if (h.DriveFileId is null || h.DriveMissing || !OnDriveStates.Contains(h.State)) return NotFound();
+            if (h.DriveFileId is null || h.DriveMissing || !OnDriveStates.Contains(h.State))
+                return NotFound(ApiResponse<bool>.Fail(NotOnDriveMessage, new ApiError("not-on-drive", NotOnDriveMessage)));
 
             try
             {
@@ -483,6 +522,57 @@ public sealed class ShortsLibraryController(
             await handoffs.UpsertAsync(h, CancellationToken.None);
         }
         return new EmptyResult();
+    }
+
+    private const string NotOnDriveMessage = "This short's video isn't on this server or linked to a Google Drive file. Run Sync Drive, then try again.";
+
+    /// <summary>
+    /// A small picture of the copy for the library cards: a frame of the local render when this
+    /// server has it, otherwise Drive's own thumbnail of the file (so shorts rendered on another
+    /// machine, or imported from Drive, still show one).
+    /// </summary>
+    [AllowMediaTicket]
+    [HttpGet("thumbnail/{handoffId}")]
+    public async Task<IActionResult> Thumbnail(
+        string handoffId,
+        [FromServices] YouTubeThumbnailService thumbnails,
+        [FromQuery] int width = 360,
+        CancellationToken ct = default)
+    {
+        var h = await OwnedAsync(handoffId, ct);
+        if (h is null || h.State == PhoneHandoffState.Cancelled) return NotFound();
+        width = Math.Clamp(width, 120, 720);
+
+        var job = await jobs.GetAsync(h.JobId, ct);
+        if (job is not null && string.Equals(job.UserId, currentUser.UserId, StringComparison.Ordinal) && job.OutputStorageKey is not null)
+        {
+            try
+            {
+                var path = await RenderPreviewFile.EnsureAsync(store, dataPaths, job, ct);
+                var jpeg = await thumbnails.FrameAsync(path, 1.2, width, ct);
+                Response.Headers.CacheControl = "private, max-age=600";
+                return File(jpeg, "image/jpeg");
+            }
+            catch (Exception ex) when (ex is KeyNotFoundException or IOException or YouTubePublishException)
+            {
+                logger.LogInformation("No local frame for handoff {HandoffId} ({Type}); trying Drive.", h.Id, ex.GetType().Name);
+            }
+        }
+
+        if (h.DriveFileId is null || h.DriveMissing || !OnDriveStates.Contains(h.State)) return NotFound();
+        try
+        {
+            var target = new DriveTarget(currentUser.UserId, h.DriveChannelId, h.DriveFolderName);
+            var token = await drive.GetAccessTokenAsync(target, ct);
+            if (await driveClient.GetThumbnailAsync(token, h.DriveFileId, width, ct) is not { } image) return NotFound();
+            Response.Headers.CacheControl = "private, max-age=600";
+            return File(image.Bytes, image.ContentType);
+        }
+        catch (YouTubePublishException ex)
+        {
+            logger.LogWarning("Drive thumbnail for {HandoffId} failed: {Code}", h.Id, ex.Code);
+            return NotFound();
+        }
     }
 
     internal static IEnumerable<PhoneHandoff> Filter(

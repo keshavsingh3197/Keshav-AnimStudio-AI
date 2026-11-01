@@ -1,5 +1,6 @@
 using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Security;
+using AnimStudio.Domain.Publishing;
 using KeshavSingh.Mongo.NoSql;
 using Microsoft.Extensions.Logging;
 
@@ -113,16 +114,36 @@ public sealed class DriveDataSyncService(
         }
         results.Add(new DriveSyncResult($"{label} plan items", copied, updated, skipped));
 
-        copied = 0; skipped = 0;
+        copied = 0; updated = 0; skipped = 0;
         var handoffs = await from.Handoffs.ListByUserAsync(userId, null, PageLimit, ct).ConfigureAwait(false);
         foreach (var handoff in handoffs)
         {
-            if (await to.Handoffs.GetAsync(handoff.Id, ct).ConfigureAwait(false) is not null) { skipped++; continue; }
+            var other = await to.Handoffs.GetAsync(handoff.Id, ct).ConfigureAwait(false);
+            if (other is null) copied++;
+            else if (IsAhead(handoff, other)) updated++;
+            else { skipped++; continue; }
             await to.Handoffs.UpsertAsync(handoff, ct).ConfigureAwait(false);
-            copied++;
         }
-        results.Add(new DriveSyncResult($"{label} drive copies", copied, 0, skipped));
+        results.Add(new DriveSyncResult($"{label} drive copies", copied, updated, skipped));
     }
+
+    /// <summary>
+    /// Copy records have no update time, so the one that got further wins: a copy that reached
+    /// Drive (has a file id) beats one that didn't - otherwise a record whose send failed on
+    /// one server would hide the Drive file the other server uploaded - and a deletion, once
+    /// either side made it, sticks. A record with a Drive file is never replaced by one without.
+    /// </summary>
+    private static bool IsAhead(PhoneHandoff source, PhoneHandoff target)
+    {
+        if (target.DriveFileId is not null && source.DriveFileId is null) return false;
+        if (source.DriveFileId is not null && target.DriveFileId is null) return true;
+        if (source.State == PhoneHandoffState.Cancelled && target.State != PhoneHandoffState.Cancelled) return true;
+        if (target.State == PhoneHandoffState.Cancelled) return false;
+        return LastActivity(source) > LastActivity(target);
+    }
+
+    private static DateTime LastActivity(PhoneHandoff h) =>
+        new DateTime?[] { h.CreatedAt, h.SentAt, h.LastCheckedAt, h.UsedAt, h.AppliedAt }.Max(d => d ?? DateTime.MinValue);
 
     private sealed record Side(
         IProjectRepository Projects,

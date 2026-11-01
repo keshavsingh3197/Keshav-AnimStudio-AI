@@ -979,11 +979,11 @@ export class ShortsLibraryPageComponent implements OnDestroy {
   }
 
   showThumb(item: LibraryItem): boolean {
-    return (item.hasLocalPreview ?? true) && !this.failedThumbs().has(item.handoffId);
+    return ((item.hasLocalPreview ?? true) || !!item.driveUrl) && !this.failedThumbs().has(item.handoffId);
   }
 
   thumbUrl(item: LibraryItem): string {
-    return this.api.frameUrl(item.jobId, 1.2, 360);
+    return this.api.thumbnailUrl(item.handoffId, 360);
   }
 
   streamUrl(item: LibraryItem): string {
