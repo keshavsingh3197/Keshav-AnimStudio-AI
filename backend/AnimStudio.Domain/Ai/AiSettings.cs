@@ -118,6 +118,16 @@ public sealed class AiSettings
     public ChannelPublishSettings? DefaultPublishing { get; set; }
 
     /// <summary>
+    /// Studio-wide AI branding: the credits, links and hashtags that are the same for every brand
+    /// channel (studio and creator links, the tool and visuals credits, tagline, hashtags, tags),
+    /// typed once instead of per channel. A channel's own <see cref="ChannelPublishSettings.Branding"/>
+    /// overrides it field by field; a blank field there inherits from here. The channel name and
+    /// YouTube link are never stored here - they belong to each channel and come from its YouTube
+    /// link. Null: no studio defaults. Merged by <c>YouTubeBrandKit.Effective</c>.
+    /// </summary>
+    public ChannelBranding? StudioBranding { get; set; }
+
+    /// <summary>
     /// A channel's publishing setup. Unlike the look, a channel without its own does NOT
     /// fall back to the default's YouTube channel - that would upload one brand's video to
     /// another brand's channel. Only the default channel itself uses <see cref="DefaultPublishing"/>.

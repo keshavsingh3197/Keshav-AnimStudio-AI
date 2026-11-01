@@ -1161,3 +1161,39 @@
 .ve-seo-dot { flex: 0 0 auto; width: 8px; height: 8px; margin-top: 0.4rem; border-radius: 50%; background: var(--warn); }
 .ve-seo-item.is-bad .ve-seo-dot { background: var(--err); }
 .ve-progress-bar.is-low { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+
+/* What the last AI answer was written from */
+.ve-ai-status {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem;
+  margin: 0.5rem 0 0.25rem; font-size: 0.78rem; color: var(--muted);
+}
+.ve-ai-status strong { color: var(--text-dim); }
+.ve-ai-ok { color: var(--ok); }
+.ve-ai-warn { color: var(--warn); }
+
+/* Search-to-pick boxes (topic, playlists): only matches are drawn, so thousands of entries stay fast */
+.ve-combo { position: relative; width: 100%; }
+.ve-combo-list {
+  position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 4px);
+  max-height: 260px; overflow-y: auto; margin: 0; padding: 0.25rem; list-style: none;
+  background: var(--surface); border: 1px solid var(--ov-4); border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+}
+.ve-combo-item {
+  display: flex; align-items: center; gap: 0.5rem; width: 100%;
+  padding: 0.45rem 0.6rem; border: 0; border-radius: 6px; background: transparent;
+  color: var(--text); font-size: 0.82rem; text-align: left; cursor: pointer;
+}
+.ve-combo-item:hover, .ve-combo-item:focus-visible { background: var(--ov-2); }
+.ve-combo-create { color: var(--brand-bright); font-weight: 600; }
+.ve-combo-empty { padding: 0.45rem 0.6rem; font-size: 0.78rem; color: var(--muted); }
+
+.ve-picked-row { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem; }
+.ve-picked-chip {
+  display: inline-flex; align-items: center; gap: 0.35rem; max-width: 100%;
+  padding: 0.25rem 0.4rem 0.25rem 0.7rem; border-radius: 99px;
+  border: 1px solid var(--ov-3); background: var(--ov-2); color: var(--text); font-size: 0.8rem;
+}
+.ve-picked-chip.is-existing { color: var(--ok); padding-right: 0.7rem; }
+.ve-picked-chip.is-new { border-color: var(--brand); }
+.ve-topic-dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; flex: none; }

@@ -173,7 +173,7 @@ public sealed partial class YouTubePublishController
             Brief: request.Brief, ProviderId: request.ProviderId);
         var suggestion = await SuggestWithFallbackAsync(summary, style, suggestRequest, projectId,
             d => YouTubePublishValidator.WithFooter(d.Trim(), footer), "inspect " + videoId, transcriptSnippet, extras, ct,
-            brandPublishing?.Branding, footer);
+            YouTubeBrandKit.Effective(settings, brandPublishing), footer);
 
         logger.LogInformation("User {UserId} inspected YouTube video {VideoId} (own: {Own}, songs: {Songs}, chapters: {Chapters})",
             currentUser.UserId, videoId, owner is not null, songs.Count, chapters.Count);

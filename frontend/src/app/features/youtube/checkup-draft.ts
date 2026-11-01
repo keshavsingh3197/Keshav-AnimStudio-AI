@@ -15,6 +15,15 @@ export interface Draft {
   pinnedComment?: string;
   engagementComment?: string;
   transcriptText?: string | null;
+  /** Where the AI's transcript came from; null when it had none to go on. */
+  transcriptSource?: 'youtube-captions' | 'render-audio' | null;
+  /** The content topic the video belongs to; it steers the AI and the playlist picks. */
+  topicId?: string | null;
+  /** The engine that wrote the last suggestion, and what it said it couldn't use. */
+  writtenBy?: string;
+  aiNotes?: string[];
+  /** Playlists picked by matching rather than by hand, so the dialog can say so. */
+  autoPlaylistIds?: string[];
   /** Private now, public by itself at `publishAtLocal` (a datetime-local value in the viewer's zone). */
   scheduled?: boolean;
   publishAtLocal?: string;

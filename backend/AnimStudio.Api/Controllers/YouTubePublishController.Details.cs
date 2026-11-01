@@ -1,8 +1,11 @@
+using System.Text.RegularExpressions;
 using AnimStudio.Api.Common;
 using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Application.Publishing;
+using AnimStudio.Application.Transcripts;
 using AnimStudio.Domain.Ai;
 using AnimStudio.Domain.Jobs;
+using AnimStudio.Domain.Planning;
 using AnimStudio.Domain.Projects;
 using AnimStudio.Domain.Publishing;
 using AnimStudio.Infrastructure.Publishing;
@@ -102,12 +105,16 @@ public sealed partial class YouTubePublishController
     public async Task<ActionResult<ApiResponse<YouTubeSuggestResponse>>> SuggestForVideo(
         string channelId, string videoId, [FromBody] YouTubeSuggestRequest? request,
         [FromServices] YouTubeChannelVideosClient channelVideos, [FromServices] IYouTubePublicationRepository publicationRecords,
+        [FromServices] IContentTopicRepository topicRepository, [FromServices] IContentPlanItemRepository planItems,
+        [FromServices] MediaTranscriptionService transcription,
         CancellationToken ct)
     {
         if (request?.Brief is { Length: > YouTubeMetadataSuggester.MaxBriefChars * 4 }
             || request?.Tone is { } tone && !YouTubeMetadataSuggester.Tones.ContainsKey(tone))
             return SuggestFailure(StatusCodes.Status400BadRequest, "suggest-input-invalid",
                 $"Keep the notes under {YouTubeMetadataSuggester.MaxBriefChars} characters and pick a tone from the list.");
+        if (request?.TopicId is { } requestedTopic && !TopicIdPattern().IsMatch(requestedTopic))
+            return SuggestFailure(StatusCodes.Status400BadRequest, "suggest-input-invalid", "Pick a topic from the list.");
 
         var (connection, refusal) = await EditableChannelAsync<YouTubeSuggestResponse>(channelId, ct);
         if (refusal is not null) return refusal;
@@ -126,20 +133,18 @@ public sealed partial class YouTubePublishController
             return SuggestFailure(StatusCodes.Status404NotFound, "video-not-found", "That video isn't on this channel.");
 
         // A video AnimStudio made still has its project: its name, description and script say the most.
-        string? projectId = null;
-        var projectSummary = string.Empty;
-        var record = (await publicationRecords.ListByVideoIdsAsync(currentUser.UserId, [video.VideoId], ct)).FirstOrDefault();
-        if (record is not null && await projects.GetAsync(record.ProjectId, ct) is { } project
-            && string.Equals(project.UserId, currentUser.UserId, StringComparison.Ordinal))
-        {
-            projectId = project.Id;
-            projectSummary = YouTubeMetadataSuggester.BuildSummary(project.Name, project.Description,
-                await scenes.ListByProjectAsync(project.Id, ct), null);
-        }
+        var (project, job) = await LinkedRenderAsync(publicationRecords, connection.ChannelId, video.VideoId, ct);
+        var projectId = project?.Id;
+        var projectSummary = project is null
+            ? string.Empty
+            : YouTubeMetadataSuggester.BuildSummary(project.Name, project.Description, await scenes.ListByProjectAsync(project.Id, ct), null);
 
-        // Also fetch the video's spoken captions / transcript directly from YouTube (100% free)
+        // What is actually sung or said is the best evidence of the subject: YouTube's captions first,
+        // and for a render of ours without any (most bhajans and Shorts), the render's own audio.
         string? transcriptText = null;
+        string? transcriptSource = null;
         IReadOnlyList<YouTubeChapter> chapters = [];
+        var notes = new List<string>();
         try
         {
             var fetched = await transcriptFetcher.FetchAsync(video.VideoId, ct);
@@ -148,6 +153,7 @@ public sealed partial class YouTubePublishController
                 transcriptText = fetched.TranscriptText.Length > 3500
                     ? fetched.TranscriptText[..3500]
                     : fetched.TranscriptText;
+                transcriptSource = "youtube-captions";
                 chapters = YouTubeChapterBuilder.FromSegments(fetched.Segments, video.DurationSeconds ?? fetched.DurationSeconds);
             }
         }
@@ -155,11 +161,37 @@ public sealed partial class YouTubePublishController
         {
             logger.LogDebug(ex, "Could not fetch YouTube captions for {VideoId}; continuing with metadata.", video.VideoId);
         }
+        if (transcriptText is null && job?.OutputStorageKey is { } outputKey && projectId is not null)
+        {
+            try
+            {
+                var heard = await transcription.TranscribeRenderAsync(outputKey, projectId, currentUser.UserId,
+                    request?.Language, RenderTranscriptLength, ct);
+                transcriptText = heard.Length > 3500 ? heard[..3500] : heard;
+                transcriptSource = "render-audio";
+            }
+            catch (MediaTranscriptionException ex)
+            {
+                // Never fatal: the details are still written from what the video already has.
+                logger.LogInformation("No transcript from the render of {VideoId} ({Code}).", video.VideoId, ex.Code);
+                notes.Add(ex.Code == "no-speech"
+                    ? "No words were heard in the video, so the AI wrote from its title, description and project."
+                    : "The video's audio couldn't be transcribed just now, so the AI wrote from its title, description and project.");
+            }
+        }
+        else if (transcriptText is null)
+        {
+            notes.Add("YouTube has no captions for this video, so the AI wrote from its title, description and tags. Add captions in Studio, or publish from AnimStudio, for details based on what is sung.");
+        }
+
+        // The topic (content series) the video belongs to: the one picked in the dialog, else the planned post it is linked to.
+        var topic = await VideoTopicAsync(topicRepository, planItems, request?.TopicId, video.VideoId, ct);
 
         var summary = string.Join('\n', new[]
         {
             projectSummary,
             "Channel: " + connection.ChannelTitle,
+            topic is null ? string.Empty : TopicSummary(topic),
             "Current title: " + video.Title,
             video.Description.Length > 0
                 ? "Current description: " + (video.Description.Length > 2000 ? video.Description[..2000] : video.Description)
@@ -178,9 +210,52 @@ public sealed partial class YouTubePublishController
         var brandPublishing = BrandFor(settings, connection.ChannelId).Publishing;
         var footer = brandPublishing?.DescriptionFooter;
 
-        return await WriteSuggestionAsync(summary, style, request, projectId,
+        var action = await WriteSuggestionAsync(summary, style, request, projectId,
             d => YouTubePublishValidator.WithFooter(d.Trim(), footer), "video " + video.VideoId, ct, transcriptText, extras,
-            brandPublishing?.Branding, footer);
+            YouTubeBrandKit.Effective(settings, brandPublishing), footer);
+
+        // Tell the dialog what the details were written from, so a thin answer is explained rather than a mystery.
+        if (action.Result is ObjectResult { Value: ApiResponse<YouTubeSuggestResponse> { Success: true, Data: { } written } })
+        {
+            if (written.ProviderId == YouTubeFreeSeoEngine.FreeLocalProviderId && string.IsNullOrWhiteSpace(request?.ProviderId))
+                notes.Add("No AI engine answered, so the built-in template engine wrote these. Turn on an AI provider for varied, video-specific titles.");
+            return Ok(ApiResponse<YouTubeSuggestResponse>.Ok(written with
+            {
+                TranscriptSource = transcriptSource,
+                TopicId = topic?.Id,
+                Notes = notes,
+            }));
+        }
+        return action;
+    }
+
+    /// <summary>Topic ids are server-made; anything else from the client is refused before a lookup.</summary>
+    [GeneratedRegex("^[A-Za-z0-9_-]{1,64}$")]
+    private static partial Regex TopicIdPattern();
+
+    /// <summary>How much of a render is listened to for its subject - a Short whole, a long video's opening.</summary>
+    private static readonly TimeSpan RenderTranscriptLength = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// The caller's topic for a video: <paramref name="topicId"/> when given (and theirs), else the
+    /// topic of the planned post the video is linked to. Someone else's topic reads as none.
+    /// </summary>
+    private async Task<ContentTopic?> VideoTopicAsync(IContentTopicRepository topicRepository, IContentPlanItemRepository planItems,
+        string? topicId, string videoId, CancellationToken ct)
+    {
+        topicId ??= (await planItems.FindByVideoIdAsync(currentUser.UserId, videoId, ct))?.TopicId;
+        if (string.IsNullOrEmpty(topicId)) return null;
+        var topic = await topicRepository.GetAsync(topicId, ct);
+        return topic is not null && string.Equals(topic.UserId, currentUser.UserId, StringComparison.Ordinal) ? topic : null;
+    }
+
+    /// <summary>The topic as facts for the prompt, which fences the whole summary as data.</summary>
+    private static string TopicSummary(ContentTopic topic)
+    {
+        var text = "Topic / series this video belongs to: " + topic.Name;
+        if (!string.IsNullOrWhiteSpace(topic.Description)) text += "\nAbout the topic: " + topic.Description.Trim();
+        if (topic.Tags.Count > 0) text += "\nTopic search phrases: " + string.Join(", ", topic.Tags.Take(20));
+        return text;
     }
 
     /// <summary>
@@ -267,7 +342,7 @@ public sealed partial class YouTubePublishController
 
         var suggestion = await SuggestWithFallbackAsync(summary, style, suggestReq, projectId,
             d => YouTubePublishValidator.WithFooter(d.Trim(), footer), "url-video " + videoId, transcriptSnippet, extras, ct,
-            brandPublishing?.Branding, footer);
+            YouTubeBrandKit.Effective(settings, brandPublishing), footer);
 
         return Ok(ApiResponse<YouTubeUrlSeoResponse>.Ok(new YouTubeUrlSeoResponse(
             videoId,

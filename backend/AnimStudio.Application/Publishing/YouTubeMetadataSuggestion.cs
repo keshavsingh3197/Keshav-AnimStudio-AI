@@ -134,6 +134,28 @@ public static class YouTubeMetadataSuggester
         return sb.ToString().Trim();
     }
 
+    /// <summary>The most earlier titles a new take is told to steer clear of.</summary>
+    public const int MaxAvoidTitles = 12;
+
+    /// <summary>
+    /// Titles already offered, made safe to fence into a prompt: each one cleaned like a brief and
+    /// cut to a title's length, blanks and repeats dropped, at most <see cref="MaxAvoidTitles"/>.
+    /// </summary>
+    public static IReadOnlyList<string> CleanAvoidTitles(IEnumerable<string?>? titles)
+    {
+        if (titles is null) return [];
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var list = new List<string>();
+        foreach (var raw in titles.Take(MaxAvoidTitles * 2))
+        {
+            var title = CleanBrief(raw);
+            if (title.Length > YouTubePublishValidator.MaxTitleLength) title = title[..YouTubePublishValidator.MaxTitleLength].TrimEnd();
+            if (title.Length > 0 && seen.Add(title)) list.Add(title);
+            if (list.Count == MaxAvoidTitles) break;
+        }
+        return list;
+    }
+
     /// <summary>The material the prompt describes: name, description, chapters and the spoken script.</summary>
     public static string BuildSummary(string? projectName, string? projectDescription, IEnumerable<Scene> scenes,
         IEnumerable<string>? chapterLabels, IEnumerable<string>? onScreenText = null, IEnumerable<string>? clipLabels = null)

@@ -9,7 +9,10 @@ import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
 import {
   YouTubeCategory, YouTubeChannel, YouTubeCheckup, YouTubeCheckupVideo, YouTubeSuggestEngine, YouTubeSuggestion, YouTubeUrlSeoResult,
 } from '../../core/models/youtube.models';
+import { ContentTopic } from '../../core/models/calendar.models';
+import { ContentCalendarService } from '../../core/services/content-calendar.service';
 import { YouTubePublishService } from '../../core/services/youtube-publish.service';
+import { rank } from './checkup-match';
 import { MAX_ANSWER_CHARS, MAX_PROMPT_VIDEOS, buildHandoffPrompt, parseHandoffAnswer } from './checkup-ai-handoff';
 import {
   Draft, EMPTY_STATE, HASHTAG, HASHTAGS, RowState, YOUTUBE_LANGUAGES, draftDiffers, fitTags, fromLocalInput, insertAboveFooter, languageLabel, scheduleDiffers, splitTags, toLocalInput, toneLabel,
@@ -114,6 +117,7 @@ function loadViewMode(): ViewMode {
 })
 export class YouTubeCheckupComponent implements OnInit {
   private readonly api = inject(YouTubePublishService);
+  private readonly calendar = inject(ContentCalendarService);
   private readonly sanitizer = inject(DomSanitizer);
   private readonly route = inject(ActivatedRoute);
 
@@ -204,6 +208,8 @@ export class YouTubeCheckupComponent implements OnInit {
   readonly channel = computed(() => this.channels().find((c) => c.channelId === this.channelId()) ?? null);
   readonly videos = computed(() => this.checkup()?.videos ?? []);
   readonly playlists = computed(() => this.checkup()?.playlists ?? []);
+  /** The studio's content topics (not archived), for the dialog's topic picker. */
+  readonly topics = signal<ContentTopic[]>([]);
 
   readonly counts = computed(() => {
     const byIssue: Record<string, number> = {};
@@ -316,6 +322,13 @@ export class YouTubeCheckupComponent implements OnInit {
       this.tones.set(o.tones);
       if (!o.tones.includes(this.tone())) this.tone.set('auto');
     });
+    // Topics are a help, not a need: without them the dialog simply offers to create one.
+    this.calendar.listTopics().pipe(catchError(() => of([] as ContentTopic[]))).subscribe((t) => this.topics.set(t.filter((x) => !x.archived)));
+  }
+
+  /** A topic made from the dialog joins the list at once, kept in name order. */
+  topicCreated(topic: ContentTopic): void {
+    this.topics.update((list) => [...list.filter((t) => t.id !== topic.id), topic].sort((a, b) => a.name.localeCompare(b.name)));
   }
 
   setCheckSize(size: number): void {
@@ -768,12 +781,19 @@ export class YouTubeCheckupComponent implements OnInit {
     return new Observable<boolean>((sub) => {
       if (!this.state(v.videoId).draft) this.patch(v.videoId, { draft: this.draftFrom(v) });
       this.patch(v.videoId, { busy: 'suggest', error: null });
+      const d = this.state(v.videoId).draft!;
+      // Asking again means wanting something else: the cached answer is skipped, and every
+      // title already on offer is named so the model writes new ones instead of rewording them.
+      const offered = [d.title, ...d.titleOptions].filter((t) => t.trim());
+      const again = fresh || d.titleOptions.length > 0;
       return this.api.suggestForVideo(this.channelId(), v.videoId, {
         language: this.language(),
-        fresh,
+        fresh: again,
         tone: this.tone(),
         brief: this.brief().trim() || undefined,
         providerId: this.engine() || undefined,
+        avoidTitles: again ? offered : undefined,
+        topicId: d.topicId || undefined,
       }).subscribe({
         next: (s) => {
           this.patch(v.videoId, { busy: null, draft: this.merge(v, this.state(v.videoId).draft!, s), saved: false });
@@ -885,7 +905,8 @@ export class YouTubeCheckupComponent implements OnInit {
     }
 
     const titles = [s.title, ...(s.titleOptions ?? [])].filter((t) => t && t !== d.title);
-    return {
+    const topicId = d.topicId || s.topicId || null;
+    const merged: Draft = {
       ...d,
       title: replaceTitle ? s.title : d.title,
       description,
@@ -896,7 +917,24 @@ export class YouTubeCheckupComponent implements OnInit {
       pinnedComment: s.pinnedComment || d.pinnedComment,
       engagementComment: s.engagementComment || d.engagementComment,
       transcriptText: s.transcriptText ?? d.transcriptText,
+      transcriptSource: s.transcriptSource ?? null,
+      topicId,
+      writtenBy: s.providerId,
+      aiNotes: s.notes ?? [],
     };
+    return this.autoPlaylists(v, merged);
+  }
+
+  /**
+   * Adds the playlist that best fits the video, when it is in none yet and the fit is clear:
+   * the topic's own playlist, or one whose name is in the title. Only ever adds - and only
+   * to the draft, which the creator still reviews before saving.
+   */
+  private autoPlaylists(v: YouTubeCheckupVideo, d: Draft): Draft {
+    if (this.checkup()?.playlistError || v.playlistIds.length > 0 || d.addPlaylistIds.length > 0) return d;
+    const topic = this.topics().find((t) => t.id === d.topicId)?.name;
+    const best = rank(this.playlists(), (p) => p.title, `${d.title}\n${d.tagsText}\n${d.description.slice(0, 600)}`, topic, 1)[0];
+    return best ? { ...d, addPlaylistIds: [best.item.id], autoPlaylistIds: [best.item.id] } : d;
   }
 
   toneLabel(t: string): string {

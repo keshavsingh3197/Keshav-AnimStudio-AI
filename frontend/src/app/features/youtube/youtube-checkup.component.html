@@ -853,6 +853,8 @@
           [state]="state(ov.videoId)"
           [playlists]="playlists()"
           [playlistsKnown]="!c.playlistError"
+          [topics]="topics()"
+          (topicCreated)="topicCreated($event)"
           [categories]="categories()"
           [position]="openPosition()"
           [hasPrev]="hasPrev()"

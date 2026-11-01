@@ -3,7 +3,7 @@ import { Component, DestroyRef, ElementRef, HostListener, Injector, OnDestroy, a
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { Observable, TimeoutError, switchMap, timeout } from 'rxjs';
+import { Observable, TimeoutError, firstValueFrom, timeout } from 'rxjs';
 
 import { LibraryBulk, LibraryItem, LibraryPage, LibraryQuery, LibraryView } from '../../core/models/shorts.models';
 import { ApiFailure } from '../../core/interceptors/api-error.interceptor';
@@ -18,6 +18,34 @@ type Sort = NonNullable<LibraryQuery['sort']>;
 type ViewMode = 'xl' | 'large' | 'medium' | 'small' | 'list' | 'details' | 'tiles' | 'content';
 type FormatFilter = 'all' | NonNullable<LibraryQuery['format']>;
 
+/** A running bulk action: with a total it fills by done/total, without one it is indeterminate. */
+interface OpProgress {
+  title: string;
+  detail: string;
+  done: number;
+  total: number;
+  failed: number;
+  tone: 'brand' | 'danger';
+  /** done/total count steps of a multi-stage task rather than videos. */
+  steps?: boolean;
+  cancellable?: boolean;
+}
+
+interface ConfirmSpec {
+  title: string;
+  lead: string;
+  points: string[];
+  confirmLabel: string;
+  tone: 'warn' | 'danger';
+  items?: string[];
+  more?: number;
+  /** A word the user types before a large destructive action goes ahead. */
+  typeToConfirm?: string;
+}
+
+/** Bulk calls go in batches this size so the progress bar moves and Stop takes effect between them. */
+const BATCH = 10;
+
 /**
  * The shorts & exported videos on Drive (and topic-tagged renders) as a library:
  * search, filter by topic, format and status, sample/preview inline or in a modal,
@@ -30,7 +58,7 @@ type FormatFilter = 'all' | NonNullable<LibraryQuery['format']>;
   imports: [FormsModule, RouterLink, DatePipe, DecimalPipe],
   template: `
     <div class="lp studio-wide-page">
-      <div class="lp-content" [attr.inert]="sampleItem() || moveDialog() ? '' : null">
+      <div class="lp-content" [attr.inert]="sampleItem() || moveDialog() || confirmDialog() ? '' : null">
       <header class="lp-head" [attr.inert]="busy() ? '' : null">
         <div>
           <h2>Drive &amp; Topics Library</h2>
@@ -49,6 +77,34 @@ type FormatFilter = 'all' | NonNullable<LibraryQuery['format']>;
           </button>
         </div>
       </header>
+
+      @if (op(); as o) {
+        <section class="lp-progress" [class.danger]="o.tone === 'danger'" aria-label="Progress">
+          <div class="lp-progress-head">
+            <span class="lp-spinner" aria-hidden="true"></span>
+            <strong>{{ o.title }}</strong>
+            @if (o.detail) { <span class="muted">{{ o.detail }}</span> }
+            <span class="lp-spacer"></span>
+            @if (o.total) {
+              <span class="lp-progress-count">{{ o.steps ? 'Step ' + stepNumber(o) + ' of ' + o.total : (o.done | number) + ' / ' + (o.total | number) }} · {{ opPercent() }}%</span>
+            }
+            @if (o.cancellable) {
+              <button type="button" class="lp-btn sm" (click)="stopOp()" [disabled]="stopping()">{{ stopping() ? 'Stopping after this batch…' : 'Stop' }}</button>
+            }
+          </div>
+          <div class="lp-progress-track" [class.indeterminate]="!o.total" role="progressbar" [attr.aria-label]="o.title"
+               aria-valuemin="0" aria-valuemax="100" [attr.aria-valuenow]="o.total ? opPercent() : null">
+            <div class="lp-progress-fill" [style.width.%]="o.total ? opWidth() : null"></div>
+          </div>
+          <p class="lp-sr" role="status" aria-live="polite">{{ o.title }} {{ o.total ? opPercent() + '%' : '' }}</p>
+          @if (o.failed) { <small class="lp-progress-failed">{{ o.failed }} failed so far. The rest continue.</small> }
+        </section>
+      } @else if (importing()) {
+        <section class="lp-progress slim" aria-label="Checking Google Drive">
+          <div class="lp-progress-head"><span class="lp-spinner" aria-hidden="true"></span><span>Checking Google Drive for new videos…</span></div>
+          <div class="lp-progress-track indeterminate" role="progressbar" aria-label="Checking Google Drive for new videos"><div class="lp-progress-fill"></div></div>
+        </section>
+      }
 
       <section class="lp-overview" aria-label="Library overview" [attr.inert]="busy() ? '' : null">
         @for (v of views(); track v.id) {
@@ -195,7 +251,7 @@ type FormatFilter = 'all' | NonNullable<LibraryQuery['format']>;
           </label>
           <p class="lp-hint muted">When on, Sync Drive takes videos you deleted or trashed on Google Drive out of the library. Their renders stay in Shorts Studio, so you can save them to Drive again. When off, they are only flagged as missing.</p>
         </details>
-        @if (busy()) { <p class="lp-hint" role="status">{{ progress() || 'Applying your changes…' }}</p> }
+        @if (busy() && !op()) { <p class="lp-hint" role="status">Applying your changes…</p> }
 
         <div class="lp-results" [class.unavailable]="loadError()" [attr.inert]="loading() || busy() || loadError() ? '' : null">
         @if (mode() === 'details') {
@@ -447,7 +503,7 @@ type FormatFilter = 'all' | NonNullable<LibraryQuery['format']>;
 
       <!-- VIDEO SAMPLE & QUICK ACTIONS MODAL -->
       @if (sampleItem(); as s) {
-        <div class="lp-modal-backdrop" (click)="closeSample()">
+        <div class="lp-modal-backdrop" (click)="closeSample()" [attr.inert]="confirmDialog() ? '' : null">
           <div #sampleDialog class="lp-modal" role="dialog" aria-modal="true" tabindex="-1" [attr.aria-label]="s.title || 'Video Sample'" (click)="$event.stopPropagation()">
             <header class="lp-modal-head">
               <div class="lp-modal-title-wrap">
@@ -508,6 +564,53 @@ type FormatFilter = 'all' | NonNullable<LibraryQuery['format']>;
                   Download MP4
                 </button>
               </div>
+            </footer>
+          </div>
+        </div>
+      }
+
+      <!-- WARNING / CONFIRM DIALOG -->
+      @if (confirmDialog(); as c) {
+        <div class="lp-modal-backdrop lp-confirm-backdrop" (click)="answerConfirm(false)">
+          <div #confirmDialogEl class="lp-modal lp-confirm" [class.danger]="c.tone === 'danger'" role="alertdialog" aria-modal="true" tabindex="-1"
+               aria-labelledby="lp-confirm-title" aria-describedby="lp-confirm-lead" (click)="$event.stopPropagation()">
+            <div class="lp-confirm-top">
+              <span class="lp-confirm-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M12 3l9.5 17h-19L12 3z" /><path d="M12 10v4.5M12 17.5v.01" /></svg>
+              </span>
+              <div class="lp-modal-title-wrap">
+                <h3 id="lp-confirm-title">{{ c.title }}</h3>
+                <p id="lp-confirm-lead" class="lp-confirm-lead">{{ c.lead }}</p>
+              </div>
+            </div>
+
+            <ul class="lp-confirm-points">
+              @for (p of c.points; track $index) { <li>{{ p }}</li> }
+            </ul>
+
+            @if (c.items?.length) {
+              <div class="lp-confirm-items">
+                <span class="muted">Includes</span>
+                <ul>
+                  @for (t of c.items; track $index) { <li [title]="t">{{ t }}</li> }
+                  @if (c.more) { <li class="muted">+ {{ c.more | number }} more</li> }
+                </ul>
+              </div>
+            }
+
+            @if (c.typeToConfirm) {
+              <label class="lp-field">
+                <span>Type <strong>{{ c.typeToConfirm }}</strong> to confirm</span>
+                <input class="lp-input lp-confirm-input" autocomplete="off" spellcheck="false" maxlength="20"
+                       [ngModel]="confirmTyped()" (ngModelChange)="confirmTyped.set($event)"
+                       (keydown.enter)="confirmReady() && answerConfirm(true)" />
+              </label>
+            }
+
+            <footer class="lp-modal-foot">
+              <button type="button" class="lp-btn lp-confirm-cancel" (click)="answerConfirm(false)">Cancel</button>
+              <button type="button" class="lp-btn" [class.danger-solid]="c.tone === 'danger'" [class.primary]="c.tone !== 'danger'"
+                      (click)="answerConfirm(true)" [disabled]="!confirmReady()">{{ c.confirmLabel }}</button>
             </footer>
           </div>
         </div>
@@ -751,7 +854,53 @@ type FormatFilter = 'all' | NonNullable<LibraryQuery['format']>;
       .lp-topic-new { flex-wrap: wrap; }
       .lp-topic-new .lp-btn { flex: 1 1 100%; }
     }
+    /* Progress panel */
+    .lp-progress { position: sticky; top: 8px; z-index: 20; display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border: 1px solid rgba(124, 58, 237, 0.5); border-radius: 12px; background: color-mix(in srgb, var(--brand, #7c3aed) 10%, var(--panel, #161b22)); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3); }
+    .lp-progress.danger { border-color: rgba(248, 81, 73, 0.55); background: color-mix(in srgb, #f85149 8%, var(--panel, #161b22)); }
+    .lp-progress.slim { position: static; padding: 8px 12px; gap: 6px; box-shadow: none; border-color: var(--border, #30363d); background: var(--panel, #161b22); }
+    .lp-progress.slim .lp-progress-head { font-size: 0.8rem; color: var(--muted, #8b949e); }
+    .lp-progress.slim .lp-progress-track { height: 4px; }
+    .lp-progress-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 0.86rem; }
+    .lp-progress-head .muted { font-size: 0.8rem; }
+    .lp-progress-count { font-variant-numeric: tabular-nums; font-size: 0.8rem; color: var(--muted, #8b949e); }
+    .lp-progress-track { position: relative; height: 8px; border-radius: 999px; background: var(--ov-1, rgba(255, 255, 255, 0.06)); overflow: hidden; }
+    .lp-progress-fill { position: relative; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--brand, #7c3aed), #a78bfa); transition: width 0.35s ease; overflow: hidden; }
+    .lp-progress-fill::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent); animation: lp-shimmer 1.4s linear infinite; }
+    .lp-progress.danger .lp-progress-fill { background: linear-gradient(90deg, #da3633, #f85149); }
+    .lp-progress-track.indeterminate .lp-progress-fill { position: absolute; top: 0; width: 35%; animation: lp-indeterminate 1.3s ease-in-out infinite; }
+    .lp-progress-failed { color: var(--c-red, #f85149); font-size: 0.78rem; }
+    .lp-spinner { width: 14px; height: 14px; flex-shrink: 0; box-sizing: border-box; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: lp-spin 0.8s linear infinite; opacity: 0.8; }
+    .lp-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+    @keyframes lp-shimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+    @keyframes lp-indeterminate { 0% { left: -35%; } 100% { left: 100%; } }
+    @keyframes lp-spin { to { transform: rotate(360deg); } }
+
+    /* Warning dialog */
+    .lp-confirm-backdrop { z-index: 1400; }
+    .lp-confirm { width: min(540px, 100%); gap: 14px; border-color: rgba(210, 153, 34, 0.5); }
+    .lp-confirm.danger { border-color: rgba(248, 81, 73, 0.55); }
+    .lp-confirm-top { display: flex; gap: 14px; align-items: flex-start; }
+    .lp-confirm-icon { flex-shrink: 0; width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: rgba(210, 153, 34, 0.15); color: var(--c-yellow, #d29922); }
+    .lp-confirm.danger .lp-confirm-icon { background: rgba(248, 81, 73, 0.14); color: var(--c-red, #f85149); }
+    .lp-confirm-icon svg { width: 24px; height: 24px; stroke: currentColor; stroke-width: 2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+    .lp-confirm h3 { margin: 0 0 4px; font-size: 1.1rem; font-weight: 700; }
+    .lp-confirm-lead { margin: 0; font-size: 0.86rem; line-height: 1.5; color: var(--text-dim, #c9d1d9); }
+    .lp-confirm-points { margin: 0; padding: 10px 14px 10px 30px; border: 1px solid var(--border, #30363d); border-radius: 10px; background: var(--ov-1, rgba(255, 255, 255, 0.04)); font-size: 0.83rem; line-height: 1.55; display: flex; flex-direction: column; gap: 4px; }
+    .lp-confirm-items { font-size: 0.8rem; }
+    .lp-confirm-items ul { list-style: none; margin: 6px 0 0; padding: 8px 10px; max-height: 140px; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 3px; border: 1px solid var(--border, #30363d); border-radius: 8px; }
+    .lp-confirm-items li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lp-confirm-input { letter-spacing: 0.08em; }
+    .lp-confirm .lp-modal-foot { justify-content: flex-end; }
+    .lp-btn.danger-solid { background: #da3633; border-color: transparent; color: #fff; font-weight: 600; }
+    .lp-btn.danger-solid:hover:not(:disabled) { background: #f85149; border-color: transparent; }
+    @media (max-width: 600px) {
+      .lp-confirm .lp-modal-foot > .lp-btn { flex: 1 1 120px; }
+      .lp-progress { top: 4px; }
+    }
+
     @media (prefers-reduced-motion: reduce) {
+      .lp-progress-fill, .lp-progress-fill::after, .lp-spinner { animation: none; transition: none; }
+      .lp-progress-track.indeterminate .lp-progress-fill { left: 0; width: 100%; opacity: 0.6; }
       .lp-btn, .lp-chip, .lp-item, .lp-thumb-img, .lp-thumb-overlay, .lp-play-circle { transition: none; }
       .lp-thumb:hover .lp-thumb-img, .lp-thumb:hover .lp-play-circle { transform: none; }
     }
@@ -768,7 +917,12 @@ export class ShortsLibraryPageComponent implements OnDestroy {
   private readonly sampleDialog = viewChild<ElementRef<HTMLElement>>('sampleDialog');
   private readonly moveDialogEl = viewChild<ElementRef<HTMLElement>>('moveDialogEl');
   private readonly moveSearchEl = viewChild<ElementRef<HTMLInputElement>>('moveSearchEl');
+  private readonly confirmDialogEl = viewChild<ElementRef<HTMLElement>>('confirmDialogEl');
   private sampleOrigin: HTMLElement | null = null;
+  private confirmOrigin: HTMLElement | null = null;
+  private confirmResolve: ((ok: boolean) => void) | null = null;
+  private stopRequested = false;
+  private destroyed = false;
 
   readonly driveState = signal<'unknown' | 'ok' | 'missing' | 'reconnect'>('unknown');
   readonly driveBusy = signal(false);
@@ -794,7 +948,21 @@ export class ShortsLibraryPageComponent implements OnDestroy {
   readonly loadError = signal(false);
   readonly loadErrorMessage = signal('');
   readonly previewError = signal<string | null>(null);
-  readonly progress = signal<string | null>(null);
+  readonly op = signal<OpProgress | null>(null);
+  readonly opPercent = computed(() => {
+    const o = this.op();
+    return o?.total ? Math.min(100, Math.round((o.done / o.total) * 100)) : 0;
+  });
+  /** A sliver stays visible at 0% so a started bar never looks empty. */
+  readonly opWidth = computed(() => Math.max(3, this.opPercent()));
+  readonly stopping = signal(false);
+  readonly importing = signal(false);
+  readonly confirmDialog = signal<ConfirmSpec | null>(null);
+  readonly confirmTyped = signal('');
+  readonly confirmReady = computed(() => {
+    const word = this.confirmDialog()?.typeToConfirm;
+    return !word || this.confirmTyped().trim().toUpperCase() === word;
+  });
 
   readonly search = signal('');
   readonly topicId = signal('');
@@ -882,20 +1050,30 @@ export class ShortsLibraryPageComponent implements OnDestroy {
       if (dialog) dialog.querySelector<HTMLButtonElement>('.lp-modal-close')?.focus();
     });
     effect(() => { this.moveSearchEl()?.nativeElement.focus(); });
+    effect(() => {
+      // Cancel is the safe default; a type-to-confirm dialog starts in its input instead.
+      const dialog = this.confirmDialogEl()?.nativeElement;
+      if (dialog) (dialog.querySelector<HTMLElement>('.lp-confirm-input') ?? dialog.querySelector<HTMLElement>('.lp-confirm-cancel'))?.focus();
+    });
     const initialTopic = this.route.snapshot.queryParamMap.get('topic');
     if (initialTopic) {
       this.topicId.set(initialTopic);
     }
     this.reload();
     this.checkDriveConnection();
+    this.importing.set(true);
     this.api.importFromDrive().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (imp) => {
+        this.importing.set(false);
         if (imp.added > 0 || imp.topicsAdded > 0) {
           this.message.set(`${imp.added} video(s) imported from Google Drive.`);
           this.reload(false);
         }
       },
-      error: () => this.message.set('Could not import videos from Drive. Existing library items are still available; use Sync Drive to retry.'),
+      error: () => {
+        this.importing.set(false);
+        this.message.set('Could not import videos from Drive. Existing library items are still available; use Sync Drive to retry.');
+      },
     });
   }
 
@@ -932,11 +1110,17 @@ export class ShortsLibraryPageComponent implements OnDestroy {
 
   ngOnDestroy(): void {
     if (this.debounce) clearTimeout(this.debounce);
+    this.destroyed = true;
+    this.stopRequested = true;
+    this.confirmResolve?.(false);
+    this.confirmResolve = null;
   }
 
   @HostListener('document:keydown.escape')
   onEscape(): void {
-    if (this.moveDialog()) {
+    if (this.confirmDialog()) {
+      this.answerConfirm(false);
+    } else if (this.moveDialog()) {
       this.closeMove();
     } else if (this.sampleItem()) {
       this.closeSample();
@@ -947,7 +1131,7 @@ export class ShortsLibraryPageComponent implements OnDestroy {
 
   @HostListener('document:keydown', ['$event'])
   onDialogKey(event: KeyboardEvent): void {
-    const dialog = (this.moveDialogEl() ?? this.sampleDialog())?.nativeElement;
+    const dialog = (this.confirmDialogEl() ?? this.moveDialogEl() ?? this.sampleDialog())?.nativeElement;
     if (!dialog || event.key !== 'Tab') return;
     const controls = [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), a[href], video[controls], [tabindex="0"]')];
     const first = controls[0];
@@ -960,6 +1144,46 @@ export class ShortsLibraryPageComponent implements OnDestroy {
       event.preventDefault();
       first.focus();
     }
+  }
+
+  /** Opens the warning dialog; resolves true only when the user confirms. */
+  private ask(spec: ConfirmSpec): Promise<boolean> {
+    this.confirmResolve?.(false);
+    this.confirmOrigin = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    this.confirmTyped.set('');
+    this.confirmDialog.set(spec);
+    return new Promise((resolve) => { this.confirmResolve = resolve; });
+  }
+
+  answerConfirm(ok: boolean): void {
+    if (ok && !this.confirmReady()) return;
+    const resolve = this.confirmResolve;
+    this.confirmResolve = null;
+    this.confirmDialog.set(null);
+    const origin = this.confirmOrigin;
+    this.confirmOrigin = null;
+    afterNextRender(() => { if (origin?.isConnected) origin.focus(); }, { injector: this.injector });
+    resolve?.(ok);
+  }
+
+  stepNumber(o: OpProgress): number {
+    return Math.min(o.done + 1, o.total);
+  }
+
+  stopOp(): void {
+    this.stopRequested = true;
+    this.stopping.set(true);
+  }
+
+  /** Up to five known titles for the dialog, with how many more are not listed. */
+  private preview(ids: string[]): { items: string[]; more: number } {
+    const known = new Map(this.pageItems().map((i) => [i.handoffId, i.title || 'Short']));
+    const items = ids.map((id) => known.get(id)).filter((t): t is string => !!t).slice(0, 5);
+    return { items, more: ids.length - items.length };
+  }
+
+  private plural(n: number, word: string): string {
+    return `${n} ${word}${n === 1 ? '' : 's'}`;
   }
 
   formatLabel(item: LibraryItem): string {
@@ -1169,30 +1393,29 @@ export class ShortsLibraryPageComponent implements OnDestroy {
     });
   }
 
-  syncDrive(): void {
+  async syncDrive(): Promise<void> {
     this.busy.set(true);
-    this.message.set('Reading your Google Drives and organizing topic folders…');
+    this.message.set(null);
     let imported = '';
     const removeMissing = this.removeMissingOnSync();
-    this.api.importFromDrive().pipe(
-      switchMap((imp) => {
-        imported = `${imp.added} imported from ${imp.drives} Drive(s)${imp.topicsAdded ? `, ${imp.topicsAdded} new topic(s)` : ''}${imp.skippedDrives ? `; ${imp.skippedDrives} Drive(s) could not be checked` : ''}.`;
-        return this.api.checkDrive(true, removeMissing);
-      }),
-      takeUntilDestroyed(this.destroyRef),
-    ).subscribe({
-      next: (res) => {
-        this.busy.set(false);
-        const gone = res.removed ? `${res.removed} deleted on Drive and removed from the library` : `${res.missing} missing`;
-        this.message.set(`Drive checked: ${res.present} present, ${res.moved} organized, ${gone}, ${res.failed} failed${res.error ? `: ${res.error}` : '.'} ${imported}`);
-        this.reload(false);
-      },
-      error: () => {
-        this.busy.set(false);
-        this.message.set(`${imported ? imported + ' ' : ''}Could not complete Drive sync. Please try again.`);
-        this.reload(false);
-      },
-    });
+    const step = (done: number, title: string, detail: string) =>
+      this.op.set({ title, detail, done, total: 2, failed: 0, tone: 'brand', steps: true });
+    try {
+      step(0, 'Reading your Google Drives', 'Finding new videos and topic folders…');
+      const imp = await firstValueFrom(this.api.importFromDrive().pipe(takeUntilDestroyed(this.destroyRef)));
+      imported = `${imp.added} imported from ${imp.drives} Drive(s)${imp.topicsAdded ? `, ${imp.topicsAdded} new topic(s)` : ''}${imp.skippedDrives ? `; ${imp.skippedDrives} Drive(s) could not be checked` : ''}.`;
+      step(1, 'Checking files & organizing topic folders', removeMissing ? 'Videos deleted on Drive are removed here too…' : 'Videos deleted on Drive are flagged as missing…');
+      const res = await firstValueFrom(this.api.checkDrive(true, removeMissing).pipe(takeUntilDestroyed(this.destroyRef)));
+      step(2, 'Drive sync complete', '');
+      const gone = res.removed ? `${res.removed} deleted on Drive and removed from the library` : `${res.missing} missing`;
+      this.message.set(`Drive checked: ${res.present} present, ${res.moved} organized, ${gone}, ${res.failed} failed${res.error ? `: ${res.error}` : '.'} ${imported}`);
+    } catch {
+      if (this.destroyed) return;
+      this.message.set(`${imported ? imported + ' ' : ''}Could not complete Drive sync. Please try again.`);
+    }
+    this.busy.set(false);
+    this.op.set(null);
+    this.reload(false);
   }
 
   toggle(id: string): void {
@@ -1332,76 +1555,163 @@ export class ShortsLibraryPageComponent implements OnDestroy {
     });
   }
 
-  setUsed(used: boolean): void {
-    if (used && !this.confirmAutoDelete(this.selected().size, 'Mark used')) return;
-    this.run(this.api.markUsed([...this.selected()], used, this.autoArchive()), (r) => this.report(r, used ? (this.autoArchive() ? 'marked used and deleted' : 'marked used') : 'marked unused'));
+  async setUsed(used: boolean): Promise<void> {
+    const ids = [...this.selected()];
+    if (used && !(await this.confirmAutoDelete(ids, 'Mark used'))) return;
+    const autoDelete = used && this.autoArchive();
+    await this.runBatches(ids, (chunk) => this.api.markUsed(chunk, used, this.autoArchive()), {
+      title: used ? (autoDelete ? 'Marking used & deleting from Drive' : 'Marking used') : 'Marking unused',
+      verb: used ? (autoDelete ? 'marked used and deleted' : 'marked used') : 'marked unused',
+      tone: autoDelete ? 'danger' : 'brand',
+    });
   }
 
   /** Direct 1-click Used / Unused toggle on an individual card or row. */
-  toggleItemUsed(item: LibraryItem): void {
+  async toggleItemUsed(item: LibraryItem): Promise<void> {
     const nextUsed = !item.usedAt;
-    if (nextUsed && !this.confirmAutoDelete(1, 'Mark used')) return;
-    this.run(
-      this.api.markUsed([item.handoffId], nextUsed, this.autoArchive()),
-      (r) => this.report(r, nextUsed ? (this.autoArchive() ? 'marked used and deleted' : 'marked used') : 'marked unused'),
-    );
+    if (nextUsed && !(await this.confirmAutoDelete([item.handoffId], 'Mark used'))) return;
+    const autoDelete = nextUsed && this.autoArchive();
+    await this.runBatches([item.handoffId], (chunk) => this.api.markUsed(chunk, nextUsed, this.autoArchive()), {
+      title: nextUsed ? (autoDelete ? 'Marking used & deleting from Drive' : 'Marking used') : 'Marking unused',
+      verb: nextUsed ? (autoDelete ? 'marked used and deleted' : 'marked used') : 'marked unused',
+      tone: autoDelete ? 'danger' : 'brand',
+    });
   }
 
   archiveSelected(): void {
-    this.run(this.api.archive([...this.selected()]), (r) => this.report(r, 'archived'));
-  }
-
-  deleteUsed(): void {
-    const n = this.usedBatchCount();
-    if (!confirm(`Delete ${n} used items? Their Google Drive files move to the Drive trash.`)) return;
-    this.run(this.api.deleteArchived(), (r) => this.report(r, 'deleted'));
+    void this.runBatches([...this.selected()], (chunk) => this.api.archive(chunk), { title: 'Archiving', verb: 'archived', tone: 'brand' });
   }
 
   restoreSelected(): void {
-    this.run(this.api.restore([...this.selected()]), (r) => this.report(r, 'restored'));
+    void this.runBatches([...this.selected()], (chunk) => this.api.restore(chunk), { title: 'Restoring', verb: 'restored', tone: 'brand' });
   }
 
-  deleteSelected(): void {
-    const n = this.selected().size;
-    if (!confirm(`Delete ${n} item${n === 1 ? '' : 's'}? Their Google Drive files move to the Drive trash.`)) return;
-    this.run(this.api.deleteArchived([...this.selected()]), (r) => this.report(r, 'deleted'));
+  /** Looks up exactly which used videos will go, warns with that number, then deletes them in batches. */
+  async deleteUsed(): Promise<void> {
+    this.busy.set(true);
+    this.message.set(null);
+    this.op.set({ title: 'Finding used videos', detail: '', done: 0, total: 0, failed: 0, tone: 'danger' });
+    let ids: string[];
+    try {
+      ids = await firstValueFrom(this.api.libraryIds({ view: 'used', page: 1, pageSize: 200 }).pipe(timeout(60_000), takeUntilDestroyed(this.destroyRef)));
+    } catch {
+      if (this.destroyed) return;
+      this.busy.set(false);
+      this.op.set(null);
+      this.message.set('Could not look up the used videos. Nothing was deleted. Please try again.');
+      return;
+    }
+    this.busy.set(false);
+    this.op.set(null);
+    ids = ids.slice(0, 200);
+    if (!ids.length) {
+      this.message.set('There are no used videos to delete.');
+      this.reload(false);
+      return;
+    }
+    const ok = await this.ask({
+      tone: 'danger',
+      title: `Delete ${this.plural(ids.length, 'used video')}?`,
+      lead: 'This removes them from the library and from Google Drive, so both stay in sync.',
+      points: [
+        'They leave the Drive & Topics Library (every topic) for good.',
+        'Their Google Drive files go to the Drive trash, so your topic folders match this library.',
+        'Google keeps trashed files for about 30 days; restore one from the Drive trash if needed.',
+        'Unused and archived-only videos are not touched.',
+      ],
+      ...this.preview(ids),
+      typeToConfirm: ids.length > 10 ? 'DELETE' : undefined,
+      confirmLabel: `Delete ${this.plural(ids.length, 'video')}`,
+    });
+    if (!ok) return;
+    await this.runBatches(ids, (chunk) => this.api.deleteArchived(chunk), { title: 'Deleting from library & Google Drive', verb: 'deleted', tone: 'danger' });
   }
 
-  downloadOne(item: LibraryItem): void {
-    if (!this.confirmReuse([item]) || !this.confirmAutoDelete(1, 'Download')) return;
-    void this.downloadAll([item]);
+  async deleteSelected(): Promise<void> {
+    const ids = [...this.selected()];
+    const unusedOnPage = this.selectedOnPage().filter((i) => !i.usedAt && !i.archived).length;
+    const ok = await this.ask({
+      tone: 'danger',
+      title: `Delete ${this.plural(ids.length, 'video')}?`,
+      lead: 'This removes them from the library and from Google Drive, so both stay in sync.',
+      points: [
+        'They leave the Drive & Topics Library for good.',
+        'Their Google Drive files go to the Drive trash, so your topic folders match this library.',
+        'Google keeps trashed files for about 30 days; restore one from the Drive trash if needed.',
+        ...(unusedOnPage ? [`${this.plural(unusedOnPage, 'unused video')} in this selection will be skipped. Only used or archived videos can be deleted.`] : []),
+      ],
+      ...this.preview(ids),
+      typeToConfirm: ids.length > 10 ? 'DELETE' : undefined,
+      confirmLabel: `Delete ${this.plural(ids.length, 'video')}`,
+    });
+    if (!ok) return;
+    await this.runBatches(ids, (chunk) => this.api.deleteArchived(chunk), { title: 'Deleting from library & Google Drive', verb: 'deleted', tone: 'danger' });
   }
 
-  downloadSelected(): void {
+  async downloadOne(item: LibraryItem): Promise<void> {
+    if (!(await this.confirmReuse([item])) || !(await this.confirmAutoDelete([item.handoffId], 'Download'))) return;
+    await this.downloadAll([item]);
+  }
+
+  async downloadSelected(): Promise<void> {
     const chosen = this.selectedOnPage();
     if (chosen.length === 0) {
       this.message.set('Downloads run for the items on this page; select them here first.');
       return;
     }
-    if (!this.confirmReuse(chosen) || !this.confirmAutoDelete(chosen.length, 'Download')) return;
-    void this.downloadAll(chosen);
+    if (!(await this.confirmReuse(chosen)) || !(await this.confirmAutoDelete(chosen.map((i) => i.handoffId), 'Download'))) return;
+    await this.downloadAll(chosen);
   }
 
   /** A used short shouldn't be posted twice, so downloading one asks first. */
-  private confirmReuse(items: LibraryItem[]): boolean {
-    const used = items.filter((i) => i.usedAt).length;
-    return used === 0 || confirm(`${used} of these ${used === 1 ? 'is' : 'are'} already marked used. Download anyway?`);
+  private confirmReuse(items: LibraryItem[]): Promise<boolean> {
+    const used = items.filter((i) => i.usedAt);
+    if (!used.length) return Promise.resolve(true);
+    return this.ask({
+      tone: 'warn',
+      title: used.length === 1 && items.length === 1 ? 'Already used. Download again?' : `${used.length} of ${items.length} already used`,
+      lead: `${used.length === 1 ? 'This video was' : 'These videos were'} marked used earlier, so ${used.length === 1 ? 'it' : 'they'} may already be posted.`,
+      points: ['Posting the same video twice can hurt reach on YouTube and Instagram.'],
+      ...this.preview(used.map((i) => i.handoffId)),
+      confirmLabel: 'Download anyway',
+    });
   }
 
-  private confirmAutoDelete(count: number, action: string): boolean {
-    return !this.autoArchive() || confirm(`${action} ${count} video${count === 1 ? '' : 's'}? Auto-delete is ON: this also removes ${count === 1 ? 'it' : 'them'} from the library and sends the Google Drive ${count === 1 ? 'copy' : 'copies'} to trash.`);
+  private confirmAutoDelete(ids: string[], action: 'Download' | 'Mark used'): Promise<boolean> {
+    if (!this.autoArchive()) return Promise.resolve(true);
+    const n = ids.length;
+    const them = n === 1 ? 'it' : 'them';
+    return this.ask({
+      tone: 'danger',
+      title: `${action} ${this.plural(n, 'video')}?`,
+      lead: `Auto-delete is ON, so this also deletes ${them} from the library and from Google Drive.`,
+      points: [
+        action === 'Download' ? `The MP4 ${n === 1 ? 'file is' : 'files are'} saved to this device first, then marked used.` : `${n === 1 ? 'It is' : 'They are'} marked used.`,
+        `The Google Drive ${n === 1 ? 'copy goes' : 'copies go'} to the Drive trash and ${n === 1 ? 'leaves' : 'leave'} this library, so both stay in sync.`,
+        'Want to keep used videos? Turn off "Auto-delete when used" under Download & usage settings.',
+      ],
+      ...this.preview(ids),
+      confirmLabel: action === 'Download' ? 'Download & delete' : 'Mark used & delete',
+    });
   }
 
   private async downloadAll(items: LibraryItem[]): Promise<void> {
     this.busy.set(true);
+    this.message.set(null);
+    this.resetStop();
     const autoDelete = this.autoArchive();
     let ok = 0;
     const failed: string[] = [];
+    const set = (detail: string) => this.op.set({
+      title: autoDelete ? 'Downloading & deleting from Drive' : 'Downloading',
+      detail, done: ok + failed.length, total: items.length, failed: failed.length,
+      tone: autoDelete ? 'danger' : 'brand', cancellable: items.length > 1,
+    });
     for (const i of items) {
-      this.progress.set(`Downloading ${ok + failed.length + 1} of ${items.length}…`);
+      if (this.stopRequested) break;
+      set(i.title || 'Short');
       try {
-        const blob = await new Promise<Blob>((resolve, reject) =>
-          this.api.downloadCopy(i.handoffId, true, autoDelete).subscribe({ next: resolve, error: reject }));
+        const blob = await firstValueFrom(this.api.downloadCopy(i.handoffId, true, autoDelete).pipe(takeUntilDestroyed(this.destroyRef)));
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -1410,12 +1720,65 @@ export class ShortsLibraryPageComponent implements OnDestroy {
         setTimeout(() => URL.revokeObjectURL(url), 60_000);
         ok++;
       } catch {
+        if (this.destroyed) return;
         failed.push(i.title || 'short');
       }
     }
+    const skipped = items.length - ok - failed.length;
     this.busy.set(false);
-    this.progress.set(null);
-    this.message.set(`${ok} download${ok === 1 ? '' : 's'} requested and marked used${autoDelete && ok ? '; auto-delete requested' : ''}.${failed.length ? ` ${failed.length} failed: ${failed.join(', ')}. Try again.` : ' Check your browser downloads; allow multiple downloads if prompted.'}`);
+    this.op.set(null);
+    this.stopping.set(false);
+    this.message.set(`${ok} download${ok === 1 ? '' : 's'} requested and marked used${autoDelete && ok ? '; auto-delete requested' : ''}.`
+      + `${skipped ? ` Stopped: ${skipped} not downloaded.` : ''}`
+      + `${failed.length ? ` ${failed.length} failed: ${failed.join(', ')}. Try again.` : ' Check your browser downloads; allow multiple downloads if prompted.'}`);
+    this.selected.set(new Set());
+    this.reload(false);
+  }
+
+  private resetStop(): void {
+    this.stopRequested = false;
+    this.stopping.set(false);
+  }
+
+  /**
+   * Runs a bulk call in batches and fills the progress bar as each returns. A request that errors
+   * stops the run (fail closed: nothing more is changed) and the summary says how far it got.
+   */
+  private async runBatches(ids: string[], call: (chunk: string[]) => Observable<LibraryBulk>,
+                           o: { title: string; verb: string; tone: OpProgress['tone'] }): Promise<void> {
+    if (!ids.length) return;
+    this.busy.set(true);
+    this.message.set(null);
+    this.resetStop();
+    const total = ids.length;
+    const result: LibraryBulk = { done: 0, failed: 0, error: null };
+    let processed = 0;
+    let requestFailed: string | null = null;
+    this.op.set({ title: o.title, detail: '', done: 0, total, failed: 0, tone: o.tone, cancellable: total > BATCH });
+    for (let at = 0; at < total; at += BATCH) {
+      if (this.stopRequested) break;
+      const chunk = ids.slice(at, at + BATCH);
+      this.op.update((p) => p && { ...p, detail: total > 1 ? `Videos ${processed + 1}–${processed + chunk.length}` : '' });
+      try {
+        const r = await firstValueFrom(call(chunk).pipe(takeUntilDestroyed(this.destroyRef)));
+        result.done += r.done;
+        result.failed += r.failed;
+        result.error = r.error ?? result.error;
+      } catch (error: unknown) {
+        if (this.destroyed) return;
+        requestFailed = error instanceof ApiFailure ? error.message : 'The server did not respond.';
+        break;
+      }
+      processed += chunk.length;
+      this.op.update((p) => p && { ...p, done: processed, failed: result.failed });
+    }
+    const stopped = processed < total;
+    this.busy.set(false);
+    this.op.set(null);
+    this.stopping.set(false);
+    this.report(result, o.verb);
+    if (requestFailed) this.message.update((m) => `${m} ${requestFailed} ${total - processed} not processed; nothing more was changed. Please try again.`);
+    else if (stopped) this.message.update((m) => `${m} Stopped: ${total - processed} left unchanged.`);
     this.selected.set(new Set());
     this.reload(false);
   }
@@ -1424,14 +1787,5 @@ export class ShortsLibraryPageComponent implements OnDestroy {
     this.message.set(r.failed > 0
       ? `${r.done} ${verb}, ${r.failed} failed${r.error ? `: ${r.error}` : '.'}`
       : `${r.done} ${verb}.`);
-  }
-
-  private run(call: Observable<LibraryBulk>, then: (r: LibraryBulk) => void): void {
-    this.busy.set(true);
-    this.message.set(null);
-    call.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.busy.set(false); then(r); this.selected.set(new Set()); this.reload(false); },
-      error: () => { this.busy.set(false); this.message.set('That did not work. Please try again.'); },
-    });
   }
 }

@@ -111,6 +111,12 @@ export interface YouTubeSuggestion {
   engagementComment?: string | null;
   /** Extracted spoken transcript / lyrics used to build the SEO package. */
   transcriptText?: string | null;
+  /** Where the transcript came from: YouTube's captions, the AnimStudio render's audio, or nowhere. */
+  transcriptSource?: 'youtube-captions' | 'render-audio' | null;
+  /** The content topic the details were written for (picked, or found from the video's planned post). */
+  topicId?: string | null;
+  /** Plain lines about what the details could and couldn't be written from. */
+  notes?: string[] | null;
 }
 
 export interface YouTubeUrlSeoResult {
@@ -144,6 +150,10 @@ export interface YouTubeSuggestParams {
   tone?: string;
   brief?: string;
   providerId?: string;
+  /** Titles already offered; a new take is asked for different ones. */
+  avoidTitles?: string[];
+  /** The content topic the video belongs to. */
+  topicId?: string;
 }
 
 export type YouTubeUploadState = 'Queued' | 'Uploading' | 'Completed' | 'Failed' | 'Cancelled';

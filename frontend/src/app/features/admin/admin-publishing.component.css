@@ -210,6 +210,9 @@
 .pb-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 0.85rem; }
 .pb-field-help { margin: 0; font-size: 0.76rem; line-height: 1.45; color: var(--muted); }
 .pb-err { margin: 0; font-size: 0.8rem; font-weight: 600; color: var(--err); }
+/* A blank branding field's note: where its greyed-out value comes from. */
+.pb-inherit { margin: 0; font-size: 0.74rem; line-height: 1.4; color: var(--muted); font-style: italic; overflow-wrap: anywhere; }
+.pb-inherit-action { justify-self: start; font-size: 0.78rem; overflow-wrap: anywhere; text-align: left; }
 .pb-err-inline { color: var(--err); font-weight: 600; }
 .pb-note {
   margin: 0; padding: 0.55rem 0.8rem; border: 1px dashed var(--border-bright); border-radius: 9px; background: var(--ov-1);

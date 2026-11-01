@@ -15,10 +15,10 @@ import { YouTubePublishService } from '../../core/services/youtube-publish.servi
 import { AdminIconComponent } from './admin-channel-kit';
 import { copyText, fold, isTypingTarget, messageOf, plural, readStored, safePicture, writeStored } from './admin-channel-utils';
 import {
-  BRAND_TAG_RULES, BRAND_TEXT_MAX, BulkChoice, BulkPlan, BulkTagMode, CHANNEL_TAG_RULES, HASHTAG_RULES, Health, HealthAction,
+  BRAND_TAG_RULES, BRAND_TEXT_MAX, BrandTextField, BulkChoice, BulkPlan, BulkTagMode, CHANNEL_TAG_RULES, HASHTAG_RULES, Health, HealthAction,
   HealthLevel, MAX_COMMENT_LENGTH, MAX_FOOTER_BYTES, NO_BULK, PRIVACY_OPTIONS, Privacy, brandKey, brandTextProblem, brandUrlProblem,
   bulkFieldCount, bulkStamp, channelHealth, commentProblem, describeChoice, emptyBranding, footerProblem, footerReport, footerSegments,
-  isPrivacy, planBulk, tagListProblem,
+  hasAnyBranding, inheritedBranding, isPrivacy, planBulk, tagListProblem,
 } from './admin-publishing.logic';
 import { AdminTagEditorComponent } from './admin-tag-editor.component';
 
@@ -141,6 +141,16 @@ export class AdminPublishingComponent implements OnInit, OnDestroy {
 
   // ---- bulk apply
   readonly bulkOpen = signal(false);
+
+  // ---- studio-wide AI branding (one form for every channel, saved on its own)
+  /** What the server has: what every channel's blank fields inherit right now. */
+  readonly studio = signal<ChannelBranding | null>(null);
+  readonly studioForm = signal<ChannelBranding | null>(null);
+  readonly studioState = signal<'loading' | 'idle' | 'error'>('loading');
+  readonly studioError = signal<string | null>(null);
+  readonly studioSaving = signal(false);
+  readonly studioSavedAt = signal<Date | null>(null);
+  readonly studioOpen = signal(false);
   readonly bulkPhase = signal<BulkPhase>('pick');
   readonly bulkChoice = signal<BulkChoice>(NO_BULK);
   readonly bulkTargets = signal<ReadonlySet<string>>(new Set());
@@ -263,6 +273,31 @@ export class AdminPublishingComponent implements OnInit, OnDestroy {
     };
   });
 
+  /** What each blank field of this channel falls back to: the saved studio defaults, else its YouTube link. */
+  readonly inherited = computed(() => inheritedBranding(this.studio(), this.form(), this.currentBrand()?.name));
+
+  readonly studioBrand = computed<ChannelBranding>(() => this.studioForm() ?? emptyBranding());
+  readonly studioDirty = computed(() => {
+    const f = this.studioForm();
+    return !!f && JSON.stringify(f) !== JSON.stringify(this.studio() ?? emptyBranding());
+  });
+  readonly studioIssues = computed(() => {
+    const b = this.studioBrand();
+    return {
+      tagline: brandTextProblem(b.tagline, BRAND_TEXT_MAX.tagline),
+      studioUrl: brandUrlProblem(b.studioUrl),
+      creatorUrl: brandUrlProblem(b.creatorUrl),
+      engineName: brandTextProblem(b.engineName, BRAND_TEXT_MAX.engineName),
+      visualsCredit: brandTextProblem(b.visualsCredit, BRAND_TEXT_MAX.visualsCredit),
+      hashtags: tagListProblem(b.hashtags, HASHTAG_RULES),
+      tags: tagListProblem(b.tags, BRAND_TAG_RULES),
+    };
+  });
+  readonly canSaveStudio = computed(() =>
+    this.studioDirty() && !this.studioSaving() && this.studioState() === 'idle' && Object.values(this.studioIssues()).every((v) => !v));
+  /** This site's own address, offered as the studio link. */
+  readonly siteUrl = typeof window === 'undefined' ? '' : `${window.location.origin}/`;
+
   readonly footer = computed(() => footerReport(this.form()?.descriptionFooter));
   readonly footerPercent = computed(() => Math.min(100, Math.round((this.footer().bytes / MAX_FOOTER_BYTES) * 100)));
   readonly footerLines = computed(() => this.footer().text.split('\n'));
@@ -313,6 +348,11 @@ export class AdminPublishingComponent implements OnInit, OnDestroy {
     if (c.tags !== 'off') { const p = tagListProblem(f.tags ?? [], CHANNEL_TAG_RULES); if (p) return p; }
     if (c.descriptionFooter) { const p = footerProblem(f.descriptionFooter); if (p) return p; }
     if (c.firstComment) { const p = commentProblem(f.firstComment); if (p) return p; }
+    if (c.branding) {
+      const bi = this.brandIssues();
+      const p = bi.tagline ?? bi.studioUrl ?? bi.creatorUrl ?? bi.engineName ?? bi.visualsCredit ?? bi.hashtags ?? bi.tags;
+      if (p) return `AI branding: ${p}`;
+    }
     return null;
   });
   readonly canPreview = computed(() =>
@@ -352,6 +392,7 @@ export class AdminPublishingComponent implements OnInit, OnDestroy {
     this.patienceTimer = setTimeout(() => this.patience.set(true), 2500);
     this.loadBrands();
     this.loadYouTube();
+    this.loadStudio();
   }
 
   ngOnDestroy(): void {
@@ -583,6 +624,78 @@ export class AdminPublishingComponent implements OnInit, OnDestroy {
 
   clearBranding(): void {
     this.patch({ branding: null });
+  }
+
+  /** The placeholder a blank branding field shows: what it inherits, else an example. */
+  brandHint(field: BrandTextField, example: string): string {
+    return this.inherited().fields[field].value ?? example;
+  }
+
+  /** Whether a blank field is inheriting something, and from where - for the small note under it. */
+  inheritNote(field: BrandTextField): string | null {
+    if ((this.brand()[field] ?? '').trim()) return null;
+    const i = this.inherited().fields[field];
+    if (!i.source) return null;
+    const from = i.source === 'studio' ? 'Inherited from studio defaults' : 'Auto from YouTube';
+    return this.inherited().active ? from : `${from} once any branding is set`;
+  }
+
+  // ---------------------------------------------------------------------------- studio branding
+
+  loadStudio(): void {
+    this.studioState.set('loading');
+    this.studioError.set(null);
+    this.admin.studioBranding().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (b) => { this.applyStudio(b); this.studioState.set('idle'); },
+      error: (e: unknown) => { this.studioState.set('error'); this.studioError.set(messageOf(e)); },
+    });
+  }
+
+  private applyStudio(b: ChannelBranding): void {
+    const clean: ChannelBranding = { ...emptyBranding(), ...b, channelName: null, channelUrl: null, hashtags: b.hashtags ?? [], tags: b.tags ?? [] };
+    this.studio.set(hasAnyBranding(clean) ? clean : null);
+    this.studioForm.set({ ...clean, hashtags: [...clean.hashtags], tags: [...clean.tags] });
+  }
+
+  patchStudio(change: Partial<ChannelBranding>): void {
+    this.studioSavedAt.set(null);
+    this.studioError.set(null);
+    this.studioForm.update((f) => ({ ...(f ?? emptyBranding()), ...change }));
+  }
+
+  /** Fills the studio link with this site's address - taken from the browser, never from the server. */
+  useThisSite(): void {
+    if (this.siteUrl) this.patchStudio({ studioUrl: this.siteUrl });
+  }
+
+  useOmkrStudio(): void {
+    const o = OMKR_BRANDING;
+    this.patchStudio({
+      tagline: o.tagline, studioUrl: o.studioUrl, creatorUrl: o.creatorUrl, engineName: o.engineName, visualsCredit: o.visualsCredit,
+      hashtags: [...o.hashtags], tags: [...o.tags],
+    });
+  }
+
+  resetStudio(): void {
+    const s = this.studio() ?? emptyBranding();
+    this.studioForm.set({ ...s, hashtags: [...s.hashtags], tags: [...s.tags] });
+    this.studioError.set(null);
+  }
+
+  saveStudio(): void {
+    const f = this.studioForm();
+    if (!f || !this.canSaveStudio()) return;
+    this.studioSaving.set(true);
+    this.studioError.set(null);
+    this.admin.saveStudioBranding({ ...f, channelName: null, channelUrl: null }).subscribe({
+      next: (b) => {
+        this.studioSaving.set(false);
+        this.applyStudio(b);
+        this.studioSavedAt.set(new Date());
+        this.liveMessage.set('Studio branding saved. Every channel’s blank branding fields now use it.');
+      },
+      error: (e: unknown) => { this.studioSaving.set(false); this.studioError.set(messageOf(e)); },
+    });
   }
 
   lineParts(line: string): { text: string; link: boolean }[] {

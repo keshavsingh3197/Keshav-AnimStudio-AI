@@ -468,6 +468,77 @@
                   </div>
                 </section>
 
+                <!-- ---------------------------------------------------- studio-wide AI branding -->
+                <details class="card pb-card pb-details" id="pb-studio-branding" [open]="studioOpen()" (toggle)="studioOpen.set($any($event.target).open)">
+                  <summary>
+                    <span class="studio-card-title-group"><h3>Studio-wide AI branding</h3><span class="pill brand">All channels</span>@if (studioDirty()) { <span class="pill">Unsaved</span> }</span>
+                    <app-ico name="chevronDown" [size]="16" />
+                  </summary>
+                  <p class="muted small">
+                    The credits and links that are the same for every channel. Type them once here: each channel’s AI branding uses these
+                    for any field it leaves blank. Channel name and YouTube link aren’t here - each channel gets its own from its YouTube link.
+                    Saved separately from the channel below.
+                  </p>
+                  @switch (studioState()) {
+                    @case ('loading') { <span class="pb-skel" style="height: 4rem"></span> }
+                    @case ('error') {
+                      <div class="pb-row"><span class="pb-err">Couldn’t load the studio branding: {{ studioError() }}</span>
+                        <button type="button" class="secondary small" (click)="loadStudio()">Retry</button></div>
+                    }
+                    @default {
+                      <div class="pb-row">
+                        <button type="button" class="secondary small" (click)="useOmkrStudio()">Use the OMKR preset</button>
+                      </div>
+                      <div class="pb-grid">
+                    <div class="pb-field">
+                      <label for="pb-s-studioUrl">Studio link</label>
+                      <input id="pb-s-studioUrl" type="url" [value]="studioBrand().studioUrl ?? ''" (input)="patchStudio({ studioUrl: val($event) })" placeholder="https://studio.example.com/" [attr.aria-invalid]="studioIssues().studioUrl ? 'true' : null" />
+                      @if (siteUrl) {
+                        <button type="button" class="pb-link pb-inherit-action" (click)="useThisSite()" [disabled]="studioBrand().studioUrl === siteUrl">Use this site ({{ siteUrl }})</button>
+                      }
+                      @if (studioIssues().studioUrl; as e) { <span class="pb-err">{{ e }}</span> }
+                    </div>
+                    <div class="pb-field">
+                      <label for="pb-s-creatorUrl">Creator / portfolio link</label>
+                      <input id="pb-s-creatorUrl" type="url" [value]="studioBrand().creatorUrl ?? ''" (input)="patchStudio({ creatorUrl: val($event) })" placeholder="https://example.com/" [attr.aria-invalid]="studioIssues().creatorUrl ? 'true' : null" />
+                      @if (studioIssues().creatorUrl; as e) { <span class="pb-err">{{ e }}</span> }
+                    </div>
+                    <div class="pb-field">
+                      <label for="pb-s-engineName">Animation tool credited</label>
+                      <input id="pb-s-engineName" type="text" [value]="studioBrand().engineName ?? ''" (input)="patchStudio({ engineName: val($event) })" placeholder="AnimStudio" [attr.aria-invalid]="studioIssues().engineName ? 'true' : null" />
+                      @if (studioIssues().engineName; as e) { <span class="pb-err">{{ e }}</span> }
+                    </div>
+                    <div class="pb-field">
+                      <label for="pb-s-visualsCredit">Visuals credit</label>
+                      <input id="pb-s-visualsCredit" type="text" [value]="studioBrand().visualsCredit ?? ''" (input)="patchStudio({ visualsCredit: val($event) })" placeholder="3D Devotional Animations" [attr.aria-invalid]="studioIssues().visualsCredit ? 'true' : null" />
+                      @if (studioIssues().visualsCredit; as e) { <span class="pb-err">{{ e }}</span> }
+                    </div>
+                    <div class="pb-field">
+                      <label for="pb-s-tagline">Tagline</label>
+                      <input id="pb-s-tagline" type="text" [value]="studioBrand().tagline ?? ''" (input)="patchStudio({ tagline: val($event) })" placeholder="Devotional 3D Animations" [attr.aria-invalid]="studioIssues().tagline ? 'true' : null" />
+                      @if (studioIssues().tagline; as e) { <span class="pb-err">{{ e }}</span> }
+                    </div>
+                      </div>
+                      <div class="pb-field">
+                        <label for="pb-s-hashtags-input">Brand hashtags <span class="muted small">(without #; letters, numbers and _; up to 10)</span></label>
+                        <app-tag-editor inputId="pb-s-hashtags-input" prefix="#" [tags]="studioBrand().hashtags" (tagsChange)="patchStudio({ hashtags: $event })" [rules]="hashtagRules"
+                                        [error]="studioIssues().hashtags" placeholder="e.g. AnimStudio" />
+                      </div>
+                      <div class="pb-field">
+                        <label for="pb-s-tags-input">Brand search tags <span class="muted small">(offered as extra tag ideas; up to 15)</span></label>
+                        <app-tag-editor inputId="pb-s-tags-input" [tags]="studioBrand().tags" (tagsChange)="patchStudio({ tags: $event })" [rules]="brandTagRules"
+                                        [error]="studioIssues().tags" placeholder="e.g. animstudio" />
+                      </div>
+                      <div class="pb-row">
+                        <button type="button" (click)="saveStudio()" [disabled]="!canSaveStudio()">{{ studioSaving() ? 'Saving…' : 'Save studio defaults' }}</button>
+                        <button type="button" class="secondary small" (click)="resetStudio()" [disabled]="!studioDirty() || studioSaving()">Discard</button>
+                        @if (studioError(); as e) { <span class="pb-err" role="alert">{{ e }}</span> }
+                        @else if (studioSavedAt()) { <span class="muted small" role="status">Saved - every channel’s blank fields use these now.</span> }
+                      </div>
+                    }
+                  }
+                </details>
+
                 <!-- ---------------------------------------------------- AI branding -->
                 <details class="card pb-card pb-details" id="pb-branding" [open]="brandingOpen()" (toggle)="brandingOpen.set($any($event.target).open)">
                   <summary>
@@ -476,58 +547,66 @@
                   </summary>
                   <p class="muted small">
                     Added by the studio, exactly as typed, to every description the AI writes for this channel - a credits block, the
-                    subscribe line and your hashtags - and the channel link to the pinned comment. Leave a field empty to leave it out.
+                    subscribe line and your hashtags - and the channel link to the pinned comment. A blank field uses the studio-wide
+                    branding above (its value shows greyed out); the channel name and YouTube link come from the linked YouTube channel.
+                    Type a value only to override it for this channel.
                   </p>
                   <div class="pb-row">
                     <button type="button" class="secondary small" (click)="useOmkrBranding()">Use the OMKR preset</button>
-                    <button type="button" class="secondary small" (click)="clearBranding()" [disabled]="!f.branding">Clear branding</button>
+                    <button type="button" class="secondary small" (click)="clearBranding()" [disabled]="!f.branding">Clear overrides</button>
                   </div>
                   <div class="pb-grid">
                     <div class="pb-field">
                       <label for="pb-b-channelName">Channel name</label>
-                      <input id="pb-b-channelName" type="text" [value]="brand().channelName ?? ''" (input)="patchBrand({ channelName: val($event) })" placeholder="OMKR" [attr.aria-invalid]="brandIssues().channelName ? 'true' : null" />
-                      @if (brandIssues().channelName; as e) { <span class="pb-err">{{ e }}</span> }
+                      <input id="pb-b-channelName" type="text" [value]="brand().channelName ?? ''" (input)="patchBrand({ channelName: val($event) })" [placeholder]="brandHint('channelName', 'OMKR')" [attr.aria-invalid]="brandIssues().channelName ? 'true' : null" />
+                      @if (brandIssues().channelName; as e) { <span class="pb-err">{{ e }}</span> } @else if (inheritNote('channelName'); as n) { <span class="pb-inherit">{{ n }}</span> }
                     </div>
                     <div class="pb-field">
                       <label for="pb-b-tagline">Tagline</label>
-                      <input id="pb-b-tagline" type="text" [value]="brand().tagline ?? ''" (input)="patchBrand({ tagline: val($event) })" placeholder="Devotional 3D Animations" [attr.aria-invalid]="brandIssues().tagline ? 'true' : null" />
-                      @if (brandIssues().tagline; as e) { <span class="pb-err">{{ e }}</span> }
+                      <input id="pb-b-tagline" type="text" [value]="brand().tagline ?? ''" (input)="patchBrand({ tagline: val($event) })" [placeholder]="brandHint('tagline', 'Devotional 3D Animations')" [attr.aria-invalid]="brandIssues().tagline ? 'true' : null" />
+                      @if (brandIssues().tagline; as e) { <span class="pb-err">{{ e }}</span> } @else if (inheritNote('tagline'); as n) { <span class="pb-inherit">{{ n }}</span> }
                     </div>
                     <div class="pb-field">
                       <label for="pb-b-channelUrl">YouTube channel link</label>
-                      <input id="pb-b-channelUrl" type="url" [value]="brand().channelUrl ?? ''" (input)="patchBrand({ channelUrl: val($event) })" placeholder="https://youtube.com/@your-channel" [attr.aria-invalid]="brandIssues().channelUrl ? 'true' : null" />
-                      @if (brandIssues().channelUrl; as e) { <span class="pb-err">{{ e }}</span> }
+                      <input id="pb-b-channelUrl" type="url" [value]="brand().channelUrl ?? ''" (input)="patchBrand({ channelUrl: val($event) })" [placeholder]="brandHint('channelUrl', 'https://youtube.com/@your-channel')" [attr.aria-invalid]="brandIssues().channelUrl ? 'true' : null" />
+                      @if (brandIssues().channelUrl; as e) { <span class="pb-err">{{ e }}</span> } @else if (inheritNote('channelUrl'); as n) { <span class="pb-inherit">{{ n }}</span> }
                     </div>
                     <div class="pb-field">
                       <label for="pb-b-studioUrl">Studio link</label>
-                      <input id="pb-b-studioUrl" type="url" [value]="brand().studioUrl ?? ''" (input)="patchBrand({ studioUrl: val($event) })" placeholder="https://studio.example.com/" [attr.aria-invalid]="brandIssues().studioUrl ? 'true' : null" />
-                      @if (brandIssues().studioUrl; as e) { <span class="pb-err">{{ e }}</span> }
+                      <input id="pb-b-studioUrl" type="url" [value]="brand().studioUrl ?? ''" (input)="patchBrand({ studioUrl: val($event) })" [placeholder]="brandHint('studioUrl', 'https://studio.example.com/')" [attr.aria-invalid]="brandIssues().studioUrl ? 'true' : null" />
+                      @if (brandIssues().studioUrl; as e) { <span class="pb-err">{{ e }}</span> } @else if (inheritNote('studioUrl'); as n) { <span class="pb-inherit">{{ n }}</span> }
                     </div>
                     <div class="pb-field">
                       <label for="pb-b-creatorUrl">Creator / portfolio link</label>
-                      <input id="pb-b-creatorUrl" type="url" [value]="brand().creatorUrl ?? ''" (input)="patchBrand({ creatorUrl: val($event) })" placeholder="https://example.com/" [attr.aria-invalid]="brandIssues().creatorUrl ? 'true' : null" />
-                      @if (brandIssues().creatorUrl; as e) { <span class="pb-err">{{ e }}</span> }
+                      <input id="pb-b-creatorUrl" type="url" [value]="brand().creatorUrl ?? ''" (input)="patchBrand({ creatorUrl: val($event) })" [placeholder]="brandHint('creatorUrl', 'https://example.com/')" [attr.aria-invalid]="brandIssues().creatorUrl ? 'true' : null" />
+                      @if (brandIssues().creatorUrl; as e) { <span class="pb-err">{{ e }}</span> } @else if (inheritNote('creatorUrl'); as n) { <span class="pb-inherit">{{ n }}</span> }
                     </div>
                     <div class="pb-field">
                       <label for="pb-b-engineName">Animation tool credited</label>
-                      <input id="pb-b-engineName" type="text" [value]="brand().engineName ?? ''" (input)="patchBrand({ engineName: val($event) })" placeholder="AnimStudio" [attr.aria-invalid]="brandIssues().engineName ? 'true' : null" />
-                      @if (brandIssues().engineName; as e) { <span class="pb-err">{{ e }}</span> }
+                      <input id="pb-b-engineName" type="text" [value]="brand().engineName ?? ''" (input)="patchBrand({ engineName: val($event) })" [placeholder]="brandHint('engineName', 'AnimStudio')" [attr.aria-invalid]="brandIssues().engineName ? 'true' : null" />
+                      @if (brandIssues().engineName; as e) { <span class="pb-err">{{ e }}</span> } @else if (inheritNote('engineName'); as n) { <span class="pb-inherit">{{ n }}</span> }
                     </div>
                     <div class="pb-field">
                       <label for="pb-b-visualsCredit">Visuals credit</label>
-                      <input id="pb-b-visualsCredit" type="text" [value]="brand().visualsCredit ?? ''" (input)="patchBrand({ visualsCredit: val($event) })" placeholder="OMKR 3D Devotional Animations" [attr.aria-invalid]="brandIssues().visualsCredit ? 'true' : null" />
-                      @if (brandIssues().visualsCredit; as e) { <span class="pb-err">{{ e }}</span> }
+                      <input id="pb-b-visualsCredit" type="text" [value]="brand().visualsCredit ?? ''" (input)="patchBrand({ visualsCredit: val($event) })" [placeholder]="brandHint('visualsCredit', 'OMKR 3D Devotional Animations')" [attr.aria-invalid]="brandIssues().visualsCredit ? 'true' : null" />
+                      @if (brandIssues().visualsCredit; as e) { <span class="pb-err">{{ e }}</span> } @else if (inheritNote('visualsCredit'); as n) { <span class="pb-inherit">{{ n }}</span> }
                     </div>
                   </div>
                   <div class="pb-field" id="pb-b-hashtags">
                     <label for="pb-b-hashtags-input">Brand hashtags <span class="muted small">(without #; letters, numbers and _; up to 10)</span></label>
                     <app-tag-editor inputId="pb-b-hashtags-input" prefix="#" [tags]="brand().hashtags" (tagsChange)="patchBrand({ hashtags: $event })" [rules]="hashtagRules"
                                     [error]="brandIssues().hashtags" placeholder="e.g. OMKR AnimStudio" />
+                    @if (brand().hashtags.length === 0 && inherited().hashtags.length > 0) {
+                      <span class="pb-inherit">Inherited from studio defaults: @for (h of inherited().hashtags; track h) { #{{ h }} }</span>
+                    }
                   </div>
                   <div class="pb-field" id="pb-b-tags">
                     <label for="pb-b-tags-input">Brand search tags <span class="muted small">(offered as extra tag ideas; up to 15)</span></label>
                     <app-tag-editor inputId="pb-b-tags-input" [tags]="brand().tags" (tagsChange)="patchBrand({ tags: $event })" [rules]="brandTagRules"
                                     [error]="brandIssues().tags" placeholder="e.g. omkr, omkr shiv" />
+                    @if (brand().tags.length === 0 && inherited().tags.length > 0) {
+                      <span class="pb-inherit">Inherited from studio defaults: {{ inherited().tags.join(', ') }}</span>
+                    }
                   </div>
                 </details>
 
@@ -567,6 +646,7 @@
                               </div>
                               <label class="pb-check"><input type="checkbox" [checked]="bulkChoice().descriptionFooter" (change)="setBulk('descriptionFooter', checked($event))" /> <span><b>Description footer</b> <em>{{ footer().text ? footer().bytes + ' bytes' : 'empty (clears it)' }}</em></span></label>
                               <label class="pb-check"><input type="checkbox" [checked]="bulkChoice().firstComment" (change)="setBulk('firstComment', checked($event))" /> <span><b>First comment</b> <em>{{ commentLength() ? commentLength() + ' characters' : 'empty (clears it)' }}</em></span></label>
+                              <label class="pb-check"><input type="checkbox" [checked]="bulkChoice().branding" (change)="setBulk('branding', checked($event))" /> <span><b>AI branding</b> <em>tagline, links, credits, hashtags, tags - blanks inherit the studio defaults; each channel keeps its own name and link</em></span></label>
                               @if (bulkSourceProblem(); as p) { <p class="pb-err">{{ p }} Fix it above first.</p> }
                             </fieldset>
 

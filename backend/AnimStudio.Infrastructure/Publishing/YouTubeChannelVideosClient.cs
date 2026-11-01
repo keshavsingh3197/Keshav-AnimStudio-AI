@@ -179,7 +179,13 @@ public sealed partial class YouTubeChannelVideosClient : IDisposable
         return FirstItem(doc.RootElement) is { } item ? DescribeFull(item) : null;
     }
 
-    /// <summary>The token owner's playlists (up to 200), for the checkup's playlist picker.</summary>
+    /// <summary>
+    /// The most playlists listed for the picker. Each page of 50 costs one quota unit, so even a
+    /// channel this size is 40 units - and the picker searches them, so the length doesn't matter there.
+    /// </summary>
+    public const int MaxPlaylistsListed = 2000;
+
+    /// <summary>The token owner's playlists (up to <see cref="MaxPlaylistsListed"/>), for the checkup's playlist picker.</summary>
     public async Task<IReadOnlyList<YouTubePlaylist>> ListPlaylistsAsync(string accessToken, CancellationToken ct)
     {
         var list = new List<YouTubePlaylist>();
@@ -202,8 +208,32 @@ public sealed partial class YouTubeChannelVideosClient : IDisposable
                 }
             }
             page = ReadString(doc.RootElement, "nextPageToken");
-        } while (page is not null && list.Count < 200);
+        } while (page is not null && list.Count < MaxPlaylistsListed);
         return list;
+    }
+
+    /// <summary>
+    /// Which of <paramref name="playlistIds"/> belong to <paramref name="channelId"/>, read by id
+    /// (one unit per 50) rather than by listing every playlist the channel has.
+    /// </summary>
+    public async Task<IReadOnlySet<string>> OwnedPlaylistIdsAsync(
+        string accessToken, string channelId, IReadOnlyCollection<string> playlistIds, CancellationToken ct)
+    {
+        var owned = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var chunk in playlistIds.Where(id => PlaylistIdPattern().IsMatch(id)).Distinct(StringComparer.Ordinal).Chunk(50))
+        {
+            using var doc = await SendAsync(HttpMethod.Get,
+                $"playlists?part=snippet&maxResults=50&id={Uri.EscapeDataString(string.Join(',', chunk))}",
+                null, accessToken, "playlists.list", ct).ConfigureAwait(false);
+            if (!doc.RootElement.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array) continue;
+            foreach (var p in items.EnumerateArray())
+            {
+                if (ReadString(p, "id") is { } id && p.TryGetProperty("snippet", out var sn)
+                    && string.Equals(ReadString(sn, "channelId"), channelId, StringComparison.Ordinal))
+                    owned.Add(id);
+            }
+        }
+        return owned;
     }
 
     /// <summary>The ids of up to <paramref name="max"/> videos in a playlist, in its order.</summary>
