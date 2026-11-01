@@ -1,6 +1,7 @@
 using AnimStudio.Application.Abstractions.Persistence;
 using AnimStudio.Domain.Ai;
 using KeshavSingh.Mongo.NoSql;
+using MongoDB.Bson;
 using MongoDB.Driver;
 
 namespace AnimStudio.Infrastructure.Persistence;
@@ -87,12 +88,20 @@ public sealed class MongoAiCredentialRepository(MongoDbService mongo) : IAiCrede
             .SortBy(c => c.ProviderId)
             .ToListAsync(ct).ConfigureAwait(false);
 
-    public Task UpsertAsync(AiCredential credential, CancellationToken ct) =>
-        Collection.ReplaceOneAsync(
+    public Task UpsertAsync(AiCredential credential, CancellationToken ct)
+    {
+        // The id generator registered in MongoMappingRegistrar only runs on InsertOne. An
+        // upsert serializes the document as-is, and an empty string is not a valid ObjectId,
+        // so the first key ever saved for a provider would fail without this.
+        if (string.IsNullOrEmpty(credential.Id))
+            credential.Id = ObjectId.GenerateNewId().ToString();
+
+        return Collection.ReplaceOneAsync(
             c => c.ProviderId == credential.ProviderId,
             credential,
             new ReplaceOptions { IsUpsert = true },
             ct);
+    }
 
     public async Task<bool> DeleteAsync(string providerId, CancellationToken ct)
     {
